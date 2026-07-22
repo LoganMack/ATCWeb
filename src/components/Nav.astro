@@ -23,12 +23,12 @@ const links = [
       ))}
     </nav>
 
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2 sm:gap-3">
       <a
         href={discordUrl}
         target="_blank"
         rel="noopener noreferrer"
-        class="rounded-full bg-white/5 px-4 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-white/20"
+        class="rounded-full bg-white/5 px-3 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10 transition hover:bg-white/10 hover:ring-white/20 sm:px-4"
       >
         Discord
       </a>
@@ -36,10 +36,73 @@ const links = [
         href={redbubbleUrl}
         target="_blank"
         rel="noopener noreferrer"
-        class="rounded-full bg-brand-pink px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
+        class="rounded-full bg-brand-primary px-3 py-2 text-sm font-semibold text-white transition hover:brightness-110 sm:px-4"
       >
         Merch
       </a>
+
+      <button
+        type="button"
+        id="mobile-nav-toggle"
+        aria-expanded="false"
+        aria-controls="mobile-nav"
+        aria-label="Toggle navigation menu"
+        class="flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-white/15 transition hover:bg-white/10 sm:hidden"
+      >
+        <svg id="icon-open" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="h-5 w-5">
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+        <svg id="icon-close" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="hidden h-5 w-5">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
     </div>
   </div>
+
+  <nav
+    id="mobile-nav"
+    class="hidden flex-col border-t border-white/10 bg-brand-ink px-6 py-4 font-display text-lg uppercase tracking-widest sm:hidden"
+  >
+    {links.map((link) => (
+      <a href={link.href} class="border-b border-white/5 py-3 text-white/80 transition last:border-none hover:text-white">
+        {link.label}
+      </a>
+    ))}
+  </nav>
 </header>
+
+<script>
+  function initMobileNav() {
+    const toggle = document.getElementById('mobile-nav-toggle');
+    const panel = document.getElementById('mobile-nav');
+    const iconOpen = document.getElementById('icon-open');
+    const iconClose = document.getElementById('icon-close');
+    if (!toggle || !panel || !iconOpen || !iconClose) return;
+
+    function setOpen(open: boolean) {
+      panel!.classList.toggle('hidden', !open);
+      panel!.classList.toggle('flex', open);
+      iconOpen!.classList.toggle('hidden', open);
+      iconClose!.classList.toggle('hidden', !open);
+      toggle!.setAttribute('aria-expanded', String(open));
+    }
+
+    toggle.addEventListener('click', () => {
+      setOpen(panel!.classList.contains('hidden'));
+    });
+
+    // Collapse the menu whenever a link inside it is used to navigate.
+    panel.querySelectorAll('a').forEach((a) => {
+      a.addEventListener('click', () => setOpen(false));
+    });
+
+    // Reset to closed on every page load (covers back/forward + view
+    // transitions landing on a page with the menu previously left open).
+    setOpen(false);
+  }
+
+  document.addEventListener('astro:page-load', initMobileNav);
+</script>

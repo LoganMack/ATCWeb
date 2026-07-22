@@ -33,6 +33,16 @@ body {
   @apply bg-brand-ink text-white font-body antialiased;
 }
 
+/* Teko renders italicized everywhere it's used, per style direction — this
+   covers both headings (which get font-display via the rule below) and any
+   element with the `font-display` utility class applied directly (nav
+   links, stat numbers, card titles, etc). Plain CSS, not @apply, so there's
+   no risk of the circular-dependency issue a literal `.font-display`
+   selector caused earlier when combined with `@apply font-display`. */
+h1, h2, h3, h4, .font-display {
+  font-style: italic;
+}
+
 h1, h2, h3, h4 {
   @apply font-display tracking-wide;
 }

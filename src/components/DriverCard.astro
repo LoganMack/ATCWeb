@@ -8,9 +8,11 @@ interface Props {
 
 const { driver, index = 0 } = Astro.props;
 
+// Alpha = blue, Gamma = pink, Delta = gold — matches the site-wide
+// primary/secondary/tertiary color hierarchy (see tailwind.config.mjs).
 const classColor: Record<string, string> = {
-  Alpha: 'text-brand-pink border-brand-pink/40',
-  Gamma: 'text-brand-blue border-brand-blue/40',
+  Alpha: 'text-brand-blue border-brand-blue/40',
+  Gamma: 'text-brand-pink border-brand-pink/40',
   Delta: 'text-brand-gold border-brand-gold/40',
 };
 
