@@ -17,15 +17,23 @@
   "observability": {
     "enabled": true
   },
-  // These three are plain public URLs (not secrets), declared here so
-  // `wrangler deploy` doesn't wipe them from the Worker's config on every
-  // deploy. PUBLIC_SUPABASE_ANON_KEY is intentionally left out of git —
-  // keep that one set via the Cloudflare dashboard's Environment Variables
-  // instead (Settings -> Environment variables), which is what actually
-  // feeds `npm run build`.
+  // Found the real bug: once a "vars" block exists here at all, Wrangler
+  // treats it as the *complete* set of runtime vars for the Worker and
+  // silently drops anything set only in the dashboard that isn't also
+  // listed here — that's what was actually eating PUBLIC_SUPABASE_ANON_KEY
+  // on every deploy (confirmed by it vanishing from the "Your Worker has
+  // access to the following bindings" list in the deploy log), regardless
+  // of whether it was typed as Secret or Text on the dashboard side.
+  //
+  // All four of these are safe to commit: three are just public URLs, and
+  // a Supabase *anon* key is specifically designed to be public/client-side
+  // — it's not a secret, it's meant to sit in the shipped JS bundle, and
+  // access is controlled by the Row Level Security policies in
+  // supabase/migrations/0001_init.sql, not by keeping this value hidden.
   "vars": {
     "PUBLIC_DISCORD_URL": "https://discord.com/invite/TXa3nnUYzJ",
     "PUBLIC_REDBUBBLE_URL": "https://www.redbubble.com/people/Bot14/shop?asc=u",
-    "PUBLIC_SUPABASE_URL": "https://hqatqfftlmqmjtusyfhz.supabase.co"
+    "PUBLIC_SUPABASE_URL": "https://hqatqfftlmqmjtusyfhz.supabase.co",
+    "PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxYXRxZmZ0bG1xbWp0dXN5Zmh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDE3NTAsImV4cCI6MjEwMDMxNzc1MH0.os87u33v-ufzEgBerqmdbCA8TMddnu0jtzqRwlXwg3s"
   }
 }

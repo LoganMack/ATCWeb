@@ -19,18 +19,18 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
 
    (`seed_teams.sql` and `seed_drivers.sql` are generated from the roster spreadsheet — see below.)
 
-3. **Copy `.env.example` to `.env`** and fill in your Supabase project's URL and anon key (Supabase dashboard → Settings → API), plus the Discord/Redbubble links (already filled in with the real ones).
+3. **Copy `.env.example` to `.env`** — already filled in with real values, nothing to look up.
 
 4. **Run locally**
    ```
    npm run dev
    ```
 
-5. **Deploy**: connect this repo in the Cloudflare dashboard under Workers & Pages → Create application → Pages tab → Import an existing Git repository (build command `npm run build`, output directory `dist`). Add the same `.env` variables under the project's Settings → Environment variables. Every `git push` to your main branch redeploys automatically.
+5. **Deploy**: connect this repo in the Cloudflare dashboard under Workers & Pages → Create application → Pages tab → Import an existing Git repository (build command `npm run build`, output directory `dist`). Every `git push` to your main branch redeploys automatically. You don't need to add environment variables in the dashboard for this project — `wrangler.jsonc` already declares all four of them (see below) and is the single source of truth.
 
-   Cloudflare's Git-connected builds now deploy via `wrangler deploy` rather than the older Pages-specific bundler, so `wrangler.jsonc` at the repo root (already included) is required — it tells Wrangler where the built worker (`dist/_worker.js/index.js`) and static assets (`dist/`) are. Bump `compatibility_date` in that file occasionally (any date is fine as long as it's in the past). Two things baked into this repo that fix errors Wrangler otherwise throws on deploy:
+   Cloudflare's Git-connected builds now deploy via `wrangler deploy` rather than the older Pages-specific bundler, so `wrangler.jsonc` at the repo root (already included) is required — it tells Wrangler where the built worker (`dist/_worker.js/index.js`) and static assets (`dist/`) are. Bump `compatibility_date` in that file occasionally (any date is fine as long as it's in the past). A few things baked into this repo that fix errors Wrangler otherwise throws on deploy:
    - `public/.assetsignore` (copied into `dist/` on every build) tells Wrangler not to upload the `_worker.js` server bundle as a public static asset — it's still used as the Worker's entry point via `main`, just excluded from the public asset manifest.
-   - `wrangler.jsonc`'s `vars` block pins the three public URL values so `wrangler deploy` doesn't strip them from the Worker's config on every deploy. `PUBLIC_SUPABASE_ANON_KEY` is deliberately left out of this file — keep that one set via the Cloudflare dashboard's Environment Variables only, since that's what actually feeds the `npm run build` step.
+   - `wrangler.jsonc`'s `vars` block declares all four `PUBLIC_*` values, including the Supabase anon key. This isn't a security shortcut: **once a `vars` block exists in `wrangler.jsonc` at all, Wrangler treats it as the complete set of runtime vars for the Worker and silently deletes anything set only in the Cloudflare dashboard that isn't also listed here** — that's what ate `PUBLIC_SUPABASE_ANON_KEY` on every deploy in earlier testing, regardless of whether it was typed as a Secret or plain Text on the dashboard side. Declaring it here instead of relying on the dashboard is what actually fixes it. This is safe specifically because a Supabase *anon* key is designed to be public and ship in client-side JS — it's not a secret, and access is controlled by the RLS policies in `supabase/migrations/0001_init.sql`, not by hiding this value. Don't put a genuinely sensitive key (a Supabase *service role* key, for example) in this file the same way.
    - If Wrangler ever warns about a Worker name mismatch, update `wrangler.jsonc`'s `"name"` field to match whatever your Cloudflare dashboard project is actually named.
 
 ## Re-importing the roster later
