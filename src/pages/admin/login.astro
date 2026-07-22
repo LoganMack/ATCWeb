@@ -56,7 +56,7 @@ if (Astro.request.method === 'POST') {
       <p class="mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
     )}
 
-    <form method="POST" class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
+    <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Email</span>
         <input

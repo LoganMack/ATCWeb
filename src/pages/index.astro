@@ -4,9 +4,10 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
 import { getNewsPosts, resolveSupabaseEnv } from '../lib/supabase';
+import { resolveSiteLinks } from '../lib/links';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const discordUrl = import.meta.env.PUBLIC_DISCORD_URL;
+const { discordUrl } = resolveSiteLinks(Astro.locals);
 
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 try {

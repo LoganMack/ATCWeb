@@ -61,7 +61,7 @@ try {
           </p>
           <p class="text-sm text-white/50">{profile.iracing_name ? `iRacing: ${profile.iracing_name}` : profile.id}</p>
         </div>
-        <form method="POST" class="flex items-center gap-2">
+        <form method="POST" data-astro-reload class="flex items-center gap-2">
           <input type="hidden" name="profile_id" value={profile.id} />
           <select
             name="role"

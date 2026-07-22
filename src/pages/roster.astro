@@ -71,7 +71,14 @@ const statuses = ['Active', 'Inactive', 'All'];
       off on narrower viewports (car/starts/seasons at lg, status at md,
       team name at sm) rather than shrinking everything down to unreadable.
     -->
-    <div class="reveal mt-8 overflow-x-auto rounded-2xl border border-white/10" style="transition-delay: 160ms">
+    <!--
+      Deliberately NOT using the .reveal scroll-in animation here — with a
+      roster this long, the table starts at or below the fold on most
+      screens, and IntersectionObserver (threshold 0.15) never fires until
+      it's scrolled into view. That made the whole table look like it
+      wasn't loading. It should just be visible immediately.
+    -->
+    <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
       <table class="w-full border-collapse">
         <thead>
           <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">

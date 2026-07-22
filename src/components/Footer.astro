@@ -1,6 +1,7 @@
 ---
-const discordUrl = import.meta.env.PUBLIC_DISCORD_URL;
-const redbubbleUrl = import.meta.env.PUBLIC_REDBUBBLE_URL;
+import { resolveSiteLinks } from '../lib/links';
+
+const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 const year = new Date().getFullYear();
 ---
 

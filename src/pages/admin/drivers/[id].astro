@@ -110,7 +110,7 @@ const d: Partial<DriverRecord> = driver ?? {
     <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
-  <form method="POST" class="reveal mt-8 grid max-w-2xl gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
+  <form method="POST" data-astro-reload class="reveal mt-8 grid max-w-2xl gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
     <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
       <span class="text-white/70">Name</span>
       <input
@@ -256,7 +256,7 @@ const d: Partial<DriverRecord> = driver ?? {
   </form>
 
   {!isNew && (
-    <form method="POST" class="reveal mt-6 max-w-2xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
+    <form method="POST" data-astro-reload class="reveal mt-6 max-w-2xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
       <input type="hidden" name="intent" value="delete" />
       <button
         type="submit"
