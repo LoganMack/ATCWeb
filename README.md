@@ -28,7 +28,10 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
 
 5. **Deploy**: connect this repo in the Cloudflare dashboard under Workers & Pages → Create application → Pages tab → Import an existing Git repository (build command `npm run build`, output directory `dist`). Add the same `.env` variables under the project's Settings → Environment variables. Every `git push` to your main branch redeploys automatically.
 
-   Cloudflare's Git-connected builds now deploy via `wrangler deploy` rather than the older Pages-specific bundler, so `wrangler.jsonc` at the repo root (already included) is required — it tells Wrangler where the built worker (`dist/_worker.js/index.js`) and static assets (`dist/`) are. Bump `compatibility_date` in that file occasionally (any date is fine as long as it's in the past).
+   Cloudflare's Git-connected builds now deploy via `wrangler deploy` rather than the older Pages-specific bundler, so `wrangler.jsonc` at the repo root (already included) is required — it tells Wrangler where the built worker (`dist/_worker.js/index.js`) and static assets (`dist/`) are. Bump `compatibility_date` in that file occasionally (any date is fine as long as it's in the past). Two things baked into this repo that fix errors Wrangler otherwise throws on deploy:
+   - `public/.assetsignore` (copied into `dist/` on every build) tells Wrangler not to upload the `_worker.js` server bundle as a public static asset — it's still used as the Worker's entry point via `main`, just excluded from the public asset manifest.
+   - `wrangler.jsonc`'s `vars` block pins the three public URL values so `wrangler deploy` doesn't strip them from the Worker's config on every deploy. `PUBLIC_SUPABASE_ANON_KEY` is deliberately left out of this file — keep that one set via the Cloudflare dashboard's Environment Variables only, since that's what actually feeds the `npm run build` step.
+   - If Wrangler ever warns about a Worker name mismatch, update `wrangler.jsonc`'s `"name"` field to match whatever your Cloudflare dashboard project is actually named.
 
 ## Re-importing the roster later
 

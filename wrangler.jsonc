@@ -1,10 +1,12 @@
 {
-  // Cloudflare now deploys Git-connected projects via `wrangler deploy`
-  // rather than the old Pages-specific bundler, so it needs this file to
-  // know where the built worker + static assets are. Without it, the
-  // deploy step fails with "Missing entry-point to Worker script or to
-  // assets directory" even though `astro build` itself succeeded.
-  "name": "atc-web",
+  // Cloudflare deploys Git-connected projects via `wrangler deploy` rather
+  // than the old Pages-specific bundler, so it needs this file to know
+  // where the built worker + static assets are.
+  //
+  // "name" must match the Worker name Cloudflare's CI expects for this
+  // project (shown in its "Failed to match Worker name" warning if wrong —
+  // check your Cloudflare dashboard project name if you renamed it).
+  "name": "alphatouringchallenge-web",
   "main": "./dist/_worker.js/index.js",
   "compatibility_date": "2026-07-22",
   "compatibility_flags": ["nodejs_compat"],
@@ -14,5 +16,16 @@
   },
   "observability": {
     "enabled": true
+  },
+  // These three are plain public URLs (not secrets), declared here so
+  // `wrangler deploy` doesn't wipe them from the Worker's config on every
+  // deploy. PUBLIC_SUPABASE_ANON_KEY is intentionally left out of git —
+  // keep that one set via the Cloudflare dashboard's Environment Variables
+  // instead (Settings -> Environment variables), which is what actually
+  // feeds `npm run build`.
+  "vars": {
+    "PUBLIC_DISCORD_URL": "https://discord.com/invite/TXa3nnUYzJ",
+    "PUBLIC_REDBUBBLE_URL": "https://www.redbubble.com/people/Bot14/shop?asc=u",
+    "PUBLIC_SUPABASE_URL": "https://hqatqfftlmqmjtusyfhz.supabase.co"
   }
 }
