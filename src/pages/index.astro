@@ -3,14 +3,16 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
-import { getNewsPosts, getDrivers } from '../lib/supabase';
+import { getNewsPosts, getDrivers, resolveSupabaseEnv } from '../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let driverCount = 0;
 try {
   [latestNews, driverCount] = await Promise.all([
-    getNewsPosts(3),
-    getDrivers().then((d) => d.length),
+    getNewsPosts(supabaseEnv, 3),
+    getDrivers(supabaseEnv).then((d) => d.length),
   ]);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the

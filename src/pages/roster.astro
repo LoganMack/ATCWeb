@@ -3,12 +3,14 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import DriverCard from '../components/DriverCard.astro';
-import { getDrivers } from '../lib/supabase';
+import { getDrivers, resolveSupabaseEnv } from '../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
 let loadError = false;
 try {
-  drivers = await getDrivers();
+  drivers = await getDrivers(supabaseEnv);
 } catch (err) {
   console.error('Failed to load drivers:', err);
   loadError = true;

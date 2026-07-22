@@ -3,12 +3,14 @@ export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
 import NewsCard from '../../components/NewsCard.astro';
-import { getNewsPosts } from '../../lib/supabase';
+import { getNewsPosts, resolveSupabaseEnv } from '../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let posts: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let loadError = false;
 try {
-  posts = await getNewsPosts();
+  posts = await getNewsPosts(supabaseEnv);
 } catch (err) {
   console.error('Failed to load news posts:', err);
   loadError = true;
