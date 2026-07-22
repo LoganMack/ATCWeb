@@ -20,6 +20,21 @@ const { title, description = 'Alpha Touring Challenge — an online touring car 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content={description} />
     <title>{title} · Alpha Touring Challenge</title>
+
+    <!--
+      Fonts: Teko (display/headlines) + Roboto (body), loaded from Google
+      Fonts. This needs no npm package and no local font files, so it works
+      as soon as this deploys — see the licensing note in the README for why
+      Teko stands in for Cuatra for now. If you'd rather self-host for
+      privacy/perf reasons later, swap this for Fontsource packages.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Teko:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
     <ViewTransitions />
   </head>
   <body>

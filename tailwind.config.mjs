@@ -1,14 +1,11 @@
 /**
- * PLACEHOLDER PALETTE — approximated by eye from the ATC17/18 logos shown in
- * chat (not extracted from the actual files, since those weren't available
- * as attachments yet). Swap these four hex values once the real files/hex
- * codes are provided; nothing else in the codebase needs to change.
+ * Official ATC brand colors (confirmed hex values).
  */
 const brand = {
-  pink: '#E8225C',   // logo's magenta/pink sweep
-  blue: '#3457E0',   // logo's blue sweep
-  gold: '#F2B531',   // logo's gold accent arrow
-  ink: '#0B0B0E',    // near-black background
+  pink: '#F5426E',
+  blue: '#4369F5',
+  gold: '#F5C642',
+  ink: '#0B0B0E',    // near-black background — not an official brand color, just this site's dark canvas
 };
 
 /** @type {import('tailwindcss').Config} */
@@ -20,11 +17,12 @@ export default {
         brand,
       },
       fontFamily: {
-        // `display` is for headlines/titles/numbers — historically Cuatra,
-        // falling back to Teko/Russo One (both open-source, similar
-        // condensed-technical feel) until Cuatra's license + files are
-        // confirmed and self-hosted.
-        display: ['Cuatra', 'Teko', 'Russo One', 'system-ui', 'sans-serif'],
+        // `display` is for headlines/titles/numbers. Using Teko (open-source,
+        // condensed/technical, same family of feel as Cuatra/Bison/Russo One)
+        // as the primary choice for now — see the licensing note in
+        // src/layouts/Layout.astro and the README for why. Prepend 'Cuatra'
+        // here (and self-host its files) if you secure a commercial license.
+        display: ['Teko', 'Russo One', 'system-ui', 'sans-serif'],
         // `body` is regular text — Roboto per your existing brand.
         body: ['Roboto', 'system-ui', 'sans-serif'],
       },
