@@ -7,6 +7,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "deploy": "astro build && wrangler deploy",
     "generate-seed": "python3 supabase/seed/generate_seed.py"
   },
   "dependencies": {
@@ -14,5 +15,8 @@
     "@astrojs/cloudflare": "^11.1.0",
     "@astrojs/tailwind": "^5.1.3",
     "tailwindcss": "^3.4.14"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
   }
 }

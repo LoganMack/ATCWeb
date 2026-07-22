@@ -26,7 +26,9 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
    npm run dev
    ```
 
-5. **Deploy**: connect this repo to Cloudflare Pages (build command `npm run build`, output directory `dist`, framework preset "Astro"). Add the same `.env` variables in the Cloudflare Pages project's environment variables. Every `git push` to your main branch redeploys automatically.
+5. **Deploy**: connect this repo in the Cloudflare dashboard under Workers & Pages → Create application → Pages tab → Import an existing Git repository (build command `npm run build`, output directory `dist`). Add the same `.env` variables under the project's Settings → Environment variables. Every `git push` to your main branch redeploys automatically.
+
+   Cloudflare's Git-connected builds now deploy via `wrangler deploy` rather than the older Pages-specific bundler, so `wrangler.jsonc` at the repo root (already included) is required — it tells Wrangler where the built worker (`dist/_worker.js/index.js`) and static assets (`dist/`) are. Bump `compatibility_date` in that file occasionally (any date is fine as long as it's in the past).
 
 ## Re-importing the roster later
 

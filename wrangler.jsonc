@@ -1,0 +1,18 @@
+{
+  // Cloudflare now deploys Git-connected projects via `wrangler deploy`
+  // rather than the old Pages-specific bundler, so it needs this file to
+  // know where the built worker + static assets are. Without it, the
+  // deploy step fails with "Missing entry-point to Worker script or to
+  // assets directory" even though `astro build` itself succeeded.
+  "name": "atc-web",
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2026-07-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
