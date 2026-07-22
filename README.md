@@ -40,8 +40,8 @@ This regenerates `supabase/seed/seed_teams.sql` and `seed_drivers.sql`. Re-run t
 
 - **Colors** (`tailwind.config.mjs`): resolved — using the confirmed brand hex codes (`#F5426E` pink, `#4369F5` blue, `#F5C642` gold).
 - **Fonts**: Teko (display) + Roboto (body) load from Google Fonts, no files needed. Teko is standing in for Cuatra pending a confirmed commercial license — see the note in `src/styles/global.css` for why a "free for personal use" font license likely doesn't cover a public organization's branding even if it's non-profit (that's not legal advice — check the license text that came with your Cuatra files, or ask the foundry, if you want certainty).
-- **Logo** (`src/components/Nav.astro`): a plain "ATC" text wordmark stands in for the real season logo. The logo images shared in chat haven't come through as attachable files yet (they render inline in the conversation but don't land in this session's filesystem) — try attaching the file directly via the paperclip/upload control rather than pasting it inline, the same way the roster spreadsheet came through.
-- **News cover image**: the test post has no image for the same reason as the logo above — add a `cover_image_url` to that row once you have image hosting sorted.
+- **Logo**: resolved — the real ATC18 logo (`public/logos/atc18-white.png` for the dark nav, `atc18-black.png` also included for any light-background use) pulled from `E:\ATC Media\Logos` on your machine.
+- **News cover image**: the test post still has no image — it was pasted into chat but never landed as a usable file the same way the logos initially didn't. If you'd rather it not block on that, connect a folder with the image and I can pull it the same way I got the logos; otherwise add a `cover_image_url` to that row once you have image hosting sorted.
 
 ## A note on this project's first build
 
