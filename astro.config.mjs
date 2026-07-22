@@ -10,7 +10,10 @@ import cloudflare from '@astrojs/cloudflare';
 export default defineConfig({
   output: 'hybrid',
   adapter: cloudflare({
-    imageService: 'compile',
+    // We only use plain <img> tags (no Astro <Image />/<Picture /> anywhere),
+    // so there's no image pipeline to run — 'passthrough' avoids pulling in
+    // Sharp, which isn't compatible with Cloudflare's edge runtime anyway.
+    imageService: 'passthrough',
   }),
   integrations: [
     tailwind({
