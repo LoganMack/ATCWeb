@@ -38,8 +38,15 @@ if (Astro.request.method === 'POST') {
       });
       return Astro.redirect(next, 302);
     } catch (err) {
+      // Surfacing Supabase's actual error text (not a generic "incorrect
+      // password") on purpose — it's the fastest way to tell "wrong
+      // password" apart from "this account's email was never confirmed"
+      // (a common gotcha when a user is created via the Supabase dashboard
+      // without checking "Auto Confirm User") apart from a genuine
+      // config/network problem. Once real accounts are in normal use, this
+      // is worth swapping back to a generic message.
       console.error('Login failed:', err);
-      error = 'Incorrect email or password.';
+      error = err instanceof Error ? err.message : 'Login failed for an unknown reason.';
     }
   }
 }
