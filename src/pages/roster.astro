@@ -19,7 +19,10 @@ try {
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
 const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
-const statuses = ['All', 'Active', 'Veteran', 'New', 'Inactive'];
+// "Active" here is a quick filter, not the literal driver_statuses.name —
+// it covers Active, Veteran, and New (i.e. everyone who isn't Inactive).
+// See ACTIVE_STATUSES in the filter script below.
+const statuses = ['Active', 'Inactive', 'All'];
 ---
 
 <Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
@@ -54,7 +57,7 @@ const statuses = ['All', 'Active', 'Veteran', 'New', 'Inactive'];
             type="button"
             data-filter-value={s}
             class="rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-            data-active={s === 'All' ? 'true' : 'false'}
+            data-active={s === 'Active' ? 'true' : 'false'}
           >
             {s}
           </button>
@@ -91,18 +94,29 @@ const statuses = ['All', 'Active', 'Veteran', 'New', 'Inactive'];
   </section>
 
   <script>
+    // "Active" is a quick filter, not a literal driver_statuses.name match —
+    // it covers Active, Veteran, and New (everyone who isn't Inactive).
+    const ACTIVE_STATUSES = ['Active', 'Veteran', 'New'];
+
     function initRosterFilters() {
       const body = document.getElementById('roster-body');
       if (!body) return;
 
-      const state: Record<string, string> = { class: 'All', status: 'All' };
+      // Defaults match what's marked data-active="true" in the markup:
+      // all classes, active-ish drivers only.
+      const state: Record<string, string> = { class: 'All', status: 'Active' };
+
+      function statusMatches(rowStatus: string | undefined) {
+        if (state.status === 'All') return true;
+        if (state.status === 'Active') return ACTIVE_STATUSES.includes(rowStatus ?? '');
+        return rowStatus === state.status;
+      }
 
       function applyFilters() {
         const rows = body!.querySelectorAll<HTMLElement>('[data-class]');
         rows.forEach((row) => {
           const classMatch = state.class === 'All' || row.dataset.class === state.class;
-          const statusMatch = state.status === 'All' || row.dataset.status === state.status;
-          row.style.display = classMatch && statusMatch ? '' : 'none';
+          row.style.display = classMatch && statusMatches(row.dataset.status) ? '' : 'none';
         });
       }
 
@@ -118,6 +132,10 @@ const statuses = ['All', 'Active', 'Veteran', 'New', 'Inactive'];
           });
         });
       });
+
+      // Apply the default filter state immediately — otherwise every row is
+      // visible (no inline style yet) until the visitor clicks a button.
+      applyFilters();
     }
 
     document.addEventListener('astro:page-load', initRosterFilters);

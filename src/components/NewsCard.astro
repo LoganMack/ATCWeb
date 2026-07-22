@@ -18,11 +18,13 @@ const date = new Date(post.published_at).toLocaleDateString('en-US', {
 
 <a
   href={`/news/${post.slug}`}
-  class={`reveal group block overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] transition hover:border-white/20 hover:bg-white/[0.06] ${featured ? 'sm:col-span-2' : ''}`}
+  class={`reveal group block overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] transition hover:border-white/20 hover:bg-white/[0.06] ${
+    featured ? 'sm:flex sm:flex-row' : ''
+  }`}
   style={`transition-delay: ${Math.min(index, 12) * 40}ms`}
 >
   {post.cover_image_url && (
-    <div class="aspect-[16/9] w-full overflow-hidden">
+    <div class={featured ? 'aspect-[16/9] w-full overflow-hidden sm:aspect-auto sm:w-1/2' : 'aspect-[16/9] w-full overflow-hidden'}>
       <img
         src={post.cover_image_url}
         alt={post.title}
@@ -31,9 +33,9 @@ const date = new Date(post.published_at).toLocaleDateString('en-US', {
       />
     </div>
   )}
-  <div class="p-6">
+  <div class={featured ? 'flex flex-col justify-center p-6 sm:w-1/2 sm:p-8' : 'p-6'}>
     <p class="text-xs uppercase tracking-widest text-white/50">{date} · {post.author_name}</p>
-    <h3 class="mt-2 font-display text-2xl">{post.title}</h3>
+    <h3 class={featured ? 'mt-2 font-display text-3xl sm:text-4xl' : 'mt-2 font-display text-2xl'}>{post.title}</h3>
     {post.excerpt && <p class="mt-2 text-white/70">{post.excerpt}</p>}
   </div>
 </a>

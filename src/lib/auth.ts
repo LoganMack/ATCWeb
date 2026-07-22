@@ -166,11 +166,24 @@ export async function setProfileRole(
 
 export const ACCESS_TOKEN_COOKIE = 'atc_at';
 export const REFRESH_TOKEN_COOKIE = 'atc_rt';
+export const AUTH_COOKIE_PATH = '/';
 
-/** Cookie options shared by both auth cookies — HttpOnly so client JS can never read the tokens. */
-export const AUTH_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'lax' as const,
-  path: '/',
-};
+/**
+ * Cookie options shared by both auth cookies — HttpOnly so client JS can
+ * never read the tokens. `secure` is derived from the request's own URL
+ * rather than hardcoded `true`: a `Secure` cookie is silently dropped by the
+ * browser on a plain-http origin (e.g. `astro dev` on http://localhost),
+ * which otherwise looks exactly like "login silently fails" — the sign-in
+ * call succeeds and the redirect to /admin fires, but the cookie never
+ * actually gets stored, so the middleware immediately bounces you back to
+ * /admin/login with nothing on screen to explain why. On the real Cloudflare
+ * deployment (always https) this still resolves to `true` as before.
+ */
+export function authCookieOptions(url: URL) {
+  return {
+    httpOnly: true,
+    secure: url.protocol === 'https:',
+    sameSite: 'lax' as const,
+    path: AUTH_COOKIE_PATH,
+  };
+}

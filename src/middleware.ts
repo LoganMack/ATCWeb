@@ -14,7 +14,7 @@ import { resolveSupabaseEnv } from './lib/supabase';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
-  AUTH_COOKIE_OPTIONS,
+  authCookieOptions,
   getUser,
   getProfile,
   refreshSession,
@@ -43,12 +43,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
         const refreshed = await refreshSession(env, refreshToken);
         activeAccessToken = refreshed.accessToken;
         user = refreshed.user;
+        const cookieOptions = authCookieOptions(context.url);
         context.cookies.set(ACCESS_TOKEN_COOKIE, refreshed.accessToken, {
-          ...AUTH_COOKIE_OPTIONS,
+          ...cookieOptions,
           maxAge: 60 * 60, // access tokens are short-lived; this just bounds the cookie's own lifetime
         });
         context.cookies.set(REFRESH_TOKEN_COOKIE, refreshed.refreshToken, {
-          ...AUTH_COOKIE_OPTIONS,
+          ...cookieOptions,
           maxAge: 60 * 60 * 24 * 30,
         });
       }

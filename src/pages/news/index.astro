@@ -33,8 +33,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <p class="mt-8 text-white/60">No news posted yet.</p>
     )}
 
-    <div class="mt-10 grid gap-6 sm:grid-cols-2">
-      {posts.map((post, i) => <NewsCard post={post} index={i} featured={i === 0} />)}
-    </div>
+    {posts.length > 0 && (
+      <div class="mt-10">
+        <NewsCard post={posts[0]} index={0} featured />
+        {posts.length > 1 && (
+          <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} />)}
+          </div>
+        )}
+      </div>
+    )}
   </section>
 </Layout>

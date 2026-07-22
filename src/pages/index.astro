@@ -3,17 +3,14 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
-import { getNewsPosts, getDrivers, resolveSupabaseEnv } from '../lib/supabase';
+import { getNewsPosts, resolveSupabaseEnv } from '../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const discordUrl = import.meta.env.PUBLIC_DISCORD_URL;
 
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
-let driverCount = 0;
 try {
-  [latestNews, driverCount] = await Promise.all([
-    getNewsPosts(supabaseEnv, 3),
-    getDrivers(supabaseEnv).then((d) => d.length),
-  ]);
+  latestNews = await getNewsPosts(supabaseEnv, 3);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
@@ -44,17 +41,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <div class="mx-auto max-w-4xl text-center">
       <p class="reveal font-display text-sm uppercase tracking-[0.3em] text-brand-tertiary">Season 18 · Now Racing</p>
       <h1 class="reveal mt-4 font-display text-5xl leading-[0.95] sm:text-7xl" style="transition-delay: 80ms">
-        Alpha Touring<br /><span class="text-brand-primary">Challenge</span>
+        Alpha Touring<br />Challenge
       </h1>
       <p class="reveal mt-6 text-lg text-white/70" style="transition-delay: 160ms">
-        A close-wheel-to-wheel online touring car series — {driverCount > 0 ? `${driverCount} drivers` : 'drivers'} across three classes, one grid.
+        The premier North American touring car series on iRacing.
       </p>
       <div class="reveal mt-10 flex flex-wrap items-center justify-center gap-4" style="transition-delay: 240ms">
-        <a href="/roster" class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110">
-          View the Roster
-        </a>
-        <a href="/news" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/15 transition hover:bg-white/10">
-          Latest News
+        <a
+          href={discordUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="rounded-full bg-brand-primary px-8 py-3 font-semibold transition hover:brightness-110"
+        >
+          Sign Up
         </a>
       </div>
     </div>
@@ -66,9 +65,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <h2 class="font-display text-3xl">Latest News</h2>
         <a href="/news" class="text-sm text-white/60 hover:text-white">View all &rarr;</a>
       </div>
-      <div class="grid gap-6 sm:grid-cols-2">
-        {latestNews.map((post, i) => <NewsCard post={post} index={i} featured={i === 0} />)}
-      </div>
+      <NewsCard post={latestNews[0]} index={0} featured />
+      {latestNews.length > 1 && (
+        <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {latestNews.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} />)}
+        </div>
+      )}
     </section>
   )}
 </Layout>

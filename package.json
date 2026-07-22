@@ -18,14 +18,5 @@
   },
   "devDependencies": {
     "wrangler": "^4"
-  },
-  "allowScripts": {
-    "esbuild@0.17.19": true,
-    "esbuild@0.21.5": true,
-    "esbuild@0.28.1": true,
-    "sharp@0.33.5": true,
-    "sharp@0.34.5": true,
-    "workerd@1.20250718.0": true,
-    "workerd@1.20260721.1": true
   }
 }

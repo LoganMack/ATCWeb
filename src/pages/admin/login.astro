@@ -7,7 +7,7 @@ import {
   signInWithPassword,
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
-  AUTH_COOKIE_OPTIONS,
+  authCookieOptions,
 } from '../../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -30,9 +30,10 @@ if (Astro.request.method === 'POST') {
   } else {
     try {
       const session = await signInWithPassword(supabaseEnv, email, password);
-      Astro.cookies.set(ACCESS_TOKEN_COOKIE, session.accessToken, { ...AUTH_COOKIE_OPTIONS, maxAge: 60 * 60 });
+      const cookieOptions = authCookieOptions(Astro.url);
+      Astro.cookies.set(ACCESS_TOKEN_COOKIE, session.accessToken, { ...cookieOptions, maxAge: 60 * 60 });
       Astro.cookies.set(REFRESH_TOKEN_COOKIE, session.refreshToken, {
-        ...AUTH_COOKIE_OPTIONS,
+        ...cookieOptions,
         maxAge: 60 * 60 * 24 * 30,
       });
       return Astro.redirect(next, 302);
