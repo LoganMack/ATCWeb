@@ -1,0 +1,188 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  getNewsPostByIdAdmin,
+  updateNewsPost,
+  deleteNewsPost,
+} from '../../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const { id } = Astro.params;
+
+if (!id) return Astro.redirect('/admin/news', 302);
+
+let error: string | null = null;
+
+// Fetch first so a draft->published transition below can compare against
+// the post's *current* stored status.
+let post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
+if (!post) return Astro.redirect('/admin/news', 302);
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? 'save');
+
+  if (intent === 'delete') {
+    try {
+      await deleteNewsPost(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/news', 302);
+    } catch (err) {
+      console.error('Failed to delete news post:', err);
+      error = 'Failed to delete the post.';
+    }
+  } else {
+    const title = String(form.get('title') ?? '').trim();
+    const slug = String(form.get('slug') ?? '').trim();
+    const excerpt = String(form.get('excerpt') ?? '').trim();
+    const body = String(form.get('body') ?? '').trim();
+    const author_name = String(form.get('author_name') ?? '').trim();
+    const cover_image_url = String(form.get('cover_image_url') ?? '').trim();
+    const status = form.get('status') === 'published' ? 'published' : 'draft';
+    // If this save is what flips the post from draft to published, bump
+    // published_at to now — otherwise it'd keep showing the original
+    // creation timestamp (and sort order) from when it was still a draft.
+    const justPublished = post.status === 'draft' && status === 'published';
+
+    if (!title || !slug || !body) {
+      error = 'Title, slug, and body are required.';
+    } else {
+      try {
+        await updateNewsPost(supabaseEnv, accessToken, id, {
+          title,
+          slug,
+          excerpt: excerpt || null,
+          body,
+          author_name,
+          cover_image_url: cover_image_url || null,
+          status,
+          ...(justPublished ? { published_at: new Date().toISOString() } : {}),
+        });
+        post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
+        if (!post) return Astro.redirect('/admin/news', 302);
+      } catch (err) {
+        console.error('Failed to update news post:', err);
+        error = err instanceof Error ? err.message : 'Failed to save changes.';
+      }
+    }
+  }
+}
+---
+
+<AdminLayout title="Edit Post">
+  <div class="reveal flex items-center justify-between">
+    <h1 class="font-display text-4xl">Edit Post</h1>
+    <a href={`/news/${post.slug}`} target="_blank" class="text-sm text-white/50 hover:text-white">View on site &rarr;</a>
+  </div>
+
+  {error && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  <form method="POST" class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Title</span>
+      <input
+        type="text"
+        name="title"
+        required
+        value={post.title}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">URL slug</span>
+      <input
+        type="text"
+        name="slug"
+        required
+        value={post.slug}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Excerpt</span>
+      <textarea
+        name="excerpt"
+        rows="2"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >{post.excerpt}</textarea>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Body</span>
+      <textarea
+        name="body"
+        required
+        rows="10"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >{post.body}</textarea>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Cover image URL</span>
+      <input
+        type="text"
+        name="cover_image_url"
+        value={post.cover_image_url ?? ''}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Author</span>
+      <input
+        type="text"
+        name="author_name"
+        value={post.author_name}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <fieldset class="flex flex-col gap-1.5 text-sm">
+      <legend class="text-white/70">Status</legend>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="status" value="draft" checked={post.status === 'draft'} />
+        <span>Draft</span>
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="status" value="published" checked={post.status === 'published'} />
+        <span>Published</span>
+      </label>
+    </fieldset>
+
+    <div class="mt-2 flex gap-3">
+      <button
+        type="submit"
+        name="intent"
+        value="save"
+        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+      >
+        Save Changes
+      </button>
+      <a href="/admin/news" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+  <form method="POST" class="reveal mt-6 max-w-2xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
+    <input type="hidden" name="intent" value="delete" />
+    <button
+      type="submit"
+      data-confirm="Delete this post? This can't be undone."
+      class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+    >
+      Delete Post
+    </button>
+  </form>
+</AdminLayout>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+  });
+</script>

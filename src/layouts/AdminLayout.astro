@@ -1,0 +1,54 @@
+---
+// Shared chrome for every /admin/* page — sub-nav + who's-logged-in + log
+// out. Route protection itself happens in src/middleware.ts (redirects to
+// /admin/login before this layout ever renders), so this component can
+// safely assume Astro.locals.session is a signed-in admin.
+import Layout from './Layout.astro';
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+const session = Astro.locals.session;
+
+const links = [
+  { href: '/admin', label: 'Dashboard' },
+  { href: '/admin/news', label: 'News' },
+  { href: '/admin/drivers', label: 'Drivers' },
+  { href: '/admin/teams', label: 'Teams' },
+  { href: '/admin/users', label: 'Users' },
+];
+---
+
+<Layout title={`Admin · ${title}`}>
+  <div class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+    <div class="reveal flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
+      <nav class="flex flex-wrap gap-1">
+        {links.map((link) => (
+          <a
+            href={link.href}
+            class="rounded-full px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/5 hover:text-white"
+          >
+            {link.label}
+          </a>
+        ))}
+      </nav>
+      <div class="flex items-center gap-3 text-sm text-white/60">
+        <span>{session?.profile?.display_name || session?.user.email}</span>
+        <form method="POST" action="/api/logout">
+          <button
+            type="submit"
+            class="rounded-full bg-white/5 px-4 py-2 font-semibold text-white/90 ring-1 ring-white/10 transition hover:bg-white/10"
+          >
+            Log Out
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="mt-10">
+      <slot />
+    </div>
+  </div>
+</Layout>

@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import DriverCard from '../components/DriverCard.astro';
+import DriverRow from '../components/DriverRow.astro';
 import { getDrivers, resolveSupabaseEnv } from '../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -62,31 +62,47 @@ const statuses = ['All', 'Active', 'Veteran', 'New', 'Inactive'];
       </div>
     </div>
 
-    <div id="roster-grid" class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {drivers.map((driver, i) => (
-        <div
-          data-class={driver.driver_classes?.name ?? ''}
-          data-status={driver.driver_statuses?.name ?? ''}
-        >
-          <DriverCard driver={driver} index={i} />
-        </div>
-      ))}
+    <!--
+      A dense table instead of a card grid — maximizes how many drivers are
+      visible on screen at once. Less critical columns progressively drop
+      off on narrower viewports (car/starts/seasons at lg, status at md,
+      team name at sm) rather than shrinking everything down to unreadable.
+    -->
+    <div class="reveal mt-8 overflow-x-auto rounded-2xl border border-white/10" style="transition-delay: 160ms">
+      <table class="w-full border-collapse">
+        <thead>
+          <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+            <th class="py-3 pl-4 pr-2 font-medium">#</th>
+            <th class="py-3 pr-3 font-medium">Driver</th>
+            <th class="hidden py-3 pr-3 font-medium sm:table-cell">Team</th>
+            <th class="py-3 pr-3 font-medium">Class</th>
+            <th class="hidden py-3 pr-3 font-medium md:table-cell">Status</th>
+            <th class="hidden py-3 pr-3 font-medium lg:table-cell">Car</th>
+            <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Starts</th>
+            <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Seasons</th>
+            <th class="py-3 pr-4 text-center font-medium">Penalty Pts</th>
+          </tr>
+        </thead>
+        <tbody id="roster-body">
+          {drivers.map((driver, i) => <DriverRow driver={driver} index={i} />)}
+        </tbody>
+      </table>
     </div>
   </section>
 
   <script>
     function initRosterFilters() {
-      const grid = document.getElementById('roster-grid');
-      if (!grid) return;
+      const body = document.getElementById('roster-body');
+      if (!body) return;
 
       const state: Record<string, string> = { class: 'All', status: 'All' };
 
       function applyFilters() {
-        const cards = grid!.querySelectorAll<HTMLElement>('[data-class]');
-        cards.forEach((card) => {
-          const classMatch = state.class === 'All' || card.dataset.class === state.class;
-          const statusMatch = state.status === 'All' || card.dataset.status === state.status;
-          card.style.display = classMatch && statusMatch ? '' : 'none';
+        const rows = body!.querySelectorAll<HTMLElement>('[data-class]');
+        rows.forEach((row) => {
+          const classMatch = state.class === 'All' || row.dataset.class === state.class;
+          const statusMatch = state.status === 'All' || row.dataset.status === state.status;
+          row.style.display = classMatch && statusMatch ? '' : 'none';
         });
       }
 

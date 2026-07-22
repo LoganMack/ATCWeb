@@ -1,0 +1,87 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import { getTeams, resolveSupabaseEnv } from '../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let teams: Awaited<ReturnType<typeof getTeams>> = [];
+let loadError = false;
+try {
+  teams = await getTeams(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load teams:', err);
+  loadError = true;
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+const activeTeams = teams.filter((t) => t.status === 'active');
+const inactiveTeams = teams.filter((t) => t.status === 'inactive');
+---
+
+<Layout title="Teams" description="Active and past teams competing in Alpha Touring Challenge.">
+  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Teams</h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
+      {activeTeams.length} active, {inactiveTeams.length} inactive.
+    </p>
+
+    {loadError && (
+      <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load teams right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && (
+      <>
+        <h2 class="reveal mt-12 font-display text-2xl uppercase tracking-widest text-white/50" style="transition-delay: 100ms">
+          Active
+        </h2>
+        <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {activeTeams.map((team, i) => (
+            <div
+              class="reveal flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]"
+              style={`transition-delay: ${Math.min(i, 12) * 40}ms`}
+            >
+              {team.logo_url ? (
+                <img src={team.logo_url} alt={team.name} class="h-12 w-12 flex-none rounded object-contain" />
+              ) : (
+                <div
+                  class="h-12 w-12 flex-none rounded"
+                  style={`background-color: ${team.primary_color_hex ?? '#ffffff1a'}`}
+                >
+                </div>
+              )}
+              <p class="font-semibold">{team.name}</p>
+            </div>
+          ))}
+        </div>
+
+        {inactiveTeams.length > 0 && (
+          <>
+            <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50" style="transition-delay: 100ms">
+              Inactive
+            </h2>
+            <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {inactiveTeams.map((team, i) => (
+                <div
+                  class="reveal flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-5 opacity-70"
+                  style={`transition-delay: ${Math.min(i, 12) * 40}ms`}
+                >
+                  {team.logo_url ? (
+                    <img src={team.logo_url} alt={team.name} class="h-12 w-12 flex-none rounded object-contain grayscale" />
+                  ) : (
+                    <div class="h-12 w-12 flex-none rounded bg-white/10"></div>
+                  )}
+                  <p class="font-semibold text-white/70">{team.name}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </>
+    )}
+  </section>
+</Layout>

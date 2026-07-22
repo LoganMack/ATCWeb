@@ -24,6 +24,19 @@ type CloudflareRuntimeEnv = {
 
 type Runtime = import('@astrojs/cloudflare').Runtime<CloudflareRuntimeEnv>;
 
+// Populated by src/middleware.ts on every on-demand request from the
+// atc_at/atc_rt cookies. `profile` is null for a valid auth session that
+// somehow has no matching `profiles` row (shouldn't happen given the
+// on_auth_user_created trigger in 0002_auth_admin.sql, but keep it nullable
+// rather than assume).
+type Session = {
+  user: { id: string; email: string | null };
+  profile: import('./lib/auth').Profile | null;
+  accessToken: string;
+} | null;
+
 declare namespace App {
-  interface Locals extends Runtime {}
+  interface Locals extends Runtime {
+    session: Session;
+  }
 }

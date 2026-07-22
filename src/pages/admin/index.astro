@@ -1,0 +1,47 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getDrivers, getTeams, getAllNewsPosts } from '../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+let driverCount = 0;
+let teamCount = 0;
+let draftCount = 0;
+try {
+  const [drivers, teams, news] = await Promise.all([
+    getDrivers(supabaseEnv),
+    getTeams(supabaseEnv),
+    getAllNewsPosts(supabaseEnv, accessToken),
+  ]);
+  driverCount = drivers.length;
+  teamCount = teams.length;
+  draftCount = news.filter((p) => p.status === 'draft').length;
+} catch (err) {
+  console.error('Failed to load admin dashboard counts:', err);
+}
+
+const cards = [
+  { href: '/admin/news', label: 'News', detail: `${draftCount} draft${draftCount === 1 ? '' : 's'}` },
+  { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} on the roster` },
+  { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
+  { href: '/admin/users', label: 'Users', detail: 'Assign admin access' },
+];
+---
+
+<AdminLayout title="Dashboard">
+  <h1 class="reveal font-display text-4xl">Dashboard</h1>
+  <div class="reveal mt-8 grid gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
+    {cards.map((card) => (
+      <a
+        href={card.href}
+        class="group rounded-2xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+      >
+        <h2 class="font-display text-2xl">{card.label}</h2>
+        <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+      </a>
+    ))}
+  </div>
+</AdminLayout>

@@ -1,0 +1,280 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  getDriverById,
+  createDriver,
+  updateDriver,
+  deleteDriver,
+  getDriverStatuses,
+  getDriverClasses,
+  getTeams,
+  type DriverRecord,
+} from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const { id } = Astro.params;
+const isNew = id === 'new';
+
+let error: string | null = null;
+
+function readForm(form: FormData): Partial<DriverRecord> {
+  const carNumberRaw = String(form.get('car_number') ?? '').trim();
+  return {
+    name: String(form.get('name') ?? '').trim(),
+    car_number: carNumberRaw ? Number(carNumberRaw) : null,
+    status_id: Number(form.get('status_id')),
+    class_id: Number(form.get('class_id')),
+    team_id: String(form.get('team_id') ?? '') || null,
+    is_rookie: form.get('is_rookie') === 'on',
+    car: String(form.get('car') ?? '').trim() || null,
+    appearances: Number(form.get('appearances') ?? 0),
+    starts: Number(form.get('starts') ?? 0),
+    seasons_count: Number(form.get('seasons_count') ?? 0),
+    penalty_points: Number(form.get('penalty_points') ?? 0),
+    penalty_points_max: Number(form.get('penalty_points_max') ?? 11),
+    photo_url: String(form.get('photo_url') ?? '').trim() || null,
+    bio: String(form.get('bio') ?? '').trim() || null,
+  };
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? 'save');
+
+  if (intent === 'delete' && !isNew && id) {
+    try {
+      await deleteDriver(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/drivers', 302);
+    } catch (err) {
+      console.error('Failed to delete driver:', err);
+      error = 'Failed to delete this driver.';
+    }
+  } else {
+    const data = readForm(form);
+    if (!data.name) {
+      error = 'Name is required.';
+    } else {
+      try {
+        if (isNew) {
+          const created = await createDriver(supabaseEnv, accessToken, data);
+          return Astro.redirect(`/admin/drivers/${created.id}`, 302);
+        } else if (id) {
+          await updateDriver(supabaseEnv, accessToken, id, data);
+        }
+      } catch (err) {
+        console.error('Failed to save driver:', err);
+        error = err instanceof Error ? err.message : 'Failed to save changes.';
+      }
+    }
+  }
+}
+
+const [statuses, classes, teams] = await Promise.all([
+  getDriverStatuses(supabaseEnv),
+  getDriverClasses(supabaseEnv),
+  getTeams(supabaseEnv),
+]);
+
+let driver: DriverRecord | null = null;
+if (!isNew && id) {
+  driver = await getDriverById(supabaseEnv, id);
+  if (!driver) return Astro.redirect('/admin/drivers', 302);
+}
+
+const d: Partial<DriverRecord> = driver ?? {
+  name: '',
+  car_number: null,
+  status_id: statuses[0]?.id,
+  class_id: classes[0]?.id,
+  team_id: null,
+  is_rookie: false,
+  car: '',
+  appearances: 0,
+  starts: 0,
+  seasons_count: 0,
+  penalty_points: 0,
+  penalty_points_max: 11,
+  photo_url: '',
+  bio: '',
+};
+---
+
+<AdminLayout title={isNew ? 'New Driver' : d.name || 'Edit Driver'}>
+  <h1 class="reveal font-display text-4xl">{isNew ? 'New Driver' : d.name}</h1>
+
+  {error && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  <form method="POST" class="reveal mt-8 grid max-w-2xl gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
+    <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
+      <span class="text-white/70">Name</span>
+      <input
+        type="text"
+        name="name"
+        required
+        value={d.name}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Car number</span>
+      <input
+        type="number"
+        name="car_number"
+        value={d.car_number ?? ''}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Car</span>
+      <input
+        type="text"
+        name="car"
+        value={d.car ?? ''}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Status</span>
+      <select
+        name="status_id"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        {statuses.map((s) => (
+          <option value={s.id} selected={s.id === d.status_id}>{s.name}</option>
+        ))}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Class</span>
+      <select
+        name="class_id"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        {classes.map((c) => (
+          <option value={c.id} selected={c.id === d.class_id}>{c.name}</option>
+        ))}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
+      <span class="text-white/70">Team</span>
+      <select
+        name="team_id"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        <option value="">No team</option>
+        {teams.map((t) => (
+          <option value={t.id} selected={t.id === d.team_id}>{t.name}</option>
+        ))}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Appearances</span>
+      <input
+        type="number"
+        name="appearances"
+        value={d.appearances}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Starts</span>
+      <input
+        type="number"
+        name="starts"
+        value={d.starts}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Seasons</span>
+      <input
+        type="number"
+        name="seasons_count"
+        value={d.seasons_count}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Penalty points</span>
+      <input
+        type="number"
+        name="penalty_points"
+        value={d.penalty_points}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Penalty points max</span>
+      <input
+        type="number"
+        name="penalty_points_max"
+        value={d.penalty_points_max}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
+      <span class="text-white/70">Photo URL</span>
+      <input
+        type="text"
+        name="photo_url"
+        value={d.photo_url ?? ''}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
+      <span class="text-white/70">Bio</span>
+      <textarea
+        name="bio"
+        rows="4"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >{d.bio}</textarea>
+    </label>
+    <label class="flex items-center gap-2 text-sm sm:col-span-2">
+      <input type="checkbox" name="is_rookie" checked={d.is_rookie} />
+      <span class="text-white/70">Rookie</span>
+    </label>
+
+    <div class="mt-2 flex gap-3 sm:col-span-2">
+      <button
+        type="submit"
+        name="intent"
+        value="save"
+        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+      >
+        {isNew ? 'Create Driver' : 'Save Changes'}
+      </button>
+      <a href="/admin/drivers" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+  {!isNew && (
+    <form method="POST" class="reveal mt-6 max-w-2xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
+      <input type="hidden" name="intent" value="delete" />
+      <button
+        type="submit"
+        data-confirm="Delete this driver? This can't be undone."
+        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+      >
+        Delete Driver
+      </button>
+    </form>
+  )}
+</AdminLayout>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+  });
+</script>

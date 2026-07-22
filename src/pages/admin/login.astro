@@ -1,0 +1,87 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import { resolveSupabaseEnv } from '../../lib/supabase';
+import {
+  signInWithPassword,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  AUTH_COOKIE_OPTIONS,
+} from '../../lib/auth';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const next = Astro.url.searchParams.get('next') || '/admin';
+
+// Already signed in as an admin? Skip straight past the form.
+if (Astro.locals.session?.profile?.role === 'admin') {
+  return Astro.redirect(next, 302);
+}
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const email = String(form.get('email') ?? '').trim();
+  const password = String(form.get('password') ?? '');
+
+  if (!email || !password) {
+    error = 'Enter both an email and a password.';
+  } else {
+    try {
+      const session = await signInWithPassword(supabaseEnv, email, password);
+      Astro.cookies.set(ACCESS_TOKEN_COOKIE, session.accessToken, { ...AUTH_COOKIE_OPTIONS, maxAge: 60 * 60 });
+      Astro.cookies.set(REFRESH_TOKEN_COOKIE, session.refreshToken, {
+        ...AUTH_COOKIE_OPTIONS,
+        maxAge: 60 * 60 * 24 * 30,
+      });
+      return Astro.redirect(next, 302);
+    } catch (err) {
+      console.error('Login failed:', err);
+      error = 'Incorrect email or password.';
+    }
+  }
+}
+---
+
+<Layout title="Admin Login">
+  <section class="mx-auto flex max-w-sm flex-col px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-4xl">Admin Login</h1>
+    <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
+      Interim login while ATC's "Login with iRacing" integration waits on iRacing re-opening OAuth client registration.
+    </p>
+
+    {error && (
+      <p class="mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    )}
+
+    <form method="POST" class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Email</span>
+        <input
+          type="email"
+          name="email"
+          required
+          autocomplete="email"
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Password</span>
+        <input
+          type="password"
+          name="password"
+          required
+          autocomplete="current-password"
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <button
+        type="submit"
+        class="mt-2 rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+      >
+        Sign In
+      </button>
+    </form>
+  </section>
+</Layout>

@@ -1,0 +1,132 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, createNewsPost } from '../../../lib/supabase';
+import { slugify } from '../../../lib/slug';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const title = String(form.get('title') ?? '').trim();
+  const excerpt = String(form.get('excerpt') ?? '').trim();
+  const body = String(form.get('body') ?? '').trim();
+  const author_name = String(form.get('author_name') ?? '').trim() || displayName;
+  const cover_image_url = String(form.get('cover_image_url') ?? '').trim();
+  const status = form.get('status') === 'published' ? 'published' : 'draft';
+  let slug = String(form.get('slug') ?? '').trim();
+  if (!slug) slug = slugify(title);
+
+  if (!title || !body) {
+    error = 'Title and body are required.';
+  } else if (!slug) {
+    error = 'Could not generate a URL slug from that title — set one manually.';
+  } else {
+    try {
+      const post = await createNewsPost(supabaseEnv, accessToken, {
+        title,
+        slug,
+        excerpt: excerpt || null,
+        body,
+        author_name,
+        cover_image_url: cover_image_url || null,
+        status,
+        published_at: new Date().toISOString(),
+      });
+      return Astro.redirect(`/admin/news/${post.id}/edit`, 302);
+    } catch (err) {
+      console.error('Failed to create news post:', err);
+      error = err instanceof Error ? err.message : 'Failed to create the post.';
+    }
+  }
+}
+---
+
+<AdminLayout title="New Post">
+  <h1 class="reveal font-display text-4xl">New Post</h1>
+
+  {error && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  <form method="POST" class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Title</span>
+      <input
+        type="text"
+        name="title"
+        required
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">URL slug (optional — auto-generated from the title if left blank)</span>
+      <input
+        type="text"
+        name="slug"
+        placeholder="e.g. season-18-kicks-off"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Excerpt</span>
+      <textarea
+        name="excerpt"
+        rows="2"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      ></textarea>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Body</span>
+      <textarea
+        name="body"
+        required
+        rows="10"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      ></textarea>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Cover image URL</span>
+      <input
+        type="text"
+        name="cover_image_url"
+        placeholder="/images/news/your-image.jpg"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Author</span>
+      <input
+        type="text"
+        name="author_name"
+        value={displayName}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <fieldset class="flex flex-col gap-1.5 text-sm">
+      <legend class="text-white/70">Status</legend>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="status" value="draft" checked />
+        <span>Draft</span>
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="status" value="published" />
+        <span>Published</span>
+      </label>
+    </fieldset>
+
+    <div class="mt-2 flex gap-3">
+      <button type="submit" class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110">
+        Create Post
+      </button>
+      <a href="/admin/news" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+        Cancel
+      </a>
+    </div>
+  </form>
+</AdminLayout>

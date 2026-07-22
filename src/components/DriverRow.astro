@@ -1,0 +1,59 @@
+---
+import type { Driver } from '../lib/supabase';
+
+interface Props {
+  driver: Driver;
+  index?: number;
+}
+
+const { driver, index = 0 } = Astro.props;
+
+// Alpha = blue, Gamma = pink, Delta = gold — matches the site-wide
+// primary/secondary/tertiary color hierarchy (see tailwind.config.mjs).
+const classColor: Record<string, string> = {
+  Alpha: 'text-brand-blue border-brand-blue/40',
+  Gamma: 'text-brand-pink border-brand-pink/40',
+  Delta: 'text-brand-gold border-brand-gold/40',
+};
+
+const className = driver.driver_classes?.name ?? '';
+const statusName = driver.driver_statuses?.name ?? '';
+const badgeClasses = classColor[className] ?? 'text-white/70 border-white/20';
+---
+
+<tr
+  class="reveal border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+  style={`transition-delay: ${Math.min(index, 20) * 20}ms`}
+  data-class={className}
+  data-status={statusName}
+>
+  <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
+    {driver.car_number !== null ? `#${driver.car_number}` : '—'}
+  </td>
+  <td class="py-2.5 pr-3">
+    <div class="flex items-center gap-2">
+      {driver.teams?.logo_url && (
+        <img src={driver.teams.logo_url} alt="" class="h-5 w-5 flex-none rounded object-contain" />
+      )}
+      <span class="font-semibold">{driver.name}</span>
+      {driver.is_rookie && (
+        <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">
+          Rookie
+        </span>
+      )}
+    </div>
+  </td>
+  <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell">{driver.teams?.name ?? '—'}</td>
+  <td class="py-2.5 pr-3">
+    <span class={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${badgeClasses}`}>
+      {className}
+    </span>
+  </td>
+  <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell">{statusName}</td>
+  <td class="hidden py-2.5 pr-3 text-white/60 lg:table-cell">{driver.car ?? '—'}</td>
+  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">{driver.starts}</td>
+  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">{driver.seasons_count}</td>
+  <td class="py-2.5 pr-4 text-center font-semibold">
+    {driver.penalty_points}/{driver.penalty_points_max}
+  </td>
+</tr>

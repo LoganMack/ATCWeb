@@ -1,0 +1,57 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getTeams } from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let teams: Awaited<ReturnType<typeof getTeams>> = [];
+let loadError = false;
+try {
+  teams = await getTeams(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load teams for admin:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="Teams">
+  <div class="reveal flex items-center justify-between">
+    <h1 class="font-display text-4xl">Teams</h1>
+    <a href="/admin/teams/new" class="rounded-full bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      New Team
+    </a>
+  </div>
+
+  {loadError && (
+    <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load teams.
+    </p>
+  )}
+
+  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    {teams.map((team) => (
+      <a
+        href={`/admin/teams/${team.id}`}
+        class="flex items-center justify-between gap-4 px-6 py-3 transition hover:bg-white/[0.03]"
+      >
+        <div class="flex items-center gap-4">
+          {team.logo_url ? (
+            <img src={team.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
+          ) : (
+            <div class="h-8 w-8 rounded bg-white/10"></div>
+          )}
+          <p class="font-semibold">{team.name}</p>
+        </div>
+        <span
+          class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+            team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
+          }`}
+        >
+          {team.status}
+        </span>
+      </a>
+    ))}
+  </div>
+</AdminLayout>

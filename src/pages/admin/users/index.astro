@@ -1,0 +1,83 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/supabase';
+import { getAllProfiles, setProfileRole } from '../../../lib/auth';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const currentUserId = Astro.locals.session!.user.id;
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const profileId = String(form.get('profile_id') ?? '');
+  const role = form.get('role') === 'admin' ? 'admin' : 'driver';
+  if (profileId) {
+    try {
+      await setProfileRole(supabaseEnv, accessToken, profileId, role);
+    } catch (err) {
+      console.error('Failed to update role:', err);
+      error = 'Failed to update that user’s role.';
+    }
+  }
+}
+
+let profiles: Awaited<ReturnType<typeof getAllProfiles>> = [];
+let loadError = false;
+try {
+  profiles = await getAllProfiles(supabaseEnv, accessToken);
+} catch (err) {
+  console.error('Failed to load profiles:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="Users">
+  <h1 class="reveal font-display text-4xl">Users</h1>
+  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
+    Anyone who has signed in has an account here. Promote trusted people to admin so they can use these tools too —
+    this list is also where a future "Login with iRacing" identity would show up once that integration exists.
+  </p>
+
+  {error && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+  {loadError && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load users.
+    </p>
+  )}
+
+  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    {profiles.map((profile) => (
+      <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+        <div>
+          <p class="font-semibold">
+            {profile.display_name || `User ${profile.id.slice(0, 8)}`}
+            {profile.id === currentUserId && <span class="ml-2 text-xs text-white/40">(you)</span>}
+          </p>
+          <p class="text-sm text-white/50">{profile.iracing_name ? `iRacing: ${profile.iracing_name}` : profile.id}</p>
+        </div>
+        <form method="POST" class="flex items-center gap-2">
+          <input type="hidden" name="profile_id" value={profile.id} />
+          <select
+            name="role"
+            class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+          >
+            <option value="driver" selected={profile.role === 'driver'}>Driver</option>
+            <option value="admin" selected={profile.role === 'admin'}>Admin</option>
+          </select>
+          <button
+            type="submit"
+            class="rounded-full bg-white/5 px-4 py-1.5 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+          >
+            Update
+          </button>
+        </form>
+      </div>
+    ))}
+  </div>
+</AdminLayout>

@@ -1,0 +1,179 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  getTeamById,
+  createTeam,
+  updateTeam,
+  deleteTeam,
+  uploadToStorage,
+  type Team,
+} from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const { id } = Astro.params;
+const isNew = id === 'new';
+
+let error: string | null = null;
+
+function extFromFile(file: File): string {
+  const fromName = file.name.split('.').pop();
+  if (fromName && fromName.length <= 5) return fromName.toLowerCase();
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+  };
+  return map[file.type] ?? 'png';
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? 'save');
+
+  if (intent === 'delete' && !isNew && id) {
+    try {
+      await deleteTeam(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/teams', 302);
+    } catch (err) {
+      console.error('Failed to delete team:', err);
+      error = 'Failed to delete this team. Drivers still assigned to it may need reassigning first.';
+    }
+  } else {
+    const name = String(form.get('name') ?? '').trim();
+    const status = form.get('status') === 'inactive' ? 'inactive' : 'active';
+    const primary_color_hex = String(form.get('primary_color_hex') ?? '').trim() || null;
+    const logoFile = form.get('logo');
+
+    if (!name) {
+      error = 'Team name is required.';
+    } else {
+      try {
+        let teamId = isNew ? null : id!;
+        if (isNew) {
+          const created = await createTeam(supabaseEnv, accessToken, { name, status, primary_color_hex });
+          teamId = created.id;
+        } else {
+          await updateTeam(supabaseEnv, accessToken, teamId!, { name, status, primary_color_hex });
+        }
+
+        if (logoFile instanceof File && logoFile.size > 0) {
+          const path = `${teamId}-${Date.now()}.${extFromFile(logoFile)}`;
+          const logo_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, logoFile);
+          await updateTeam(supabaseEnv, accessToken, teamId!, { logo_url });
+        }
+
+        return Astro.redirect(`/admin/teams/${teamId}`, 302);
+      } catch (err) {
+        console.error('Failed to save team:', err);
+        error = err instanceof Error ? err.message : 'Failed to save changes.';
+      }
+    }
+  }
+}
+
+let team: Team | null = null;
+if (!isNew && id) {
+  team = await getTeamById(supabaseEnv, id);
+  if (!team) return Astro.redirect('/admin/teams', 302);
+}
+
+const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex: '', logo_url: null };
+---
+
+<AdminLayout title={isNew ? 'New Team' : t.name || 'Edit Team'}>
+  <h1 class="reveal font-display text-4xl">{isNew ? 'New Team' : t.name}</h1>
+
+  {error && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  <form method="POST" enctype="multipart/form-data" class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Team name</span>
+      <input
+        type="text"
+        name="name"
+        required
+        value={t.name}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <fieldset class="flex flex-col gap-1.5 text-sm">
+      <legend class="text-white/70">Status</legend>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="status" value="active" checked={t.status === 'active'} />
+        <span>Active</span>
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="status" value="inactive" checked={t.status === 'inactive'} />
+        <span>Inactive</span>
+      </label>
+    </fieldset>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Primary color (hex)</span>
+      <input
+        type="text"
+        name="primary_color_hex"
+        placeholder="#4369F5"
+        value={t.primary_color_hex ?? ''}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+
+    <div class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Logo</span>
+      {t.logo_url && (
+        <img src={t.logo_url} alt="" class="mb-2 h-16 w-16 rounded object-contain ring-1 ring-white/10" />
+      )}
+      <input
+        type="file"
+        name="logo"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-full file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+      />
+      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo.</span>
+    </div>
+
+    <div class="mt-2 flex gap-3">
+      <button
+        type="submit"
+        name="intent"
+        value="save"
+        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+      >
+        {isNew ? 'Create Team' : 'Save Changes'}
+      </button>
+      <a href="/admin/teams" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+  {!isNew && (
+    <form method="POST" class="reveal mt-6 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
+      <input type="hidden" name="intent" value="delete" />
+      <button
+        type="submit"
+        data-confirm="Delete this team? Drivers assigned to it will become unassigned. This can't be undone."
+        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+      >
+        Delete Team
+      </button>
+    </form>
+  )}
+</AdminLayout>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+  });
+</script>

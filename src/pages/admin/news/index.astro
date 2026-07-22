@@ -1,0 +1,57 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getAllNewsPosts } from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+let posts: Awaited<ReturnType<typeof getAllNewsPosts>> = [];
+let loadError = false;
+try {
+  posts = await getAllNewsPosts(supabaseEnv, accessToken);
+} catch (err) {
+  console.error('Failed to load news posts for admin:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="News">
+  <div class="reveal flex items-center justify-between">
+    <h1 class="font-display text-4xl">News</h1>
+    <a href="/admin/news/new" class="rounded-full bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      New Post
+    </a>
+  </div>
+
+  {loadError && (
+    <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load news posts.
+    </p>
+  )}
+
+  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    {posts.length === 0 && !loadError && (
+      <p class="p-6 text-sm text-white/60">No posts yet.</p>
+    )}
+    {posts.map((post) => (
+      <a
+        href={`/admin/news/${post.id}/edit`}
+        class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+      >
+        <div>
+          <p class="font-semibold">{post.title}</p>
+          <p class="text-sm text-white/50">{post.author_name} · {new Date(post.published_at).toLocaleDateString('en-US')}</p>
+        </div>
+        <span
+          class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+            post.status === 'published' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/60'
+          }`}
+        >
+          {post.status}
+        </span>
+      </a>
+    ))}
+  </div>
+</AdminLayout>
