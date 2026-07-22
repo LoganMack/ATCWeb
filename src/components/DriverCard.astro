@@ -1,0 +1,63 @@
+---
+import type { Driver } from '../lib/supabase';
+
+interface Props {
+  driver: Driver;
+  index?: number;
+}
+
+const { driver, index = 0 } = Astro.props;
+
+const classColor: Record<string, string> = {
+  Alpha: 'text-brand-pink border-brand-pink/40',
+  Gamma: 'text-brand-blue border-brand-blue/40',
+  Delta: 'text-brand-gold border-brand-gold/40',
+};
+
+const className = driver.driver_classes?.name ?? '';
+const statusName = driver.driver_statuses?.name ?? '';
+const badgeClasses = classColor[className] ?? 'text-white/70 border-white/20';
+---
+
+<article
+  class="reveal group rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]"
+  style={`transition-delay: ${Math.min(index, 12) * 40}ms`}
+>
+  <div class="flex items-start justify-between">
+    <div>
+      <p class="font-display text-3xl leading-none">
+        {driver.car_number !== null ? `#${driver.car_number}` : '—'}
+      </p>
+      <h3 class="mt-1 text-lg font-semibold">{driver.name}</h3>
+      {driver.teams?.name && <p class="text-sm text-white/50">{driver.teams.name}</p>}
+    </div>
+    <span class={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${badgeClasses}`}>
+      {className}
+    </span>
+  </div>
+
+  <dl class="mt-4 grid grid-cols-3 gap-2 text-center text-xs text-white/60">
+    <div>
+      <dt class="uppercase tracking-wide">Starts</dt>
+      <dd class="mt-1 text-base font-semibold text-white">{driver.starts}</dd>
+    </div>
+    <div>
+      <dt class="uppercase tracking-wide">Seasons</dt>
+      <dd class="mt-1 text-base font-semibold text-white">{driver.seasons_count}</dd>
+    </div>
+    <div>
+      <dt class="uppercase tracking-wide">Pts</dt>
+      <dd class="mt-1 text-base font-semibold text-white">
+        {driver.penalty_points}/{driver.penalty_points_max}
+      </dd>
+    </div>
+  </dl>
+
+  <div class="mt-4 flex items-center justify-between text-xs text-white/50">
+    <span>{driver.car ?? 'Car TBD'}</span>
+    <span class="flex items-center gap-1">
+      {driver.is_rookie && <span class="rounded-full bg-white/10 px-2 py-0.5">Rookie</span>}
+      <span>{statusName}</span>
+    </span>
+  </div>
+</article>

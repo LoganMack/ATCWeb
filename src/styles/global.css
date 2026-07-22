@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * FONT SETUP — placeholder state.
+ *
+ * Historically: Roboto for body text, Cuatra for logos/titles (Teko, Bison,
+ * Russo One used at other times). None of those files are in this repo yet
+ * because they weren't available as attachments when this project was
+ * scaffolded.
+ *
+ * To finish this once you have real font files:
+ *   1. Drop the .woff2 files in `public/fonts/`.
+ *   2. Uncomment + fill in the @font-face blocks below.
+ *   3. Nothing else changes — `font-display` and `font-body` in
+ *      tailwind.config.mjs already point at these family names, with
+ *      Teko/Russo One (both free, open-source, similar condensed-technical
+ *      style) and system fonts as fallbacks so the site still looks
+ *      intentional in the meantime.
+ *
+ * If Cuatra doesn't have a confirmed commercial-use license, Teko or Russo
+ * One (both on Google Fonts / Fontsource, free for commercial use) are
+ * close substitutes stylistically and can just become the primary choice
+ * instead of a fallback.
+ */
+
+/*
+@font-face {
+  font-family: 'Cuatra';
+  src: url('/fonts/Cuatra-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  src: url('/fonts/Roboto-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+*/
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-brand-ink text-white font-body antialiased;
+}
+
+h1, h2, h3, h4, .font-display {
+  @apply font-display tracking-wide;
+}
+
+/* Scroll-reveal utility — see src/scripts/reveal.ts. No animation library
+   dependency: IntersectionObserver + a CSS transition covers the staggered
+   fade/rise effect used across the site. */
+.reveal {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

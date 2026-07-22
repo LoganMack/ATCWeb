@@ -1,0 +1,38 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import NewsCard from '../../components/NewsCard.astro';
+import { getNewsPosts } from '../../lib/supabase';
+
+let posts: Awaited<ReturnType<typeof getNewsPosts>> = [];
+let loadError = false;
+try {
+  posts = await getNewsPosts();
+} catch (err) {
+  console.error('Failed to load news posts:', err);
+  loadError = true;
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="News" description="News and updates from Alpha Touring Challenge.">
+  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">News</h1>
+
+    {loadError && (
+      <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load news right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && posts.length === 0 && (
+      <p class="mt-8 text-white/60">No news posted yet.</p>
+    )}
+
+    <div class="mt-10 grid gap-6 sm:grid-cols-2">
+      {posts.map((post, i) => <NewsCard post={post} index={i} featured={i === 0} />)}
+    </div>
+  </section>
+</Layout>

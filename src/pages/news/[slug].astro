@@ -1,0 +1,49 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import { getNewsPostBySlug } from '../../lib/supabase';
+
+const { slug } = Astro.params;
+const post = slug ? await getNewsPostBySlug(slug) : null;
+
+if (!post) {
+  return Astro.redirect('/news', 307);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+const date = new Date(post.published_at).toLocaleDateString('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+// Simple paragraph splitting — no Markdown dependency for MVP1. If you need
+// bold/links/lists in post bodies later, add `marked` and swap this out.
+const paragraphs = post.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+---
+
+<Layout title={post.title} description={post.excerpt ?? undefined}>
+  <article class="mx-auto max-w-3xl px-6 pb-24 pt-28 sm:pt-36">
+    <a href="/news" class="text-sm text-white/50 hover:text-white">&larr; Back to News</a>
+
+    <h1 class="reveal mt-4 font-display text-4xl sm:text-5xl">{post.title}</h1>
+    <p class="reveal mt-4 text-sm uppercase tracking-widest text-white/50" style="transition-delay: 80ms">
+      {date} · {post.author_name}
+    </p>
+
+    {post.cover_image_url && (
+      <img
+        src={post.cover_image_url}
+        alt={post.title}
+        class="reveal mt-8 w-full rounded-2xl object-cover"
+        style="transition-delay: 120ms"
+      />
+    )}
+
+    <div class="reveal mt-8 text-lg text-white/80" style="transition-delay: 160ms">
+      {paragraphs.map((p) => <p class="mb-4 leading-relaxed">{p}</p>)}
+    </div>
+  </article>
+</Layout>

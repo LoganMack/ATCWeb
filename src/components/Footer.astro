@@ -1,0 +1,15 @@
+---
+const discordUrl = import.meta.env.PUBLIC_DISCORD_URL;
+const redbubbleUrl = import.meta.env.PUBLIC_REDBUBBLE_URL;
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-white/10 py-10">
+  <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 text-sm text-white/50 sm:flex-row sm:justify-between">
+    <p>&copy; {year} Alpha Touring Challenge.</p>
+    <div class="flex gap-6">
+      <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
+      <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
+    </div>
+  </div>
+</footer>

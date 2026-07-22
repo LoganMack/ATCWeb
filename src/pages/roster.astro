@@ -1,0 +1,107 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import DriverCard from '../components/DriverCard.astro';
+import { getDrivers } from '../lib/supabase';
+
+let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
+let loadError = false;
+try {
+  drivers = await getDrivers();
+} catch (err) {
+  console.error('Failed to load drivers:', err);
+  loadError = true;
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
+const statuses = ['All', 'Active', 'Veteran', 'New', 'Inactive'];
+---
+
+<Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
+  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Driver Roster</h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
+      {drivers.length} drivers currently on the books.
+    </p>
+
+    {loadError && (
+      <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load the roster right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    <div class="reveal mt-10 flex flex-wrap gap-6" style="transition-delay: 120ms">
+      <div class="flex flex-wrap gap-2" data-filter-group="class">
+        {classes.map((c) => (
+          <button
+            type="button"
+            data-filter-value={c}
+            class="rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+            data-active={c === 'All' ? 'true' : 'false'}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <div class="flex flex-wrap gap-2" data-filter-group="status">
+        {statuses.map((s) => (
+          <button
+            type="button"
+            data-filter-value={s}
+            class="rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+            data-active={s === 'All' ? 'true' : 'false'}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div id="roster-grid" class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {drivers.map((driver, i) => (
+        <div
+          data-class={driver.driver_classes?.name ?? ''}
+          data-status={driver.driver_statuses?.name ?? ''}
+        >
+          <DriverCard driver={driver} index={i} />
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <script>
+    function initRosterFilters() {
+      const grid = document.getElementById('roster-grid');
+      if (!grid) return;
+
+      const state: Record<string, string> = { class: 'All', status: 'All' };
+
+      function applyFilters() {
+        const cards = grid!.querySelectorAll<HTMLElement>('[data-class]');
+        cards.forEach((card) => {
+          const classMatch = state.class === 'All' || card.dataset.class === state.class;
+          const statusMatch = state.status === 'All' || card.dataset.status === state.status;
+          card.style.display = classMatch && statusMatch ? '' : 'none';
+        });
+      }
+
+      document.querySelectorAll<HTMLElement>('[data-filter-group]').forEach((group) => {
+        const key = group.dataset.filterGroup!;
+        group.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            state[key] = btn.dataset.filterValue!;
+            group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+              b.dataset.active = String(b === btn);
+            });
+            applyFilters();
+          });
+        });
+      });
+    }
+
+    document.addEventListener('astro:page-load', initRosterFilters);
+  </script>
+</Layout>
