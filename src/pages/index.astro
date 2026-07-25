@@ -3,15 +3,14 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
-import { getNewsPosts, resolveSupabaseEnv } from '../lib/supabase';
-import { resolveSiteLinks } from '../lib/links';
+import { resolveEnv } from '../lib/env';
+import type { NewsPost } from '../lib/db';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const { discordUrl } = resolveSiteLinks(Astro.locals);
+const { discordUrl } = resolveEnv(Astro.locals);
 
-let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
+let latestNews: NewsPost[] = [];
 try {
-  latestNews = await getNewsPosts(supabaseEnv, 3);
+  latestNews = await Astro.locals.db.news.listPublished(3);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.

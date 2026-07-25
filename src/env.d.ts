@@ -13,8 +13,8 @@ interface ImportMeta {
 
 // Cloudflare Worker runtime bindings — matches wrangler.jsonc's "vars".
 // Available at request time via Astro.locals.runtime.env on any
-// `prerender = false` page/endpoint. See src/lib/supabase.ts for why this
-// is the mechanism these values actually need to come from in production.
+// `prerender = false` page/endpoint. See src/lib/env.ts for why this is the
+// source these values actually need to come from in production.
 type CloudflareRuntimeEnv = {
   PUBLIC_SUPABASE_URL: string;
   PUBLIC_SUPABASE_ANON_KEY: string;
@@ -31,12 +31,27 @@ type Runtime = import('@astrojs/cloudflare').Runtime<CloudflareRuntimeEnv>;
 // rather than assume).
 type Session = {
   user: { id: string; email: string | null };
-  profile: import('./lib/auth').Profile | null;
+  profile: import('./lib/db/types').Profile | null;
   accessToken: string;
 } | null;
 
 declare namespace App {
   interface Locals extends Runtime {
     session: Session;
+    /**
+     * Per-request data access, built in src/middleware.ts and already bound
+     * to the resolved env plus the signed-in user's token (if any). Pages
+     * use this instead of constructing a client themselves — see
+     * src/lib/db/index.ts.
+     *
+     * TYPED AS ALWAYS-PRESENT, WHICH ASSUMES ON-DEMAND RENDERING. Middleware
+     * doesn't run for prerendered pages, so this is genuinely `undefined`
+     * on any page that omits `export const prerender = false`. Every route
+     * in src/pages currently sets it. If you add one that doesn't and it
+     * needs data, either mark it on-demand or fetch at build time with an
+     * explicitly-constructed client (`createDb(resolveEnv(...), null)`)
+     * rather than reaching for this.
+     */
+    db: import('./lib/db').Db;
   }
 }

@@ -2,15 +2,12 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsPosts } from '../../../lib/supabase';
+import type { NewsPostAdmin } from '../../../lib/db';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
-
-let posts: Awaited<ReturnType<typeof getAllNewsPosts>> = [];
+let posts: NewsPostAdmin[] = [];
 let loadError = false;
 try {
-  posts = await getAllNewsPosts(supabaseEnv, accessToken);
+  posts = await Astro.locals.db.news.listAll();
 } catch (err) {
   console.error('Failed to load news posts for admin:', err);
   loadError = true;
