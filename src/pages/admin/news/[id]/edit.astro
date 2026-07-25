@@ -63,6 +63,12 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
+
+// `post` was guarded non-null above, but the reassignment inside the POST
+// branch (the draft->published refetch) widens TS's control-flow view back to
+// `NewsPostAdmin | null` for the rest of the file. Re-assert it here so the
+// template below can read `post.*` without a null error on every field.
+if (!post) return Astro.redirect('/admin/news', 302);
 ---
 
 <AdminLayout title="Edit Post">
