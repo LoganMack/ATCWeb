@@ -94,8 +94,8 @@ create table curated_race_results (
   -- INTERNAL identity — the iRacing customer id of every driver in the session.
   -- SOFT join key (both bigint), NOT a foreign key: results contain everyone
   -- who raced (guests / non-members), so no parent table holds every value.
-  -- Attribution anchor is drivers.iracing_cust_id (added in 0005) — that maps a
-  -- result to a rostered driver for standings / penalty-point accrual.
+  -- Attribution anchor is drivers.iracing_cust_id (section 5 below) — that maps
+  -- a result to a rostered driver for standings / penalty-point accrual.
   -- (profiles.iracing_cust_id, from 0002, is the separate OAuth self-claim.)
   -- Never exposed to anon; the public `race_results` view below omits it.
   cust_id                   bigint not null,
@@ -244,5 +244,142 @@ create view race_results as
     created_at,
     updated_at
   from curated_race_results;
+
+-- ---------------------------------------------------------------------------
+-- 5. Driver / season iRacing linkage
+-- ---------------------------------------------------------------------------
+-- Ties the roster and the seasons table to iRacing identity, and backfills both
+-- links from whatever data is already present. Kept in this file (rather than
+-- as separate follow-up migrations) so a fresh database gets the full data
+-- model in one step. Every statement here is idempotent and safe to replay
+-- against a database that already has the columns.
+--
+--   * drivers.iracing_cust_id  — admin-asserted "this roster driver races as
+--     this iRacing id". The ATTRIBUTION anchor: it soft-joins to
+--     curated_race_results.cust_id (both bigint, deliberately NOT a FK, since
+--     results contain guests / non-members that no parent table holds). This is
+--     what makes standings, driver-history pages, and penalty-point accrual to
+--     drivers.penalty_points work for the whole roster, not just drivers with a
+--     website login. (profiles.iracing_cust_id, from 0002, is the separate
+--     user-proven OAuth self-claim; matching the two is how a login gets
+--     confidently linked to a roster row.)
+--   * seasons.iracing_season_id — iRacing's own season id, the canonical key
+--     the retrieval server uses to link a race to a season row deterministically
+--     (and to create the season row when it first sees a new iRacing season).
+--
+-- The two backfills below are one-way and re-runnable: they only ever fill
+-- NULLs, so a manual mapping made in the admin UI is never overwritten.
+--   * drivers: joins race results on a case-insensitive, trimmed display name;
+--     if a name maps to several cust_ids, the most frequent one wins.
+--   * curated_races: matches season_label against seasons.name normalized to
+--     [a-z0-9] (so "ATC 18" matches "ATC18"), falling back to the numeric part
+--     of the label against seasons.number.
+--
+-- ANON COLUMN GRANT FOOTGUN: `drivers` is public-read via 0001's "public read"
+-- RLS, and Postgres cannot revoke a single column from a role holding
+-- table-level SELECT. So anon's table-level grant is dropped and re-granted
+-- per column, minus iracing_cust_id. Any NEW column added to `drivers` later is
+-- therefore invisible to anon until it is added to the list below — fail-safe,
+-- but remember to extend the grant when a new column should be public.
+-- `authenticated` keeps full SELECT on purpose: admins edit this field through
+-- the normal authenticated client and Supabase has no separate admin DB role to
+-- column-gate against (admin-ness is RLS-level, via is_admin()). Logged-in users
+-- can therefore read cust_ids; iRacing ids are low-sensitivity (they appear in
+-- public iRacing URLs).
+
+alter table public.drivers
+  add column if not exists iracing_cust_id bigint;
+
+comment on column public.drivers.iracing_cust_id is
+  'iRacing customer id this roster driver competes under. Soft join key to curated_race_results.cust_id (not a FK). Admin-populated.';
+
+create unique index if not exists drivers_iracing_cust_id_idx
+  on public.drivers (iracing_cust_id)
+  where iracing_cust_id is not null;
+
+revoke select on public.drivers from anon;
+
+grant select (
+  id, car_number, name, status_id, class_id, team_id, is_rookie, car,
+  appearances, starts, seasons_count, penalty_points, penalty_points_max,
+  photo_url, bio, created_at, updated_at
+) on public.drivers to anon;
+
+with ranked_matches as (
+  select
+    d.id as driver_id,
+    r.cust_id,
+    row_number() over (
+      partition by d.id
+      order by count(*) desc, max(r.created_at) desc, r.cust_id
+    ) as rn
+  from public.drivers d
+  join public.curated_race_results r
+    on lower(trim(r.display_name)) = lower(trim(d.name))
+  group by d.id, r.cust_id
+),
+candidate_matches as (
+  select driver_id, cust_id
+  from ranked_matches
+  where rn = 1
+)
+update public.drivers d
+set iracing_cust_id = cm.cust_id
+from candidate_matches cm
+where d.id = cm.driver_id
+  and d.iracing_cust_id is null;
+
+alter table public.seasons
+  add column if not exists iracing_season_id bigint;
+
+comment on column public.seasons.iracing_season_id is
+  'iRacing season identifier; canonical key for linking curated_races to a season row.';
+
+create unique index if not exists seasons_iracing_season_id_idx
+  on public.seasons (iracing_season_id)
+  where iracing_season_id is not null;
+
+with normalized_races as (
+  select
+    cr.subsession_id,
+    cr.season_label,
+    regexp_replace(lower(trim(cr.season_label)), '[^a-z0-9]', '', 'g') as normalized_label,
+    regexp_replace(lower(trim(cr.season_label)), '[^0-9]', '', 'g') as digits_label
+  from public.curated_races cr
+  where cr.season_id is null
+    and cr.season_label is not null
+),
+candidate_matches as (
+  select
+    nr.subsession_id,
+    s.id as season_id,
+    row_number() over (
+      partition by nr.subsession_id
+      order by
+        case
+          when regexp_replace(lower(trim(s.name)), '[^a-z0-9]', '', 'g') = nr.normalized_label then 0
+          else 1
+        end,
+        case
+          when nr.digits_label <> '' and s.number::text = nr.digits_label then 0
+          else 1
+        end,
+        s.number
+    ) as rn
+  from normalized_races nr
+  join public.seasons s on (
+    regexp_replace(lower(trim(s.name)), '[^a-z0-9]', '', 'g') = nr.normalized_label
+    or (
+      nr.digits_label <> ''
+      and s.number::text = nr.digits_label
+    )
+  )
+)
+update public.curated_races cr
+set season_id = cm.season_id
+from candidate_matches cm
+where cr.subsession_id = cm.subsession_id
+  and cm.rn = 1
+  and cr.season_id is null;
 
 grant select on race_results to anon, authenticated;
