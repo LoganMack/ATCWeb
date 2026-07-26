@@ -1,25 +1,28 @@
 /**
- * Auth — interim implementation.
+ * Supabase Auth (GoTrue) token exchange + the session cookie contract.
  *
- * The user's explicit long-term requirement is "Login with iRacing" OAuth
- * (see https://oauth.iracing.com/oauth2/book/), for GDPR/EU-privacy reasons
- * (iRacing's profile endpoint returns only { iracing_cust_id, iracing_name }
- * — no email). iRacing has currently PAUSED new OAuth client registration,
- * so a real integration can't be built/tested yet. Per the user's explicit
- * choice, this file implements a working interim login using Supabase's own
- * Auth (GoTrue) REST API — plain `fetch`, no @supabase/supabase-js, matching
- * the rest of this codebase — so admin tools are usable today. The schema
- * (see supabase/migrations/0002_auth_admin.sql — `profiles.iracing_cust_id`
- * / `iracing_name`) is already shaped so a real iRacing login can be added
- * later as an additional way to populate/link the same `profiles` row,
- * without reworking anything built on top of it.
+ * Scope note: this file is *only* about proving who someone is and keeping
+ * that proof in a cookie. Reading and writing `profiles` rows — including
+ * the role that decides who's an admin — is ordinary table access and lives
+ * in src/lib/db/profiles.ts.
  *
- * All of GoTrue's REST endpoints require the `apikey` header (the anon key)
- * in addition to whatever `Authorization` bearer token is relevant to the
- * call — that's a Supabase-wide REST requirement, not specific to auth.
+ * INTERIM IMPLEMENTATION. The long-term requirement is "Login with iRacing"
+ * OAuth (https://oauth.iracing.com/oauth2/book/), for GDPR/EU-privacy
+ * reasons: iRacing's profile endpoint returns only
+ * { iracing_cust_id, iracing_name } — no email. iRacing has currently PAUSED
+ * new OAuth client registration, so that can't be built or tested yet. Until
+ * it can, this uses Supabase's own email/password auth via plain `fetch` (no
+ * @supabase/supabase-js, matching the rest of the codebase). The schema is
+ * already shaped for the switch: `profiles.iracing_cust_id`/`iracing_name`
+ * in 0002_auth_admin.sql just sit null until a real iRacing login populates
+ * the same row, so adding it later doesn't rework anything built on top.
+ *
+ * Every GoTrue endpoint needs the `apikey` header (the anon key) in addition
+ * to whatever bearer token the call itself uses — that's a Supabase-wide
+ * REST requirement, not an auth-specific one.
  */
 
-import type { SupabaseEnv } from './supabase';
+import type { SiteEnv } from './env';
 
 export interface AuthUser {
   id: string;
@@ -33,19 +36,10 @@ export interface Session {
   user: AuthUser;
 }
 
-export interface Profile {
-  id: string;
-  role: 'admin' | 'driver';
-  display_name: string | null;
-  driver_id: string | null;
-  iracing_cust_id: number | null;
-  iracing_name: string | null;
-}
-
-function authHeaders(env: SupabaseEnv, accessToken?: string) {
+function authHeaders(env: SiteEnv, accessToken?: string) {
   return {
-    apikey: env.anonKey,
-    Authorization: `Bearer ${accessToken ?? env.anonKey}`,
+    apikey: env.supabaseAnonKey,
+    Authorization: `Bearer ${accessToken ?? env.supabaseAnonKey}`,
     'Content-Type': 'application/json',
   };
 }
@@ -57,22 +51,7 @@ interface GoTrueTokenResponse {
   user: { id: string; email: string | null };
 }
 
-/** Email/password sign-in against Supabase Auth. Throws on bad credentials. */
-export async function signInWithPassword(
-  env: SupabaseEnv,
-  email: string,
-  password: string
-): Promise<Session> {
-  const res = await fetch(`${env.url}/auth/v1/token?grant_type=password`, {
-    method: 'POST',
-    headers: authHeaders(env),
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Sign-in failed (${res.status}): ${body}`);
-  }
-  const data = (await res.json()) as GoTrueTokenResponse;
+function toSession(data: GoTrueTokenResponse): Session {
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
@@ -81,9 +60,26 @@ export async function signInWithPassword(
   };
 }
 
-/** Exchange a refresh token for a new session. Throws if the refresh token is invalid/expired. */
-export async function refreshSession(env: SupabaseEnv, refreshToken: string): Promise<Session> {
-  const res = await fetch(`${env.url}/auth/v1/token?grant_type=refresh_token`, {
+/** Email/password sign-in. Throws on bad credentials. */
+export async function signInWithPassword(
+  env: SiteEnv,
+  email: string,
+  password: string
+): Promise<Session> {
+  const res = await fetch(`${env.supabaseUrl}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: authHeaders(env),
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    throw new Error(`Sign-in failed (${res.status}): ${await res.text()}`);
+  }
+  return toSession((await res.json()) as GoTrueTokenResponse);
+}
+
+/** Exchange a refresh token for a new session. Throws if it's invalid or expired. */
+export async function refreshSession(env: SiteEnv, refreshToken: string): Promise<Session> {
+  const res = await fetch(`${env.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
     method: 'POST',
     headers: authHeaders(env),
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -91,28 +87,22 @@ export async function refreshSession(env: SupabaseEnv, refreshToken: string): Pr
   if (!res.ok) {
     throw new Error(`Session refresh failed (${res.status}): ${await res.text()}`);
   }
-  const data = (await res.json()) as GoTrueTokenResponse;
-  return {
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
-    user: { id: data.user.id, email: data.user.email },
-  };
+  return toSession((await res.json()) as GoTrueTokenResponse);
 }
 
-/** Revoke a refresh token server-side (best-effort — logout still clears cookies even if this fails). */
-export async function revokeSession(env: SupabaseEnv, accessToken: string): Promise<void> {
-  await fetch(`${env.url}/auth/v1/logout`, {
+/** Revoke a refresh token server-side. Best-effort — logout clears cookies either way. */
+export async function revokeSession(env: SiteEnv, accessToken: string): Promise<void> {
+  await fetch(`${env.supabaseUrl}/auth/v1/logout`, {
     method: 'POST',
     headers: authHeaders(env, accessToken),
   }).catch(() => {
-    // Best-effort — an expired/invalid token here shouldn't block logout.
+    // An expired/invalid token here shouldn't block logout.
   });
 }
 
-/** Validate an access token and return the user it belongs to, or null if it's missing/expired/invalid. */
-export async function getUser(env: SupabaseEnv, accessToken: string): Promise<AuthUser | null> {
-  const res = await fetch(`${env.url}/auth/v1/user`, {
+/** Validate an access token and return its user, or null if missing/expired/invalid. */
+export async function getUser(env: SiteEnv, accessToken: string): Promise<AuthUser | null> {
+  const res = await fetch(`${env.supabaseUrl}/auth/v1/user`, {
     headers: authHeaders(env, accessToken),
   });
   if (!res.ok) return null;
@@ -120,64 +110,26 @@ export async function getUser(env: SupabaseEnv, accessToken: string): Promise<Au
   return { id: data.id, email: data.email };
 }
 
-/** Fetch a profile row. Uses the caller's own access token, so RLS decides what's visible. */
-export async function getProfile(
-  env: SupabaseEnv,
-  accessToken: string,
-  userId: string
-): Promise<Profile | null> {
-  const select = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
-  const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=${select}`, {
-    headers: authHeaders(env, accessToken),
-  });
-  if (!res.ok) return null;
-  const rows = (await res.json()) as Profile[];
-  return rows[0] ?? null;
-}
-
-/** All profiles, for the admin "assign roles" screen. Requires an admin's access token (RLS-enforced). */
-export async function getAllProfiles(env: SupabaseEnv, accessToken: string): Promise<Profile[]> {
-  const select = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
-  const res = await fetch(`${env.url}/rest/v1/profiles?select=${select}&order=created_at.asc`, {
-    headers: authHeaders(env, accessToken),
-  });
-  if (!res.ok) throw new Error(`Failed to load profiles (${res.status}): ${await res.text()}`);
-  return res.json() as Promise<Profile[]>;
-}
-
-/** Update a profile's role. Requires an admin's access token — RLS rejects this otherwise. */
-export async function setProfileRole(
-  env: SupabaseEnv,
-  accessToken: string,
-  profileId: string,
-  role: 'admin' | 'driver'
-): Promise<void> {
-  const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}`, {
-    method: 'PATCH',
-    headers: { ...authHeaders(env, accessToken), Prefer: 'return=minimal' },
-    body: JSON.stringify({ role }),
-  });
-  if (!res.ok) throw new Error(`Failed to update role (${res.status}): ${await res.text()}`);
-}
-
 // ---------------------------------------------------------------------------
-// Cookie helpers
+// Cookie contract
 // ---------------------------------------------------------------------------
 
 export const ACCESS_TOKEN_COOKIE = 'atc_at';
 export const REFRESH_TOKEN_COOKIE = 'atc_rt';
 export const AUTH_COOKIE_PATH = '/';
 
+/** Access tokens are short-lived; this only bounds the cookie's own lifetime. */
+export const ACCESS_TOKEN_MAX_AGE = 60 * 60;
+export const REFRESH_TOKEN_MAX_AGE = 60 * 60 * 24 * 30;
+
 /**
- * Cookie options shared by both auth cookies — HttpOnly so client JS can
- * never read the tokens. `secure` is derived from the request's own URL
- * rather than hardcoded `true`: a `Secure` cookie is silently dropped by the
- * browser on a plain-http origin (e.g. `astro dev` on http://localhost),
- * which otherwise looks exactly like "login silently fails" — the sign-in
- * call succeeds and the redirect to /admin fires, but the cookie never
- * actually gets stored, so the middleware immediately bounces you back to
- * /admin/login with nothing on screen to explain why. On the real Cloudflare
- * deployment (always https) this still resolves to `true` as before.
+ * Options shared by both auth cookies. HttpOnly so client JS can never read
+ * the tokens. `secure` is derived from the request URL rather than hardcoded
+ * to `true`: a Secure cookie is silently dropped by the browser on a plain
+ * http origin (`astro dev` on http://localhost), which looks exactly like
+ * "login fails for no reason" — the sign-in succeeds, the redirect fires,
+ * but the cookie never gets stored, so the middleware bounces you straight
+ * back to /admin/login. On Cloudflare (always https) this is still `true`.
  */
 export function authCookieOptions(url: URL) {
   return {

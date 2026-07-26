@@ -2,15 +2,17 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import { resolveSupabaseEnv } from '../../lib/supabase';
+import { resolveEnv } from '../../lib/env';
 import {
   signInWithPassword,
   ACCESS_TOKEN_COOKIE,
+  ACCESS_TOKEN_MAX_AGE,
   REFRESH_TOKEN_COOKIE,
+  REFRESH_TOKEN_MAX_AGE,
   authCookieOptions,
 } from '../../lib/auth';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const env = resolveEnv(Astro.locals);
 const next = Astro.url.searchParams.get('next') || '/admin';
 
 // Already signed in as an admin? Skip straight past the form.
@@ -29,12 +31,15 @@ if (Astro.request.method === 'POST') {
     error = 'Enter both an email and a password.';
   } else {
     try {
-      const session = await signInWithPassword(supabaseEnv, email, password);
+      const session = await signInWithPassword(env, email, password);
       const cookieOptions = authCookieOptions(Astro.url);
-      Astro.cookies.set(ACCESS_TOKEN_COOKIE, session.accessToken, { ...cookieOptions, maxAge: 60 * 60 });
+      Astro.cookies.set(ACCESS_TOKEN_COOKIE, session.accessToken, {
+        ...cookieOptions,
+        maxAge: ACCESS_TOKEN_MAX_AGE,
+      });
       Astro.cookies.set(REFRESH_TOKEN_COOKIE, session.refreshToken, {
         ...cookieOptions,
-        maxAge: 60 * 60 * 24 * 30,
+        maxAge: REFRESH_TOKEN_MAX_AGE,
       });
       return Astro.redirect(next, 302);
     } catch (err) {

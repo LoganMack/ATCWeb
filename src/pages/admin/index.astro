@@ -2,19 +2,17 @@
 export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDrivers, getTeams, getAllNewsPosts } from '../../lib/supabase';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const db = Astro.locals.db;
 
 let driverCount = 0;
 let teamCount = 0;
 let draftCount = 0;
 try {
   const [drivers, teams, news] = await Promise.all([
-    getDrivers(supabaseEnv),
-    getTeams(supabaseEnv),
-    getAllNewsPosts(supabaseEnv, accessToken),
+    db.drivers.list(),
+    db.teams.list(),
+    db.news.listAll(),
   ]);
   driverCount = drivers.length;
   teamCount = teams.length;

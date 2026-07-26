@@ -11,9 +11,22 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
    npm install
    ```
 
-2. **Create a Supabase project** at supabase.com (free tier is enough for this). In the SQL editor, run, in order:
+2. **Create a Supabase project** at supabase.com (free tier is enough for this), then apply the schema. Preferred route, via the Supabase CLI:
+
+   ```
+   npx supabase login
+   npx supabase link --project-ref <your-project-ref>
+   npm run db:push          # applies everything in supabase/migrations/, in order
+   npm run db:types         # regenerates src/lib/db/database.types.ts from the live schema
+   ```
+
+   `db:push` tracks which migrations have already run, so it's safe to re-run and it won't double-apply. Use `npm run db:new <name>` to scaffold the next migration rather than hand-numbering files.
+
+   Or, the manual route — paste these into the Supabase SQL editor in order:
    - `supabase/migrations/0001_init.sql` — creates all tables, lookups, and RLS policies
    - `supabase/migrations/0002_auth_admin.sql` — adds `profiles`, admin-only write policies, `teams.status`, and the `logos`/`photos` Storage buckets (see "Auth & Admin Portal" below)
+
+   Either way, then load the seed data (SQL editor, or `psql`):
    - `supabase/seed/seed_teams.sql`
    - `supabase/seed/seed_drivers.sql`
    - `supabase/seed/seed_news.sql`
@@ -51,10 +64,62 @@ The admin tools at `/admin` (publish news, edit drivers/teams, upload team logos
 3. From then on, promoting anyone else is self-service: sign them into `/admin/login` once (which creates their `profiles` row), then use `/admin/users` to switch their role to Admin.
 
 **How it works, if you're touching this code:**
-- `src/lib/auth.ts` — the GoTrue REST calls (sign in, refresh, revoke, profile reads/writes) and the two auth cookie names/options.
-- `src/middleware.ts` — runs on every on-demand request, resolves the session from cookies (silently refreshing an expired access token via the refresh token), and redirects anything under `/admin` to `/admin/login` unless the session belongs to an admin. Every `/admin/*` page can assume `Astro.locals.session` is a signed-in admin — the middleware already enforced it.
-- All admin writes (`src/lib/supabase.ts`'s `create*`/`update*`/`delete*` functions) send the signed-in admin's own access token, never the anon key — Postgres Row Level Security in `0002_auth_admin.sql` is what actually allows or blocks the write. The app-layer gating in the middleware is a UX nicety; RLS is the real security boundary, same principle as the read-only policies from `0001_init.sql`.
-- Team logo uploads go straight to Supabase Storage (`logos` bucket, public read / admin-only write) via `uploadToStorage()` in `src/lib/supabase.ts`.
+- `src/lib/auth.ts` — GoTrue token exchange (sign in, refresh, revoke, validate) and the auth cookie contract. Tokens and cookies only; profile *rows* are ordinary table access and live in `src/lib/db/profiles.ts`.
+- `src/middleware.ts` — runs on every on-demand request, resolves the session from cookies (silently refreshing an expired access token via the refresh token), builds `Astro.locals.db`, and redirects anything under `/admin` to `/admin/login` unless the session belongs to an admin. Every `/admin/*` page can assume `Astro.locals.session` is a signed-in admin — the middleware already enforced it.
+- All admin writes go through `Astro.locals.db`, which the middleware bound to the signed-in admin's own access token. `src/lib/db/client.ts` *structurally* refuses to send a write under the anon key — `post`/`patch`/`remove`/`upload` throw if the request has no session. Postgres Row Level Security in `0002_auth_admin.sql` is what actually allows or blocks the write; the middleware's `/admin` gate is a UX nicety on top. RLS is the real security boundary, same principle as the read-only policies from `0001_init.sql`.
+- Team logo uploads go straight to Supabase Storage (`logos` bucket, public read / admin-only write) via `Astro.locals.db.storage.uploadFor()`.
+
+## Project structure
+
+```
+src/
+  components/     # DriverCard, DriverRow, NewsCard, Nav, Footer
+  layouts/        # Layout (public chrome) → AdminLayout (adds admin sub-nav)
+  lib/
+    env.ts        # the ONLY place PUBLIC_* values are read — see the long comment in it
+    auth.ts       # GoTrue tokens + cookie contract
+    slug.ts
+    db/
+      client.ts   # fetch wrappers over PostgREST/Storage; enforces which key is used
+      types.ts    # row shapes (replace with `npm run db:types` output — see below)
+      index.ts    # createDb() — assembles the repos below into one object
+      drivers.ts  teams.ts  news.ts  profiles.ts  lookups.ts  storage.ts
+  middleware.ts   # session + Astro.locals.db + /admin route gate
+  pages/
+  scripts/        # client-side: reveal.ts, hard-form-submit.ts
+```
+
+**Data access, in one line:** pages never resolve env or handle tokens. The middleware does both once per request and hands pages a ready-to-use `Astro.locals.db`:
+
+```astro
+---
+import type { Driver } from '../lib/db';
+
+let drivers: Driver[] = [];
+try {
+  drivers = await Astro.locals.db.drivers.list();
+} catch (err) {
+  console.error('Failed to load drivers:', err);
+}
+---
+```
+
+Adding a new entity (races, results, standings) means one new file in `src/lib/db/`, one line in `createDb()`, and its types in `types.ts` — not another 80 lines threaded through every call site.
+
+**Database types are still hand-written.** `src/lib/db/types.ts` has to be kept in sync with `supabase/migrations/` by hand, which is exactly the kind of thing that silently drifts. `npm run db:types` generates them from the live schema instead; once you've run it, `types.ts` should shrink to aliases and view-specific projections over the generated `database.types.ts`.
+
+## Checks & formatting
+
+```
+npm run check          # astro check — type-checks .astro frontmatter and .ts together
+npm run format         # prettier, incl. Tailwind class sorting
+npm run format:check   # non-mutating; what CI would run
+```
+
+`.github/workflows/ci.yml` runs install → `check` → `build` on every push to `main` and every PR. Two things it deliberately doesn't do yet, both noted inline in that file:
+
+- It uses `npm install`, not `npm ci` — the toolchain devDependencies were added without a local install available, so `package-lock.json` doesn't list them yet. Run `npm install` locally once, commit the refreshed lockfile, then switch to `npm ci`.
+- `format:check` is commented out, because prettier has never been run over this codebase and would fail on everything that predates it. Run `npm run format` once, commit that, then uncomment.
 
 ## Re-importing the roster later
 

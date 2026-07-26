@@ -1,7 +1,7 @@
 ---
-import { resolveSiteLinks } from '../lib/links';
+import { resolveEnv } from '../lib/env';
 
-const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
+const { discordUrl, redbubbleUrl } = resolveEnv(Astro.locals);
 
 const links = [
   { href: '/', label: 'Home' },
