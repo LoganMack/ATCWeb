@@ -4,7 +4,7 @@
 -- production; this migration closes it. See HANDOFF.md "Security items".
 --
 -- (An earlier draft of this file also RLS-locked the raw `races`/`seasons`
--- tables. That half is now obsolete: `races` is dropped in 0004, and `seasons`
+-- tables. That half is now obsolete: `races` is dropped in 0005, and `seasons`
 -- is the legitimate 0001 app table meant to stay publicly readable. Only the
 -- profile trigger below remains.)
 
