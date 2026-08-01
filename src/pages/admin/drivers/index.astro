@@ -2,12 +2,14 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import type { Driver } from '../../../lib/db';
+import { resolveSupabaseEnv, getDrivers } from '../../../lib/supabase';
 
-let drivers: Driver[] = [];
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
 let loadError = false;
 try {
-  drivers = await Astro.locals.db.drivers.list();
+  drivers = await getDrivers(supabaseEnv);
 } catch (err) {
   console.error('Failed to load drivers for admin:', err);
   loadError = true;

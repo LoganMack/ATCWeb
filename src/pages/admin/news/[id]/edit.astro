@@ -2,8 +2,15 @@
 export const prerender = false;
 
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  getNewsPostByIdAdmin,
+  updateNewsPost,
+  deleteNewsPost,
+} from '../../../../lib/supabase';
 
-const db = Astro.locals.db;
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
 const { id } = Astro.params;
 
 if (!id) return Astro.redirect('/admin/news', 302);
@@ -12,7 +19,7 @@ let error: string | null = null;
 
 // Fetch first so a draft->published transition below can compare against
 // the post's *current* stored status.
-let post = await db.news.getByIdAdmin(id);
+let post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
 if (!post) return Astro.redirect('/admin/news', 302);
 
 if (Astro.request.method === 'POST') {
@@ -21,7 +28,7 @@ if (Astro.request.method === 'POST') {
 
   if (intent === 'delete') {
     try {
-      await db.news.remove(id);
+      await deleteNewsPost(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/news', 302);
     } catch (err) {
       console.error('Failed to delete news post:', err);
@@ -44,7 +51,7 @@ if (Astro.request.method === 'POST') {
       error = 'Title, slug, and body are required.';
     } else {
       try {
-        await db.news.update(id, {
+        await updateNewsPost(supabaseEnv, accessToken, id, {
           title,
           slug,
           excerpt: excerpt || null,
@@ -54,7 +61,7 @@ if (Astro.request.method === 'POST') {
           status,
           ...(justPublished ? { published_at: new Date().toISOString() } : {}),
         });
-        post = await db.news.getByIdAdmin(id);
+        post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
         if (!post) return Astro.redirect('/admin/news', 302);
       } catch (err) {
         console.error('Failed to update news post:', err);
@@ -63,12 +70,6 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
-
-// `post` was guarded non-null above, but the reassignment inside the POST
-// branch (the draft->published refetch) widens TS's control-flow view back to
-// `NewsPostAdmin | null` for the rest of the file. Re-assert it here so the
-// template below can read `post.*` without a null error on every field.
-if (!post) return Astro.redirect('/admin/news', 302);
 ---
 
 <AdminLayout title="Edit Post">

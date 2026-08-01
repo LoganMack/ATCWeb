@@ -2,9 +2,20 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import type { DriverRecord } from '../../../lib/db';
+import {
+  resolveSupabaseEnv,
+  getDriverById,
+  createDriver,
+  updateDriver,
+  deleteDriver,
+  getDriverStatuses,
+  getDriverClasses,
+  getTeams,
+  type DriverRecord,
+} from '../../../lib/supabase';
 
-const db = Astro.locals.db;
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
 const { id } = Astro.params;
 const isNew = id === 'new';
 
@@ -36,7 +47,7 @@ if (Astro.request.method === 'POST') {
 
   if (intent === 'delete' && !isNew && id) {
     try {
-      await db.drivers.remove(id);
+      await deleteDriver(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/drivers', 302);
     } catch (err) {
       console.error('Failed to delete driver:', err);
@@ -49,10 +60,10 @@ if (Astro.request.method === 'POST') {
     } else {
       try {
         if (isNew) {
-          const created = await db.drivers.create(data);
+          const created = await createDriver(supabaseEnv, accessToken, data);
           return Astro.redirect(`/admin/drivers/${created.id}`, 302);
         } else if (id) {
-          await db.drivers.update(id, data);
+          await updateDriver(supabaseEnv, accessToken, id, data);
         }
       } catch (err) {
         console.error('Failed to save driver:', err);
@@ -63,14 +74,14 @@ if (Astro.request.method === 'POST') {
 }
 
 const [statuses, classes, teams] = await Promise.all([
-  db.lookups.driverStatuses(),
-  db.lookups.driverClasses(),
-  db.teams.list(),
+  getDriverStatuses(supabaseEnv),
+  getDriverClasses(supabaseEnv),
+  getTeams(supabaseEnv),
 ]);
 
 let driver: DriverRecord | null = null;
 if (!isNew && id) {
-  driver = await db.drivers.getById(id);
+  driver = await getDriverById(supabaseEnv, id);
   if (!driver) return Astro.redirect('/admin/drivers', 302);
 }
 

@@ -2,12 +2,14 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import type { Team } from '../../../lib/db';
+import { resolveSupabaseEnv, getTeams } from '../../../lib/supabase';
 
-let teams: Team[] = [];
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let teams: Awaited<ReturnType<typeof getTeams>> = [];
 let loadError = false;
 try {
-  teams = await Astro.locals.db.teams.list();
+  teams = await getTeams(supabaseEnv);
 } catch (err) {
   console.error('Failed to load teams for admin:', err);
   loadError = true;

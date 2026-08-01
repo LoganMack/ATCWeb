@@ -2,12 +2,14 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import type { NewsPost } from '../../lib/db';
+import { getNewsPostBySlug, resolveSupabaseEnv } from '../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 const { slug } = Astro.params;
-let post: NewsPost | null = null;
+let post: Awaited<ReturnType<typeof getNewsPostBySlug>> = null;
 try {
-  post = slug ? await Astro.locals.db.news.getBySlug(slug) : null;
+  post = slug ? await getNewsPostBySlug(supabaseEnv, slug) : null;
 } catch (err) {
   console.error('Failed to load news post:', err);
 }

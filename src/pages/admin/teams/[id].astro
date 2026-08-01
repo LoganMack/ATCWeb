@@ -2,13 +2,34 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import type { Team } from '../../../lib/db';
+import {
+  resolveSupabaseEnv,
+  getTeamById,
+  createTeam,
+  updateTeam,
+  deleteTeam,
+  uploadToStorage,
+  type Team,
+} from '../../../lib/supabase';
 
-const db = Astro.locals.db;
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
 const { id } = Astro.params;
 const isNew = id === 'new';
 
 let error: string | null = null;
+
+function extFromFile(file: File): string {
+  const fromName = file.name.split('.').pop();
+  if (fromName && fromName.length <= 5) return fromName.toLowerCase();
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+  };
+  return map[file.type] ?? 'png';
+}
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -16,7 +37,7 @@ if (Astro.request.method === 'POST') {
 
   if (intent === 'delete' && !isNew && id) {
     try {
-      await db.teams.remove(id);
+      await deleteTeam(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/teams', 302);
     } catch (err) {
       console.error('Failed to delete team:', err);
@@ -34,15 +55,16 @@ if (Astro.request.method === 'POST') {
       try {
         let teamId = isNew ? null : id!;
         if (isNew) {
-          const created = await db.teams.create({ name, status, primary_color_hex });
+          const created = await createTeam(supabaseEnv, accessToken, { name, status, primary_color_hex });
           teamId = created.id;
         } else {
-          await db.teams.update(teamId!, { name, status, primary_color_hex });
+          await updateTeam(supabaseEnv, accessToken, teamId!, { name, status, primary_color_hex });
         }
 
         if (logoFile instanceof File && logoFile.size > 0) {
-          const logo_url = await db.storage.uploadFor('logos', teamId!, logoFile);
-          await db.teams.update(teamId!, { logo_url });
+          const path = `${teamId}-${Date.now()}.${extFromFile(logoFile)}`;
+          const logo_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, logoFile);
+          await updateTeam(supabaseEnv, accessToken, teamId!, { logo_url });
         }
 
         return Astro.redirect(`/admin/teams/${teamId}`, 302);
@@ -56,7 +78,7 @@ if (Astro.request.method === 'POST') {
 
 let team: Team | null = null;
 if (!isNew && id) {
-  team = await db.teams.getById(id);
+  team = await getTeamById(supabaseEnv, id);
   if (!team) return Astro.redirect('/admin/teams', 302);
 }
 

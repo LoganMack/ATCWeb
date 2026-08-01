@@ -1,29 +1,23 @@
 /**
  * Runs on every on-demand-rendered request (i.e. every `prerender = false`
- * page — prerendered pages never hit this at request time, same as they
- * never see Astro.locals.runtime.env).
+ * page — prerendered/static pages never hit this at request time, same as
+ * they never see Astro.locals.runtime.env). Resolves the current session
+ * from cookies (refreshing it if the access token expired) and gates
+ * everything under /admin behind "logged in AND role === 'admin'".
  *
- * Three jobs, in order:
- *   1. Resolve the session from cookies, silently refreshing an expired
- *      access token via the refresh token.
- *   2. Build the request's data-access layer, bound to the env and to
- *      whichever token step 1 ended up with, and expose it as
- *      `Astro.locals.db`. Pages never touch env or tokens themselves.
- *   3. Gate everything under /admin behind "signed in AND role === 'admin'".
+ * Session state is exposed as `Astro.locals.session` for every page/API
+ * route, so nothing downstream needs to touch cookies directly.
  */
 
 import { defineMiddleware } from 'astro:middleware';
-import { resolveEnv } from './lib/env';
-import { createDb } from './lib/db';
+import { resolveSupabaseEnv } from './lib/supabase';
 import {
   ACCESS_TOKEN_COOKIE,
-  ACCESS_TOKEN_MAX_AGE,
   REFRESH_TOKEN_COOKIE,
-  REFRESH_TOKEN_MAX_AGE,
   authCookieOptions,
   getUser,
+  getProfile,
   refreshSession,
-  type AuthUser,
 } from './lib/auth';
 
 const ADMIN_PREFIX = '/admin';
@@ -34,17 +28,14 @@ const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
 
-  const env = resolveEnv(context.locals);
+  const env = resolveSupabaseEnv(context.locals);
   const accessToken = context.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = context.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
 
-  let activeAccessToken: string | null = null;
-  let user: AuthUser | null = null;
-
-  if (env.supabaseUrl && env.supabaseAnonKey && (accessToken || refreshToken)) {
+  if (env.url && env.anonKey && (accessToken || refreshToken)) {
     try {
-      activeAccessToken = accessToken ?? null;
-      user = activeAccessToken ? await getUser(env, activeAccessToken) : null;
+      let activeAccessToken = accessToken;
+      let user = activeAccessToken ? await getUser(env, activeAccessToken) : null;
 
       // Access token missing or expired — fall back to the refresh token
       // before treating the visitor as logged out.
@@ -55,32 +46,23 @@ export const onRequest = defineMiddleware(async (context, next) => {
         const cookieOptions = authCookieOptions(context.url);
         context.cookies.set(ACCESS_TOKEN_COOKIE, refreshed.accessToken, {
           ...cookieOptions,
-          maxAge: ACCESS_TOKEN_MAX_AGE,
+          maxAge: 60 * 60, // access tokens are short-lived; this just bounds the cookie's own lifetime
         });
         context.cookies.set(REFRESH_TOKEN_COOKIE, refreshed.refreshToken, {
           ...cookieOptions,
-          maxAge: REFRESH_TOKEN_MAX_AGE,
+          maxAge: 60 * 60 * 24 * 30,
         });
       }
+
+      if (user && activeAccessToken) {
+        const profile = await getProfile(env, activeAccessToken, user.id);
+        context.locals.session = { user, profile, accessToken: activeAccessToken };
+      }
     } catch (err) {
-      // A network hiccup and a genuinely invalid refresh token both just
+      // A network hiccup or an actually-invalid refresh token both just
       // mean "treat this request as logged out" — never fail the request.
       console.error('Auth middleware error:', err);
-      activeAccessToken = null;
-      user = null;
     }
-  }
-
-  // Always present, signed in or not. Public reads go out under the anon key;
-  // with a token bound, RLS-gated reads and every write become available.
-  const db = createDb(env, activeAccessToken);
-  context.locals.db = db;
-
-  if (user && activeAccessToken) {
-    // Returns null (rather than throwing) if the profile can't be read, so a
-    // half-broken profile still resolves to a signed-in-but-not-admin user.
-    const profile = await db.profiles.getById(user.id);
-    context.locals.session = { user, profile, accessToken: activeAccessToken };
   }
 
   const pathname = context.url.pathname;

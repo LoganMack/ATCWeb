@@ -2,9 +2,11 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import type { Profile } from '../../../lib/db';
+import { resolveSupabaseEnv } from '../../../lib/supabase';
+import { getAllProfiles, setProfileRole } from '../../../lib/auth';
 
-const db = Astro.locals.db;
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
 const currentUserId = Astro.locals.session!.user.id;
 
 let error: string | null = null;
@@ -13,15 +15,9 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const profileId = String(form.get('profile_id') ?? '');
   const role = form.get('role') === 'admin' ? 'admin' : 'driver';
-  if (profileId === currentUserId && role !== 'admin') {
-    // Nothing stops RLS from letting an admin demote themselves, and doing
-    // it as the only admin locks everyone out of these tools for good —
-    // recovering means going back to the Supabase SQL editor. Blocked here
-    // rather than in the policy so the message can explain itself.
-    error = 'You can’t remove your own admin access. Ask another admin to do it.';
-  } else if (profileId) {
+  if (profileId) {
     try {
-      await db.profiles.setRole(profileId, role);
+      await setProfileRole(supabaseEnv, accessToken, profileId, role);
     } catch (err) {
       console.error('Failed to update role:', err);
       error = 'Failed to update that user’s role.';
@@ -29,10 +25,10 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-let profiles: Profile[] = [];
+let profiles: Awaited<ReturnType<typeof getAllProfiles>> = [];
 let loadError = false;
 try {
-  profiles = await db.profiles.list();
+  profiles = await getAllProfiles(supabaseEnv, accessToken);
 } catch (err) {
   console.error('Failed to load profiles:', err);
   loadError = true;
