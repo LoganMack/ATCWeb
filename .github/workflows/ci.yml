@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `npm install` rather than `npm ci` on purpose, for now: the toolchain
+      # devDependencies were added without a local install available, so
+      # package-lock.json doesn't list them yet and `npm ci` would fail on the
+      # mismatch. Run `npm install` locally once, commit the refreshed
+      # package-lock.json, then switch this line to `npm ci` to get
+      # reproducible installs.
+      - run: npm install
+
+      # Type-checks .astro frontmatter and .ts alike — this is what would have
+      # caught the build-time-vs-runtime env bug described in src/lib/env.ts.
+      - run: npm run check
+
+      - run: npm run build
+
+      # Not a gate yet: prettier has never been run over this codebase, so it
+      # would fail on formatting that predates it. Run `npm run format` once,
+      # commit the result, then uncomment.
+      # - run: npm run format:check

@@ -2,11 +2,9 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, createNewsPost } from '../../../lib/supabase';
 import { slugify } from '../../../lib/slug';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const db = Astro.locals.db;
 const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
 
 let error: string | null = null;
@@ -28,7 +26,7 @@ if (Astro.request.method === 'POST') {
     error = 'Could not generate a URL slug from that title — set one manually.';
   } else {
     try {
-      const post = await createNewsPost(supabaseEnv, accessToken, {
+      const post = await db.news.create({
         title,
         slug,
         excerpt: excerpt || null,

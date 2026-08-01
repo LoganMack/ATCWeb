@@ -2,14 +2,12 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import { getTeams, resolveSupabaseEnv } from '../lib/supabase';
+import type { Team } from '../lib/db';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-
-let teams: Awaited<ReturnType<typeof getTeams>> = [];
+let teams: Team[] = [];
 let loadError = false;
 try {
-  teams = await getTeams(supabaseEnv);
+  teams = await Astro.locals.db.teams.list();
 } catch (err) {
   console.error('Failed to load teams:', err);
   loadError = true;
