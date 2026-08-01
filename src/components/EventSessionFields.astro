@@ -1,0 +1,84 @@
+---
+// One fieldset per event session (practice/qualifying/race1-3), reused
+// from the admin event form. Which extra inputs show depends on the
+// session type: practice takes a minutes length, qualifying takes both
+// minutes and laps, races take laps only.
+interface Props {
+  prefix: string; // form field name prefix, e.g. 'practice', 'race1'
+  label: string;
+  showMinutes?: boolean;
+  showLaps?: boolean;
+  required?: boolean;
+  startTime: string | null;
+  minutes?: number | null;
+  laps?: number | null;
+  weather: string | null;
+}
+
+const {
+  prefix,
+  label,
+  showMinutes = false,
+  showLaps = false,
+  required = false,
+  startTime,
+  minutes = null,
+  laps = null,
+  weather,
+} = Astro.props;
+---
+
+<fieldset class="rounded-xl border border-white/10 p-4">
+  <legend class="px-1 text-sm font-semibold text-white/80">{label}{required && ' *'}</legend>
+  <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/60">Start time</span>
+      <input
+        type="time"
+        name={`${prefix}_start_time`}
+        required={required}
+        value={startTime ?? ''}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+
+    {showMinutes && (
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/60">Length (minutes)</span>
+        <input
+          type="number"
+          min="0"
+          name={`${prefix}_minutes`}
+          value={minutes ?? ''}
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+    )}
+
+    {showLaps && (
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/60">Laps</span>
+        <input
+          type="number"
+          min="0"
+          name={`${prefix}_laps`}
+          value={laps ?? ''}
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+    )}
+
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/60">Weather</span>
+      <select
+        name={`${prefix}_weather`}
+        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        <option value="" selected={!weather}>Not set</option>
+        <option value="dry" selected={weather === 'dry'}>Dry</option>
+        <option value="mixed" selected={weather === 'mixed'}>Mixed</option>
+        <option value="wet" selected={weather === 'wet'}>Wet</option>
+      </select>
+    </label>
+  </div>
+</fieldset>

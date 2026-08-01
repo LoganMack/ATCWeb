@@ -1,0 +1,56 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import EventDetailCard from '../components/EventDetailCard.astro';
+import { getEvents, resolveSupabaseEnv } from '../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let events: Awaited<ReturnType<typeof getEvents>> = [];
+let loadError = false;
+try {
+  events = await getEvents(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load events:', err);
+  loadError = true;
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+const todayStr = new Date().toISOString().slice(0, 10);
+const upcoming = events.filter((e) => e.event_date >= todayStr);
+const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
+---
+
+<Layout title="Calendar" description="The Alpha Touring Challenge race calendar.">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Calendar</h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
+      {upcoming.length} upcoming event{upcoming.length === 1 ? '' : 's'}.
+    </p>
+
+    {loadError && (
+      <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load the calendar right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && events.length === 0 && <p class="mt-8 text-white/60">No events scheduled yet.</p>}
+
+    {!loadError && upcoming.length > 0 && (
+      <div class="mt-10 space-y-4">
+        {upcoming.map((event, i) => <EventDetailCard event={event} index={i} />)}
+      </div>
+    )}
+
+    {!loadError && past.length > 0 && (
+      <>
+        <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
+        <div class="mt-6 space-y-4 opacity-70">
+          {past.map((event, i) => <EventDetailCard event={event} index={i} />)}
+        </div>
+      </>
+    )}
+  </section>
+</Layout>

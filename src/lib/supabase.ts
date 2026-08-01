@@ -326,3 +326,123 @@ export async function uploadToStorage(
   }
   return `${env.url}/storage/v1/object/public/${bucket}/${path}`;
 }
+
+// ---------------------------------------------------------------------------
+// CALENDAR — circuits + events
+// ---------------------------------------------------------------------------
+
+// --- Circuits ------------------------------------------------------------
+
+export interface Circuit {
+  id: string;
+  name: string;
+  logo_url: string | null;
+}
+
+export function getCircuits(env: SupabaseEnv) {
+  return restGet<Circuit[]>(env, 'circuits?select=id,name,logo_url&order=name.asc');
+}
+
+export async function getCircuitById(env: SupabaseEnv, id: string) {
+  const circuits = await restGet<Circuit[]>(
+    env,
+    `circuits?select=id,name,logo_url&id=eq.${encodeURIComponent(id)}`
+  );
+  return circuits[0] ?? null;
+}
+
+export function createCircuit(env: SupabaseEnv, accessToken: string, data: Partial<Circuit>) {
+  return restPost<Circuit>(env, accessToken, 'circuits', data);
+}
+
+export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Circuit>) {
+  return restPatch<Circuit>(env, accessToken, `circuits?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteCircuit(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `circuits?id=eq.${encodeURIComponent(id)}`);
+}
+
+// --- Events ----------------------------------------------------------------
+
+export type Weather = 'dry' | 'mixed' | 'wet';
+export type EventFormat = 'endurance' | 'sprint' | 'special';
+
+export interface EventRecord {
+  id: string;
+  circuit_id: string;
+  layout: string | null;
+  event_date: string; // 'YYYY-MM-DD'
+  format: EventFormat;
+  fuel_limit_pct: number | null;
+  results_url: string | null;
+
+  practice_start_time: string | null; // 'HH:MM:SS'
+  practice_minutes: number | null;
+  practice_weather: Weather | null;
+
+  qualifying_start_time: string | null;
+  qualifying_minutes: number | null;
+  qualifying_laps: number | null;
+  qualifying_weather: Weather | null;
+
+  race1_start_time: string;
+  race1_laps: number | null;
+  race1_weather: Weather | null;
+
+  race2_start_time: string | null;
+  race2_laps: number | null;
+  race2_weather: Weather | null;
+
+  race3_start_time: string | null;
+  race3_laps: number | null;
+  race3_weather: Weather | null;
+}
+
+export interface EventWithCircuit extends EventRecord {
+  circuits: { name: string; logo_url: string | null } | null;
+}
+
+const EVENT_SELECT =
+  'id,circuit_id,layout,event_date,format,fuel_limit_pct,results_url,' +
+  'practice_start_time,practice_minutes,practice_weather,' +
+  'qualifying_start_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
+  'race1_start_time,race1_laps,race1_weather,' +
+  'race2_start_time,race2_laps,race2_weather,' +
+  'race3_start_time,race3_laps,race3_weather';
+
+/** All events (with circuit name/logo embedded), soonest first. Powers the public calendar page. */
+export function getEvents(env: SupabaseEnv) {
+  const select = `${EVENT_SELECT},circuits(name,logo_url)`;
+  return restGet<EventWithCircuit[]>(env, `events?select=${encodeURIComponent(select)}&order=event_date.asc`);
+}
+
+/** The next `limit` events from today onward — powers the homepage "Upcoming Events" widget. */
+export function getUpcomingEvents(env: SupabaseEnv, limit: number) {
+  const select = `${EVENT_SELECT},circuits(name,logo_url)`;
+  const today = new Date().toISOString().slice(0, 10);
+  return restGet<EventWithCircuit[]>(
+    env,
+    `events?select=${encodeURIComponent(select)}&event_date=gte.${today}&order=event_date.asc&limit=${limit}`
+  );
+}
+
+export async function getEventById(env: SupabaseEnv, id: string) {
+  const events = await restGet<EventRecord[]>(
+    env,
+    `events?select=${EVENT_SELECT}&id=eq.${encodeURIComponent(id)}`
+  );
+  return events[0] ?? null;
+}
+
+export function createEvent(env: SupabaseEnv, accessToken: string, data: Partial<EventRecord>) {
+  return restPost<EventRecord>(env, accessToken, 'events', data);
+}
+
+export function updateEvent(env: SupabaseEnv, accessToken: string, id: string, data: Partial<EventRecord>) {
+  return restPatch<EventRecord>(env, accessToken, `events?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteEvent(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `events?id=eq.${encodeURIComponent(id)}`);
+}

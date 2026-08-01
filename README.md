@@ -14,6 +14,7 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
 2. **Create a Supabase project** at supabase.com (free tier is enough for this). In the SQL editor, run, in order:
    - `supabase/migrations/0001_init.sql` — creates all tables, lookups, and RLS policies
    - `supabase/migrations/0002_auth_admin.sql` — adds `profiles`, admin-only write policies, `teams.status`, and the `logos`/`photos` Storage buckets (see "Auth & Admin Portal" below)
+   - `supabase/migrations/0003_calendar.sql` — adds `circuits` and `events` (the race calendar — see "Calendar" below)
    - `supabase/seed/seed_teams.sql`
    - `supabase/seed/seed_drivers.sql`
    - `supabase/seed/seed_news.sql`
@@ -56,6 +57,15 @@ The admin tools at `/admin` (publish news, edit drivers/teams, upload team logos
 - All admin writes (`src/lib/supabase.ts`'s `create*`/`update*`/`delete*` functions) send the signed-in admin's own access token, never the anon key — Postgres Row Level Security in `0002_auth_admin.sql` is what actually allows or blocks the write. The app-layer gating in the middleware is a UX nicety; RLS is the real security boundary, same principle as the read-only policies from `0001_init.sql`.
 - Team logo uploads go straight to Supabase Storage (`logos` bucket, public read / admin-only write) via `uploadToStorage()` in `src/lib/supabase.ts`.
 
+## Calendar (v0.4)
+
+The nav's "Calendar" link and the homepage's "Upcoming Events" widget (right half of the hero) are both fed by `circuits` and `events`, added in `supabase/migrations/0003_calendar.sql`.
+
+- **Circuits** (`/admin/circuits`) are a reusable reference table — a track gets raced across many seasons, so its name/logo only need to be entered once. Circuit logos are optional and upload to the same `logos` Storage bucket as team logos (see "Auth & Admin Portal" above); until you upload one, its slot in the calendar just shows a blank placeholder square. **Sourcing/uploading the actual circuit logos is left for later** — the admin UI and public pages both already handle a circuit having no logo gracefully.
+- **Events** (`/admin/events`) are one row per race weekend: a circuit, an optional layout note (e.g. "Full Course" vs. a boot/chicane config — the same circuit can run different layouts from one event to the next, which is why `layout` lives on the event rather than the circuit), a date, and an overall format (Sprint / Endurance / Special). Every event can carry up to five sessions — Practice, Qualifying, Race 1 (required), Race 2 and Race 3 (both optional) — each with its own start time and a Dry/Mixed/Wet weather icon; Practice and Qualifying also track a length in minutes, and Qualifying/Race 1/Race 2/Race 3 also track a lap count. There's also an optional fuel-limit percentage and a link to the event's iRacing results page, both shown on the public calendar card when set.
+- The public `/calendar` page lists every event (soonest first, with a separate dimmed "Past Events" section below), and the homepage hero shows just the next three, with the soonest rendered as a larger highlighted card including its full session breakdown.
+- `src/lib/eventFormatting.ts` holds the shared date/time formatting and the `getEventSessions()` helper that flattens an event's five possible sessions into a display-ready list, skipping whichever of Race 2/Race 3/Practice/Qualifying weren't scheduled for that particular weekend.
+
 ## Re-importing the roster later
 
 Whenever the roster spreadsheet changes:
@@ -71,12 +81,13 @@ This regenerates `supabase/seed/seed_teams.sql` and `seed_drivers.sql`. Re-run t
 - **Logo**: resolved — the real ATC18 logo (`public/logos/atc18-white.png` for the dark nav, `atc18-black.png` also included for any light-background use) pulled from `E:\ATC Media\Logos` on your machine.
 - **News cover image**: resolved — `public/images/news/swirydowicz-champion-atc17.jpg`, referenced directly in `seed_news.sql` as a static site asset (no Supabase Storage needed for this one).
 - **Favicon**: resolved — generated from your `favicon.png` into `public/favicon.ico` (16/32/48px), `public/favicon-192.png`, and `public/apple-touch-icon.png` (180px), wired up in `src/layouts/Layout.astro`.
+- **Circuit logos**: still a placeholder — no circuit has a logo uploaded yet, so cards fall back to a blank square. Upload one per circuit from `/admin/circuits` whenever you have them; nothing else needs to change.
 - **Homepage background image**: still a placeholder — the hero section in `src/pages/index.astro` currently references `public/images/hero-bg.jpg`, which doesn't exist yet, so you'll just see the dark background + radial glow until you add it. Drop your image at exactly that path (`public/images/hero-bg.jpg`) and it'll pick it up automatically on the next build/deploy — no code change needed. Sizing guidance:
   - **Dimensions**: 2560×1440px minimum (16:9). The image is stretched to `cover` behind the hero text, so on very wide monitors it can be cropped horizontally — a subject that's reasonably centered (not off in a corner) holds up best across screen sizes.
   - **Format**: JPG, optimized to roughly 300–500KB (this loads on every visit to `/`, so it's worth compressing — TinyPNG or Squoosh both work well).
   - **Contrast/legibility**: a dark, semi-transparent overlay (`bg-brand-ink/70`) plus the existing blue radial glow are already layered on top of whatever image you add, so the white headline text stays readable regardless — but a photo that's already darker or lower-contrast in its upper-middle area (where the headline sits) will look best.
 
-No known placeholders remain for v0.2. The homepage background image is the only open item for v0.3.
+No known placeholders remain for v0.2. The homepage background image and circuit logos are the only open items as of v0.4.
 
 ## A note on this project's first build
 

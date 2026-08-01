@@ -1,0 +1,49 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getCircuits } from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let circuits: Awaited<ReturnType<typeof getCircuits>> = [];
+let loadError = false;
+try {
+  circuits = await getCircuits(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load circuits for admin:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="Circuits">
+  <div class="reveal flex items-center justify-between">
+    <h1 class="font-display text-4xl">Circuits</h1>
+    <a href="/admin/circuits/new" class="rounded-full bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      New Circuit
+    </a>
+  </div>
+
+  {loadError && (
+    <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load circuits.
+    </p>
+  )}
+
+  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    {circuits.length === 0 && !loadError && <p class="p-6 text-sm text-white/60">No circuits yet.</p>}
+    {circuits.map((circuit) => (
+      <a
+        href={`/admin/circuits/${circuit.id}`}
+        class="flex items-center gap-4 px-6 py-3 transition hover:bg-white/[0.03]"
+      >
+        {circuit.logo_url ? (
+          <img src={circuit.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
+        ) : (
+          <div class="h-8 w-8 rounded bg-white/10"></div>
+        )}
+        <p class="font-semibold">{circuit.name}</p>
+      </a>
+    ))}
+  </div>
+</AdminLayout>

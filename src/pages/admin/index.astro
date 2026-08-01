@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDrivers, getTeams, getAllNewsPosts } from '../../lib/supabase';
+import { resolveSupabaseEnv, getDrivers, getTeams, getAllNewsPosts, getEvents, getCircuits } from '../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -10,15 +10,22 @@ const accessToken = Astro.locals.session!.accessToken;
 let driverCount = 0;
 let teamCount = 0;
 let draftCount = 0;
+let upcomingEventCount = 0;
+let circuitCount = 0;
 try {
-  const [drivers, teams, news] = await Promise.all([
+  const [drivers, teams, news, events, circuits] = await Promise.all([
     getDrivers(supabaseEnv),
     getTeams(supabaseEnv),
     getAllNewsPosts(supabaseEnv, accessToken),
+    getEvents(supabaseEnv),
+    getCircuits(supabaseEnv),
   ]);
   driverCount = drivers.length;
   teamCount = teams.length;
   draftCount = news.filter((p) => p.status === 'draft').length;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
+  circuitCount = circuits.length;
 } catch (err) {
   console.error('Failed to load admin dashboard counts:', err);
 }
@@ -27,6 +34,8 @@ const cards = [
   { href: '/admin/news', label: 'News', detail: `${draftCount} draft${draftCount === 1 ? '' : 's'}` },
   { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} on the roster` },
   { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
+  { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming` },
+  { href: '/admin/circuits', label: 'Circuits', detail: `${circuitCount} circuits` },
   { href: '/admin/users', label: 'Users', detail: 'Assign admin access' },
 ];
 ---

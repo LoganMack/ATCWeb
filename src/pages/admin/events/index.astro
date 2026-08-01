@@ -1,0 +1,56 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getEvents } from '../../../lib/supabase';
+import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS } from '../../../lib/eventFormatting';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let events: Awaited<ReturnType<typeof getEvents>> = [];
+let loadError = false;
+try {
+  events = await getEvents(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load events for admin:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="Events">
+  <div class="reveal flex items-center justify-between">
+    <h1 class="font-display text-4xl">Events</h1>
+    <a href="/admin/events/new" class="rounded-full bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      New Event
+    </a>
+  </div>
+
+  {loadError && (
+    <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load events.
+    </p>
+  )}
+
+  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    {events.length === 0 && !loadError && <p class="p-6 text-sm text-white/60">No events yet.</p>}
+    {events.map((event) => (
+      <a
+        href={`/admin/events/${event.id}`}
+        class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+      >
+        <div class="flex items-center gap-4">
+          {event.circuits?.logo_url && (
+            <img src={event.circuits.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
+          )}
+          <div>
+            <p class="font-semibold">{event.circuits?.name ?? 'TBA'}</p>
+            <p class="text-sm text-white/50">{formatEventDate(event.event_date)}</p>
+          </div>
+        </div>
+        <span class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+          {FORMAT_LABELS[event.format]}
+        </span>
+      </a>
+    ))}
+  </div>
+</AdminLayout>

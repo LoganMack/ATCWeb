@@ -1,0 +1,86 @@
+---
+// Plain inline SVG, no icon library dependency — matches the rest of the
+// project's "no unnecessary dependencies" approach (see Nav.astro's
+// hamburger icon for the same pattern).
+import { WEATHER_LABELS, type Weather } from '../lib/eventFormatting';
+
+interface Props {
+  condition: Weather | null;
+  class?: string;
+}
+
+const { condition, class: className = '' } = Astro.props;
+const label = condition ? WEATHER_LABELS[condition] : 'Not set';
+---
+
+{condition === 'dry' && (
+  <svg
+    role="img"
+    aria-label={label}
+    class={`inline-block text-brand-gold ${className}`}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    width="1em"
+    height="1em"
+  >
+    <title>{label}</title>
+    <circle cx="12" cy="12" r="5" />
+    <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.2" y1="4.2" x2="5.6" y2="5.6" />
+      <line x1="18.4" y1="18.4" x2="19.8" y2="19.8" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.2" y1="19.8" x2="5.6" y2="18.4" />
+      <line x1="18.4" y1="5.6" x2="19.8" y2="4.2" />
+    </g>
+  </svg>
+)}
+
+{condition === 'mixed' && (
+  <svg
+    role="img"
+    aria-label={label}
+    class={`inline-block text-white/70 ${className}`}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    width="1em"
+    height="1em"
+  >
+    <title>{label}</title>
+    <circle cx="16.5" cy="6.5" r="2.5" fill="currentColor" stroke="none" />
+    <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.3-1.5A4 4 0 0 0 6.5 16.5" />
+  </svg>
+)}
+
+{condition === 'wet' && (
+  <svg
+    role="img"
+    aria-label={label}
+    class={`inline-block text-brand-blue ${className}`}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    width="1em"
+    height="1em"
+  >
+    <title>{label}</title>
+    <path d="M17.5 15a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.3-1.5A4 4 0 0 0 6.5 12.5" />
+    <line x1="8" y1="17" x2="8" y2="21" />
+    <line x1="12" y1="18" x2="12" y2="22" />
+    <line x1="16" y1="17" x2="16" y2="21" />
+  </svg>
+)}
+
+{!condition && <span class={`text-white/30 ${className}`} title="Not set">—</span>}

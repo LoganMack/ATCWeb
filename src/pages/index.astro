@@ -3,15 +3,17 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
-import { getNewsPosts, resolveSupabaseEnv } from '../lib/supabase';
+import UpcomingEventCard from '../components/UpcomingEventCard.astro';
+import { getNewsPosts, getUpcomingEvents, resolveSupabaseEnv } from '../lib/supabase';
 import { resolveSiteLinks } from '../lib/links';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const { discordUrl } = resolveSiteLinks(Astro.locals);
 
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
+let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
 try {
-  latestNews = await getNewsPosts(supabaseEnv, 3);
+  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 3), getUpcomingEvents(supabaseEnv, 3)]);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
@@ -39,23 +41,57 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     </div>
     <div class="pointer-events-none absolute inset-0 -z-10 bg-brand-ink/70"></div>
     <div class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_50%_-10%,rgba(67,105,245,0.25),transparent_60%)]"></div>
-    <div class="mx-auto max-w-4xl text-center">
-      <p class="reveal font-display text-sm uppercase tracking-[0.3em] text-brand-tertiary">Season 18 · Now Racing</p>
-      <h1 class="reveal mt-4 font-display text-5xl leading-[0.95] sm:text-7xl" style="transition-delay: 80ms">
-        Alpha Touring<br />Challenge
-      </h1>
-      <p class="reveal mt-6 text-lg text-white/70" style="transition-delay: 160ms">
-        The premier North American touring car series on iRacing.
-      </p>
-      <div class="reveal mt-10 flex flex-wrap items-center justify-center gap-4" style="transition-delay: 240ms">
-        <a
-          href={discordUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="rounded-full bg-brand-primary px-8 py-3 font-semibold transition hover:brightness-110"
+
+    <div class="mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
+      <div class="text-center lg:text-left">
+        <p class="reveal font-display text-sm uppercase tracking-[0.3em] text-brand-tertiary">Season 18 · Now Racing</p>
+        <h1 class="reveal mt-4 font-display text-5xl leading-[0.95] sm:text-7xl" style="transition-delay: 80ms">
+          Alpha Touring<br />Challenge
+        </h1>
+        <p class="reveal mt-6 text-lg text-white/70" style="transition-delay: 160ms">
+          The premier North American touring car series on iRacing.
+        </p>
+        <div
+          class="reveal mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start"
+          style="transition-delay: 240ms"
         >
-          Sign Up
-        </a>
+          <a
+            href={discordUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="rounded-full bg-brand-primary px-8 py-3 font-semibold transition hover:brightness-110"
+          >
+            Sign Up
+          </a>
+        </div>
+      </div>
+
+      <div>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 240ms">
+            Upcoming Events
+          </h2>
+        </div>
+
+        {upcomingEvents.length === 0 && (
+          <p class="reveal text-sm text-white/50" style="transition-delay: 280ms">
+            No upcoming events scheduled yet.
+          </p>
+        )}
+
+        <div class="space-y-3">
+          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} />)}
+        </div>
+
+        {upcomingEvents.length > 0 && (
+          <a
+            href="/calendar"
+            class="reveal mt-4 inline-block text-sm text-white/60 hover:text-white"
+            style={`transition-delay: ${280 + upcomingEvents.length * 60}ms`}
+          >
+            Full calendar &rarr;
+          </a>
+        )}
       </div>
     </div>
   </section>

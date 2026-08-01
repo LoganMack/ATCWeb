@@ -1,0 +1,302 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import EventSessionFields from '../../../components/EventSessionFields.astro';
+import {
+  resolveSupabaseEnv,
+  getEventById,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  getCircuits,
+  type EventRecord,
+  type EventFormat,
+  type Weather,
+} from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const { id } = Astro.params;
+const isNew = id === 'new';
+
+let error: string | null = null;
+
+function str(form: FormData, name: string): string {
+  return String(form.get(name) ?? '').trim();
+}
+function optStr(form: FormData, name: string): string | null {
+  const v = str(form, name);
+  return v || null;
+}
+function optInt(form: FormData, name: string): number | null {
+  const v = str(form, name);
+  return v ? Number(v) : null;
+}
+function optWeather(form: FormData, name: string): Weather | null {
+  const v = str(form, name);
+  return v === 'dry' || v === 'mixed' || v === 'wet' ? v : null;
+}
+
+function readForm(form: FormData): Partial<EventRecord> {
+  return {
+    circuit_id: str(form, 'circuit_id'),
+    layout: optStr(form, 'layout'),
+    event_date: str(form, 'event_date'),
+    format: (str(form, 'format') || 'sprint') as EventFormat,
+    fuel_limit_pct: optInt(form, 'fuel_limit_pct'),
+    results_url: optStr(form, 'results_url'),
+
+    practice_start_time: optStr(form, 'practice_start_time'),
+    practice_minutes: optInt(form, 'practice_minutes'),
+    practice_weather: optWeather(form, 'practice_weather'),
+
+    qualifying_start_time: optStr(form, 'qualifying_start_time'),
+    qualifying_minutes: optInt(form, 'qualifying_minutes'),
+    qualifying_laps: optInt(form, 'qualifying_laps'),
+    qualifying_weather: optWeather(form, 'qualifying_weather'),
+
+    race1_start_time: str(form, 'race1_start_time'),
+    race1_laps: optInt(form, 'race1_laps'),
+    race1_weather: optWeather(form, 'race1_weather'),
+
+    race2_start_time: optStr(form, 'race2_start_time'),
+    race2_laps: optInt(form, 'race2_laps'),
+    race2_weather: optWeather(form, 'race2_weather'),
+
+    race3_start_time: optStr(form, 'race3_start_time'),
+    race3_laps: optInt(form, 'race3_laps'),
+    race3_weather: optWeather(form, 'race3_weather'),
+  };
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? 'save');
+
+  if (intent === 'delete' && !isNew && id) {
+    try {
+      await deleteEvent(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/events', 302);
+    } catch (err) {
+      console.error('Failed to delete event:', err);
+      error = 'Failed to delete this event.';
+    }
+  } else {
+    const data = readForm(form);
+    if (!data.circuit_id || !data.event_date || !data.race1_start_time) {
+      error = 'Circuit, event date, and Race 1 start time are required.';
+    } else {
+      try {
+        if (isNew) {
+          const created = await createEvent(supabaseEnv, accessToken, data);
+          return Astro.redirect(`/admin/events/${created.id}`, 302);
+        } else if (id) {
+          await updateEvent(supabaseEnv, accessToken, id, data);
+        }
+      } catch (err) {
+        console.error('Failed to save event:', err);
+        error = err instanceof Error ? err.message : 'Failed to save changes.';
+      }
+    }
+  }
+}
+
+const circuits = await getCircuits(supabaseEnv);
+
+let event: EventRecord | null = null;
+if (!isNew && id) {
+  event = await getEventById(supabaseEnv, id);
+  if (!event) return Astro.redirect('/admin/events', 302);
+}
+
+const d: Partial<EventRecord> = event ?? {
+  circuit_id: circuits[0]?.id ?? '',
+  layout: '',
+  event_date: '',
+  format: 'sprint',
+  fuel_limit_pct: null,
+  results_url: '',
+  practice_start_time: null,
+  practice_minutes: null,
+  practice_weather: null,
+  qualifying_start_time: null,
+  qualifying_minutes: null,
+  qualifying_laps: null,
+  qualifying_weather: null,
+  race1_start_time: '',
+  race1_laps: null,
+  race1_weather: null,
+  race2_start_time: null,
+  race2_laps: null,
+  race2_weather: null,
+  race3_start_time: null,
+  race3_laps: null,
+  race3_weather: null,
+};
+---
+
+<AdminLayout title={isNew ? 'New Event' : 'Edit Event'}>
+  <h1 class="reveal font-display text-4xl">{isNew ? 'New Event' : 'Edit Event'}</h1>
+
+  {error && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  {circuits.length === 0 && (
+    <p class="reveal mt-6 rounded-xl border border-brand-tertiary/30 bg-brand-tertiary/10 p-4 text-sm text-white/80">
+      No circuits yet — <a href="/admin/circuits/new" class="underline">create one first</a>.
+    </p>
+  )}
+
+  <form method="POST" data-astro-reload class="reveal mt-8 flex max-w-3xl flex-col gap-6" style="transition-delay: 80ms">
+    <div class="grid gap-4 sm:grid-cols-2">
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Circuit</span>
+        <select
+          name="circuit_id"
+          required
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        >
+          {circuits.map((c) => (
+            <option value={c.id} selected={c.id === d.circuit_id}>{c.name}</option>
+          ))}
+        </select>
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Layout</span>
+        <input
+          type="text"
+          name="layout"
+          value={d.layout ?? ''}
+          placeholder="e.g. Full Course, Boot"
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Event date</span>
+        <input
+          type="date"
+          name="event_date"
+          required
+          value={d.event_date ?? ''}
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Format</span>
+        <select
+          name="format"
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        >
+          <option value="sprint" selected={d.format === 'sprint'}>Sprint</option>
+          <option value="endurance" selected={d.format === 'endurance'}>Endurance</option>
+          <option value="special" selected={d.format === 'special'}>Special</option>
+        </select>
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Fuel limit (%)</span>
+        <input
+          type="number"
+          min="0"
+          name="fuel_limit_pct"
+          value={d.fuel_limit_pct ?? ''}
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">iRacing results URL</span>
+        <input
+          type="text"
+          name="results_url"
+          value={d.results_url ?? ''}
+          placeholder="https://members.iracing.com/..."
+          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+    </div>
+
+    <div class="flex flex-col gap-4">
+      <EventSessionFields
+        prefix="practice"
+        label="Practice"
+        showMinutes
+        startTime={d.practice_start_time ?? null}
+        minutes={d.practice_minutes ?? null}
+        weather={d.practice_weather ?? null}
+      />
+      <EventSessionFields
+        prefix="qualifying"
+        label="Qualifying"
+        showMinutes
+        showLaps
+        startTime={d.qualifying_start_time ?? null}
+        minutes={d.qualifying_minutes ?? null}
+        laps={d.qualifying_laps ?? null}
+        weather={d.qualifying_weather ?? null}
+      />
+      <EventSessionFields
+        prefix="race1"
+        label="Race 1"
+        showLaps
+        required
+        startTime={d.race1_start_time ?? null}
+        laps={d.race1_laps ?? null}
+        weather={d.race1_weather ?? null}
+      />
+      <EventSessionFields
+        prefix="race2"
+        label="Race 2 (optional)"
+        showLaps
+        startTime={d.race2_start_time ?? null}
+        laps={d.race2_laps ?? null}
+        weather={d.race2_weather ?? null}
+      />
+      <EventSessionFields
+        prefix="race3"
+        label="Race 3 (optional)"
+        showLaps
+        startTime={d.race3_start_time ?? null}
+        laps={d.race3_laps ?? null}
+        weather={d.race3_weather ?? null}
+      />
+    </div>
+
+    <div class="flex gap-3">
+      <button
+        type="submit"
+        name="intent"
+        value="save"
+        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+      >
+        {isNew ? 'Create Event' : 'Save Changes'}
+      </button>
+      <a href="/admin/events" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+        Cancel
+      </a>
+    </div>
+  </form>
+
+  {!isNew && (
+    <form method="POST" data-astro-reload class="reveal mt-6 max-w-3xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
+      <input type="hidden" name="intent" value="delete" />
+      <button
+        type="submit"
+        data-confirm="Delete this event? This can't be undone."
+        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+      >
+        Delete Event
+      </button>
+    </form>
+  )}
+</AdminLayout>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+  });
+</script>

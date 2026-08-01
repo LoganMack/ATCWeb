@@ -1,0 +1,60 @@
+---
+import type { EventWithCircuit } from '../lib/supabase';
+import { formatEventDate, formatSessionTime, FORMAT_BADGE_CLASSES, FORMAT_LABELS, getEventSessions } from '../lib/eventFormatting';
+import WeatherIcon from './WeatherIcon.astro';
+
+interface Props {
+  event: EventWithCircuit;
+  index?: number;
+}
+
+const { event, index = 0 } = Astro.props;
+const sessions = getEventSessions(event);
+---
+
+<article
+  class="reveal rounded-2xl border border-white/10 bg-white/[0.03] p-6"
+  style={`transition-delay: ${Math.min(index, 10) * 40}ms`}
+>
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="flex items-center gap-4">
+      {event.circuits?.logo_url && (
+        <img src={event.circuits.logo_url} alt="" class="h-12 w-12 flex-none rounded object-contain" />
+      )}
+      <div>
+        <h3 class="font-display text-2xl leading-none">{event.circuits?.name ?? 'TBA'}</h3>
+        {event.layout && <p class="mt-1 text-sm text-white/50">{event.layout}</p>}
+      </div>
+    </div>
+    <div class="flex flex-col items-end gap-2">
+      <span class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+        {FORMAT_LABELS[event.format]}
+      </span>
+      <p class="text-sm text-white/60">{formatEventDate(event.event_date)}</p>
+    </div>
+  </div>
+
+  <div class="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+    {sessions.map((s) => (
+      <div class="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <div class="flex items-center justify-between">
+          <p class="text-xs font-semibold uppercase tracking-wide text-white/50">{s.label}</p>
+          <WeatherIcon condition={s.weather} class="text-lg" />
+        </div>
+        <p class="mt-1 text-sm font-semibold">{s.startTime ? formatSessionTime(s.startTime) : 'TBD'}</p>
+        {s.detail && <p class="text-xs text-white/50">{s.detail}</p>}
+      </div>
+    ))}
+  </div>
+
+  {(event.fuel_limit_pct !== null || event.results_url) && (
+    <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/60">
+      {event.fuel_limit_pct !== null && <span>Fuel limit: {event.fuel_limit_pct}%</span>}
+      {event.results_url && (
+        <a href={event.results_url} target="_blank" rel="noopener noreferrer" class="text-brand-primary hover:underline">
+          iRacing Results &rarr;
+        </a>
+      )}
+    </div>
+  )}
+</article>
