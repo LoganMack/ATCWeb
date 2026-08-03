@@ -1,0 +1,128 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons } from '../lib/supabase';
+import { computeSeasonStandings, type DriverSeasonStanding } from '../lib/results';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let loadError = false;
+try {
+  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load standings page filters:', err);
+  loadError = true;
+}
+
+const requestedSeasonNumber = Astro.url.searchParams.get('season');
+const activeSeason =
+  seasons.find((s) => String(s.number) === requestedSeasonNumber) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+
+const requestedClassName = Astro.url.searchParams.get('class');
+const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
+
+let standings: DriverSeasonStanding[] = [];
+if (!loadError && activeSeason && activeClass) {
+  try {
+    standings = await computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id);
+  } catch (err) {
+    console.error('Failed to compute standings:', err);
+    loadError = true;
+  }
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Season Standings" description="Full season standings for every Alpha Touring Challenge season and class.">
+  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Season Standings</h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 60ms">
+      Points reflect each driver's best rounds after that season's drop weeks are applied.
+    </p>
+
+    <HistoryTabs active="standings" />
+
+    {loadError && (
+      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load standings right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && (
+      <form method="GET" class="flex flex-wrap items-end gap-4">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/60">Season</span>
+          <select
+            name="season"
+            onchange="this.form.submit()"
+            class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            {seasons.map((s) => (
+              <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
+            ))}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/60">Class</span>
+          <select
+            name="class"
+            onchange="this.form.submit()"
+            class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            {classes.map((c) => (
+              <option value={c.name} selected={c.id === activeClass?.id}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+      </form>
+    )}
+
+    {!loadError && standings.length === 0 && (
+      <p class="mt-10 text-white/60">No results for {activeClass?.name ?? 'this class'} in {activeSeason?.name ?? 'this season'}.</p>
+    )}
+
+    {!loadError && standings.length > 0 && (
+      <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
+        <table class="w-full border-collapse" data-sortable>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
+              <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
+              <th class="py-3 pr-3 text-center font-medium" data-sort-key="points">Points</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="wins">Wins</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="podiums">Podiums</th>
+              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5s</th>
+              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10s</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
+              <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map((row) => (
+              <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]">
+                <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
+                <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name}>
+                  {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>} {row.driver.name}
+                </td>
+                <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{row.wins}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{row.podiums}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{row.top5s}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{row.top10s}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{row.poles}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{row.starts}</td>
+                <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </section>
+</Layout>

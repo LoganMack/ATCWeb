@@ -1,0 +1,92 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import ChampionCard from '../components/ChampionCard.astro';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass } from '../lib/supabase';
+import { getChampions } from '../lib/results';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let loadError = false;
+try {
+  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load champions page filters:', err);
+  loadError = true;
+}
+
+// Defaults to Alpha. Class switching is a real navigation (?class=Gamma)
+// rather than a client-side toggle — computing a season's standings isn't
+// free, so it only happens for the class actually being viewed.
+const requestedClassName = Astro.url.searchParams.get('class');
+const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
+
+let champions: Awaited<ReturnType<typeof getChampions>> = [];
+let photosBySeason = new Map<string, Awaited<ReturnType<typeof getChampionPhotosForClass>>>();
+if (!loadError && activeClass) {
+  try {
+    const [championsResult, photos] = await Promise.all([
+      getChampions(supabaseEnv, seasons, activeClass.id),
+      getChampionPhotosForClass(supabaseEnv, activeClass.id),
+    ]);
+    champions = championsResult;
+    for (const photo of photos) {
+      if (!photosBySeason.has(photo.season_id)) photosBySeason.set(photo.season_id, []);
+      photosBySeason.get(photo.season_id)!.push(photo);
+    }
+  } catch (err) {
+    console.error('Failed to compute champions:', err);
+    loadError = true;
+  }
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Champions" description="Past Alpha Touring Challenge season champions.">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Champions</h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 60ms">
+      Every season champion, by class.
+    </p>
+
+    <HistoryTabs active="champions" />
+
+    {loadError && (
+      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load champions right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && (
+      <div class="flex flex-wrap gap-2">
+        {classes.map((c) => (
+          <a
+            href={`/champions?class=${encodeURIComponent(c.name)}`}
+            class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            {c.name}
+          </a>
+        ))}
+      </div>
+    )}
+
+    {!loadError && champions.length === 0 && (
+      <p class="mt-10 text-white/60">No champions on record yet for {activeClass?.name ?? 'this class'}.</p>
+    )}
+
+    {!loadError && champions.length > 0 && (
+      <div class="mt-8 flex flex-col gap-5">
+        {champions.map((entry, i) => (
+          <ChampionCard entry={entry} photos={photosBySeason.get(entry.season.id) ?? []} index={i} />
+        ))}
+      </div>
+    )}
+  </section>
+</Layout>

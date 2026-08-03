@@ -1,0 +1,126 @@
+---
+export const prerender = false;
+
+import Layout from '../../layouts/Layout.astro';
+import HistoryTabs from '../../components/HistoryTabs.astro';
+import { resolveSupabaseEnv, getDriverClasses } from '../../lib/supabase';
+import { getRoundBySubsessionId, getRoundResultsByClass } from '../../lib/results';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+// iRacing subsession IDs are ordinary (non-bigint-range) integers in
+// practice, so Number() parsing here is safe — well under
+// Number.MAX_SAFE_INTEGER.
+const subsessionId = Number(Astro.params.subsessionId);
+
+let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
+let resultsByClass: Awaited<ReturnType<typeof getRoundResultsByClass>> = new Map();
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let loadError = false;
+
+if (Number.isFinite(subsessionId)) {
+  try {
+    [round, resultsByClass, classes] = await Promise.all([
+      getRoundBySubsessionId(supabaseEnv, subsessionId),
+      getRoundResultsByClass(supabaseEnv, subsessionId),
+      getDriverClasses(supabaseEnv),
+    ]);
+  } catch (err) {
+    console.error('Failed to load round results:', err);
+    loadError = true;
+  }
+}
+
+if (!loadError && !round) {
+  return Astro.redirect('/results', 302);
+}
+
+const classNameById = new Map(classes.map((c) => [c.id, c.name]));
+// Classes ordered Alpha/Gamma/Delta (sort_order) rather than however Map
+// iteration happens to return them.
+const orderedClassIds = classes.map((c) => c.id).filter((id) => resultsByClass.has(id));
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title={round ? round.track_name : 'Race Results'} description="Race-by-race results for this round.">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+    <a href="/results" class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
+
+    {loadError && (
+      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load this round's results right now.
+      </p>
+    )}
+
+    {round && (
+      <>
+        <h1 class="reveal mt-3 font-display text-5xl" style="transition-delay: 40ms">
+          {round.round_number !== null && `Round ${round.round_number} — `}{round.track_name}
+        </h1>
+        <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
+          {new Date(round.start_time).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          {round.format && ` · ${round.format === 'endurance' ? 'Endurance' : 'Sprint'}`}
+          {round.strength_of_field !== null && ` · SoF ${round.strength_of_field}`}
+          {round.num_drivers !== null && ` · ${round.num_drivers} drivers`}
+        </p>
+
+        <HistoryTabs active="results" />
+
+        {orderedClassIds.length === 0 && <p class="mt-10 text-white/60">No results recorded for this round yet.</p>}
+
+        {orderedClassIds.map((classId) => {
+          const byRace = resultsByClass.get(classId)!;
+          const raceNumbers = [...byRace.keys()].sort((a, b) => a - b);
+          return (
+            <div class="mt-12">
+              <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
+              {raceNumbers.map((raceNumber) => (
+                <div class="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+                  <table class="w-full border-collapse">
+                    <thead>
+                      <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                        <th class="py-3 pl-4 pr-2 font-medium">Pos</th>
+                        <th class="py-3 pr-3 font-medium">Driver</th>
+                        <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
+                        <th class="py-3 pr-3 text-center font-medium">Points</th>
+                        <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
+                        <th class="py-3 pr-4 font-medium">Race {raceNumber}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byRace.get(raceNumber)!.map((row) => (
+                        <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
+                          <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
+                            {row.dsq ? 'DSQ' : row.classRank}
+                          </td>
+                          <td class="py-2.5 pr-3 font-semibold">
+                            {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>} {row.driver.name}
+                          </td>
+                          <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.startingPosition ?? '—'}</td>
+                          <td class="py-2.5 pr-3 text-center font-semibold">{row.totalPoints}</td>
+                          <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.incidents ?? '—'}</td>
+                          <td class="py-2.5 pr-4 text-sm text-white/50">
+                            {row.polePosition && <span class="mr-2 text-brand-gold" title="Pole position">P</span>}
+                            {row.wasAdjusted && (
+                              <span class="rounded-full bg-brand-pink/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-pink" title={`Finished ${row.finishPosition}, adjusted for a penalty`}>
+                                Adj.
+                              </span>
+                            )}
+                            {row.reasonOut && row.reasonOut !== 'Running' && (
+                              <span class="text-white/40">{row.reasonOut}</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </>
+    )}
+  </section>
+</Layout>

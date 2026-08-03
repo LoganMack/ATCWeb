@@ -1,0 +1,32 @@
+---
+// Shared sub-nav for the three series-history pages. Kept as its own small
+// tab bar rather than three separate top-level Nav.astro links, since the
+// main nav is already fairly full — Nav.astro only links to /champions
+// ("History").
+interface Props {
+  active: 'champions' | 'standings' | 'results';
+}
+
+const { active } = Astro.props;
+
+const tabs: { key: Props['active']; href: string; label: string }[] = [
+  { key: 'champions', href: '/champions', label: 'Champions' },
+  { key: 'standings', href: '/standings', label: 'Standings' },
+  { key: 'results', href: '/results', label: 'Race Results' },
+];
+---
+
+<div class="reveal mb-8 flex gap-1 border-b border-white/10">
+  {tabs.map((tab) => (
+    <a
+      href={tab.href}
+      class={`-mb-px rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+        tab.key === active
+          ? 'border-brand-primary text-white'
+          : 'border-transparent text-white/50 hover:text-white'
+      }`}
+    >
+      {tab.label}
+    </a>
+  ))}
+</div>

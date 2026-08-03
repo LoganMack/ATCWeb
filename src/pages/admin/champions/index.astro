@@ -1,0 +1,93 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass } from '../../../lib/supabase';
+import { getChampions } from '../../../lib/results';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let loadError = false;
+try {
+  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load admin champions filters:', err);
+  loadError = true;
+}
+
+const requestedClassName = Astro.url.searchParams.get('class');
+const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
+
+let champions: Awaited<ReturnType<typeof getChampions>> = [];
+let photoCountBySeason = new Map<string, number>();
+if (!loadError && activeClass) {
+  try {
+    const [championsResult, photos] = await Promise.all([
+      getChampions(supabaseEnv, seasons, activeClass.id),
+      getChampionPhotosForClass(supabaseEnv, activeClass.id),
+    ]);
+    champions = championsResult;
+    for (const photo of photos) {
+      photoCountBySeason.set(photo.season_id, (photoCountBySeason.get(photo.season_id) ?? 0) + 1);
+    }
+  } catch (err) {
+    console.error('Failed to compute champions for admin:', err);
+    loadError = true;
+  }
+}
+---
+
+<AdminLayout title="Champions">
+  <h1 class="reveal font-display text-4xl">Champions</h1>
+  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
+    The champion for each season/class is computed automatically from race results — this page is just for uploading
+    the (up to 3) photos shown on the public Champions page. Standings look off? Fix it at the source data
+    (race_scores / curated_race_results), not here.
+  </p>
+
+  {loadError && (
+    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load champions.
+    </p>
+  )}
+
+  {!loadError && (
+    <div class="reveal mt-6 flex flex-wrap gap-2" style="transition-delay: 80ms">
+      {classes.map((c) => (
+        <a
+          href={`/admin/champions?class=${encodeURIComponent(c.name)}`}
+          class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+          }`}
+        >
+          {c.name}
+        </a>
+      ))}
+    </div>
+  )}
+
+  {!loadError && champions.length === 0 && (
+    <p class="reveal mt-8 text-sm text-white/60" style="transition-delay: 100ms">
+      No champions computed yet for {activeClass?.name ?? 'this class'}.
+    </p>
+  )}
+
+  {!loadError && champions.length > 0 && (
+    <div class="reveal mt-6 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 100ms">
+      {champions.map((entry) => (
+        <a
+          href={`/admin/champions/${entry.season.id}/${activeClass!.id}`}
+          class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+        >
+          <div>
+            <p class="font-semibold">{entry.season.name}</p>
+            <p class="text-sm text-white/50">{entry.standing.driver.name} · {entry.standing.totalPoints} pts</p>
+          </div>
+          <span class="text-sm text-white/50">{photoCountBySeason.get(entry.season.id) ?? 0} / 3 photos</span>
+        </a>
+      ))}
+    </div>
+  )}
+</AdminLayout>

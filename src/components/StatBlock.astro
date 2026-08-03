@@ -1,0 +1,19 @@
+---
+// One stat tile — a big number with a small label above it and an optional
+// subtitle below (used for the starts/appearances-based percentages: see
+// the header comment in src/lib/results.ts for why poles use appearances
+// as their denominator while everything else uses starts).
+interface Props {
+  label: string;
+  value: string | number;
+  sub?: string;
+}
+
+const { label, value, sub } = Astro.props;
+---
+
+<div>
+  <dt class="text-xs uppercase tracking-wide text-white/40">{label}</dt>
+  <dd class="mt-1 font-display text-3xl leading-none">{value}</dd>
+  {sub && <p class="mt-1 text-[11px] text-white/40">{sub}</p>}
+</div>

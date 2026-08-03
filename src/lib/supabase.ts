@@ -40,7 +40,10 @@ function restHeaders(env: SupabaseEnv) {
   };
 }
 
-async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
+// Exported (unlike the write-side helpers below) because src/lib/results.ts
+// needs it directly for the results/standings tables, which aren't owned by
+// this file's usual per-table CRUD pattern — see that file's header comment.
+export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
   if (!env.url || !env.anonKey) {
     throw new Error('Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).');
   }
@@ -297,6 +300,57 @@ export function deleteNewsPost(env: SupabaseEnv, accessToken: string, id: string
   return restDelete(env, accessToken, `news_posts?id=eq.${encodeURIComponent(id)}`);
 }
 
+// --- Champion photos (up to 3 per season+class, see /admin/champions) ------
+
+export interface ChampionPhoto {
+  id: string;
+  season_id: string;
+  class_id: number;
+  driver_id: string;
+  image_url: string;
+  sort_order: number;
+}
+
+const CHAMPION_PHOTO_SELECT = 'id,season_id,class_id,driver_id,image_url,sort_order';
+
+/** The (up to 3) uploaded photos for one season+class champion slot, in slot order. */
+export function getChampionPhotos(env: SupabaseEnv, seasonId: string, classId: number) {
+  return restGet<ChampionPhoto[]>(
+    env,
+    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}&order=sort_order.asc`
+  );
+}
+
+/** Every uploaded champion photo for a class, across all seasons — one query for the whole /champions page instead of one per card. */
+export function getChampionPhotosForClass(env: SupabaseEnv, classId: number) {
+  return restGet<ChampionPhoto[]>(
+    env,
+    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&class_id=eq.${classId}&order=season_id.asc,sort_order.asc`
+  );
+}
+
+/** Upserts the photo for one (season, class, sort_order) slot — replaces whatever was in that slot before. */
+export async function upsertChampionPhoto(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { season_id: string; class_id: number; driver_id: string; image_url: string; sort_order: number }
+) {
+  const res = await fetch(`${env.url}/rest/v1/champion_photos?on_conflict=season_id,class_id,sort_order`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, {
+      Prefer: 'return=representation,resolution=merge-duplicates',
+    }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on champion_photos: ${await res.text()}`);
+  const rows = (await res.json()) as ChampionPhoto[];
+  return rows[0];
+}
+
+export function deleteChampionPhoto(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `champion_photos?id=eq.${encodeURIComponent(id)}`);
+}
+
 // --- Storage (team logos, driver photos) --------------------------------
 
 /**
@@ -325,6 +379,44 @@ export async function uploadToStorage(
     throw new Error(`Storage upload failed (${res.status}): ${await res.text()}`);
   }
   return `${env.url}/storage/v1/object/public/${bucket}/${path}`;
+}
+
+// ---------------------------------------------------------------------------
+// SEASONS
+// ---------------------------------------------------------------------------
+
+export interface Season {
+  id: string;
+  number: number;
+  name: string;
+  logo_url: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_current: boolean;
+  /**
+   * Drop weeks beyond the standard baseline (see src/lib/results.ts —
+   * standings drop each driver's worst 2 + extra_drop_weeks rounds before
+   * totaling points). Column lives on `seasons` in the live database
+   * already; not created by this repo's migrations (see 0004_champions.sql
+   * for why).
+   */
+  extra_drop_weeks: number;
+}
+
+/** All seasons, newest first. */
+export function getSeasons(env: SupabaseEnv) {
+  return restGet<Season[]>(
+    env,
+    'seasons?select=id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks&order=number.desc'
+  );
+}
+
+export async function getSeasonById(env: SupabaseEnv, id: string) {
+  const seasons = await restGet<Season[]>(
+    env,
+    `seasons?select=id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks&id=eq.${encodeURIComponent(id)}`
+  );
+  return seasons[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
