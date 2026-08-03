@@ -30,28 +30,43 @@ try {
     </p>
   )}
 
-  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
-    {teams.map((team) => (
-      <a
-        href={`/admin/teams/${team.id}`}
-        class="flex items-center justify-between gap-4 px-6 py-3 transition hover:bg-white/[0.03]"
-      >
-        <div class="flex items-center gap-4">
-          {team.logo_url ? (
-            <img src={team.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
-          ) : (
-            <div class="h-8 w-8 rounded bg-white/10"></div>
-          )}
-          <p class="font-semibold">{team.name}</p>
-        </div>
-        <span
-          class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
-            team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
-          }`}
-        >
-          {team.status}
-        </span>
-      </a>
-    ))}
+  <div class="reveal mt-8 overflow-x-auto rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    <table class="w-full border-collapse" data-sortable>
+      <thead>
+        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+          <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="name">Team</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
+          <th class="py-3 pr-6 font-medium"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {teams.map((team) => (
+          <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
+            <td class="py-3 pl-6 pr-3" data-col="name">
+              <div class="flex items-center gap-3">
+                {team.logo_url ? (
+                  <img src={team.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
+                ) : (
+                  <div class="h-8 w-8 rounded bg-white/10"></div>
+                )}
+                <span class="font-semibold">{team.name}</span>
+              </div>
+            </td>
+            <td class="py-3 pr-3" data-col="status" data-sort-value={team.status}>
+              <span
+                class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                  team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
+                }`}
+              >
+                {team.status}
+              </span>
+            </td>
+            <td class="py-3 pr-6 text-right">
+              <a href={`/admin/teams/${team.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   </div>
 </AdminLayout>

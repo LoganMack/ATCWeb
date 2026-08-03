@@ -40,10 +40,12 @@ export const FORMAT_LABELS: Record<EventFormat, string> = {
   special: 'Special',
 };
 
+// Format colors follow the same blue/pink/gold hierarchy as the driver
+// classes (Alpha/Gamma/Delta) — endurance=blue, special=pink, sprint=gold.
 export const FORMAT_BADGE_CLASSES: Record<EventFormat, string> = {
-  sprint: 'bg-brand-blue/15 text-brand-blue',
-  endurance: 'bg-brand-pink/15 text-brand-pink',
-  special: 'bg-brand-gold/15 text-brand-gold',
+  endurance: 'bg-brand-blue/15 text-brand-blue',
+  special: 'bg-brand-pink/15 text-brand-pink',
+  sprint: 'bg-brand-gold/15 text-brand-gold',
 };
 
 export const WEATHER_LABELS: Record<Weather, string> = {

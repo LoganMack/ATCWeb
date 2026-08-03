@@ -49,11 +49,15 @@ h1, h2, h3, h4 {
 
 /* Scroll-reveal utility — see src/scripts/reveal.ts. No animation library
    dependency: IntersectionObserver + a CSS transition covers the staggered
-   fade/rise effect used across the site. */
+   fade/rise effect used across the site. Kept deliberately subtle (short
+   rise distance, quick transition, and an observer rootMargin that fires
+   before an element is actually on screen) — a bigger/slower version looked
+   goofy on longer lists where a fast scroll would catch several items
+   mid-pop-in instead of just finding them already settled. */
 .reveal {
   opacity: 0;
-  transform: translateY(1.25rem);
-  transition: opacity 0.6s ease, transform 0.6s ease;
+  transform: translateY(0.5rem);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .reveal.is-visible {
@@ -70,4 +74,24 @@ h1, h2, h3, h4 {
     transform: none;
     transition: none;
   }
+}
+
+/* Sort direction indicator for sortable table headers — see
+   src/scripts/sortable-table.ts. */
+th[data-sort-key]::after {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  margin-left: 0.35em;
+  opacity: 0.35;
+}
+
+th[data-sort-key][data-sort-dir='asc']::after {
+  content: '\25B2';
+  opacity: 1;
+}
+
+th[data-sort-key][data-sort-dir='desc']::after {
+  content: '\25BC';
+  opacity: 1;
 }

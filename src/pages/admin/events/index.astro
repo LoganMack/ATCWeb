@@ -31,26 +31,49 @@ try {
     </p>
   )}
 
-  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
-    {events.length === 0 && !loadError && <p class="p-6 text-sm text-white/60">No events yet.</p>}
-    {events.map((event) => (
-      <a
-        href={`/admin/events/${event.id}`}
-        class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
-      >
-        <div class="flex items-center gap-4">
-          {event.circuits?.logo_url && (
-            <img src={event.circuits.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
-          )}
-          <div>
-            <p class="font-semibold">{event.circuits?.name ?? 'TBA'}</p>
-            <p class="text-sm text-white/50">{formatEventDate(event.event_date)}</p>
-          </div>
-        </div>
-        <span class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
-          {FORMAT_LABELS[event.format]}
-        </span>
-      </a>
-    ))}
-  </div>
+  {events.length === 0 && !loadError && (
+    <p class="reveal mt-8 rounded-2xl border border-white/10 p-6 text-sm text-white/60" style="transition-delay: 80ms">
+      No events yet.
+    </p>
+  )}
+
+  {events.length > 0 && (
+    <div class="reveal mt-8 overflow-x-auto rounded-2xl border border-white/10" style="transition-delay: 80ms">
+      <table class="w-full border-collapse" data-sortable>
+        <thead>
+          <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+            <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="circuit">Circuit</th>
+            <th class="py-3 pr-3 font-medium" data-sort-key="date">Date</th>
+            <th class="py-3 pr-3 font-medium" data-sort-key="format">Format</th>
+            <th class="py-3 pr-6 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((event) => (
+            <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
+              <td class="py-3 pl-6 pr-3" data-col="circuit">
+                <div class="flex items-center gap-3">
+                  {event.circuits?.logo_url && (
+                    <img src={event.circuits.logo_url} alt="" class="h-8 w-8 flex-none rounded object-contain" />
+                  )}
+                  <span class="font-semibold">{event.circuits?.name ?? 'TBA'}</span>
+                </div>
+              </td>
+              <td class="py-3 pr-3 text-white/60" data-col="date" data-sort-value={event.event_date}>
+                {formatEventDate(event.event_date)}
+              </td>
+              <td class="py-3 pr-3" data-col="format" data-sort-value={event.format}>
+                <span class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+                  {FORMAT_LABELS[event.format]}
+                </span>
+              </td>
+              <td class="py-3 pr-6 text-right">
+                <a href={`/admin/events/${event.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
 </AdminLayout>

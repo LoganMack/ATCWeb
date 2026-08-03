@@ -21,7 +21,7 @@ const date = new Date(post.published_at).toLocaleDateString('en-US', {
   class={`reveal group block overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] transition hover:border-white/20 hover:bg-white/[0.06] ${
     featured ? 'sm:flex sm:flex-row' : ''
   }`}
-  style={`transition-delay: ${Math.min(index, 12) * 40}ms`}
+  style={`transition-delay: ${Math.min(index, 4) * 30}ms`}
 >
   {post.cover_image_url && (
     <div class={featured ? 'aspect-[16/9] w-full overflow-hidden sm:aspect-auto sm:w-1/2' : 'aspect-[16/9] w-full overflow-hidden'}>

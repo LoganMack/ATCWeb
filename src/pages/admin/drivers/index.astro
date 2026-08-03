@@ -30,26 +30,34 @@ try {
     </p>
   )}
 
-  <div class="reveal mt-8 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 80ms">
-    {drivers.map((driver) => (
-      <a
-        href={`/admin/drivers/${driver.id}`}
-        class="flex flex-wrap items-center justify-between gap-2 px-6 py-3 transition hover:bg-white/[0.03]"
-      >
-        <div class="flex items-center gap-4">
-          <span class="w-10 font-display text-xl text-white/60">
-            {driver.car_number !== null ? `#${driver.car_number}` : '—'}
-          </span>
-          <div>
-            <p class="font-semibold">{driver.name}</p>
-            <p class="text-sm text-white/50">{driver.teams?.name ?? 'No team'}</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-3 text-sm text-white/60">
-          <span>{driver.driver_classes?.name}</span>
-          <span>{driver.driver_statuses?.name}</span>
-        </div>
-      </a>
-    ))}
+  <div class="reveal mt-8 overflow-x-auto rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    <table class="w-full border-collapse" data-sortable>
+      <thead>
+        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+          <th class="py-3 pl-6 pr-2 font-medium" data-sort-key="number">#</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="name">Driver</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="class">Class</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
+          <th class="py-3 pr-6 font-medium"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {drivers.map((driver) => (
+          <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
+            <td class="py-3 pl-6 pr-2 font-display text-xl text-white/60" data-col="number" data-sort-value={driver.car_number ?? Number.MAX_SAFE_INTEGER}>
+              {driver.car_number !== null ? `#${driver.car_number}` : '—'}
+            </td>
+            <td class="py-3 pr-3 font-semibold" data-col="name">{driver.name}</td>
+            <td class="py-3 pr-3 text-white/60" data-col="team">{driver.teams?.name ?? '—'}</td>
+            <td class="py-3 pr-3 text-white/60" data-col="class">{driver.driver_classes?.name}</td>
+            <td class="py-3 pr-3 text-white/60" data-col="status">{driver.driver_statuses?.name}</td>
+            <td class="py-3 pr-6 text-right">
+              <a href={`/admin/drivers/${driver.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   </div>
 </AdminLayout>

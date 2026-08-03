@@ -26,10 +26,14 @@ const badgeClasses = classColor[className] ?? 'text-white/70 border-white/20';
   data-class={className}
   data-status={statusName}
 >
-  <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
+  <td
+    class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70"
+    data-col="number"
+    data-sort-value={driver.car_number ?? Number.MAX_SAFE_INTEGER}
+  >
     {driver.car_number !== null ? `#${driver.car_number}` : '—'}
   </td>
-  <td class="py-2.5 pr-3">
+  <td class="py-2.5 pr-3" data-col="name">
     <div class="flex items-center gap-2">
       {driver.teams?.logo_url && (
         <img src={driver.teams.logo_url} alt="" class="h-5 w-5 flex-none rounded object-contain" />
@@ -42,17 +46,17 @@ const badgeClasses = classColor[className] ?? 'text-white/70 border-white/20';
       )}
     </div>
   </td>
-  <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell">{driver.teams?.name ?? '—'}</td>
-  <td class="py-2.5 pr-3">
+  <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="team">{driver.teams?.name ?? '—'}</td>
+  <td class="py-2.5 pr-3" data-col="class">
     <span class={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${badgeClasses}`}>
       {className}
     </span>
   </td>
-  <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell">{statusName}</td>
-  <td class="hidden py-2.5 pr-3 text-white/60 lg:table-cell">{driver.car ?? '—'}</td>
-  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">{driver.starts}</td>
-  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">{driver.seasons_count}</td>
-  <td class="py-2.5 pr-4 text-center font-semibold">
+  <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="status">{statusName}</td>
+  <td class="hidden py-2.5 pr-3 text-white/60 lg:table-cell" data-col="car">{driver.car ?? '—'}</td>
+  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{driver.starts}</td>
+  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="seasons">{driver.seasons_count}</td>
+  <td class="py-2.5 pr-4 text-center font-semibold" data-col="penalty" data-sort-value={driver.penalty_points}>
     {driver.penalty_points}/{driver.penalty_points_max}
   </td>
 </tr>

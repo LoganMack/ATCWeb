@@ -78,19 +78,21 @@ const statuses = ['Active', 'Inactive', 'All'];
       it's scrolled into view. That made the whole table look like it
       wasn't loading. It should just be visible immediately.
     -->
+    <!-- data-sortable + each th's data-sort-key wire up src/scripts/sortable-table.ts;
+         click (or Enter/Space) any header to sort by that column. -->
     <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
-      <table class="w-full border-collapse">
+      <table class="w-full border-collapse" data-sortable>
         <thead>
           <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-            <th class="py-3 pl-4 pr-2 font-medium">#</th>
-            <th class="py-3 pr-3 font-medium">Driver</th>
-            <th class="hidden py-3 pr-3 font-medium sm:table-cell">Team</th>
-            <th class="py-3 pr-3 font-medium">Class</th>
-            <th class="hidden py-3 pr-3 font-medium md:table-cell">Status</th>
-            <th class="hidden py-3 pr-3 font-medium lg:table-cell">Car</th>
-            <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Starts</th>
-            <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Seasons</th>
-            <th class="py-3 pr-4 text-center font-medium">Penalty Pts</th>
+            <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="number">#</th>
+            <th class="py-3 pr-3 font-medium" data-sort-key="name">Driver</th>
+            <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="team">Team</th>
+            <th class="py-3 pr-3 font-medium" data-sort-key="class">Class</th>
+            <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="status">Status</th>
+            <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="car">Car</th>
+            <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
+            <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="seasons">Seasons</th>
+            <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty">Penalty Pts</th>
           </tr>
         </thead>
         <tbody id="roster-body">

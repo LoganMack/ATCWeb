@@ -17,15 +17,23 @@ try {
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
-const activeTeams = teams.filter((t) => t.status === 'active');
-const inactiveTeams = teams.filter((t) => t.status === 'inactive');
+const activeCount = teams.filter((t) => t.status === 'active').length;
+const inactiveCount = teams.length - activeCount;
+
+// Default order: active teams first, alphabetical within each group. Once
+// loaded, clicking a column header (src/scripts/sortable-table.ts) re-sorts
+// the whole table client-side.
+const sortedTeams = [...teams].sort((a, b) => {
+  if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
+  return a.name.localeCompare(b.name);
+});
 ---
 
 <Layout title="Teams" description="Active and past teams competing in Alpha Touring Challenge.">
   <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
     <h1 class="reveal font-display text-5xl">Teams</h1>
     <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
-      {activeTeams.length} active, {inactiveTeams.length} inactive.
+      {activeCount} active, {inactiveCount} inactive.
     </p>
 
     {loadError && (
@@ -35,53 +43,49 @@ const inactiveTeams = teams.filter((t) => t.status === 'inactive');
     )}
 
     {!loadError && (
-      <>
-        <h2 class="reveal mt-12 font-display text-2xl uppercase tracking-widest text-white/50" style="transition-delay: 100ms">
-          Active
-        </h2>
-        <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {activeTeams.map((team, i) => (
-            <div
-              class="reveal flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5 transition hover:border-white/20 hover:bg-white/[0.06]"
-              style={`transition-delay: ${Math.min(i, 12) * 40}ms`}
-            >
-              {team.logo_url ? (
-                <img src={team.logo_url} alt={team.name} class="h-12 w-12 flex-none rounded object-contain" />
-              ) : (
-                <div
-                  class="h-12 w-12 flex-none rounded"
-                  style={`background-color: ${team.primary_color_hex ?? '#ffffff1a'}`}
-                >
-                </div>
-              )}
-              <p class="font-semibold">{team.name}</p>
-            </div>
-          ))}
-        </div>
-
-        {inactiveTeams.length > 0 && (
-          <>
-            <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50" style="transition-delay: 100ms">
-              Inactive
-            </h2>
-            <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {inactiveTeams.map((team, i) => (
-                <div
-                  class="reveal flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-5 opacity-70"
-                  style={`transition-delay: ${Math.min(i, 12) * 40}ms`}
-                >
-                  {team.logo_url ? (
-                    <img src={team.logo_url} alt={team.name} class="h-12 w-12 flex-none rounded object-contain grayscale" />
-                  ) : (
-                    <div class="h-12 w-12 flex-none rounded bg-white/10"></div>
-                  )}
-                  <p class="font-semibold text-white/70">{team.name}</p>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </>
+      <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
+        <table class="w-full border-collapse" data-sortable>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
+              <th class="py-3 pr-4 font-medium" data-sort-key="status">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedTeams.map((team) => (
+              <tr class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}>
+                <td class="py-2.5 pl-4 pr-3" data-col="name">
+                  <div class="flex items-center gap-3">
+                    {team.logo_url ? (
+                      <img
+                        src={team.logo_url}
+                        alt=""
+                        class={`h-8 w-8 flex-none rounded object-contain ${team.status === 'inactive' ? 'grayscale' : ''}`}
+                      />
+                    ) : (
+                      <div
+                        class="h-8 w-8 flex-none rounded"
+                        style={`background-color: ${team.status === 'inactive' ? '#ffffff1a' : team.primary_color_hex ?? '#ffffff1a'}`}
+                      >
+                      </div>
+                    )}
+                    <span class="font-semibold">{team.name}</span>
+                  </div>
+                </td>
+                <td class="py-2.5 pr-4" data-col="status" data-sort-value={team.status}>
+                  <span
+                    class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                      team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
+                    }`}
+                  >
+                    {team.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     )}
   </section>
 </Layout>

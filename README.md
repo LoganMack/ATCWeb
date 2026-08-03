@@ -57,6 +57,12 @@ The admin tools at `/admin` (publish news, edit drivers/teams, upload team logos
 - All admin writes (`src/lib/supabase.ts`'s `create*`/`update*`/`delete*` functions) send the signed-in admin's own access token, never the anon key — Postgres Row Level Security in `0002_auth_admin.sql` is what actually allows or blocks the write. The app-layer gating in the middleware is a UX nicety; RLS is the real security boundary, same principle as the read-only policies from `0001_init.sql`.
 - Team logo uploads go straight to Supabase Storage (`logos` bucket, public read / admin-only write) via `uploadToStorage()` in `src/lib/supabase.ts`.
 
+## Sortable tables (v0.5)
+
+Every data table on the site — the public Roster and Teams pages, and the admin Drivers/Teams/Events/Circuits/News/Users lists — can be sorted by clicking (or pressing Enter/Space on) any column header. This is one small shared script, `src/scripts/sortable-table.ts`, rather than a per-page reimplementation: any `<table data-sortable>` gets it automatically, as long as each sortable `<th>` has a `data-sort-key="foo"` and each row has a matching `<td data-col="foo">`.
+
+By default a column sorts by its own displayed text (numeric text sorts numerically, everything else case-insensitively). When the sortable value isn't the same as what's displayed — a date that should sort chronologically rather than alphabetically, or the Roster's Penalty Points column — set `data-sort-value` on that `<td>` explicitly. Penalty Points is why this exists in the first place: it displays as e.g. "3/11", but the "/11" is just this season's point allowance (it's expected to change season to season), so `DriverRow.astro` sets `data-sort-value={driver.penalty_points}` on that cell — sorting only ever looks at the raw point count, never whatever the current allowance happens to be.
+
 ## Calendar (v0.4)
 
 The nav's "Calendar" link and the homepage's "Upcoming Events" widget (right half of the hero) are both fed by `circuits` and `events`, added in `supabase/migrations/0003_calendar.sql`.
