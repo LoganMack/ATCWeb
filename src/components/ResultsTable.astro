@@ -1,0 +1,95 @@
+---
+// One race's results table — shared by both the overall (cross-class) and
+// per-class views on /results/[subsessionId]. Column order is fixed:
+// Pos, Driver / Number, (Class, overall view only), Margin, Start,
+// Incidents, Laps, Points. There's deliberately no separate "badges" column
+// anymore — pole and the post-penalty adjustment flag are shown as small
+// inline markers on Start/Pos instead, and a DNF-style reason is shown
+// next to the driver's name, so the table stays to exactly these columns.
+import type { RaceResultRow } from '../lib/results';
+import { classBadgeClasses } from '../lib/classColors';
+
+/** e.g. "+4 class · -2 bonus" — omits either half when it's 0, and the whole line when both are. */
+function pointsBreakdown(row: RaceResultRow): string | null {
+  const parts: string[] = [];
+  if (row.classPoints !== 0) parts.push(`${row.classPoints > 0 ? '+' : ''}${row.classPoints} class`);
+  if (row.bonusPoints !== 0) parts.push(`${row.bonusPoints > 0 ? '+' : ''}${row.bonusPoints} bonus`);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+interface Props {
+  raceNumber: number;
+  rows: RaceResultRow[];
+  showClass?: boolean;
+  classNameById?: Map<number, string>;
+}
+
+const { raceNumber, rows, showClass = false, classNameById } = Astro.props;
+---
+
+<div class="mt-6">
+  <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Race {raceNumber}</h3>
+  <div class="mt-2 overflow-x-auto rounded-2xl border border-white/10">
+    <table class="w-full border-collapse">
+      <thead>
+        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+          <th class="py-3 pl-4 pr-2 font-medium">Pos</th>
+          <th class="py-3 pr-3 font-medium">Driver / Number</th>
+          {showClass && <th class="hidden py-3 pr-3 font-medium sm:table-cell">Class</th>}
+          <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Margin</th>
+          <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
+          <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
+          <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Laps</th>
+          <th class="py-3 pr-4 text-center font-medium">Points</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
+            <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
+              {row.dsq ? 'DSQ' : row.position}
+              {row.wasAdjusted && (
+                <sup class="ml-0.5 text-[10px] font-sans text-brand-pink" title={`Finished ${row.finishPosition}, adjusted for a penalty`}>
+                  *
+                </sup>
+              )}
+            </td>
+            <td class="py-2.5 pr-3 font-semibold">
+              {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+              {row.reasonOut && row.reasonOut !== 'Running' && (
+                <span class="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
+                  {row.reasonOut}
+                </span>
+              )}
+            </td>
+            {showClass && (
+              <td class="hidden py-2.5 pr-3 sm:table-cell">
+                <span class={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById?.get(row.classId) ?? '')}`}>
+                  {classNameById?.get(row.classId) ?? '—'}
+                </span>
+              </td>
+            )}
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.margin}</td>
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">
+              {row.startingPosition ?? '—'}
+              {row.polePosition && (
+                <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Pole position">P</sup>
+              )}
+            </td>
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.incidents ?? '—'}</td>
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">
+              <div>{row.laps ?? '—'}</div>
+              {row.lapsLed !== null && row.lapsLed > 0 && (
+                <div class="text-[10px] text-white/30">{row.lapsLed} led</div>
+              )}
+            </td>
+            <td class="py-2.5 pr-4 text-center">
+              <div class="font-semibold">{row.totalPoints}</div>
+              {pointsBreakdown(row) && <div class="text-[10px] text-white/30">{pointsBreakdown(row)}</div>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>

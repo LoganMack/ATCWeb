@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
-import { getRoundsForSeason, isChampionshipSeason } from '../lib/results';
+import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -40,6 +40,12 @@ if (!loadError && activeSeason) {
     loadError = true;
   }
 }
+
+// Displayed round numbers skip exhibitions entirely — see
+// computeDisplayRoundNumbers — so an exhibition round just shows the
+// "Exhibition" label instead of a "Round N" that would otherwise shift
+// every later round's number.
+const displayRoundNumbers = computeDisplayRoundNumbers(rounds, exhibitionRoundIds);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
@@ -91,14 +97,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && rounds.length > 0 && (
       <div class="mt-8 divide-y divide-white/10 rounded-2xl border border-white/10">
-        {rounds.map((round) => (
+        {rounds.map((round) => {
+          const displayNumber = displayRoundNumbers.get(round.subsession_id) ?? null;
+          const isExhibition = displayNumber === null;
+          return (
           <a
             href={`/results/${round.subsession_id}`}
             class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
           >
             <div>
               <p class="font-semibold">
-                {round.round_number !== null && `Round ${round.round_number} — `}{round.track_name}
+                {isExhibition ? 'Exhibition — ' : `Round ${displayNumber} — `}{round.track_name}
               </p>
               <p class="text-sm text-white/50">
                 {new Date(round.start_time).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
@@ -107,14 +116,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
               {round.strength_of_field !== null && <span>SoF {round.strength_of_field}</span>}
-              {exhibitionRoundIds.has(round.subsession_id) && (
-                <span
-                  class="rounded-full bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink"
-                  title="Flagged as a non-points exhibition — excluded from standings & champions"
-                >
-                  Exhibition
-                </span>
-              )}
               {round.status !== 'official' && (
                 <span class="rounded-full bg-brand-gold/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-gold">
                   {round.status}
@@ -122,7 +123,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               )}
             </div>
           </a>
-        ))}
+          );
+        })}
       </div>
     )}
   </section>

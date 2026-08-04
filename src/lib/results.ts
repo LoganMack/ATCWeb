@@ -81,6 +81,7 @@ interface CuratedRaceResultRow {
   adjusted_position: number | null;
   incidents: number | null;
   laps_complete: number | null;
+  laps_led: number | null;
   reason_out: string | null;
   /** Gap to the leader, in ten-thousandths of a second (iRacing's native unit) — see `formatMargin`. */
   interval_ten_thousandths: number | null;
@@ -88,9 +89,17 @@ interface CuratedRaceResultRow {
 
 export interface RoundSummary {
   subsession_id: number;
+  season_id: string;
   start_time: string;
   track_name: string;
   season_label: string | null;
+  /**
+   * The results pipeline's own round number — NOT used for display anymore.
+   * An exhibition round (round_overrides, or a whole non-championship
+   * season) shouldn't shift every later round's displayed number, so the
+   * app computes its own "Round N" numbering — see
+   * `computeDisplayRoundNumbers`.
+   */
   round_number: number | null;
   format: 'endurance' | 'sprint' | null;
   strength_of_field: number | null;
@@ -121,7 +130,7 @@ function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId
 function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
   const select =
-    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,reason_out,interval_ten_thousandths';
+    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,reason_out,interval_ten_thousandths';
   return restGet<CuratedRaceResultRow[]>(
     env,
     `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`
@@ -325,24 +334,49 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
 // Race results — browsing rounds and their race-by-race results
 // ---------------------------------------------------------------------------
 
+const ROUND_SUMMARY_SELECT =
+  'subsession_id,season_id,start_time,track_name,season_label,round_number,format,strength_of_field,num_drivers,status';
+
 /** Every round for a season, most recent first. */
 export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {
-  const select =
-    'subsession_id,start_time,track_name,season_label,round_number,format,strength_of_field,num_drivers,status';
   return restGet<RoundSummary[]>(
     env,
-    `curated_rounds?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&order=start_time.desc`
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&order=start_time.desc`
   );
 }
 
 export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: number) {
-  const select =
-    'subsession_id,start_time,track_name,season_label,round_number,format,strength_of_field,num_drivers,status';
   const rounds = await restGet<RoundSummary[]>(
     env,
-    `curated_rounds?select=${select}&subsession_id=eq.${subsessionId}`
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`
   );
   return rounds[0] ?? null;
+}
+
+/**
+ * Recomputes each round's displayed "Round N" number, chronological within
+ * the season, skipping any round that's an exhibition — either flagged
+ * individually (`round_overrides`) or because the whole season isn't a
+ * real championship (see `isChampionshipSeason`). Per Logan: flagging round
+ * 1 as an exhibition should make round 2 become "Round 1", not leave a gap.
+ * Returns null for an excluded round; the UI shows "Exhibition" instead of
+ * "Round N" for those.
+ */
+export function computeDisplayRoundNumbers(
+  rounds: RoundSummary[],
+  exhibitionRoundIds: Set<number>
+): Map<number, number | null> {
+  const chronological = [...rounds].sort(
+    (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+  );
+  const out = new Map<number, number | null>();
+  let counter = 0;
+  for (const r of chronological) {
+    const exhibition =
+      exhibitionRoundIds.has(r.subsession_id) || (r.season_label ? !isChampionshipSeason(r.season_label) : false);
+    out.set(r.subsession_id, exhibition ? null : ++counter);
+  }
+  return out;
 }
 
 export interface RaceResultRow {
@@ -363,11 +397,24 @@ export interface RaceResultRow {
   startingPosition: number | null;
   wasAdjusted: boolean;
   totalPoints: number;
+  /**
+   * `total_points` is a generated column: finish_points + class_points +
+   * finesse_bonus + pole_bonus + points_deduction. finish_points (the base
+   * overall-position points) isn't broken out separately since it's most
+   * of the total for every driver — classPoints and bonusPoints are shown
+   * as a small breakdown under the Points total instead, and only when
+   * nonzero.
+   */
+  classPoints: number;
+  /** finesse_bonus + pole_bonus + points_deduction combined — everything in total_points besides finish_points/class_points. */
+  bonusPoints: number;
   polePosition: boolean;
   incidents: number | null;
+  laps: number | null;
+  lapsLed: number | null;
   reasonOut: string | null;
-  /** Gap to the leader, formatted "xx.xxx" (seconds) — null when not on record. */
-  margin: string | null;
+  /** Gap to the leader, formatted "xx.xxx" (seconds) — "—" for the leader themselves (a 0.000 gap) or when there's no interval on record. */
+  margin: string;
 }
 
 export interface RoundResults {
@@ -377,7 +424,14 @@ export interface RoundResults {
   overall: Map<number, RaceResultRow[]>;
 }
 
-type RaceScoreWithClass = RaceScoreRow & { class_id: number; scored_position: number | null };
+type RaceScoreWithClass = RaceScoreRow & {
+  class_id: number;
+  scored_position: number | null;
+  finish_points: number;
+  class_points: number;
+  finesse_bonus: number;
+  points_deduction: number;
+};
 
 /**
  * Race-by-race results for one round, both grouped by class (ranked within
@@ -387,7 +441,8 @@ type RaceScoreWithClass = RaceScoreRow & { class_id: number; scored_position: nu
  * between the two.
  */
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
-  const select = 'subsession_id,race_number,driver_id,class_id,total_points,pole_bonus,classified,dsq,scored_position';
+  const select =
+    'subsession_id,race_number,driver_id,class_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
   const [scores, rawResults, drivers] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
@@ -411,8 +466,12 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       startingPosition: raw.starting_position,
       wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
       totalPoints: score.total_points,
+      classPoints: score.class_points,
+      bonusPoints: score.finesse_bonus + score.pole_bonus + score.points_deduction,
       polePosition: score.pole_bonus > 0,
       incidents: raw.incidents,
+      laps: raw.laps_complete,
+      lapsLed: raw.laps_led,
       reasonOut: raw.reason_out,
       margin: formatMargin(raw.interval_ten_thousandths),
     };
@@ -504,8 +563,13 @@ export function pctOf(count: number, denominator: number, ofWhat: string): strin
   return `${Math.round((count / denominator) * 100)}% of ${ofWhat}`;
 }
 
-/** Converts iRacing's `interval_ten_thousandths` gap-to-leader into "xx.xxx" seconds. Null when there's no interval on record. */
-export function formatMargin(intervalTenThousandths: number | null): string | null {
-  if (intervalTenThousandths === null) return null;
+/**
+ * Converts iRacing's `interval_ten_thousandths` gap-to-leader into "xx.xxx"
+ * seconds. The leader's own gap is 0 by definition, which isn't a
+ * meaningful "margin" to show next to their name — that (and a missing
+ * interval) both display as "—" instead of "0.000".
+ */
+export function formatMargin(intervalTenThousandths: number | null): string {
+  if (intervalTenThousandths === null || intervalTenThousandths === 0) return '—';
   return (intervalTenThousandths / 10000).toFixed(3);
 }
