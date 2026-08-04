@@ -9,12 +9,12 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
-let loadError = false;
+let loadError: string | null = null;
 try {
   [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
 } catch (err) {
   console.error('Failed to load admin champions filters:', err);
-  loadError = true;
+  loadError = err instanceof Error ? err.message : String(err);
 }
 
 const requestedClassName = Astro.url.searchParams.get('class');
@@ -34,7 +34,7 @@ if (!loadError && activeClass) {
     }
   } catch (err) {
     console.error('Failed to compute champions for admin:', err);
-    loadError = true;
+    loadError = err instanceof Error ? err.message : String(err);
   }
 }
 ---
@@ -50,6 +50,7 @@ if (!loadError && activeClass) {
   {loadError && (
     <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
       Couldn't load champions.
+      <br /><span class="mt-1 block text-white/50">{loadError}</span>
     </p>
   )}
 

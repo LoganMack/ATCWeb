@@ -16,7 +16,7 @@ const subsessionId = Number(Astro.params.subsessionId);
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
 let resultsByClass: Awaited<ReturnType<typeof getRoundResultsByClass>> = new Map();
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
-let loadError = false;
+let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
@@ -27,7 +27,7 @@ if (Number.isFinite(subsessionId)) {
     ]);
   } catch (err) {
     console.error('Failed to load round results:', err);
-    loadError = true;
+    loadError = err instanceof Error ? err.message : String(err);
   }
 }
 
@@ -49,7 +49,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {loadError && (
       <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load this round's results right now.
+        Couldn't load this round's results right now. If this mentions permission/RLS, race_scores or
+        curated_race_results likely still need the public-read policy from
+        <code>supabase/migrations/0004_champions.sql</code> — it has to be run manually in the Supabase SQL editor.
+        <br /><span class="mt-1 block text-white/50">{loadError}</span>
       </p>
     )}
 

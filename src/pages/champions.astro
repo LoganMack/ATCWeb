@@ -11,12 +11,17 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
-let loadError = false;
+// Holds the actual thrown error message (not just a boolean) — the tables
+// this page reads (race_scores, curated_race_results) are newer/narrower
+// grants than the rest of the site's public data, so "something went
+// wrong" isn't precise enough to self-diagnose an RLS/policy problem vs. a
+// genuine misconfiguration. See supabase/migrations/0004_champions.sql.
+let loadError: string | null = null;
 try {
   [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
 } catch (err) {
   console.error('Failed to load champions page filters:', err);
-  loadError = true;
+  loadError = err instanceof Error ? err.message : String(err);
 }
 
 // Defaults to Alpha. Class switching is a real navigation (?class=Gamma)
@@ -40,7 +45,7 @@ if (!loadError && activeClass) {
     }
   } catch (err) {
     console.error('Failed to compute champions:', err);
-    loadError = true;
+    loadError = err instanceof Error ? err.message : String(err);
   }
 }
 
@@ -58,7 +63,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {loadError && (
       <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load champions right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+        Couldn't load champions right now. If this mentions permission/RLS, race_scores or curated_race_results
+        likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
+        it has to be run manually in the Supabase SQL editor.
+        <br /><span class="mt-1 block text-white/50">{loadError}</span>
       </p>
     )}
 
