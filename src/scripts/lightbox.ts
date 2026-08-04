@@ -18,7 +18,7 @@ function ensureOverlay(): HTMLDivElement {
   overlay.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-black/90 p-6 backdrop-blur-sm';
   overlay.innerHTML = `
     <button type="button" data-lightbox-close aria-label="Close" class="absolute right-5 top-5 text-4xl leading-none text-white/70 transition hover:text-white">&times;</button>
-    <img class="max-h-full max-w-full rounded-lg object-contain" alt="" />
+    <img class="max-h-full max-w-full rounded-md object-contain" alt="" />
   `;
   document.body.appendChild(overlay);
 

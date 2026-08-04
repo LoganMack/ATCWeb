@@ -48,7 +48,7 @@ if (!loadError && activeClass) {
   </p>
 
   {loadError && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
       Couldn't load champions.
       <br /><span class="mt-1 block text-white/50">{loadError}</span>
     </p>
@@ -59,7 +59,7 @@ if (!loadError && activeClass) {
       {classes.map((c) => (
         <a
           href={`/admin/champions?class=${encodeURIComponent(c.name)}`}
-          class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
             c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
           }`}
         >
@@ -76,7 +76,7 @@ if (!loadError && activeClass) {
   )}
 
   {!loadError && champions.length > 0 && (
-    <div class="reveal mt-6 divide-y divide-white/10 rounded-2xl border border-white/10" style="transition-delay: 100ms">
+    <div class="reveal mt-6 divide-y divide-white/10 rounded-xl border border-white/10" style="transition-delay: 100ms">
       {champions.map((entry) => (
         <a
           href={`/admin/champions/${entry.season.id}/${activeClass!.id}`}

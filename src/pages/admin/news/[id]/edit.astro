@@ -79,7 +79,7 @@ if (Astro.request.method === 'POST') {
   </div>
 
   {error && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   <form method="POST" data-astro-reload class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
@@ -90,7 +90,7 @@ if (Astro.request.method === 'POST') {
         name="title"
         required
         value={post.title}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -100,7 +100,7 @@ if (Astro.request.method === 'POST') {
         name="slug"
         required
         value={post.slug}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -108,7 +108,7 @@ if (Astro.request.method === 'POST') {
       <textarea
         name="excerpt"
         rows="2"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >{post.excerpt}</textarea>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -117,7 +117,7 @@ if (Astro.request.method === 'POST') {
         name="body"
         required
         rows="10"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >{post.body}</textarea>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -126,7 +126,7 @@ if (Astro.request.method === 'POST') {
         type="text"
         name="cover_image_url"
         value={post.cover_image_url ?? ''}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -135,7 +135,7 @@ if (Astro.request.method === 'POST') {
         type="text"
         name="author_name"
         value={post.author_name}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <fieldset class="flex flex-col gap-1.5 text-sm">
@@ -155,11 +155,11 @@ if (Astro.request.method === 'POST') {
         type="submit"
         name="intent"
         value="save"
-        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        class="rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
       >
         Save Changes
       </button>
-      <a href="/admin/news" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/news" class="rounded-lg bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
         Cancel
       </a>
     </div>
@@ -170,7 +170,7 @@ if (Astro.request.method === 'POST') {
     <button
       type="submit"
       data-confirm="Delete this post? This can't be undone."
-      class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+      class="rounded-lg bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
     >
       Delete Post
     </button>

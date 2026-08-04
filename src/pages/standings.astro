@@ -52,7 +52,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <HistoryTabs active="standings" />
 
     {loadError && (
-      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load standings right now. If this mentions permission/RLS, race_scores or curated_race_results
         likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
         it has to be run manually in the Supabase SQL editor.
@@ -67,7 +67,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <select
             name="season"
             onchange="this.form.submit()"
-            class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             {championshipSeasons.map((s) => (
               <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
@@ -79,7 +79,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <select
             name="class"
             onchange="this.form.submit()"
-            class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             {classes.map((c) => (
               <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
@@ -94,7 +94,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && standings.length > 0 && (
-      <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
+      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
         <table class="w-full border-collapse" data-sortable>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">

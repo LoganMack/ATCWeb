@@ -28,7 +28,7 @@ const {
 } = Astro.props;
 ---
 
-<fieldset class="rounded-xl border border-white/10 p-4">
+<fieldset class="rounded-lg border border-white/10 p-4">
   <legend class="px-1 text-sm font-semibold text-white/80">{label}{required && ' *'}</legend>
   <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
     <label class="flex flex-col gap-1.5 text-sm">
@@ -38,7 +38,7 @@ const {
         name={`${prefix}_start_time`}
         required={required}
         value={startTime ?? ''}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
 
@@ -50,7 +50,7 @@ const {
           min="0"
           name={`${prefix}_minutes`}
           value={minutes ?? ''}
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
     )}
@@ -63,7 +63,7 @@ const {
           min="0"
           name={`${prefix}_laps`}
           value={laps ?? ''}
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
     )}
@@ -72,7 +72,7 @@ const {
       <span class="text-white/60">Weather</span>
       <select
         name={`${prefix}_weather`}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         <option value="" selected={!weather}>Not set</option>
         <option value="dry" selected={weather === 'dry'}>Dry</option>

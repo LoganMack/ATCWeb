@@ -140,11 +140,11 @@ const d: Partial<EventRecord> = event ?? {
   <h1 class="reveal font-display text-4xl">{isNew ? 'New Event' : 'Edit Event'}</h1>
 
   {error && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   {circuits.length === 0 && (
-    <p class="reveal mt-6 rounded-xl border border-brand-tertiary/30 bg-brand-tertiary/10 p-4 text-sm text-white/80">
+    <p class="reveal mt-6 rounded-lg border border-brand-tertiary/30 bg-brand-tertiary/10 p-4 text-sm text-white/80">
       No circuits yet — <a href="/admin/circuits/new" class="underline">create one first</a>.
     </p>
   )}
@@ -156,7 +156,7 @@ const d: Partial<EventRecord> = event ?? {
         <select
           name="circuit_id"
           required
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         >
           {circuits.map((c) => (
             <option value={c.id} selected={c.id === d.circuit_id}>{c.name}</option>
@@ -170,7 +170,7 @@ const d: Partial<EventRecord> = event ?? {
           name="layout"
           value={d.layout ?? ''}
           placeholder="e.g. Full Course, Boot"
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
       <label class="flex flex-col gap-1.5 text-sm">
@@ -180,14 +180,14 @@ const d: Partial<EventRecord> = event ?? {
           name="event_date"
           required
           value={d.event_date ?? ''}
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Format</span>
         <select
           name="format"
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         >
           <option value="sprint" selected={d.format === 'sprint'}>Sprint</option>
           <option value="endurance" selected={d.format === 'endurance'}>Endurance</option>
@@ -201,7 +201,7 @@ const d: Partial<EventRecord> = event ?? {
           min="0"
           name="fuel_limit_pct"
           value={d.fuel_limit_pct ?? ''}
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
       <label class="flex flex-col gap-1.5 text-sm">
@@ -211,7 +211,7 @@ const d: Partial<EventRecord> = event ?? {
           name="results_url"
           value={d.results_url ?? ''}
           placeholder="https://members.iracing.com/..."
-          class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
     </div>
@@ -267,11 +267,11 @@ const d: Partial<EventRecord> = event ?? {
         type="submit"
         name="intent"
         value="save"
-        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        class="rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
       >
         {isNew ? 'Create Event' : 'Save Changes'}
       </button>
-      <a href="/admin/events" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/events" class="rounded-lg bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
         Cancel
       </a>
     </div>
@@ -283,7 +283,7 @@ const d: Partial<EventRecord> = event ?? {
       <button
         type="submit"
         data-confirm="Delete this event? This can't be undone."
-        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+        class="rounded-lg bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
       >
         Delete Event
       </button>

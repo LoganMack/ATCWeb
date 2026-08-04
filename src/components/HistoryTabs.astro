@@ -22,7 +22,7 @@ const tabs: { key: Props['active']; href: string; label: string }[] = [
   {tabs.map((tab) => (
     <a
       href={tab.href}
-      class={`-mb-px rounded-t-lg border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+      class={`-mb-px rounded-t-md border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
         tab.key === active
           ? 'border-brand-primary text-white'
           : 'border-transparent text-white/50 hover:text-white'

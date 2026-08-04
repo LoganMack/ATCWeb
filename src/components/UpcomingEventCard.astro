@@ -23,12 +23,12 @@ const sessions = featured ? getEventSessions(event) : [];
 
 {featured ? (
   <div
-    class="reveal rounded-2xl border border-brand-primary/40 bg-brand-primary/10 p-5"
+    class="reveal rounded-xl border border-brand-primary/40 bg-brand-primary/10 p-5"
     style={`transition-delay: ${280 + index * 60}ms`}
   >
     <div class="flex items-center justify-between gap-3">
       <p class="font-display text-sm uppercase tracking-widest text-brand-primary">Next Up</p>
-      <span class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+      <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
         {FORMAT_LABELS[event.format]}
       </span>
     </div>
@@ -63,7 +63,7 @@ const sessions = featured ? getEventSessions(event) : [];
 ) : (
   <a
     href="/calendar"
-    class="reveal flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 transition hover:border-white/20 hover:bg-white/[0.06]"
+    class="reveal flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3 transition hover:border-white/20 hover:bg-white/[0.06]"
     style={`transition-delay: ${280 + index * 60}ms`}
   >
     <div class="flex items-center gap-3">
@@ -75,7 +75,7 @@ const sessions = featured ? getEventSessions(event) : [];
         <p class="text-xs text-white/50">{formatEventDateShort(event.event_date)}</p>
       </div>
     </div>
-    <span class={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+    <span class={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
       {FORMAT_LABELS[event.format]}
     </span>
   </a>

@@ -114,13 +114,13 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
   )}
 
   {error && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   {champion && (
     <div class="reveal mt-8 grid gap-6 sm:grid-cols-3 lg:grid-cols-5" style="transition-delay: 80ms">
       {photoBySlot.map((photo, slot) => (
-        <div class="rounded-2xl border border-white/10 p-4">
+        <div class="rounded-xl border border-white/10 p-4">
           <p class="text-xs uppercase tracking-wide text-white/40">Photo {slot + 1}</p>
           {photo ? (
             <button
@@ -128,7 +128,7 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
               data-lightbox
               data-lightbox-src={photo.image_url}
               data-lightbox-alt={`${season.name} ${driverClass.name} champion — photo ${slot + 1}`}
-              class="group relative mt-3 block aspect-video w-full overflow-hidden rounded-lg bg-white/5"
+              class="group relative mt-3 block aspect-video w-full overflow-hidden rounded-md bg-white/5"
               aria-label={`Enlarge photo ${slot + 1}`}
             >
               <img
@@ -138,7 +138,7 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
               />
             </button>
           ) : (
-            <div class="mt-3 flex aspect-video w-full items-center justify-center rounded-lg bg-white/5 text-xs text-white/30">
+            <div class="mt-3 flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-xs text-white/30">
               No photo
             </div>
           )}
@@ -149,11 +149,11 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
               type="file"
               name="photo"
               accept="image/png,image/jpeg,image/webp"
-              class="w-full text-xs text-white/60 file:mr-2 file:rounded-full file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
+              class="w-full text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
             />
             <button
               type="submit"
-              class="rounded-full bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+              class="rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
             >
               {photo ? 'Replace' : 'Upload'}
             </button>
@@ -166,7 +166,7 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
               <button
                 type="submit"
                 data-confirm="Remove this photo?"
-                class="rounded-full bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
               >
                 Remove
               </button>

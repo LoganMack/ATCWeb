@@ -2,20 +2,23 @@
 // One race's results table — shared by both the overall (cross-class) and
 // per-class views on /results/[subsessionId]. Column order is fixed:
 // Pos, Driver / Number, (Class, overall view only), Margin, Start,
-// Incidents, Laps, Points. There's deliberately no separate "badges" column
-// anymore — pole and the post-penalty adjustment flag are shown as small
-// inline markers on Start/Pos instead, and a DNF-style reason is shown
-// next to the driver's name, so the table stays to exactly these columns.
+// Incidents, Laps, Class Points. There's deliberately no separate "badges"
+// column anymore — pole and the post-penalty adjustment flag are shown as
+// small inline markers on Start/Pos instead, and result tags (e.g.
+// "Unclassified") are shown next to the driver's name, so the table stays
+// to exactly these columns. Every row is a fixed height regardless of
+// whether its Laps/Points cells have a second subtext line, so a table
+// with a mix of tall and short rows still lines up (see the `h-8` wrappers
+// below).
 import { iracingResultsUrl, type RaceResultRow } from '../lib/results';
 import type { RaceLinks } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
+import TeamLogo from './TeamLogo.astro';
 
-/** e.g. "+4 class · -2 bonus" — omits either half when it's 0, and the whole line when both are. */
+/** e.g. "+9 bonus" — combines class points and every other bonus/deduction into one figure; null when it's 0. */
 function pointsBreakdown(row: RaceResultRow): string | null {
-  const parts: string[] = [];
-  if (row.classPoints !== 0) parts.push(`${row.classPoints > 0 ? '+' : ''}${row.classPoints} class`);
-  if (row.bonusPoints !== 0) parts.push(`${row.bonusPoints > 0 ? '+' : ''}${row.bonusPoints} bonus`);
-  return parts.length > 0 ? parts.join(' · ') : null;
+  if (row.bonusPoints === 0) return null;
+  return `${row.bonusPoints > 0 ? '+' : ''}${row.bonusPoints} bonus`;
 }
 
 interface Props {
@@ -44,7 +47,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
             href={iracingResultsUrl(links.iracing_subsession_id)}
             target="_blank"
             rel="noopener noreferrer"
-            class="rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+            class="rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
           >
             iRacing Results
           </a>
@@ -54,7 +57,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
             href={links.replay_url}
             target="_blank"
             rel="noopener noreferrer"
-            class="rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+            class="rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
           >
             Download Replay
           </a>
@@ -64,7 +67,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
             href={links.broadcast_url}
             target="_blank"
             rel="noopener noreferrer"
-            class="rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+            class="rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
           >
             Watch Broadcast
           </a>
@@ -72,13 +75,13 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
 
         {isAdmin && (
           <details class="relative">
-            <summary class="cursor-pointer list-none rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/50 ring-1 ring-white/10 transition hover:bg-white/10">
+            <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/50 ring-1 ring-white/10 transition hover:bg-white/10">
               Edit links
             </summary>
             <form
               method="POST"
               data-astro-reload
-              class="absolute right-0 z-10 mt-2 flex w-64 flex-col gap-2 rounded-xl border border-white/10 bg-brand-ink p-4 shadow-xl"
+              class="absolute right-0 z-10 mt-2 flex w-64 flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-4 shadow-xl"
             >
               <input type="hidden" name="intent" value="save-race-links" />
               <input type="hidden" name="subsession_id" value={subsessionId} />
@@ -89,7 +92,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
                   type="number"
                   name="iracing_subsession_id"
                   value={links?.iracing_subsession_id ?? ''}
-                  class="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                 />
               </label>
               <label class="flex flex-col gap-1 text-[11px] text-white/50">
@@ -98,7 +101,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
                   type="url"
                   name="replay_url"
                   value={links?.replay_url ?? ''}
-                  class="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                 />
               </label>
               <label class="flex flex-col gap-1 text-[11px] text-white/50">
@@ -107,12 +110,12 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
                   type="url"
                   name="broadcast_url"
                   value={links?.broadcast_url ?? ''}
-                  class="rounded-lg border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                 />
               </label>
               <button
                 type="submit"
-                class="mt-1 rounded-full bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+                class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
               >
                 Save
               </button>
@@ -123,7 +126,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
     )}
   </div>
 
-  <div class="mt-2 overflow-x-auto rounded-2xl border border-white/10">
+  <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
     <table class="w-full border-collapse">
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -134,7 +137,7 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
           <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Laps</th>
-          <th class="py-3 pr-4 text-center font-medium">Points</th>
+          <th class="py-3 pr-4 text-center font-medium">Class Points</th>
         </tr>
       </thead>
       <tbody>
@@ -149,16 +152,21 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
               )}
             </td>
             <td class="py-2.5 pr-3 font-semibold">
-              {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
-              {row.reasonOut && row.reasonOut !== 'Running' && (
-                <span class="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
-                  {row.reasonOut}
+              <div class="flex flex-wrap items-center gap-2">
+                {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
+                <span>
+                  {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
-              )}
+                {row.tags.map((tag) => (
+                  <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </td>
             {showClass && (
               <td class="hidden py-2.5 pr-3 sm:table-cell">
-                <span class={`rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById?.get(row.classId) ?? '')}`}>
+                <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById?.get(row.classId) ?? '')}`}>
                   {classNameById?.get(row.classId) ?? '—'}
                 </span>
               </td>
@@ -172,14 +180,18 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
             </td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.incidents ?? '—'}</td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">
-              <div>{row.laps ?? '—'}</div>
-              {row.lapsLed !== null && row.lapsLed > 0 && (
-                <div class="text-[10px] text-white/30">{row.lapsLed} led</div>
-              )}
+              <div class="flex h-8 flex-col items-center justify-center">
+                <div>{row.laps ?? '—'}</div>
+                {row.lapsLed !== null && row.lapsLed > 0 && (
+                  <div class="text-[10px] text-white/30">{row.lapsLed} led</div>
+                )}
+              </div>
             </td>
             <td class="py-2.5 pr-4 text-center">
-              <div class="font-semibold">{row.totalPoints}</div>
-              {pointsBreakdown(row) && <div class="text-[10px] text-white/30">{pointsBreakdown(row)}</div>}
+              <div class="flex h-8 flex-col items-center justify-center">
+                <div class="font-semibold">{row.totalPoints}</div>
+                {pointsBreakdown(row) && <div class="text-[10px] text-white/30">{pointsBreakdown(row)}</div>}
+              </div>
             </td>
           </tr>
         ))}

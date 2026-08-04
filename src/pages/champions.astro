@@ -59,7 +59,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <HistoryTabs active="champions" />
 
     {loadError && (
-      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load champions right now. If this mentions permission/RLS, race_scores or curated_race_results
         likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
         it has to be run manually in the Supabase SQL editor.
@@ -72,7 +72,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         {classes.map((c) => (
           <a
             href={`/champions?class=${encodeURIComponent(c.name)}`}
-            class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
               c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
             }`}
           >

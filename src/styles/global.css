@@ -25,6 +25,15 @@
   color-scheme: dark;
 }
 
+/* Radio/checkbox inputs (admin forms) render with the browser's own default
+   accent color otherwise, which isn't the site's blue (#4369F5, brand.blue /
+   brand.primary in tailwind.config.mjs) — this keeps them consistent with
+   every other blue accent on the site. */
+input[type='radio'],
+input[type='checkbox'] {
+  accent-color: theme('colors.brand.primary');
+}
+
 html {
   scroll-behavior: smooth;
 }

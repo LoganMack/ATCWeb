@@ -107,7 +107,7 @@ const d: Partial<DriverRecord> = driver ?? {
   <h1 class="reveal font-display text-4xl">{isNew ? 'New Driver' : d.name}</h1>
 
   {error && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   <form method="POST" data-astro-reload class="reveal mt-8 grid max-w-2xl gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
@@ -118,7 +118,7 @@ const d: Partial<DriverRecord> = driver ?? {
         name="name"
         required
         value={d.name}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -127,7 +127,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="number"
         name="car_number"
         value={d.car_number ?? ''}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -136,14 +136,14 @@ const d: Partial<DriverRecord> = driver ?? {
         type="text"
         name="car"
         value={d.car ?? ''}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Status</span>
       <select
         name="status_id"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         {statuses.map((s) => (
           <option value={s.id} selected={s.id === d.status_id}>{s.name}</option>
@@ -154,7 +154,7 @@ const d: Partial<DriverRecord> = driver ?? {
       <span class="text-white/70">Class</span>
       <select
         name="class_id"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         {classes.map((c) => (
           <option value={c.id} selected={c.id === d.class_id}>{c.name}</option>
@@ -165,7 +165,7 @@ const d: Partial<DriverRecord> = driver ?? {
       <span class="text-white/70">Team</span>
       <select
         name="team_id"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         <option value="">No team</option>
         {teams.map((t) => (
@@ -179,7 +179,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="number"
         name="appearances"
         value={d.appearances}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -188,7 +188,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="number"
         name="starts"
         value={d.starts}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -197,7 +197,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="number"
         name="seasons_count"
         value={d.seasons_count}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -206,7 +206,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="number"
         name="penalty_points"
         value={d.penalty_points}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
@@ -215,7 +215,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="number"
         name="penalty_points_max"
         value={d.penalty_points_max}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
@@ -224,7 +224,7 @@ const d: Partial<DriverRecord> = driver ?? {
         type="text"
         name="photo_url"
         value={d.photo_url ?? ''}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
@@ -232,7 +232,7 @@ const d: Partial<DriverRecord> = driver ?? {
       <textarea
         name="bio"
         rows="4"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >{d.bio}</textarea>
     </label>
     <label class="flex items-center gap-2 text-sm sm:col-span-2">
@@ -245,11 +245,11 @@ const d: Partial<DriverRecord> = driver ?? {
         type="submit"
         name="intent"
         value="save"
-        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        class="rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
       >
         {isNew ? 'Create Driver' : 'Save Changes'}
       </button>
-      <a href="/admin/drivers" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/drivers" class="rounded-lg bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
         Cancel
       </a>
     </div>
@@ -261,7 +261,7 @@ const d: Partial<DriverRecord> = driver ?? {
       <button
         type="submit"
         data-confirm="Delete this driver? This can't be undone."
-        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+        class="rounded-lg bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
       >
         Delete Driver
       </button>

@@ -57,7 +57,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <HistoryTabs active="results" />
 
     {loadError && (
-      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load results right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
       </p>
     )}
@@ -69,7 +69,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <select
             name="season"
             onchange="this.form.submit()"
-            class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             <optgroup label="Championships" class="bg-brand-ink text-white">
               {championshipSeasons.map((s) => (
@@ -93,7 +93,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && rounds.length > 0 && (
-      <div class="mt-8 divide-y divide-white/10 rounded-2xl border border-white/10">
+      <div class="mt-8 divide-y divide-white/10 rounded-xl border border-white/10">
         {rounds.map((round) => {
           const displayNumber = displayRoundNumbers.get(round.subsession_id) ?? null;
           const isExhibition = displayNumber === null;
@@ -114,7 +114,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <div class="flex items-center gap-3 text-sm text-white/50">
               {round.strength_of_field !== null && <span>SoF {round.strength_of_field}</span>}
               {round.status !== 'official' && (
-                <span class="rounded-full bg-brand-gold/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-gold">
+                <span class="rounded-lg bg-brand-gold/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-gold">
                   {round.status}
                 </span>
               )}

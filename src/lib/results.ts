@@ -82,7 +82,6 @@ interface CuratedRaceResultRow {
   incidents: number | null;
   laps_complete: number | null;
   laps_led: number | null;
-  reason_out: string | null;
   /** Gap to the leader, in ten-thousandths of a second (iRacing's native unit) — see `formatMargin`. */
   interval_ten_thousandths: number | null;
 }
@@ -130,11 +129,22 @@ function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId
 function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
   const select =
-    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,reason_out,interval_ten_thousandths';
+    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,interval_ten_thousandths';
   return restGet<CuratedRaceResultRow[]>(
     env,
     `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`
   );
+}
+
+interface TeamBasic {
+  id: string;
+  name: string;
+  logo_url: string | null;
+}
+
+/** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_scores row — see `RaceResultRow.team`. */
+function getTeamsBasic(env: SupabaseEnv) {
+  return restGet<TeamBasic[]>(env, 'teams?select=id,name,logo_url');
 }
 
 function resultKey(subsessionId: number, raceNumber: number, custId: number) {
@@ -401,20 +411,34 @@ export interface RaceResultRow {
    * `total_points` is a generated column: finish_points + class_points +
    * finesse_bonus + pole_bonus + points_deduction. finish_points (the base
    * overall-position points) isn't broken out separately since it's most
-   * of the total for every driver — classPoints and bonusPoints are shown
-   * as a small breakdown under the Points total instead, and only when
+   * of the total for every driver — everything else (class_points,
+   * finesse_bonus, pole_bonus, points_deduction) is combined into one
+   * "bonus points" figure shown under the Points total, and only when
    * nonzero.
    */
-  classPoints: number;
-  /** finesse_bonus + pole_bonus + points_deduction combined — everything in total_points besides finish_points/class_points. */
   bonusPoints: number;
   polePosition: boolean;
   incidents: number | null;
   laps: number | null;
   lapsLed: number | null;
-  reasonOut: string | null;
-  /** Gap to the leader, formatted "xx.xxx" (seconds) — "—" for the leader themselves (a 0.000 gap) or when there's no interval on record. */
+  /**
+   * General-purpose result tags, e.g. "Unclassified" (finished under 50% of
+   * the leader's laps — driven by `race_scores.classified`, not re-derived
+   * here). Deliberately a list rather than one string so a future tag (e.g.
+   * a penalty) can sit alongside it — replaces the old single `reasonOut`
+   * ("disconnected"-style) field, which added little value.
+   */
+  tags: string[];
+  /**
+   * Gap to the leader. Formatted "xx.xxx" (seconds) normally; "—" for the
+   * leader themselves (a 0.000 gap) or when there's no interval on record;
+   * "-xL" when the raw interval is negative, which iRacing uses to flag a
+   * driver who finished one or more laps down (x = leader's laps_complete
+   * minus this driver's) rather than a real time gap.
+   */
   margin: string;
+  /** The team this driver raced for in this specific race (from `race_scores.team_id`), or null if unassigned. */
+  team: { name: string; logoUrl: string | null } | null;
 }
 
 export interface RoundResults {
@@ -426,6 +450,7 @@ export interface RoundResults {
 
 type RaceScoreWithClass = RaceScoreRow & {
   class_id: number;
+  team_id: string | null;
   scored_position: number | null;
   finish_points: number;
   class_points: number;
@@ -442,11 +467,12 @@ type RaceScoreWithClass = RaceScoreRow & {
  */
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
-    'subsession_id,race_number,driver_id,class_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
-  const [scores, rawResults, drivers] = await Promise.all([
+    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
+  const [scores, rawResults, drivers, teams] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
     driversSelect(env),
+    getTeamsBasic(env),
   ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
@@ -454,8 +480,26 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
   );
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+
+  // Leader's laps_complete per race (finish_position === 1, i.e. the actual
+  // on-track winner before any penalty adjustment) — needed to turn a
+  // lapped driver's negative interval into a "-xL" margin. See
+  // `formatMargin`.
+  const leaderLapsByRace = new Map<number, number | null>();
+  for (const r of rawResults) {
+    if (r.finish_position === 1) leaderLapsByRace.set(r.race_number, r.laps_complete);
+  }
 
   function toRow(score: RaceScoreWithClass, driver: DriverBasic, raw: CuratedRaceResultRow, position: number | null): RaceResultRow {
+    const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
+    const tags: string[] = [];
+    // `classified` is computed upstream by the results pipeline itself
+    // (Logan: "anyone finishing less than 50% of the leader's laps do not
+    // score any points and are unclassified") — trusting that field here
+    // instead of re-deriving the 50% threshold in app code.
+    if (!score.classified) tags.push('Unclassified');
+
     return {
       raceNumber: score.race_number,
       classId: score.class_id,
@@ -466,14 +510,14 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       startingPosition: raw.starting_position,
       wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
       totalPoints: score.total_points,
-      classPoints: score.class_points,
-      bonusPoints: score.finesse_bonus + score.pole_bonus + score.points_deduction,
+      bonusPoints: score.class_points + score.finesse_bonus + score.pole_bonus + score.points_deduction,
       polePosition: score.pole_bonus > 0,
       incidents: raw.incidents,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
-      reasonOut: raw.reason_out,
-      margin: formatMargin(raw.interval_ten_thousandths),
+      tags,
+      margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null),
+      team: team ? { name: team.name, logoUrl: team.logo_url } : null,
     };
   }
 
@@ -568,9 +612,27 @@ export function pctOf(count: number, denominator: number, ofWhat: string): strin
  * seconds. The leader's own gap is 0 by definition, which isn't a
  * meaningful "margin" to show next to their name — that (and a missing
  * interval) both display as "—" instead of "0.000".
+ *
+ * A negative interval (iRacing typically reports this as displaying like
+ * "-0.000") isn't a real time gap — it's iRacing's way of flagging that this
+ * driver finished one or more laps down rather than close behind on the
+ * same lap (Logan: "most likely a lap down or more"). When that happens,
+ * `ownLaps`/`leaderLaps` (both from `curated_race_results.laps_complete`)
+ * are used to show "-xL" (x laps down) instead of a bogus time gap.
  */
-export function formatMargin(intervalTenThousandths: number | null): string {
-  if (intervalTenThousandths === null || intervalTenThousandths === 0) return '—';
+export function formatMargin(
+  intervalTenThousandths: number | null,
+  ownLaps: number | null,
+  leaderLaps: number | null
+): string {
+  if (intervalTenThousandths === null) return '—';
+  if (intervalTenThousandths < 0) {
+    if (ownLaps !== null && leaderLaps !== null && leaderLaps > ownLaps) {
+      return `-${leaderLaps - ownLaps}L`;
+    }
+    return '—';
+  }
+  if (intervalTenThousandths === 0) return '—';
   return (intervalTenThousandths / 10000).toFixed(3);
 }
 

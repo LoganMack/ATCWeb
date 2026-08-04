@@ -144,7 +144,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <a href="/results" class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
     {loadError && (
-      <p class="mt-4 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load this round's results right now. If this mentions permission/RLS, race_scores or
         curated_race_results likely still need the public-read policy from
         <code>supabase/migrations/0004_champions.sql</code> — it has to be run manually in the Supabase SQL editor.
@@ -166,7 +166,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         {isExhibition && (
           <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
-            <span class="rounded-full bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink">
+            <span class="rounded-lg bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink">
               Exhibition
             </span>
             <span class="text-white/40">
@@ -180,7 +180,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <div class="mt-8 flex gap-2">
           <a
             href={`/results/${subsessionId}?view=overall`}
-            class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
               view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
             }`}
           >
@@ -188,7 +188,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </a>
           <a
             href={`/results/${subsessionId}?view=class`}
-            class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
               view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
             }`}
           >
@@ -200,9 +200,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         {view === 'overall' && orderedClassIds.length > 0 && (
           <>
-            <p class="mt-3 text-sm text-white/40">
-              Overall finishing position, every class combined — this is what the points system is actually based on.
-            </p>
             {overallRaceNumbers.map((raceNumber) => (
               <ResultsTable
                 subsessionId={subsessionId}
@@ -242,7 +239,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <input type="hidden" name="next" value={isRoundFlaggedExhibition ? 'false' : 'true'} />
             <button
               type="submit"
-              class="rounded-full bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+              class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
             >
               {isRoundFlaggedExhibition ? 'Unflag as exhibition' : 'Flag this round as an exhibition'}
             </button>

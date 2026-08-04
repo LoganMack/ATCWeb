@@ -222,6 +222,45 @@ export function deleteTeam(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `teams?id=eq.${encodeURIComponent(id)}`);
 }
 
+// --- Team rosters (season-scoped team membership, max 4 drivers/team/season, see 0008_team_rosters.sql) -
+
+export interface TeamRosterEntry {
+  season_id: string;
+  team_id: string;
+  driver_id: string;
+}
+
+const TEAM_ROSTER_SELECT = 'season_id,team_id,driver_id';
+
+/** Every roster entry across every team for one season. */
+export function getTeamRosterForSeason(env: SupabaseEnv, seasonId: string) {
+  return restGet<TeamRosterEntry[]>(
+    env,
+    `team_rosters?select=${TEAM_ROSTER_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
+/** One team's roster entries for one season (at most 4, enforced server-side). */
+export function getTeamRosterForTeamSeason(env: SupabaseEnv, teamId: string, seasonId: string) {
+  return restGet<TeamRosterEntry[]>(
+    env,
+    `team_rosters?select=${TEAM_ROSTER_SELECT}&team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
+/** Adds one driver to a team's roster for a season. Throws (with the trigger's own message) if the team's already at 4, or the driver's already on another team that season. */
+export function addTeamRosterEntry(env: SupabaseEnv, accessToken: string, data: TeamRosterEntry) {
+  return restPost<TeamRosterEntry>(env, accessToken, 'team_rosters', data);
+}
+
+export function removeTeamRosterEntry(env: SupabaseEnv, accessToken: string, data: TeamRosterEntry) {
+  return restDelete(
+    env,
+    accessToken,
+    `team_rosters?season_id=eq.${encodeURIComponent(data.season_id)}&team_id=eq.${encodeURIComponent(data.team_id)}&driver_id=eq.${encodeURIComponent(data.driver_id)}`
+  );
+}
+
 // --- Drivers (admin — raw FK columns, not the embedded/joined shape) -------
 
 export interface DriverRecord {
@@ -264,6 +303,17 @@ export function updateDriver(env: SupabaseEnv, accessToken: string, id: string, 
 
 export function deleteDriver(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `drivers?id=eq.${encodeURIComponent(id)}`);
+}
+
+export interface DriverOption {
+  id: string;
+  name: string;
+  car_number: number | null;
+}
+
+/** Lean id/name/number list for admin dropdowns (e.g. picking a driver to add to a team's season roster). */
+export function getDriversBasic(env: SupabaseEnv) {
+  return restGet<DriverOption[]>(env, 'drivers?select=id,name,car_number&order=name.asc');
 }
 
 // --- News (admin) ------------------------------------------------------

@@ -87,7 +87,7 @@ const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null };
   <h1 class="reveal font-display text-4xl">{isNew ? 'New Circuit' : c.name}</h1>
 
   {error && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   <form method="POST" data-astro-reload enctype="multipart/form-data" class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
@@ -98,7 +98,7 @@ const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null };
         name="name"
         required
         value={c.name}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
 
@@ -111,7 +111,7 @@ const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null };
         type="file"
         name="logo"
         accept="image/png,image/jpeg,image/webp,image/svg+xml"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-full file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
       />
       <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo.</span>
     </div>
@@ -121,11 +121,11 @@ const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null };
         type="submit"
         name="intent"
         value="save"
-        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        class="rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
       >
         {isNew ? 'Create Circuit' : 'Save Changes'}
       </button>
-      <a href="/admin/circuits" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/circuits" class="rounded-lg bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
         Cancel
       </a>
     </div>
@@ -137,7 +137,7 @@ const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null };
       <button
         type="submit"
         data-confirm="Delete this circuit? Events still referencing it may need reassigning first. This can't be undone."
-        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+        class="rounded-lg bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
       >
         Delete Circuit
       </button>

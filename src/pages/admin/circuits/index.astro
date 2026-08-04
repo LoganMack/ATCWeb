@@ -19,25 +19,25 @@ try {
 <AdminLayout title="Circuits">
   <div class="reveal flex items-center justify-between">
     <h1 class="font-display text-4xl">Circuits</h1>
-    <a href="/admin/circuits/new" class="rounded-full bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+    <a href="/admin/circuits/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
       New Circuit
     </a>
   </div>
 
   {loadError && (
-    <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
       Couldn't load circuits.
     </p>
   )}
 
   {circuits.length === 0 && !loadError && (
-    <p class="reveal mt-8 rounded-2xl border border-white/10 p-6 text-sm text-white/60" style="transition-delay: 80ms">
+    <p class="reveal mt-8 rounded-xl border border-white/10 p-6 text-sm text-white/60" style="transition-delay: 80ms">
       No circuits yet.
     </p>
   )}
 
   {circuits.length > 0 && (
-    <div class="reveal mt-8 overflow-x-auto rounded-2xl border border-white/10" style="transition-delay: 80ms">
+    <div class="reveal mt-8 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
       <table class="w-full border-collapse" data-sortable>
         <thead>
           <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">

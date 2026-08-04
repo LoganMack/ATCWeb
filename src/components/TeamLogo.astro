@@ -1,0 +1,28 @@
+---
+// Shared team logo display — an uploaded logo image when the team has one,
+// otherwise a placeholder tile with an acronym built from the team's name
+// (see src/lib/teamLogo.ts). Used anywhere a driver's team needs a small
+// visual mark: the roster, the Teams page, and race results rows.
+import { teamInitials } from '../lib/teamLogo';
+
+interface Props {
+  name: string;
+  logoUrl?: string | null;
+  /** Tailwind size classes, e.g. "h-8 w-8" (Teams/roster tables) or "h-5 w-5" (inline in results rows). */
+  size?: string;
+  grayscale?: boolean;
+}
+
+const { name, logoUrl, size = 'h-6 w-6', grayscale = false } = Astro.props;
+---
+
+{logoUrl ? (
+  <img src={logoUrl} alt="" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''}`} />
+) : (
+  <div
+    class={`${size} flex-none rounded bg-white/10 flex items-center justify-center text-[9px] font-bold uppercase tracking-wide text-white/50 ${grayscale ? 'opacity-60' : ''}`}
+    title={name}
+  >
+    {teamInitials(name)}
+  </div>
+)}

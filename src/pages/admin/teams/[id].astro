@@ -9,7 +9,15 @@ import {
   updateTeam,
   deleteTeam,
   uploadToStorage,
+  getSeasons,
+  getDriversBasic,
+  getTeamRosterForTeamSeason,
+  addTeamRosterEntry,
+  removeTeamRosterEntry,
   type Team,
+  type Season,
+  type DriverOption,
+  type TeamRosterEntry,
 } from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -18,6 +26,8 @@ const { id } = Astro.params;
 const isNew = id === 'new';
 
 let error: string | null = null;
+let rosterError: string | null = null;
+let rosterSeasonId: string | null = null;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop();
@@ -35,7 +45,26 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'save');
 
-  if (intent === 'delete' && !isNew && id) {
+  if (intent === 'add-roster' || intent === 'remove-roster') {
+    const seasonId = String(form.get('season_id') ?? '');
+    const driverId = String(form.get('driver_id') ?? '');
+    rosterSeasonId = seasonId || null;
+    if (!isNew && id && seasonId && driverId) {
+      try {
+        if (intent === 'add-roster') {
+          await addTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
+        } else {
+          await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
+        }
+        return Astro.redirect(`/admin/teams/${id}?season=${seasonId}`, 302);
+      } catch (err) {
+        console.error('Failed to update team roster:', err);
+        rosterError = err instanceof Error ? err.message : 'Failed to update the roster.';
+      }
+    }
+    // Falls through (no redirect) so the page re-renders with rosterError
+    // shown and the season the admin was working in still selected.
+  } else if (intent === 'delete' && !isNew && id) {
     try {
       await deleteTeam(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/teams', 302);
@@ -83,13 +112,48 @@ if (!isNew && id) {
 }
 
 const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex: '', logo_url: null };
+
+// Season roster editor — teams field a different (max 4) set of drivers
+// each season, tracked separately from teams.id/drivers.id. See
+// 0008_team_rosters.sql for the max-4 / one-team-per-season rules, enforced
+// server-side (not just here) so a bad request can't bypass them.
+let seasons: Season[] = [];
+let rosterDrivers: DriverOption[] = [];
+let rosterEntries: TeamRosterEntry[] = [];
+let selectedSeasonId: string | null = null;
+if (!isNew && id) {
+  try {
+    [seasons, rosterDrivers] = await Promise.all([getSeasons(supabaseEnv), getDriversBasic(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to load roster editor data:', err);
+  }
+  const requestedSeasonId = rosterSeasonId ?? Astro.url.searchParams.get('season');
+  selectedSeasonId =
+    (requestedSeasonId && seasons.some((s) => s.id === requestedSeasonId) ? requestedSeasonId : null) ??
+    seasons.find((s) => s.is_current)?.id ??
+    seasons[0]?.id ??
+    null;
+  if (selectedSeasonId) {
+    try {
+      rosterEntries = await getTeamRosterForTeamSeason(supabaseEnv, id, selectedSeasonId);
+    } catch (err) {
+      console.error('Failed to load team roster:', err);
+    }
+  }
+}
+const rosterDriverIds = new Set(rosterEntries.map((r) => r.driver_id));
+const rosterDriversOnTeam = rosterDrivers
+  .filter((d) => rosterDriverIds.has(d.id))
+  .sort((a, b) => a.name.localeCompare(b.name));
+const availableDrivers = rosterDrivers.filter((d) => !rosterDriverIds.has(d.id));
+const rosterFull = rosterDriversOnTeam.length >= 4;
 ---
 
 <AdminLayout title={isNew ? 'New Team' : t.name || 'Edit Team'}>
   <h1 class="reveal font-display text-4xl">{isNew ? 'New Team' : t.name}</h1>
 
   {error && (
-    <p class="reveal mt-6 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   <form method="POST" data-astro-reload enctype="multipart/form-data" class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
@@ -100,7 +164,7 @@ const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex
         name="name"
         required
         value={t.name}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
     <fieldset class="flex flex-col gap-1.5 text-sm">
@@ -121,7 +185,7 @@ const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex
         name="primary_color_hex"
         placeholder="#4369F5"
         value={t.primary_color_hex ?? ''}
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
 
@@ -134,7 +198,7 @@ const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex
         type="file"
         name="logo"
         accept="image/png,image/jpeg,image/webp,image/svg+xml"
-        class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-full file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
       />
       <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo.</span>
     </div>
@@ -144,23 +208,104 @@ const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex
         type="submit"
         name="intent"
         value="save"
-        class="rounded-full bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        class="rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
       >
         {isNew ? 'Create Team' : 'Save Changes'}
       </button>
-      <a href="/admin/teams" class="rounded-full bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/teams" class="rounded-lg bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
         Cancel
       </a>
     </div>
   </form>
 
   {!isNew && (
-    <form method="POST" data-astro-reload class="reveal mt-6 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
+    <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 90ms">
+      <h2 class="text-lg font-semibold">Season Roster</h2>
+      <p class="mt-1 text-sm text-white/50">
+        Who drove for this team, season by season. Max 4 drivers per team per season, and a driver can only be on
+        one team's roster in a given season.
+      </p>
+
+      {seasons.length === 0 ? (
+        <p class="mt-4 text-sm text-white/40">No seasons found — add one under Seasons first.</p>
+      ) : (
+        <>
+          <form method="GET" class="mt-4">
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Season</span>
+              <select
+                name="season"
+                onchange="this.form.submit()"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              >
+                {seasons.map((s) => (
+                  <option value={s.id} selected={s.id === selectedSeasonId} class="bg-brand-ink text-white">{s.name}</option>
+                ))}
+              </select>
+            </label>
+          </form>
+
+          {rosterError && (
+            <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{rosterError}</p>
+          )}
+
+          <ul class="mt-4 flex flex-col gap-2">
+            {rosterDriversOnTeam.length === 0 && <li class="text-sm text-white/40">No drivers on the roster for this season yet.</li>}
+            {rosterDriversOnTeam.map((d) => (
+              <li class="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
+                <span>
+                  {d.name} {d.car_number !== null && <span class="text-white/40">#{d.car_number}</span>}
+                </span>
+                <form method="POST" data-astro-reload>
+                  <input type="hidden" name="intent" value="remove-roster" />
+                  <input type="hidden" name="season_id" value={selectedSeasonId ?? ''} />
+                  <input type="hidden" name="driver_id" value={d.id} />
+                  <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                </form>
+              </li>
+            ))}
+          </ul>
+
+          {selectedSeasonId && (
+            <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
+              <input type="hidden" name="intent" value="add-roster" />
+              <input type="hidden" name="season_id" value={selectedSeasonId} />
+              <label class="flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Add driver</span>
+                <select
+                  name="driver_id"
+                  disabled={rosterFull || availableDrivers.length === 0}
+                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary disabled:opacity-40"
+                >
+                  {availableDrivers.map((d) => (
+                    <option value={d.id} class="bg-brand-ink text-white">
+                      {d.name}{d.car_number !== null ? ` #${d.car_number}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={rosterFull || availableDrivers.length === 0}
+                class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10 disabled:opacity-40"
+              >
+                Add to roster
+              </button>
+              {rosterFull && <span class="text-xs text-white/40">Roster is full (4/4) for this season.</span>}
+            </form>
+          )}
+        </>
+      )}
+    </div>
+  )}
+
+  {!isNew && (
+    <form method="POST" data-astro-reload class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 100ms">
       <input type="hidden" name="intent" value="delete" />
       <button
         type="submit"
-        data-confirm="Delete this team? Drivers assigned to it will become unassigned. This can't be undone."
-        class="rounded-full bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+        data-confirm="Delete this team? Drivers still assigned to it, and its season rosters, will need reassigning first."
+        class="rounded-lg bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
       >
         Delete Team
       </button>

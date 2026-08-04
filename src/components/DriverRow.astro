@@ -1,6 +1,7 @@
 ---
 import type { Driver } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
+import TeamLogo from './TeamLogo.astro';
 
 interface Props {
   driver: Driver;
@@ -28,9 +29,7 @@ const badgeClasses = classBadgeClasses(className);
   </td>
   <td class="py-2.5 pr-3" data-col="name">
     <div class="flex items-center gap-2">
-      {driver.teams?.logo_url && (
-        <img src={driver.teams.logo_url} alt="" class="h-5 w-5 flex-none rounded object-contain" />
-      )}
+      {driver.teams && <TeamLogo name={driver.teams.name} logoUrl={driver.teams.logo_url} size="h-5 w-5" />}
       <span class="font-semibold">{driver.name}</span>
       {driver.is_rookie && (
         <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">
@@ -41,7 +40,7 @@ const badgeClasses = classBadgeClasses(className);
   </td>
   <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="team">{driver.teams?.name ?? '—'}</td>
   <td class="py-2.5 pr-3" data-col="class">
-    <span class={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${badgeClasses}`}>
+    <span class={`rounded-lg border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${badgeClasses}`}>
       {className}
     </span>
   </td>

@@ -3,6 +3,7 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import { getTeams, resolveSupabaseEnv } from '../lib/supabase';
+import TeamLogo from '../components/TeamLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -37,13 +38,13 @@ const sortedTeams = [...teams].sort((a, b) => {
     </p>
 
     {loadError && (
-      <p class="mt-8 rounded-xl border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load teams right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
       </p>
     )}
 
     {!loadError && (
-      <div class="mt-8 overflow-x-auto rounded-2xl border border-white/10">
+      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
         <table class="w-full border-collapse" data-sortable>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -56,25 +57,13 @@ const sortedTeams = [...teams].sort((a, b) => {
               <tr class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}>
                 <td class="py-2.5 pl-4 pr-3" data-col="name">
                   <div class="flex items-center gap-3">
-                    {team.logo_url ? (
-                      <img
-                        src={team.logo_url}
-                        alt=""
-                        class={`h-8 w-8 flex-none rounded object-contain ${team.status === 'inactive' ? 'grayscale' : ''}`}
-                      />
-                    ) : (
-                      <div
-                        class="h-8 w-8 flex-none rounded"
-                        style={`background-color: ${team.status === 'inactive' ? '#ffffff1a' : team.primary_color_hex ?? '#ffffff1a'}`}
-                      >
-                      </div>
-                    )}
+                    <TeamLogo name={team.name} logoUrl={team.logo_url} size="h-8 w-8" grayscale={team.status === 'inactive'} />
                     <span class="font-semibold">{team.name}</span>
                   </div>
                 </td>
                 <td class="py-2.5 pr-4" data-col="status" data-sort-value={team.status}>
                   <span
-                    class={`rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                    class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
                       team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
                     }`}
                   >
