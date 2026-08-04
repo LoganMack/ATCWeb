@@ -16,7 +16,9 @@ const tabs: { key: Props['active']; href: string; label: string }[] = [
 ];
 ---
 
-<div class="reveal mb-8 flex gap-1 border-b border-white/10">
+<!-- mt-12 gives clear breathing room above the tabs regardless of what
+     precedes them (a bare h1, or a round's date/format subtitle line). -->
+<div class="reveal mb-8 mt-12 flex gap-1 border-b border-white/10">
   {tabs.map((tab) => (
     <a
       href={tab.href}

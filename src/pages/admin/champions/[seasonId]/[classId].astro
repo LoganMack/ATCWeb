@@ -60,7 +60,7 @@ if (Astro.request.method === 'POST') {
   } else if (champion) {
     const slot = Number(form.get('slot') ?? -1);
     const file = form.get('photo');
-    if (slot >= 0 && slot < 3 && file instanceof File && file.size > 0) {
+    if (slot >= 0 && slot < 5 && file instanceof File && file.size > 0) {
       try {
         const path = `champion-${season.id}-${classId}-${slot}-${Date.now()}.${extFromFile(file)}`;
         const image_url = await uploadToStorage(supabaseEnv, accessToken, 'photos', path, file);
@@ -93,7 +93,7 @@ if (Astro.request.method === 'POST') {
 }
 
 const photos = await getChampionPhotos(supabaseEnv, season.id, classId);
-const photoBySlot = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
+const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
 ---
 
 <AdminLayout title={`${season.name} ${driverClass.name} Champion`}>
@@ -118,7 +118,7 @@ const photoBySlot = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === 
   )}
 
   {champion && (
-    <div class="reveal mt-8 grid gap-6 sm:grid-cols-3" style="transition-delay: 80ms">
+    <div class="reveal mt-8 grid gap-6 sm:grid-cols-3 lg:grid-cols-5" style="transition-delay: 80ms">
       {photoBySlot.map((photo, slot) => (
         <div class="rounded-2xl border border-white/10 p-4">
           <p class="text-xs uppercase tracking-wide text-white/40">Photo {slot + 1}</p>

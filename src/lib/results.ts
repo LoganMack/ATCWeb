@@ -573,3 +573,8 @@ export function formatMargin(intervalTenThousandths: number | null): string {
   if (intervalTenThousandths === null || intervalTenThousandths === 0) return '—';
   return (intervalTenThousandths / 10000).toFixed(3);
 }
+
+/** Builds the URL for a race's results on iRacing's own site from its real iRacing subsession id (see `race_links` / 0007_race_links.sql — NOT the same as this app's own `subsession_id` grouping key). */
+export function iracingResultsUrl(iracingSubsessionId: number): string {
+  return `https://members-ng.iracing.com/web/racing/results-stats/results?subsessionid=${iracingSubsessionId}`;
+}

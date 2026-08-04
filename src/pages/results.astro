@@ -53,9 +53,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 <Layout title="Race Results" description="Historical race-by-race results for every Alpha Touring Challenge round.">
   <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
     <h1 class="reveal font-display text-5xl">Race Results</h1>
-    <p class="reveal mt-3 text-white/60" style="transition-delay: 60ms">
-      Pick a round to see race-by-race results, by class.
-    </p>
 
     <HistoryTabs active="results" />
 
@@ -74,15 +71,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             onchange="this.form.submit()"
             class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
-            <optgroup label="Championships">
+            <optgroup label="Championships" class="bg-brand-ink text-white">
               {championshipSeasons.map((s) => (
-                <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
+                <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
               ))}
             </optgroup>
             {exhibitionSeasons.length > 0 && (
-              <optgroup label="Exhibitions">
+              <optgroup label="Exhibitions" class="bg-brand-ink text-white">
                 {exhibitionSeasons.map((s) => (
-                  <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
+                  <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
                 ))}
               </optgroup>
             )}

@@ -17,6 +17,8 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
    - `supabase/migrations/0003_calendar.sql` — adds `circuits` and `events` (the race calendar — see "Calendar" below)
    - `supabase/migrations/0004_champions.sql` — adds `champion_photos` and public-read access to the results pipeline's tables (see "Champions, Standings & Race Results" below) — **only needed on a database that already has the results pipeline's tables** (`race_scores`, `curated_rounds`, `curated_race_results`, `curated_qualifying`); a brand-new Supabase project without that pipeline set up yet will fail on this migration's `alter table curated_rounds ...` line, since those tables won't exist. Skip it (or comment out the top section) until that pipeline is in place.
    - `supabase/migrations/0005_round_overrides.sql` — adds `round_overrides` (lets an admin flag a specific round as a non-points exhibition even inside a real championship season — see "Championships vs. exhibitions" below) and re-grants anon `SELECT` on `drivers`, codifying a manual fix applied directly in the SQL editor for a column-level grant gap on `drivers.iracing_cust_id`. Safe to run on any database regardless of whether the results pipeline's tables exist yet.
+   - `supabase/migrations/0006_champion_photos_expand.sql` — widens `champion_photos.sort_order` from 3 slots (0-2) to 5 (0-4). Only needed if 0004 has already run on this database.
+   - `supabase/migrations/0007_race_links.sql` — adds `race_links` (optional per-race iRacing results / replay / broadcast links — see "Per-race external links" below). Safe to run on any database regardless of whether the results pipeline's tables exist yet.
    - `supabase/seed/seed_teams.sql`
    - `supabase/seed/seed_drivers.sql`
    - `supabase/seed/seed_news.sql`
@@ -88,7 +90,7 @@ All of the actual computation — season point totals, who's the champion, class
 
 If any of this doesn't match how the league's scoring actually works once you can check it against real results, it's all contained in `src/lib/results.ts` — nothing on the page side needs to change to fix it.
 
-The Champions page defaults to Alpha and lets you switch class via `?class=Gamma` links (a real page navigation, not a client-side toggle — computing a season's standings isn't free, so it only happens for the class you're actually looking at). Uploading a champion's (up to 3) photos happens at `/admin/champions` → pick a season/class → upload; the computed champion's name is shown for reference so it's obvious who you're uploading for. Each photo click-enlarges (`src/scripts/lightbox.ts`, shared with the public Champions page), and each upload/delete redirects back to the same page on success instead of re-rendering in place — the earlier version skipped that, which meant `hard-form-submit.ts` fell back to its fragile `document.write()` path and every photo upload felt like it required manually going back.
+The Champions page defaults to Alpha and lets you switch class via `?class=Gamma` links (a real page navigation, not a client-side toggle — computing a season's standings isn't free, so it only happens for the class you're actually looking at). Uploading a champion's (up to 5) photos happens at `/admin/champions` → pick a season/class → upload; the computed champion's name is shown for reference so it's obvious who you're uploading for. Each photo click-enlarges (`src/scripts/lightbox.ts`, shared with the public Champions page), and each upload/delete redirects back to the same page on success instead of re-rendering in place — the earlier version skipped that, which meant `hard-form-submit.ts` fell back to its fragile `document.write()` path and every photo upload felt like it required manually going back.
 
 ### Overall vs. per-class race results (v0.7)
 
@@ -113,7 +115,17 @@ Not every season/round on record counts toward standings and champions. Two inde
 
 ### Click-to-enlarge photos (v0.7)
 
-`src/scripts/lightbox.ts` (loaded on every page via `Layout.astro`) turns any `<button data-lightbox data-lightbox-src="...">` into a click-to-enlarge trigger — a single delegated click listener opens a full-screen overlay with the full-size image, closable via the × button, clicking the backdrop, or Escape. Used on the public Champions page's photos and the admin champion-photo upload previews. The Champions page photo layout is one large photo (`aspect-video`, matching the expected 800×450 uploads) with the other two shown smaller side-by-side underneath, rather than three equal-sized photos.
+`src/scripts/lightbox.ts` (loaded on every page via `Layout.astro`) turns any `<button data-lightbox data-lightbox-src="...">` into a click-to-enlarge trigger — a single delegated click listener opens a full-screen overlay with the full-size image, closable via the × button, clicking the backdrop, or Escape. Used on the public Champions page's photos and the admin champion-photo upload previews. The Champions page photo layout is one large photo (`aspect-video`, matching the expected 800×450 uploads) with 4 more shown smaller underneath in two rows of 2 (`0006_champion_photos_expand.sql` widened the slot limit from 3 to 5) — the second row exists mainly to give the photo column enough height to come closer to matching the stats column's height next to it, rather than leaving a lot of empty space at the bottom of the card.
+
+### Per-race external links (v0.7)
+
+Each individual race (not round — a round with 3 races isn't necessarily 1 iRacing subsession) can have three independent, optional links, stored in `race_links` (`0007_race_links.sql`, keyed on `(subsession_id, race_number)`, same non-FK relationship to the results pipeline's tables as `round_overrides`):
+
+- **iRacing Results** — built from a stored `iracing_subsession_id` via `iracingResultsUrl()` in `src/lib/results.ts`, rather than storing a full URL, so the link format only needs updating in one place if it ever changes. This is deliberately a *different* id than this app's own `subsession_id` grouping key.
+- **Download Replay** — an external link (e.g. Google Drive) to the replay file. Replays are large, so this repo deliberately doesn't host them itself.
+- **Watch Broadcast** — almost always a YouTube link.
+
+All three show as small pill buttons next to each race's "Race N" heading when set. A signed-in admin additionally sees an "Edit links" disclosure there (a `<details>` — no JS needed to open it) with a small form for all three fields, submitting via the same PRG pattern as everything else on this page. See `getRaceLinksForSubsession()`/`upsertRaceLinks()` in `src/lib/supabase.ts`.
 
 ## Re-importing the roster later
 

@@ -4,7 +4,15 @@ export const prerender = false;
 import Layout from '../../layouts/Layout.astro';
 import HistoryTabs from '../../components/HistoryTabs.astro';
 import ResultsTable from '../../components/ResultsTable.astro';
-import { resolveSupabaseEnv, getDriverClasses, getExhibitionRoundIds, setRoundExhibition } from '../../lib/supabase';
+import {
+  resolveSupabaseEnv,
+  getDriverClasses,
+  getExhibitionRoundIds,
+  setRoundExhibition,
+  getRaceLinksForSubsession,
+  upsertRaceLinks,
+  type RaceLinks,
+} from '../../lib/supabase';
 import {
   getRoundBySubsessionId,
   getRoundResults,
@@ -29,12 +37,43 @@ const subsessionId = Number(Astro.params.subsessionId);
 // upload-photo fix for why that matters).
 if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId)) {
   const form = await Astro.request.formData();
-  if (String(form.get('intent') ?? '') === 'toggle-exhibition') {
+  const intent = String(form.get('intent') ?? '');
+
+  if (intent === 'toggle-exhibition') {
     const nextIsExhibition = String(form.get('next') ?? 'true') === 'true';
     try {
       await setRoundExhibition(supabaseEnv, Astro.locals.session!.accessToken, subsessionId, nextIsExhibition);
     } catch (err) {
       console.error('Failed to update round exhibition flag:', err);
+    }
+    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
+  }
+
+  if (intent === 'save-race-links') {
+    // Empty strings from the form mean "clear this field" (null), not
+    // "leave whatever was there" — the form always shows the current
+    // values, so a blank field means the admin actually cleared it.
+    const strOrNull = (v: FormDataEntryValue | null) => {
+      const s = String(v ?? '').trim();
+      return s.length > 0 ? s : null;
+    };
+    const numOrNull = (v: FormDataEntryValue | null) => {
+      const s = String(v ?? '').trim();
+      return s.length > 0 ? Number(s) : null;
+    };
+    const raceNumber = Number(form.get('race_number'));
+    if (Number.isFinite(raceNumber)) {
+      try {
+        await upsertRaceLinks(supabaseEnv, Astro.locals.session!.accessToken, {
+          subsession_id: subsessionId,
+          race_number: raceNumber,
+          iracing_subsession_id: numOrNull(form.get('iracing_subsession_id')),
+          replay_url: strOrNull(form.get('replay_url')),
+          broadcast_url: strOrNull(form.get('broadcast_url')),
+        });
+      } catch (err) {
+        console.error('Failed to save race links:', err);
+      }
     }
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
   }
@@ -44,15 +83,17 @@ let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
 let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let exhibitionRoundIds: Set<number> = new Set();
+let raceLinksByRace: Map<number, RaceLinks> = new Map();
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, roundResults, classes, exhibitionRoundIds] = await Promise.all([
+    [round, roundResults, classes, exhibitionRoundIds, raceLinksByRace] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(supabaseEnv, subsessionId),
       getDriverClasses(supabaseEnv),
       getExhibitionRoundIds(supabaseEnv),
+      getRaceLinksForSubsession(supabaseEnv, subsessionId),
     ]);
   } catch (err) {
     console.error('Failed to load round results:', err);
@@ -163,7 +204,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               Overall finishing position, every class combined — this is what the points system is actually based on.
             </p>
             {overallRaceNumbers.map((raceNumber) => (
-              <ResultsTable raceNumber={raceNumber} rows={roundResults.overall.get(raceNumber)!} showClass classNameById={classNameById} />
+              <ResultsTable
+                subsessionId={subsessionId}
+                raceNumber={raceNumber}
+                rows={roundResults.overall.get(raceNumber)!}
+                showClass
+                classNameById={classNameById}
+                links={raceLinksByRace.get(raceNumber) ?? null}
+                isAdmin={isAdmin}
+              />
             ))}
           </>
         )}
@@ -175,7 +224,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <div class="mt-12">
               <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
               {raceNumbers.map((raceNumber) => (
-                <ResultsTable raceNumber={raceNumber} rows={byRace.get(raceNumber)!} />
+                <ResultsTable
+                  subsessionId={subsessionId}
+                  raceNumber={raceNumber}
+                  rows={byRace.get(raceNumber)!}
+                  links={raceLinksByRace.get(raceNumber) ?? null}
+                  isAdmin={isAdmin}
+                />
               ))}
             </div>
           );

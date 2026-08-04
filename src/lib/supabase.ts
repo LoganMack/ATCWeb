@@ -300,7 +300,7 @@ export function deleteNewsPost(env: SupabaseEnv, accessToken: string, id: string
   return restDelete(env, accessToken, `news_posts?id=eq.${encodeURIComponent(id)}`);
 }
 
-// --- Champion photos (up to 3 per season+class, see /admin/champions) ------
+// --- Champion photos (up to 5 per season+class, see /admin/champions) ------
 
 export interface ChampionPhoto {
   id: string;
@@ -313,7 +313,7 @@ export interface ChampionPhoto {
 
 const CHAMPION_PHOTO_SELECT = 'id,season_id,class_id,driver_id,image_url,sort_order';
 
-/** The (up to 3) uploaded photos for one season+class champion slot, in slot order. */
+/** The (up to 5) uploaded photos for one season+class champion slot, in slot order. */
 export function getChampionPhotos(env: SupabaseEnv, seasonId: string, classId: number) {
   return restGet<ChampionPhoto[]>(
     env,
@@ -392,6 +392,49 @@ export async function setRoundExhibition(
   });
   if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_overrides: ${await res.text()}`);
   const rows = (await res.json()) as RoundOverride[];
+  return rows[0];
+}
+
+// --- Race links (iRacing results / replay download / broadcast video, per race) -
+
+export interface RaceLinks {
+  subsession_id: number;
+  race_number: number;
+  iracing_subsession_id: number | null;
+  replay_url: string | null;
+  broadcast_url: string | null;
+}
+
+const RACE_LINKS_SELECT = 'subsession_id,race_number,iracing_subsession_id,replay_url,broadcast_url';
+
+/** Every race's links for one round, keyed by race_number. */
+export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Map<number, RaceLinks>> {
+  const rows = await restGet<RaceLinks[]>(
+    env,
+    `race_links?select=${RACE_LINKS_SELECT}&subsession_id=eq.${subsessionId}`
+  );
+  return new Map(rows.map((r) => [r.race_number, r]));
+}
+
+/** Upserts one race's links — replaces whatever was set for that (subsession_id, race_number) before. Any field left undefined stays whatever it already was; pass null explicitly to clear a field. */
+export async function upsertRaceLinks(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: {
+    subsession_id: number;
+    race_number: number;
+    iracing_subsession_id?: number | null;
+    replay_url?: string | null;
+    broadcast_url?: string | null;
+  }
+) {
+  const res = await fetch(`${env.url}/rest/v1/race_links?on_conflict=subsession_id,race_number`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on race_links: ${await res.text()}`);
+  const rows = (await res.json()) as RaceLinks[];
   return rows[0];
 }
 
