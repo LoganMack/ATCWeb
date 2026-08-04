@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import { resolveSupabaseEnv, getDriverClasses, getSeasons } from '../lib/supabase';
-import { computeSeasonStandings, type DriverSeasonStanding } from '../lib/results';
+import { computeSeasonStandings, isChampionshipSeason, type DriverSeasonStanding } from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -18,9 +18,16 @@ try {
   loadError = err instanceof Error ? err.message : String(err);
 }
 
+// Exhibition seasons never have standings (computeSeasonStandings returns
+// [] for them — see isChampionshipSeason), so the picker only offers real
+// championship seasons in the first place.
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+
 const requestedSeasonNumber = Astro.url.searchParams.get('season');
 const activeSeason =
-  seasons.find((s) => String(s.number) === requestedSeasonNumber) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+  championshipSeasons.find((s) => String(s.number) === requestedSeasonNumber) ??
+  championshipSeasons.find((s) => s.is_current) ??
+  championshipSeasons[0];
 
 const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
@@ -65,7 +72,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             onchange="this.form.submit()"
             class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
-            {seasons.map((s) => (
+            {championshipSeasons.map((s) => (
               <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
             ))}
           </select>
@@ -99,8 +106,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="py-3 pr-3 text-center font-medium" data-sort-key="points">Points</th>
               <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="wins">Wins</th>
               <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="podiums">Podiums</th>
-              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5s</th>
-              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10s</th>
+              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5<span class="lowercase">s</span></th>
+              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10<span class="lowercase">s</span></th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
               <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
@@ -111,7 +118,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]">
                 <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
                 <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name}>
-                  {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>} {row.driver.name}
+                  {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </td>
                 <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
                 <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{row.wins}</td>

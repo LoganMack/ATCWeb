@@ -14,6 +14,8 @@ const { entry, photos, index = 0 } = Astro.props;
 const { season, standing: d } = entry;
 
 const slots = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
+const largePhoto = slots[0];
+const smallPhotos = [slots[1], slots[2]];
 ---
 
 <article
@@ -21,18 +23,54 @@ const slots = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === slot) 
   style={`transition-delay: ${Math.min(index, 4) * 30}ms`}
 >
   <div class="grid sm:grid-cols-[220px_1fr]">
-    <div class="grid h-40 grid-cols-3 sm:h-auto sm:grid-cols-1 sm:grid-rows-3">
-      {slots.map((photo, i) => (
-        <div class="relative overflow-hidden bg-white/5">
-          {photo ? (
-            <img src={photo.image_url} alt={`${d.driver.name} — ${season.name}`} class="h-full w-full object-cover" loading="lazy" />
-          ) : (
-            <div class="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-wide text-white/20">
-              Photo {i + 1}
-            </div>
-          )}
+    <div class="flex flex-col gap-1 p-1">
+      {largePhoto ? (
+        <button
+          type="button"
+          data-lightbox
+          data-lightbox-src={largePhoto.image_url}
+          data-lightbox-alt={`${d.driver.name} — ${season.name}`}
+          class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-white/5"
+          aria-label={`Enlarge photo of ${d.driver.name}, ${season.name}`}
+        >
+          <img
+            src={largePhoto.image_url}
+            alt={`${d.driver.name} — ${season.name}`}
+            class="h-full w-full object-cover transition group-hover:scale-105"
+            loading="lazy"
+          />
+        </button>
+      ) : (
+        <div class="flex aspect-video w-full items-center justify-center rounded-lg bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
+          Photo 1
         </div>
-      ))}
+      )}
+
+      <div class="grid grid-cols-2 gap-1">
+        {smallPhotos.map((photo, i) =>
+          photo ? (
+            <button
+              type="button"
+              data-lightbox
+              data-lightbox-src={photo.image_url}
+              data-lightbox-alt={`${d.driver.name} — ${season.name}`}
+              class="group relative block aspect-video w-full overflow-hidden rounded-lg bg-white/5"
+              aria-label={`Enlarge photo of ${d.driver.name}, ${season.name}`}
+            >
+              <img
+                src={photo.image_url}
+                alt={`${d.driver.name} — ${season.name}`}
+                class="h-full w-full object-cover transition group-hover:scale-105"
+                loading="lazy"
+              />
+            </button>
+          ) : (
+            <div class="flex aspect-video w-full items-center justify-center rounded-lg bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
+              Photo {i + 2}
+            </div>
+          )
+        )}
+      </div>
     </div>
 
     <div class="p-6">
@@ -40,7 +78,7 @@ const slots = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === slot) 
         <div>
           <p class="text-xs uppercase tracking-widest text-white/50">{season.name}</p>
           <h3 class="mt-1 font-display text-3xl leading-none">
-            {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>} {d.driver.name}
+            {d.driver.name} {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
           </h3>
         </div>
         <span class="rounded-full bg-brand-primary/15 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-brand-primary">
@@ -53,8 +91,8 @@ const slots = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === slot) 
         <StatBlock label="Class Wins" value={d.wins} sub={pctOf(d.wins, d.starts, 'starts')} />
         <StatBlock label="Poles" value={d.poles} sub={pctOf(d.poles, d.appearances, 'appearances')} />
         <StatBlock label="Podiums" value={d.podiums} sub={pctOf(d.podiums, d.starts, 'starts')} />
-        <StatBlock label="Top 5s" value={d.top5s} sub={pctOf(d.top5s, d.starts, 'starts')} />
-        <StatBlock label="Top 10s" value={d.top10s} sub={pctOf(d.top10s, d.starts, 'starts')} />
+        <StatBlock label="Top 5" labelSuffixLower="s" value={d.top5s} sub={pctOf(d.top5s, d.starts, 'starts')} />
+        <StatBlock label="Top 10" labelSuffixLower="s" value={d.top10s} sub={pctOf(d.top10s, d.starts, 'starts')} />
         <StatBlock label="Starts" value={d.starts} sub="races" />
         <StatBlock label="Appearances" value={d.appearances} sub="rounds" />
       </dl>

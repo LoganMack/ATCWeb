@@ -351,6 +351,50 @@ export function deleteChampionPhoto(env: SupabaseEnv, accessToken: string, id: s
   return restDelete(env, accessToken, `champion_photos?id=eq.${encodeURIComponent(id)}`);
 }
 
+// --- Round overrides (flag an individual round as a non-points exhibition) -
+
+export interface RoundOverride {
+  subsession_id: number;
+  is_exhibition: boolean;
+  note: string | null;
+}
+
+const ROUND_OVERRIDE_SELECT = 'subsession_id,is_exhibition,note';
+
+/** subsession_ids flagged as a non-points exhibition — used to exclude those rounds from standings/champions even inside an otherwise-real championship season. */
+export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<number>> {
+  const rows = await restGet<{ subsession_id: number }[]>(
+    env,
+    'round_overrides?select=subsession_id&is_exhibition=eq.true'
+  );
+  return new Set(rows.map((r) => r.subsession_id));
+}
+
+export async function getRoundOverride(env: SupabaseEnv, subsessionId: number) {
+  const rows = await restGet<RoundOverride[]>(
+    env,
+    `round_overrides?select=${ROUND_OVERRIDE_SELECT}&subsession_id=eq.${subsessionId}`
+  );
+  return rows[0] ?? null;
+}
+
+/** Marks (or unmarks) one round as a non-points exhibition — upserts on subsession_id. */
+export async function setRoundExhibition(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+  isExhibition: boolean
+) {
+  const res = await fetch(`${env.url}/rest/v1/round_overrides?on_conflict=subsession_id`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify({ subsession_id: subsessionId, is_exhibition: isExhibition }),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_overrides: ${await res.text()}`);
+  const rows = (await res.json()) as RoundOverride[];
+  return rows[0];
+}
+
 // --- Storage (team logos, driver photos) --------------------------------
 
 /**

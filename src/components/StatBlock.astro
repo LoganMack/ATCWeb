@@ -7,13 +7,22 @@ interface Props {
   label: string;
   value: string | number;
   sub?: string;
+  /**
+   * A trailing bit of the label to render without the uppercase transform —
+   * e.g. labelSuffixLower="s" on label="Top 5" renders "TOP 5s" instead of
+   * "TOP 5S", since the CSS `uppercase` on <dt> would otherwise capitalize
+   * a literal lowercase "s" along with everything else.
+   */
+  labelSuffixLower?: string;
 }
 
-const { label, value, sub } = Astro.props;
+const { label, value, sub, labelSuffixLower } = Astro.props;
 ---
 
 <div>
-  <dt class="text-xs uppercase tracking-wide text-white/40">{label}</dt>
+  <dt class="text-xs uppercase tracking-wide text-white/40">
+    {label}{labelSuffixLower && <span class="lowercase">{labelSuffixLower}</span>}
+  </dt>
   <dd class="mt-1 font-display text-3xl leading-none">{value}</dd>
   {sub && <p class="mt-1 text-[11px] text-white/40">{sub}</p>}
 </div>

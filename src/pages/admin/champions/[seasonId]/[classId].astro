@@ -77,6 +77,19 @@ if (Astro.request.method === 'POST') {
       }
     }
   }
+
+  // Redirect back to this same page on success (PRG pattern) instead of
+  // falling through to a plain re-render — every other admin CRUD page in
+  // this codebase does this after a POST, and skipping it here was why
+  // uploading a photo required manually clicking back and returning:
+  // hard-form-submit.ts only does a real navigation when the response is a
+  // redirect, otherwise it falls back to a fragile document.write() of the
+  // re-rendered HTML that doesn't reliably re-run page scripts. A real
+  // redirect+GET also means each of the 3 photo slots can be uploaded one
+  // after another without that friction.
+  if (!error) {
+    return Astro.redirect(Astro.url.pathname, 302);
+  }
 }
 
 const photos = await getChampionPhotos(supabaseEnv, season.id, classId);
@@ -110,9 +123,22 @@ const photoBySlot = [0, 1, 2].map((slot) => photos.find((p) => p.sort_order === 
         <div class="rounded-2xl border border-white/10 p-4">
           <p class="text-xs uppercase tracking-wide text-white/40">Photo {slot + 1}</p>
           {photo ? (
-            <img src={photo.image_url} alt="" class="mt-3 aspect-square w-full rounded-lg object-cover" />
+            <button
+              type="button"
+              data-lightbox
+              data-lightbox-src={photo.image_url}
+              data-lightbox-alt={`${season.name} ${driverClass.name} champion — photo ${slot + 1}`}
+              class="group relative mt-3 block aspect-video w-full overflow-hidden rounded-lg bg-white/5"
+              aria-label={`Enlarge photo ${slot + 1}`}
+            >
+              <img
+                src={photo.image_url}
+                alt=""
+                class="h-full w-full object-cover transition group-hover:scale-105"
+              />
+            </button>
           ) : (
-            <div class="mt-3 flex aspect-square w-full items-center justify-center rounded-lg bg-white/5 text-xs text-white/30">
+            <div class="mt-3 flex aspect-video w-full items-center justify-center rounded-lg bg-white/5 text-xs text-white/30">
               No photo
             </div>
           )}

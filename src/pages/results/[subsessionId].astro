@@ -3,27 +3,48 @@ export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
 import HistoryTabs from '../../components/HistoryTabs.astro';
-import { resolveSupabaseEnv, getDriverClasses } from '../../lib/supabase';
-import { getRoundBySubsessionId, getRoundResultsByClass } from '../../lib/results';
+import { resolveSupabaseEnv, getDriverClasses, getRoundOverride, setRoundExhibition } from '../../lib/supabase';
+import { getRoundBySubsessionId, getRoundResults, isChampionshipSeason, type RoundResults, type RaceResultRow } from '../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const isAdmin = Astro.locals.session?.profile?.role === 'admin';
 
 // iRacing subsession IDs are ordinary (non-bigint-range) integers in
 // practice, so Number() parsing here is safe — well under
 // Number.MAX_SAFE_INTEGER.
 const subsessionId = Number(Astro.params.subsessionId);
 
+// Admin-only: flag/unflag this specific round as a non-points exhibition
+// (e.g. a pre-season race run inside an otherwise real championship
+// season) — a PRG redirect back to this same URL keeps this in line with
+// every other admin mutation in the codebase (see admin/champions'
+// upload-photo fix for why that matters).
+if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId)) {
+  const form = await Astro.request.formData();
+  if (String(form.get('intent') ?? '') === 'toggle-exhibition') {
+    const nextIsExhibition = String(form.get('next') ?? 'true') === 'true';
+    try {
+      await setRoundExhibition(supabaseEnv, Astro.locals.session!.accessToken, subsessionId, nextIsExhibition);
+    } catch (err) {
+      console.error('Failed to update round exhibition flag:', err);
+    }
+    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
+  }
+}
+
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
-let resultsByClass: Awaited<ReturnType<typeof getRoundResultsByClass>> = new Map();
+let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let roundOverride: Awaited<ReturnType<typeof getRoundOverride>> = null;
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, resultsByClass, classes] = await Promise.all([
+    [round, roundResults, classes, roundOverride] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
-      getRoundResultsByClass(supabaseEnv, subsessionId),
+      getRoundResults(supabaseEnv, subsessionId),
       getDriverClasses(supabaseEnv),
+      getRoundOverride(supabaseEnv, subsessionId),
     ]);
   } catch (err) {
     console.error('Failed to load round results:', err);
@@ -38,7 +59,21 @@ if (!loadError && !round) {
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 // Classes ordered Alpha/Gamma/Delta (sort_order) rather than however Map
 // iteration happens to return them.
-const orderedClassIds = classes.map((c) => c.id).filter((id) => resultsByClass.has(id));
+const orderedClassIds = classes.map((c) => c.id).filter((id) => roundResults.byClass.has(id));
+
+// Exhibition either because the round itself is flagged (round_overrides)
+// or because the whole season it belongs to isn't a real championship
+// season (see isChampionshipSeason) — curated_rounds only exposes the
+// season's display name here (season_label), not a season_id to join on.
+const isRoundFlaggedExhibition = roundOverride?.is_exhibition ?? false;
+const isSeasonExhibition = round?.season_label ? !isChampionshipSeason(round.season_label) : false;
+const isExhibition = isRoundFlaggedExhibition || isSeasonExhibition;
+
+// The points system is based on overall finishing position, not
+// class-relative position, so the overall (cross-class) view is the
+// default — the per-class view is still available via ?view=class.
+const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
+const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
@@ -68,12 +103,109 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           {round.num_drivers !== null && ` · ${round.num_drivers} drivers`}
         </p>
 
+        {isExhibition && (
+          <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
+            <span class="rounded-full bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink">
+              Exhibition
+            </span>
+            <span class="text-white/40">
+              {isSeasonExhibition ? "Non-points season — excluded from standings & champions." : 'Flagged non-points — excluded from standings & champions.'}
+            </span>
+          </p>
+        )}
+
+        {isAdmin && !isSeasonExhibition && (
+          <form method="POST" data-astro-reload class="mt-3">
+            <input type="hidden" name="intent" value="toggle-exhibition" />
+            <input type="hidden" name="next" value={isRoundFlaggedExhibition ? 'false' : 'true'} />
+            <button
+              type="submit"
+              class="rounded-full bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+            >
+              {isRoundFlaggedExhibition ? 'Unflag as exhibition' : 'Flag this round as an exhibition'}
+            </button>
+          </form>
+        )}
+
         <HistoryTabs active="results" />
+
+        <div class="mt-8 flex gap-2">
+          <a
+            href={`/results/${subsessionId}?view=overall`}
+            class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            Overall
+          </a>
+          <a
+            href={`/results/${subsessionId}?view=class`}
+            class={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            Per Class
+          </a>
+        </div>
 
         {orderedClassIds.length === 0 && <p class="mt-10 text-white/60">No results recorded for this round yet.</p>}
 
-        {orderedClassIds.map((classId) => {
-          const byRace = resultsByClass.get(classId)!;
+        {view === 'overall' && orderedClassIds.length > 0 && (
+          <>
+            <p class="mt-3 text-sm text-white/40">
+              Overall finishing position, every class combined — this is what the points system is actually based on.
+            </p>
+            {overallRaceNumbers.map((raceNumber) => (
+              <div class="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                      <th class="py-3 pl-4 pr-2 font-medium">Pos</th>
+                      <th class="py-3 pr-3 font-medium">Driver</th>
+                      <th class="hidden py-3 pr-3 font-medium sm:table-cell">Class</th>
+                      <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
+                      <th class="py-3 pr-3 text-center font-medium">Points</th>
+                      <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Margin</th>
+                      <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
+                      <th class="py-3 pr-4 font-medium">Race {raceNumber}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roundResults.overall.get(raceNumber)!.map((row: RaceResultRow) => (
+                      <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
+                        <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
+                          {row.dsq ? 'DSQ' : row.position}
+                        </td>
+                        <td class="py-2.5 pr-3 font-semibold">
+                          {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                        </td>
+                        <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell">{classNameById.get(row.classId) ?? '—'}</td>
+                        <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.startingPosition ?? '—'}</td>
+                        <td class="py-2.5 pr-3 text-center font-semibold">{row.totalPoints}</td>
+                        <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.margin ?? '—'}</td>
+                        <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.incidents ?? '—'}</td>
+                        <td class="py-2.5 pr-4 text-sm text-white/50">
+                          {row.polePosition && <span class="mr-2 text-brand-gold" title="Pole position">P</span>}
+                          {row.wasAdjusted && (
+                            <span class="rounded-full bg-brand-pink/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-pink" title={`Finished ${row.finishPosition}, adjusted for a penalty`}>
+                              Adj.
+                            </span>
+                          )}
+                          {row.reasonOut && row.reasonOut !== 'Running' && (
+                            <span class="text-white/40">{row.reasonOut}</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+          </>
+        )}
+
+        {view === 'class' && orderedClassIds.map((classId) => {
+          const byRace = roundResults.byClass.get(classId)!;
           const raceNumbers = [...byRace.keys()].sort((a, b) => a - b);
           return (
             <div class="mt-12">
@@ -87,6 +219,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         <th class="py-3 pr-3 font-medium">Driver</th>
                         <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
                         <th class="py-3 pr-3 text-center font-medium">Points</th>
+                        <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Margin</th>
                         <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
                         <th class="py-3 pr-4 font-medium">Race {raceNumber}</th>
                       </tr>
@@ -95,13 +228,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       {byRace.get(raceNumber)!.map((row) => (
                         <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
                           <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
-                            {row.dsq ? 'DSQ' : row.classRank}
+                            {row.dsq ? 'DSQ' : row.position}
                           </td>
                           <td class="py-2.5 pr-3 font-semibold">
-                            {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>} {row.driver.name}
+                            {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                           </td>
                           <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.startingPosition ?? '—'}</td>
                           <td class="py-2.5 pr-3 text-center font-semibold">{row.totalPoints}</td>
+                          <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.margin ?? '—'}</td>
                           <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">{row.incidents ?? '—'}</td>
                           <td class="py-2.5 pr-4 text-sm text-white/50">
                             {row.polePosition && <span class="mr-2 text-brand-gold" title="Pole position">P</span>}

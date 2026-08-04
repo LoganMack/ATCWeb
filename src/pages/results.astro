@@ -3,8 +3,8 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import { resolveSupabaseEnv, getSeasons } from '../lib/supabase';
-import { getRoundsForSeason } from '../lib/results';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
+import { getRoundsForSeason, isChampionshipSeason } from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -17,14 +17,24 @@ try {
   loadError = true;
 }
 
+// Any season whose name doesn't follow the "ATCxx" championship-naming
+// format is a non-points-paying/for-fun exhibition — split the picker so
+// it's obvious which is which, rather than mixing them into one list.
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
+
 const requestedSeasonNumber = Astro.url.searchParams.get('season');
 const activeSeason =
   seasons.find((s) => String(s.number) === requestedSeasonNumber) ?? seasons.find((s) => s.is_current) ?? seasons[0];
 
 let rounds: Awaited<ReturnType<typeof getRoundsForSeason>> = [];
+let exhibitionRoundIds: Set<number> = new Set();
 if (!loadError && activeSeason) {
   try {
-    rounds = await getRoundsForSeason(supabaseEnv, activeSeason.id);
+    [rounds, exhibitionRoundIds] = await Promise.all([
+      getRoundsForSeason(supabaseEnv, activeSeason.id),
+      getExhibitionRoundIds(supabaseEnv),
+    ]);
   } catch (err) {
     console.error('Failed to load rounds:', err);
     loadError = true;
@@ -58,9 +68,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             onchange="this.form.submit()"
             class="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
-            {seasons.map((s) => (
-              <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
-            ))}
+            <optgroup label="Championships">
+              {championshipSeasons.map((s) => (
+                <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
+              ))}
+            </optgroup>
+            {exhibitionSeasons.length > 0 && (
+              <optgroup label="Exhibitions">
+                {exhibitionSeasons.map((s) => (
+                  <option value={s.number} selected={s.id === activeSeason?.id}>{s.name}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
       </form>
@@ -88,6 +107,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
               {round.strength_of_field !== null && <span>SoF {round.strength_of_field}</span>}
+              {exhibitionRoundIds.has(round.subsession_id) && (
+                <span
+                  class="rounded-full bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink"
+                  title="Flagged as a non-points exhibition — excluded from standings & champions"
+                >
+                  Exhibition
+                </span>
+              )}
               {round.status !== 'official' && (
                 <span class="rounded-full bg-brand-gold/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-gold">
                   {round.status}
