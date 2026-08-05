@@ -658,6 +658,11 @@ export interface RaceResultRow {
    * nonzero.
    */
   bonusPoints: number;
+  /** The individual components `bonusPoints` above is the sum of — broken out (rather than only ever combined) so src/lib/penalties.ts can recompute just classPoints/pointsDeduction when a penalty changes this driver's position or applies a flat points penalty, while leaving finesseBonus/poleBonus (unaffected by either kind of penalty) alone. */
+  classPoints: number;
+  finesseBonus: number;
+  poleBonus: number;
+  pointsDeduction: number;
   polePosition: boolean;
   /** True when `finesse_bonus > 0` — the "3 incidents or less" bonus was actually awarded for this race (mirrors `polePosition`'s use of `pole_bonus > 0` rather than re-deriving the rule from a raw threshold). */
   incidentsBonus: boolean;
@@ -680,6 +685,12 @@ export interface RaceResultRow {
    * minus this driver's) rather than a real time gap.
    */
   margin: string;
+  /** The raw value `margin` above is formatted from (ten-thousandths of a second, negative = the "-xL" laps-down flag) — kept around unformatted so src/lib/penalties.ts can numerically re-sort the field around a time penalty. */
+  intervalTenThousandths: number | null;
+  /** Set by applyPenaltiesToRoundResults() (src/lib/penalties.ts) when a time penalty (this driver's own, or another driver's that cascaded past them) moved this driver from a different position — the position they'd have had before this round's penalties, so the UI can show it struck through next to the new one. Null when unaffected. */
+  penaltyOldPosition: number | null;
+  /** True once any penalty — time, points, or PP-only — has been logged against this driver for this specific race. Independent of penaltyOldPosition (a PP-only or points-only penalty doesn't necessarily move their position). */
+  hasPenalty: boolean;
   /** The team this driver raced for in this specific race (from `race_scores.team_id`), or null if unassigned. */
   team: { name: string; logoUrl: string | null } | null;
   /** The car this driver used for this specific race (`curated_race_results.car_name`), or null if not recorded. */
@@ -758,6 +769,10 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
       totalPoints: score.total_points,
       bonusPoints: score.class_points + score.finesse_bonus + score.pole_bonus + score.points_deduction,
+      classPoints: score.class_points,
+      finesseBonus: score.finesse_bonus,
+      poleBonus: score.pole_bonus,
+      pointsDeduction: score.points_deduction,
       polePosition: score.pole_bonus > 0,
       incidentsBonus: score.finesse_bonus > 0,
       incidents: raw.incidents,
@@ -765,6 +780,9 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       lapsLed: raw.laps_led,
       tags,
       margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null),
+      intervalTenThousandths: raw.interval_ten_thousandths,
+      penaltyOldPosition: null,
+      hasPenalty: false,
       team: team ? { name: team.name, logoUrl: team.logo_url } : null,
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
     };

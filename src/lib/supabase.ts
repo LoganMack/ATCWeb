@@ -74,6 +74,9 @@ export interface Driver {
    * built yet.
    */
   sign_up_date: string | null; // 'YYYY-MM-DD'
+  /** Rulebook rules 57-62 — see src/lib/penalties.ts's isOnProbationNow() for how these two combine into "currently on probation, yes/no". */
+  on_probation: boolean;
+  probation_started_at: string | null; // 'YYYY-MM-DD'
   driver_statuses: { name: string } | null;
   driver_classes: { name: string } | null;
   teams: { name: string; primary_color_hex: string | null; logo_url: string | null } | null;
@@ -106,7 +109,7 @@ export interface NewsPost {
 export function getDrivers(env: SupabaseEnv) {
   const select =
     'id,car_number,name,is_rookie,car,appearances,starts,seasons_count,' +
-    'penalty_points,penalty_points_max,sign_up_date,' +
+    'penalty_points,penalty_points_max,sign_up_date,on_probation,probation_started_at,' +
     'driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)';
   return restGet<Driver[]>(
     env,
@@ -299,11 +302,13 @@ export interface DriverRecord {
   photo_url: string | null;
   bio: string | null;
   sign_up_date: string | null; // 'YYYY-MM-DD'
+  on_probation: boolean;
+  probation_started_at: string | null; // 'YYYY-MM-DD'
 }
 
 const DRIVER_ADMIN_SELECT =
   'id,car_number,name,status_id,class_id,team_id,is_rookie,car,appearances,starts,' +
-  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date';
+  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at';
 
 export async function getDriverById(env: SupabaseEnv, id: string) {
   const drivers = await restGet<DriverRecord[]>(
@@ -473,9 +478,11 @@ export interface RaceLinks {
   iracing_subsession_id: number | null;
   replay_url: string | null;
   broadcast_url: string | null;
+  /** The stewards' published incident report for this round (rule 51) — usually applies to the whole round rather than one specific race, but lives here since race_links is already the per-race external-link table and a round only rarely splits its report by race. */
+  incident_report_url: string | null;
 }
 
-const RACE_LINKS_SELECT = 'subsession_id,race_number,iracing_subsession_id,replay_url,broadcast_url';
+const RACE_LINKS_SELECT = 'subsession_id,race_number,iracing_subsession_id,replay_url,broadcast_url,incident_report_url';
 
 /** Every race's links for one round, keyed by race_number. */
 export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Map<number, RaceLinks>> {
@@ -496,6 +503,7 @@ export async function upsertRaceLinks(
     iracing_subsession_id?: number | null;
     replay_url?: string | null;
     broadcast_url?: string | null;
+    incident_report_url?: string | null;
   }
 ) {
   const res = await fetch(`${env.url}/rest/v1/race_links?on_conflict=subsession_id,race_number`, {
@@ -810,4 +818,119 @@ export function updateEvent(env: SupabaseEnv, accessToken: string, id: string, d
 
 export function deleteEvent(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `events?id=eq.${encodeURIComponent(id)}`);
+}
+
+// ---------------------------------------------------------------------------
+// PENALTIES (rulebook 18.3, section 5 "Stewarding") — see 0014_penalties.sql
+// and src/lib/penalties.ts (the position/points recalculation engine, which
+// consumes the Penalty type below).
+// ---------------------------------------------------------------------------
+
+export interface PenaltyOffense {
+  id: string;
+  name: string;
+  /** Free text (e.g. "1-4", "Warning or 1") — see 0014_penalties.sql for why this isn't a plain number. Reference only; never auto-summed into a penalty's actual penalty_points. */
+  reference_points: string | null;
+  sort_order: number;
+}
+
+const PENALTY_OFFENSE_SELECT = 'id,name,reference_points,sort_order';
+
+export function getPenaltyOffenses(env: SupabaseEnv) {
+  return restGet<PenaltyOffense[]>(env, `penalty_offenses?select=${PENALTY_OFFENSE_SELECT}&order=sort_order.asc`);
+}
+
+export function createPenaltyOffense(env: SupabaseEnv, accessToken: string, data: Partial<PenaltyOffense>) {
+  return restPost<PenaltyOffense>(env, accessToken, 'penalty_offenses', data);
+}
+
+export function updatePenaltyOffense(env: SupabaseEnv, accessToken: string, id: string, data: Partial<PenaltyOffense>) {
+  return restPatch<PenaltyOffense>(env, accessToken, `penalty_offenses?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deletePenaltyOffense(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `penalty_offenses?id=eq.${encodeURIComponent(id)}`);
+}
+
+export interface Penalty {
+  id: string;
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  incident_number: string | null;
+  lap: number | null;
+  description: string | null;
+  time_penalty_seconds: number | null;
+  points_penalty: number;
+  penalty_points: number;
+  created_at: string;
+  /** Every offense tagged on this penalty — descriptive/record-keeping only, doesn't drive any of the math (see penalty_points above). */
+  offense_ids: string[];
+}
+
+interface PenaltyRow {
+  id: string;
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  incident_number: string | null;
+  lap: number | null;
+  description: string | null;
+  time_penalty_seconds: number | null;
+  points_penalty: number;
+  penalty_points: number;
+  created_at: string;
+  penalty_offense_links: { offense_id: string }[];
+}
+
+const PENALTY_SELECT =
+  'id,subsession_id,race_number,driver_id,incident_number,lap,description,' +
+  'time_penalty_seconds,points_penalty,penalty_points,created_at,penalty_offense_links(offense_id)';
+
+function toPenalty(row: PenaltyRow): Penalty {
+  const { penalty_offense_links, ...rest } = row;
+  return { ...rest, offense_ids: penalty_offense_links.map((l) => l.offense_id) };
+}
+
+/** Every penalty logged against any race in one round, oldest first (so later penalties, if any ever stack for the same driver+race, apply in the order they were issued). */
+export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Penalty[]> {
+  const rows = await restGet<PenaltyRow[]>(
+    env,
+    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=eq.${subsessionId}&order=created_at.asc`
+  );
+  return rows.map(toPenalty);
+}
+
+/** Inserts a penalty and links it to every selected offense — two REST calls, not a real transaction (this backend is plain PostgREST, no server-side function for this yet), so a failure between them can in principle leave a penalty with no offense tags. Acceptable for now: the penalty's own time/points/PP fields (the numbers that actually drive recalculation) are set atomically on the first insert either way. */
+export async function createPenalty(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: {
+    subsession_id: number;
+    race_number: number;
+    driver_id: string;
+    incident_number: string | null;
+    lap: number | null;
+    description: string | null;
+    time_penalty_seconds: number | null;
+    points_penalty: number;
+    penalty_points: number;
+  },
+  offenseIds: string[]
+): Promise<Penalty> {
+  const created = await restPost<PenaltyRow>(env, accessToken, 'penalties', data);
+  if (offenseIds.length > 0) {
+    await restPost(
+      env,
+      accessToken,
+      'penalty_offense_links',
+      offenseIds.map((offense_id) => ({ penalty_id: created.id, offense_id }))
+    );
+  }
+  return { ...created, offense_ids: offenseIds };
+}
+
+/** Removes a penalty (its offense links cascade). Does NOT retroactively adjust the driver's season penalty_points/probation state — that tally is only ever applied forward, at the moment a penalty is created (see applyPenaltyPointsToDriver in src/lib/penalties.ts). Correct it manually on the driver's admin page if a deleted penalty's PP needs backing out. */
+export function deletePenalty(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `penalties?id=eq.${encodeURIComponent(id)}`);
 }

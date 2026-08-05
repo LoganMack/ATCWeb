@@ -7,9 +7,11 @@ import TeamLogo from './TeamLogo.astro';
 interface Props {
   driver: Driver;
   index?: number;
+  /** Whether rulebook rules 57-62's probation window is currently active for this driver — computed once for the whole roster in roster.astro (see isOnProbationNow), not per-row, since it needs the full events calendar. */
+  onProbation?: boolean;
 }
 
-const { driver, index = 0 } = Astro.props;
+const { driver, index = 0, onProbation = false } = Astro.props;
 
 const className = driver.driver_classes?.name ?? '';
 const statusName = driver.driver_statuses?.name ?? '';
@@ -60,6 +62,9 @@ const badgeClasses = classBadgeClasses(className);
   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{driver.starts}</td>
   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="seasons">{driver.seasons_count}</td>
   <td class="py-2.5 pr-4 text-center font-semibold" data-col="penalty" data-sort-value={driver.penalty_points}>
-    {driver.penalty_points}/{driver.penalty_points_max}
+    <div class="flex h-8 flex-col items-center justify-center">
+      <div>{driver.penalty_points}/{driver.penalty_points_max}</div>
+      {onProbation && <div class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Probation</div>}
+    </div>
   </td>
 </tr>

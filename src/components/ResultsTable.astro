@@ -11,7 +11,7 @@
 // with a mix of tall and short rows still lines up (see the `h-8` wrappers
 // below).
 import { iracingResultsUrl, type RaceResultRow } from '../lib/results';
-import type { RaceLinks } from '../lib/supabase';
+import type { RaceLinks, Penalty, PenaltyOffense } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 
@@ -19,6 +19,15 @@ import TeamLogo from './TeamLogo.astro';
 function pointsBreakdown(row: RaceResultRow): string | null {
   if (row.bonusPoints === 0) return null;
   return `${row.bonusPoints > 0 ? '+' : ''}${row.bonusPoints} bonus`;
+}
+
+/** "+10s" / "+2 pts" / "+1 PP" joined together — the compact summary shown next to a logged penalty. */
+function penaltySummary(p: Penalty): string {
+  const parts: string[] = [];
+  if (p.time_penalty_seconds) parts.push(`+${p.time_penalty_seconds}s`);
+  if (p.points_penalty) parts.push(`${p.points_penalty > 0 ? '-' : '+'}${Math.abs(p.points_penalty)} pts`);
+  if (p.penalty_points) parts.push(`+${p.penalty_points} PP`);
+  return parts.length > 0 ? parts.join(', ') : 'Logged, no penalty applied';
 }
 
 interface Props {
@@ -29,11 +38,33 @@ interface Props {
   classNameById?: Map<number, string>;
   links?: RaceLinks | null;
   isAdmin?: boolean;
+  /** Every penalty logged anywhere in this round — filtered down to this race below. Passed unfiltered so callers don't need to slice it per race themselves. */
+  penalties?: Penalty[];
+  /** The configurable offense list (rulebook "Post-Race Penalties" table, managed at /admin/penalty-offenses) — powers the offense checkboxes in the add-penalty dialog. */
+  offenses?: PenaltyOffense[];
 }
 
-const { subsessionId, raceNumber, rows, showClass = false, classNameById, links, isAdmin = false } = Astro.props;
+const {
+  subsessionId,
+  raceNumber,
+  rows,
+  showClass = false,
+  classNameById,
+  links,
+  isAdmin = false,
+  penalties = [],
+  offenses = [],
+} = Astro.props;
 
-const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url);
+const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url || links.incident_report_url);
+const racePenalties = penalties.filter((p) => p.race_number === raceNumber);
+const penaltiesByDriver = new Map<string, Penalty[]>();
+for (const p of racePenalties) {
+  if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
+  penaltiesByDriver.get(p.driver_id)!.push(p);
+}
+const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
+const dialogId = `penalty-dialog-${subsessionId}-${raceNumber}`;
 ---
 
 <div class="mt-6">
@@ -70,6 +101,16 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
             class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
           >
             Watch Broadcast
+          </a>
+        )}
+        {links?.incident_report_url && (
+          <a
+            href={links.incident_report_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
+          >
+            Incident Report
           </a>
         )}
 
@@ -113,6 +154,15 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
                   class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                 />
               </label>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Incident report URL
+                <input
+                  type="url"
+                  name="incident_report_url"
+                  value={links?.incident_report_url ?? ''}
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                />
+              </label>
               <button
                 type="submit"
                 class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
@@ -144,12 +194,21 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
         {rows.map((row) => (
           <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
             <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
-              {row.dsq ? 'DSQ' : row.position}
-              {row.wasAdjusted && (
-                <sup class="ml-0.5 text-[10px] font-sans text-brand-pink" title={`Finished ${row.finishPosition}, adjusted for a penalty`}>
-                  *
-                </sup>
-              )}
+              <div class="flex h-8 flex-col items-start justify-center">
+                <div class={row.penaltyOldPosition !== null ? 'text-white/40 line-through' : ''}>
+                  {row.dsq ? 'DSQ' : (row.penaltyOldPosition ?? row.position)}
+                  {row.wasAdjusted && row.penaltyOldPosition === null && (
+                    <sup class="ml-0.5 text-[10px] font-sans text-brand-pink" title={`Finished ${row.finishPosition}, adjusted for a penalty`}>
+                      *
+                    </sup>
+                  )}
+                </div>
+                {row.penaltyOldPosition !== null && (
+                  <div class="text-[10px] font-sans font-semibold text-brand-pink" title="Position after this round's penalties">
+                    {row.position}
+                  </div>
+                )}
+              </div>
             </td>
             <td class="py-2.5 pr-3 font-semibold">
               <div class="flex flex-wrap items-center gap-2">
@@ -163,7 +222,38 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
                     {tag}
                   </span>
                 ))}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    data-open-penalty-dialog={dialogId}
+                    data-driver-id={row.driver.id}
+                    data-driver-name={row.driver.name}
+                    class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white/50 transition hover:bg-brand-primary hover:text-white"
+                    title="Add a penalty"
+                  >
+                    + Penalty
+                  </button>
+                )}
               </div>
+              {(penaltiesByDriver.get(row.driver.id) ?? []).map((p) => (
+                <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-white/40">
+                  <span>
+                    {p.incident_number && `Incident #${p.incident_number}`}
+                    {p.lap !== null && ` · Lap ${p.lap}`}
+                    {(p.incident_number || p.lap !== null) && ' — '}
+                    {penaltySummary(p)}
+                    {p.offense_ids.length > 0 && ` (${p.offense_ids.map((id) => offenseNameById.get(id) ?? '?').join(', ')})`}
+                    {p.description && ` — ${p.description}`}
+                  </span>
+                  {isAdmin && (
+                    <form method="POST" data-astro-reload class="inline">
+                      <input type="hidden" name="intent" value="delete-penalty" />
+                      <input type="hidden" name="penalty_id" value={p.id} />
+                      <button type="submit" class="font-semibold text-white/30 hover:text-brand-pink">Remove</button>
+                    </form>
+                  )}
+                </div>
+              ))}
             </td>
             {showClass && (
               <td class="hidden py-2.5 pr-3 sm:table-cell">
@@ -204,4 +294,100 @@ const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || 
       </tbody>
     </table>
   </div>
+
+  {isAdmin && (
+    <dialog id={dialogId} data-penalty-dialog class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60">
+      <form method="POST" data-astro-reload class="flex flex-col gap-3 p-5">
+        <input type="hidden" name="intent" value="add-penalty" />
+        <input type="hidden" name="race_number" value={raceNumber} />
+        <input type="hidden" name="driver_id" data-penalty-driver-id-field value="" />
+
+        <div class="flex items-center justify-between">
+          <h4 class="font-display text-xl">
+            Add Penalty — <span data-penalty-driver-name-field>driver</span>
+          </h4>
+          <button type="button" data-close-penalty-dialog class="text-white/40 hover:text-white">✕</button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Incident #
+            <input type="text" name="incident_number" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Lap
+            <input type="number" name="lap" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+        </div>
+
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Description
+          <textarea name="description" rows="2" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"></textarea>
+        </label>
+
+        <div class="grid grid-cols-2 gap-3">
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Time penalty (seconds)
+            <input type="number" step="0.001" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Points penalty
+            <input type="number" name="points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+        </div>
+
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Penalty points (PP)
+          <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+        </label>
+
+        <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
+          <legend class="mb-1">Offenses (rulebook section 5)</legend>
+          <div class="flex max-h-36 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+            {offenses.length === 0 && <span class="text-white/30">No offenses configured — add some at /admin/penalty-offenses.</span>}
+            {offenses.map((o) => (
+              <label class="flex items-center gap-2 text-xs text-white/70">
+                <input type="checkbox" name="offense_ids" value={o.id} />
+                {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <button type="submit" class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110">
+          Save Penalty
+        </button>
+      </form>
+    </dialog>
+  )}
 </div>
+
+<script>
+  // Wires every "+ Penalty" button to the (one per race table) <dialog> that
+  // matches its data-open-penalty-dialog id, filling in the hidden
+  // driver_id field and the dialog's heading before showing it. Delegated
+  // at the document level and re-bound on every Astro page transition —
+  // Astro dedupes this identical inline script across however many
+  // ResultsTable instances render on one page, so this only actually runs
+  // once regardless of how many race tables are on screen.
+  function initPenaltyDialogs() {
+    document.querySelectorAll<HTMLButtonElement>('[data-open-penalty-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const dialog = document.getElementById(btn.dataset.openPenaltyDialog!) as HTMLDialogElement | null;
+        if (!dialog) return;
+        const driverIdField = dialog.querySelector<HTMLInputElement>('[data-penalty-driver-id-field]');
+        const driverNameField = dialog.querySelector('[data-penalty-driver-name-field]');
+        if (driverIdField) driverIdField.value = btn.dataset.driverId ?? '';
+        if (driverNameField) driverNameField.textContent = btn.dataset.driverName ?? 'driver';
+        dialog.showModal();
+      });
+    });
+    document.querySelectorAll<HTMLButtonElement>('[data-close-penalty-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        (btn.closest('dialog') as HTMLDialogElement | null)?.close();
+      });
+    });
+  }
+
+  document.addEventListener('astro:page-load', initPenaltyDialogs);
+</script>

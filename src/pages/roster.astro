@@ -3,7 +3,8 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import DriverRow from '../components/DriverRow.astro';
-import { getDrivers, resolveSupabaseEnv } from '../lib/supabase';
+import { getDrivers, getEvents, resolveSupabaseEnv } from '../lib/supabase';
+import { isOnProbationNow } from '../lib/penalties';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -15,6 +16,18 @@ try {
   console.error('Failed to load drivers:', err);
   loadError = err instanceof Error ? err.message : String(err);
 }
+
+// isOnProbationNow() needs the calendar to know how many rounds have passed
+// since a driver's probation started (rule 61) — a separate, best-effort
+// fetch so a hiccup loading events doesn't take down the whole roster (every
+// driver would just fall back to "not on probation" instead).
+let events: Awaited<ReturnType<typeof getEvents>> = [];
+try {
+  events = await getEvents(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load events for probation status:', err);
+}
+const onProbationNowByDriverId = new Map(drivers.map((d) => [d.id, isOnProbationNow(d, events)]));
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
@@ -100,7 +113,9 @@ const statuses = ['Active', 'Inactive', 'All'];
           </tr>
         </thead>
         <tbody id="roster-body">
-          {drivers.map((driver, i) => <DriverRow driver={driver} index={i} />)}
+          {drivers.map((driver, i) => (
+            <DriverRow driver={driver} index={i} onProbation={onProbationNowByDriverId.get(driver.id) ?? false} />
+          ))}
         </tbody>
       </table>
     </div>

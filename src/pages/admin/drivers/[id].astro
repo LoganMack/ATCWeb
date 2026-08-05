@@ -39,6 +39,8 @@ function readForm(form: FormData): Partial<DriverRecord> {
     photo_url: String(form.get('photo_url') ?? '').trim() || null,
     bio: String(form.get('bio') ?? '').trim() || null,
     sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
+    on_probation: form.get('on_probation') === 'on',
+    probation_started_at: String(form.get('probation_started_at') ?? '').trim() || null,
   };
 }
 
@@ -101,6 +103,8 @@ const d: Partial<DriverRecord> = driver ?? {
   penalty_points_max: 11,
   photo_url: '',
   bio: '',
+  on_probation: false,
+  probation_started_at: null,
 };
 ---
 
@@ -245,6 +249,25 @@ const d: Partial<DriverRecord> = driver ?? {
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >{d.bio}</textarea>
     </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Probation started</span>
+      <input
+        type="date"
+        name="probation_started_at"
+        value={d.probation_started_at ?? ''}
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" name="on_probation" checked={d.on_probation} />
+      <span class="text-white/70">On probation</span>
+    </label>
+    <p class="text-xs text-white/40 sm:col-span-2">
+      Both of these are normally set automatically when a penalty pushes this driver's PP to the limit (rulebook
+      rules 57-62) — edit them by hand only to correct a mistake. Probation itself lasts 4 rounds or 45 days from
+      the start date, whichever is longer; the roster's "Probation" tag reflects that window, not just this
+      checkbox.
+    </p>
     <label class="flex items-center gap-2 text-sm sm:col-span-2">
       <input type="checkbox" name="is_rookie" checked={d.is_rookie} />
       <span class="text-white/70">Rookie</span>
