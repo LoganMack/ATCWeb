@@ -488,6 +488,44 @@ export async function upsertRaceLinks(
   return rows[0];
 }
 
+// --- Car logos (see 0009_car_logos.sql) -------------------------------
+
+export interface CarLogo {
+  car_name: string;
+  logo_url: string;
+}
+
+/** Every configured car logo, keyed by the car's exact name (matches `curated_race_results.car_name`). */
+export function getCarLogos(env: SupabaseEnv) {
+  return restGet<CarLogo[]>(env, 'car_logos?select=car_name,logo_url&order=car_name.asc');
+}
+
+/** Upserts one car's logo (by car_name). */
+export async function upsertCarLogo(env: SupabaseEnv, accessToken: string, data: CarLogo) {
+  const res = await fetch(`${env.url}/rest/v1/car_logos?on_conflict=car_name`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on car_logos: ${await res.text()}`);
+  const rows = (await res.json()) as CarLogo[];
+  return rows[0];
+}
+
+export function deleteCarLogo(env: SupabaseEnv, accessToken: string, carName: string) {
+  return restDelete(env, accessToken, `car_logos?car_name=eq.${encodeURIComponent(carName)}`);
+}
+
+/** Distinct car names currently in use — each driver's current `car` field, deduped. A pragmatic stand-in for "every car found in the data": querying curated_race_results (an external, potentially huge, pipeline table) for truly distinct historical car names isn't practical over plain PostgREST. Cars that only ever appeared in past seasons and aren't any current driver's car can still be configured by typing the name directly in the admin form. */
+export async function getDistinctDriverCarNames(env: SupabaseEnv): Promise<string[]> {
+  const drivers = await restGet<{ car: string | null }[]>(env, 'drivers?select=car');
+  const names = new Set<string>();
+  for (const d of drivers) {
+    if (d.car && d.car.trim()) names.add(d.car.trim());
+  }
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
 // --- Storage (team logos, driver photos) --------------------------------
 
 /**
@@ -590,6 +628,39 @@ export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string,
 
 export function deleteCircuit(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `circuits?id=eq.${encodeURIComponent(id)}`);
+}
+
+// --- Circuit layouts (lap records, see 0010_circuit_layouts.sql) -----------
+
+export interface CircuitLayout {
+  id: string;
+  circuit_id: string;
+  name: string;
+  length_km: number | null;
+  lap_record_time: string | null;
+  lap_record_holder: string | null;
+  lap_record_date: string | null; // 'YYYY-MM-DD'
+}
+
+const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_time,lap_record_holder,lap_record_date';
+
+export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
+  return restGet<CircuitLayout[]>(
+    env,
+    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&circuit_id=eq.${encodeURIComponent(circuitId)}&order=name.asc`
+  );
+}
+
+export function createCircuitLayout(env: SupabaseEnv, accessToken: string, data: Partial<CircuitLayout>) {
+  return restPost<CircuitLayout>(env, accessToken, 'circuit_layouts', data);
+}
+
+export function updateCircuitLayout(env: SupabaseEnv, accessToken: string, id: string, data: Partial<CircuitLayout>) {
+  return restPatch<CircuitLayout>(env, accessToken, `circuit_layouts?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteCircuitLayout(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `circuit_layouts?id=eq.${encodeURIComponent(id)}`);
 }
 
 // --- Events ----------------------------------------------------------------

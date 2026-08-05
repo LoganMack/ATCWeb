@@ -3,8 +3,17 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons } from '../lib/supabase';
-import { computeSeasonStandings, isChampionshipSeason, type DriverSeasonStanding } from '../lib/results';
+import TeamLogo from '../components/TeamLogo.astro';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
+import {
+  computeSeasonStandings,
+  computeOverallSeasonStandings,
+  getSeasonCarTeamStats,
+  isChampionshipSeason,
+  type DriverSeasonStanding,
+  type DriverSeasonExtras,
+} from '../lib/results';
+import { classBadgeClasses } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -32,14 +41,36 @@ const activeSeason =
 const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
 
+const classNameById = new Map(classes.map((c) => [c.id, c.name]));
+
+// Same "Overall combines every class, Per Class is the original view"
+// toggle as the race results page, defaulting to Overall for the same
+// reason — it's the table that actually matches how points work when
+// class-only bonuses (class_points) are taken out of the mix (see
+// computeOverallSeasonStandings).
+const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
+
 let standings: DriverSeasonStanding[] = [];
-if (!loadError && activeSeason && activeClass) {
+let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
+if (!loadError && activeSeason) {
   try {
-    standings = await computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id);
+    const exhibitionRoundIds = await getExhibitionRoundIds(supabaseEnv);
+    const [standingsResult, extras] = await Promise.all([
+      view === 'class' && activeClass
+        ? computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id, undefined, exhibitionRoundIds)
+        : computeOverallSeasonStandings(supabaseEnv, activeSeason, undefined, exhibitionRoundIds),
+      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds),
+    ]);
+    standings = standingsResult;
+    extrasByDriverId = extras;
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
   }
+}
+
+function raceWord(n: number): string {
+  return `${n} race${n === 1 ? '' : 's'}`;
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
@@ -61,36 +92,62 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" class="flex flex-wrap items-end gap-4">
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Season</span>
-          <select
-            name="season"
-            onchange="this.form.submit()"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      <div class="mt-8 flex flex-wrap items-end justify-between gap-4">
+        <form method="GET" class="flex flex-wrap items-end gap-4">
+          <input type="hidden" name="view" value={view} />
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">Season</span>
+            <select
+              name="season"
+              onchange="this.form.submit()"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              {championshipSeasons.map((s) => (
+                <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+              ))}
+            </select>
+          </label>
+          {view === 'class' && (
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Class</span>
+              <select
+                name="class"
+                onchange="this.form.submit()"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              >
+                {classes.map((c) => (
+                  <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </form>
+
+        <div class="flex gap-2">
+          <a
+            href={`/standings?view=overall${activeSeason ? `&season=${activeSeason.number}` : ''}`}
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
           >
-            {championshipSeasons.map((s) => (
-              <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-            ))}
-          </select>
-        </label>
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Class</span>
-          <select
-            name="class"
-            onchange="this.form.submit()"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            Overall
+          </a>
+          <a
+            href={`/standings?view=class${activeSeason ? `&season=${activeSeason.number}` : ''}${activeClass ? `&class=${activeClass.name}` : ''}`}
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
           >
-            {classes.map((c) => (
-              <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
-            ))}
-          </select>
-        </label>
-      </form>
+            Per Class
+          </a>
+        </div>
+      </div>
     )}
 
     {!loadError && standings.length === 0 && (
-      <p class="mt-10 text-white/60">No results for {activeClass?.name ?? 'this class'} in {activeSeason?.name ?? 'this season'}.</p>
+      <p class="mt-10 text-white/60">
+        No results for {view === 'class' ? (activeClass?.name ?? 'this class') : 'every class'} in {activeSeason?.name ?? 'this season'}.
+      </p>
     )}
 
     {!loadError && standings.length > 0 && (
@@ -100,6 +157,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
               <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
+              {view === 'overall' && <th class="hidden py-3 pr-3 font-medium sm:table-cell">Class</th>}
               <th class="py-3 pr-3 text-center font-medium" data-sort-key="points">Points</th>
               <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="wins">Wins</th>
               <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="podiums">Podiums</th>
@@ -111,22 +169,49 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </tr>
           </thead>
           <tbody>
-            {standings.map((row) => (
-              <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]">
-                <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
-                <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name}>
-                  {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
-                </td>
-                <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{row.wins}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{row.podiums}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{row.top5s}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{row.top10s}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{row.poles}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{row.starts}</td>
-                <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
-              </tr>
-            ))}
+            {standings.map((row) => {
+              const extras = extrasByDriverId.get(row.driver.id);
+              return (
+                <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]">
+                  <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
+                  <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name}>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span>
+                        {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                      </span>
+                      {extras?.teams.map((t) => (
+                        <TeamLogo
+                          name={t.teamName}
+                          logoUrl={t.logoUrl}
+                          size="h-5 w-5"
+                          title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
+                        />
+                      ))}
+                      {extras?.cars.map((c) => (
+                        <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} />
+                      ))}
+                    </div>
+                  </td>
+                  {view === 'overall' && (
+                    <td class="hidden py-2.5 pr-3 sm:table-cell">
+                      {row.classId !== undefined && (
+                        <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(row.classId) ?? '')}`}>
+                          {classNameById.get(row.classId) ?? '—'}
+                        </span>
+                      )}
+                    </td>
+                  )}
+                  <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{row.wins}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{row.podiums}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{row.top5s}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{row.top10s}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{row.poles}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{row.starts}</td>
+                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

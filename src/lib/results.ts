@@ -38,8 +38,8 @@
  * "poles are based on appearances, not starts."
  */
 
-import { restGet, getExhibitionRoundIds, type SupabaseEnv } from './supabase';
-import type { Season } from './supabase';
+import { restGet, getExhibitionRoundIds, getCarLogos, type SupabaseEnv } from './supabase';
+import type { Season, CarLogo } from './supabase';
 
 /**
  * Real championship seasons are named like "ATC17" — anything that doesn't
@@ -82,6 +82,8 @@ interface CuratedRaceResultRow {
   incidents: number | null;
   laps_complete: number | null;
   laps_led: number | null;
+  /** The car this driver used for this specific race — per-race, unlike `drivers.car` (that column is just the driver's current car). */
+  car_name: string | null;
   /** Gap to the leader, in ten-thousandths of a second (iRacing's native unit) — see `formatMargin`. */
   interval_ten_thousandths: number | null;
 }
@@ -126,10 +128,34 @@ function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId
   );
 }
 
+interface RaceScoreOverallRow {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  class_id: number;
+  team_id: string | null;
+  finish_points: number;
+  finesse_bonus: number;
+  pole_bonus: number;
+  points_deduction: number;
+  dsq: boolean;
+  scored_position: number | null;
+}
+
+/** Every class combined — see `computeOverallSeasonStandings` and `getSeasonCarTeamStats`. */
+function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
+  const select =
+    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,dsq,scored_position';
+  return restGet<RaceScoreOverallRow[]>(
+    env,
+    `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
 function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
   const select =
-    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,interval_ten_thousandths';
+    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,car_name,interval_ten_thousandths';
   return restGet<CuratedRaceResultRow[]>(
     env,
     `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`
@@ -166,9 +192,73 @@ export interface DriverSeasonStanding {
   top5s: number;
   top10s: number;
   poles: number;
+  /** Only set by `computeOverallSeasonStandings` — which class this driver actually raced, so the overall (every class combined) table can still show it. */
+  classId?: number;
 }
 
 const BASELINE_DROP_WEEKS = 2;
+
+interface StandingsAccum {
+  starts: number;
+  subsessionIds: Set<number>;
+  poleSubsessionIds: Set<number>;
+  wins: number;
+  podiums: number;
+  top5s: number;
+  top10s: number;
+  roundPoints: Map<number, number>;
+  classId?: number;
+}
+
+function newStandingsAccum(): StandingsAccum {
+  return {
+    starts: 0,
+    subsessionIds: new Set(),
+    poleSubsessionIds: new Set(),
+    wins: 0,
+    podiums: 0,
+    top5s: 0,
+    top10s: 0,
+    roundPoints: new Map(),
+  };
+}
+
+/** Shared by both `computeSeasonStandings` and `computeOverallSeasonStandings` — turns the per-driver accumulators built by each into sorted, positioned standings (worst-rounds-dropped point totals, then wins/podiums as tiebreakers). */
+function finalizeStandings(
+  accum: Map<string, StandingsAccum>,
+  driverById: Map<string, DriverBasic>,
+  season: Season
+): DriverSeasonStanding[] {
+  const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
+
+  const standings: Omit<DriverSeasonStanding, 'position'>[] = [];
+  for (const [driverId, a] of accum) {
+    const driver = driverById.get(driverId);
+    if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
+
+    const roundTotals = [...a.roundPoints.values()].sort((x, y) => y - x);
+    const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
+    const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
+    const totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+
+    standings.push({
+      driver,
+      totalPoints,
+      starts: a.starts,
+      appearances: a.subsessionIds.size,
+      wins: a.wins,
+      podiums: a.podiums,
+      top5s: a.top5s,
+      top10s: a.top10s,
+      poles: a.poleSubsessionIds.size,
+      classId: a.classId,
+    });
+  }
+
+  standings.sort((x, y) => y.totalPoints - x.totalPoints || y.wins - x.wins || y.podiums - x.podiums);
+
+  return standings.map((s, i) => ({ ...s, position: i + 1 }));
+}
 
 /**
  * Computes the full standings for one season+class, sorted by points
@@ -217,30 +307,11 @@ export async function computeSeasonStandings(
     raceGroups.get(key)!.push(s);
   }
 
-  interface Accum {
-    starts: number;
-    subsessionIds: Set<number>;
-    poleSubsessionIds: Set<number>;
-    wins: number;
-    podiums: number;
-    top5s: number;
-    top10s: number;
-    roundPoints: Map<number, number>;
-  }
-  const accum = new Map<string, Accum>();
-  function getAccum(driverId: string): Accum {
+  const accum = new Map<string, StandingsAccum>();
+  function getAccum(driverId: string): StandingsAccum {
     let a = accum.get(driverId);
     if (!a) {
-      a = {
-        starts: 0,
-        subsessionIds: new Set(),
-        poleSubsessionIds: new Set(),
-        wins: 0,
-        podiums: 0,
-        top5s: 0,
-        top10s: 0,
-        roundPoints: new Map(),
-      };
+      a = newStandingsAccum();
       accum.set(driverId, a);
     }
     return a;
@@ -284,34 +355,204 @@ export async function computeSeasonStandings(
     a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + s.total_points);
   }
 
-  const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
+  return finalizeStandings(accum, driverById, season);
+}
 
-  const standings: Omit<DriverSeasonStanding, 'position'>[] = [];
-  for (const [driverId, a] of accum) {
-    const driver = driverById.get(driverId);
-    if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
+/**
+ * Every class combined into one table, ranked by the same points formula
+ * Alpha already effectively uses — `finish_points + finesse_bonus +
+ * pole_bonus + points_deduction`, deliberately excluding `class_points`
+ * (Logan: "class points for gammas and deltas are not counted... it should
+ * essentially be the alpha standings with everyone included"), since
+ * `class_points` is Delta/Gamma's own per-race class-position bonus and
+ * Alpha never has one — leaving it in would make Alpha drivers structurally
+ * unable to compete for the same "overall" total.
+ *
+ * Wins/podiums/top 5s/top 10s here come straight from
+ * `race_scores.scored_position` (the overall field position across every
+ * class, already computed by the pipeline) rather than the per-class
+ * re-derivation `computeSeasonStandings` does — same approach the race
+ * results page's "Overall" view uses, and simpler/no `curated_race_results`
+ * lookup needed since `scored_position` doesn't need re-deriving.
+ */
+export async function computeOverallSeasonStandings(
+  env: SupabaseEnv,
+  season: Season,
+  driversBasic?: DriverBasic[],
+  exhibitionRoundIds?: Set<number>
+): Promise<DriverSeasonStanding[]> {
+  if (!isChampionshipSeason(season.name)) return [];
 
-    const roundTotals = [...a.roundPoints.values()].sort((x, y) => y - x);
-    const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
-    const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
-    const totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+  const [scoresRaw, drivers, exhibitionIds] = await Promise.all([
+    getRaceScoresForSeasonOverall(env, season.id),
+    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+  ]);
+  const scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+  if (scores.length === 0) return [];
 
-    standings.push({
-      driver,
-      totalPoints,
-      starts: a.starts,
-      appearances: a.subsessionIds.size,
-      wins: a.wins,
-      podiums: a.podiums,
-      top5s: a.top5s,
-      top10s: a.top10s,
-      poles: a.poleSubsessionIds.size,
-    });
+  const driverById = new Map(drivers.map((d) => [d.id, d]));
+  const accum = new Map<string, StandingsAccum>();
+  function getAccum(driverId: string): StandingsAccum {
+    let a = accum.get(driverId);
+    if (!a) {
+      a = newStandingsAccum();
+      accum.set(driverId, a);
+    }
+    return a;
   }
 
-  standings.sort((x, y) => y.totalPoints - x.totalPoints || y.wins - x.wins || y.podiums - x.podiums);
+  for (const s of scores) {
+    const a = getAccum(s.driver_id);
+    a.classId = s.class_id;
+    a.starts += 1;
+    a.subsessionIds.add(s.subsession_id);
+    if (s.pole_bonus > 0) a.poleSubsessionIds.add(s.subsession_id);
+    const points = s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+    a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + points);
 
-  return standings.map((s, i) => ({ ...s, position: i + 1 }));
+    if (!s.dsq && s.scored_position !== null) {
+      if (s.scored_position === 1) a.wins++;
+      if (s.scored_position <= 3) a.podiums++;
+      if (s.scored_position <= 5) a.top5s++;
+      if (s.scored_position <= 10) a.top10s++;
+    }
+  }
+
+  return finalizeStandings(accum, driverById, season);
+}
+
+// ---------------------------------------------------------------------------
+// Per-driver car/team usage for a season — powers the small logo rows on
+// the standings page (see src/pages/standings.astro).
+// ---------------------------------------------------------------------------
+
+export interface DriverCarStat {
+  carName: string;
+  logoUrl: string | null;
+  races: number;
+}
+
+export interface DriverTeamStat {
+  teamId: string;
+  teamName: string;
+  logoUrl: string | null;
+  /** How many races this driver raced under this team, this season. */
+  racesUnderTeam: number;
+  /**
+   * How many of those races this driver was one of the team's top 2 point
+   * scorers in (the rule that decides which drivers' points actually count
+   * toward the team championship for that race).
+   */
+  racesScoredForTeam: number;
+}
+
+export interface DriverSeasonExtras {
+  cars: DriverCarStat[];
+  teams: DriverTeamStat[];
+}
+
+/**
+ * Per-driver "which cars/teams did they use this season, how often" —
+ * computed once for the whole season (every class, regardless of which
+ * standings view — overall or per-class — is actually being shown), since
+ * a driver's car/team usage isn't itself a per-class-view concern.
+ *
+ * Team `racesScoredForTeam` implements Logan's rule: "only the top 2
+ * scoring drivers for each team add their points to the team championship
+ * per race" — for every (race, team) group, this ranks that team's drivers
+ * who raced that specific race by their points that race (finish + finesse
+ * + pole + deduction, same formula `computeOverallSeasonStandings` uses)
+ * and credits the top 2.
+ */
+export async function getSeasonCarTeamStats(
+  env: SupabaseEnv,
+  season: Season,
+  exhibitionRoundIds?: Set<number>
+): Promise<Map<string, DriverSeasonExtras>> {
+  const [scoresRaw, drivers, teams, carLogos, exhibitionIds] = await Promise.all([
+    getRaceScoresForSeasonOverall(env, season.id),
+    driversSelect(env),
+    getTeamsBasic(env),
+    getCarLogos(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+  ]);
+  const scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+  if (scores.length === 0) return new Map();
+
+  const custIdByDriverId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+  );
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
+
+  const subsessionIds = [...new Set(scores.map((s) => s.subsession_id))];
+  const rawResults = await getCuratedRaceResultsForSubsessions(env, subsessionIds);
+  const carNameByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.car_name]));
+
+  // --- Cars: tally per-driver usage, one count per race started in that car. ---
+  const carCountsByDriver = new Map<string, Map<string, number>>();
+  for (const s of scores) {
+    const custId = custIdByDriverId.get(s.driver_id);
+    const carName = custId != null ? carNameByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    if (!carName) continue;
+    if (!carCountsByDriver.has(s.driver_id)) carCountsByDriver.set(s.driver_id, new Map());
+    const m = carCountsByDriver.get(s.driver_id)!;
+    m.set(carName, (m.get(carName) ?? 0) + 1);
+  }
+
+  // --- Teams: tally races raced under each team, and figure out who was
+  // one of the top 2 scorers for their team in each individual race. ---
+  const racesUnderByDriverTeam = new Map<string, Map<string, number>>(); // driverId -> teamId -> count
+  const teamRaceGroups = new Map<string, RaceScoreOverallRow[]>(); // "subsession:race:team" -> that team's rows for that race
+  for (const s of scores) {
+    if (!s.team_id) continue;
+    if (!racesUnderByDriverTeam.has(s.driver_id)) racesUnderByDriverTeam.set(s.driver_id, new Map());
+    const m = racesUnderByDriverTeam.get(s.driver_id)!;
+    m.set(s.team_id, (m.get(s.team_id) ?? 0) + 1);
+
+    const key = `${s.subsession_id}:${s.race_number}:${s.team_id}`;
+    if (!teamRaceGroups.has(key)) teamRaceGroups.set(key, []);
+    teamRaceGroups.get(key)!.push(s);
+  }
+
+  const scoredForTeamByDriverTeam = new Map<string, Map<string, number>>(); // driverId -> teamId -> count
+  for (const group of teamRaceGroups.values()) {
+    const pointsOf = (s: RaceScoreOverallRow) => s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+    const ranked = [...group].sort((a, b) => pointsOf(b) - pointsOf(a));
+    for (const s of ranked.slice(0, 2)) {
+      if (!scoredForTeamByDriverTeam.has(s.driver_id)) scoredForTeamByDriverTeam.set(s.driver_id, new Map());
+      const m = scoredForTeamByDriverTeam.get(s.driver_id)!;
+      m.set(s.team_id as string, (m.get(s.team_id as string) ?? 0) + 1);
+    }
+  }
+
+  const out = new Map<string, DriverSeasonExtras>();
+  const driverIds = new Set([...carCountsByDriver.keys(), ...racesUnderByDriverTeam.keys()]);
+  for (const driverId of driverIds) {
+    const cars: DriverCarStat[] = [...(carCountsByDriver.get(driverId)?.entries() ?? [])]
+      .map(([carName, races]) => ({ carName, logoUrl: carLogoByName.get(carName) ?? null, races }))
+      .sort((a, b) => b.races - a.races);
+
+    const teamsForDriver = racesUnderByDriverTeam.get(driverId);
+    const teamsOut: DriverTeamStat[] = teamsForDriver
+      ? [...teamsForDriver.entries()]
+          .map(([teamId, racesUnderTeam]) => {
+            const team = teamById.get(teamId);
+            return {
+              teamId,
+              teamName: team?.name ?? 'Unknown Team',
+              logoUrl: team?.logo_url ?? null,
+              racesUnderTeam,
+              racesScoredForTeam: scoredForTeamByDriverTeam.get(driverId)?.get(teamId) ?? 0,
+            };
+          })
+          .sort((a, b) => b.racesUnderTeam - a.racesUnderTeam)
+      : [];
+
+    out.set(driverId, { cars, teams: teamsOut });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +659,8 @@ export interface RaceResultRow {
    */
   bonusPoints: number;
   polePosition: boolean;
+  /** True when `finesse_bonus > 0` — the "3 incidents or less" bonus was actually awarded for this race (mirrors `polePosition`'s use of `pole_bonus > 0` rather than re-deriving the rule from a raw threshold). */
+  incidentsBonus: boolean;
   incidents: number | null;
   laps: number | null;
   lapsLed: number | null;
@@ -439,6 +682,8 @@ export interface RaceResultRow {
   margin: string;
   /** The team this driver raced for in this specific race (from `race_scores.team_id`), or null if unassigned. */
   team: { name: string; logoUrl: string | null } | null;
+  /** The car this driver used for this specific race (`curated_race_results.car_name`), or null if not recorded. */
+  car: { name: string; logoUrl: string | null } | null;
 }
 
 export interface RoundResults {
@@ -468,11 +713,12 @@ type RaceScoreWithClass = RaceScoreRow & {
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
-  const [scores, rawResults, drivers, teams] = await Promise.all([
+  const [scores, rawResults, drivers, teams, carLogos] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
     driversSelect(env),
     getTeamsBasic(env),
+    getCarLogos(env),
   ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
@@ -481,6 +727,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   );
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const teamById = new Map(teams.map((t) => [t.id, t]));
+  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
 
   // Leader's laps_complete per race (finish_position === 1, i.e. the actual
   // on-track winner before any penalty adjustment) — needed to turn a
@@ -512,12 +759,14 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       totalPoints: score.total_points,
       bonusPoints: score.class_points + score.finesse_bonus + score.pole_bonus + score.points_deduction,
       polePosition: score.pole_bonus > 0,
+      incidentsBonus: score.finesse_bonus > 0,
       incidents: raw.incidents,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
       tags,
       margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null),
       team: team ? { name: team.name, logoUrl: team.logo_url } : null,
+      car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
     };
   }
 
