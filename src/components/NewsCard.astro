@@ -1,5 +1,6 @@
 ---
 import type { NewsPost } from '../lib/supabase';
+import { formatDate } from '../lib/supabase';
 
 interface Props {
   post: NewsPost;
@@ -9,11 +10,7 @@ interface Props {
 
 const { post, index = 0, featured = false } = Astro.props;
 
-const date = new Date(post.published_at).toLocaleDateString('en-US', {
-  month: 'long',
-  day: 'numeric',
-  year: 'numeric',
-});
+const date = formatDate(post.published_at);
 ---
 
 <a

@@ -14,6 +14,8 @@ import {
   updateCircuitLayout,
   deleteCircuitLayout,
   formatLapTime,
+  formatDate,
+  displayLayoutName,
   type Circuit,
   type CircuitLayout,
 } from '../../../lib/supabase';
@@ -219,12 +221,12 @@ if (!isNew && id) {
           <li class="rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p class="font-semibold">{layout.name}</p>
+                <p class="font-semibold">{displayLayoutName(layout.name)}</p>
                 <p class="mt-0.5 text-xs text-white/50">
                   {layout.length_km !== null ? `${layout.length_km} km` : 'Length not set'}
                   {layout.lap_record_seconds !== null && ` · Record ${formatLapTime(layout.lap_record_seconds)}`}
                   {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
-                  {layout.lap_record_date && ` (${layout.lap_record_date})`}
+                  {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
                 </p>
               </div>
               <div class="flex items-center gap-2">

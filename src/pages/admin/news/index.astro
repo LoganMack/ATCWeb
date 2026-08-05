@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsPosts } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getAllNewsPosts, formatDate } from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -59,7 +59,7 @@ try {
                 data-col="date"
                 data-sort-value={new Date(post.published_at).getTime()}
               >
-                {new Date(post.published_at).toLocaleDateString('en-US')}
+                {formatDate(post.published_at)}
               </td>
               <td class="py-3 pr-3" data-col="status" data-sort-value={post.status}>
                 <span

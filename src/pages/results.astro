@@ -3,7 +3,7 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, formatDate } from '../lib/supabase';
 import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -107,7 +107,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 {isExhibition ? 'Exhibition — ' : `Round ${displayNumber} — `}{round.track_name}
               </p>
               <p class="text-sm text-white/50">
-                {new Date(round.start_time).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                {formatDate(round.start_time)}
                 {round.format && ` · ${round.format === 'endurance' ? 'Endurance' : 'Sprint'}`}
               </p>
             </div>

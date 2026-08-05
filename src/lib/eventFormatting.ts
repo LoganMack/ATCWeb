@@ -15,7 +15,6 @@ function parseDateOnly(dateStr: string): Date {
 
 export function formatEventDate(dateStr: string): string {
   return parseDateOnly(dateStr).toLocaleDateString('en-US', {
-    weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',

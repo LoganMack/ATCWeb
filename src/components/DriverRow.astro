@@ -1,5 +1,6 @@
 ---
 import type { Driver } from '../lib/supabase';
+import { formatDate } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 
@@ -49,7 +50,13 @@ const badgeClasses = classBadgeClasses(className);
     </span>
   </td>
   <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="status">{statusName}</td>
-  <td class="hidden py-2.5 pr-3 text-white/60 lg:table-cell" data-col="signup">{driver.sign_up_date ?? '—'}</td>
+  <td
+    class="hidden py-2.5 pr-3 text-white/60 lg:table-cell"
+    data-col="signup"
+    data-sort-value={driver.sign_up_date ?? ''}
+  >
+    {formatDate(driver.sign_up_date)}
+  </td>
   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{driver.starts}</td>
   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="seasons">{driver.seasons_count}</td>
   <td class="py-2.5 pr-4 text-center font-semibold" data-col="penalty" data-sort-value={driver.penalty_points}>

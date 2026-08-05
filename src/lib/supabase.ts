@@ -656,14 +656,40 @@ export interface CircuitLayout {
 
 const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date';
 
-/** "01:42.512" from a raw seconds count (e.g. 102.512) — minutes always shown 2-digit/zero-padded, same as seconds/milliseconds, matching how lap times are conventionally displayed regardless of whether the minutes digit would technically fit in one. */
+/** "1:42.512" from a raw seconds count (e.g. 102.512) — minutes are shown with no leading zero (per site-wide convention: no leading zeroes on lap records/times), while seconds/milliseconds keep their own fixed-width zero-padding since those are always exactly 2 and 3 digits within a minute. */
 export function formatLapTime(seconds: number | null): string {
   if (seconds === null) return '—';
   const totalMs = Math.round(seconds * 1000);
   const minutes = Math.floor(totalMs / 60000);
   const secs = Math.floor((totalMs % 60000) / 1000);
   const ms = totalMs % 1000;
-  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+  return `${minutes}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+}
+
+/**
+ * "Full Course" from the "N/A" sentinel some circuit layouts are stored
+ * with (used when a circuit only has one configuration and no specific
+ * layout name applies) — display-only, doesn't touch the stored value.
+ */
+export function displayLayoutName(name: string): string {
+  return name === 'N/A' ? 'Full Course' : name;
+}
+
+/**
+ * "August 5, 2026" — the one date format used everywhere across the site,
+ * from a 'YYYY-MM-DD' date-only string or a full ISO timestamp.
+ * Date-only strings are parsed as local calendar-date components rather
+ * than handed straight to `new Date()`, which treats a bare 'YYYY-MM-DD'
+ * as UTC midnight and can render as the *previous* day once
+ * `toLocaleDateString` applies a negative-offset local timezone.
+ */
+export function formatDate(dateInput: string | null): string {
+  if (!dateInput) return '—';
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+  const date = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(dateInput);
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
 export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
