@@ -15,10 +15,12 @@ import {
   getPenaltiesForSubsession,
   getPenaltyOffenses,
   createPenalty,
+  updatePenalty,
   deletePenalty,
   getDriverById,
   updateDriver,
   getEvents,
+  getWarningCounts,
   type RaceLinks,
   type Penalty,
   type PenaltyOffense,
@@ -102,6 +104,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     const pointsPenaltyRaw = String(form.get('points_penalty') ?? '').trim();
     const penaltyPointsRaw = String(form.get('penalty_points') ?? '').trim();
     const offenseIds = form.getAll('offense_ids').map(String).filter(Boolean);
+    const involvedDriverIds = form.getAll('involved_driver_ids').map(String).filter(Boolean);
 
     if (driverId && Number.isFinite(raceNumber)) {
       try {
@@ -118,8 +121,10 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
             time_penalty_seconds: timePenaltyRaw ? Number(timePenaltyRaw) : null,
             points_penalty: pointsPenaltyRaw ? Number(pointsPenaltyRaw) : 0,
             penalty_points: penaltyPointsRaw ? Number(penaltyPointsRaw) : 0,
+            is_warning: form.get('is_warning') === 'on',
           },
-          offenseIds
+          offenseIds,
+          involvedDriverIds
         );
 
         // Apply this penalty's PP to the driver's season tally, doubled if
@@ -148,6 +153,43 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
   }
 
+  // Edits a penalty's own fields/offense-tags/involved-cars in place.
+  // Deliberately does NOT re-touch the driver's season PP tally even if
+  // penalty_points changes here — see updatePenalty's doc comment in
+  // src/lib/supabase.ts for why; correct that by hand if needed.
+  if (intent === 'update-penalty') {
+    const penaltyId = String(form.get('penalty_id') ?? '');
+    const timePenaltyRaw = String(form.get('time_penalty_seconds') ?? '').trim();
+    const pointsPenaltyRaw = String(form.get('points_penalty') ?? '').trim();
+    const penaltyPointsRaw = String(form.get('penalty_points') ?? '').trim();
+    const offenseIds = form.getAll('offense_ids').map(String).filter(Boolean);
+    const involvedDriverIds = form.getAll('involved_driver_ids').map(String).filter(Boolean);
+
+    if (penaltyId) {
+      try {
+        await updatePenalty(
+          supabaseEnv,
+          Astro.locals.session!.accessToken,
+          penaltyId,
+          {
+            incident_number: String(form.get('incident_number') ?? '').trim() || null,
+            lap: String(form.get('lap') ?? '').trim() ? Number(form.get('lap')) : null,
+            description: String(form.get('description') ?? '').trim() || null,
+            time_penalty_seconds: timePenaltyRaw ? Number(timePenaltyRaw) : null,
+            points_penalty: pointsPenaltyRaw ? Number(pointsPenaltyRaw) : 0,
+            penalty_points: penaltyPointsRaw ? Number(penaltyPointsRaw) : 0,
+            is_warning: form.get('is_warning') === 'on',
+          },
+          offenseIds,
+          involvedDriverIds
+        );
+      } catch (err) {
+        console.error('Failed to update penalty:', err);
+      }
+    }
+    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
+  }
+
   if (intent === 'delete-penalty') {
     const penaltyId = String(form.get('penalty_id') ?? '');
     if (penaltyId) {
@@ -168,6 +210,7 @@ let exhibitionRoundIds: Set<number> = new Set();
 let raceLinksByRace: Map<number, RaceLinks> = new Map();
 let penalties: Penalty[] = [];
 let offenses: PenaltyOffense[] = [];
+let warningCounts: Map<string, number> = new Map();
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
@@ -181,6 +224,9 @@ if (Number.isFinite(subsessionId)) {
       getPenaltiesForSubsession(supabaseEnv, subsessionId),
       getPenaltyOffenses(supabaseEnv),
     ]);
+    // Steward-facing only (which driver already has how many warnings
+    // logged) — skip the extra query for public visitors.
+    if (isAdmin) warningCounts = await getWarningCounts(supabaseEnv);
   } catch (err) {
     console.error('Failed to load round results:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -312,6 +358,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 isAdmin={isAdmin}
                 penalties={penalties}
                 offenses={offenses}
+                warningCounts={warningCounts}
               />
             ))}
           </>
@@ -332,6 +379,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   isAdmin={isAdmin}
                   penalties={penalties}
                   offenses={offenses}
+                  warningCounts={warningCounts}
                 />
               ))}
             </div>

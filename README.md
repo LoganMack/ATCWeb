@@ -205,6 +205,20 @@ Implements rulebook 18.3's section 5 ("Stewarding") — logging a steward's pena
 
 **Known gap — season standings don't reflect penalties yet.** `/results/[subsessionId]` shows the fully recalculated picture, but `computeSeasonStandings()`/`computeOverallSeasonStandings()` (the season standings and champions pages) still total points straight from `race_scores`, unaware of anything in the new `penalties` table — so a driver's season total won't move until that's wired up too. Flagging this clearly rather than letting it look done: a penalty logged today changes what that race's results page shows, but not (yet) the season standings it should ultimately feed into. Extending the standings computation to run the same penalty engine across every round of a season is the natural next step, just not built in this pass.
 
+### Penalty follow-ups (v0.14)
+
+Five refinements on top of v0.13, all still working against the same app-owned tables (`0015_penalty_details.sql` adds two small pieces, described below):
+
+**Editing an existing penalty.** Each logged penalty now has an "Edit" button alongside "Remove". It reopens the same dialog used to add one, pre-filled from the penalty's data (including its offenses and involved drivers), and posts to a new `update-penalty` action instead of `add-penalty`. One deliberate asymmetry, called out in the dialog itself: editing a penalty's PP does **not** retroactively adjust the driver's season PP tally or probation state — only creating a new penalty applies PP forward. If a logged PP value turns out to be wrong, correct the driver's `penalty_points`/`on_probation` by hand on their admin page (same as the existing "deleting a penalty" caveat from v0.13).
+
+**Expand-to-reveal penalty display.** A driver's penalties no longer show inline by default — they're behind a "Penalty" tag next to their name (styled and behaving like the existing "Unclassified" tag: solid when there's something to show, a dashed/ghost outline for admins when there isn't, since only admins can add one from an empty state). Clicking it toggles a panel open with the penalty list, and — for admins — the "+ Add Penalty" button now lives inside that panel rather than sitting in the row unconditionally, so a clean, unpenalized race stays visually quiet.
+
+**Involved cars.** The penalty dialog gained a checkbox list of the other drivers in that same race, for marking who else was part of an incident beyond the driver being penalized (`penalty_involved_drivers`, new join table, same shape as `penalty_offense_links`). Each penalty entry in the expanded panel shows an "Also involved: ..." line resolving those driver names.
+
+**Warnings.** A penalty can now be flagged "this is a warning" (`penalties.is_warning`) rather than a real penalty — matching the several rulebook offenses that read "Warning or N PP" for a first offense, escalating to a real penalty on repeat. Warned entries show a small "Warning" badge in the panel (admin-only), and `getWarningCounts()` gives admins a running count next to the "+ Add Penalty" button so they can see when a driver's hit 2 warnings and the "2 warnings → +1 PP" offense applies. One caveat worth flagging: this count is career-wide, not scoped to the current season — the rulebook doesn't specify a reset point for warnings the way it does for PP, so treat it as a steward's reference number rather than an authoritative season count.
+
+**Position-subtext color.** The small subtext under a struck-through old position (showing where a driver ended up after re-sorting) is now color-coded instead of always pink: pink if the driver lost positions from their own penalty, blue if they gained positions because someone else was penalized ahead of them. Purely visual — the underlying recalculation logic from v0.13 is unchanged.
+
 ## Re-importing the roster later
 
 Whenever the roster spreadsheet changes:

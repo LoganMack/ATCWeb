@@ -863,9 +863,13 @@ export interface Penalty {
   time_penalty_seconds: number | null;
   points_penalty: number;
   penalty_points: number;
+  /** Flags this as (also, or only) a warning — rulebook offense "2 warnings" escalates to +1 PP, so stewards need to see how many a driver already has (see getWarningCounts) before logging a third. Doesn't change how the penalty's own time/points/PP fields are applied — a warning can still carry a real PP value if the steward enters one. */
+  is_warning: boolean;
   created_at: string;
   /** Every offense tagged on this penalty — descriptive/record-keeping only, doesn't drive any of the math (see penalty_points above). */
   offense_ids: string[];
+  /** Other drivers' cars that were part of the same incident — descriptive only, same as offense_ids. */
+  involved_driver_ids: string[];
 }
 
 interface PenaltyRow {
@@ -879,17 +883,24 @@ interface PenaltyRow {
   time_penalty_seconds: number | null;
   points_penalty: number;
   penalty_points: number;
+  is_warning: boolean;
   created_at: string;
   penalty_offense_links: { offense_id: string }[];
+  penalty_involved_drivers: { driver_id: string }[];
 }
 
 const PENALTY_SELECT =
   'id,subsession_id,race_number,driver_id,incident_number,lap,description,' +
-  'time_penalty_seconds,points_penalty,penalty_points,created_at,penalty_offense_links(offense_id)';
+  'time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,' +
+  'penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)';
 
 function toPenalty(row: PenaltyRow): Penalty {
-  const { penalty_offense_links, ...rest } = row;
-  return { ...rest, offense_ids: penalty_offense_links.map((l) => l.offense_id) };
+  const { penalty_offense_links, penalty_involved_drivers, ...rest } = row;
+  return {
+    ...rest,
+    offense_ids: penalty_offense_links.map((l) => l.offense_id),
+    involved_driver_ids: penalty_involved_drivers.map((l) => l.driver_id),
+  };
 }
 
 /** Every penalty logged against any race in one round, oldest first (so later penalties, if any ever stack for the same driver+race, apply in the order they were issued). */
@@ -901,36 +912,76 @@ export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: 
   return rows.map(toPenalty);
 }
 
-/** Inserts a penalty and links it to every selected offense — two REST calls, not a real transaction (this backend is plain PostgREST, no server-side function for this yet), so a failure between them can in principle leave a penalty with no offense tags. Acceptable for now: the penalty's own time/points/PP fields (the numbers that actually drive recalculation) are set atomically on the first insert either way. */
+export interface PenaltyInput {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  incident_number: string | null;
+  lap: number | null;
+  description: string | null;
+  time_penalty_seconds: number | null;
+  points_penalty: number;
+  penalty_points: number;
+  is_warning: boolean;
+}
+
+/** Inserts a penalty and links it to every selected offense/involved driver — three REST calls, not a real transaction (this backend is plain PostgREST, no server-side function for this yet), so a failure partway through can in principle leave a penalty with no tags/involved cars linked. Acceptable for now: the penalty's own time/points/PP fields (the numbers that actually drive recalculation) are set atomically on the first insert either way. */
 export async function createPenalty(
   env: SupabaseEnv,
   accessToken: string,
-  data: {
-    subsession_id: number;
-    race_number: number;
-    driver_id: string;
-    incident_number: string | null;
-    lap: number | null;
-    description: string | null;
-    time_penalty_seconds: number | null;
-    points_penalty: number;
-    penalty_points: number;
-  },
-  offenseIds: string[]
+  data: PenaltyInput,
+  offenseIds: string[],
+  involvedDriverIds: string[]
 ): Promise<Penalty> {
   const created = await restPost<PenaltyRow>(env, accessToken, 'penalties', data);
   if (offenseIds.length > 0) {
-    await restPost(
-      env,
-      accessToken,
-      'penalty_offense_links',
-      offenseIds.map((offense_id) => ({ penalty_id: created.id, offense_id }))
-    );
+    await restPost(env, accessToken, 'penalty_offense_links', offenseIds.map((offense_id) => ({ penalty_id: created.id, offense_id })));
   }
-  return { ...created, offense_ids: offenseIds };
+  if (involvedDriverIds.length > 0) {
+    await restPost(env, accessToken, 'penalty_involved_drivers', involvedDriverIds.map((driver_id) => ({ penalty_id: created.id, driver_id })));
+  }
+  return { ...created, offense_ids: offenseIds, involved_driver_ids: involvedDriverIds };
 }
 
-/** Removes a penalty (its offense links cascade). Does NOT retroactively adjust the driver's season penalty_points/probation state — that tally is only ever applied forward, at the moment a penalty is created (see applyPenaltyPointsToDriver in src/lib/penalties.ts). Correct it manually on the driver's admin page if a deleted penalty's PP needs backing out. */
+/**
+ * Updates a penalty's own fields, then replaces its offense/involved-driver
+ * links wholesale (delete everything currently linked, insert the new
+ * selection) rather than trying to diff them — simplest correct way to
+ * handle a checkbox list that can add and remove entries in the same edit.
+ * Like createPenalty, does NOT retroactively adjust the driver's season PP
+ * tally even if penalty_points changes here — that's only ever applied
+ * forward, at creation time (see applyPenaltyPointsToDriver in
+ * src/lib/penalties.ts). Correct the driver's PP by hand on their admin
+ * page if an edit changes what should have been awarded.
+ */
+export async function updatePenalty(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<PenaltyInput>,
+  offenseIds: string[],
+  involvedDriverIds: string[]
+): Promise<void> {
+  await restPatch<PenaltyRow>(env, accessToken, `penalties?id=eq.${encodeURIComponent(id)}`, data);
+  await restDelete(env, accessToken, `penalty_offense_links?penalty_id=eq.${encodeURIComponent(id)}`);
+  await restDelete(env, accessToken, `penalty_involved_drivers?penalty_id=eq.${encodeURIComponent(id)}`);
+  if (offenseIds.length > 0) {
+    await restPost(env, accessToken, 'penalty_offense_links', offenseIds.map((offense_id) => ({ penalty_id: id, offense_id })));
+  }
+  if (involvedDriverIds.length > 0) {
+    await restPost(env, accessToken, 'penalty_involved_drivers', involvedDriverIds.map((driver_id) => ({ penalty_id: id, driver_id })));
+  }
+}
+
+/** Removes a penalty (its offense/involved-driver links cascade). Does NOT retroactively adjust the driver's season penalty_points/probation state — see updatePenalty's doc comment for why, same reasoning applies here. Correct it manually on the driver's admin page if a deleted penalty's PP needs backing out. */
 export function deletePenalty(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `penalties?id=eq.${encodeURIComponent(id)}`);
+}
+
+/** Every driver who has at least one penalty logged as a warning (is_warning), with a running count — not season-scoped (counts every warning ever logged, across every season), which is a deliberate simplification: flagged so a steward reading "3 warnings" knows that's a career count, not necessarily this season's. Used to surface "this driver has already been warned N times" while logging a new penalty. */
+export async function getWarningCounts(env: SupabaseEnv): Promise<Map<string, number>> {
+  const rows = await restGet<{ driver_id: string }[]>(env, 'penalties?select=driver_id&is_warning=eq.true');
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.driver_id, (out.get(r.driver_id) ?? 0) + 1);
+  return out;
 }
