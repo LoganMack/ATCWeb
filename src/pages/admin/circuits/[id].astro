@@ -13,6 +13,7 @@ import {
   createCircuitLayout,
   updateCircuitLayout,
   deleteCircuitLayout,
+  formatLapTime,
   type Circuit,
   type CircuitLayout,
 } from '../../../lib/supabase';
@@ -45,7 +46,7 @@ if (Astro.request.method === 'POST') {
     if (!isNew && id) {
       const layoutName = String(form.get('layout_name') ?? '').trim();
       const lengthKmRaw = String(form.get('length_km') ?? '').trim();
-      const lapRecordTime = String(form.get('lap_record_time') ?? '').trim();
+      const lapRecordSecondsRaw = String(form.get('lap_record_seconds') ?? '').trim();
       const lapRecordHolder = String(form.get('lap_record_holder') ?? '').trim();
       const lapRecordDate = String(form.get('lap_record_date') ?? '').trim();
       const layoutId = String(form.get('layout_id') ?? '');
@@ -56,7 +57,7 @@ if (Astro.request.method === 'POST') {
         const data: Partial<CircuitLayout> = {
           name: layoutName,
           length_km: lengthKmRaw ? Number(lengthKmRaw) : null,
-          lap_record_time: lapRecordTime || null,
+          lap_record_seconds: lapRecordSecondsRaw ? Number(lapRecordSecondsRaw) : null,
           lap_record_holder: lapRecordHolder || null,
           lap_record_date: lapRecordDate || null,
         };
@@ -221,7 +222,7 @@ if (!isNew && id) {
                 <p class="font-semibold">{layout.name}</p>
                 <p class="mt-0.5 text-xs text-white/50">
                   {layout.length_km !== null ? `${layout.length_km} km` : 'Length not set'}
-                  {layout.lap_record_time && ` · Record ${layout.lap_record_time}`}
+                  {layout.lap_record_seconds !== null && ` · Record ${formatLapTime(layout.lap_record_seconds)}`}
                   {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                   {layout.lap_record_date && ` (${layout.lap_record_date})`}
                 </p>
@@ -259,14 +260,18 @@ if (!isNew && id) {
                       />
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Lap record (x:xx.xx)
+                      Lap record (seconds)
                       <input
-                        type="text"
-                        name="lap_record_time"
-                        placeholder="1:42.31"
-                        value={layout.lap_record_time ?? ''}
+                        type="number"
+                        step="0.001"
+                        name="lap_record_seconds"
+                        placeholder="102.512"
+                        value={layout.lap_record_seconds ?? ''}
                         class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                       />
+                      {layout.lap_record_seconds !== null && (
+                        <span class="text-white/40">= {formatLapTime(layout.lap_record_seconds)}</span>
+                      )}
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-white/50">
                       Record holder
@@ -331,11 +336,12 @@ if (!isNew && id) {
             />
           </label>
           <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Lap record (x:xx.xx)</span>
+            <span class="text-white/60">Lap record (seconds)</span>
             <input
-              type="text"
-              name="lap_record_time"
-              placeholder="1:42.31"
+              type="number"
+              step="0.001"
+              name="lap_record_seconds"
+              placeholder="102.512"
               class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
             />
           </label>

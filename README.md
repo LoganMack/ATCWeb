@@ -160,7 +160,9 @@ On the results page, both the team and car logo sit immediately to the right of 
 
 ## Circuit layouts (v0.9)
 
-A circuit can be run in more than one configuration (full course vs. a shorter layout, etc.), each with its own lap record. `circuit_layouts` (`0010_circuit_layouts.sql`) is a normal child table of `circuits`: any number of layouts per circuit, each with a name, length (km), lap record time (typed as free text, "x:xx.xx" — not parsed/validated, just displayed as entered), record holder, and record date. Manage them at `/admin/circuits/[id]` → "Layouts". Shown publicly at `/circuits` (see below); events still store their layout as free text (`events.layout`) rather than referencing a specific `circuit_layouts` row, so wiring that connection up is a reasonable next step, not done here.
+A circuit can be run in more than one configuration (full course vs. a shorter layout, etc.), each with its own lap record. `circuit_layouts` (`0010_circuit_layouts.sql`) is a normal child table of `circuits`: any number of layouts per circuit, each with a name, length (km), lap record, record holder, and record date. Manage them at `/admin/circuits/[id]` → "Layouts". Shown publicly at `/circuits` (see below); events still store their layout as free text (`events.layout`) rather than referencing a specific `circuit_layouts` row, so wiring that connection up is a reasonable next step, not done here.
+
+**Lap record storage** (`0013_circuit_layout_lap_record_seconds.sql`): `lap_record_seconds` stores the record as a plain number of seconds to the nearest thousandth (e.g. `102.512`) — matching the format imported data actually comes in as — rather than a pre-formatted string. `formatLapTime()` in `src/lib/supabase.ts` converts that into the conventional "01:42.512" (`MM:SS.mmm`, zero-padded) for display; the admin form takes the raw seconds and shows a live "= 01:42.512" preview next to the field so entering it by hand doesn't require doing the minutes/seconds math yourself.
 
 ## Public Circuits page (v0.10)
 

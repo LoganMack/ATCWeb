@@ -3,7 +3,7 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import { resolveSupabaseEnv, getCircuits, getAllCircuitLayouts, type CircuitLayout } from '../lib/supabase';
+import { resolveSupabaseEnv, getCircuits, getAllCircuitLayouts, formatLapTime, type CircuitLayout } from '../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -68,7 +68,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         <p class="font-semibold">{layout.name}</p>
                         <p class="mt-1 text-xs text-white/50">{layout.length_km !== null ? `${layout.length_km} km` : '—'}</p>
                         <p class="mt-1 text-xs text-white/50">
-                          {layout.lap_record_time ? `Record ${layout.lap_record_time}` : 'No lap record on file'}
+                          {layout.lap_record_seconds !== null ? `Record ${formatLapTime(layout.lap_record_seconds)}` : 'No lap record on file'}
                           {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                           {layout.lap_record_date && ` (${layout.lap_record_date})`}
                         </p>

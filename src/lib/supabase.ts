@@ -648,12 +648,23 @@ export interface CircuitLayout {
   circuit_id: string;
   name: string;
   length_km: number | null;
-  lap_record_time: string | null;
+  /** Raw seconds, to the nearest thousandth (e.g. 102.512) — as imported. Use `formatLapTime()` to display it as "01:42.512". */
+  lap_record_seconds: number | null;
   lap_record_holder: string | null;
   lap_record_date: string | null; // 'YYYY-MM-DD'
 }
 
-const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_time,lap_record_holder,lap_record_date';
+const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date';
+
+/** "01:42.512" from a raw seconds count (e.g. 102.512) — minutes always shown 2-digit/zero-padded, same as seconds/milliseconds, matching how lap times are conventionally displayed regardless of whether the minutes digit would technically fit in one. */
+export function formatLapTime(seconds: number | null): string {
+  if (seconds === null) return '—';
+  const totalMs = Math.round(seconds * 1000);
+  const minutes = Math.floor(totalMs / 60000);
+  const secs = Math.floor((totalMs % 60000) / 1000);
+  const ms = totalMs % 1000;
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+}
 
 export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
   return restGet<CircuitLayout[]>(
