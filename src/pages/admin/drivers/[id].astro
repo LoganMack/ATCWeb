@@ -215,13 +215,18 @@ const d: Partial<DriverRecord> = driver ?? {
       />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Penalty points</span>
+      <span class="text-white/70">Penalty points (this season)</span>
       <input
         type="number"
         name="penalty_points"
         value={d.penalty_points}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+      <span class="text-xs text-white/40">
+        Auto-recomputed from scratch (season-scoped, not career) every time a penalty is added, edited, or removed
+        for this driver on a results page — editing it here is only for a one-off correction and will be overwritten
+        the next time one of their penalties changes.
+      </span>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Penalty points max</span>
@@ -263,10 +268,11 @@ const d: Partial<DriverRecord> = driver ?? {
       <span class="text-white/70">On probation</span>
     </label>
     <p class="text-xs text-white/40 sm:col-span-2">
-      Both of these are normally set automatically when a penalty pushes this driver's PP to the limit (rulebook
-      rules 57-62) — edit them by hand only to correct a mistake. Probation itself lasts 4 rounds or 45 days from
-      the start date, whichever is longer; the roster's "Probation" tag reflects that window, not just this
-      checkbox.
+      Both of these are normally set automatically when this season's penalties push this driver's PP to the limit
+      (rulebook rules 57-62) — edit them by hand only to correct a mistake. Unlike the season-scoped PP tally above,
+      probation itself is NOT season-scoped once triggered: it keeps running its own 4-round-or-45-day clock (rule
+      61) across a season boundary if it's still active, and the roster's "Probation" tag reflects that window, not
+      just this checkbox.
     </p>
     <label class="flex items-center gap-2 text-sm sm:col-span-2">
       <input type="checkbox" name="is_rookie" checked={d.is_rookie} />

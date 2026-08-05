@@ -38,8 +38,16 @@
  * "poles are based on appearances, not starts."
  */
 
-import { restGet, getExhibitionRoundIds, getCarLogos, type SupabaseEnv } from './supabase';
-import type { Season, CarLogo } from './supabase';
+import { restGet, getExhibitionRoundIds, getCarLogos, getSeasons, getPenaltiesForSubsessions, type SupabaseEnv } from './supabase';
+import type { Season, CarLogo, Penalty } from './supabase';
+import {
+  computeSeasonOverallAdjustments,
+  computeSeasonClassAdjustments,
+  type SeasonScoreRow,
+  type SeasonClassScoreRow,
+  type SeasonOverallAdjustment,
+  type Format,
+} from './penalties';
 
 /**
  * Real championship seasons are named like "ATC17" — anything that doesn't
@@ -67,6 +75,9 @@ interface RaceScoreRow {
   race_number: number;
   driver_id: string;
   total_points: number;
+  class_points: number;
+  finesse_bonus: number;
+  points_deduction: number;
   pole_bonus: number;
   classified: boolean;
   dsq: boolean;
@@ -121,7 +132,8 @@ function driversSelect(env: SupabaseEnv) {
 }
 
 function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId: number) {
-  const select = 'subsession_id,race_number,driver_id,total_points,pole_bonus,classified,dsq';
+  const select =
+    'subsession_id,race_number,driver_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,classified,dsq';
   return restGet<RaceScoreRow[]>(
     env,
     `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`
@@ -139,13 +151,14 @@ interface RaceScoreOverallRow {
   pole_bonus: number;
   points_deduction: number;
   dsq: boolean;
+  classified: boolean;
   scored_position: number | null;
 }
 
 /** Every class combined — see `computeOverallSeasonStandings` and `getSeasonCarTeamStats`. */
 function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
   const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,dsq,scored_position';
+    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,dsq,classified,scored_position';
   return restGet<RaceScoreOverallRow[]>(
     env,
     `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`
@@ -175,6 +188,122 @@ function getTeamsBasic(env: SupabaseEnv) {
 
 function resultKey(subsessionId: number, raceNumber: number, custId: number) {
   return `${subsessionId}:${raceNumber}:${custId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Season-wide penalty context — shared plumbing behind computeSeasonStandings
+// and computeOverallSeasonStandings so a penalty logged on the results page
+// (src/pages/results/[subsessionId].astro) also ripples into both standings
+// views, not just that one round's own page. See src/lib/penalties.ts's
+// computeSeasonOverallAdjustments/computeSeasonClassAdjustments for the
+// actual recompute math — this just fetches what those need.
+// ---------------------------------------------------------------------------
+
+export interface CurrentSeasonRounds {
+  season: Season | null;
+  subsessionIds: number[];
+  formatBySubsession: Map<number, Format | null>;
+}
+
+/**
+ * The site's one `is_current` season's round subsession_ids — this is what
+ * "this season" means for PP/warning scoping (rule 57's season PP limit),
+ * as opposed to the arbitrary season a standings/champions page might be
+ * showing. Returns an empty result (no rounds) if no season is currently
+ * flagged current.
+ */
+export async function getCurrentSeasonRounds(env: SupabaseEnv): Promise<CurrentSeasonRounds> {
+  const seasons = await getSeasons(env);
+  const season = seasons.find((s) => s.is_current) ?? null;
+  if (!season) return { season: null, subsessionIds: [], formatBySubsession: new Map() };
+  const rounds = await getRoundsForSeason(env, season.id);
+  return {
+    season,
+    subsessionIds: rounds.map((r) => r.subsession_id),
+    formatBySubsession: new Map(rounds.map((r) => [r.subsession_id, r.format])),
+  };
+}
+
+interface SeasonOverallContext {
+  /** (subsessionId:raceNumber:driverId) -> adjustment, only for races a penalty actually touched. */
+  adjustments: Map<string, SeasonOverallAdjustment>;
+  penalties: Penalty[];
+  formatBySubsession: Map<number, Format | null>;
+  rawByKey: Map<string, CuratedRaceResultRow>;
+  overallScores: RaceScoreOverallRow[];
+  custIdByDriverId: Map<string, number>;
+}
+
+/**
+ * Fetches everything needed to know how this season's penalties affect
+ * OVERALL (cross-class) field position and finish points. Shared by both
+ * computeSeasonStandings (which additionally layers its own class-relative
+ * class_points recompute on top — a class's finish points still depend on
+ * the OVERALL position, which a penalty against a driver in a *different*
+ * class in the same race can also shift) and computeOverallSeasonStandings
+ * (which uses this directly, since the overall view never awards
+ * class_points at all) — kept as one function so the two views can never
+ * derive a different overall position/finish-points number for the same
+ * driver in the same race.
+ */
+async function getSeasonOverallContext(
+  env: SupabaseEnv,
+  season: Season,
+  exhibitionIds: Set<number>,
+  drivers: DriverBasic[]
+): Promise<SeasonOverallContext> {
+  const custIdByDriverId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+  );
+
+  const overallScoresRaw = await getRaceScoresForSeasonOverall(env, season.id);
+  const overallScores =
+    exhibitionIds.size > 0 ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : overallScoresRaw;
+
+  if (overallScores.length === 0) {
+    return {
+      adjustments: new Map(),
+      penalties: [],
+      formatBySubsession: new Map(),
+      rawByKey: new Map(),
+      overallScores: [],
+      custIdByDriverId,
+    };
+  }
+
+  const subsessionIds = [...new Set(overallScores.map((s) => s.subsession_id))];
+  const [rawResults, penalties, seasonRounds] = await Promise.all([
+    getCuratedRaceResultsForSubsessions(env, subsessionIds),
+    getPenaltiesForSubsessions(env, subsessionIds),
+    getRoundsForSeason(env, season.id),
+  ]);
+  const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const formatBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, r.format]));
+
+  if (penalties.length === 0) {
+    return { adjustments: new Map(), penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId };
+  }
+
+  const seasonScoreRows: SeasonScoreRow[] = overallScores.map((s) => {
+    const custId = custIdByDriverId.get(s.driver_id);
+    const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    return {
+      subsessionId: s.subsession_id,
+      raceNumber: s.race_number,
+      driverId: s.driver_id,
+      dsq: s.dsq,
+      classified: s.classified,
+      scoredPosition: s.scored_position,
+      intervalTenThousandths: raw?.interval_ten_thousandths ?? null,
+      finishPoints: s.finish_points,
+      finesseBonus: s.finesse_bonus,
+      poleBonus: s.pole_bonus,
+      pointsDeduction: s.points_deduction,
+    };
+  });
+
+  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession);
+  return { adjustments, penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId };
 }
 
 // ---------------------------------------------------------------------------
@@ -298,6 +427,12 @@ export async function computeSeasonStandings(
   const rawResults = await getCuratedRaceResultsForSubsessions(env, subsessionIds);
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
 
+  // Cross-class penalty context — this class's finish points are based on
+  // OVERALL field position, which a penalty against a driver in a DIFFERENT
+  // class in the same race can also shift, so this class's own (filtered)
+  // `scores` alone isn't enough to know that. See getSeasonOverallContext.
+  const overallContext = await getSeasonOverallContext(env, season, exhibitionIds, drivers);
+
   // Group this class's race_scores rows by (subsession_id, race_number) so
   // each individual race can be ranked within the class.
   const raceGroups = new Map<string, RaceScoreRow[]>();
@@ -317,42 +452,86 @@ export async function computeSeasonStandings(
     return a;
   }
 
-  // Rank every race, class-relative, using the raw imported position.
-  // Disqualified results are excluded from the ranking entirely (not just
-  // demoted to last) so a DSQ'd driver can never be credited with a
-  // win/podium/top 5/top 10, and everyone behind them ranks up normally —
-  // they still count toward that driver's own starts/appearances/points
-  // below, just not toward anyone's class position.
-  for (const group of raceGroups.values()) {
+  // Class-relative rank per race, using the raw imported position — same
+  // derivation as before, but captured per (subsession,race,driver) so the
+  // penalty engine has an "original class position" baseline to compare
+  // against, whether or not this particular race actually has a penalty.
+  const classScoreRows: SeasonClassScoreRow[] = [];
+  const originalClassPositionByKey = new Map<string, number>();
+  for (const [raceKey, group] of raceGroups) {
     const ranked = group
       .filter((s) => !s.dsq)
       .map((s) => {
         const custId = custIdByDriverId.get(s.driver_id);
         const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
-        const position = raw?.adjusted_position ?? raw?.finish_position ?? null;
-        return { score: s, position };
+        return { score: s, position: raw?.adjusted_position ?? raw?.finish_position ?? null, interval: raw?.interval_ten_thousandths ?? null };
       })
       .filter((r) => r.position !== null)
       .sort((a, b) => (a.position as number) - (b.position as number));
 
     ranked.forEach((r, i) => {
-      const classRank = i + 1;
-      const a = getAccum(r.score.driver_id);
+      const classPosition = i + 1;
+      const key = `${raceKey}:${r.score.driver_id}`;
+      originalClassPositionByKey.set(key, classPosition);
+      classScoreRows.push({
+        subsessionId: r.score.subsession_id,
+        raceNumber: r.score.race_number,
+        driverId: r.score.driver_id,
+        dsq: r.score.dsq,
+        classified: r.score.classified,
+        classPosition,
+        intervalTenThousandths: r.interval,
+        totalPoints: r.score.total_points,
+        classPoints: r.score.class_points,
+        finesseBonus: r.score.finesse_bonus,
+        poleBonus: r.score.pole_bonus,
+        pointsDeduction: r.score.points_deduction,
+      });
+    });
+  }
+
+  const classAdjustments = computeSeasonClassAdjustments(
+    classScoreRows,
+    overallContext.penalties,
+    overallContext.formatBySubsession,
+    overallContext.adjustments
+  );
+
+  // Disqualified results are excluded from ranking entirely (not just
+  // demoted to last) so a DSQ'd driver can never be credited with a
+  // win/podium/top 5/top 10, and everyone behind them ranks up normally —
+  // they still count toward that driver's own starts/appearances/points
+  // below, just not toward anyone's class position. Uses the
+  // penalty-adjusted class rank when this race actually had one logged,
+  // otherwise the original rank exactly as before.
+  for (const [raceKey, group] of raceGroups) {
+    for (const s of group) {
+      if (s.dsq) continue;
+      const key = `${raceKey}:${s.driver_id}`;
+      const adjustment = classAdjustments.get(key);
+      const classRank = adjustment ? adjustment.newClassPosition : originalClassPositionByKey.get(key) ?? null;
+      if (classRank === null) continue;
+      const a = getAccum(s.driver_id);
       if (classRank === 1) a.wins++;
       if (classRank <= 3) a.podiums++;
       if (classRank <= 5) a.top5s++;
       if (classRank <= 10) a.top10s++;
-    });
+    }
   }
 
   // Starts, appearances, poles, and points come straight from race_scores
-  // regardless of whether a matching curated_race_results row was found.
+  // regardless of whether a matching curated_race_results row was found —
+  // except total_points, which uses the penalty-adjusted figure whenever
+  // this race actually has one logged.
   for (const s of scores) {
     const a = getAccum(s.driver_id);
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
     if (s.pole_bonus > 0) a.poleSubsessionIds.add(s.subsession_id);
-    a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + s.total_points);
+    const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+    const adjustment = classAdjustments.get(key);
+    const totalPoints = adjustment ? adjustment.totalPoints : s.total_points;
+    a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + totalPoints);
   }
 
   return finalizeStandings(accum, driverById, season);
@@ -383,12 +562,13 @@ export async function computeOverallSeasonStandings(
 ): Promise<DriverSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
-  const [scoresRaw, drivers, exhibitionIds] = await Promise.all([
-    getRaceScoresForSeasonOverall(env, season.id),
+  const [drivers, exhibitionIds] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
   ]);
-  const scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+
+  const overallContext = await getSeasonOverallContext(env, season, exhibitionIds, drivers);
+  const scores = overallContext.overallScores;
   if (scores.length === 0) return [];
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
@@ -408,14 +588,18 @@ export async function computeOverallSeasonStandings(
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
     if (s.pole_bonus > 0) a.poleSubsessionIds.add(s.subsession_id);
-    const points = s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+
+    const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+    const adjustment = overallContext.adjustments.get(key);
+    const points = adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
     a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + points);
 
-    if (!s.dsq && s.scored_position !== null) {
-      if (s.scored_position === 1) a.wins++;
-      if (s.scored_position <= 3) a.podiums++;
-      if (s.scored_position <= 5) a.top5s++;
-      if (s.scored_position <= 10) a.top10s++;
+    const position = adjustment ? adjustment.newPosition : s.scored_position;
+    if (!s.dsq && position !== null) {
+      if (position === 1) a.wins++;
+      if (position <= 3) a.podiums++;
+      if (position <= 5) a.top5s++;
+      if (position <= 10) a.top10s++;
     }
   }
 

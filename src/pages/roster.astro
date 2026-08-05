@@ -3,8 +3,9 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import DriverRow from '../components/DriverRow.astro';
-import { getDrivers, getEvents, resolveSupabaseEnv } from '../lib/supabase';
-import { isOnProbationNow } from '../lib/penalties';
+import { getDrivers, getEvents, getPenaltiesForSubsessions, resolveSupabaseEnv } from '../lib/supabase';
+import { isOnProbationNow, computeSeasonPPState } from '../lib/penalties';
+import { getCurrentSeasonRounds } from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -28,6 +29,32 @@ try {
   console.error('Failed to load events for probation status:', err);
 }
 const onProbationNowByDriverId = new Map(drivers.map((d) => [d.id, isOnProbationNow(d, events)]));
+
+// The roster's Penalty Pts column shows each driver's CURRENT SEASON tally
+// (rule 57 — see computeSeasonPPState's doc comment for why this is a live
+// replay rather than trusting `driver.penalty_points` as-is: that stored
+// column only gets refreshed when a penalty is actually mutated, so it can
+// go stale the moment a new season starts with zero incidents for a driver
+// who still had leftover PP showing from the one before). Same best-effort
+// pattern as the events fetch above — a hiccup here just falls back to each
+// driver's stored penalty_points instead of taking the whole roster down.
+let seasonPPByDriverId = new Map<string, number>();
+try {
+  const currentSeason = await getCurrentSeasonRounds(supabaseEnv);
+  if (currentSeason.subsessionIds.length > 0) {
+    const seasonPenalties = await getPenaltiesForSubsessions(supabaseEnv, currentSeason.subsessionIds);
+    const penaltiesByDriver = new Map<string, typeof seasonPenalties>();
+    for (const p of seasonPenalties) {
+      if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
+      penaltiesByDriver.get(p.driver_id)!.push(p);
+    }
+    seasonPPByDriverId = new Map(
+      drivers.map((d) => [d.id, computeSeasonPPState(d, penaltiesByDriver.get(d.id) ?? [], events).penalty_points])
+    );
+  }
+} catch (err) {
+  console.error('Failed to compute season PP tallies:', err);
+}
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
@@ -114,7 +141,12 @@ const statuses = ['Active', 'Inactive', 'All'];
         </thead>
         <tbody id="roster-body">
           {drivers.map((driver, i) => (
-            <DriverRow driver={driver} index={i} onProbation={onProbationNowByDriverId.get(driver.id) ?? false} />
+            <DriverRow
+              driver={driver}
+              index={i}
+              onProbation={onProbationNowByDriverId.get(driver.id) ?? false}
+              seasonPenaltyPoints={seasonPPByDriverId.get(driver.id) ?? driver.penalty_points}
+            />
           ))}
         </tbody>
       </table>

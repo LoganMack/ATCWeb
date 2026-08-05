@@ -13,6 +13,7 @@ import {
   upsertRaceLinks,
   formatDate,
   getPenaltiesForSubsession,
+  getPenaltiesForSubsessions,
   getPenaltyOffenses,
   createPenalty,
   updatePenalty,
@@ -29,11 +30,12 @@ import {
   getRoundBySubsessionId,
   getRoundResults,
   getRoundsForSeason,
+  getCurrentSeasonRounds,
   computeDisplayRoundNumbers,
   isChampionshipSeason,
   type RoundResults,
 } from '../../lib/results';
-import { applyPenaltiesToRoundResults, applyPenaltyPointsToDriver, isOnProbationNow } from '../../lib/penalties';
+import { applyPenaltiesToRoundResults, computeSeasonPPState } from '../../lib/penalties';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const isAdmin = Astro.locals.session?.profile?.role === 'admin';
@@ -42,6 +44,49 @@ const isAdmin = Astro.locals.session?.profile?.role === 'admin';
 // practice, so Number() parsing here is safe — well under
 // Number.MAX_SAFE_INTEGER.
 const subsessionId = Number(Astro.params.subsessionId);
+
+/**
+ * Recomputes one driver's CURRENT SEASON PP tally/probation state from
+ * scratch (see computeSeasonPPState's own doc comment for why "from
+ * scratch" beats incrementally patching a stored counter) and persists it.
+ * Called after every penalty create/update/delete below — not just
+ * creation like in v0.13/v0.14 — so editing or removing a penalty now
+ * correctly ripples through, and so PP stays scoped to the CURRENT season
+ * (rule 57's season limit) rather than accumulating across a driver's
+ * whole career. A no-op if no season is currently flagged `is_current`.
+ */
+async function recomputeDriverSeasonPP(driverId: string) {
+  const [driver, currentSeason, events] = await Promise.all([
+    getDriverById(supabaseEnv, driverId),
+    getCurrentSeasonRounds(supabaseEnv),
+    getEvents(supabaseEnv),
+  ]);
+  if (!driver || currentSeason.subsessionIds.length === 0) return;
+
+  const seasonPenalties = await getPenaltiesForSubsessions(supabaseEnv, currentSeason.subsessionIds);
+  const driverPenalties = seasonPenalties.filter((p) => p.driver_id === driverId);
+  const state = computeSeasonPPState(driver, driverPenalties, events);
+
+  await updateDriver(supabaseEnv, Astro.locals.session!.accessToken, driverId, {
+    penalty_points: state.penalty_points,
+    on_probation: state.on_probation,
+    probation_started_at: state.probation_started_at,
+  });
+}
+
+/** Blank-means-null/0 form field readers, shared by add-penalty/update-penalty below. */
+function strOrNullField(form: FormData, name: string) {
+  const s = String(form.get(name) ?? '').trim();
+  return s.length > 0 ? s : null;
+}
+function numOrNullField(form: FormData, name: string) {
+  const s = String(form.get(name) ?? '').trim();
+  return s.length > 0 ? Number(s) : null;
+}
+function numOrZeroField(form: FormData, name: string) {
+  const s = String(form.get(name) ?? '').trim();
+  return s.length > 0 ? Number(s) : 0;
+}
 
 // Admin-only: flag/unflag this specific round as a non-points exhibition
 // (e.g. a pre-season race run inside an otherwise real championship
@@ -93,16 +138,12 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   }
 
   // Log a new steward penalty against one driver in one specific race
-  // (rule 66: penalties apply to the race they occurred in). Also updates
-  // the driver's season PP tally/probation state (rules 57-62) — see
-  // applyPenaltyPointsToDriver's own doc comment for what that does and
-  // doesn't automate.
+  // (rule 66: penalties apply to the race they occurred in). Also
+  // recomputes the driver's CURRENT SEASON PP tally/probation state from
+  // scratch (rules 57-62) — see recomputeDriverSeasonPP above.
   if (intent === 'add-penalty') {
     const driverId = String(form.get('driver_id') ?? '');
     const raceNumber = Number(form.get('race_number'));
-    const timePenaltyRaw = String(form.get('time_penalty_seconds') ?? '').trim();
-    const pointsPenaltyRaw = String(form.get('points_penalty') ?? '').trim();
-    const penaltyPointsRaw = String(form.get('penalty_points') ?? '').trim();
     const offenseIds = form.getAll('offense_ids').map(String).filter(Boolean);
     const involvedDriverIds = form.getAll('involved_driver_ids').map(String).filter(Boolean);
 
@@ -115,37 +156,23 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
             subsession_id: subsessionId,
             race_number: raceNumber,
             driver_id: driverId,
-            incident_number: String(form.get('incident_number') ?? '').trim() || null,
-            lap: String(form.get('lap') ?? '').trim() ? Number(form.get('lap')) : null,
-            description: String(form.get('description') ?? '').trim() || null,
-            time_penalty_seconds: timePenaltyRaw ? Number(timePenaltyRaw) : null,
-            points_penalty: pointsPenaltyRaw ? Number(pointsPenaltyRaw) : 0,
-            penalty_points: penaltyPointsRaw ? Number(penaltyPointsRaw) : 0,
+            incident_number: strOrNullField(form, 'incident_number'),
+            lap: numOrNullField(form, 'lap'),
+            description: strOrNullField(form, 'description'),
+            time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
+            points_penalty: numOrZeroField(form, 'points_penalty'),
+            penalty_points: numOrZeroField(form, 'penalty_points'),
             is_warning: form.get('is_warning') === 'on',
+            is_appealed: form.get('is_appealed') === 'on',
+            appeal_result: strOrNullField(form, 'appeal_result'),
+            appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
+            appeal_points_penalty: numOrZeroField(form, 'appeal_points_penalty'),
+            appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
           },
           offenseIds,
           involvedDriverIds
         );
-
-        // Apply this penalty's PP to the driver's season tally, doubled if
-        // they're currently on probation (rule 60), with the hard-reset
-        // + probation entry/renewal at the limit (rule 59).
-        const awardedPP = penaltyPointsRaw ? Number(penaltyPointsRaw) : 0;
-        if (awardedPP > 0) {
-          const [driver, events] = await Promise.all([
-            getDriverById(supabaseEnv, driverId),
-            getEvents(supabaseEnv),
-          ]);
-          if (driver) {
-            const onProbationNow = isOnProbationNow(driver, events);
-            const { state } = applyPenaltyPointsToDriver(driver, awardedPP, onProbationNow);
-            await updateDriver(supabaseEnv, Astro.locals.session!.accessToken, driverId, {
-              penalty_points: state.penalty_points,
-              on_probation: state.on_probation,
-              probation_started_at: state.probation_started_at,
-            });
-          }
-        }
+        await recomputeDriverSeasonPP(driverId);
       } catch (err) {
         console.error('Failed to save penalty:', err);
       }
@@ -153,15 +180,14 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
   }
 
-  // Edits a penalty's own fields/offense-tags/involved-cars in place.
-  // Deliberately does NOT re-touch the driver's season PP tally even if
-  // penalty_points changes here — see updatePenalty's doc comment in
-  // src/lib/supabase.ts for why; correct that by hand if needed.
+  // Edits a penalty's own fields/offense-tags/involved-cars/appeal outcome
+  // in place, then recomputes the driver's season PP from scratch — unlike
+  // v0.13/v0.14, a PP change here now correctly ripples through (see
+  // recomputeDriverSeasonPP above and updatePenalty's doc comment in
+  // src/lib/supabase.ts).
   if (intent === 'update-penalty') {
     const penaltyId = String(form.get('penalty_id') ?? '');
-    const timePenaltyRaw = String(form.get('time_penalty_seconds') ?? '').trim();
-    const pointsPenaltyRaw = String(form.get('points_penalty') ?? '').trim();
-    const penaltyPointsRaw = String(form.get('penalty_points') ?? '').trim();
+    const driverId = String(form.get('driver_id') ?? '');
     const offenseIds = form.getAll('offense_ids').map(String).filter(Boolean);
     const involvedDriverIds = form.getAll('involved_driver_ids').map(String).filter(Boolean);
 
@@ -172,17 +198,23 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
           Astro.locals.session!.accessToken,
           penaltyId,
           {
-            incident_number: String(form.get('incident_number') ?? '').trim() || null,
-            lap: String(form.get('lap') ?? '').trim() ? Number(form.get('lap')) : null,
-            description: String(form.get('description') ?? '').trim() || null,
-            time_penalty_seconds: timePenaltyRaw ? Number(timePenaltyRaw) : null,
-            points_penalty: pointsPenaltyRaw ? Number(pointsPenaltyRaw) : 0,
-            penalty_points: penaltyPointsRaw ? Number(penaltyPointsRaw) : 0,
+            incident_number: strOrNullField(form, 'incident_number'),
+            lap: numOrNullField(form, 'lap'),
+            description: strOrNullField(form, 'description'),
+            time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
+            points_penalty: numOrZeroField(form, 'points_penalty'),
+            penalty_points: numOrZeroField(form, 'penalty_points'),
             is_warning: form.get('is_warning') === 'on',
+            is_appealed: form.get('is_appealed') === 'on',
+            appeal_result: strOrNullField(form, 'appeal_result'),
+            appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
+            appeal_points_penalty: numOrZeroField(form, 'appeal_points_penalty'),
+            appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
           },
           offenseIds,
           involvedDriverIds
         );
+        if (driverId) await recomputeDriverSeasonPP(driverId);
       } catch (err) {
         console.error('Failed to update penalty:', err);
       }
@@ -192,9 +224,11 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
 
   if (intent === 'delete-penalty') {
     const penaltyId = String(form.get('penalty_id') ?? '');
+    const driverId = String(form.get('driver_id') ?? '');
     if (penaltyId) {
       try {
         await deletePenalty(supabaseEnv, Astro.locals.session!.accessToken, penaltyId);
+        if (driverId) await recomputeDriverSeasonPP(driverId);
       } catch (err) {
         console.error('Failed to delete penalty:', err);
       }
@@ -225,8 +259,12 @@ if (Number.isFinite(subsessionId)) {
       getPenaltyOffenses(supabaseEnv),
     ]);
     // Steward-facing only (which driver already has how many warnings
-    // logged) — skip the extra query for public visitors.
-    if (isAdmin) warningCounts = await getWarningCounts(supabaseEnv);
+    // logged THIS SEASON — see getCurrentSeasonRounds) — skip the extra
+    // queries for public visitors.
+    if (isAdmin) {
+      const currentSeason = await getCurrentSeasonRounds(supabaseEnv);
+      warningCounts = await getWarningCounts(supabaseEnv, currentSeason.subsessionIds);
+    }
   } catch (err) {
     console.error('Failed to load round results:', err);
     loadError = err instanceof Error ? err.message : String(err);

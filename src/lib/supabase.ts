@@ -870,6 +870,19 @@ export interface Penalty {
   offense_ids: string[];
   /** Other drivers' cars that were part of the same incident — descriptive only, same as offense_ids. */
   involved_driver_ids: string[];
+  /**
+   * Appeal fields (0016_penalty_appeals.sql). Once is_appealed is set, every
+   * place src/lib/penalties.ts reads this penalty's time/points/PP uses the
+   * appeal_* values instead of the original ones (see its effective* helpers)
+   * — the original fields stay put as a record of what was first logged.
+   * appeal_result is a free-text ruling ("Upheld", "Reduced to 5s", etc.),
+   * shown alongside the penalty but not itself consumed by any calculation.
+   */
+  is_appealed: boolean;
+  appeal_result: string | null;
+  appeal_time_penalty_seconds: number | null;
+  appeal_points_penalty: number;
+  appeal_penalty_points: number;
 }
 
 interface PenaltyRow {
@@ -885,6 +898,11 @@ interface PenaltyRow {
   penalty_points: number;
   is_warning: boolean;
   created_at: string;
+  is_appealed: boolean;
+  appeal_result: string | null;
+  appeal_time_penalty_seconds: number | null;
+  appeal_points_penalty: number;
+  appeal_penalty_points: number;
   penalty_offense_links: { offense_id: string }[];
   penalty_involved_drivers: { driver_id: string }[];
 }
@@ -892,6 +910,7 @@ interface PenaltyRow {
 const PENALTY_SELECT =
   'id,subsession_id,race_number,driver_id,incident_number,lap,description,' +
   'time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,' +
+  'is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,' +
   'penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)';
 
 function toPenalty(row: PenaltyRow): Penalty {
@@ -912,6 +931,24 @@ export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: 
   return rows.map(toPenalty);
 }
 
+/**
+ * Every penalty logged against any of the given rounds, oldest first — the
+ * bulk version of getPenaltiesForSubsession, used wherever a whole season
+ * (not just one round) needs to be recalculated: season standings
+ * (src/lib/results.ts) and a driver's season-scoped PP/warning tally (see
+ * computeSeasonPPState/countWarnings in src/lib/penalties.ts). Returns an
+ * empty list (no query) for an empty input, since PostgREST's `in.()` with
+ * nothing inside it isn't a meaningful filter.
+ */
+export async function getPenaltiesForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Penalty[]> {
+  if (subsessionIds.length === 0) return [];
+  const rows = await restGet<PenaltyRow[]>(
+    env,
+    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`
+  );
+  return rows.map(toPenalty);
+}
+
 export interface PenaltyInput {
   subsession_id: number;
   race_number: number;
@@ -923,6 +960,11 @@ export interface PenaltyInput {
   points_penalty: number;
   penalty_points: number;
   is_warning: boolean;
+  is_appealed: boolean;
+  appeal_result: string | null;
+  appeal_time_penalty_seconds: number | null;
+  appeal_points_penalty: number;
+  appeal_penalty_points: number;
 }
 
 /** Inserts a penalty and links it to every selected offense/involved driver — three REST calls, not a real transaction (this backend is plain PostgREST, no server-side function for this yet), so a failure partway through can in principle leave a penalty with no tags/involved cars linked. Acceptable for now: the penalty's own time/points/PP fields (the numbers that actually drive recalculation) are set atomically on the first insert either way. */
@@ -948,11 +990,12 @@ export async function createPenalty(
  * links wholesale (delete everything currently linked, insert the new
  * selection) rather than trying to diff them — simplest correct way to
  * handle a checkbox list that can add and remove entries in the same edit.
- * Like createPenalty, does NOT retroactively adjust the driver's season PP
- * tally even if penalty_points changes here — that's only ever applied
- * forward, at creation time (see applyPenaltyPointsToDriver in
- * src/lib/penalties.ts). Correct the driver's PP by hand on their admin
- * page if an edit changes what should have been awarded.
+ * Unlike in v0.13/v0.14, editing a penalty's PP (or its own is_appealed
+ * override) DOES now ripple through to the driver's season PP tally — the
+ * caller (src/pages/results/[subsessionId].astro) re-runs
+ * computeSeasonPPState over the driver's whole season after every mutation
+ * rather than incrementally patching a stored counter, so there's no
+ * separate "retroactive adjustment" step needed here.
  */
 export async function updatePenalty(
   env: SupabaseEnv,
@@ -973,15 +1016,26 @@ export async function updatePenalty(
   }
 }
 
-/** Removes a penalty (its offense/involved-driver links cascade). Does NOT retroactively adjust the driver's season penalty_points/probation state — see updatePenalty's doc comment for why, same reasoning applies here. Correct it manually on the driver's admin page if a deleted penalty's PP needs backing out. */
+/** Removes a penalty (its offense/involved-driver links cascade). Same as updatePenalty (see its doc comment): the caller re-recomputes the driver's season PP tally from scratch afterward, so a deleted penalty's PP correctly stops counting without any manual correction. */
 export function deletePenalty(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `penalties?id=eq.${encodeURIComponent(id)}`);
 }
 
-/** Every driver who has at least one penalty logged as a warning (is_warning), with a running count — not season-scoped (counts every warning ever logged, across every season), which is a deliberate simplification: flagged so a steward reading "3 warnings" knows that's a career count, not necessarily this season's. Used to surface "this driver has already been warned N times" while logging a new penalty. */
-export async function getWarningCounts(env: SupabaseEnv): Promise<Map<string, number>> {
-  const rows = await restGet<{ driver_id: string }[]>(env, 'penalties?select=driver_id&is_warning=eq.true');
+/**
+ * driver_id -> how many warnings (is_warning penalties) they have, scoped to
+ * whichever subsession IDs the caller passes in — pass the current season's
+ * round subsession_ids (see getCurrentSeasonRounds in src/lib/results.ts) to
+ * get a season-scoped count, per Logan: "Warnings should be season-scoped,
+ * not career-scoped." Used to surface "this driver has already been warned
+ * N times this season" while logging a new penalty.
+ */
+export async function getWarningCounts(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
+  if (subsessionIds.length === 0) return out;
+  const rows = await restGet<{ driver_id: string }[]>(
+    env,
+    `penalties?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`
+  );
   for (const r of rows) out.set(r.driver_id, (out.get(r.driver_id) ?? 0) + 1);
   return out;
 }
