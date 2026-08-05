@@ -108,7 +108,7 @@ const allCarNames = [...new Set([...logoByCarName.keys(), ...driverCarNames])].s
   )}
 
   <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 60ms">
-    {allCarNames.length === 0 && <p class="text-sm text-white/40">No cars found yet.</p>}
+    {allCarNames.length === 0 && <p class="text-sm text-white/40">No results.</p>}
     {allCarNames.map((carName) => {
       const logoUrl = logoByCarName.get(carName) ?? null;
       return (

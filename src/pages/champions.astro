@@ -83,7 +83,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && champions.length === 0 && (
-      <p class="mt-10 text-white/60">No champions on record yet for {activeClass?.name ?? 'this class'}.</p>
+      <p class="mt-10 text-white/60">No results.</p>
     )}
 
     {!loadError && champions.length > 0 && (

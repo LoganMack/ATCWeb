@@ -94,6 +94,7 @@ if (Astro.request.method === 'POST') {
     }
   } else {
     const name = String(form.get('name') ?? '').trim();
+    const location = String(form.get('location') ?? '').trim() || null;
     const logoFile = form.get('logo');
 
     if (!name) {
@@ -102,10 +103,10 @@ if (Astro.request.method === 'POST') {
       try {
         let circuitId = isNew ? null : id!;
         if (isNew) {
-          const created = await createCircuit(supabaseEnv, accessToken, { name });
+          const created = await createCircuit(supabaseEnv, accessToken, { name, location });
           circuitId = created.id;
         } else {
-          await updateCircuit(supabaseEnv, accessToken, circuitId!, { name });
+          await updateCircuit(supabaseEnv, accessToken, circuitId!, { name, location });
         }
 
         if (logoFile instanceof File && logoFile.size > 0) {
@@ -129,7 +130,7 @@ if (!isNew && id) {
   if (!circuit) return Astro.redirect('/admin/circuits', 302);
 }
 
-const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null };
+const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null, location: null };
 
 let layouts: CircuitLayout[] = [];
 if (!isNew && id) {
@@ -156,6 +157,17 @@ if (!isNew && id) {
         name="name"
         required
         value={c.name}
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Location</span>
+      <input
+        type="text"
+        name="location"
+        placeholder="Le Mans, France"
+        value={c.location ?? ''}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
@@ -201,7 +213,7 @@ if (!isNew && id) {
       )}
 
       <ul class="mt-4 flex flex-col gap-3">
-        {layouts.length === 0 && <li class="text-sm text-white/40">No layouts recorded yet.</li>}
+        {layouts.length === 0 && <li class="text-sm text-white/40">No results.</li>}
         {layouts.map((layout) => (
           <li class="rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
             <div class="flex flex-wrap items-center justify-between gap-3">

@@ -1,10 +1,9 @@
 ---
-// Shared sub-nav for the three series-history pages. Kept as its own small
-// tab bar rather than three separate top-level Nav.astro links, since the
-// main nav is already fairly full — Nav.astro only links to /champions
-// ("History").
+// Shared sub-nav for the series-history pages. Kept as its own small tab
+// bar rather than separate top-level Nav.astro links, since the main nav
+// is already fairly full — Nav.astro only links to /champions ("History").
 interface Props {
-  active: 'champions' | 'standings' | 'results';
+  active: 'champions' | 'standings' | 'results' | 'circuits';
 }
 
 const { active } = Astro.props;
@@ -13,6 +12,7 @@ const tabs: { key: Props['active']; href: string; label: string }[] = [
   { key: 'champions', href: '/champions', label: 'Champions' },
   { key: 'standings', href: '/standings', label: 'Standings' },
   { key: 'results', href: '/results', label: 'Race Results' },
+  { key: 'circuits', href: '/circuits', label: 'Circuits' },
 ];
 ---
 

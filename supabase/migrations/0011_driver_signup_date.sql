@@ -1,0 +1,14 @@
+-- Alpha Touring Challenge — driver sign-up date
+--
+-- Entered manually by an admin for now (see /admin/drivers/[id]). Longer
+-- term this is meant to be set automatically when someone signs up on the
+-- site themselves and creates their own roster entry — Logan's stated
+-- reason for tracking it at all: a driver's requested car number is only
+-- blocked while an Active/Veteran/New driver already holds it; once that
+-- driver goes 90+ days without an appearance they're marked Inactive and
+-- the number frees up, except for Veterans (75+ appearances, or at least 1
+-- Alpha championship), who can never be marked Inactive. None of that
+-- inactivity/number-release automation is built yet — this migration only
+-- adds the column the future automation (and the admin's manual entry
+-- today) will read/write.
+alter table drivers add column if not exists sign_up_date date;

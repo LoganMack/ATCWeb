@@ -28,9 +28,6 @@ const statuses = ['Active', 'Inactive', 'All'];
 <Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
   <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
     <h1 class="reveal font-display text-5xl">Driver Roster</h1>
-    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
-      {drivers.length} drivers currently on the books.
-    </p>
 
     {loadError && (
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -68,8 +65,11 @@ const statuses = ['Active', 'Inactive', 'All'];
     <!--
       A dense table instead of a card grid — maximizes how many drivers are
       visible on screen at once. Less critical columns progressively drop
-      off on narrower viewports (car/starts/seasons at lg, status at md,
-      team name at sm) rather than shrinking everything down to unreadable.
+      off on narrower viewports (signed-up/starts/seasons at lg, status at
+      md, team name at sm) rather than shrinking everything down to
+      unreadable. No Car column here on purpose — a driver can swap cars
+      once per season without penalty, so "current car" doesn't mean much
+      in this roster-wide context (it still shows per-race on Race Results).
     -->
     <!--
       Deliberately NOT using the .reveal scroll-in animation here — with a
@@ -89,7 +89,7 @@ const statuses = ['Active', 'Inactive', 'All'];
             <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="team">Team</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="class">Class</th>
             <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="status">Status</th>
-            <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="car">Car</th>
+            <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="signup">Signed Up</th>
             <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
             <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="seasons">Seasons</th>
             <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty">Penalty Pts</th>

@@ -1,0 +1,86 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import { resolveSupabaseEnv, getCircuits, getAllCircuitLayouts, type CircuitLayout } from '../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let circuits: Awaited<ReturnType<typeof getCircuits>> = [];
+let layouts: CircuitLayout[] = [];
+let loadError = false;
+try {
+  [circuits, layouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load circuits:', err);
+  loadError = true;
+}
+
+const layoutsByCircuit = new Map<string, CircuitLayout[]>();
+for (const l of layouts) {
+  if (!layoutsByCircuit.has(l.circuit_id)) layoutsByCircuit.set(l.circuit_id, []);
+  layoutsByCircuit.get(l.circuit_id)!.push(l);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Circuits" description="Every circuit Alpha Touring Challenge has raced, with each layout's lap record.">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Circuits</h1>
+
+    <HistoryTabs active="circuits" />
+
+    {loadError && (
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load circuits right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && circuits.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
+
+    {!loadError && circuits.length > 0 && (
+      <div class="mt-8 flex flex-col gap-3">
+        {circuits.map((circuit) => {
+          const circuitLayouts = layoutsByCircuit.get(circuit.id) ?? [];
+          return (
+            <details class="group rounded-xl border border-white/10 bg-white/[0.03] transition open:bg-white/[0.05]">
+              <summary class="flex cursor-pointer list-none items-center gap-4 p-4">
+                {circuit.logo_url ? (
+                  <img src={circuit.logo_url} alt="" class="h-10 w-10 flex-none rounded object-contain" />
+                ) : (
+                  <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+                )}
+                <div>
+                  <p class="font-semibold">{circuit.name}</p>
+                  <p class="text-xs text-white/50">{circuit.location ?? '—'}</p>
+                </div>
+                <span class="ml-auto flex-none text-white/40 transition group-open:rotate-180">▾</span>
+              </summary>
+              <div class="border-t border-white/10 p-4">
+                {circuitLayouts.length === 0 ? (
+                  <p class="text-sm text-white/40">No results.</p>
+                ) : (
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    {circuitLayouts.map((layout) => (
+                      <div class="rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+                        <p class="font-semibold">{layout.name}</p>
+                        <p class="mt-1 text-xs text-white/50">{layout.length_km !== null ? `${layout.length_km} km` : '—'}</p>
+                        <p class="mt-1 text-xs text-white/50">
+                          {layout.lap_record_time ? `Record ${layout.lap_record_time}` : 'No lap record on file'}
+                          {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
+                          {layout.lap_record_date && ` (${layout.lap_record_date})`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    )}
+  </section>
+</Layout>

@@ -227,7 +227,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
       </p>
 
       {seasons.length === 0 ? (
-        <p class="mt-4 text-sm text-white/40">No seasons found — add one under Seasons first.</p>
+        <p class="mt-4 text-sm text-white/40">No results.</p>
       ) : (
         <>
           <form method="GET" class="mt-4">
@@ -250,7 +250,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
           )}
 
           <ul class="mt-4 flex flex-col gap-2">
-            {rosterDriversOnTeam.length === 0 && <li class="text-sm text-white/40">No drivers on the roster for this season yet.</li>}
+            {rosterDriversOnTeam.length === 0 && <li class="text-sm text-white/40">No results.</li>}
             {rosterDriversOnTeam.map((d) => (
               <li class="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
                 <span>

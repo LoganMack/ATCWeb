@@ -36,7 +36,7 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
       </p>
     )}
 
-    {!loadError && events.length === 0 && <p class="mt-8 text-white/60">No events scheduled yet.</p>}
+    {!loadError && events.length === 0 && <p class="mt-8 text-white/60">No results.</p>}
 
     {!loadError && upcoming.length > 0 && (
       <div class="mt-10 space-y-4">

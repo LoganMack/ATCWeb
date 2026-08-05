@@ -22,6 +22,8 @@ Roster and news pages are rendered on-demand at Cloudflare's edge (`export const
    - `supabase/migrations/0008_team_rosters.sql` — adds `team_rosters` (season-scoped team membership — see "Team rosters & race-results team logos" below). Safe to run on any database regardless of whether the results pipeline's tables exist yet.
    - `supabase/migrations/0009_car_logos.sql` — adds `car_logos` (admin-configurable car_name → logo lookup — see "Car logos" below). Safe to run on any database regardless of whether the results pipeline's tables exist yet.
    - `supabase/migrations/0010_circuit_layouts.sql` — adds `circuit_layouts` (per-circuit lap records — see "Circuit layouts" below). Safe to run on any database regardless of whether the results pipeline's tables exist yet.
+   - `supabase/migrations/0011_driver_signup_date.sql` — adds `drivers.sign_up_date`. Safe to run on any database.
+   - `supabase/migrations/0012_circuit_location.sql` — adds `circuits.location` (powers the public Circuits page — see below). Safe to run on any database.
    - `supabase/seed/seed_teams.sql`
    - `supabase/seed/seed_drivers.sql`
    - `supabase/seed/seed_news.sql`
@@ -158,7 +160,23 @@ On the results page, both the team and car logo sit immediately to the right of 
 
 ## Circuit layouts (v0.9)
 
-A circuit can be run in more than one configuration (full course vs. a shorter layout, etc.), each with its own lap record. `circuit_layouts` (`0010_circuit_layouts.sql`) is a normal child table of `circuits`: any number of layouts per circuit, each with a name, length (km), lap record time (typed as free text, "x:xx.xx" — not parsed/validated, just displayed as entered), record holder, and record date. Manage them at `/admin/circuits/[id]` → "Layouts". Not yet surfaced on the public calendar/circuit pages — events still store their layout as free text (`events.layout`) rather than referencing a specific `circuit_layouts` row, so wiring that connection up is a reasonable next step, not done here.
+A circuit can be run in more than one configuration (full course vs. a shorter layout, etc.), each with its own lap record. `circuit_layouts` (`0010_circuit_layouts.sql`) is a normal child table of `circuits`: any number of layouts per circuit, each with a name, length (km), lap record time (typed as free text, "x:xx.xx" — not parsed/validated, just displayed as entered), record holder, and record date. Manage them at `/admin/circuits/[id]` → "Layouts". Shown publicly at `/circuits` (see below); events still store their layout as free text (`events.layout`) rather than referencing a specific `circuit_layouts` row, so wiring that connection up is a reasonable next step, not done here.
+
+## Public Circuits page (v0.10)
+
+`/circuits` is a fourth tab on `HistoryTabs` (Champions / Standings / Race Results / Circuits), listing every circuit with its logo, name, and location (`circuits.location`, `0012_circuit_location.sql` — free text like "Le Mans, France", nothing else in the app queries it structurally). Each row is a `<details>` — click anywhere on it to expand and show every one of that circuit's layouts (name, length, lap record + holder + date), no JS needed for the toggle. A circuit with no layouts recorded yet just shows "No results." when expanded.
+
+## Generic "No results." empty states (v0.10)
+
+Every "this list/table is empty" message across the site (admin list pages, the roster's status/class filters, results/standings/champions with nothing to show, the homepage's upcoming-events widget, etc.) now reads exactly **"No results."** — no more bespoke phrasing like "No champions on record yet for Alpha" or "No circuits yet — create one first." This does mean a couple of admin pages that used to point you at what to do next (e.g. "no circuits yet, create one first" on the New Event form) now just say "No results." instead — consistency was the explicit ask here over per-page helpfulness.
+
+## Driver Roster tweaks (v0.10)
+
+A few changes to `/roster` and its admin counterpart:
+- The **Car** column is gone from the roster table — a driver can swap cars once a season without penalty, so "current car" isn't meaningful roster-wide (it still shows correctly per-race on Race Results, since that's sourced from `curated_race_results.car_name` for that specific race — see "Car logos" above).
+- The team logo moved from next to the driver's name to next to the team name, in the Team column, where it visually belongs.
+- The "X drivers currently on the books" subtitle is gone.
+- Added a **Signed Up** column (`drivers.sign_up_date`, `0011_driver_signup_date.sql`), entered manually for now at `/admin/drivers/[id]`. This is laying groundwork for later: once drivers can sign up on the site themselves, this date (plus 90-day inactivity tracking and a "Veteran" exemption — 75+ appearances or an Alpha championship — that permanently protects a driver from ever being marked Inactive) is meant to drive automatic car-number release when an inactive driver's number becomes available again. None of that automation exists yet; only the column and its manual entry point do.
 
 ## Re-importing the roster later
 

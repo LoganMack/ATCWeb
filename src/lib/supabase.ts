@@ -67,6 +67,13 @@ export interface Driver {
   seasons_count: number;
   penalty_points: number;
   penalty_points_max: number;
+  /**
+   * Entered manually by an admin for now — see 0011_driver_signup_date.sql
+   * for what this is eventually meant to power (automatic number release
+   * after 90 inactive days, veteran protection, etc.), none of which is
+   * built yet.
+   */
+  sign_up_date: string | null; // 'YYYY-MM-DD'
   driver_statuses: { name: string } | null;
   driver_classes: { name: string } | null;
   teams: { name: string; primary_color_hex: string | null; logo_url: string | null } | null;
@@ -87,7 +94,7 @@ export interface NewsPost {
 export function getDrivers(env: SupabaseEnv) {
   const select =
     'id,car_number,name,is_rookie,car,appearances,starts,seasons_count,' +
-    'penalty_points,penalty_points_max,' +
+    'penalty_points,penalty_points_max,sign_up_date,' +
     'driver_statuses(name),driver_classes(name),teams(name,primary_color_hex,logo_url)';
   return restGet<Driver[]>(
     env,
@@ -279,11 +286,12 @@ export interface DriverRecord {
   penalty_points_max: number;
   photo_url: string | null;
   bio: string | null;
+  sign_up_date: string | null; // 'YYYY-MM-DD'
 }
 
 const DRIVER_ADMIN_SELECT =
   'id,car_number,name,status_id,class_id,team_id,is_rookie,car,appearances,starts,' +
-  'seasons_count,penalty_points,penalty_points_max,photo_url,bio';
+  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date';
 
 export async function getDriverById(env: SupabaseEnv, id: string) {
   const drivers = await restGet<DriverRecord[]>(
@@ -604,16 +612,19 @@ export interface Circuit {
   id: string;
   name: string;
   logo_url: string | null;
+  location: string | null;
 }
 
+const CIRCUIT_SELECT = 'id,name,logo_url,location';
+
 export function getCircuits(env: SupabaseEnv) {
-  return restGet<Circuit[]>(env, 'circuits?select=id,name,logo_url&order=name.asc');
+  return restGet<Circuit[]>(env, `circuits?select=${CIRCUIT_SELECT}&order=name.asc`);
 }
 
 export async function getCircuitById(env: SupabaseEnv, id: string) {
   const circuits = await restGet<Circuit[]>(
     env,
-    `circuits?select=id,name,logo_url&id=eq.${encodeURIComponent(id)}`
+    `circuits?select=${CIRCUIT_SELECT}&id=eq.${encodeURIComponent(id)}`
   );
   return circuits[0] ?? null;
 }
@@ -649,6 +660,11 @@ export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
     env,
     `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&circuit_id=eq.${encodeURIComponent(circuitId)}&order=name.asc`
   );
+}
+
+/** Every layout for every circuit in one query — powers the public Circuits page, which needs all of them up front rather than one request per circuit. */
+export function getAllCircuitLayouts(env: SupabaseEnv) {
+  return restGet<CircuitLayout[]>(env, `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`);
 }
 
 export function createCircuitLayout(env: SupabaseEnv, accessToken: string, data: Partial<CircuitLayout>) {

@@ -38,6 +38,7 @@ function readForm(form: FormData): Partial<DriverRecord> {
     penalty_points_max: Number(form.get('penalty_points_max') ?? 11),
     photo_url: String(form.get('photo_url') ?? '').trim() || null,
     bio: String(form.get('bio') ?? '').trim() || null,
+    sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
   };
 }
 
@@ -172,6 +173,15 @@ const d: Partial<DriverRecord> = driver ?? {
           <option value={t.id} selected={t.id === d.team_id}>{t.name}</option>
         ))}
       </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Sign-up date</span>
+      <input
+        type="date"
+        name="sign_up_date"
+        value={d.sign_up_date ?? ''}
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Appearances</span>
