@@ -90,12 +90,24 @@ export interface NewsPost {
   published_at: string;
 }
 
-/** All drivers, ordered by class rank then car number. Embeds team/status/class names via PostgREST's resource embedding. */
+/**
+ * All drivers, ordered by class rank then car number. Embeds team/status/class
+ * names via PostgREST's resource embedding.
+ *
+ * The `teams!drivers_team_id_fkey` bit (rather than plain `teams(...)`) is
+ * required, not stylistic: since 0008_team_rosters.sql added `team_rosters`
+ * (a many-to-many join table between drivers and teams, for season-scoped
+ * rosters), PostgREST sees *two* possible drivers→teams relationships — the
+ * direct `drivers.team_id` FK, and the many-to-many via `team_rosters` — and
+ * refuses to guess, failing the whole query with a PGRST201 "more than one
+ * relationship was found" error. Naming the FK constraint explicitly tells
+ * it to use the direct one (a driver's current team), not the roster table.
+ */
 export function getDrivers(env: SupabaseEnv) {
   const select =
     'id,car_number,name,is_rookie,car,appearances,starts,seasons_count,' +
     'penalty_points,penalty_points_max,sign_up_date,' +
-    'driver_statuses(name),driver_classes(name),teams(name,primary_color_hex,logo_url)';
+    'driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)';
   return restGet<Driver[]>(
     env,
     `drivers?select=${encodeURIComponent(select)}&order=car_number.asc.nullslast`
