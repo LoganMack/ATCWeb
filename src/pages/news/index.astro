@@ -7,14 +7,29 @@ import { getNewsPosts, resolveSupabaseEnv } from '../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-let posts: Awaited<ReturnType<typeof getNewsPosts>> = [];
+let allPosts: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let loadError = false;
 try {
-  posts = await getNewsPosts(supabaseEnv);
+  allPosts = await getNewsPosts(supabaseEnv);
 } catch (err) {
   console.error('Failed to load news posts:', err);
   loadError = true;
 }
+
+// Every distinct season tag currently in use, for the filter dropdown —
+// derived straight from the posts themselves (already fetched in full, no
+// extra query needed) rather than from curated_rounds, since a post can be
+// tagged with a season no round is linked to at all.
+const seasonOptions = [...new Set(allPosts.map((p) => p.season_label).filter((s): s is string => Boolean(s)))].sort();
+
+const q = Astro.url.searchParams.get('q')?.trim() ?? '';
+const seasonFilter = Astro.url.searchParams.get('season') ?? '';
+
+const posts = allPosts.filter((p) => {
+  if (q && !p.title.toLowerCase().includes(q.toLowerCase())) return false;
+  if (seasonFilter && p.season_label !== seasonFilter) return false;
+  return true;
+});
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
@@ -27,6 +42,43 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load news right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
       </p>
+    )}
+
+    {!loadError && (
+      <form method="GET" class="reveal mt-8 flex flex-wrap items-end gap-3" style="transition-delay: 40ms">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/60">Search titles</span>
+          <input
+            type="search"
+            name="q"
+            value={q}
+            placeholder="Search news..."
+            class="w-64 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/60">Season</span>
+          <select
+            name="season"
+            onchange="this.form.submit()"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            <option value="" class="bg-brand-ink text-white">All seasons</option>
+            {seasonOptions.map((label) => (
+              <option value={label} selected={label === seasonFilter} class="bg-brand-ink text-white">{label}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="submit"
+          class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+        >
+          Search
+        </button>
+        {(q || seasonFilter) && (
+          <a href="/news" class="text-sm text-white/40 hover:text-white/70">Clear</a>
+        )}
+      </form>
     )}
 
     {!loadError && posts.length === 0 && (

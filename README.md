@@ -282,6 +282,22 @@ Lets a real admin click a toggle in the footer to preview the site exactly as a 
 
 **The toggle.** Lives in `Footer.astro`, so it shows up on every page (including `/admin` ones, harmlessly) but stays out of the way — a small pill, gold when active. It deliberately checks `isRealAdmin`, not `isAdminView()`, so it stays visible and clickable to switch back even mid-preview. Submits to a new `POST /api/view-mode` (`src/pages/api/view-mode.ts`), which re-checks `isRealAdmin` server-side before touching the cookie (never trusts the form alone) and redirects back to whatever page the toggle was clicked from.
 
+## News: round recaps, search, and season tags (v0.19)
+
+Three additions to the news system, all from one request:
+
+**1. Optionally link a post to a round — link at top, live recap at bottom.** A new "Linked round (optional)" dropdown on the New/Edit Post admin forms (grouped by season, newest first) sets `news_posts.round_subsession_id` (`supabase/migrations/0017_news_round_season.sql`; deliberately no foreign key to `curated_rounds`, same reasoning as `race_links`/`round_overrides` — that table belongs to the external results-import pipeline). When a post has a linked round, the article page shows a "View race results — {track} →" button at the top, and a full Race Recap section at the bottom: for each race, top 3 finishers per class, top 3 rookies, and the fastest lap (with a "New Track Record" badge when it beats the circuit's logged lap record); then which team scored the most points overall and which scored the most within the Delta class specifically (Alpha/Gamma/Delta are the site's three driver classes — Delta and Gamma both carry their own bonus class-points total distinct from the overall score, so "top Delta team" means top by Delta-class points, not top Delta-class driver); then a "Who Scored For Who" breakdown of every scoring driver by team and race.
+
+The recap is **computed live on every page view** (`src/lib/newsRecap.ts`'s `computeRoundRecap()`) — nothing about it is stored as text. That means it can never go stale: if a penalty gets logged against that round's results after the article is published, the recap picks up the recalculated positions/points automatically on the next view, same as the results page itself does.
+
+Fastest lap is the one part of the recap sourced outside the normal results pipeline — it reads `curated_race_results.best_lap_ten_thousandths` directly, in its own isolated, try/catch-wrapped query (`fetchBestLaps()` in `newsRecap.ts`) that just omits the stat on any failure. That isolation is deliberate: `results.ts`'s shared query (`getCuratedRaceResultsForSubsessions`) backs every results/standings/champions page on the site, and PostgREST fails an entire query if even one selected column doesn't exist on the table — so threading an unverified column name through that shared function would have put the whole site's results pages at risk over one recap stat. Track-record comparison uses a best-effort fuzzy match between a round's freeform `track_name` and `circuit_layouts` (there's no direct link between them today); when nothing matches confidently, the recap just shows the lap time without a record badge rather than guessing.
+
+**2. Title search.** The public News page (`/news`) now has a search box that filters posts by title (case-insensitive substring match), as a `?q=` query param — plain GET so results are linkable/shareable.
+
+**3. Season tags.** Posts can be tagged with a season while editing — a free-text field (`news_posts.season_label`, same migration as above) with autocomplete suggestions drawn from every season label already in use across posts and rounds, rather than a locked-down dropdown. Free text on purpose, per Logan's request: it needed to cover non-championship/exhibition seasons too, which don't necessarily have their own `seasons` table row, and a plain text tag is easier to visually scan and filter by than forcing everything through a rigid picker. The News page grew a matching "Season" dropdown filter (`?season=`, combinable with the search box), the admin News list grew a sortable Season column, and both `NewsCard` and the article page show the tag as a small badge.
+
+**Documented simplification carried forward:** same as v0.13 — rules 58/62 aren't automated.
+
 ## Re-importing the roster later
 
 Whenever the roster spreadsheet changes:

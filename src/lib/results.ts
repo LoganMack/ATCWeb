@@ -125,10 +125,12 @@ export interface DriverBasic {
   car_number: number | null;
   photo_url: string | null;
   iracing_cust_id: number | null;
+  /** Used by the news-recap's "top 3 rookies" stat (src/lib/newsRecap.ts) — otherwise unused by anything in this file. */
+  is_rookie: boolean;
 }
 
 function driversSelect(env: SupabaseEnv) {
-  return restGet<DriverBasic[]>(env, 'drivers?select=id,name,car_number,photo_url,iracing_cust_id');
+  return restGet<DriverBasic[]>(env, 'drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie');
 }
 
 function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId: number) {
@@ -167,6 +169,15 @@ function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
 
 function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
+  // Deliberately does NOT select best_lap_ten_thousandths (fastest-lap data,
+  // needed only by the news recap's "fastest lap" stat — see
+  // src/lib/newsRecap.ts) even though that column exists on this same
+  // table: PostgREST fails the ENTIRE query if any selected column doesn't
+  // exist (see this file's header), and this function backs every results/
+  // standings/champions page in the app. Keeping that one column's fetch
+  // isolated to its own small query in newsRecap.ts means a typo'd or
+  // renamed column there can only ever degrade the recap, never take down
+  // the rest of the site.
   const select =
     'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,car_name,interval_ten_thousandths';
   return restGet<CuratedRaceResultRow[]>(
@@ -778,6 +789,11 @@ export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {
     env,
     `curated_rounds?select=${ROUND_SUMMARY_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&order=start_time.desc`
   );
+}
+
+/** Every round across every season, most recent first — powers the "link to a round" picker on the news post editor (src/pages/admin/news/*), which needs to search/pick across all of history rather than one season at a time. One query rather than N getRoundsForSeason() calls, since a per-season loop would be exactly the kind of N+1 this file's header already warns against on pages that list many seasons at once. */
+export function getAllRounds(env: SupabaseEnv) {
+  return restGet<RoundSummary[]>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`);
 }
 
 export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: number) {

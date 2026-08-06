@@ -7,7 +7,9 @@ import {
   getNewsPostByIdAdmin,
   updateNewsPost,
   deleteNewsPost,
+  formatDate,
 } from '../../../../lib/supabase';
+import { getAllRounds } from '../../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -42,6 +44,9 @@ if (Astro.request.method === 'POST') {
     const author_name = String(form.get('author_name') ?? '').trim();
     const cover_image_url = String(form.get('cover_image_url') ?? '').trim();
     const status = form.get('status') === 'published' ? 'published' : 'draft';
+    const season_label = String(form.get('season_label') ?? '').trim();
+    const roundRaw = String(form.get('round_subsession_id') ?? '').trim();
+    const round_subsession_id = roundRaw ? Number(roundRaw) : null;
     // If this save is what flips the post from draft to published, bump
     // published_at to now — otherwise it'd keep showing the original
     // creation timestamp (and sort order) from when it was still a draft.
@@ -59,6 +64,8 @@ if (Astro.request.method === 'POST') {
           author_name,
           cover_image_url: cover_image_url || null,
           status,
+          season_label: season_label || null,
+          round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
           ...(justPublished ? { published_at: new Date().toISOString() } : {}),
         });
         post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
@@ -70,6 +77,22 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
+
+// Grouped by season for the round picker below — see new.astro's matching
+// comment for why this is every round across every season, not just one.
+let allRounds: Awaited<ReturnType<typeof getAllRounds>> = [];
+try {
+  allRounds = await getAllRounds(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load rounds for the news editor:', err);
+}
+const roundsBySeasonLabel = new Map<string, typeof allRounds>();
+for (const r of allRounds) {
+  const key = r.season_label ?? 'Unlabeled';
+  if (!roundsBySeasonLabel.has(key)) roundsBySeasonLabel.set(key, []);
+  roundsBySeasonLabel.get(key)!.push(r);
+}
+const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).filter((s): s is string => Boolean(s)))].sort();
 ---
 
 <AdminLayout title="Edit Post">
@@ -137,6 +160,48 @@ if (Astro.request.method === 'POST') {
         value={post.author_name}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Season tag</span>
+      <input
+        type="text"
+        name="season_label"
+        list="season-label-suggestions"
+        value={post.season_label ?? ''}
+        placeholder="e.g. ATC17"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+      <datalist id="season-label-suggestions">
+        {seasonLabelSuggestions.map((label) => <option value={label} />)}
+      </datalist>
+      <span class="text-xs text-white/40">
+        Free text, not limited to real championship seasons — tag exhibitions or one-off events however you like.
+        Powers the season filter on the public News page.
+      </span>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Linked round (optional)</span>
+      <select
+        name="round_subsession_id"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        <option value="" selected={post.round_subsession_id === null} class="bg-brand-ink text-white">
+          — No linked round —
+        </option>
+        {[...roundsBySeasonLabel.entries()].map(([seasonLabel, rounds]) => (
+          <optgroup label={seasonLabel} class="bg-brand-ink text-white">
+            {rounds.map((r) => (
+              <option value={r.subsession_id} selected={post.round_subsession_id === r.subsession_id} class="bg-brand-ink text-white">
+                {formatDate(r.start_time)} — {r.track_name}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <span class="text-xs text-white/40">
+        When set, the article shows a link to that round's results at the top and a live race recap (top finishers,
+        fastest laps, team points) at the bottom.
+      </span>
     </label>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Status</legend>

@@ -1,0 +1,31 @@
+-- Alpha Touring Challenge — track-record matching: round layout name
+--
+-- DELIBERATE EXCEPTION to this repo's usual rule (see results.ts's header,
+-- and every prior migration that touches `curated_rounds`/`curated_race_
+-- results`/`race_scores`) of never altering the external results-import
+-- pipeline's own tables. Logan (who owns/runs that pipeline) explicitly
+-- asked for this column so the news round-recap feature
+-- (src/lib/newsRecap.ts) can reliably tell which of a circuit's layouts
+-- (this repo's own `circuit_layouts`, 0010_circuit_layouts.sql — a circuit
+-- can have more than one, e.g. Full Course vs. a National/Club config, each
+-- with its own lap record) a given round was actually run on, for the
+-- recap's "New Track Record" check.
+--
+-- Logan will populate this column himself (directly, or by extending the
+-- pipeline import) — this repo only ever reads it, never writes it, same as
+-- every other curated_* column. If the pipeline's own migrations ever
+-- recreate this table wholesale, this column (and Logan's data in it) would
+-- need to be re-added/re-populated on that side too — flagging that risk
+-- here since it's the one column in `curated_rounds` this repo added rather
+-- than the pipeline.
+--
+-- Matching itself (src/lib/newsRecap.ts's matchCircuitLayout()): round
+-- track_name is matched to circuits.name, and — only when that circuit has
+-- more than one layout on file — this `layout` column is matched to
+-- circuit_layouts.name to pick the right one. A circuit with just one
+-- layout on file doesn't need this column at all. No match (missing
+-- circuit, missing/non-matching layout when one's needed) just means the
+-- recap shows the lap time with no track-record comparison, plus an
+-- admin-only on-page notice explaining why (see news/[slug].astro) so
+-- Logan knows to go add the missing circuit/layout in Admin → Circuits.
+alter table curated_rounds add column if not exists layout text;

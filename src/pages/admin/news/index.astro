@@ -43,6 +43,7 @@ try {
         <thead>
           <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
             <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="title">Title</th>
+            <th class="py-3 pr-3 font-medium" data-sort-key="season">Season</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="author">Author</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="date">Published</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
@@ -53,6 +54,9 @@ try {
           {posts.map((post) => (
             <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
               <td class="py-3 pl-6 pr-3 font-semibold" data-col="title">{post.title}</td>
+              <td class="py-3 pr-3 text-white/60" data-col="season" data-sort-value={post.season_label ?? ''}>
+                {post.season_label ?? '—'}
+              </td>
               <td class="py-3 pr-3 text-white/60" data-col="author">{post.author_name}</td>
               <td
                 class="py-3 pr-3 text-white/60"

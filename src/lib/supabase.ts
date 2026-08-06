@@ -91,6 +91,10 @@ export interface NewsPost {
   cover_image_url: string | null;
   author_name: string;
   published_at: string;
+  /** Optionally links this post to one round's results (curated_rounds.subsession_id) — when set, the article shows a link to that round at the top and a live-computed race recap at the bottom (see src/lib/newsRecap.ts). Deliberately a plain number, no FK — curated_rounds is an external pipeline table this repo's migrations must never touch (0017_news_round_season.sql). */
+  round_subsession_id: number | null;
+  /** Freeform season tag (e.g. "ATC17", or an exhibition season's own name) — matches the same free-text `season_label` the results pipeline already uses on curated_rounds, NOT a foreign key to `seasons`, specifically so a post can be tagged with any season including non-points ones. Powers the season filter dropdown on /news and the season picker on the post editor (0017_news_round_season.sql). */
+  season_label: string | null;
 }
 
 /**
@@ -117,10 +121,13 @@ export function getDrivers(env: SupabaseEnv) {
   );
 }
 
+const NEWS_PUBLIC_SELECT =
+  'id,slug,title,excerpt,body,cover_image_url,author_name,published_at,round_subsession_id,season_label';
+
 /** Published news posts, newest first. */
 export function getNewsPosts(env: SupabaseEnv, limit?: number) {
   const params = new URLSearchParams({
-    select: 'id,slug,title,excerpt,body,cover_image_url,author_name,published_at',
+    select: NEWS_PUBLIC_SELECT,
     order: 'published_at.desc',
   });
   if (limit) params.set('limit', String(limit));
@@ -129,10 +136,9 @@ export function getNewsPosts(env: SupabaseEnv, limit?: number) {
 
 /** A single published news post by slug. */
 export async function getNewsPostBySlug(env: SupabaseEnv, slug: string) {
-  const select = 'id,slug,title,excerpt,body,cover_image_url,author_name,published_at';
   const posts = await restGet<NewsPost[]>(
     env,
-    `news_posts?select=${select}&slug=eq.${encodeURIComponent(slug)}&limit=1`
+    `news_posts?select=${NEWS_PUBLIC_SELECT}&slug=eq.${encodeURIComponent(slug)}&limit=1`
   );
   return posts[0] ?? null;
 }
@@ -347,7 +353,8 @@ export interface NewsPostAdmin extends NewsPost {
   status: 'draft' | 'published';
 }
 
-const NEWS_ADMIN_SELECT = 'id,slug,title,excerpt,body,cover_image_url,author_name,status,published_at';
+const NEWS_ADMIN_SELECT =
+  'id,slug,title,excerpt,body,cover_image_url,author_name,status,published_at,round_subsession_id,season_label';
 
 /** Drafts + published, newest first — requires an admin's access token (RLS-gated). */
 export function getAllNewsPosts(env: SupabaseEnv, accessToken: string) {
