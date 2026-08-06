@@ -13,29 +13,18 @@ import {
   upsertRaceLinks,
   formatDate,
   getPenaltiesForSubsession,
-  getPenaltiesForSubsessions,
-  getPenaltyOffenses,
-  createPenalty,
-  updatePenalty,
-  deletePenalty,
-  getDriverById,
-  updateDriver,
-  getEvents,
-  getWarningCounts,
   type RaceLinks,
   type Penalty,
-  type PenaltyOffense,
 } from '../../lib/supabase';
 import {
   getRoundBySubsessionId,
   getRoundResults,
   getRoundsForSeason,
-  getCurrentSeasonRounds,
   computeDisplayRoundNumbers,
   isChampionshipSeason,
   type RoundResults,
 } from '../../lib/results';
-import { applyPenaltiesToRoundResults, computeSeasonPPState } from '../../lib/penalties';
+import { applyPenaltiesToRoundResults } from '../../lib/penalties';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const isAdmin = Astro.locals.session?.profile?.role === 'admin';
@@ -44,49 +33,6 @@ const isAdmin = Astro.locals.session?.profile?.role === 'admin';
 // practice, so Number() parsing here is safe — well under
 // Number.MAX_SAFE_INTEGER.
 const subsessionId = Number(Astro.params.subsessionId);
-
-/**
- * Recomputes one driver's CURRENT SEASON PP tally/probation state from
- * scratch (see computeSeasonPPState's own doc comment for why "from
- * scratch" beats incrementally patching a stored counter) and persists it.
- * Called after every penalty create/update/delete below — not just
- * creation like in v0.13/v0.14 — so editing or removing a penalty now
- * correctly ripples through, and so PP stays scoped to the CURRENT season
- * (rule 57's season limit) rather than accumulating across a driver's
- * whole career. A no-op if no season is currently flagged `is_current`.
- */
-async function recomputeDriverSeasonPP(driverId: string) {
-  const [driver, currentSeason, events] = await Promise.all([
-    getDriverById(supabaseEnv, driverId),
-    getCurrentSeasonRounds(supabaseEnv),
-    getEvents(supabaseEnv),
-  ]);
-  if (!driver || currentSeason.subsessionIds.length === 0) return;
-
-  const seasonPenalties = await getPenaltiesForSubsessions(supabaseEnv, currentSeason.subsessionIds);
-  const driverPenalties = seasonPenalties.filter((p) => p.driver_id === driverId);
-  const state = computeSeasonPPState(driver, driverPenalties, events);
-
-  await updateDriver(supabaseEnv, Astro.locals.session!.accessToken, driverId, {
-    penalty_points: state.penalty_points,
-    on_probation: state.on_probation,
-    probation_started_at: state.probation_started_at,
-  });
-}
-
-/** Blank-means-null/0 form field readers, shared by add-penalty/update-penalty below. */
-function strOrNullField(form: FormData, name: string) {
-  const s = String(form.get(name) ?? '').trim();
-  return s.length > 0 ? s : null;
-}
-function numOrNullField(form: FormData, name: string) {
-  const s = String(form.get(name) ?? '').trim();
-  return s.length > 0 ? Number(s) : null;
-}
-function numOrZeroField(form: FormData, name: string) {
-  const s = String(form.get(name) ?? '').trim();
-  return s.length > 0 ? Number(s) : 0;
-}
 
 // Admin-only: flag/unflag this specific round as a non-points exhibition
 // (e.g. a pre-season race run inside an otherwise real championship
@@ -128,7 +74,6 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
           iracing_subsession_id: numOrNull(form.get('iracing_subsession_id')),
           replay_url: strOrNull(form.get('replay_url')),
           broadcast_url: strOrNull(form.get('broadcast_url')),
-          incident_report_url: strOrNull(form.get('incident_report_url')),
         });
       } catch (err) {
         console.error('Failed to save race links:', err);
@@ -137,104 +82,9 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
   }
 
-  // Log a new steward penalty against one driver in one specific race
-  // (rule 66: penalties apply to the race they occurred in). Also
-  // recomputes the driver's CURRENT SEASON PP tally/probation state from
-  // scratch (rules 57-62) — see recomputeDriverSeasonPP above.
-  if (intent === 'add-penalty') {
-    const driverId = String(form.get('driver_id') ?? '');
-    const raceNumber = Number(form.get('race_number'));
-    const offenseIds = form.getAll('offense_ids').map(String).filter(Boolean);
-    const involvedDriverIds = form.getAll('involved_driver_ids').map(String).filter(Boolean);
-
-    if (driverId && Number.isFinite(raceNumber)) {
-      try {
-        await createPenalty(
-          supabaseEnv,
-          Astro.locals.session!.accessToken,
-          {
-            subsession_id: subsessionId,
-            race_number: raceNumber,
-            driver_id: driverId,
-            incident_number: strOrNullField(form, 'incident_number'),
-            lap: numOrNullField(form, 'lap'),
-            description: strOrNullField(form, 'description'),
-            time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
-            points_penalty: numOrZeroField(form, 'points_penalty'),
-            penalty_points: numOrZeroField(form, 'penalty_points'),
-            is_warning: form.get('is_warning') === 'on',
-            is_appealed: form.get('is_appealed') === 'on',
-            appeal_result: strOrNullField(form, 'appeal_result'),
-            appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
-            appeal_points_penalty: numOrZeroField(form, 'appeal_points_penalty'),
-            appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
-          },
-          offenseIds,
-          involvedDriverIds
-        );
-        await recomputeDriverSeasonPP(driverId);
-      } catch (err) {
-        console.error('Failed to save penalty:', err);
-      }
-    }
-    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
-  }
-
-  // Edits a penalty's own fields/offense-tags/involved-cars/appeal outcome
-  // in place, then recomputes the driver's season PP from scratch — unlike
-  // v0.13/v0.14, a PP change here now correctly ripples through (see
-  // recomputeDriverSeasonPP above and updatePenalty's doc comment in
-  // src/lib/supabase.ts).
-  if (intent === 'update-penalty') {
-    const penaltyId = String(form.get('penalty_id') ?? '');
-    const driverId = String(form.get('driver_id') ?? '');
-    const offenseIds = form.getAll('offense_ids').map(String).filter(Boolean);
-    const involvedDriverIds = form.getAll('involved_driver_ids').map(String).filter(Boolean);
-
-    if (penaltyId) {
-      try {
-        await updatePenalty(
-          supabaseEnv,
-          Astro.locals.session!.accessToken,
-          penaltyId,
-          {
-            incident_number: strOrNullField(form, 'incident_number'),
-            lap: numOrNullField(form, 'lap'),
-            description: strOrNullField(form, 'description'),
-            time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
-            points_penalty: numOrZeroField(form, 'points_penalty'),
-            penalty_points: numOrZeroField(form, 'penalty_points'),
-            is_warning: form.get('is_warning') === 'on',
-            is_appealed: form.get('is_appealed') === 'on',
-            appeal_result: strOrNullField(form, 'appeal_result'),
-            appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
-            appeal_points_penalty: numOrZeroField(form, 'appeal_points_penalty'),
-            appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
-          },
-          offenseIds,
-          involvedDriverIds
-        );
-        if (driverId) await recomputeDriverSeasonPP(driverId);
-      } catch (err) {
-        console.error('Failed to update penalty:', err);
-      }
-    }
-    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
-  }
-
-  if (intent === 'delete-penalty') {
-    const penaltyId = String(form.get('penalty_id') ?? '');
-    const driverId = String(form.get('driver_id') ?? '');
-    if (penaltyId) {
-      try {
-        await deletePenalty(supabaseEnv, Astro.locals.session!.accessToken, penaltyId);
-        if (driverId) await recomputeDriverSeasonPP(driverId);
-      } catch (err) {
-        console.error('Failed to delete penalty:', err);
-      }
-    }
-    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
-  }
+  // Penalty add/edit/remove now lives entirely on the Incident Report page
+  // (src/pages/results/[subsessionId]/incidents.astro) — this page is
+  // read-only for penalties (see v0.16's README section for why).
 }
 
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
@@ -243,28 +93,18 @@ let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let exhibitionRoundIds: Set<number> = new Set();
 let raceLinksByRace: Map<number, RaceLinks> = new Map();
 let penalties: Penalty[] = [];
-let offenses: PenaltyOffense[] = [];
-let warningCounts: Map<string, number> = new Map();
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, roundResults, classes, exhibitionRoundIds, raceLinksByRace, penalties, offenses] = await Promise.all([
+    [round, roundResults, classes, exhibitionRoundIds, raceLinksByRace, penalties] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(supabaseEnv, subsessionId),
       getDriverClasses(supabaseEnv),
       getExhibitionRoundIds(supabaseEnv),
       getRaceLinksForSubsession(supabaseEnv, subsessionId),
       getPenaltiesForSubsession(supabaseEnv, subsessionId),
-      getPenaltyOffenses(supabaseEnv),
     ]);
-    // Steward-facing only (which driver already has how many warnings
-    // logged THIS SEASON — see getCurrentSeasonRounds) — skip the extra
-    // queries for public visitors.
-    if (isAdmin) {
-      const currentSeason = await getCurrentSeasonRounds(supabaseEnv);
-      warningCounts = await getWarningCounts(supabaseEnv, currentSeason.subsessionIds);
-    }
   } catch (err) {
     console.error('Failed to load round results:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -281,13 +121,6 @@ if (!loadError && !round) {
 // (same object back) for a round with no penalties logged.
 if (!loadError && penalties.length > 0) {
   roundResults = applyPenaltiesToRoundResults(roundResults, penalties, round?.format ?? null);
-}
-
-const penaltiesByRaceDriver = new Map<string, Penalty[]>();
-for (const p of penalties) {
-  const key = `${p.race_number}:${p.driver_id}`;
-  if (!penaltiesByRaceDriver.has(key)) penaltiesByRaceDriver.set(key, []);
-  penaltiesByRaceDriver.get(key)!.push(p);
 }
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
@@ -362,22 +195,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         <HistoryTabs active="results" />
 
-        <div class="mt-8 flex gap-2">
+        <div class="mt-8 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex gap-2">
+            <a
+              href={`/results/${subsessionId}?view=overall`}
+              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+                view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              Overall
+            </a>
+            <a
+              href={`/results/${subsessionId}?view=class`}
+              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+                view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              Per Class
+            </a>
+          </div>
           <a
-            href={`/results/${subsessionId}?view=overall`}
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
+            href={`/results/${subsessionId}/incidents`}
+            class="rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
           >
-            Overall
-          </a>
-          <a
-            href={`/results/${subsessionId}?view=class`}
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
-          >
-            Per Class
+            Incident Report
           </a>
         </div>
 
@@ -395,8 +236,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 links={raceLinksByRace.get(raceNumber) ?? null}
                 isAdmin={isAdmin}
                 penalties={penalties}
-                offenses={offenses}
-                warningCounts={warningCounts}
               />
             ))}
           </>
@@ -416,8 +255,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   links={raceLinksByRace.get(raceNumber) ?? null}
                   isAdmin={isAdmin}
                   penalties={penalties}
-                  offenses={offenses}
-                  warningCounts={warningCounts}
                 />
               ))}
             </div>

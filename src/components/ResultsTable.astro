@@ -10,8 +10,15 @@
 // whether its Laps/Points cells have a second subtext line, so a table
 // with a mix of tall and short rows still lines up (see the `h-8` wrappers
 // below).
+//
+// v0.16: this table is now READ-ONLY as far as penalties go — the tag next
+// to a driver's name is just a static badge (no click-to-expand, no add/
+// edit/remove). All of that (plus the full incident detail — description,
+// offenses, involved cars, appeal result) now lives on the dedicated
+// Incident Report page (/results/[subsessionId]/incidents), reachable via
+// the button above this table on the round page.
 import { iracingResultsUrl, type RaceResultRow } from '../lib/results';
-import type { RaceLinks, Penalty, PenaltyOffense } from '../lib/supabase';
+import type { RaceLinks, Penalty } from '../lib/supabase';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
@@ -22,25 +29,25 @@ function pointsBreakdown(row: RaceResultRow): string | null {
   return `${row.bonusPoints > 0 ? '+' : ''}${row.bonusPoints} bonus`;
 }
 
-/** "+10s" / "+2 pts" / "+1 PP" joined together — the compact summary shown next to a logged penalty. Uses each penalty's EFFECTIVE (appeal-aware) values, so an appealed penalty shows what's actually in effect now, not what was first logged. */
-function penaltySummary(p: Penalty): string {
-  const time = effectiveTimePenaltySeconds(p);
-  const points = effectivePointsPenalty(p);
-  const pp = effectivePenaltyPoints(p);
-  const parts: string[] = [];
-  if (time) parts.push(`+${time}s`);
-  if (points) parts.push(`${points > 0 ? '-' : '+'}${Math.abs(points)} pts`);
-  if (pp) parts.push(`+${pp} PP`);
-  return parts.length > 0 ? parts.join(', ') : 'Logged, no penalty applied';
-}
-
-/** "Penalty (1PP)" / "Penalty (Warning)" / just "Penalty" — the tag's own label, so the headline number is visible without expanding the row. Sums effective PP across every penalty logged against this driver in this race; falls back to "(Warning)" only when nothing carries PP but at least one entry is a warning. */
+/**
+ * "Penalty (1PP)" / "Penalty (Warning)" / "Penalty" / "Racing Incident" —
+ * the tag's own label, so the headline is visible without visiting the
+ * Incident Report page. Sums effective PP across every penalty logged
+ * against this driver in this race; falls back to "(Warning)" only when
+ * nothing carries PP but at least one entry is a warning. When a logged
+ * entry carries no real effect at all (no PP, no warning, no time/points
+ * penalty — e.g. reviewed and cleared, or appealed down to nothing), it
+ * reads as "Racing Incident" instead of "Penalty" per Logan.
+ */
 function penaltyTagLabel(rowPenalties: Penalty[]): string {
-  if (rowPenalties.length === 0) return 'Penalty';
+  if (rowPenalties.length === 0) return '';
   const totalPP = rowPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
   if (totalPP > 0) return `Penalty (${totalPP}PP)`;
   if (rowPenalties.some((p) => p.is_warning)) return 'Penalty (Warning)';
-  return 'Penalty';
+  const hasTimeOrPointsEffect = rowPenalties.some(
+    (p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0
+  );
+  return hasTimeOrPointsEffect ? 'Penalty' : 'Racing Incident';
 }
 
 /**
@@ -65,10 +72,6 @@ interface Props {
   isAdmin?: boolean;
   /** Every penalty logged anywhere in this round — filtered down to this race below. Passed unfiltered so callers don't need to slice it per race themselves. */
   penalties?: Penalty[];
-  /** The configurable offense list (rulebook "Post-Race Penalties" table, managed at /admin/penalty-offenses) — powers the offense checkboxes in the add-penalty dialog. */
-  offenses?: PenaltyOffense[];
-  /** driver_id -> how many warnings (is_warning penalties) they've ever been logged with — steward-facing only, shown while a row is expanded so it's obvious when a driver is due a real penalty instead of another warning (rulebook: "2 warnings" -> +1 PP). */
-  warningCounts?: Map<string, number>;
 }
 
 const {
@@ -80,37 +83,14 @@ const {
   links,
   isAdmin = false,
   penalties = [],
-  offenses = [],
-  warningCounts = new Map(),
 } = Astro.props;
 
-const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url || links.incident_report_url);
+const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url);
 const racePenalties = penalties.filter((p) => p.race_number === raceNumber);
 const penaltiesByDriver = new Map<string, Penalty[]>();
 for (const p of racePenalties) {
   if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
   penaltiesByDriver.get(p.driver_id)!.push(p);
-}
-const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
-const dialogId = `penalty-dialog-${subsessionId}-${raceNumber}`;
-// Every driver in this specific race, sorted by car number — the "which
-// cars were involved" checkbox list in the penalty dialog picks from this,
-// not the whole roster, since an incident can only involve cars that were
-// actually on track together. The driver the penalty is actually being
-// applied to is excluded client-side (see [data-involved-driver-option] in
-// the <script> below) since the same dialog markup is shared across every
-// driver in this race and their involvement is implied anyway.
-const raceDrivers = [...rows.map((r) => r.driver)].sort((a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity));
-
-/** "#04, #12" — car numbers only (not names, per Logan) for the other cars tagged on a penalty. */
-function involvedCarsSummary(p: Penalty): string | null {
-  if (p.involved_driver_ids.length === 0) return null;
-  return p.involved_driver_ids
-    .map((id) => {
-      const d = raceDrivers.find((r) => r.id === id);
-      return d?.car_number !== null && d?.car_number !== undefined ? `#${d.car_number}` : '?';
-    })
-    .join(', ');
 }
 ---
 
@@ -148,16 +128,6 @@ function involvedCarsSummary(p: Penalty): string | null {
             class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
           >
             Watch Broadcast
-          </a>
-        )}
-        {links?.incident_report_url && (
-          <a
-            href={links.incident_report_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-          >
-            Incident Report
           </a>
         )}
 
@@ -201,15 +171,6 @@ function involvedCarsSummary(p: Penalty): string | null {
                   class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                 />
               </label>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Incident report URL
-                <input
-                  type="url"
-                  name="incident_report_url"
-                  value={links?.incident_report_url ?? ''}
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                />
-              </label>
               <button
                 type="submit"
                 class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
@@ -240,7 +201,8 @@ function involvedCarsSummary(p: Penalty): string | null {
       <tbody>
         {rows.map((row) => {
           const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
-          const warnings = warningCounts.get(row.driver.id) ?? 0;
+          const tagLabel = penaltyTagLabel(rowPenalties);
+          const isRealPenalty = tagLabel.startsWith('Penalty');
           return (
           <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
             <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
@@ -272,95 +234,16 @@ function involvedCarsSummary(p: Penalty): string | null {
                     {tag}
                   </span>
                 ))}
-                {(rowPenalties.length > 0 || isAdmin) && (
-                  <button
-                    type="button"
-                    data-penalty-toggle
-                    class={rowPenalties.length > 0
-                      ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold transition hover:bg-brand-gold/25'
-                      : 'rounded border border-dashed border-white/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/30 transition hover:border-white/30 hover:text-white/50'}
-                    title={rowPenalties.length > 0 ? 'Show penalty details' : 'No penalty logged — click to add one'}
+                {tagLabel && (
+                  <span
+                    class={isRealPenalty
+                      ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold'
+                      : 'rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50'}
+                    title="See the Incident Report for full details"
                   >
-                    {penaltyTagLabel(rowPenalties)}
-                  </button>
+                    {tagLabel}
+                  </span>
                 )}
-              </div>
-
-              <div data-penalty-panel class="hidden mt-1.5 flex flex-col gap-1.5">
-                {isAdmin && warnings > 0 && (
-                  <p class="text-[11px] text-brand-gold">⚠ {warnings} warning{warnings === 1 ? '' : 's'} logged for this driver this season.</p>
-                )}
-                {isAdmin && (
-                  <button
-                    type="button"
-                    data-open-penalty-dialog={dialogId}
-                    data-driver-id={row.driver.id}
-                    data-driver-name={row.driver.name}
-                    class="self-start rounded bg-white/10 px-2 py-1 text-[10px] font-semibold text-white/60 transition hover:bg-brand-primary hover:text-white"
-                  >
-                    + Add Penalty
-                  </button>
-                )}
-                {rowPenalties.map((p) => (
-                  <div class="flex flex-col gap-0.5 text-[11px] text-white/40">
-                    <div class="flex flex-wrap items-center gap-1.5">
-                      {p.is_warning && (
-                        <span class="rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold">Warning</span>
-                      )}
-                      {p.is_appealed && (
-                        <span class="rounded bg-brand-blue/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-blue">Appealed</span>
-                      )}
-                      <span>
-                        {p.incident_number && `Incident #${p.incident_number}`}
-                        {p.lap !== null && ` · Lap ${p.lap}`}
-                        {(p.incident_number || p.lap !== null) && ' — '}
-                        {penaltySummary(p)}
-                        {p.offense_ids.length > 0 && ` (${p.offense_ids.map((id) => offenseNameById.get(id) ?? '?').join(', ')})`}
-                        {involvedCarsSummary(p) && ` · Also involved: ${involvedCarsSummary(p)}`}
-                      </span>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          data-edit-penalty={dialogId}
-                          data-driver-id={row.driver.id}
-                          data-driver-name={row.driver.name}
-                          data-penalty={JSON.stringify({
-                            id: p.id,
-                            incident_number: p.incident_number,
-                            lap: p.lap,
-                            description: p.description,
-                            time_penalty_seconds: p.time_penalty_seconds,
-                            points_penalty: p.points_penalty,
-                            penalty_points: p.penalty_points,
-                            is_warning: p.is_warning,
-                            offense_ids: p.offense_ids,
-                            involved_driver_ids: p.involved_driver_ids,
-                            is_appealed: p.is_appealed,
-                            appeal_result: p.appeal_result,
-                            appeal_time_penalty_seconds: p.appeal_time_penalty_seconds,
-                            appeal_points_penalty: p.appeal_points_penalty,
-                            appeal_penalty_points: p.appeal_penalty_points,
-                          })}
-                          class="font-semibold text-white/30 hover:text-white"
-                        >
-                          Edit
-                        </button>
-                      )}
-                      {isAdmin && (
-                        <form method="POST" data-astro-reload class="inline">
-                          <input type="hidden" name="intent" value="delete-penalty" />
-                          <input type="hidden" name="penalty_id" value={p.id} />
-                          <input type="hidden" name="driver_id" value={row.driver.id} />
-                          <button type="submit" class="font-semibold text-white/30 hover:text-brand-pink">Remove</button>
-                        </form>
-                      )}
-                    </div>
-                    {p.description && <div class="pl-0.5 text-white/30">{p.description}</div>}
-                    {p.is_appealed && p.appeal_result && (
-                      <div class="pl-0.5 text-brand-blue/80">Appeal result: {p.appeal_result}</div>
-                    )}
-                  </div>
-                ))}
               </div>
             </td>
             {showClass && (
@@ -403,266 +286,4 @@ function involvedCarsSummary(p: Penalty): string | null {
       </tbody>
     </table>
   </div>
-
-  {isAdmin && (
-    <dialog id={dialogId} data-penalty-dialog class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60">
-      <form method="POST" data-astro-reload class="flex flex-col gap-3 p-5">
-        <input type="hidden" name="intent" data-penalty-intent-field value="add-penalty" />
-        <input type="hidden" name="race_number" value={raceNumber} />
-        <input type="hidden" name="driver_id" data-penalty-driver-id-field value="" />
-        <input type="hidden" name="penalty_id" data-penalty-id-field value="" />
-
-        <div class="flex items-center justify-between">
-          <h4 class="font-display text-xl" data-penalty-heading>
-            Add Penalty — <span data-penalty-driver-name-field>driver</span>
-          </h4>
-          <button type="button" data-close-penalty-dialog class="text-white/40 hover:text-white">✕</button>
-        </div>
-
-        <div class="grid grid-cols-2 gap-3">
-          <label class="flex flex-col gap-1 text-[11px] text-white/50">
-            Incident #
-            <input type="text" name="incident_number" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-          </label>
-          <label class="flex flex-col gap-1 text-[11px] text-white/50">
-            Lap
-            <input type="number" name="lap" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-          </label>
-        </div>
-
-        <label class="flex flex-col gap-1 text-[11px] text-white/50">
-          Description
-          <textarea name="description" rows="2" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"></textarea>
-        </label>
-
-        <div class="grid grid-cols-2 gap-3">
-          <label class="flex flex-col gap-1 text-[11px] text-white/50">
-            Time penalty (seconds)
-            <input type="number" step="0.001" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-          </label>
-          <label class="flex flex-col gap-1 text-[11px] text-white/50">
-            Points penalty
-            <input type="number" name="points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-          </label>
-        </div>
-
-        <label class="flex flex-col gap-1 text-[11px] text-white/50">
-          Penalty points (PP)
-          <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-        </label>
-
-        <label class="flex items-center gap-2 text-xs text-white/70">
-          <input type="checkbox" name="is_warning" />
-          This is a warning (rulebook: 2 warnings escalates to +1 PP — check the note above before adding a 3rd)
-        </label>
-
-        <label class="flex items-center gap-2 text-xs text-white/70">
-          <input type="checkbox" name="is_appealed" data-appeal-checkbox />
-          This penalty was appealed
-        </label>
-
-        <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-white/5 p-3">
-          <label class="flex flex-col gap-1 text-[11px] text-white/50">
-            Appeal result
-            <textarea
-              name="appeal_result"
-              rows="2"
-              placeholder="e.g. Upheld — reduced to 5s"
-              class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-            ></textarea>
-          </label>
-          <div class="grid grid-cols-2 gap-3">
-            <label class="flex flex-col gap-1 text-[11px] text-white/50">
-              New time penalty (seconds)
-              <input type="number" step="0.001" name="appeal_time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-white/50">
-              New points penalty
-              <input type="number" name="appeal_points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-            </label>
-          </div>
-          <label class="flex flex-col gap-1 text-[11px] text-white/50">
-            New penalty points (PP)
-            <input type="number" name="appeal_penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-          </label>
-          <p class="text-[11px] text-white/30">
-            These replace the original time/points/PP everywhere (this race's results, season standings, season PP)
-            once appealed — the original values above stay on record but stop being applied.
-          </p>
-        </div>
-
-        <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
-          <legend class="mb-1">Offenses (rulebook section 5)</legend>
-          <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-            {offenses.length === 0 && <span class="text-white/30">No offenses configured — add some at /admin/penalty-offenses.</span>}
-            {offenses.map((o) => (
-              <label class="flex items-center gap-2 text-xs text-white/70">
-                <input type="checkbox" name="offense_ids" value={o.id} />
-                {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
-          <legend class="mb-1">Other cars involved in this incident</legend>
-          <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-            {raceDrivers.length === 0 && <span class="text-white/30">No other drivers in this race.</span>}
-            {raceDrivers.map((d) => (
-              <label class="flex items-center gap-2 text-xs text-white/70" data-involved-driver-option data-driver-id={d.id}>
-                <input type="checkbox" name="involved_driver_ids" value={d.id} />
-                {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <p class="text-[11px] text-white/30">
-          Editing a penalty's PP now correctly recomputes this driver's season PP tally from scratch — no manual
-          correction needed.
-        </p>
-
-        <button type="submit" class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110">
-          Save Penalty
-        </button>
-      </form>
-    </dialog>
-  )}
 </div>
-
-<script>
-  // Wires up several things per race table (delegated at the document
-  // level, re-bound on every Astro page transition — Astro dedupes this
-  // identical inline script across however many ResultsTable instances
-  // render on one page, so it only actually runs once regardless of how
-  // many race tables are on screen):
-  //   1. [data-penalty-toggle] — expands/collapses a row's penalty details
-  //      (and, for admins, the "+ Add Penalty" trigger) — penalties are
-  //      never shown unless the row is expanded.
-  //   2. [data-open-penalty-dialog] — resets the race's shared <dialog> to
-  //      "add a new penalty for this driver" and shows it.
-  //   3. [data-edit-penalty] — pre-fills that same dialog from an existing
-  //      penalty's data (serialized into the button's data-penalty
-  //      attribute as JSON) and switches it to "update" mode.
-  //   4. [data-appeal-checkbox] — shows/hides the appeal result/override
-  //      fields as it's checked/unchecked.
-  //   Both 2 and 3 also hide the involved-cars checkbox for whichever
-  //   driver the dialog is currently open for — their own involvement in
-  //   the incident is implied, not something to tick separately.
-  function initResultsTableInteractions() {
-    document.querySelectorAll<HTMLButtonElement>('[data-penalty-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const panel = btn.closest('td')?.querySelector<HTMLElement>('[data-penalty-panel]');
-        panel?.classList.toggle('hidden');
-      });
-    });
-
-    function fieldsOf(dialog: HTMLDialogElement) {
-      return {
-        intent: dialog.querySelector<HTMLInputElement>('[data-penalty-intent-field]')!,
-        penaltyId: dialog.querySelector<HTMLInputElement>('[data-penalty-id-field]')!,
-        driverId: dialog.querySelector<HTMLInputElement>('[data-penalty-driver-id-field]')!,
-        driverName: dialog.querySelector('[data-penalty-driver-name-field]')!,
-        heading: dialog.querySelector('[data-penalty-heading]')!,
-        appealCheckbox: dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!,
-        appealFields: dialog.querySelector<HTMLElement>('[data-appeal-fields]')!,
-      };
-    }
-
-    function setAppealFieldsVisible(f: ReturnType<typeof fieldsOf>, visible: boolean) {
-      f.appealFields.classList.toggle('hidden', !visible);
-      f.appealFields.classList.toggle('flex', visible);
-    }
-
-    /** Hides the involved-cars checkbox for `driverId` (their own involvement is implied) and shows every other one. */
-    function excludeDriverFromInvolvedCars(dialog: HTMLDialogElement, driverId: string) {
-      dialog.querySelectorAll<HTMLElement>('[data-involved-driver-option]').forEach((label) => {
-        const isSelf = label.dataset.driverId === driverId;
-        label.classList.toggle('hidden', isSelf);
-        if (isSelf) {
-          const cb = label.querySelector<HTMLInputElement>('input[type="checkbox"]');
-          if (cb) cb.checked = false;
-        }
-      });
-    }
-
-    document.querySelectorAll<HTMLInputElement>('[data-appeal-checkbox]').forEach((box) => {
-      box.addEventListener('change', () => {
-        const dialog = box.closest('dialog') as HTMLDialogElement | null;
-        if (!dialog) return;
-        setAppealFieldsVisible(fieldsOf(dialog), box.checked);
-      });
-    });
-
-    document.querySelectorAll<HTMLButtonElement>('[data-open-penalty-dialog]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const dialog = document.getElementById(btn.dataset.openPenaltyDialog!) as HTMLDialogElement | null;
-        if (!dialog) return;
-        const form = dialog.querySelector('form')!;
-        form.reset();
-        const f = fieldsOf(dialog);
-        f.intent.value = 'add-penalty';
-        f.penaltyId.value = '';
-        f.driverId.value = btn.dataset.driverId ?? '';
-        f.driverName.textContent = btn.dataset.driverName ?? 'driver';
-        f.heading.firstChild!.textContent = 'Add Penalty — ';
-        setAppealFieldsVisible(f, false);
-        excludeDriverFromInvolvedCars(dialog, btn.dataset.driverId ?? '');
-        dialog.showModal();
-      });
-    });
-
-    document.querySelectorAll<HTMLButtonElement>('[data-edit-penalty]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const dialog = document.getElementById(btn.dataset.editPenalty!) as HTMLDialogElement | null;
-        if (!dialog || !btn.dataset.penalty) return;
-        const p = JSON.parse(btn.dataset.penalty);
-        const f = fieldsOf(dialog);
-        f.intent.value = 'update-penalty';
-        f.penaltyId.value = p.id;
-        f.driverId.value = btn.dataset.driverId ?? '';
-        f.driverName.textContent = btn.dataset.driverName ?? 'driver';
-        f.heading.firstChild!.textContent = 'Edit Penalty — ';
-
-        const set = (name: string, value: string) => {
-          const el = dialog.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`);
-          if (el) el.value = value;
-        };
-        set('incident_number', p.incident_number ?? '');
-        set('lap', p.lap ?? '');
-        set('description', p.description ?? '');
-        set('time_penalty_seconds', p.time_penalty_seconds ?? '');
-        set('points_penalty', p.points_penalty ?? '');
-        set('penalty_points', p.penalty_points ?? '');
-        set('appeal_result', p.appeal_result ?? '');
-        set('appeal_time_penalty_seconds', p.appeal_time_penalty_seconds ?? '');
-        set('appeal_points_penalty', p.appeal_points_penalty ?? '');
-        set('appeal_penalty_points', p.appeal_penalty_points ?? '');
-
-        const warningBox = dialog.querySelector<HTMLInputElement>('[name="is_warning"]');
-        if (warningBox) warningBox.checked = Boolean(p.is_warning);
-
-        f.appealCheckbox.checked = Boolean(p.is_appealed);
-        setAppealFieldsVisible(f, Boolean(p.is_appealed));
-
-        dialog.querySelectorAll<HTMLInputElement>('[name="offense_ids"]').forEach((cb) => {
-          cb.checked = (p.offense_ids ?? []).includes(cb.value);
-        });
-        dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
-          cb.checked = (p.involved_driver_ids ?? []).includes(cb.value);
-        });
-        excludeDriverFromInvolvedCars(dialog, btn.dataset.driverId ?? '');
-
-        dialog.showModal();
-      });
-    });
-
-    document.querySelectorAll<HTMLButtonElement>('[data-close-penalty-dialog]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        (btn.closest('dialog') as HTMLDialogElement | null)?.close();
-      });
-    });
-  }
-
-  document.addEventListener('astro:page-load', initResultsTableInteractions);
-</script>
