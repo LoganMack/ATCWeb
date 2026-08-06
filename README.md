@@ -258,7 +258,9 @@ Five refinements on top of v0.13, all still working against the same app-owned t
 - Edit/Remove moved out of an actions column into a slim row of their own directly below each incident (admin-only), left-aligned.
 - Column order is now `#, Lap, Driver, Involved, Description, Offenses, PP, Time, Pts, Pos Δ, Pts Δ` — incident number leads (renamed from "Incident #" to just "#"), since it's the most natural way to identify a row at a glance.
 
-**Collapsible descriptions.** Descriptions over 60 characters collapse to one truncated line behind a "Show more" toggle (pure CSS `truncate` + a JS class toggle, no layout library needed) — multi-paragraph steward notes no longer blow out every row's height.
+**Collapsible descriptions.** Descriptions over 30 characters are hard-cut to exactly that length with a trailing ellipsis, behind a "Show more" toggle that swaps in the full text — multi-paragraph steward notes no longer blow out every row's height, or the table's width (an earlier CSS-`truncate` version could still stretch the row, since `truncate` needs a constrained width its flex layout wasn't giving it — a real character cap fixes that regardless of layout).
+
+**Sorted by incident number.** Rows within each race sort by incident number (numeric; anything blank or non-numeric sorts last) instead of by driver car number.
 
 **Offenses, one per line.** Previously a single comma-joined string; now each tagged offense gets its own line, easier to scan when an incident has two or three.
 
@@ -269,6 +271,16 @@ Five refinements on top of v0.13, all still working against the same app-owned t
 **"Involved" (was "Also involved"), and the penalized driver is included.** v0.15 excluded the driver being penalized from their own penalty's involved-cars checkbox list, on the reasoning that their involvement was implied. Per Logan, that's reversed: the Incident Report's picker no longer excludes anyone, so the penalized driver's own car can be tagged as "involved" alongside everyone else's, and the column/label is just "Involved" rather than "Also involved".
 
 **Documented simplification carried forward:** same as v0.13 — rules 58/62 aren't automated.
+
+## "View as Visitor" — admin impersonation preview (v0.18)
+
+Lets a real admin click a toggle in the footer to preview the site exactly as a non-admin would see it — no admin-only buttons, edit links, or dialogs — without actually signing out, so UI changes can be assessed from a visitor's perspective without losing the admin session.
+
+**How it works.** A new cookie (`atc_view_mode`, `src/lib/auth.ts`) holds `'visitor'` while the preview is active. `src/middleware.ts` computes two request-wide flags on every request (not just `/admin` ones, since the toggle itself renders on every page): `Astro.locals.isRealAdmin` (the actual role, untouched by the preview) and `Astro.locals.viewAsVisitor` (real admin *and* the cookie is set). A new helper, `isAdminView(Astro.locals)` in `src/lib/auth.ts`, is `true` only when both hold — every admin-gated page/component outside of `/admin` itself should call this instead of checking `session?.profile?.role === 'admin'` directly. Both places that actually needed it (`/results/[subsessionId]` and its Incident Report) were switched over; nowhere else outside `/admin` had admin-only UI to begin with.
+
+**`/admin/*` itself is deliberately unaffected.** The middleware's existing route gate still keys off the real role, not `viewAsVisitor` — previewing the public site as a visitor should never lock a real admin out of the admin panel they're standing in. The Incident Report's POST handlers (add/edit/remove/import) do respect the preview though, since they gate on the same `isAdminView()`-derived `isAdmin` the page uses to decide whether to render those controls in the first place — belt-and-suspenders against a stale form somehow still submitting while previewing.
+
+**The toggle.** Lives in `Footer.astro`, so it shows up on every page (including `/admin` ones, harmlessly) but stays out of the way — a small pill, gold when active. It deliberately checks `isRealAdmin`, not `isAdminView()`, so it stays visible and clickable to switch back even mid-preview. Submits to a new `POST /api/view-mode` (`src/pages/api/view-mode.ts`), which re-checks `isRealAdmin` server-side before touching the cookie (never trusts the form alone) and redirects back to whatever page the toggle was clicked from.
 
 ## Re-importing the roster later
 

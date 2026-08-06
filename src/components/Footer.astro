@@ -3,14 +3,40 @@ import { resolveSiteLinks } from '../lib/links';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 const year = new Date().getFullYear();
+
+// "View as Visitor" — lets a real admin preview the site with all
+// admin-only UI hidden, without actually signing out, to assess how a
+// change looks/behaves for a non-admin. Deliberately checks the REAL role
+// (Astro.locals.isRealAdmin), not the impersonation-aware isAdminView(),
+// so the toggle itself stays visible and clickable to switch back even
+// while a preview is active. See src/lib/auth.ts's isAdminView and
+// src/middleware.ts for how the rest of the site respects this.
+const isRealAdmin = Astro.locals.isRealAdmin;
+const viewAsVisitor = Astro.locals.viewAsVisitor;
+const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
 ---
 
 <footer class="border-t border-white/10 py-10">
   <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 text-sm text-white/50 sm:flex-row sm:justify-between">
     <p>&copy; {year} Alpha Touring Challenge.</p>
-    <div class="flex gap-6">
+    <div class="flex flex-wrap items-center justify-center gap-6">
       <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
       <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
+      {isRealAdmin && (
+        <form method="POST" action="/api/view-mode" data-astro-reload>
+          <input type="hidden" name="next" value={currentPath} />
+          <input type="hidden" name="mode" value={viewAsVisitor ? 'admin' : 'visitor'} />
+          <button
+            type="submit"
+            title="Preview the site with admin-only controls hidden, without signing out."
+            class={viewAsVisitor
+              ? 'rounded-lg bg-brand-gold/15 px-3 py-1 text-xs font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25'
+              : 'rounded-lg bg-white/5 px-3 py-1 text-xs font-semibold text-white/40 ring-1 ring-white/10 transition hover:bg-white/10'}
+          >
+            {viewAsVisitor ? 'Previewing as Visitor — return to Admin View' : 'View as Visitor'}
+          </button>
+        </form>
+      )}
     </div>
   </div>
 </footer>

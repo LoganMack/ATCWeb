@@ -14,6 +14,7 @@ import { resolveSupabaseEnv } from './lib/supabase';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
+  VIEW_MODE_COOKIE,
   authCookieOptions,
   getUser,
   getProfile,
@@ -64,6 +65,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
       console.error('Auth middleware error:', err);
     }
   }
+
+  // "View as Visitor" (see src/lib/auth.ts's isAdminView doc comment):
+  // computed on every request, not just /admin ones, since the footer
+  // toggle that flips this cookie renders on every page. Deliberately
+  // independent of the /admin route gate below, which stays keyed on the
+  // REAL role — previewing the public site as a visitor should never lock
+  // a real admin out of the admin panel itself.
+  context.locals.isRealAdmin = context.locals.session?.profile?.role === 'admin';
+  context.locals.viewAsVisitor = context.locals.isRealAdmin && context.cookies.get(VIEW_MODE_COOKIE)?.value === 'visitor';
 
   const pathname = context.url.pathname;
   const isAdminRoute = pathname.startsWith(ADMIN_PREFIX);

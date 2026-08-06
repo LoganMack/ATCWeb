@@ -25,9 +25,12 @@ import {
   type RoundResults,
 } from '../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../lib/penalties';
+import { isAdminView } from '../../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const isAdmin = Astro.locals.session?.profile?.role === 'admin';
+// isAdminView (not a raw role check) so the footer's "View as Visitor"
+// toggle actually hides this page's admin-only UI while previewing.
+const isAdmin = isAdminView(Astro.locals);
 
 // iRacing subsession IDs are ordinary (non-bigint-range) integers in
 // practice, so Number() parsing here is safe — well under

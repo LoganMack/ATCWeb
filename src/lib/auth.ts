@@ -187,3 +187,27 @@ export function authCookieOptions(url: URL) {
     path: AUTH_COOKIE_PATH,
   };
 }
+
+// ---------------------------------------------------------------------------
+// "View as Visitor" (admin impersonation preview)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set to 'visitor' when a real admin has toggled "View as Visitor" in the
+ * footer, so they can click through the site the way a non-admin would to
+ * assess UI changes without actually signing out. Read/written in
+ * src/middleware.ts and src/pages/api/view-mode.ts; httpOnly like the auth
+ * cookies since there's no reason client JS needs to touch it.
+ */
+export const VIEW_MODE_COOKIE = 'atc_view_mode';
+
+/**
+ * The one check every admin-gated page/component OUTSIDE of /admin itself
+ * should use instead of `locals.session?.profile?.role === 'admin'` — see
+ * `viewAsVisitor`'s doc comment in src/env.d.ts for why /admin/* pages
+ * deliberately don't use this (they stay real-admin-only regardless of the
+ * preview toggle).
+ */
+export function isAdminView(locals: App.Locals): boolean {
+  return locals.session?.profile?.role === 'admin' && !locals.viewAsVisitor;
+}

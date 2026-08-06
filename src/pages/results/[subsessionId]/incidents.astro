@@ -30,9 +30,13 @@ import {
 } from '../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../lib/penaltyActions';
 import { parseCsv } from '../../../lib/csv';
+import { isAdminView } from '../../../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const isAdmin = Astro.locals.session?.profile?.role === 'admin';
+// isAdminView (not a raw role check) so the footer's "View as Visitor"
+// toggle actually hides this page's admin-only UI — and blocks the POST
+// handlers below — while previewing.
+const isAdmin = isAdminView(Astro.locals);
 const subsessionId = Number(Astro.params.subsessionId);
 
 /** Builds a round-wide driver lookup straight from getRoundResults() — shared by both the page render and the CSV importer below, which needs it independently since it runs during POST handling, before the page's own data-loading section. */

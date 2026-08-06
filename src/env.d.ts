@@ -38,5 +38,19 @@ type Session = {
 declare namespace App {
   interface Locals extends Runtime {
     session: Session;
+    /** True when `session` belongs to an actual admin — independent of `viewAsVisitor` below, so the footer's toggle (see Footer.astro) can always find its way back even mid-preview. Set once by src/middleware.ts on every request. */
+    isRealAdmin: boolean;
+    /**
+     * True when a real admin has flipped on "View as Visitor" (footer
+     * toggle, `atc_view_mode` cookie) to preview the site the way a
+     * non-admin would see it. Every admin-gated page/component OUTSIDE of
+     * /admin itself should check `isAdminView(Astro.locals)` (src/lib/
+     * auth.ts) instead of `session?.profile?.role === 'admin'` directly, so
+     * this toggle actually hides their admin-only UI. /admin/* pages are
+     * unaffected on purpose — middleware's route gate keys off the real
+     * role, so a real admin never gets locked out of the admin panel itself
+     * just for previewing the public site as a visitor.
+     */
+    viewAsVisitor: boolean;
   }
 }
