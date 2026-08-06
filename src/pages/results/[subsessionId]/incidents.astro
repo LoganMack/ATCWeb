@@ -2,11 +2,12 @@
 export const prerender = false;
 
 // v0.16: the Incident Report — every penalty/incident logged for one round,
-// in one table, replacing both the old external "Incident Report URL" link
-// (which just pointed off-site) and the old per-row expand-to-reveal panel
-// on the results page. All penalty add/edit/remove now lives here instead
-// of on the results page (src/pages/results/[subsessionId].astro), which is
-// read-only for penalties as of this version.
+// broken apart per race (same pattern as the results page's per-race
+// tables), replacing both the old external "Incident Report URL" link and
+// the old per-row expand-to-reveal panel on the results page. All penalty
+// add/edit/remove lives here instead of on the results page
+// (src/pages/results/[subsessionId].astro), which is read-only for
+// penalties as of this version.
 import Layout from '../../../layouts/Layout.astro';
 import {
   resolveSupabaseEnv,
@@ -28,10 +29,21 @@ import {
   effectivePenaltyPoints,
 } from '../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../lib/penaltyActions';
+import { parseCsv } from '../../../lib/csv';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const isAdmin = Astro.locals.session?.profile?.role === 'admin';
 const subsessionId = Number(Astro.params.subsessionId);
+
+/** Builds a round-wide driver lookup straight from getRoundResults() — shared by both the page render and the CSV importer below, which needs it independently since it runs during POST handling, before the page's own data-loading section. */
+async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
+  const results = await getRoundResults(supabaseEnv, subsessionId);
+  const out = new Map<string, DriverBasic>();
+  for (const rows of results.overall.values()) {
+    for (const row of rows) out.set(row.driver.id, row.driver);
+  }
+  return out;
+}
 
 if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId)) {
   const form = await Astro.request.formData();
@@ -86,6 +98,92 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
       console.error('Failed to delete incident:', err);
     }
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
+  }
+
+  if (intent === 'import-csv') {
+    let imported = 0;
+    let skipped = 0;
+    try {
+      const file = form.get('csv_file');
+      if (file instanceof File) {
+        const [importOffenses, importDriverById] = await Promise.all([getPenaltyOffenses(supabaseEnv), loadRoundDrivers()]);
+        const importDrivers = [...importDriverById.values()];
+        const text = await file.text();
+        const rows = parseCsv(text);
+        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+        const colIndex = (name: string) => header.indexOf(name);
+        const get = (row: string[], name: string) => {
+          const i = colIndex(name);
+          return i >= 0 ? (row[i] ?? '').trim() : '';
+        };
+        const touchedDriverIds = new Set<string>();
+
+        for (const row of rows.slice(1)) {
+          if (row.every((c) => c.trim() === '')) continue;
+
+          const raceNumber = Number(get(row, 'race_number'));
+          const carNumber = Number(get(row, 'driver_car_number'));
+          const driver = importDrivers.find((d) => d.car_number === carNumber);
+          if (!Number.isFinite(raceNumber) || !driver) {
+            skipped++;
+            continue;
+          }
+
+          const offenseNames = get(row, 'offense_names').split(';').map((s) => s.trim()).filter(Boolean);
+          const offenseIds = offenseNames
+            .map((name) => importOffenses.find((o) => o.name.toLowerCase() === name.toLowerCase())?.id)
+            .filter((id): id is string => Boolean(id));
+
+          const involvedCarNumbers = get(row, 'involved_car_numbers')
+            .split(';')
+            .map((s) => Number(s.trim()))
+            .filter((n) => Number.isFinite(n));
+          const involvedDriverIds = involvedCarNumbers
+            .map((n) => importDrivers.find((d) => d.car_number === n)?.id)
+            .filter((id): id is string => Boolean(id));
+
+          const isWarningRaw = get(row, 'is_warning').toLowerCase();
+          const lapRaw = get(row, 'lap');
+          const timeRaw = get(row, 'time_penalty_seconds');
+          const pointsRaw = get(row, 'points_penalty');
+          const ppRaw = get(row, 'penalty_points');
+
+          const data: PenaltyInput = {
+            subsession_id: subsessionId,
+            race_number: raceNumber,
+            driver_id: driver.id,
+            incident_number: get(row, 'incident_number') || null,
+            lap: lapRaw ? Number(lapRaw) : null,
+            description: get(row, 'description') || null,
+            time_penalty_seconds: timeRaw ? Number(timeRaw) : null,
+            points_penalty: pointsRaw ? Number(pointsRaw) : 0,
+            penalty_points: ppRaw ? Number(ppRaw) : 0,
+            is_warning: isWarningRaw === 'true' || isWarningRaw === 'yes' || isWarningRaw === '1',
+            is_appealed: false,
+            appeal_result: null,
+            appeal_time_penalty_seconds: null,
+            appeal_points_penalty: 0,
+            appeal_penalty_points: 0,
+          };
+
+          try {
+            await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
+            touchedDriverIds.add(driver.id);
+            imported++;
+          } catch (err) {
+            console.error('Failed to import an incident row:', err);
+            skipped++;
+          }
+        }
+
+        for (const driverId of touchedDriverIds) {
+          await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to import CSV:', err);
+    }
+    return Astro.redirect(`${Astro.url.pathname}?imported=${imported}&skipped=${skipped}`, 302);
   }
 }
 
@@ -187,6 +285,21 @@ const sortedPenalties = [...penalties].sort((a, b) => {
   return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
 });
 
+// Broken apart per race, same pattern as the results page's per-race
+// tables — a race with no incidents logged just doesn't get a section.
+const penaltiesByRace = new Map<number, Penalty[]>();
+for (const p of sortedPenalties) {
+  if (!penaltiesByRace.has(p.race_number)) penaltiesByRace.set(p.race_number, []);
+  penaltiesByRace.get(p.race_number)!.push(p);
+}
+const raceNumbersWithIncidents = raceNumbers.filter((n) => penaltiesByRace.has(n));
+
+/** Descriptions longer than this collapse to one line behind a "Show more" toggle. */
+const DESCRIPTION_COLLAPSE_THRESHOLD = 60;
+
+const importedCount = Astro.url.searchParams.get('imported');
+const skippedCount = Astro.url.searchParams.get('skipped');
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
@@ -210,8 +323,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           {formatDate(round.start_time)}
         </p>
 
+        {importedCount !== null && (
+          <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
+            Imported {importedCount} incident{importedCount === '1' ? '' : 's'}.
+            {Number(skippedCount) > 0 && ` ${skippedCount} row${skippedCount === '1' ? '' : 's'} skipped (unrecognized race or driver car number).`}
+          </p>
+        )}
+
         {isAdmin && (
-          <div class="mt-6">
+          <div class="mt-6 flex flex-wrap items-center gap-2">
             <button
               type="button"
               data-open-incident-dialog
@@ -219,129 +339,181 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             >
               + Add Incident
             </button>
+
+            <details class="relative">
+              <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
+                Import from CSV
+              </summary>
+              <div class="absolute left-0 z-10 mt-2 flex w-80 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
+                <a
+                  href="/incident-report-template.csv"
+                  download
+                  class="self-start rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20"
+                >
+                  Download CSV template
+                </a>
+                <form method="POST" enctype="multipart/form-data" data-astro-reload class="flex flex-col gap-2">
+                  <input type="hidden" name="intent" value="import-csv" />
+                  <input
+                    type="file"
+                    name="csv_file"
+                    accept=".csv"
+                    required
+                    class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
+                  />
+                  <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+                    Upload
+                  </button>
+                </form>
+                <p class="text-white/30">
+                  Rows are matched by race number and driver car number — anything unrecognized is skipped rather than
+                  failing the whole import.
+                </p>
+              </div>
+            </details>
           </div>
         )}
 
         {sortedPenalties.length === 0 && <p class="mt-10 text-white/60">No incidents logged for this round.</p>}
 
-        {sortedPenalties.length > 0 && (
-          <div class="mt-6 overflow-x-auto rounded-xl border border-white/10">
-            <table class="w-full min-w-[1400px] border-collapse">
-              <thead>
-                <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                  <th class="py-3 pl-4 pr-3 font-medium">Race</th>
-                  <th class="py-3 pr-3 font-medium">Driver</th>
-                  <th class="py-3 pr-3 font-medium">Incident #</th>
-                  <th class="py-3 pr-3 text-center font-medium">Lap</th>
-                  <th class="py-3 pr-3 font-medium">Description</th>
-                  <th class="py-3 pr-3 font-medium">Offense(s)</th>
-                  <th class="py-3 pr-3 font-medium">Involved</th>
-                  <th class="py-3 pr-3 text-center font-medium">Time</th>
-                  <th class="py-3 pr-3 text-center font-medium">Points</th>
-                  <th class="py-3 pr-3 text-center font-medium">PP</th>
-                  <th class="py-3 pr-3 text-center font-medium">Warning</th>
-                  <th class="py-3 pr-3 font-medium">Appealed</th>
-                  <th class="py-3 pr-3 text-center font-medium">Pos &Delta;</th>
-                  <th class="py-3 pr-3 text-center font-medium">Pts &Delta;</th>
-                  {isAdmin && <th class="py-3 pr-4 text-right font-medium">Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedPenalties.map((p) => {
-                  const driver = driverById.get(p.driver_id);
-                  const { positionDelta, pointsDelta } = deltaFor(p);
-                  const time = effectiveTimePenaltySeconds(p);
-                  const points = effectivePointsPenalty(p);
-                  const pp = effectivePenaltyPoints(p);
-                  return (
-                    <tr class="border-b border-white/5 text-sm">
-                      <td class="py-2.5 pl-4 pr-3 text-white/60">Race {p.race_number}</td>
-                      <td class="py-2.5 pr-3 font-semibold">
-                        {driver?.car_number !== null && driver?.car_number !== undefined && (
-                          <span class="text-white/40">#{driver.car_number}</span>
-                        )}{' '}
-                        {driver?.name ?? 'Unknown'}
-                      </td>
-                      <td class="py-2.5 pr-3 text-white/60">{p.incident_number ?? '—'}</td>
-                      <td class="py-2.5 pr-3 text-center text-white/60">{p.lap ?? '—'}</td>
-                      <td class="max-w-xs py-2.5 pr-3 text-white/50">{p.description ?? '—'}</td>
-                      <td class="py-2.5 pr-3 text-white/50">
-                        {p.offense_ids.length > 0 ? p.offense_ids.map((id) => offenseNameById.get(id) ?? '?').join(', ') : '—'}
-                      </td>
-                      <td class="py-2.5 pr-3 text-white/50">{involvedSummary(p) ?? '—'}</td>
-                      <td class="py-2.5 pr-3 text-center text-white/60">{time ? `+${time}s` : '—'}</td>
-                      <td class="py-2.5 pr-3 text-center text-white/60">{points ? points : '—'}</td>
-                      <td class="py-2.5 pr-3 text-center text-white/60">{pp || '—'}</td>
-                      <td class="py-2.5 pr-3 text-center">
-                        {p.is_warning ? (
-                          <span class="rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold">
-                            Warning
-                          </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td class="py-2.5 pr-3">
-                        {p.is_appealed ? (
-                          <div class="flex flex-col items-start gap-0.5">
-                            <span class="rounded bg-brand-pink/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-pink">
-                              Appealed
-                            </span>
-                            {p.appeal_result && <span class="text-[11px] text-brand-pink/80">{p.appeal_result}</span>}
-                          </div>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td class={`py-2.5 pr-3 text-center font-semibold ${deltaClass(positionDelta)}`}>{formatDelta(positionDelta)}</td>
-                      <td class={`py-2.5 pr-3 text-center font-semibold ${deltaClass(pointsDelta)}`}>{formatDelta(pointsDelta)}</td>
-                      {isAdmin && (
-                        <td class="py-2.5 pr-4 text-right">
-                          <div class="flex justify-end gap-3">
-                            <button
-                              type="button"
-                              data-edit-incident
-                              data-incident={JSON.stringify({
-                                id: p.id,
-                                race_number: p.race_number,
-                                driver_id: p.driver_id,
-                                incident_number: p.incident_number,
-                                lap: p.lap,
-                                description: p.description,
-                                time_penalty_seconds: p.time_penalty_seconds,
-                                points_penalty: p.points_penalty,
-                                penalty_points: p.penalty_points,
-                                is_warning: p.is_warning,
-                                offense_ids: p.offense_ids,
-                                involved_driver_ids: p.involved_driver_ids,
-                                is_appealed: p.is_appealed,
-                                appeal_result: p.appeal_result,
-                                appeal_time_penalty_seconds: p.appeal_time_penalty_seconds,
-                                appeal_points_penalty: p.appeal_points_penalty,
-                                appeal_penalty_points: p.appeal_penalty_points,
-                              })}
-                              class="text-xs font-semibold text-white/40 hover:text-white"
-                            >
-                              Edit
-                            </button>
-                            <form method="POST" data-astro-reload class="inline">
-                              <input type="hidden" name="intent" value="delete-incident" />
-                              <input type="hidden" name="penalty_id" value={p.id} />
-                              <input type="hidden" name="driver_id" value={p.driver_id} />
-                              <button type="submit" class="text-xs font-semibold text-white/40 hover:text-brand-pink">
-                                Remove
+        {raceNumbersWithIncidents.map((raceNumber) => (
+          <div class="mt-10">
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Race {raceNumber}</h3>
+            <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                    <th class="py-3 pl-4 pr-3 font-medium">#</th>
+                    <th class="py-3 pr-3 text-center font-medium">Lap</th>
+                    <th class="py-3 pr-3 font-medium">Driver</th>
+                    <th class="py-3 pr-3 font-medium">Involved</th>
+                    <th class="py-3 pr-3 font-medium">Description</th>
+                    <th class="py-3 pr-3 font-medium">Offenses</th>
+                    <th class="py-3 pr-3 text-center font-medium">PP</th>
+                    <th class="py-3 pr-3 text-center font-medium">Time</th>
+                    <th class="py-3 pr-3 text-center font-medium">Pts</th>
+                    <th class="py-3 pr-3 text-center font-medium">Pos &Delta;</th>
+                    <th class="py-3 pr-4 text-center font-medium">Pts &Delta;</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {penaltiesByRace.get(raceNumber)!.map((p) => {
+                    const driver = driverById.get(p.driver_id);
+                    const { positionDelta, pointsDelta } = deltaFor(p);
+                    const time = effectiveTimePenaltySeconds(p);
+                    const points = effectivePointsPenalty(p);
+                    const pp = effectivePenaltyPoints(p);
+                    const collapseDescription = (p.description?.length ?? 0) > DESCRIPTION_COLLAPSE_THRESHOLD;
+                    return (
+                      <>
+                        <tr class={isAdmin ? 'text-sm' : 'border-b border-white/5 text-sm'}>
+                          <td class="py-2.5 pl-4 pr-3 text-white/60">{p.incident_number ?? '—'}</td>
+                          <td class="py-2.5 pr-3 text-center text-white/60">{p.lap ?? '—'}</td>
+                          <td class="py-2.5 pr-3 font-semibold">
+                            <div>{driver?.car_number != null ? `#${driver.car_number}` : '—'}</div>
+                            {p.is_appealed && (
+                              <button
+                                type="button"
+                                data-appeal-toggle
+                                class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink hover:underline"
+                              >
+                                Appealed
                               </button>
-                            </form>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            )}
+                            {p.is_appealed && (
+                              <div
+                                data-appeal-detail
+                                class="mt-1 hidden max-w-[12rem] rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-[11px] font-normal text-brand-pink/90"
+                              >
+                                {p.appeal_result || 'No appeal notes recorded.'}
+                              </div>
+                            )}
+                          </td>
+                          <td class="py-2.5 pr-3 text-white/50">{involvedSummary(p) ?? '—'}</td>
+                          <td class="max-w-xs py-2.5 pr-3 text-white/50">
+                            {p.description ? (
+                              <div class="flex flex-col items-start gap-0.5">
+                                <div data-desc-text class={collapseDescription ? 'truncate' : ''}>{p.description}</div>
+                                {collapseDescription && (
+                                  <button type="button" data-desc-toggle class="text-[10px] font-semibold text-white/40 hover:text-white">
+                                    Show more
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td class="py-2.5 pr-3 text-white/50">
+                            {p.offense_ids.length > 0 ? (
+                              <div class="flex flex-col gap-0.5">
+                                {p.offense_ids.map((id) => <div>{offenseNameById.get(id) ?? '?'}</div>)}
+                              </div>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td class="py-2.5 pr-3 text-center text-white/60">
+                            <div>{pp || '—'}</div>
+                            {p.is_warning && (
+                              <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
+                            )}
+                          </td>
+                          <td class="py-2.5 pr-3 text-center text-white/60">{time ? `+${time}s` : '—'}</td>
+                          <td class="py-2.5 pr-3 text-center text-white/60">{points ? points : '—'}</td>
+                          <td class={`py-2.5 pr-3 text-center font-semibold ${deltaClass(positionDelta)}`}>{formatDelta(positionDelta)}</td>
+                          <td class={`py-2.5 pr-4 text-center font-semibold ${deltaClass(pointsDelta)}`}>{formatDelta(pointsDelta)}</td>
+                        </tr>
+                        {isAdmin && (
+                          <tr class="border-b border-white/5 text-sm">
+                            <td colspan={11} class="py-1.5 pl-4 pr-4">
+                              <div class="flex justify-start gap-3">
+                                <button
+                                  type="button"
+                                  data-edit-incident
+                                  data-incident={JSON.stringify({
+                                    id: p.id,
+                                    race_number: p.race_number,
+                                    driver_id: p.driver_id,
+                                    incident_number: p.incident_number,
+                                    lap: p.lap,
+                                    description: p.description,
+                                    time_penalty_seconds: p.time_penalty_seconds,
+                                    points_penalty: p.points_penalty,
+                                    penalty_points: p.penalty_points,
+                                    is_warning: p.is_warning,
+                                    offense_ids: p.offense_ids,
+                                    involved_driver_ids: p.involved_driver_ids,
+                                    is_appealed: p.is_appealed,
+                                    appeal_result: p.appeal_result,
+                                    appeal_time_penalty_seconds: p.appeal_time_penalty_seconds,
+                                    appeal_points_penalty: p.appeal_points_penalty,
+                                    appeal_penalty_points: p.appeal_penalty_points,
+                                  })}
+                                  class="text-xs font-semibold text-white/40 hover:text-white"
+                                >
+                                  Edit
+                                </button>
+                                <form method="POST" data-astro-reload class="inline">
+                                  <input type="hidden" name="intent" value="delete-incident" />
+                                  <input type="hidden" name="penalty_id" value={p.id} />
+                                  <input type="hidden" name="driver_id" value={p.driver_id} />
+                                  <button type="submit" class="text-xs font-semibold text-white/40 hover:text-brand-pink">
+                                    Remove
+                                  </button>
+                                </form>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
-        )}
+        ))}
 
         {isAdmin && (
           <dialog
@@ -366,7 +538,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     data-incident-race-field
                     class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                   >
-                    {raceNumbers.map((n) => <option value={n}>Race {n}</option>)}
+                    {raceNumbers.map((n) => <option value={n} class="bg-brand-ink text-white">Race {n}</option>)}
                   </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
@@ -377,7 +549,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                   >
                     {roundDrivers.map((d) => (
-                      <option value={d.id}>
+                      <option value={d.id} class="bg-brand-ink text-white">
                         {d.car_number !== null ? `#${d.car_number} — ` : ''}
                         {d.name}
                       </option>
@@ -484,11 +656,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </div>
               </fieldset>
 
-              <p class="text-[11px] text-white/30">
-                Saving here recomputes this driver's season PP tally from scratch, and re-derives this round's
-                positions/points everywhere it's shown — no manual correction needed.
-              </p>
-
               <button type="submit" class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110">
                 Save Incident
               </button>
@@ -501,14 +668,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </Layout>
 
 <script>
-  // Wires up the single shared add/edit <dialog> for this page:
-  //   - [data-open-incident-dialog] resets it to "add a new incident".
-  //   - [data-edit-incident] pre-fills it from an existing incident's data
-  //     (serialized into the button's data-incident attribute as JSON,
-  //     including which race/driver it belongs to, since this dialog isn't
-  //     scoped to one race's row anymore) and switches it to "update" mode.
-  //   - [data-appeal-checkbox] shows/hides the appeal override fields.
-  function initIncidentDialog() {
+  // Wires up:
+  //   - The single shared add/edit <dialog> for this page ([data-open-
+  //     incident-dialog] / [data-edit-incident] / [data-appeal-checkbox] /
+  //     [data-close-incident-dialog]) — same pattern as before, just no
+  //     longer scoped to one race's row since this dialog picks its own
+  //     race/driver.
+  //   - [data-desc-toggle] — expands/collapses a long description.
+  //   - [data-appeal-toggle] — reveals/hides that incident's appeal notes.
+  function initIncidentPage() {
+    document.querySelectorAll<HTMLButtonElement>('[data-desc-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const text = btn.previousElementSibling as HTMLElement | null;
+        if (!text) return;
+        const collapsed = text.classList.toggle('truncate');
+        btn.textContent = collapsed ? 'Show more' : 'Show less';
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('[data-appeal-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const detail = btn.nextElementSibling as HTMLElement | null;
+        detail?.classList.toggle('hidden');
+      });
+    });
+
     const dialog = document.querySelector<HTMLDialogElement>('[data-incident-dialog]');
     if (!dialog) return;
     const form = dialog.querySelector('form')!;
@@ -585,5 +769,5 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     });
   }
 
-  document.addEventListener('astro:page-load', initIncidentDialog);
+  document.addEventListener('astro:page-load', initIncidentPage);
 </script>
