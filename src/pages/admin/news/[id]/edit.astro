@@ -7,6 +7,7 @@ import {
   getNewsPostByIdAdmin,
   updateNewsPost,
   deleteNewsPost,
+  uploadToStorage,
   formatDate,
 } from '../../../../lib/supabase';
 import { getAllRounds } from '../../../../lib/results';
@@ -19,8 +20,21 @@ if (!id) return Astro.redirect('/admin/news', 302);
 
 let error: string | null = null;
 
-// Fetch first so a draft->published transition below can compare against
-// the post's *current* stored status.
+function extFromFile(file: File): string {
+  const fromName = file.name.split('.').pop();
+  if (fromName && fromName.length <= 5) return fromName.toLowerCase();
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+  };
+  return map[file.type] ?? 'png';
+}
+
+// Fetched up front so the form below can pre-fill every field (including
+// falling back to the post's existing published_at/cover_image_url when
+// the admin doesn't touch those fields on save).
 let post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
 if (!post) return Astro.redirect('/admin/news', 302);
 
@@ -42,31 +56,48 @@ if (Astro.request.method === 'POST') {
     const excerpt = String(form.get('excerpt') ?? '').trim();
     const body = String(form.get('body') ?? '').trim();
     const author_name = String(form.get('author_name') ?? '').trim();
-    const cover_image_url = String(form.get('cover_image_url') ?? '').trim();
+    const coverFile = form.get('cover_image');
+    const removeCoverImage = form.get('remove_cover_image') === 'on';
     const status = form.get('status') === 'published' ? 'published' : 'draft';
     const season_label = String(form.get('season_label') ?? '').trim();
     const roundRaw = String(form.get('round_subsession_id') ?? '').trim();
     const round_subsession_id = roundRaw ? Number(roundRaw) : null;
-    // If this save is what flips the post from draft to published, bump
-    // published_at to now — otherwise it'd keep showing the original
-    // creation timestamp (and sort order) from when it was still a draft.
-    const justPublished = post.status === 'draft' && status === 'published';
+    // Same noon-UTC reasoning as new.astro — avoids the date rendering as
+    // the previous day in a negative-offset timezone. The field is always
+    // pre-filled from the post's current published_at (see below), so
+    // leaving it untouched is a no-op; changing it is how backdating
+    // works. This replaces the old "bump to now on draft→published" auto
+    // behavior — full manual control now, no hidden magic.
+    const publishedDateRaw = String(form.get('published_date') ?? '').trim();
+    const published_at = publishedDateRaw ? `${publishedDateRaw}T12:00:00.000Z` : post.published_at;
 
     if (!title || !slug || !body) {
       error = 'Title, slug, and body are required.';
     } else {
       try {
+        // A newly uploaded file always wins; otherwise the checkbox clears
+        // the image outright; otherwise it's untouched. Uploading straight
+        // to Storage (see new.astro's matching comment) rather than a
+        // manually-typed URL.
+        let cover_image_url: string | null | undefined = undefined;
+        if (coverFile instanceof File && coverFile.size > 0) {
+          const path = `news-${slug}-${Date.now()}.${extFromFile(coverFile)}`;
+          cover_image_url = await uploadToStorage(supabaseEnv, accessToken, 'photos', path, coverFile);
+        } else if (removeCoverImage) {
+          cover_image_url = null;
+        }
+
         await updateNewsPost(supabaseEnv, accessToken, id, {
           title,
           slug,
           excerpt: excerpt || null,
           body,
           author_name,
-          cover_image_url: cover_image_url || null,
+          ...(cover_image_url !== undefined ? { cover_image_url } : {}),
           status,
           season_label: season_label || null,
           round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
-          ...(justPublished ? { published_at: new Date().toISOString() } : {}),
+          published_at,
         });
         post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
         if (!post) return Astro.redirect('/admin/news', 302);
@@ -105,7 +136,7 @@ const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
-  <form method="POST" data-astro-reload class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
+  <form method="POST" data-astro-reload enctype="multipart/form-data" class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Title</span>
       <input
@@ -143,14 +174,36 @@ const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >{post.body}</textarea>
     </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Cover image URL</span>
+    <div class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Cover image</span>
+      {post.cover_image_url && (
+        <img src={post.cover_image_url} alt="" class="mb-1 h-24 w-full max-w-xs rounded-lg object-cover ring-1 ring-white/10" />
+      )}
       <input
-        type="text"
-        name="cover_image_url"
-        value={post.cover_image_url ?? ''}
+        type="file"
+        name="cover_image"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+      />
+      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current one.</span>
+      {post.cover_image_url && (
+        <label class="mt-1 flex items-center gap-2 text-xs text-white/50">
+          <input type="checkbox" name="remove_cover_image" />
+          Remove the current cover image (ignored if you also upload a new file above)
+        </label>
+      )}
+    </div>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Published date</span>
+      <input
+        type="date"
+        name="published_date"
+        value={post.published_at.slice(0, 10)}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+      <span class="text-xs text-white/40">
+        Controls display order on the News page. Pick an earlier date to backdate this post.
+      </span>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Author</span>

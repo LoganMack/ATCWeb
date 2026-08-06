@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, createNewsPost, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv, createNewsPost, uploadToStorage, formatDate } from '../../../lib/supabase';
 import { getAllRounds } from '../../../lib/results';
 import { slugify } from '../../../lib/slug';
 
@@ -12,17 +12,42 @@ const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.
 
 let error: string | null = null;
 
+function extFromFile(file: File): string {
+  const fromName = file.name.split('.').pop();
+  if (fromName && fromName.length <= 5) return fromName.toLowerCase();
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+  };
+  return map[file.type] ?? 'png';
+}
+
+// Server's own "today" (UTC) — just a sensible default for the Published
+// date field below (the common case is "publish now"); the admin can pick
+// any other date, past or future, to backdate/schedule a post.
+const todayIso = new Date().toISOString().slice(0, 10);
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const title = String(form.get('title') ?? '').trim();
   const excerpt = String(form.get('excerpt') ?? '').trim();
   const body = String(form.get('body') ?? '').trim();
   const author_name = String(form.get('author_name') ?? '').trim() || displayName;
-  const cover_image_url = String(form.get('cover_image_url') ?? '').trim();
+  const coverFile = form.get('cover_image');
   const status = form.get('status') === 'published' ? 'published' : 'draft';
   const season_label = String(form.get('season_label') ?? '').trim();
   const roundRaw = String(form.get('round_subsession_id') ?? '').trim();
   const round_subsession_id = roundRaw ? Number(roundRaw) : null;
+  // Stored as noon UTC rather than midnight for whatever date was picked —
+  // a plain midnight-UTC timestamp can display as the PREVIOUS day once
+  // formatDate() renders it in a negative-offset local timezone (this
+  // column is timestamptz, not a bare date, so formatDate takes its
+  // `new Date(...)` branch, not the date-only-string one). Noon UTC stays
+  // within the chosen calendar day for every real-world timezone.
+  const publishedDateRaw = String(form.get('published_date') ?? '').trim();
+  const published_at = publishedDateRaw ? `${publishedDateRaw}T12:00:00.000Z` : new Date().toISOString();
   let slug = String(form.get('slug') ?? '').trim();
   if (!slug) slug = slugify(title);
 
@@ -32,17 +57,31 @@ if (Astro.request.method === 'POST') {
     error = 'Could not generate a URL slug from that title — set one manually.';
   } else {
     try {
+      // Uploaded straight to Supabase Storage (same 'photos' bucket as
+      // driver/champion photos) rather than a manually-typed URL pointing
+      // at a static file checked into the repo — that used to mean adding
+      // a cover image required editing public/images/news and redeploying;
+      // now it's just an upload from this form. Path is keyed off the slug
+      // (known before the post row exists, unlike the post's id) plus a
+      // timestamp, so re-uploading later never collides with or silently
+      // overwrites an earlier upload.
+      let cover_image_url: string | null = null;
+      if (coverFile instanceof File && coverFile.size > 0) {
+        const path = `news-${slug}-${Date.now()}.${extFromFile(coverFile)}`;
+        cover_image_url = await uploadToStorage(supabaseEnv, accessToken, 'photos', path, coverFile);
+      }
+
       const post = await createNewsPost(supabaseEnv, accessToken, {
         title,
         slug,
         excerpt: excerpt || null,
         body,
         author_name,
-        cover_image_url: cover_image_url || null,
+        cover_image_url,
         status,
         season_label: season_label || null,
         round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
-        published_at: new Date().toISOString(),
+        published_at,
       });
       return Astro.redirect(`/admin/news/${post.id}/edit`, 302);
     } catch (err) {
@@ -82,7 +121,7 @@ const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
-  <form method="POST" data-astro-reload class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
+  <form method="POST" data-astro-reload enctype="multipart/form-data" class="reveal mt-8 flex max-w-2xl flex-col gap-4" style="transition-delay: 80ms">
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Title</span>
       <input
@@ -118,14 +157,28 @@ const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       ></textarea>
     </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Cover image URL</span>
+    <div class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Cover image</span>
       <input
-        type="text"
-        name="cover_image_url"
-        placeholder="/images/news/your-image.jpg"
+        type="file"
+        name="cover_image"
+        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+      />
+      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Optional — the article works fine without one.</span>
+    </div>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Published date</span>
+      <input
+        type="date"
+        name="published_date"
+        value={todayIso}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+      <span class="text-xs text-white/40">
+        Defaults to today. Pick an earlier date to backdate this post (e.g. news about an older result) — it
+        controls display order on the News page, same as a normal publish date.
+      </span>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Author</span>
