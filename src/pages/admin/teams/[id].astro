@@ -14,10 +14,14 @@ import {
   getTeamRosterForTeamSeason,
   addTeamRosterEntry,
   removeTeamRosterEntry,
+  getTeamSeasonLogosForTeam,
+  upsertTeamSeasonLogo,
+  deleteTeamSeasonLogo,
   type Team,
   type Season,
   type DriverOption,
   type TeamRosterEntry,
+  type TeamSeasonLogo,
 } from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -28,6 +32,7 @@ const isNew = id === 'new';
 let error: string | null = null;
 let rosterError: string | null = null;
 let rosterSeasonId: string | null = null;
+let historicalLogoError: string | null = null;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop();
@@ -64,6 +69,38 @@ if (Astro.request.method === 'POST') {
     }
     // Falls through (no redirect) so the page re-renders with rosterError
     // shown and the season the admin was working in still selected.
+  } else if (intent === 'add-historical-logo') {
+    const seasonId = String(form.get('logo_season_id') ?? '');
+    const file = form.get('historical_logo');
+    if (!seasonId) {
+      historicalLogoError = 'Pick a season first.';
+    } else if (!(file instanceof File) || file.size === 0) {
+      historicalLogoError = 'Choose an image file to upload.';
+    } else if (!isNew && id) {
+      try {
+        // Own storage path from the current-logo upload below (season id
+        // baked in), so this can never collide with — or overwrite — the
+        // team's current logo file or any other season's historical one.
+        const path = `${id}-season-${seasonId}-${Date.now()}.${extFromFile(file)}`;
+        const logo_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, file);
+        await upsertTeamSeasonLogo(supabaseEnv, accessToken, { team_id: id, season_id: seasonId, logo_url });
+        return Astro.redirect(`/admin/teams/${id}`, 302);
+      } catch (err) {
+        console.error('Failed to upload historical team logo:', err);
+        historicalLogoError = err instanceof Error ? err.message : 'Failed to upload the historical logo.';
+      }
+    }
+  } else if (intent === 'remove-historical-logo') {
+    const logoId = String(form.get('logo_id') ?? '');
+    if (!isNew && id && logoId) {
+      try {
+        await deleteTeamSeasonLogo(supabaseEnv, accessToken, logoId);
+        return Astro.redirect(`/admin/teams/${id}`, 302);
+      } catch (err) {
+        console.error('Failed to remove historical team logo:', err);
+        historicalLogoError = 'Failed to remove the historical logo.';
+      }
+    }
   } else if (intent === 'delete' && !isNew && id) {
     try {
       await deleteTeam(supabaseEnv, accessToken, id);
@@ -121,9 +158,14 @@ let seasons: Season[] = [];
 let rosterDrivers: DriverOption[] = [];
 let rosterEntries: TeamRosterEntry[] = [];
 let selectedSeasonId: string | null = null;
+let historicalLogos: TeamSeasonLogo[] = [];
 if (!isNew && id) {
   try {
-    [seasons, rosterDrivers] = await Promise.all([getSeasons(supabaseEnv), getDriversBasic(supabaseEnv)]);
+    [seasons, rosterDrivers, historicalLogos] = await Promise.all([
+      getSeasons(supabaseEnv),
+      getDriversBasic(supabaseEnv),
+      getTeamSeasonLogosForTeam(supabaseEnv, id),
+    ]);
   } catch (err) {
     console.error('Failed to load roster editor data:', err);
   }
@@ -200,7 +242,10 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
         accept="image/png,image/jpeg,image/webp,image/svg+xml"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
       />
-      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo.</span>
+      <span class="text-xs text-white/40">
+        PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo — it never touches any historical
+        logo set below.
+      </span>
     </div>
 
     <div class="mt-2 flex gap-3">
@@ -217,6 +262,80 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
       </a>
     </div>
   </form>
+
+  {!isNew && (
+    <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 85ms">
+      <h2 class="text-lg font-semibold">Historical Logos</h2>
+      <p class="mt-1 text-sm text-white/50">
+        Teams have looked different across seasons — set a logo here for any season this team raced under a
+        different look, and results/standings/news for that season will show it instead of the current logo above.
+        A season with nothing set here just falls back to the current logo.
+      </p>
+
+      {historicalLogoError && (
+        <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{historicalLogoError}</p>
+      )}
+
+      {historicalLogos.length > 0 && (
+        <ul class="mt-4 flex flex-col gap-2">
+          {historicalLogos
+            .slice()
+            .sort(
+              (a, b) =>
+                (seasons.find((s) => s.id === b.season_id)?.number ?? 0) -
+                (seasons.find((s) => s.id === a.season_id)?.number ?? 0)
+            )
+            .map((logo) => (
+              <li class="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
+                <span class="flex items-center gap-3">
+                  <img src={logo.logo_url} alt="" class="h-8 w-8 rounded object-contain ring-1 ring-white/10" />
+                  {seasons.find((s) => s.id === logo.season_id)?.name ?? 'Unknown season'}
+                </span>
+                <form method="POST" data-astro-reload>
+                  <input type="hidden" name="intent" value="remove-historical-logo" />
+                  <input type="hidden" name="logo_id" value={logo.id} />
+                  <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                </form>
+              </li>
+            ))}
+        </ul>
+      )}
+
+      {seasons.length === 0 ? (
+        <p class="mt-4 text-sm text-white/40">No seasons yet — add one under Seasons first.</p>
+      ) : (
+        <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-4 flex flex-wrap items-end gap-3">
+          <input type="hidden" name="intent" value="add-historical-logo" />
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">Season</span>
+            <select
+              name="logo_season_id"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              {seasons.map((s) => (
+                <option value={s.id} class="bg-brand-ink text-white">{s.name}</option>
+              ))}
+            </select>
+          </label>
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">Logo file</span>
+            <input
+              type="file"
+              name="historical_logo"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+            />
+          </label>
+          <button
+            type="submit"
+            class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+          >
+            Save logo for season
+          </button>
+        </form>
+      )}
+    </div>
+  )}
 
   {!isNew && (
     <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 90ms">

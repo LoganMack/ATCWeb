@@ -93,7 +93,7 @@ async function fetchRoundLayout(env: SupabaseEnv, subsessionId: number): Promise
 export interface RecapClassTop3 {
   classId: number;
   className: string;
-  top3: { position: number; driver: DriverBasic; teamName: string | null }[];
+  top3: { position: number; driver: DriverBasic; teamName: string | null; teamLogoUrl: string | null }[];
 }
 
 export interface RecapRookieEntry {
@@ -278,7 +278,12 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
         return {
           classId,
           className: classNameById.get(classId) ?? 'Class',
-          top3: rows.map((r) => ({ position: r.position as number, driver: r.driver, teamName: r.team?.name ?? null })),
+          top3: rows.map((r) => ({
+            position: r.position as number,
+            driver: r.driver,
+            teamName: r.team?.name ?? null,
+            teamLogoUrl: r.team?.logoUrl ?? null,
+          })),
         };
       })
       .filter((x): x is RecapClassTop3 => x !== null);

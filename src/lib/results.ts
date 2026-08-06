@@ -38,7 +38,15 @@
  * "poles are based on appearances, not starts."
  */
 
-import { restGet, getExhibitionRoundIds, getCarLogos, getSeasons, getPenaltiesForSubsessions, type SupabaseEnv } from './supabase';
+import {
+  restGet,
+  getExhibitionRoundIds,
+  getCarLogos,
+  getSeasons,
+  getPenaltiesForSubsessions,
+  getAllTeamSeasonLogos,
+  type SupabaseEnv,
+} from './supabase';
 import type { Season, CarLogo, Penalty } from './supabase';
 import {
   computeSeasonOverallAdjustments,
@@ -195,6 +203,49 @@ interface TeamBasic {
 /** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_scores row — see `RaceResultRow.team`. */
 function getTeamsBasic(env: SupabaseEnv) {
   return restGet<TeamBasic[]>(env, 'teams?select=id,name,logo_url');
+}
+
+function teamSeasonLogoKey(teamId: string, seasonId: string): string {
+  return `${teamId}:${seasonId}`;
+}
+
+/** team_id:season_id -> logo_url, built once per call site that needs season-aware team logos (getRoundResults, getSeasonCarTeamStats) — see 0019_team_season_logos.sql. */
+function buildSeasonLogoMap(rows: { team_id: string; season_id: string; logo_url: string }[]): Map<string, string> {
+  return new Map(rows.map((r) => [teamSeasonLogoKey(r.team_id, r.season_id), r.logo_url]));
+}
+
+/**
+ * getAllTeamSeasonLogos(), wrapped in its own try/catch. This function is
+ * now called from getRoundResults() and getSeasonCarTeamStats() — the
+ * shared plumbing behind EVERY results/standings/news-recap page — so
+ * unlike most queries in this file, it can't be allowed to fail the whole
+ * Promise.all it's part of. Until 0019_team_season_logos.sql has actually
+ * been run against the live database, this just means every team shows its
+ * current logo everywhere (the same behavior as before this feature
+ * existed) instead of every one of those pages throwing.
+ */
+async function getAllTeamSeasonLogosSafe(env: SupabaseEnv): ReturnType<typeof getAllTeamSeasonLogos> {
+  try {
+    return await getAllTeamSeasonLogos(env);
+  } catch (err) {
+    console.error('Failed to fetch team_season_logos (migration 0019 not applied yet?) — falling back to current team logos only:', err);
+    return [];
+  }
+}
+
+/**
+ * A team's logo AS OF a specific season — the season's historical override
+ * if one's been uploaded (0019_team_season_logos.sql), otherwise the
+ * team's current logo. `seasonId` is null when the caller couldn't
+ * determine a season for what it's showing (falls straight back to the
+ * current logo).
+ */
+function resolveTeamLogo(team: TeamBasic, seasonId: string | null, seasonLogos: Map<string, string>): string | null {
+  if (seasonId) {
+    const override = seasonLogos.get(teamSeasonLogoKey(team.id, seasonId));
+    if (override) return override;
+  }
+  return team.logo_url;
 }
 
 function resultKey(subsessionId: number, raceNumber: number, custId: number) {
@@ -665,15 +716,17 @@ export async function getSeasonCarTeamStats(
   season: Season,
   exhibitionRoundIds?: Set<number>
 ): Promise<Map<string, DriverSeasonExtras>> {
-  const [scoresRaw, drivers, teams, carLogos, exhibitionIds] = await Promise.all([
+  const [scoresRaw, drivers, teams, carLogos, exhibitionIds, seasonLogoRows] = await Promise.all([
     getRaceScoresForSeasonOverall(env, season.id),
     driversSelect(env),
     getTeamsBasic(env),
     getCarLogos(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    getAllTeamSeasonLogosSafe(env),
   ]);
   const scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
   if (scores.length === 0) return new Map();
+  const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
 
   const custIdByDriverId = new Map(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
@@ -737,7 +790,7 @@ export async function getSeasonCarTeamStats(
             return {
               teamId,
               teamName: team?.name ?? 'Unknown Team',
-              logoUrl: team?.logo_url ?? null,
+              logoUrl: team ? resolveTeamLogo(team, season.id, seasonLogoMap) : null,
               racesUnderTeam,
               racesScoredForTeam: scoredForTeamByDriverTeam.get(driverId)?.get(teamId) ?? 0,
             };
@@ -891,7 +944,7 @@ export interface RaceResultRow {
   penaltyOldPosition: number | null;
   /** True once any penalty — time, points, or PP-only — has been logged against this driver for this specific race. Independent of penaltyOldPosition (a PP-only or points-only penalty doesn't necessarily move their position). */
   hasPenalty: boolean;
-  /** The team this driver raced for in this specific race (from `race_scores.team_id`), or null if unassigned. */
+  /** The team this driver raced for in this specific race (from `race_scores.team_id`), or null if unassigned. `logoUrl` is that team's logo AS OF this round's season (0019_team_season_logos.sql) when a historical override exists, otherwise the team's current logo. */
   team: { name: string; logoUrl: string | null } | null;
   /** The car this driver used for this specific race (`curated_race_results.car_name`), or null if not recorded. */
   car: { name: string; logoUrl: string | null } | null;
@@ -924,12 +977,14 @@ type RaceScoreWithClass = RaceScoreRow & {
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
-  const [scores, rawResults, drivers, teams, carLogos] = await Promise.all([
+  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
     driversSelect(env),
     getTeamsBasic(env),
     getCarLogos(env),
+    getRoundBySubsessionId(env, subsessionId),
+    getAllTeamSeasonLogosSafe(env),
   ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
@@ -939,6 +994,11 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
+  // This round's season, for the historical-logo lookup below — team logos
+  // shown on this round's results should reflect what the team looked like
+  // THAT season (0019_team_season_logos.sql), not necessarily today.
+  const seasonId = round?.season_id ?? null;
+  const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
 
   // Leader's laps_complete per race (finish_position === 1, i.e. the actual
   // on-track winner before any penalty adjustment) — needed to turn a
@@ -983,7 +1043,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       intervalTenThousandths: raw.interval_ten_thousandths,
       penaltyOldPosition: null,
       hasPenalty: false,
-      team: team ? { name: team.name, logoUrl: team.logo_url } : null,
+      team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, seasonId, seasonLogoMap) } : null,
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
     };
   }

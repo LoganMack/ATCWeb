@@ -7,6 +7,7 @@ import { getRoundBySubsessionId } from '../../lib/results';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classBadgeClasses } from '../../lib/classColors';
 import { isAdminView } from '../../lib/auth';
+import TeamLogo from '../../components/TeamLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -68,7 +69,7 @@ if (post.round_subsession_id !== null) {
         class="reveal mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand-primary/15 px-3 py-1.5 text-sm font-semibold text-brand-primary ring-1 ring-brand-primary/30 transition hover:bg-brand-primary/25"
         style="transition-delay: 100ms"
       >
-        View race results — {roundTrackName} &rarr;
+        View Race Results &rarr;
       </a>
     )}
 
@@ -106,12 +107,15 @@ if (post.round_subsession_id !== null) {
                     <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(cls.className)}`}>
                       {cls.className}
                     </span>
-                    <ol class="mt-2 flex flex-col gap-1 text-sm text-white/70">
+                    <ol class="mt-2 flex flex-col gap-1.5 text-sm text-white/70">
                       {cls.top3.map((entry) => (
-                        <li>
-                          <span class="text-white/40">{entry.position}.</span> {entry.driver.name}
-                          {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
-                          {entry.teamName && <span class="text-white/40"> — {entry.teamName}</span>}
+                        <li class="flex items-center gap-1.5">
+                          <span class="text-white/40">{entry.position}.</span>
+                          <span>
+                            {entry.driver.name}
+                            {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
+                          </span>
+                          {entry.teamName && <TeamLogo name={entry.teamName} logoUrl={entry.teamLogoUrl} size="h-4 w-4" />}
                         </li>
                       ))}
                     </ol>
@@ -156,29 +160,40 @@ if (post.round_subsession_id !== null) {
           <div class="mt-6 grid gap-4 sm:grid-cols-2">
             {recap.topTeamOverall && (
               <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Most Points — Overall</span>
-                <p class="mt-1 text-lg font-semibold">{recap.topTeamOverall.teamName}</p>
-                <p class="text-sm text-white/50">{recap.topTeamOverall.points} pts</p>
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Most Team Points — Overall</span>
+                <div class="mt-1.5 flex items-center gap-2">
+                  <TeamLogo name={recap.topTeamOverall.teamName} logoUrl={recap.topTeamOverall.logoUrl} size="h-7 w-7" />
+                  <p class="text-lg font-semibold">{recap.topTeamOverall.teamName}</p>
+                </div>
+                <p class="mt-1 text-sm text-white/50">{recap.topTeamOverall.points} pts</p>
               </div>
             )}
             {recap.topTeamDelta && (
               <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Most Points — Delta</span>
-                <p class="mt-1 text-lg font-semibold">{recap.topTeamDelta.teamName}</p>
-                <p class="text-sm text-white/50">{recap.topTeamDelta.points} pts</p>
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Most Team Points — Delta</span>
+                <div class="mt-1.5 flex items-center gap-2">
+                  <TeamLogo name={recap.topTeamDelta.teamName} logoUrl={recap.topTeamDelta.logoUrl} size="h-7 w-7" />
+                  <p class="text-lg font-semibold">{recap.topTeamDelta.teamName}</p>
+                </div>
+                <p class="mt-1 text-sm text-white/50">{recap.topTeamDelta.points} pts</p>
               </div>
             )}
           </div>
         )}
 
         {recap.teamBreakdown.length > 0 && (
-          <div class="mt-6">
-            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Who Scored For Who</h3>
+          <details open class="mt-6">
+            <summary class="cursor-pointer text-xs font-semibold uppercase tracking-widest text-white/40 transition hover:text-white/60">
+              Team Scoring Breakdown
+            </summary>
             <div class="mt-3 flex flex-col gap-3">
               {recap.teamBreakdown.map((team) => (
                 <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                  <p class="font-semibold">{team.teamName}</p>
-                  <ul class="mt-1 flex flex-col gap-0.5 text-sm text-white/60">
+                  <div class="flex items-center gap-2">
+                    <TeamLogo name={team.teamName} logoUrl={team.logoUrl} size="h-5 w-5" />
+                    <p class="font-semibold">{team.teamName}</p>
+                  </div>
+                  <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
                     {team.entries.map((entry) => (
                       <li>
                         Race {entry.raceNumber}: {entry.driverName}
@@ -189,7 +204,7 @@ if (post.round_subsession_id !== null) {
                 </div>
               ))}
             </div>
-          </div>
+          </details>
         )}
       </div>
     )}

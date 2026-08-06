@@ -289,6 +289,50 @@ export function removeTeamRosterEntry(env: SupabaseEnv, accessToken: string, dat
   );
 }
 
+// --- Team season logos (historical logos, see 0019_team_season_logos.sql) -
+
+export interface TeamSeasonLogo {
+  id: string;
+  team_id: string;
+  season_id: string;
+  logo_url: string;
+}
+
+const TEAM_SEASON_LOGO_SELECT = 'id,team_id,season_id,logo_url';
+
+/** One team's historical logo overrides, across every season it has one for — powers the "Historical Logos" list on the admin team edit page. */
+export function getTeamSeasonLogosForTeam(env: SupabaseEnv, teamId: string) {
+  return restGet<TeamSeasonLogo[]>(
+    env,
+    `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}&team_id=eq.${encodeURIComponent(teamId)}`
+  );
+}
+
+/** Every team's historical logo overrides, across every season — one query to build the season-aware logo lookup src/lib/results.ts's resolveTeamLogo() uses, rather than one query per team or per round. */
+export function getAllTeamSeasonLogos(env: SupabaseEnv) {
+  return restGet<TeamSeasonLogo[]>(env, `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}`);
+}
+
+/** Upserts the logo for one (team, season) — replaces whatever override was set for that season before, but never touches the team's current logo (teams.logo_url) or any other season's override. */
+export async function upsertTeamSeasonLogo(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { team_id: string; season_id: string; logo_url: string }
+) {
+  const res = await fetch(`${env.url}/rest/v1/team_season_logos?on_conflict=team_id,season_id`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on team_season_logos: ${await res.text()}`);
+  const rows = (await res.json()) as TeamSeasonLogo[];
+  return rows[0];
+}
+
+export function deleteTeamSeasonLogo(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `team_season_logos?id=eq.${encodeURIComponent(id)}`);
+}
+
 // --- Drivers (admin — raw FK columns, not the embedded/joined shape) -------
 
 export interface DriverRecord {
