@@ -277,11 +277,19 @@ function involvedSummary(p: Penalty): string | null {
   return sorted.map((id) => (driverById.get(id)?.car_number != null ? `#${driverById.get(id)!.car_number}` : '?')).join(', ');
 }
 
+/** Numeric incident_number sorts numerically; a non-numeric or missing one sorts to the end (Infinity), then falls back to a string compare so two non-numeric incident numbers still sort predictably rather than by insertion order. */
+function incidentNumberSortValue(p: Penalty): number {
+  const n = p.incident_number ? Number(p.incident_number) : NaN;
+  return Number.isFinite(n) ? n : Infinity;
+}
+
 const sortedPenalties = [...penalties].sort((a, b) => {
   if (a.race_number !== b.race_number) return a.race_number - b.race_number;
-  const carA = driverById.get(a.driver_id)?.car_number ?? Infinity;
-  const carB = driverById.get(b.driver_id)?.car_number ?? Infinity;
-  if (carA !== carB) return carA - carB;
+  const numA = incidentNumberSortValue(a);
+  const numB = incidentNumberSortValue(b);
+  if (numA !== numB) return numA - numB;
+  const strCmp = (a.incident_number ?? '').localeCompare(b.incident_number ?? '');
+  if (strCmp !== 0) return strCmp;
   return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
 });
 
@@ -294,8 +302,8 @@ for (const p of sortedPenalties) {
 }
 const raceNumbersWithIncidents = raceNumbers.filter((n) => penaltiesByRace.has(n));
 
-/** Descriptions longer than this collapse to one line behind a "Show more" toggle. */
-const DESCRIPTION_COLLAPSE_THRESHOLD = 60;
+/** Descriptions longer than this many characters are cut off with a trailing ellipsis behind a "Show more" toggle — a hard character limit rather than CSS truncation, so the cell can never stretch wider than this regardless of how long the underlying text is. */
+const DESCRIPTION_TRUNCATE_LENGTH = 30;
 
 const importedCount = Astro.url.searchParams.get('imported');
 const skippedCount = Astro.url.searchParams.get('skipped');
@@ -403,7 +411,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     const time = effectiveTimePenaltySeconds(p);
                     const points = effectivePointsPenalty(p);
                     const pp = effectivePenaltyPoints(p);
-                    const collapseDescription = (p.description?.length ?? 0) > DESCRIPTION_COLLAPSE_THRESHOLD;
+                    const isLongDescription = (p.description?.length ?? 0) > DESCRIPTION_TRUNCATE_LENGTH;
+                    const truncatedDescription = isLongDescription
+                      ? `${p.description!.slice(0, DESCRIPTION_TRUNCATE_LENGTH).trimEnd()}…`
+                      : (p.description ?? '');
                     return (
                       <>
                         <tr class={isAdmin ? 'text-sm' : 'border-b border-white/5 text-sm'}>
@@ -433,8 +444,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           <td class="max-w-xs py-2.5 pr-3 text-white/50">
                             {p.description ? (
                               <div class="flex flex-col items-start gap-0.5">
-                                <div data-desc-text class={collapseDescription ? 'truncate' : ''}>{p.description}</div>
-                                {collapseDescription && (
+                                <div
+                                  data-desc-text
+                                  data-full-text={p.description}
+                                  data-truncated-text={truncatedDescription}
+                                  data-expanded="false"
+                                >
+                                  {isLongDescription ? truncatedDescription : p.description}
+                                </div>
+                                {isLongDescription && (
                                   <button type="button" data-desc-toggle class="text-[10px] font-semibold text-white/40 hover:text-white">
                                     Show more
                                   </button>
@@ -681,8 +699,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       btn.addEventListener('click', () => {
         const text = btn.previousElementSibling as HTMLElement | null;
         if (!text) return;
-        const collapsed = text.classList.toggle('truncate');
-        btn.textContent = collapsed ? 'Show more' : 'Show less';
+        const expanded = text.dataset.expanded === 'true';
+        if (expanded) {
+          text.textContent = text.dataset.truncatedText ?? '';
+          text.dataset.expanded = 'false';
+          btn.textContent = 'Show more';
+        } else {
+          text.textContent = text.dataset.fullText ?? '';
+          text.dataset.expanded = 'true';
+          btn.textContent = 'Show less';
+        }
       });
     });
 
