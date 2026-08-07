@@ -186,13 +186,13 @@ export interface RankedPosition {
   /** Their laps-down count BEFORE any penalty (from completed laps alone) — compare against `lapsDown` to tell whether a penalty actually pushed them further down, vs. them just already being there independent of any penalty. */
   lapsDownBefore: number;
   /**
-   * Total time gap to the leader after any penalty, ten-thousandths of a
-   * second, WITHIN this driver's lapsDown group (e.g. for a driver scored 1
-   * lap down, how far past that 1-lap threshold they are) — not comparable
-   * across two rows with different lapsDown counts. Null when there wasn't
-   * enough data to compute one (an untouched, already-laps-down driver
-   * nobody penalized just keeps its original relative order instead, same
-   * as this engine did before this calculation existed).
+   * A same-formula-comparable time value used to rank this driver against
+   * others in the same lapsDown group — not a normalized "how far past the
+   * threshold" figure, and not comparable across two rows with different
+   * lapsDown counts (see reorderByTimePenalty's own comments for exactly
+   * how it's derived in each case). Null when there wasn't enough data to
+   * compute one at all, in which case this row simply keeps its original
+   * relative position among its lapsDown peers.
    */
   gapTenThousandths: number | null;
 }
@@ -218,46 +218,57 @@ export function reorderByTimePenalty(
     lapsDown: number;
     lapsDownBefore: number;
     gap: number | null;
+    /**
+     * Whether THIS row actually carries a real penalty (as opposed to
+     * having a `gap` that's only there to serve as a same-formula
+     * comparison baseline for a row that DID get penalized — see the
+     * comparator below). Two untouched rows must never reorder relative to
+     * each other off of the laps-down estimate's noise; only a real
+     * penalty should ever move someone.
+     */
+    touched: boolean;
     originalPosition: number;
   }
 
   const keys: SortKey[] = ranked.map((r) => {
     const originalPosition = r.position as number;
     const timePenaltyTenThousandths = (penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`)?.time ?? 0) * 10000;
+    const touched = timePenaltyTenThousandths !== 0;
     const lapsDownBefore =
       r.lapsComplete !== null && leader.lapsComplete !== null && leader.lapsComplete > r.lapsComplete
         ? leader.lapsComplete - r.lapsComplete
         : 0;
     const onLeadLapBefore = lapsDownBefore === 0 && r.intervalTenThousandths !== null && r.intervalTenThousandths >= 0;
 
-    if (timePenaltyTenThousandths === 0) {
-      // Untouched by any penalty — keep using the pipeline's own exact data
-      // (the real interval, for a lead-lap driver); no comparable time
-      // exists for an already-laps-down driver either way, so it keeps its
-      // stable original position within its laps-down bucket, same as
-      // before this calculation existed.
-      return {
-        driverId: r.driverId,
-        lapsDown: lapsDownBefore,
-        lapsDownBefore,
-        gap: onLeadLapBefore ? (r.intervalTenThousandths as number) : null,
-        originalPosition,
-      };
-    }
-
     if (onLeadLapBefore) {
+      if (!touched) {
+        // Untouched lead-lap driver — keep the pipeline's own exact interval.
+        return { driverId: r.driverId, lapsDown: 0, lapsDownBefore, gap: r.intervalTenThousandths, touched, originalPosition };
+      }
       // Exact: real interval + a real penalty, no averaging involved.
       const newInterval = (r.intervalTenThousandths as number) + timePenaltyTenThousandths;
       if (leader.averageLapTenThousandths !== null && leader.averageLapTenThousandths > 0 && newInterval > leader.averageLapTenThousandths) {
         const lapsDown = Math.floor(newInterval / leader.averageLapTenThousandths);
-        return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: newInterval - lapsDown * leader.averageLapTenThousandths, originalPosition };
+        return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: newInterval - lapsDown * leader.averageLapTenThousandths, touched, originalPosition };
       }
-      return { driverId: r.driverId, lapsDown: 0, lapsDownBefore, gap: newInterval, originalPosition };
+      return { driverId: r.driverId, lapsDown: 0, lapsDownBefore, gap: newInterval, touched, originalPosition };
     }
 
-    // Already laps down, and now penalized further — the one case with no
-    // exact data to fall back on, so this is where the average-lap estimate
-    // (own laps × own average lap, same as leader's) is actually needed.
+    // Already laps down (before this penalty, or after — doesn't matter
+    // here) — there's no real per-driver gap to lean on (see this
+    // section's header), so EVERY row in this bucket is measured the same
+    // way: own completed laps × own average lap vs the leader's, whether
+    // or not THIS specific row was penalized. That's deliberate — a
+    // penalized driver's estimate is only meaningful when it can be
+    // compared against a real number for its untouched neighbors too;
+    // comparing it against a bare "no penalty here" placeholder (the old
+    // behavior) meant a penalized driver's estimate — whatever its actual
+    // size — always sorted ahead of every untouched laps-down row, which
+    // is the bug this comment used to paper over: a small penalty could
+    // vault a driver to the very front of the whole laps-down field. The
+    // comparator below still protects two UNTOUCHED rows from ever
+    // reordering relative to each other off of this estimate's noise —
+    // only a row that's actually being penalized gets ranked by it.
     if (
       r.averageLapTenThousandths !== null &&
       r.lapsComplete !== null &&
@@ -272,21 +283,25 @@ export function reorderByTimePenalty(
       // already recorded — guards against the estimate's own noise
       // undercutting a laps-down count we already know is at least this.
       const lapsDown = Math.max(lapsDownBefore, Math.floor(gapAfter / leader.averageLapTenThousandths));
-      return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: gapAfter, originalPosition };
+      return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: gapAfter, touched, originalPosition };
     }
 
     // Missing average-lap data for this row or the leader — can't estimate,
     // so this row keeps its pre-penalty laps-down bucket (the penalty's
     // POINTS effect, if any, still applies via recomputeRow — only the
     // re-ranking is skipped here for lack of data to rank it by).
-    return { driverId: r.driverId, lapsDown: lapsDownBefore, lapsDownBefore, gap: null, originalPosition };
+    return { driverId: r.driverId, lapsDown: lapsDownBefore, lapsDownBefore, gap: null, touched, originalPosition };
   });
 
   keys.sort((a, b) => {
     if (a.lapsDown !== b.lapsDown) return a.lapsDown - b.lapsDown;
+    // Neither row was actually penalized — always keep their original
+    // relative order (the pipeline's own, more precise, telemetry-based
+    // ordering) rather than let the laps-down estimate's noise reshuffle
+    // two drivers nothing happened to, just because some OTHER driver in
+    // the race got a penalty and triggered this recompute.
+    if (!a.touched && !b.touched) return a.originalPosition - b.originalPosition;
     if (a.gap !== null && b.gap !== null && a.gap !== b.gap) return a.gap - b.gap;
-    if (a.gap !== null && b.gap === null) return -1;
-    if (a.gap === null && b.gap !== null) return 1;
     return a.originalPosition - b.originalPosition;
   });
 
