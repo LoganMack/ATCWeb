@@ -907,7 +907,8 @@ export interface Penalty {
   id: string;
   subsession_id: number;
   race_number: number;
-  driver_id: string;
+  /** Null means "Racing Incident" — reviewed and judged nobody's fault, so no driver is attached (0020_penalty_racing_incident.sql). Shown as "RI" in the Incident Report's Driver column instead of a car number, and never affects anyone's position/points — the recalculation engine keys everything off driver_id, so a row with none can't touch any driver's result. */
+  driver_id: string | null;
   incident_number: string | null;
   lap: number | null;
   description: string | null;
@@ -940,7 +941,7 @@ interface PenaltyRow {
   id: string;
   subsession_id: number;
   race_number: number;
-  driver_id: string;
+  driver_id: string | null;
   incident_number: string | null;
   lap: number | null;
   description: string | null;
@@ -1003,7 +1004,8 @@ export async function getPenaltiesForSubsessions(env: SupabaseEnv, subsessionIds
 export interface PenaltyInput {
   subsession_id: number;
   race_number: number;
-  driver_id: string;
+  /** Null for a Racing Incident (no driver at fault) — see Penalty.driver_id's own doc comment. */
+  driver_id: string | null;
   incident_number: string | null;
   lap: number | null;
   description: string | null;
@@ -1083,10 +1085,16 @@ export function deletePenalty(env: SupabaseEnv, accessToken: string, id: string)
 export async function getWarningCounts(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (subsessionIds.length === 0) return out;
-  const rows = await restGet<{ driver_id: string }[]>(
+  const rows = await restGet<{ driver_id: string | null }[]>(
     env,
     `penalties?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`
   );
-  for (const r of rows) out.set(r.driver_id, (out.get(r.driver_id) ?? 0) + 1);
+  // A Racing Incident (driver_id null) is never a warning in practice — the
+  // add/edit dialog hides that checkbox once "Racing Incident" is selected
+  // — but guard anyway rather than let a null slip into the map's keys.
+  for (const r of rows) {
+    if (!r.driver_id) continue;
+    out.set(r.driver_id, (out.get(r.driver_id) ?? 0) + 1);
+  }
   return out;
 }

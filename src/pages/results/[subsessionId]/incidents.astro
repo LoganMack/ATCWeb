@@ -56,8 +56,15 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
 
   if (intent === 'add-incident' || intent === 'update-incident') {
     const raceNumber = Number(form.get('race_number'));
-    const driverId = String(form.get('driver_id') ?? '');
-    const offenseIds = form.getAll('offense_ids').map(String);
+    // Empty string means the "Racing Incident (no driver at fault)" option
+    // was selected — stored as a real null, not an empty string, per
+    // 0020_penalty_racing_incident.sql.
+    const driverId = String(form.get('driver_id') ?? '') || null;
+    // Offenses/warning describe a specific driver's fault — force them
+    // empty/off server-side for a Racing Incident regardless of what the
+    // form actually submitted (the dialog hides and clears both once
+    // "Racing Incident" is picked, but this is the authoritative guard).
+    const offenseIds = driverId ? form.getAll('offense_ids').map(String) : [];
     const involvedDriverIds = form.getAll('involved_driver_ids').map(String);
 
     const data: PenaltyInput = {
@@ -70,7 +77,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
       time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
       points_penalty: numOrZeroField(form, 'points_penalty'),
       penalty_points: numOrZeroField(form, 'penalty_points'),
-      is_warning: form.get('is_warning') === 'on',
+      is_warning: driverId ? form.get('is_warning') === 'on' : false,
       is_appealed: form.get('is_appealed') === 'on',
       appeal_result: strOrNullField(form, 'appeal_result'),
       appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
@@ -79,7 +86,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     };
 
     try {
-      if (intent === 'add-incident' && Number.isFinite(raceNumber) && driverId) {
+      if (intent === 'add-incident' && Number.isFinite(raceNumber)) {
         await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
       } else if (intent === 'update-incident') {
         const penaltyId = String(form.get('penalty_id') ?? '');
@@ -410,7 +417,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </thead>
                 <tbody>
                   {penaltiesByRace.get(raceNumber)!.map((p) => {
-                    const driver = driverById.get(p.driver_id);
+                    const driver = p.driver_id ? driverById.get(p.driver_id) : undefined;
                     const { positionDelta, pointsDelta } = deltaFor(p);
                     const time = effectiveTimePenaltySeconds(p);
                     const points = effectivePointsPenalty(p);
@@ -425,7 +432,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           <td class="py-2.5 pl-4 pr-3 text-white/60">{p.incident_number ?? '—'}</td>
                           <td class="py-2.5 pr-3 text-center text-white/60">{p.lap ?? '—'}</td>
                           <td class="py-2.5 pr-3 font-semibold">
-                            <div>{driver?.car_number != null ? `#${driver.car_number}` : '—'}</div>
+                            <div title={p.driver_id === null ? 'Racing Incident — no driver at fault' : undefined}>
+                              {p.driver_id === null ? 'RI' : (driver?.car_number != null ? `#${driver.car_number}` : '—')}
+                            </div>
                             {p.is_appealed && (
                               <button
                                 type="button"
@@ -519,7 +528,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                 <form method="POST" data-astro-reload class="inline">
                                   <input type="hidden" name="intent" value="delete-incident" />
                                   <input type="hidden" name="penalty_id" value={p.id} />
-                                  <input type="hidden" name="driver_id" value={p.driver_id} />
+                                  <input type="hidden" name="driver_id" value={p.driver_id ?? ''} />
                                   <button type="submit" class="text-xs font-semibold text-white/40 hover:text-brand-pink">
                                     Remove
                                   </button>
@@ -576,6 +585,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         {d.name}
                       </option>
                     ))}
+                    <option value="" class="bg-brand-ink text-white">Racing Incident (no driver at fault)</option>
                   </select>
                 </label>
               </div>
@@ -612,7 +622,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
               </label>
 
-              <label class="flex items-center gap-2 text-xs text-white/70">
+              <label data-fault-only class="flex items-center gap-2 text-xs text-white/70">
                 <input type="checkbox" name="is_warning" />
                 This is a warning (rulebook: 2 warnings escalates to +1 PP)
               </label>
@@ -652,7 +662,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </p>
               </div>
 
-              <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
+              <fieldset data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
                 <legend class="mb-1">Offenses (rulebook section 5)</legend>
                 <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
                   {offenses.length === 0 && <span class="text-white/30">No offenses configured — add some at /admin/penalty-offenses.</span>}
@@ -696,6 +706,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //     [data-close-incident-dialog]) — same pattern as before, just no
   //     longer scoped to one race's row since this dialog picks its own
   //     race/driver.
+  //   - [data-fault-only] — the offenses fieldset and warning checkbox,
+  //     hidden (and cleared) whenever the Driver field's "Racing Incident"
+  //     option is selected (empty value — see 0020_penalty_racing_incident.sql).
   //   - [data-desc-toggle] — expands/collapses a long description.
   //   - [data-appeal-toggle] — reveals/hides that incident's appeal notes.
   function initIncidentPage() {
@@ -733,13 +746,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const heading = dialog.querySelector('[data-incident-heading]')!;
     const appealCheckbox = dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!;
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
+    // Everything that only makes sense when a specific driver is actually
+    // at fault — offenses (rulebook section 5) and the warning checkbox —
+    // hidden once "Racing Incident" (the driver select's empty-value
+    // option) is picked. See 0020_penalty_racing_incident.sql.
+    const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
 
     function setAppealFieldsVisible(visible: boolean) {
       appealFields.classList.toggle('hidden', !visible);
       appealFields.classList.toggle('flex', visible);
     }
 
+    function setFaultFieldsVisible(visible: boolean) {
+      faultOnlyFields.forEach((el) => el.classList.toggle('hidden', !visible));
+      if (!visible) {
+        // Clear rather than just hide, so switching to Racing Incident
+        // never leaves a hidden offense/warning silently in the submitted
+        // form data.
+        dialog.querySelectorAll<HTMLInputElement>('[name="offense_ids"]').forEach((cb) => (cb.checked = false));
+        const warningBox = dialog.querySelector<HTMLInputElement>('[name="is_warning"]');
+        if (warningBox) warningBox.checked = false;
+      }
+    }
+
     appealCheckbox.addEventListener('change', () => setAppealFieldsVisible(appealCheckbox.checked));
+    driverField.addEventListener('change', () => setFaultFieldsVisible(driverField.value !== ''));
 
     document.querySelectorAll<HTMLButtonElement>('[data-open-incident-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -748,6 +779,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         idField.value = '';
         heading.textContent = 'Add Incident';
         setAppealFieldsVisible(false);
+        setFaultFieldsVisible(driverField.value !== '');
         dialog.showModal();
       });
     });
@@ -760,7 +792,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         idField.value = p.id;
         heading.textContent = 'Edit Incident';
         raceField.value = String(p.race_number);
-        driverField.value = p.driver_id;
+        driverField.value = p.driver_id ?? '';
 
         const set = (name: string, value: string) => {
           const el = dialog.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`);
@@ -789,6 +821,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
           cb.checked = (p.involved_driver_ids ?? []).includes(cb.value);
         });
+
+        setFaultFieldsVisible(driverField.value !== '');
 
         dialog.showModal();
       });

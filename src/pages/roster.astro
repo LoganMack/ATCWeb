@@ -45,6 +45,8 @@ try {
     const seasonPenalties = await getPenaltiesForSubsessions(supabaseEnv, currentSeason.subsessionIds);
     const penaltiesByDriver = new Map<string, typeof seasonPenalties>();
     for (const p of seasonPenalties) {
+      // A Racing Incident entry (driver_id null) has no driver to tally PP against.
+      if (!p.driver_id) continue;
       if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
       penaltiesByDriver.get(p.driver_id)!.push(p);
     }

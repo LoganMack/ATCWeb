@@ -50,6 +50,11 @@ function pointsBreakdownLines(row: RaceResultRow): BreakdownLine[] {
   return lines;
 }
 
+/** How many total points this round's penalties (this driver's own, or a cascade from someone else's in the same race repositioning them) netted this driver, positive or negative — 0 for a row nothing here ever touched. This is a DELTA, not another component of the breakdown above (those already sum to `totalPoints`, which already has this baked in) — shown as its own callout so a penalized/benefiting driver's net points swing is clear at a glance rather than something you'd have to infer by comparing against a different round. See RaceResultRow.originalTotalPoints' own doc comment. */
+function penaltyPointsDelta(row: RaceResultRow): number {
+  return row.totalPoints - row.originalTotalPoints;
+}
+
 /**
  * "Penalty (1PP)" / "Penalty (Warning)" / "Penalty" / "Racing Incident" —
  * the tag's own label, so the headline is visible without visiting the
@@ -59,6 +64,13 @@ function pointsBreakdownLines(row: RaceResultRow): BreakdownLine[] {
  * entry carries no real effect at all (no PP, no warning, no time/points
  * penalty — e.g. reviewed and cleared, or appealed down to nothing), it
  * reads as "Racing Incident" instead of "Penalty" per Logan.
+ *
+ * Note this is a DIFFERENT "Racing Incident" than the literal one on the
+ * Incident Report page (a penalty entry with no driver_id at all — see
+ * 0020_penalty_racing_incident.sql). That kind can never reach this
+ * function in the first place: `rowPenalties` only ever holds entries
+ * already matched to THIS driver's id (see penaltiesByDriver below), and a
+ * driverless entry can't match anyone's id.
  */
 function penaltyTagLabel(rowPenalties: Penalty[]): string {
   if (rowPenalties.length === 0) return '';
@@ -108,8 +120,12 @@ const {
 
 const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url);
 const racePenalties = penalties.filter((p) => p.race_number === raceNumber);
+// A Racing Incident entry (driver_id null) can't be attached to any
+// driver's row here — it has no driver — so it's simply excluded from this
+// map; it still shows up on the Incident Report page.
 const penaltiesByDriver = new Map<string, Penalty[]>();
 for (const p of racePenalties) {
+  if (!p.driver_id) continue;
   if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
   penaltiesByDriver.get(p.driver_id)!.push(p);
 }
@@ -341,6 +357,11 @@ for (const p of racePenalties) {
                     Total: <span class="font-semibold text-white/90">{row.totalPoints}</span>
                   </span>
                 </div>
+                {penaltyPointsDelta(row) !== 0 && (
+                  <div class={`mt-1.5 text-[11px] font-semibold ${penaltyPointsDelta(row) > 0 ? 'text-brand-blue' : 'text-brand-pink'}`}>
+                    {penaltyPointsDelta(row) > 0 ? '+' : ''}{penaltyPointsDelta(row)} pt{Math.abs(penaltyPointsDelta(row)) === 1 ? '' : 's'} from this round's penalties
+                  </div>
+                )}
               </div>
             </td>
           </tr>

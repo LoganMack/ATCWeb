@@ -147,9 +147,9 @@ interface RaceDriverPenaltyTotal {
   points: number; // flat championship-points deduction
 }
 
-/** Sums every penalty logged against each (race_number, driver) pair in this round — a driver can accumulate more than one penalty for the same race, and their effects stack. Uses each penalty's effective (appeal-aware) time/points. */
+/** Sums every penalty logged against each (race_number, driver) pair in this round — a driver can accumulate more than one penalty for the same race, and their effects stack. Uses each penalty's effective (appeal-aware) time/points. A Racing Incident entry (driver_id null — see supabase.ts's Penalty.driver_id) collapses into one harmless `"${raceNumber}:null"` bucket that no real driver's id can ever match, so it's never looked up — a no-fault entry simply can't apply to anyone. */
 export function sumPenaltiesByRaceDriver(
-  penalties: (PenaltyLike & { race_number: number; driver_id: string })[]
+  penalties: (PenaltyLike & { race_number: number; driver_id: string | null })[]
 ): Map<string, RaceDriverPenaltyTotal> {
   const out = new Map<string, RaceDriverPenaltyTotal>();
   for (const p of penalties) {
@@ -510,7 +510,7 @@ function recomputeRow(
  */
 export function applyPenaltiesToRoundResults(
   results: RoundResults,
-  penalties: (PenaltyLike & { race_number: number; driver_id: string })[],
+  penalties: (PenaltyLike & { race_number: number; driver_id: string | null })[],
   format: Format | null
 ): RoundResults {
   if (penalties.length === 0) return results;
@@ -667,7 +667,7 @@ export interface SeasonOverallAdjustment {
  */
 export function computeSeasonOverallAdjustments(
   rows: SeasonScoreRow[],
-  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string })[],
+  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[],
   formatBySubsession: Map<number, Format | null>
 ): Map<string, SeasonOverallAdjustment> {
   const out = new Map<string, SeasonOverallAdjustment>();
@@ -676,7 +676,7 @@ export function computeSeasonOverallAdjustments(
   const raceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
   const rowKey = (subsessionId: number, raceNumber: number, driverId: string) => `${subsessionId}:${raceNumber}:${driverId}`;
 
-  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string })[]>();
+  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[]>();
   for (const p of penalties) {
     const key = raceKey(p.subsession_id, p.race_number);
     if (!penaltiesByRace.has(key)) penaltiesByRace.set(key, []);
@@ -795,7 +795,7 @@ export interface SeasonClassAdjustment {
  */
 export function computeSeasonClassAdjustments(
   rows: SeasonClassScoreRow[],
-  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string })[],
+  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[],
   formatBySubsession: Map<number, Format | null>,
   overallAdjustments: Map<string, SeasonOverallAdjustment>,
   /**
@@ -816,7 +816,7 @@ export function computeSeasonClassAdjustments(
   const raceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
   const rowKey = (subsessionId: number, raceNumber: number, driverId: string) => `${subsessionId}:${raceNumber}:${driverId}`;
 
-  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string })[]>();
+  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[]>();
   for (const p of penalties) {
     const key = raceKey(p.subsession_id, p.race_number);
     if (!penaltiesByRace.has(key)) penaltiesByRace.set(key, []);

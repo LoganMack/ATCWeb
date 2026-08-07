@@ -986,6 +986,18 @@ export interface RaceResultRow {
    * nonzero.
    */
   bonusPoints: number;
+  /**
+   * `totalPoints` exactly as the pipeline/race_scores originally computed
+   * it, before any penalty — this driver's own, or a cascade from someone
+   * else's in the same race — was applied. `src/lib/penalties.ts`'s
+   * `recomputeRow` only ever overwrites `totalPoints` (and its components)
+   * on the returned row, never this field, so `totalPoints -
+   * originalTotalPoints` is always a clean "how many points did this
+   * round's penalties net this driver" figure — 0 for a row nothing ever
+   * touched. Shown in the results table's expanded detail panel (see
+   * ResultsTable.astro).
+   */
+  originalTotalPoints: number;
   /** The individual components `bonusPoints` above is the sum of — broken out (rather than only ever combined) so src/lib/penalties.ts can recompute just classPoints/pointsDeduction when a penalty changes this driver's position or applies a flat points penalty, while leaving finesseBonus/poleBonus (unaffected by either kind of penalty) alone. */
   classPoints: number;
   finesseBonus: number;
@@ -1140,6 +1152,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       startingPosition: raw.starting_position,
       wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
       totalPoints: score.total_points,
+      originalTotalPoints: score.total_points,
       bonusPoints: score.class_points + score.finesse_bonus + score.pole_bonus + score.points_deduction,
       classPoints: score.class_points,
       finesseBonus: score.finesse_bonus,

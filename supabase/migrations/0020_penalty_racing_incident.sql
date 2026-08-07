@@ -1,0 +1,17 @@
+-- Alpha Touring Challenge — "Racing Incident" penalty entries (no driver at fault)
+--
+-- Some incidents get reviewed and judged nobody's fault — no offense, no
+-- warning, nobody penalized — but stewards still want a record of it (lap,
+-- description, involved cars) on the Incident Report. Previously every
+-- penalties row required a driver_id (the driver being penalized), which
+-- had no meaningful value for a no-fault entry. driver_id is now nullable:
+-- null means "Racing Incident, no driver at fault" (shown as "RI" in the
+-- Incident Report's Driver column — see src/pages/results/[subsessionId]/
+-- incidents.astro and src/lib/penalties.ts).
+--
+-- A null-driver penalty never affects anyone's position or points — the
+-- recalculation engine (src/lib/penalties.ts) keys everything off driver_id,
+-- so a row with none simply can't be applied to any driver's result. That's
+-- intentional, not a gap: a Racing Incident is by definition not something
+-- that changes the outcome for anyone.
+alter table penalties alter column driver_id drop not null;
