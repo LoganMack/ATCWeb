@@ -153,6 +153,39 @@ if (post.round_subsession_id !== null) {
                 )}
               </p>
             )}
+
+            {race.sublimeFinesse.length > 0 && (
+              <div class="mt-4">
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Sublime Finesse</span>
+                <ol class="mt-2 flex flex-col gap-1 text-sm text-white/70">
+                  {race.sublimeFinesse.map((entry) => (
+                    <li>
+                      {displayDriverName(entry.driver.name)}
+                      {entry.carNumber !== null && <span class="text-white/40"> #{entry.carNumber}</span>}
+                      {entry.incidents !== null && <span class="text-white/40"> — {entry.incidents}x</span>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {race.nakedAggression.length > 0 && (
+              <div class="mt-4">
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Naked Aggression</span>
+                <ol class="mt-2 flex flex-col gap-1 text-sm text-white/70">
+                  {race.nakedAggression.map((entry) => (
+                    <li>
+                      {displayDriverName(entry.driver.name)}
+                      {entry.carNumber !== null && <span class="text-white/40"> #{entry.carNumber}</span>}
+                      <span class="text-white/40"> — P{entry.startingPosition} &rarr; P{entry.finishPosition}</span>
+                      <span class="ml-1 text-brand-gold">
+                        ({entry.positionsGained >= 0 ? '+' : ''}{entry.positionsGained})
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         ))}
 
@@ -188,6 +221,32 @@ if (post.round_subsession_id !== null) {
             </summary>
             <div class="mt-3 flex flex-col gap-3">
               {recap.teamBreakdown.map((team) => (
+                <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div class="flex items-center gap-2">
+                    <TeamLogo name={team.teamName} logoUrl={team.logoUrl} size="h-5 w-5" />
+                    <p class="font-semibold">{team.teamName}</p>
+                  </div>
+                  <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
+                    {team.entries.map((entry) => (
+                      <li>
+                        Race {entry.raceNumber}: {displayDriverName(entry.driverName)}
+                        {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        {recap.deltaTeamBreakdown.length > 0 && (
+          <details class="mt-6">
+            <summary class="cursor-pointer text-xs font-semibold uppercase tracking-widest text-white/40 transition hover:text-white/60">
+              Delta Team Scoring Breakdown
+            </summary>
+            <div class="mt-3 flex flex-col gap-3">
+              {recap.deltaTeamBreakdown.map((team) => (
                 <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div class="flex items-center gap-2">
                     <TeamLogo name={team.teamName} logoUrl={team.logoUrl} size="h-5 w-5" />

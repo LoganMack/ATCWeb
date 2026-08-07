@@ -35,7 +35,7 @@ import {
   type CircuitLayout,
   type SupabaseEnv,
 } from './supabase';
-import { getRoundBySubsessionId, getRoundResults, type DriverBasic, type RoundResults } from './results';
+import { getRoundBySubsessionId, getRoundResults, topTeamScorers, type DriverBasic, type RoundResults, type RaceResultRow } from './results';
 import { applyPenaltiesToRoundResults } from './penalties';
 
 interface RawBestLapRow {
@@ -108,11 +108,31 @@ export interface RecapFastestLap {
   previousRecordFormatted: string | null;
 }
 
+/** One driver who was awarded the "Sublime Finesse" bonus (finesse_bonus > 0 — "3 incidents or less" that race) — see README's Points System note. */
+export interface RecapFinesseEntry {
+  driver: DriverBasic;
+  carNumber: number | null;
+  incidents: number | null;
+}
+
+/** One driver among a race's top 5 position gainers ("Naked Aggression") — positionsGained is startingPosition - finishPosition, so a bigger number means a bigger charge through the field. */
+export interface RecapOvertakeEntry {
+  driver: DriverBasic;
+  carNumber: number | null;
+  startingPosition: number;
+  finishPosition: number;
+  positionsGained: number;
+}
+
 export interface RecapRace {
   raceNumber: number;
   topByClass: RecapClassTop3[];
   topRookies: RecapRookieEntry[];
   fastestLap: RecapFastestLap | null;
+  /** Every driver awarded the Sublime Finesse bonus this race — not just a top-N, since it's an all-or-nothing per-driver bonus, not a ranking. */
+  sublimeFinesse: RecapFinesseEntry[];
+  /** Top 5 position gainers this race (whole field, every class combined) — "Naked Aggression." */
+  nakedAggression: RecapOvertakeEntry[];
 }
 
 export interface RecapTeamPoints {
@@ -142,8 +162,10 @@ export interface RoundRecap {
   topTeamOverall: RecapTeamPoints | null;
   /** Highest points among just the Delta class this round (Delta has its own class_points bonus separate from the overall total — see results.ts's header) — null if this round had no Delta class field, or nobody in it had a team assigned. */
   topTeamDelta: RecapTeamPoints | null;
-  /** Every team that scored, with which driver scored what in which race — sorted by team name. */
+  /** Every team's top-2-per-race scorers (see topTeamScorers()), with which driver scored what in which race — sorted by team name. */
   teamBreakdown: RecapTeamBreakdown[];
+  /** Same idea as `teamBreakdown`, but scoped to just Delta-class rows and ranked/summed by each row's full totalPoints (Delta's own class_points bonus included) — mirrors topTeamDelta. Empty when this round had no Delta class field. */
+  deltaTeamBreakdown: RecapTeamBreakdown[];
   /**
    * Set only when the round's track/layout couldn't be matched to a
    * circuit_layouts row, so no fastest lap in `races` can be checked
@@ -318,7 +340,30 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
       };
     }
 
-    return { raceNumber, topByClass, topRookies, fastestLap };
+    // "Sublime Finesse" — every driver actually awarded the finesse bonus
+    // this race (an all-or-nothing per-driver bonus, so this lists everyone
+    // who earned it, not a top-N).
+    const sublimeFinesse: RecapFinesseEntry[] = overallRows
+      .filter((r) => !r.dsq && r.incidentsBonus)
+      .map((r) => ({ driver: r.driver, carNumber: r.driver.car_number, incidents: r.incidents }));
+
+    // "Naked Aggression" — top 5 position gainers this race, whole field
+    // (every class combined), by raw starting/finish position (not the
+    // penalty-adjusted classification) — this is about who actually drove
+    // through the field on track, independent of any post-race stewarding.
+    const nakedAggression: RecapOvertakeEntry[] = overallRows
+      .filter((r) => !r.dsq && r.startingPosition !== null)
+      .map((r) => ({
+        driver: r.driver,
+        carNumber: r.driver.car_number,
+        startingPosition: r.startingPosition as number,
+        finishPosition: r.finishPosition,
+        positionsGained: (r.startingPosition as number) - r.finishPosition,
+      }))
+      .sort((a, b) => b.positionsGained - a.positionsGained)
+      .slice(0, 5);
+
+    return { raceNumber, topByClass, topRookies, fastestLap, sublimeFinesse, nakedAggression };
   });
 
   // Team points — "which team scored the most overall points" (every class
@@ -328,6 +373,11 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   // the overall total). Grouped by team NAME rather than an id, same as
   // every other results view already does (RaceResultRow.team has no id,
   // just {name, logoUrl} — see results.ts).
+  //
+  // Only each team's top 2 scorers in a given race actually count toward
+  // that team's points for that race (topTeamScorers() — see its own doc
+  // comment in results.ts) — a team that started 3 drivers in the same race
+  // only ever gets 2 of those results added to its total, never all 3.
   const deltaClassId = classes.find((c) => c.name.toLowerCase() === 'delta')?.id ?? null;
 
   interface TeamAgg {
@@ -338,28 +388,47 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   const overallByTeam = new Map<string, TeamAgg>();
   const deltaByTeam = new Map<string, TeamAgg>();
   const breakdownByTeam = new Map<string, RecapTeamBreakdown>();
+  const deltaBreakdownByTeam = new Map<string, RecapTeamBreakdown>();
+
+  const overallPointsOf = (row: RaceResultRow) => row.totalPoints - row.classPoints;
+  const deltaPointsOf = (row: RaceResultRow) => row.totalPoints;
+
+  function addEntry(map: Map<string, RecapTeamBreakdown>, row: RaceResultRow, raceNumber: number, points: number) {
+    const key = row.team!.name;
+    if (!map.has(key)) map.set(key, { teamName: key, logoUrl: row.team!.logoUrl, entries: [] });
+    map.get(key)!.entries.push({ raceNumber, driverName: row.driver.name, carNumber: row.driver.car_number, points });
+  }
 
   for (const raceNumber of raceNumbers) {
     const rows = roundResults.overall.get(raceNumber) ?? [];
+
+    const rowsByTeam = new Map<string, RaceResultRow[]>();
     for (const row of rows) {
       if (!row.team) continue;
       const key = row.team.name;
+      if (!rowsByTeam.has(key)) rowsByTeam.set(key, []);
+      rowsByTeam.get(key)!.push(row);
+    }
 
-      if (!overallByTeam.has(key)) overallByTeam.set(key, { name: key, logoUrl: row.team.logoUrl, points: 0 });
-      overallByTeam.get(key)!.points += row.totalPoints;
-
-      if (deltaClassId !== null && row.classId === deltaClassId) {
-        if (!deltaByTeam.has(key)) deltaByTeam.set(key, { name: key, logoUrl: row.team.logoUrl, points: 0 });
-        deltaByTeam.get(key)!.points += row.totalPoints;
+    for (const teamRows of rowsByTeam.values()) {
+      for (const row of topTeamScorers(teamRows, overallPointsOf)) {
+        const key = row.team!.name;
+        const points = overallPointsOf(row);
+        if (!overallByTeam.has(key)) overallByTeam.set(key, { name: key, logoUrl: row.team!.logoUrl, points: 0 });
+        overallByTeam.get(key)!.points += points;
+        addEntry(breakdownByTeam, row, raceNumber, points);
       }
 
-      if (!breakdownByTeam.has(key)) breakdownByTeam.set(key, { teamName: key, logoUrl: row.team.logoUrl, entries: [] });
-      breakdownByTeam.get(key)!.entries.push({
-        raceNumber,
-        driverName: row.driver.name,
-        carNumber: row.driver.car_number,
-        points: row.totalPoints,
-      });
+      if (deltaClassId !== null) {
+        const deltaRows = teamRows.filter((r) => r.classId === deltaClassId);
+        for (const row of topTeamScorers(deltaRows, deltaPointsOf)) {
+          const key = row.team!.name;
+          const points = deltaPointsOf(row);
+          if (!deltaByTeam.has(key)) deltaByTeam.set(key, { name: key, logoUrl: row.team!.logoUrl, points: 0 });
+          deltaByTeam.get(key)!.points += points;
+          addEntry(deltaBreakdownByTeam, row, raceNumber, points);
+        }
+      }
     }
   }
 
@@ -372,7 +441,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   }
 
   const teamBreakdown = [...breakdownByTeam.values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
-  for (const t of teamBreakdown) {
+  const deltaTeamBreakdown = [...deltaBreakdownByTeam.values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
+  for (const t of [...teamBreakdown, ...deltaTeamBreakdown]) {
     t.entries.sort((a, b) => a.raceNumber - b.raceNumber || (a.carNumber ?? Infinity) - (b.carNumber ?? Infinity));
   }
 
@@ -383,6 +453,7 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     topTeamOverall: topTeam(overallByTeam),
     topTeamDelta: topTeam(deltaByTeam),
     teamBreakdown,
+    deltaTeamBreakdown,
     trackRecordMatchIssue,
   };
 }

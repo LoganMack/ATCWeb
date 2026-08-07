@@ -22,6 +22,7 @@ import {
   getRoundsForSeason,
   computeDisplayRoundNumbers,
   isChampionshipSeason,
+  topTeamScorers,
   type RoundResults,
 } from '../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../lib/penalties';
@@ -163,6 +164,29 @@ if (!loadError && round) {
 const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
 const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
+// How many points each driver actually contributed toward their team's
+// total for a given race — only the team's top 2 scorers that race count
+// (topTeamScorers(), see results.ts), same class-blind "overall" points
+// formula the news recap's Team Scoring Breakdown uses, so this figure
+// always matches what that breakdown would show. Computed once from the
+// overall (cross-class) rows regardless of which view (Overall/Per Class)
+// is being rendered, since a team can span more than one class and a
+// driver's contribution to their team is the same fact either way.
+const teamPointsByRaceDriver = new Map<string, number>();
+for (const [raceNumber, overallRows] of roundResults.overall) {
+  const rowsByTeam = new Map<string, typeof overallRows>();
+  for (const row of overallRows) {
+    if (!row.team) continue;
+    if (!rowsByTeam.has(row.team.name)) rowsByTeam.set(row.team.name, []);
+    rowsByTeam.get(row.team.name)!.push(row);
+  }
+  for (const teamRows of rowsByTeam.values()) {
+    for (const row of topTeamScorers(teamRows, (r) => r.totalPoints - r.classPoints)) {
+      teamPointsByRaceDriver.set(`${raceNumber}:${row.driver.id}`, row.totalPoints - row.classPoints);
+    }
+  }
+}
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
@@ -245,6 +269,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 links={raceLinksByRace.get(raceNumber) ?? null}
                 isAdmin={isAdmin}
                 penalties={penalties}
+                teamPointsByRaceDriver={teamPointsByRaceDriver}
               />
             ))}
           </>
@@ -264,6 +289,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   links={raceLinksByRace.get(raceNumber) ?? null}
                   isAdmin={isAdmin}
                   penalties={penalties}
+                  teamPointsByRaceDriver={teamPointsByRaceDriver}
                 />
               ))}
             </div>

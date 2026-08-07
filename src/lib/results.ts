@@ -801,6 +801,124 @@ export async function computeOverallSeasonStandings(
   return finalizeStandings(accum, driverById, season, allSubsessionIds);
 }
 
+export interface TeamSeasonStanding {
+  teamId: string;
+  teamName: string;
+  logoUrl: string | null;
+  position: number;
+  totalPoints: number;
+  /** Every race any of this team's drivers started this season — not just races they were one of the top 2 scorers in. */
+  starts: number;
+  /** Distinct rounds (subsession_ids) this team had at least one driver in. */
+  appearances: number;
+}
+
+/**
+ * Final team standings for one season — same "worst rounds dropped" points
+ * math driver standings use (`finalizeStandings`' own drop-week rule:
+ * baseline 2 + `season.extra_drop_weeks`, at least 1 round always counted),
+ * applied to each team's own per-round total instead of a driver's.
+ *
+ * A team's points for a given round are the sum of just its top 2 scoring
+ * drivers that round (`topTeamScorers()` — same rule the news recap's Team
+ * Scoring Breakdown and the results page's per-driver "Team Points" detail
+ * both use), by the same class-blind "overall" points formula
+ * `computeOverallSeasonStandings` uses (so a Gamma/Delta driver's own
+ * class_points bonus can't give their team an edge a same-performing Alpha
+ * driver's team wouldn't also get) — never a team's 3rd (or more) driver's
+ * points in any single race, and never class_points.
+ */
+export async function computeTeamSeasonStandings(
+  env: SupabaseEnv,
+  season: Season,
+  exhibitionRoundIds?: Set<number>
+): Promise<TeamSeasonStanding[]> {
+  if (!isChampionshipSeason(season.name)) return [];
+
+  const [drivers, exhibitionIds, teams, seasonLogoRows] = await Promise.all([
+    driversSelect(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    getTeamsBasic(env),
+    getAllTeamSeasonLogosSafe(env),
+  ]);
+
+  const overallContext = await getSeasonOverallContext(env, season, exhibitionIds, drivers);
+  const scores = overallContext.overallScores;
+  if (scores.length === 0) return [];
+
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
+
+  const pointsOf = (s: RaceScoreOverallRow) => {
+    const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+    const adjustment = overallContext.adjustments.get(key);
+    return adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+  };
+
+  interface TeamAccum {
+    starts: number;
+    subsessionIds: Set<number>;
+    roundPoints: Map<number, number>;
+  }
+  const accum = new Map<string, TeamAccum>();
+  function getAccum(teamId: string): TeamAccum {
+    let a = accum.get(teamId);
+    if (!a) {
+      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map() };
+      accum.set(teamId, a);
+    }
+    return a;
+  }
+
+  // Starts/appearances count every row for the team, same as a driver's own
+  // starts/appearances — only the POINTS below are limited to the top 2.
+  const raceTeamGroups = new Map<string, RaceScoreOverallRow[]>(); // "subsession:race:team" -> that team's rows for that race
+  for (const s of scores) {
+    if (!s.team_id) continue;
+    const a = getAccum(s.team_id);
+    a.starts += 1;
+    a.subsessionIds.add(s.subsession_id);
+
+    const key = `${s.subsession_id}:${s.race_number}:${s.team_id}`;
+    if (!raceTeamGroups.has(key)) raceTeamGroups.set(key, []);
+    raceTeamGroups.get(key)!.push(s);
+  }
+
+  for (const group of raceTeamGroups.values()) {
+    const subsessionId = group[0].subsession_id;
+    const teamId = group[0].team_id as string;
+    const roundSum = topTeamScorers(group, pointsOf).reduce((sum, s) => sum + pointsOf(s), 0);
+    const a = getAccum(teamId);
+    a.roundPoints.set(subsessionId, (a.roundPoints.get(subsessionId) ?? 0) + roundSum);
+  }
+
+  const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
+  const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
+
+  const standings: Omit<TeamSeasonStanding, 'position'>[] = [];
+  for (const [teamId, a] of accum) {
+    const team = teamById.get(teamId);
+    if (!team) continue; // team record deleted/missing — skip rather than crash the page
+
+    const roundTotals = [...allSubsessionIds].map((id) => a.roundPoints.get(id) ?? 0).sort((x, y) => y - x);
+    const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
+    const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
+    const totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+
+    standings.push({
+      teamId,
+      teamName: team.name,
+      logoUrl: resolveTeamLogo(team, season.id, seasonLogoMap),
+      totalPoints,
+      starts: a.starts,
+      appearances: a.subsessionIds.size,
+    });
+  }
+
+  standings.sort((a, b) => b.totalPoints - a.totalPoints || a.teamName.localeCompare(b.teamName));
+  return standings.map((s, i) => ({ ...s, position: i + 1 }));
+}
+
 // ---------------------------------------------------------------------------
 // Per-driver car/team usage for a season — powers the small logo rows on
 // the standings page (see src/pages/standings.astro).
@@ -832,17 +950,32 @@ export interface DriverSeasonExtras {
 }
 
 /**
+ * Ranks same-team, same-race rows by points and keeps just the top 2 —
+ * Logan's team championship rule: "only the top 2 scoring drivers for each
+ * team add their points to the team championship per race." The single
+ * source of truth for this rule; every place that needs "who scored for
+ * this team this race" (season car/team usage stats, the news recap's team
+ * breakdown, Team Standings) calls this instead of re-deriving it.
+ *
+ * `pointsOf` lets each caller pick which points figure to rank (and
+ * presumably then sum) by — the cross-class "overall" team competition
+ * uses the class-blind formula (finish + finesse + pole + deduction,
+ * matching `computeOverallSeasonStandings`' own formula), while a single
+ * class's own team competition (e.g. Delta's) wants that class's full
+ * total, class_points bonus included.
+ */
+export function topTeamScorers<T>(rows: T[], pointsOf: (row: T) => number): T[] {
+  return [...rows].sort((a, b) => pointsOf(b) - pointsOf(a)).slice(0, 2);
+}
+
+/**
  * Per-driver "which cars/teams did they use this season, how often" —
  * computed once for the whole season (every class, regardless of which
  * standings view — overall or per-class — is actually being shown), since
  * a driver's car/team usage isn't itself a per-class-view concern.
  *
- * Team `racesScoredForTeam` implements Logan's rule: "only the top 2
- * scoring drivers for each team add their points to the team championship
- * per race" — for every (race, team) group, this ranks that team's drivers
- * who raced that specific race by their points that race (finish + finesse
- * + pole + deduction, same formula `computeOverallSeasonStandings` uses)
- * and credits the top 2.
+ * Team `racesScoredForTeam` implements `topTeamScorers()`'s rule (see its
+ * own doc comment) for every (race, team) group.
  */
 export async function getSeasonCarTeamStats(
   env: SupabaseEnv,
@@ -898,10 +1031,9 @@ export async function getSeasonCarTeamStats(
   }
 
   const scoredForTeamByDriverTeam = new Map<string, Map<string, number>>(); // driverId -> teamId -> count
+  const overallPointsOf = (s: RaceScoreOverallRow) => s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
   for (const group of teamRaceGroups.values()) {
-    const pointsOf = (s: RaceScoreOverallRow) => s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
-    const ranked = [...group].sort((a, b) => pointsOf(b) - pointsOf(a));
-    for (const s of ranked.slice(0, 2)) {
+    for (const s of topTeamScorers(group, overallPointsOf)) {
       if (!scoredForTeamByDriverTeam.has(s.driver_id)) scoredForTeamByDriverTeam.set(s.driver_id, new Map());
       const m = scoredForTeamByDriverTeam.get(s.driver_id)!;
       m.set(s.team_id as string, (m.get(s.team_id as string) ?? 0) + 1);

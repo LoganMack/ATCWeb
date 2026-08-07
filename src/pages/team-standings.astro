@@ -1,0 +1,119 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import TeamLogo from '../components/TeamLogo.astro';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
+import { computeTeamSeasonStandings, isChampionshipSeason, type TeamSeasonStanding } from '../lib/results';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let loadError: string | null = null;
+try {
+  seasons = await getSeasons(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load team standings page filters:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+// Exhibition seasons never have standings (computeTeamSeasonStandings
+// returns [] for them — see isChampionshipSeason), so the picker only
+// offers real championship seasons in the first place.
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+
+const requestedSeasonNumber = Astro.url.searchParams.get('season');
+const activeSeason =
+  championshipSeasons.find((s) => String(s.number) === requestedSeasonNumber) ??
+  championshipSeasons.find((s) => s.is_current) ??
+  championshipSeasons[0];
+
+let standings: TeamSeasonStanding[] = [];
+if (!loadError && activeSeason) {
+  try {
+    const exhibitionRoundIds = await getExhibitionRoundIds(supabaseEnv);
+    standings = await computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds);
+  } catch (err) {
+    console.error('Failed to compute team standings:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Team Standings" description="Full season team standings for every Alpha Touring Challenge season.">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-5xl">Team Standings</h1>
+
+    <HistoryTabs active="teamStandings" />
+
+    {loadError && (
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load team standings right now. If this mentions permission/RLS, race_scores or curated_race_results
+        likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
+        it has to be run manually in the Supabase SQL editor.
+        <br /><span class="mt-1 block text-white/50">{loadError}</span>
+      </p>
+    )}
+
+    {!loadError && (
+      <form method="GET" class="mt-8 flex flex-wrap items-end gap-4">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/60">Season</span>
+          <select
+            name="season"
+            onchange="this.form.submit()"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            {championshipSeasons.map((s) => (
+              <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+            ))}
+          </select>
+        </label>
+      </form>
+    )}
+
+    <p class="mt-4 text-sm text-white/40">
+      Points are each team's top 2 scoring drivers per race, summed across the season with the same worst-rounds-dropped
+      rule the driver standings use — never a team's 3rd (or more) driver, and never a class-only points bonus.
+    </p>
+
+    {!loadError && standings.length === 0 && (
+      <p class="mt-10 text-white/60">No results.</p>
+    )}
+
+    {!loadError && standings.length > 0 && (
+      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
+        <table class="w-full border-collapse" data-sortable>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
+              <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
+              <th class="py-3 pr-3 text-center font-medium" data-sort-key="points">Points</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="starts">Starts</th>
+              <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map((row) => (
+              <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]">
+                <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
+                <td class="py-2.5 pr-3 font-semibold" data-col="team" data-sort-value={row.teamName}>
+                  <div class="flex items-center gap-2">
+                    <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
+                    <span>{row.teamName}</span>
+                  </div>
+                </td>
+                <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts">{row.starts}</td>
+                <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </section>
+</Layout>

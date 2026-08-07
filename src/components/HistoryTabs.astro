@@ -3,7 +3,7 @@
 // bar rather than separate top-level Nav.astro links, since the main nav
 // is already fairly full — Nav.astro only links to /champions ("History").
 interface Props {
-  active: 'champions' | 'standings' | 'results' | 'circuits';
+  active: 'champions' | 'standings' | 'teamStandings' | 'results' | 'circuits';
 }
 
 const { active } = Astro.props;
@@ -11,6 +11,7 @@ const { active } = Astro.props;
 const tabs: { key: Props['active']; href: string; label: string }[] = [
   { key: 'champions', href: '/champions', label: 'Champions' },
   { key: 'standings', href: '/standings', label: 'Standings' },
+  { key: 'teamStandings', href: '/team-standings', label: 'Team Standings' },
   { key: 'results', href: '/results', label: 'Race Results' },
   { key: 'circuits', href: '/circuits', label: 'Circuits' },
 ];
