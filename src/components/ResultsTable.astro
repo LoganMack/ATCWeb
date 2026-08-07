@@ -6,27 +6,48 @@
 // column anymore — pole and the post-penalty adjustment flag are shown as
 // small inline markers on Start/Pos instead, and result tags (e.g.
 // "Unclassified") are shown next to the driver's name, so the table stays
-// to exactly these columns. Every row is a fixed height regardless of
-// whether its Laps/Points cells have a second subtext line, so a table
-// with a mix of tall and short rows still lines up (see the `h-8` wrappers
-// below).
+// to exactly these columns.
 //
-// v0.16: this table is now READ-ONLY as far as penalties go — the tag next
-// to a driver's name is just a static badge (no click-to-expand, no add/
-// edit/remove). All of that (plus the full incident detail — description,
-// offenses, involved cars, appeal result) now lives on the dedicated
-// Incident Report page (/results/[subsessionId]/incidents), reachable via
-// the button above this table on the round page.
+// v0.16: this table is READ-ONLY as far as penalties go — the tag next
+// to a driver's name is just a static badge (no add/edit/remove). All of
+// that (plus the full incident detail — description, offenses, involved
+// cars, appeal result) lives on the dedicated Incident Report page
+// (/results/[subsessionId]/incidents), reachable via the button above this
+// table on the round page.
+//
+// v0.22: every row is click-to-expand (see the `[data-expand-row]`/
+// `[data-detail-row]` pair below and the script at the bottom) — clicking a
+// driver's row reveals a detail panel with their average/best lap, overall
+// race time (rule 18.3.2 — see src/lib/penalties.ts), and an itemized
+// points breakdown. That's also why the old Laps-led and combined
+// bonus-points subtext lines are gone from the default row (moved into the
+// detail panel instead) — rows go back to a single fixed line each
+// (`h-8` is now only needed on Pos, for the post-penalty old/new position
+// stack).
 import { iracingResultsUrl, type RaceResultRow } from '../lib/results';
 import type { RaceLinks, Penalty } from '../lib/supabase';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 
-/** e.g. "+9 bonus" — combines class points and every other bonus/deduction into one figure; null when it's 0. */
-function pointsBreakdown(row: RaceResultRow): string | null {
-  if (row.bonusPoints === 0) return null;
-  return `${row.bonusPoints > 0 ? '+' : ''}${row.bonusPoints} bonus`;
+/** `total_points` minus every bonus/deduction component — the base points this driver earned purely from their overall finishing position (see RaceResultRow.bonusPoints' own doc comment on the total_points formula). Shown as its own line in the expanded detail panel. */
+function finishPoints(row: RaceResultRow): number {
+  return row.totalPoints - row.bonusPoints;
+}
+
+interface BreakdownLine {
+  label: string;
+  value: number;
+}
+
+/** Every nonzero component of this driver's points, itemized, for the expanded detail panel — a "better breakdown" than the old collapsed-row combined bonus figure. Finish points always shown (even 0); everything else only when nonzero. */
+function pointsBreakdownLines(row: RaceResultRow): BreakdownLine[] {
+  const lines: BreakdownLine[] = [{ label: 'Finish', value: finishPoints(row) }];
+  if (row.classPoints !== 0) lines.push({ label: 'Class', value: row.classPoints });
+  if (row.finesseBonus !== 0) lines.push({ label: 'Finesse', value: row.finesseBonus });
+  if (row.poleBonus !== 0) lines.push({ label: 'Pole', value: row.poleBonus });
+  if (row.pointsDeduction !== 0) lines.push({ label: 'Deduction', value: row.pointsDeduction });
+  return lines;
 }
 
 /**
@@ -203,8 +224,16 @@ for (const p of racePenalties) {
           const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
           const tagLabel = penaltyTagLabel(rowPenalties);
           const isRealPenalty = tagLabel.startsWith('Penalty');
+          const breakdownLines = pointsBreakdownLines(row);
           return (
-          <tr class={`border-b border-white/5 text-sm ${row.dsq ? 'opacity-50' : ''}`}>
+          <>
+          <tr
+            data-expand-row
+            tabindex="0"
+            role="button"
+            aria-expanded="false"
+            class={`cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.03] ${row.dsq ? 'opacity-50' : ''}`}
+          >
             <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
               <div class="flex h-8 flex-col items-start justify-center">
                 <div class={row.penaltyOldPosition !== null ? 'text-white/40 line-through' : ''}>
@@ -224,6 +253,13 @@ for (const p of racePenalties) {
             </td>
             <td class="py-2.5 pr-3 font-semibold">
               <div class="flex flex-wrap items-center gap-2">
+                <span
+                  data-chevron
+                  class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150"
+                  aria-hidden="true"
+                >
+                  &#9654;
+                </span>
                 <span>
                   {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
@@ -266,24 +302,82 @@ for (const p of racePenalties) {
                 <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="3 incidents or less bonus">I</sup>
               )}
             </td>
-            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">
-              <div class="flex h-8 flex-col items-center justify-center">
-                <div>{row.laps ?? '—'}</div>
-                {row.lapsLed !== null && row.lapsLed > 0 && (
-                  <div class="text-[10px] text-white/30">{row.lapsLed} led</div>
-                )}
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.laps ?? '—'}</td>
+            <td class="py-2.5 pr-4 text-center font-semibold">{row.totalPoints}</td>
+          </tr>
+          <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+            <td colspan={showClass ? 8 : 7} class="px-4 py-4 sm:pl-11">
+              <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                <div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Average Lap</div>
+                  <div class="mt-0.5 font-display text-sm text-white/90">{row.averageLapFormatted}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Best Lap</div>
+                  <div class="mt-0.5 font-display text-sm text-white/90">{row.bestLapFormatted}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Overall Race Time</div>
+                  <div class="mt-0.5 font-display text-sm text-white/90">{row.overallRaceTimeFormatted}</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Laps Led</div>
+                  <div class="mt-0.5 font-display text-sm text-white/90">{row.lapsLed ?? 0}</div>
+                </div>
               </div>
-            </td>
-            <td class="py-2.5 pr-4 text-center">
-              <div class="flex h-8 flex-col items-center justify-center">
-                <div class="font-semibold">{row.totalPoints}</div>
-                {pointsBreakdown(row) && <div class="text-[10px] text-white/30">{pointsBreakdown(row)}</div>}
+              <div class="mt-4">
+                <div class="text-[10px] uppercase tracking-wide text-white/30">Points Breakdown</div>
+                <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-white/60">
+                  {breakdownLines.map((line) => (
+                    <span>
+                      {line.label}:{' '}
+                      <span class="font-semibold text-white/90">
+                        {line.value > 0 && line.label !== 'Finish' ? '+' : ''}
+                        {line.value}
+                      </span>
+                    </span>
+                  ))}
+                  <span class="text-white/40">
+                    Total: <span class="font-semibold text-white/90">{row.totalPoints}</span>
+                  </span>
+                </div>
               </div>
             </td>
           </tr>
+          </>
           );
         })}
       </tbody>
     </table>
   </div>
 </div>
+
+<script>
+  // Click-to-expand rows (v0.22) — [data-expand-row] is always immediately
+  // followed in the DOM by its own [data-detail-row] (see the markup
+  // above), same "toggle the next sibling" convention the incident-report
+  // page uses for its appeal-notes reveal. Re-runs on every astro:page-load
+  // (view-transition navigations included), same as every other toggle
+  // script in this app.
+  function initResultsTableExpand() {
+    document.querySelectorAll<HTMLTableRowElement>('[data-expand-row]').forEach((row) => {
+      const toggle = () => {
+        const detail = row.nextElementSibling as HTMLElement | null;
+        if (!detail) return;
+        const expanded = row.getAttribute('aria-expanded') === 'true';
+        row.setAttribute('aria-expanded', String(!expanded));
+        detail.classList.toggle('hidden', expanded);
+        row.querySelector<HTMLElement>('[data-chevron]')?.classList.toggle('rotate-90', !expanded);
+      };
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggle();
+        }
+      });
+    });
+  }
+
+  document.addEventListener('astro:page-load', initResultsTableExpand);
+</script>

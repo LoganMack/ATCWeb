@@ -45,6 +45,7 @@ import {
   getSeasons,
   getPenaltiesForSubsessions,
   getAllTeamSeasonLogos,
+  formatLapTime,
   type SupabaseEnv,
 } from './supabase';
 import type { Season, CarLogo, Penalty } from './supabase';
@@ -54,6 +55,7 @@ import {
   type SeasonScoreRow,
   type SeasonClassScoreRow,
   type SeasonOverallAdjustment,
+  type LeaderRaceStats,
   type Format,
 } from './penalties';
 
@@ -194,6 +196,43 @@ function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: nu
   );
 }
 
+interface RawLapStatsRow {
+  subsession_id: number;
+  race_number: number;
+  cust_id: number;
+  /** iRacing's own per-driver average lap for the race, ten-thousandths of a second — NOT selected by getCuratedRaceResultsForSubsessions above (see that function's comment on why an unverified column stays isolated). Source for "overall race time" (own laps × own average lap — the same manual method Logan already used for penalty math on laps-down drivers, rule 18.3.2) and for the results page's average-lap stat. */
+  average_lap_ten_thousandths: number | null;
+  /** Same isolation reasoning — this driver's single fastest lap the race, ten-thousandths of a second. Already read this same way (its own tiny query) for the news recap's fastest-lap stat (see newsRecap.ts's fetchBestLaps) — pulled here too since results/standings rows now show it per driver, not just the round-wide fastest lap. */
+  best_lap_ten_thousandths: number | null;
+}
+
+/**
+ * Isolated, try/catch-wrapped fetch of two `curated_race_results` columns
+ * this file's SHARED query (getCuratedRaceResultsForSubsessions)
+ * deliberately doesn't select — same reasoning as that function's own
+ * comment: PostgREST fails an entire query if any one selected column
+ * doesn't exist, and this file backs every results/standings/champions
+ * page, so an unverified column can only be allowed to degrade its OWN
+ * feature, never take down the rest of the site. On failure, every caller
+ * below just proceeds without average/best lap data — average-lap-based
+ * penalty ranking (rule 18.3.2, see reorderByTimePenalty in
+ * src/lib/penalties.ts) falls back to its pre-existing, narrower
+ * interval-only behavior, and the results page simply omits the
+ * average/best lap stats.
+ */
+async function getLapStatsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RawLapStatsRow[]> {
+  if (subsessionIds.length === 0) return [];
+  try {
+    return await restGet<RawLapStatsRow[]>(
+      env,
+      `curated_race_results?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})`
+    );
+  } catch (err) {
+    console.error('Failed to fetch average/best lap data (curated_race_results.average_lap_ten_thousandths) — falling back to interval-only penalty ranking and omitting lap-time stats:', err);
+    return [];
+  }
+}
+
 interface TeamBasic {
   id: string;
   name: string;
@@ -294,6 +333,10 @@ interface SeasonOverallContext {
   rawByKey: Map<string, CuratedRaceResultRow>;
   overallScores: RaceScoreOverallRow[];
   custIdByDriverId: Map<string, number>;
+  /** (subsessionId:raceNumber) -> that race's actual leader's own laps/average-lap — see src/lib/penalties.ts's computeSeasonClassAdjustments, which needs this since its own rows are already filtered to one class and may not contain the (possibly different-class) overall leader. */
+  leaderStatsByRace: Map<string, LeaderRaceStats>;
+  /** (subsessionId:raceNumber:custId) -> that result's average/best lap data — exposed so computeSeasonStandings can attach lapsComplete/averageLapTenThousandths onto its per-class rows (rule 18.3.2's estimated-overall-race-time path) without re-querying. */
+  lapStatsByKey: Map<string, RawLapStatsRow>;
 }
 
 /**
@@ -330,25 +373,44 @@ async function getSeasonOverallContext(
       rawByKey: new Map(),
       overallScores: [],
       custIdByDriverId,
+      leaderStatsByRace: new Map(),
+      lapStatsByKey: new Map(),
     };
   }
 
   const subsessionIds = [...new Set(overallScores.map((s) => s.subsession_id))];
-  const [rawResults, penalties, seasonRounds] = await Promise.all([
+  const [rawResults, penalties, seasonRounds, lapStats] = await Promise.all([
     getCuratedRaceResultsForSubsessions(env, subsessionIds),
     getPenaltiesForSubsessions(env, subsessionIds),
     getRoundsForSeason(env, season.id),
+    getLapStatsForSubsessions(env, subsessionIds),
   ]);
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const formatBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, r.format]));
 
+  // This season's race leaders (rule 18.3.2's reference point — see
+  // src/lib/penalties.ts's Position recalculation header) — every touched
+  // race's own actual on-track winner, pre-penalty, keyed the same way
+  // computeSeasonClassAdjustments looks it up.
+  const leaderStatsByRace = new Map<string, LeaderRaceStats>();
+  for (const r of rawResults) {
+    if (r.finish_position === 1) {
+      leaderStatsByRace.set(`${r.subsession_id}:${r.race_number}`, {
+        lapsComplete: r.laps_complete,
+        averageLapTenThousandths: lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, r.cust_id))?.average_lap_ten_thousandths ?? null,
+      });
+    }
+  }
+
   if (penalties.length === 0) {
-    return { adjustments: new Map(), penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId };
+    return { adjustments: new Map(), penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey };
   }
 
   const seasonScoreRows: SeasonScoreRow[] = overallScores.map((s) => {
     const custId = custIdByDriverId.get(s.driver_id);
     const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const lapStatsRow = custId != null ? lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
     return {
       subsessionId: s.subsession_id,
       raceNumber: s.race_number,
@@ -361,11 +423,13 @@ async function getSeasonOverallContext(
       finesseBonus: s.finesse_bonus,
       poleBonus: s.pole_bonus,
       pointsDeduction: s.points_deduction,
+      lapsComplete: raw?.laps_complete ?? null,
+      averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
     };
   });
 
   const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession);
-  return { adjustments, penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId };
+  return { adjustments, penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey };
 }
 
 // ---------------------------------------------------------------------------
@@ -526,7 +590,15 @@ export async function computeSeasonStandings(
       .map((s) => {
         const custId = custIdByDriverId.get(s.driver_id);
         const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
-        return { score: s, position: raw?.adjusted_position ?? raw?.finish_position ?? null, interval: raw?.interval_ten_thousandths ?? null };
+        const lapStatsRow =
+          custId != null ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+        return {
+          score: s,
+          position: raw?.adjusted_position ?? raw?.finish_position ?? null,
+          interval: raw?.interval_ten_thousandths ?? null,
+          lapsComplete: raw?.laps_complete ?? null,
+          averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
+        };
       })
       .filter((r) => r.position !== null)
       .sort((a, b) => (a.position as number) - (b.position as number));
@@ -548,6 +620,8 @@ export async function computeSeasonStandings(
         finesseBonus: r.score.finesse_bonus,
         poleBonus: r.score.pole_bonus,
         pointsDeduction: r.score.points_deduction,
+        lapsComplete: r.lapsComplete,
+        averageLapTenThousandths: r.averageLapTenThousandths,
       });
     });
   }
@@ -556,7 +630,8 @@ export async function computeSeasonStandings(
     classScoreRows,
     overallContext.penalties,
     overallContext.formatBySubsession,
-    overallContext.adjustments
+    overallContext.adjustments,
+    overallContext.leaderStatsByRace
   );
 
   // Disqualified results are excluded from ranking entirely (not just
@@ -948,6 +1023,25 @@ export interface RaceResultRow {
   team: { name: string; logoUrl: string | null } | null;
   /** The car this driver used for this specific race (`curated_race_results.car_name`), or null if not recorded. */
   car: { name: string; logoUrl: string | null } | null;
+  /** "1:42.512"-formatted average lap the race (see `formatLapTime` in src/lib/supabase.ts), from `curated_race_results.average_lap_ten_thousandths` (isolated fetch, see getLapStatsForSubsessions) — "—" when the pipeline hasn't got this for this driver/race. */
+  averageLapFormatted: string;
+  /** Raw ten-thousandths-of-a-second value averageLapFormatted is formatted from — kept unformatted, same reasoning as intervalTenThousandths, so src/lib/penalties.ts can do exact integer math with it (rule 18.3.2's "own laps × own average lap" — see reorderByTimePenalty) rather than round-tripping through the display string. Null when there's no data. */
+  averageLapTenThousandths: number | null;
+  /** This driver's single fastest lap the race, formatted the same way. Same source/isolation as averageLapFormatted. */
+  bestLapFormatted: string;
+  /**
+   * "Overall race time" — own laps × own average lap (rule 18.3.2's method
+   * for comparing drivers who aren't on the lead lap, where the normal
+   * leader-relative `margin` above isn't a real time gap; see
+   * reorderByTimePenalty in src/lib/penalties.ts) — "—" whenever
+   * averageLapTenThousandths is null. Reflects any time penalty already
+   * added in — this is the driver's FINAL effective total, not their raw
+   * pre-penalty time — recomputed by applyPenaltiesToRoundResults()
+   * whenever this driver (or one that cascaded past them) was penalized.
+   */
+  overallRaceTimeFormatted: string;
+  /** Raw ten-thousandths-of-a-second value overallRaceTimeFormatted is formatted from — same reasoning as averageLapTenThousandths. Null when there's no data to compute it from. */
+  overallRaceTimeTenThousandths: number | null;
 }
 
 export interface RoundResults {
@@ -977,7 +1071,7 @@ type RaceScoreWithClass = RaceScoreRow & {
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
-  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows] = await Promise.all([
+  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
     driversSelect(env),
@@ -985,6 +1079,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     getCarLogos(env),
     getRoundBySubsessionId(env, subsessionId),
     getAllTeamSeasonLogosSafe(env),
+    getLapStatsForSubsessions(env, [subsessionId]),
   ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
@@ -992,6 +1087,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
   );
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   // This round's season, for the historical-logo lookup below — team logos
@@ -1003,14 +1099,30 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   // Leader's laps_complete per race (finish_position === 1, i.e. the actual
   // on-track winner before any penalty adjustment) — needed to turn a
   // lapped driver's negative interval into a "-xL" margin. See
-  // `formatMargin`.
+  // `formatMargin`. Also the leader's own average lap — src/lib/penalties.ts
+  // uses it as the stand-in for "the leader's final lap pace" (rule 18.3.2
+  // doesn't give us literal last-lap telemetry, only average-lap data) when
+  // deciding whether a time penalty pushes someone an extra lap down.
   const leaderLapsByRace = new Map<number, number | null>();
+  const leaderAverageLapByRace = new Map<number, number | null>();
   for (const r of rawResults) {
-    if (r.finish_position === 1) leaderLapsByRace.set(r.race_number, r.laps_complete);
+    if (r.finish_position === 1) {
+      leaderLapsByRace.set(r.race_number, r.laps_complete);
+      const custId = r.cust_id;
+      leaderAverageLapByRace.set(
+        r.race_number,
+        lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, custId))?.average_lap_ten_thousandths ?? null
+      );
+    }
   }
 
   function toRow(score: RaceScoreWithClass, driver: DriverBasic, raw: CuratedRaceResultRow, position: number | null): RaceResultRow {
     const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
+    const lapStatsRow = lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id));
+    const averageLapTenThousandths = lapStatsRow?.average_lap_ten_thousandths ?? null;
+    const bestLapTenThousandths = lapStatsRow?.best_lap_ten_thousandths ?? null;
+    const overallRaceTimeTenThousandths =
+      averageLapTenThousandths !== null && raw.laps_complete !== null ? raw.laps_complete * averageLapTenThousandths : null;
     const tags: string[] = [];
     // `classified` is computed upstream by the results pipeline itself
     // (Logan: "anyone finishing less than 50% of the leader's laps do not
@@ -1045,6 +1157,11 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       hasPenalty: false,
       team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, seasonId, seasonLogoMap) } : null,
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
+      averageLapFormatted: formatLapTime(averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null),
+      averageLapTenThousandths,
+      bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
+      overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
+      overallRaceTimeTenThousandths,
     };
   }
 

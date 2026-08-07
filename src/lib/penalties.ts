@@ -42,6 +42,7 @@
  */
 
 import type { RaceResultRow, RoundResults } from './results';
+import { formatLapTime } from './supabase';
 
 // ---------------------------------------------------------------------------
 // Points tables — Table: Points System, Table: Class Points (rulebook 18.3)
@@ -113,12 +114,32 @@ export function effectivePenaltyPoints(p: PenaltyLike): number {
 }
 
 // ---------------------------------------------------------------------------
-// Position recalculation — rule 64: "it is added to their total race time
-// ... the driver is then classified on that lap and ranked by its total
-// race time." We don't have literal total race time, but `intervalTenThousandths`
-// (gap to the leader) is an equivalent proxy for anyone still on the lead
-// lap — adding the penalty to it and re-sorting reproduces the same order a
-// real re-classification would.
+// Position recalculation — rulebook 18.3.1/18.3.2: "Drivers are classified
+// first by completed laps, then by total race time... When a driver
+// receives a time penalty, it is added to their total race time. If the
+// added penalty places the driver more than a full lap behind the leader —
+// measured by the leader's final lap pace — the driver is scored +1 lap
+// down. The driver is then classified on that lap and ranked by its total
+// race time."
+//
+// A driver still on the lead lap has a real, exact gap-to-leader
+// (`intervalTenThousandths`, iRacing's own telemetry) — adding a time
+// penalty to that and re-sorting is exact, no estimation involved. A driver
+// already laps down has NO usable real gap (`intervalTenThousandths` is
+// just iRacing's "-xL" flag there, not a time — see CuratedRaceResultRow in
+// results.ts), which used to mean a penalty against a laps-down driver had
+// nothing to compare it to and simply did nothing (the gap this whole
+// feature closes). Per Logan, the fix is the same one used by hand before
+// this was automated: each driver's own "overall race time" = their own
+// completed laps × their own average lap pace
+// (`average_lap_ten_thousandths`, see results.ts's getLapStatsForSubsessions
+// — an isolated fetch, so missing data degrades this one calculation, never
+// the rest of the site). That estimate is ONLY used where there's no exact
+// data to prefer: laps-down drivers, and detecting whether a lead-lap
+// driver's penalty is big enough to cross them into (or further into) laps-
+// down territory — one lap's worth of time being the leader's own average
+// lap, our best available stand-in for "the leader's final lap pace" (the
+// pipeline doesn't capture a literal last-lap time).
 // ---------------------------------------------------------------------------
 
 interface RaceDriverPenaltyTotal {
@@ -146,43 +167,133 @@ export interface Positionable {
   driverId: string;
   position: number | null;
   intervalTenThousandths: number | null;
+  /** This driver's own completed laps this race — null when not recorded. */
+  lapsComplete: number | null;
+  /** This driver's own average lap this race (ten-thousandths of a second) — null when the pipeline hasn't got it for this driver/race (see results.ts's getLapStatsForSubsessions). */
+  averageLapTenThousandths: number | null;
+}
+
+/** The race's overall leader's own stats — the fixed reference point every driver in the race (any class) is measured against, laps-down-wise. Always the actual on-track race leader, never a per-class one — see this section's header. */
+export interface LeaderRaceStats {
+  lapsComplete: number | null;
+  averageLapTenThousandths: number | null;
+}
+
+export interface RankedPosition {
+  position: number;
+  /** This driver's laps-down count after applying any penalty — 0 means still on the lead lap. */
+  lapsDown: number;
+  /** Their laps-down count BEFORE any penalty (from completed laps alone) — compare against `lapsDown` to tell whether a penalty actually pushed them further down, vs. them just already being there independent of any penalty. */
+  lapsDownBefore: number;
+  /**
+   * Total time gap to the leader after any penalty, ten-thousandths of a
+   * second, WITHIN this driver's lapsDown group (e.g. for a driver scored 1
+   * lap down, how far past that 1-lap threshold they are) — not comparable
+   * across two rows with different lapsDown counts. Null when there wasn't
+   * enough data to compute one (an untouched, already-laps-down driver
+   * nobody penalized just keeps its original relative order instead, same
+   * as this engine did before this calculation existed).
+   */
+  gapTenThousandths: number | null;
 }
 
 /**
  * Re-ranks one race's rows (either the overall field or one class's slice
- * of it) after adding each penalized driver's time penalty to their gap to
- * the leader. Only reorders within the same "lap status" group — lead-lap
- * drivers (interval >= 0) against each other, laps-down drivers (interval <
- * 0, iRacing's "-xL" flag — not a real time value, see CuratedRaceResultRow
- * in results.ts) keep their existing relative order among themselves, since
- * a penalty in seconds can't be meaningfully compared against that flag.
- * Rows without a position (DSQ'd/unranked) are left out entirely.
+ * of it) after adding each penalized driver's time penalty to their total
+ * race time, per rules 18.3.1/18.3.2 (this section's header). Rows without
+ * a position (DSQ'd/unranked) are left out entirely. `leader` should always
+ * be the race's actual overall leader's stats, even when `rows` is just one
+ * class's slice — see this section's header on why.
  */
 export function reorderByTimePenalty(
   rows: Positionable[],
   raceNumber: number,
-  penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>
-): Map<string, number> {
+  penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>,
+  leader: LeaderRaceStats
+): Map<string, RankedPosition> {
   const ranked = rows.filter((r) => r.position !== null);
-  const withAdjusted = ranked.map((r) => {
-    const timePenalty = penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`)?.time ?? 0;
-    const onLeadLap = r.intervalTenThousandths !== null && r.intervalTenThousandths >= 0;
-    const adjustedInterval = onLeadLap ? (r.intervalTenThousandths as number) + timePenalty * 10000 : null;
-    return { driverId: r.driverId, onLeadLap, adjustedInterval, originalPosition: r.position as number };
+
+  interface SortKey {
+    driverId: string;
+    lapsDown: number;
+    lapsDownBefore: number;
+    gap: number | null;
+    originalPosition: number;
+  }
+
+  const keys: SortKey[] = ranked.map((r) => {
+    const originalPosition = r.position as number;
+    const timePenaltyTenThousandths = (penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`)?.time ?? 0) * 10000;
+    const lapsDownBefore =
+      r.lapsComplete !== null && leader.lapsComplete !== null && leader.lapsComplete > r.lapsComplete
+        ? leader.lapsComplete - r.lapsComplete
+        : 0;
+    const onLeadLapBefore = lapsDownBefore === 0 && r.intervalTenThousandths !== null && r.intervalTenThousandths >= 0;
+
+    if (timePenaltyTenThousandths === 0) {
+      // Untouched by any penalty — keep using the pipeline's own exact data
+      // (the real interval, for a lead-lap driver); no comparable time
+      // exists for an already-laps-down driver either way, so it keeps its
+      // stable original position within its laps-down bucket, same as
+      // before this calculation existed.
+      return {
+        driverId: r.driverId,
+        lapsDown: lapsDownBefore,
+        lapsDownBefore,
+        gap: onLeadLapBefore ? (r.intervalTenThousandths as number) : null,
+        originalPosition,
+      };
+    }
+
+    if (onLeadLapBefore) {
+      // Exact: real interval + a real penalty, no averaging involved.
+      const newInterval = (r.intervalTenThousandths as number) + timePenaltyTenThousandths;
+      if (leader.averageLapTenThousandths !== null && leader.averageLapTenThousandths > 0 && newInterval > leader.averageLapTenThousandths) {
+        const lapsDown = Math.floor(newInterval / leader.averageLapTenThousandths);
+        return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: newInterval - lapsDown * leader.averageLapTenThousandths, originalPosition };
+      }
+      return { driverId: r.driverId, lapsDown: 0, lapsDownBefore, gap: newInterval, originalPosition };
+    }
+
+    // Already laps down, and now penalized further — the one case with no
+    // exact data to fall back on, so this is where the average-lap estimate
+    // (own laps × own average lap, same as leader's) is actually needed.
+    if (
+      r.averageLapTenThousandths !== null &&
+      r.lapsComplete !== null &&
+      leader.averageLapTenThousandths !== null &&
+      leader.averageLapTenThousandths > 0 &&
+      leader.lapsComplete !== null
+    ) {
+      const ownRaceTime = r.lapsComplete * r.averageLapTenThousandths;
+      const leaderRaceTime = leader.lapsComplete * leader.averageLapTenThousandths;
+      const gapAfter = ownRaceTime - leaderRaceTime + timePenaltyTenThousandths;
+      // A penalty only ever adds laps down, never removes one the pipeline
+      // already recorded — guards against the estimate's own noise
+      // undercutting a laps-down count we already know is at least this.
+      const lapsDown = Math.max(lapsDownBefore, Math.floor(gapAfter / leader.averageLapTenThousandths));
+      return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: gapAfter, originalPosition };
+    }
+
+    // Missing average-lap data for this row or the leader — can't estimate,
+    // so this row keeps its pre-penalty laps-down bucket (the penalty's
+    // POINTS effect, if any, still applies via recomputeRow — only the
+    // re-ranking is skipped here for lack of data to rank it by).
+    return { driverId: r.driverId, lapsDown: lapsDownBefore, lapsDownBefore, gap: null, originalPosition };
   });
 
-  withAdjusted.sort((a, b) => {
-    if (a.onLeadLap !== b.onLeadLap) return a.onLeadLap ? -1 : 1;
-    if (a.onLeadLap) {
-      const av = a.adjustedInterval ?? Infinity;
-      const bv = b.adjustedInterval ?? Infinity;
-      if (av !== bv) return av - bv;
-    }
+  keys.sort((a, b) => {
+    if (a.lapsDown !== b.lapsDown) return a.lapsDown - b.lapsDown;
+    if (a.gap !== null && b.gap !== null && a.gap !== b.gap) return a.gap - b.gap;
+    if (a.gap !== null && b.gap === null) return -1;
+    if (a.gap === null && b.gap !== null) return 1;
     return a.originalPosition - b.originalPosition;
   });
 
-  const out = new Map<string, number>();
-  withAdjusted.forEach((entry, i) => out.set(entry.driverId, i + 1));
+  const out = new Map<string, RankedPosition>();
+  keys.forEach((k, i) =>
+    out.set(k.driverId, { position: i + 1, lapsDown: k.lapsDown, lapsDownBefore: k.lapsDownBefore, gapTenThousandths: k.gap })
+  );
   return out;
 }
 
@@ -271,7 +382,16 @@ function recomputeRow(
   originalClassPosition: number | null,
   raceNumber: number,
   format: Format | null,
-  penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>
+  penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>,
+  /**
+   * The OVERALL (never class-relative) reordering result for this driver
+   * this race, used only to refresh margin/overall-race-time display when
+   * THIS driver has their own penalty — see this file's Position
+   * recalculation header on why margin is always measured against the
+   * actual race leader regardless of which view (class or overall) a row
+   * belongs to. Undefined when the race wasn't reordered at all.
+   */
+  overallRanked: RankedPosition | undefined
 ): RaceResultRow {
   const pen = penaltyByRaceDriver.get(`${raceNumber}:${row.driver.id}`);
   const positionChanged = newPosition !== row.position;
@@ -302,6 +422,49 @@ function recomputeRow(
     penaltyByRaceDriver
   );
 
+  // Margin/overall-race-time only ever get refreshed for a driver who
+  // received a penalty THEMSELVES this race (`pen` set) — a driver who was
+  // merely cascaded past by someone else's penalty has a totally unchanged
+  // real gap to the leader, so their original (exact, pipeline-sourced)
+  // margin/overall-race-time stay exactly as they were. See
+  // reorderByTimePenalty's header for why lapsDown/gapTenThousandths are
+  // always computed against the OVERALL leader.
+  let margin = row.margin;
+  let intervalTenThousandths = row.intervalTenThousandths;
+  let overallRaceTimeFormatted = row.overallRaceTimeFormatted;
+  let overallRaceTimeTenThousandths = row.overallRaceTimeTenThousandths;
+  let tags = row.tags;
+  if (pen && overallRanked) {
+    if (overallRanked.lapsDown > 0) {
+      margin = `-${overallRanked.lapsDown}L`;
+      intervalTenThousandths = -1; // matches CuratedRaceResultRow's own "negative = laps down" convention
+    } else if (overallRanked.gapTenThousandths !== null) {
+      // Still on the lead lap post-penalty, so this is always >= 0 — same
+      // formatting results.ts's formatMargin() uses for a non-negative,
+      // nonzero interval (kept inline here rather than importing that
+      // function, to avoid a runtime value-level import cycle between this
+      // file and results.ts — the two already share type-only imports).
+      margin = overallRanked.gapTenThousandths === 0 ? '—' : (overallRanked.gapTenThousandths / 10000).toFixed(3);
+      intervalTenThousandths = overallRanked.gapTenThousandths;
+    }
+    // The driver's new EFFECTIVE total (base + this race's penalties) —
+    // only computable when we had an average lap for them to begin with
+    // (see RaceResultRow.overallRaceTimeTenThousandths's own doc comment).
+    if (row.overallRaceTimeTenThousandths !== null) {
+      const newTotal = row.overallRaceTimeTenThousandths + pen.time * 10000;
+      overallRaceTimeTenThousandths = newTotal;
+      overallRaceTimeFormatted = formatLapTime(newTotal / 10000);
+    }
+    // Only flag this when the penalty ITSELF pushed them further down than
+    // their completed laps already had them — an already-laps-down driver
+    // who got, say, a PP-only penalty this race (no time effect, or not
+    // enough to cross another boundary) shouldn't read as if the penalty
+    // caused a laps-down status they already had independent of it.
+    if (overallRanked.lapsDown > overallRanked.lapsDownBefore) {
+      tags = [...tags, `${overallRanked.lapsDown} Lap${overallRanked.lapsDown > 1 ? 's' : ''} Down (Penalty)`];
+    }
+  }
+
   return {
     ...row,
     position: effectivePosition,
@@ -312,6 +475,11 @@ function recomputeRow(
     wasAdjusted: row.wasAdjusted || (canReposition && positionChanged),
     penaltyOldPosition: canReposition && positionChanged ? row.position : row.penaltyOldPosition,
     hasPenalty: row.hasPenalty || Boolean(pen),
+    margin,
+    intervalTenThousandths,
+    overallRaceTimeFormatted,
+    overallRaceTimeTenThousandths,
+    tags,
   };
 }
 
@@ -342,7 +510,13 @@ export function applyPenaltiesToRoundResults(
   const newByClass = new Map([...results.byClass].map(([classId, byRace]) => [classId, new Map(byRace)] as const));
 
   const toPositionable = (rows: RaceResultRow[]): Positionable[] =>
-    rows.map((r) => ({ driverId: r.driver.id, position: r.position, intervalTenThousandths: r.intervalTenThousandths }));
+    rows.map((r) => ({
+      driverId: r.driver.id,
+      position: r.position,
+      intervalTenThousandths: r.intervalTenThousandths,
+      lapsComplete: r.laps,
+      averageLapTenThousandths: r.averageLapTenThousandths,
+    }));
 
   for (const raceNumber of raceNumbers) {
     const overallRows = results.overall.get(raceNumber);
@@ -350,7 +524,17 @@ export function applyPenaltiesToRoundResults(
     const touchedThisRace = overallRows.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driver.id}`));
     if (!touchedThisRace) continue;
 
-    const newOverallPositions = reorderByTimePenalty(toPositionable(overallRows), raceNumber, penaltyByRaceDriver);
+    // The race's actual on-track leader (never a per-class one — see this
+    // file's Position recalculation header) — every reorder pass for this
+    // race, class-relative or overall, measures laps-down/race-time against
+    // this same fixed reference point.
+    const leaderRow = overallRows.find((r) => r.finishPosition === 1);
+    const leader: LeaderRaceStats = {
+      lapsComplete: leaderRow?.laps ?? null,
+      averageLapTenThousandths: leaderRow?.averageLapTenThousandths ?? null,
+    };
+
+    const newOverallRanked = reorderByTimePenalty(toPositionable(overallRows), raceNumber, penaltyByRaceDriver, leader);
 
     // Pass 1: recompute every class's new position order for this race, and
     // build one driver -> new-class-position lookup — the OVERALL view's
@@ -358,22 +542,24 @@ export function applyPenaltiesToRoundResults(
     // share one underlying points total, they just group the same rows
     // differently), so this has to be gathered across all classes before
     // either view is actually written back.
-    const positionsByClassId = new Map<number, Map<string, number>>();
+    const positionsByClassId = new Map<number, Map<string, RankedPosition>>();
     const newClassPositionByDriver = new Map<string, number>();
     const originalClassPositionByDriver = new Map<string, number>();
     for (const [classId, byRace] of results.byClass) {
       const classRows = byRace.get(raceNumber);
       if (!classRows) continue;
-      const newPositions = reorderByTimePenalty(toPositionable(classRows), raceNumber, penaltyByRaceDriver);
+      const newPositions = reorderByTimePenalty(toPositionable(classRows), raceNumber, penaltyByRaceDriver, leader);
       positionsByClassId.set(classId, newPositions);
-      for (const [driverId, pos] of newPositions) newClassPositionByDriver.set(driverId, pos);
+      for (const [driverId, ranked] of newPositions) newClassPositionByDriver.set(driverId, ranked.position);
       // `results` (as opposed to newByClass) still holds each row exactly
       // as getRoundResults() produced it — its own `position` field IS that
       // driver's original class position, for a class-view row.
       for (const row of classRows) if (row.position !== null) originalClassPositionByDriver.set(row.driver.id, row.position);
     }
 
-    // Pass 2: write back recomputed rows for both views.
+    // Pass 2: write back recomputed rows for both views. Margin/overall-
+    // race-time always come from the OVERALL reorder (newOverallRanked),
+    // regardless of which view a row belongs to.
     for (const [classId, byRace] of results.byClass) {
       const classRows = byRace.get(raceNumber);
       if (!classRows) continue;
@@ -383,12 +569,13 @@ export function applyPenaltiesToRoundResults(
         classRows.map((row) =>
           recomputeRow(
             row,
-            newPositions.get(row.driver.id) ?? row.position,
+            newPositions.get(row.driver.id)?.position ?? row.position,
             newClassPositionByDriver.get(row.driver.id) ?? null,
             originalClassPositionByDriver.get(row.driver.id) ?? null,
             raceNumber,
             format,
-            penaltyByRaceDriver
+            penaltyByRaceDriver,
+            newOverallRanked.get(row.driver.id)
           )
         )
       );
@@ -399,12 +586,13 @@ export function applyPenaltiesToRoundResults(
       overallRows.map((row) =>
         recomputeRow(
           row,
-          newOverallPositions.get(row.driver.id) ?? row.position,
+          newOverallRanked.get(row.driver.id)?.position ?? row.position,
           newClassPositionByDriver.get(row.driver.id) ?? null,
           originalClassPositionByDriver.get(row.driver.id) ?? null,
           raceNumber,
           format,
-          penaltyByRaceDriver
+          penaltyByRaceDriver,
+          newOverallRanked.get(row.driver.id)
         )
       )
     );
@@ -437,6 +625,10 @@ export interface SeasonScoreRow {
   finesseBonus: number;
   poleBonus: number;
   pointsDeduction: number;
+  /** This driver's own completed laps this race — see Positionable's own doc comment (results.ts's rawByKey). */
+  lapsComplete: number | null;
+  /** This driver's own average lap this race — see Positionable's own doc comment (results.ts's getLapStatsForSubsessions). */
+  averageLapTenThousandths: number | null;
 }
 
 export interface SeasonOverallAdjustment {
@@ -504,14 +696,30 @@ export function computeSeasonOverallAdjustments(
     const touched = group.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driverId}`));
     if (!touched) continue;
 
+    // `group` already spans every class for this (subsession, race) — see
+    // this function's own doc comment ("cross-class pass") — so the race's
+    // actual leader can be found right inside it, same convention as
+    // applyPenaltiesToRoundResults uses (position 1, pre-penalty).
+    const leaderRow = group.find((r) => r.scoredPosition === 1);
+    const leader: LeaderRaceStats = {
+      lapsComplete: leaderRow?.lapsComplete ?? null,
+      averageLapTenThousandths: leaderRow?.averageLapTenThousandths ?? null,
+    };
+
     const positionable: Positionable[] = group
       .filter((r) => !r.dsq && r.scoredPosition !== null)
-      .map((r) => ({ driverId: r.driverId, position: r.scoredPosition, intervalTenThousandths: r.intervalTenThousandths }));
-    const newPositions = reorderByTimePenalty(positionable, raceNumber, penaltyByRaceDriver);
+      .map((r) => ({
+        driverId: r.driverId,
+        position: r.scoredPosition,
+        intervalTenThousandths: r.intervalTenThousandths,
+        lapsComplete: r.lapsComplete,
+        averageLapTenThousandths: r.averageLapTenThousandths,
+      }));
+    const newPositions = reorderByTimePenalty(positionable, raceNumber, penaltyByRaceDriver, leader);
 
     for (const r of group) {
       const pen = penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`);
-      const newPosition = newPositions.get(r.driverId) ?? r.scoredPosition;
+      const newPosition = newPositions.get(r.driverId)?.position ?? r.scoredPosition;
       const positionChanged = newPosition !== r.scoredPosition;
       if (!pen && !positionChanged) continue;
 
@@ -549,6 +757,10 @@ export interface SeasonClassScoreRow {
   finesseBonus: number;
   poleBonus: number;
   pointsDeduction: number;
+  /** This driver's own completed laps this race — see Positionable's own doc comment. */
+  lapsComplete: number | null;
+  /** This driver's own average lap this race — see Positionable's own doc comment. */
+  averageLapTenThousandths: number | null;
 }
 
 export interface SeasonClassAdjustment {
@@ -570,7 +782,18 @@ export function computeSeasonClassAdjustments(
   rows: SeasonClassScoreRow[],
   penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string })[],
   formatBySubsession: Map<number, Format | null>,
-  overallAdjustments: Map<string, SeasonOverallAdjustment>
+  overallAdjustments: Map<string, SeasonOverallAdjustment>,
+  /**
+   * The race's actual (never per-class) leader's stats, keyed
+   * `${subsessionId}:${raceNumber}` — unlike computeSeasonOverallAdjustments,
+   * this function's own `rows` are already filtered to one class, so the
+   * overall leader (who may well race in a DIFFERENT class) can't always be
+   * found inside them. Built once by results.ts's getSeasonOverallContext
+   * from its own cross-class data and shared across every class's pass —
+   * see this file's Position recalculation header on why it must be the
+   * same leader every time.
+   */
+  leaderStatsByRace: Map<string, LeaderRaceStats>
 ): Map<string, SeasonClassAdjustment> {
   const out = new Map<string, SeasonClassAdjustment>();
   if (penalties.length === 0) return out;
@@ -607,14 +830,22 @@ export function computeSeasonClassAdjustments(
     const touched = group.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driverId}`));
     if (!touched) continue;
 
+    const leader: LeaderRaceStats = leaderStatsByRace.get(key) ?? { lapsComplete: null, averageLapTenThousandths: null };
+
     const positionable: Positionable[] = group
       .filter((r) => !r.dsq && r.classPosition !== null)
-      .map((r) => ({ driverId: r.driverId, position: r.classPosition, intervalTenThousandths: r.intervalTenThousandths }));
-    const newClassPositions = reorderByTimePenalty(positionable, raceNumber, penaltyByRaceDriver);
+      .map((r) => ({
+        driverId: r.driverId,
+        position: r.classPosition,
+        intervalTenThousandths: r.intervalTenThousandths,
+        lapsComplete: r.lapsComplete,
+        averageLapTenThousandths: r.averageLapTenThousandths,
+      }));
+    const newClassPositions = reorderByTimePenalty(positionable, raceNumber, penaltyByRaceDriver, leader);
 
     for (const r of group) {
       const pen = penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`);
-      const newClassPosition = newClassPositions.get(r.driverId) ?? r.classPosition;
+      const newClassPosition = newClassPositions.get(r.driverId)?.position ?? r.classPosition;
       const classPositionChanged = newClassPosition !== r.classPosition;
       if (!pen && !classPositionChanged) continue;
 
