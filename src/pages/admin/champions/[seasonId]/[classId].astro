@@ -41,7 +41,7 @@ if (!season || !driverClass) {
   return Astro.redirect('/admin/champions', 302);
 }
 
-const standings = await computeSeasonStandings(supabaseEnv, season, classId);
+const standings = await computeSeasonStandings(supabaseEnv, season, classId, undefined, undefined, classes);
 const champion = standings[0] ?? null;
 
 if (Astro.request.method === 'POST') {

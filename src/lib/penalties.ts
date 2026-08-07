@@ -76,8 +76,15 @@ export function finishPointsForPosition(format: Format, position: number): numbe
   return CLASSIFIED_FALLBACK_POINTS[format];
 }
 
-/** The Class Points top-3-in-class bonus (0 outside the top 3). */
-export function classPointsForPosition(format: Format, classPosition: number | null): number {
+/**
+ * The Class Points top-3-in-class bonus (0 outside the top 3). `awardsClassPoints`
+ * defaults to true for backward compatibility, but every internal caller
+ * passes it explicitly — Alpha's own scoring never includes this bonus (it's
+ * Gamma/Delta's own per-race class-position bonus, see README), so a driver
+ * in a non-awarding class always gets 0 here regardless of class position.
+ */
+export function classPointsForPosition(format: Format, classPosition: number | null, awardsClassPoints: boolean = true): number {
+  if (!awardsClassPoints) return 0;
   if (classPosition === null || classPosition < 1 || classPosition > CLASS_POINTS[format].length) return 0;
   return CLASS_POINTS[format][classPosition - 1];
 }
@@ -380,7 +387,9 @@ function recomputeScorePoints(
   newClassPosition: number | null,
   oldClassPosition: number | null,
   format: Format | null,
-  penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>
+  penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>,
+  /** Whether this driver's class awards the top-3-in-class Class Points bonus at all — false for Alpha, see classPointsForPosition. */
+  awardsClassPoints: boolean
 ): RecomputedScore {
   const pen = penaltyByRaceDriver.get(`${raceNumber}:${driverId}`);
   const positionChanged = newPosition !== oldPosition;
@@ -409,9 +418,14 @@ function recomputeScorePoints(
 
   // Same reasoning as finishPoints: only ever consult our own CLASS_POINTS
   // table for a driver whose class position actually moved — everyone else
-  // keeps the pipeline's original class_points untouched.
+  // keeps the pipeline's original class_points untouched. Gated on
+  // awardsClassPoints too, so a podium shuffle in a class that never earns
+  // this bonus (Alpha) can never manufacture nonzero class points the
+  // original pipeline data would never have had.
   const classPoints =
-    canReposition && classPositionChanged ? classPointsForPosition(format as Format, newClassPosition) : s.classPoints;
+    canReposition && classPositionChanged
+      ? classPointsForPosition(format as Format, newClassPosition, awardsClassPoints)
+      : s.classPoints;
 
   const pointsDeduction = s.pointsDeduction - (pen?.points ?? 0);
   const totalPoints = finishPoints + classPoints + s.finesseBonus + s.poleBonus + pointsDeduction;
@@ -436,8 +450,11 @@ function recomputeRow(
    * the actual race leader regardless of which view — class or overall — a
    * row belongs to). Undefined when the race wasn't reordered at all.
    */
-  overallRanked: RankedPosition | undefined
+  overallRanked: RankedPosition | undefined,
+  /** classId -> whether that class awards the top-3-in-class Class Points bonus at all (false for Alpha) — looked up via row.classId, which is always this row's own class whether it came from the byClass loop or the overall loop. */
+  classPointsEligibleByClassId: Map<number, boolean>
 ): RaceResultRow {
+  const awardsClassPoints = classPointsEligibleByClassId.get(row.classId) ?? true;
   const pen = penaltyByRaceDriver.get(`${raceNumber}:${row.driver.id}`);
   const positionChanged = newPosition !== row.position;
   const classPositionChanged = newClassPosition !== originalClassPosition;
@@ -520,7 +537,8 @@ function recomputeRow(
     newClassPosition,
     originalClassPosition,
     format,
-    penaltyByRaceDriver
+    penaltyByRaceDriver,
+    awardsClassPoints
   );
 
   return {
@@ -554,7 +572,9 @@ function recomputeRow(
 export function applyPenaltiesToRoundResults(
   results: RoundResults,
   penalties: (PenaltyLike & { race_number: number; driver_id: string | null })[],
-  format: Format | null
+  format: Format | null,
+  /** classId -> whether that class awards the top-3-in-class Class Points bonus at all (false for Alpha) — see recomputeRow. A class missing from this map is treated as awarding it, matching every class besides Alpha. */
+  classPointsEligibleByClassId: Map<number, boolean> = new Map()
 ): RoundResults {
   if (penalties.length === 0) return results;
   const penaltyByRaceDriver = sumPenaltiesByRaceDriver(penalties);
@@ -633,7 +653,8 @@ export function applyPenaltiesToRoundResults(
             raceNumber,
             format,
             penaltyByRaceDriver,
-            newOverallRanked.get(row.driver.id)
+            newOverallRanked.get(row.driver.id),
+            classPointsEligibleByClassId
           )
         )
       );
@@ -650,7 +671,8 @@ export function applyPenaltiesToRoundResults(
           raceNumber,
           format,
           penaltyByRaceDriver,
-          newOverallRanked.get(row.driver.id)
+          newOverallRanked.get(row.driver.id),
+          classPointsEligibleByClassId
         )
       )
     );
@@ -851,7 +873,9 @@ export function computeSeasonClassAdjustments(
    * see this file's Position recalculation header on why it must be the
    * same leader every time.
    */
-  leaderStatsByRace: Map<string, LeaderRaceStats>
+  leaderStatsByRace: Map<string, LeaderRaceStats>,
+  /** Whether THIS class (every row here is already filtered to one class — see this function's own doc comment) awards the top-3-in-class Class Points bonus at all — false for Alpha. */
+  awardsClassPoints: boolean
 ): Map<string, SeasonClassAdjustment> {
   const out = new Map<string, SeasonClassAdjustment>();
   if (penalties.length === 0) return out;
@@ -912,7 +936,9 @@ export function computeSeasonClassAdjustments(
       const finishPoints = overall ? overall.finishPoints : r.totalPoints - r.classPoints - r.finesseBonus - r.poleBonus - r.pointsDeduction;
       const pointsDeduction = overall ? overall.pointsDeduction : r.pointsDeduction - (pen?.points ?? 0);
       const classPoints =
-        canReposition && classPositionChanged ? classPointsForPosition(format as Format, newClassPosition) : r.classPoints;
+        canReposition && classPositionChanged
+          ? classPointsForPosition(format as Format, newClassPosition, awardsClassPoints)
+          : r.classPoints;
       const totalPoints = finishPoints + classPoints + r.finesseBonus + r.poleBonus + pointsDeduction;
 
       out.set(rowKey(r.subsessionId, r.raceNumber, r.driverId), {

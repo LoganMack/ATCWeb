@@ -123,7 +123,13 @@ if (!loadError && !round) {
 // deductions) — see src/lib/penalties.ts for the full engine. A no-op
 // (same object back) for a round with no penalties logged.
 if (!loadError && penalties.length > 0) {
-  roundResults = applyPenaltiesToRoundResults(roundResults, penalties, round?.format ?? null);
+  // Alpha never earns the top-3-in-class Class Points bonus (Gamma/Delta's
+  // own per-race class-position bonus, see README) — told to recomputeRow
+  // via this lookup so a penalty-driven podium shuffle can't manufacture
+  // class points for an Alpha driver that the original pipeline data never
+  // had.
+  const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
+  roundResults = applyPenaltiesToRoundResults(roundResults, penalties, round?.format ?? null, classPointsEligibleByClassId);
 }
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));

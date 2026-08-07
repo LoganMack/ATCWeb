@@ -45,10 +45,11 @@ import {
   getSeasons,
   getPenaltiesForSubsessions,
   getAllTeamSeasonLogos,
+  getDriverClasses,
   formatLapTime,
   type SupabaseEnv,
 } from './supabase';
-import type { Season, CarLogo, Penalty } from './supabase';
+import type { Season, CarLogo, Penalty, Lookup } from './supabase';
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
@@ -478,11 +479,29 @@ function newStandingsAccum(): StandingsAccum {
   };
 }
 
-/** Shared by both `computeSeasonStandings` and `computeOverallSeasonStandings` — turns the per-driver accumulators built by each into sorted, positioned standings (worst-rounds-dropped point totals, then wins/podiums as tiebreakers). */
+/**
+ * Shared by both `computeSeasonStandings` and `computeOverallSeasonStandings`
+ * — turns the per-driver accumulators built by each into sorted, positioned
+ * standings (worst-rounds-dropped point totals, then wins/podiums as
+ * tiebreakers).
+ *
+ * `allSubsessionIds` is every round this season actually had (for the class
+ * being computed, or every class for the overall view) — the drop-week pool
+ * is padded out to that full set, not just the rounds a given driver has a
+ * `roundPoints` entry for. A driver who scored 0 in a round they started
+ * already gets a real (zero-valued) entry from the caller's own loop; a
+ * round they didn't show up for at all never gets one, and without this
+ * padding it would simply vanish from their pool instead of being an
+ * available (and, being 0, likely-dropped) week — which meant the baseline
+ * drop count kept eating into real scored rounds on top of whatever they'd
+ * already missed, rather than the no-show weeks themselves being what's
+ * dropped.
+ */
 function finalizeStandings(
   accum: Map<string, StandingsAccum>,
   driverById: Map<string, DriverBasic>,
-  season: Season
+  season: Season,
+  allSubsessionIds: Set<number>
 ): DriverSeasonStanding[] {
   const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
 
@@ -491,7 +510,7 @@ function finalizeStandings(
     const driver = driverById.get(driverId);
     if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
 
-    const roundTotals = [...a.roundPoints.values()].sort((x, y) => y - x);
+    const roundTotals = [...allSubsessionIds].map((id) => a.roundPoints.get(id) ?? 0).sort((x, y) => y - x);
     const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
     const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
     const totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
@@ -518,8 +537,9 @@ function finalizeStandings(
 /**
  * Computes the full standings for one season+class, sorted by points
  * (ties broken by wins, then podiums). Pass a pre-fetched `driversBasic`
- * list (and `exhibitionRoundIds`) when computing many seasons back to back
- * (see `getChampions`) to avoid re-fetching the same data every time.
+ * list (and `exhibitionRoundIds`, `classesLookup`) when computing many
+ * seasons back to back (see `getChampions`) to avoid re-fetching the same
+ * data every time.
  *
  * Returns an empty list for a non-championship (exhibition) season without
  * querying anything else — see `isChampionshipSeason`.
@@ -529,15 +549,22 @@ export async function computeSeasonStandings(
   season: Season,
   classId: number,
   driversBasic?: DriverBasic[],
-  exhibitionRoundIds?: Set<number>
+  exhibitionRoundIds?: Set<number>,
+  classesLookup?: Lookup[]
 ): Promise<DriverSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
-  const [scoresRaw, drivers, exhibitionIds] = await Promise.all([
+  const [scoresRaw, drivers, exhibitionIds, classes] = await Promise.all([
     getRaceScoresForSeasonClass(env, season.id, classId),
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
   ]);
+  // Alpha's own scoring never includes the top-3-in-class Class Points
+  // bonus (that's Gamma/Delta's own per-race class-position bonus, see
+  // README) — used below so a penalty-driven class-position change can
+  // never manufacture Class Points for an Alpha driver.
+  const awardsClassPoints = classes.find((c) => c.id === classId)?.name !== 'Alpha';
   // Individual rounds can be flagged exhibition even inside a real
   // championship season (e.g. a pre-season race) — those never count
   // toward standings, same as a whole exhibition season.
@@ -631,7 +658,8 @@ export async function computeSeasonStandings(
     overallContext.penalties,
     overallContext.formatBySubsession,
     overallContext.adjustments,
-    overallContext.leaderStatsByRace
+    overallContext.leaderStatsByRace,
+    awardsClassPoints
   );
 
   // Disqualified results are excluded from ranking entirely (not just
@@ -671,7 +699,11 @@ export async function computeSeasonStandings(
     a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + totalPoints);
   }
 
-  return finalizeStandings(accum, driverById, season);
+  // Every round this class actually raced this season (already
+  // exhibition-filtered, same as `scores`) — see finalizeStandings' own doc
+  // comment on why a driver's missed rounds need to be in this pool too.
+  const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
+  return finalizeStandings(accum, driverById, season, allSubsessionIds);
 }
 
 /**
@@ -688,8 +720,17 @@ export async function computeSeasonStandings(
  * `race_scores.scored_position` (the overall field position across every
  * class, already computed by the pipeline) rather than the per-class
  * re-derivation `computeSeasonStandings` does — same approach the race
- * results page's "Overall" view uses, and simpler/no `curated_race_results`
- * lookup needed since `scored_position` doesn't need re-deriving.
+ * results page's "Overall" view uses.
+ *
+ * Poles are the one stat that DOESN'T come from `race_scores.pole_bonus`
+ * here, unlike every other view — that column is actually Gamma/Delta's own
+ * "Class Pole" bonus (fastest qualifier within just that driver's class),
+ * so using it in a cross-class table would credit a driver with a "pole"
+ * for merely out-qualifying their own class, not the whole grid. This view
+ * instead derives the real overall pole-sitter straight from
+ * `curated_race_results.starting_position` on each round's race 1 (the only
+ * race with real qualifying — 2/3 invert off it, per the same rule that
+ * keeps them from ever earning `pole_bonus`).
  */
 export async function computeOverallSeasonStandings(
   env: SupabaseEnv,
@@ -719,12 +760,25 @@ export async function computeOverallSeasonStandings(
     return a;
   }
 
+  // subsessionId -> the driver who actually had grid position 1 on that
+  // round's race 1 — the true overall pole-sitter, as opposed to
+  // `pole_bonus` (each class's own fastest qualifier, see this function's
+  // own doc comment above).
+  const custIdToDriverId = new Map([...overallContext.custIdByDriverId].map(([driverId, custId]) => [custId, driverId]));
+  const overallPoleDriverBySubsession = new Map<number, string>();
+  for (const raw of overallContext.rawByKey.values()) {
+    if (raw.race_number === 1 && raw.starting_position === 1) {
+      const driverId = custIdToDriverId.get(raw.cust_id);
+      if (driverId) overallPoleDriverBySubsession.set(raw.subsession_id, driverId);
+    }
+  }
+
   for (const s of scores) {
     const a = getAccum(s.driver_id);
     a.classId = s.class_id;
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
-    if (s.pole_bonus > 0) a.poleSubsessionIds.add(s.subsession_id);
+    if (overallPoleDriverBySubsession.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
 
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
     const adjustment = overallContext.adjustments.get(key);
@@ -740,7 +794,11 @@ export async function computeOverallSeasonStandings(
     }
   }
 
-  return finalizeStandings(accum, driverById, season);
+  // Every round the season actually had, across every class (already
+  // exhibition-filtered, same as `scores`) — see finalizeStandings' own doc
+  // comment on why a driver's missed rounds need to be in this pool too.
+  const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
+  return finalizeStandings(accum, driverById, season, allSubsessionIds);
 }
 
 // ---------------------------------------------------------------------------
@@ -894,10 +952,14 @@ export interface ChampionEntry {
  * no hardcoded season cutoffs needed.
  */
 export async function getChampions(env: SupabaseEnv, seasons: Season[], classId: number): Promise<ChampionEntry[]> {
-  const [drivers, exhibitionRoundIds] = await Promise.all([driversSelect(env), getExhibitionRoundIds(env)]);
+  const [drivers, exhibitionRoundIds, classes] = await Promise.all([
+    driversSelect(env),
+    getExhibitionRoundIds(env),
+    getDriverClasses(env),
+  ]);
   const perSeason = await Promise.all(
     seasons.map(async (season) => {
-      const standings = await computeSeasonStandings(env, season, classId, drivers, exhibitionRoundIds);
+      const standings = await computeSeasonStandings(env, season, classId, drivers, exhibitionRoundIds, classes);
       return standings.length > 0 ? { season, standing: standings[0] } : null;
     })
   );

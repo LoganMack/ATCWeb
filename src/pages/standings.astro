@@ -57,7 +57,7 @@ if (!loadError && activeSeason) {
     const exhibitionRoundIds = await getExhibitionRoundIds(supabaseEnv);
     const [standingsResult, extras] = await Promise.all([
       view === 'class' && activeClass
-        ? computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id, undefined, exhibitionRoundIds)
+        ? computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id, undefined, exhibitionRoundIds, classes)
         : computeOverallSeasonStandings(supabaseEnv, activeSeason, undefined, exhibitionRoundIds),
       getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds),
     ]);

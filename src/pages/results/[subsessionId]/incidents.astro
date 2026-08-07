@@ -17,6 +17,7 @@ import {
   updatePenalty,
   deletePenalty,
   formatDate,
+  getDriverClasses,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
@@ -202,15 +203,17 @@ let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
 let originalResults: RoundResults = { byClass: new Map(), overall: new Map() };
 let penalties: Penalty[] = [];
 let offenses: PenaltyOffense[] = [];
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, originalResults, penalties, offenses] = await Promise.all([
+    [round, originalResults, penalties, offenses, classes] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(supabaseEnv, subsessionId),
       getPenaltiesForSubsession(supabaseEnv, subsessionId),
       getPenaltyOffenses(supabaseEnv),
+      getDriverClasses(supabaseEnv),
     ]);
   } catch (err) {
     console.error('Failed to load incident report:', err);
@@ -229,8 +232,14 @@ if (!loadError && !round) {
 // full recalculation" — not per individual penalty, since a driver's final
 // position/points reflect every penalty logged against the whole race at
 // once, not just one entry in isolation.
+// Alpha never earns the top-3-in-class Class Points bonus (see README) —
+// told to the recompute engine so a penalty-driven podium shuffle can't
+// manufacture class points for an Alpha driver.
+const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
 const recomputedResults =
-  penalties.length > 0 ? applyPenaltiesToRoundResults(originalResults, penalties, round?.format ?? null) : originalResults;
+  penalties.length > 0
+    ? applyPenaltiesToRoundResults(originalResults, penalties, round?.format ?? null, classPointsEligibleByClassId)
+    : originalResults;
 
 interface PosPoints {
   position: number | null;

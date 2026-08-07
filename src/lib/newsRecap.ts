@@ -237,8 +237,11 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   // Same penalty recalculation every other results view uses — a recap
   // built off pre-penalty data would show a driver's finish/points as if
   // nothing had ever been logged against them.
+  const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
   const roundResults: RoundResults =
-    penalties.length > 0 ? applyPenaltiesToRoundResults(rawResults, penalties, round.format) : rawResults;
+    penalties.length > 0
+      ? applyPenaltiesToRoundResults(rawResults, penalties, round.format, classPointsEligibleByClassId)
+      : rawResults;
 
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));
   const orderedClassIds = classes.map((c) => c.id);
