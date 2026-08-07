@@ -725,9 +725,11 @@ export interface CircuitLayout {
   lap_record_date: string | null; // 'YYYY-MM-DD'
   /** This specific layout's own image (e.g. its track map) — see 0021_circuit_layout_image.sql. Falls back to the parent circuit's logo_url when null; use `layoutImageUrl()`. */
   image_url: string | null;
+  /** Number of corners on this layout, admin-entered — see 0022_circuit_layout_corners.sql. Powers the Standings page's season "corners per incident" stat (src/lib/results.ts's getSeasonDriverExtendedStats); null until Logan fills it in for a given layout. */
+  corners: number | null;
 }
 
-const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url';
+const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners';
 
 /** "1:42.512" from a raw seconds count (e.g. 102.512) — minutes are shown with no leading zero (per site-wide convention: no leading zeroes on lap records/times), while seconds/milliseconds keep their own fixed-width zero-padding since those are always exactly 2 and 3 digits within a minute. */
 export function formatLapTime(seconds: number | null): string {

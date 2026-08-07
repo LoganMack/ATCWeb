@@ -48,6 +48,7 @@ if (Astro.request.method === 'POST') {
     if (!isNew && id) {
       const layoutName = String(form.get('layout_name') ?? '').trim();
       const lengthKmRaw = String(form.get('length_km') ?? '').trim();
+      const cornersRaw = String(form.get('corners') ?? '').trim();
       const lapRecordSecondsRaw = String(form.get('lap_record_seconds') ?? '').trim();
       const lapRecordHolder = String(form.get('lap_record_holder') ?? '').trim();
       const lapRecordDate = String(form.get('lap_record_date') ?? '').trim();
@@ -60,6 +61,7 @@ if (Astro.request.method === 'POST') {
         const data: Partial<CircuitLayout> = {
           name: layoutName,
           length_km: lengthKmRaw ? Number(lengthKmRaw) : null,
+          corners: cornersRaw ? Number(cornersRaw) : null,
           lap_record_seconds: lapRecordSecondsRaw ? Number(lapRecordSecondsRaw) : null,
           lap_record_holder: lapRecordHolder || null,
           lap_record_date: lapRecordDate || null,
@@ -241,6 +243,7 @@ if (!isNew && id) {
                   <p class="font-semibold">{displayLayoutName(layout.name)}</p>
                   <p class="mt-0.5 text-xs text-white/50">
                     {layout.length_km !== null ? `${layout.length_km} km` : 'Length not set'}
+                    {layout.corners !== null && ` · ${layout.corners} corners`}
                     {layout.lap_record_seconds !== null && ` · Record ${formatLapTime(layout.lap_record_seconds)}`}
                     {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                     {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
@@ -277,6 +280,17 @@ if (!isNew && id) {
                         step="0.001"
                         name="length_km"
                         value={layout.length_km ?? ''}
+                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                      />
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                      Corners
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        name="corners"
+                        value={layout.corners ?? ''}
                         class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
                       />
                     </label>
@@ -363,6 +377,16 @@ if (!isNew && id) {
               type="number"
               step="0.001"
               name="length_km"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            />
+          </label>
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">Corners</span>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              name="corners"
               class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
             />
           </label>

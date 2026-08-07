@@ -4,8 +4,14 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
-import { computeTeamSeasonStandings, isChampionshipSeason, type TeamSeasonStanding } from '../lib/results';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, displayDriverName } from '../lib/supabase';
+import {
+  computeTeamSeasonStandings,
+  computeOverallSeasonStandings,
+  isChampionshipSeason,
+  type TeamSeasonStanding,
+  type DriverSeasonStanding,
+} from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -30,10 +36,21 @@ const activeSeason =
   championshipSeasons[0];
 
 let standings: TeamSeasonStanding[] = [];
+// Keyed by driver id — powers each team row's expanded roster detail
+// (overall championship position/points/starts for every driver on the
+// team), joined in here rather than inside computeTeamSeasonStandings
+// itself since "overall standing" is a season-wide concept, not a
+// team-scoped one.
+let overallStandingByDriverId = new Map<string, DriverSeasonStanding>();
 if (!loadError && activeSeason) {
   try {
     const exhibitionRoundIds = await getExhibitionRoundIds(supabaseEnv);
-    standings = await computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds);
+    const [teamStandings, overallStandings] = await Promise.all([
+      computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds),
+      computeOverallSeasonStandings(supabaseEnv, activeSeason, undefined, exhibitionRoundIds),
+    ]);
+    standings = teamStandings;
+    overallStandingByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s]));
   } catch (err) {
     console.error('Failed to compute team standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -75,11 +92,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </form>
     )}
 
-    <p class="mt-4 text-sm text-white/40">
-      Points are each team's top 2 scoring drivers per race, summed across the season with the same worst-rounds-dropped
-      rule the driver standings use — never a team's 3rd (or more) driver, and never a class-only points bonus.
-    </p>
-
     {!loadError && standings.length === 0 && (
       <p class="mt-10 text-white/60">No results.</p>
     )}
@@ -97,11 +109,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </tr>
           </thead>
           <tbody>
-            {standings.map((row) => (
-              <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]">
+            {standings.map((row) => {
+              const roster = row.driverIds
+                .map((driverId) => overallStandingByDriverId.get(driverId))
+                .filter((s): s is DriverSeasonStanding => s !== undefined)
+                .sort((a, b) => a.position - b.position);
+              return (
+              <>
+              <tr
+                data-expand-row
+                tabindex="0"
+                role="button"
+                aria-expanded="false"
+                class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+              >
                 <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
                 <td class="py-2.5 pr-3 font-semibold" data-col="team" data-sort-value={row.teamName}>
                   <div class="flex items-center gap-2">
+                    <span
+                      data-chevron
+                      class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150"
+                      aria-hidden="true"
+                    >
+                      &#9654;
+                    </span>
                     <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
                     <span>{row.teamName}</span>
                   </div>
@@ -110,10 +141,63 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts">{row.starts}</td>
                 <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
               </tr>
-            ))}
+              <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                <td colspan={5} class="px-4 py-4 sm:pl-11">
+                  {roster.length === 0 ? (
+                    <p class="text-white/40">No driver data available.</p>
+                  ) : (
+                    <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {roster.map((driverStanding) => (
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <span class="font-semibold text-white/90">
+                            {displayDriverName(driverStanding.driver.name)}
+                            {driverStanding.driver.car_number !== null && (
+                              <span class="text-white/40"> #{driverStanding.driver.car_number}</span>
+                            )}
+                          </span>
+                          <span class="whitespace-nowrap text-white/50">
+                            P{driverStanding.position} — {driverStanding.totalPoints} pts — {driverStanding.starts} starts
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              </tr>
+              </>
+              );
+            })}
           </tbody>
         </table>
       </div>
     )}
   </section>
 </Layout>
+
+<script>
+  // Same click-to-expand pattern as ResultsTable.astro's
+  // initResultsTableExpand — kept as its own copy (rather than a shared
+  // import) since Astro component <script> tags are bundled per-page and
+  // this page doesn't otherwise use ResultsTable.
+  function initTeamStandingsExpand() {
+    document.querySelectorAll<HTMLTableRowElement>('[data-expand-row]').forEach((row) => {
+      const toggle = () => {
+        const detail = row.nextElementSibling as HTMLElement | null;
+        if (!detail) return;
+        const expanded = row.getAttribute('aria-expanded') === 'true';
+        row.setAttribute('aria-expanded', String(!expanded));
+        detail.classList.toggle('hidden', expanded);
+        row.querySelector<HTMLElement>('[data-chevron]')?.classList.toggle('rotate-90', !expanded);
+      };
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggle();
+        }
+      });
+    });
+  }
+
+  document.addEventListener('astro:page-load', initTeamStandingsExpand);
+</script>

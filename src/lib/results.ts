@@ -47,12 +47,16 @@ import {
   getAllTeamSeasonLogos,
   getDriverClasses,
   formatLapTime,
+  displayDriverName,
+  getCircuits,
+  getAllCircuitLayouts,
   type SupabaseEnv,
 } from './supabase';
-import type { Season, CarLogo, Penalty, Lookup } from './supabase';
+import type { Season, CarLogo, Penalty, Lookup, Circuit, CircuitLayout } from './supabase';
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
+  effectivePenaltyPoints,
   type SeasonScoreRow,
   type SeasonClassScoreRow,
   type SeasonOverallAdjustment,
@@ -448,6 +452,10 @@ export interface DriverSeasonStanding {
   top5s: number;
   top10s: number;
   poles: number;
+  /** Season total laps led (curated_race_results.laps_led, summed across every race counted for this view) — shown in the standings driver detail panel and used as a tiebreaker (see finalizeStandings). */
+  lapsLed: number;
+  /** Season total laps completed (curated_race_results.laps_complete, summed across every race counted for this view) — same uses as lapsLed. */
+  laps: number;
   /** Only set by `computeOverallSeasonStandings` — which class this driver actually raced, so the overall (every class combined) table can still show it. */
   classId?: number;
 }
@@ -462,6 +470,8 @@ interface StandingsAccum {
   podiums: number;
   top5s: number;
   top10s: number;
+  lapsLed: number;
+  laps: number;
   roundPoints: Map<number, number>;
   classId?: number;
 }
@@ -475,6 +485,8 @@ function newStandingsAccum(): StandingsAccum {
     podiums: 0,
     top5s: 0,
     top10s: 0,
+    lapsLed: 0,
+    laps: 0,
     roundPoints: new Map(),
   };
 }
@@ -496,6 +508,15 @@ function newStandingsAccum(): StandingsAccum {
  * drop count kept eating into real scored rounds on top of whatever they'd
  * already missed, rather than the no-show weeks themselves being what's
  * dropped.
+ *
+ * Ties are broken by working through the standings columns in order, per
+ * Logan: "wins, podiums, top 5s, top 10s, poles, laps led, laps, and
+ * appearances. If they are still tied, alphabetical order." Whatever stats
+ * `accum` was built with ARE already the right "variant" for the view being
+ * computed — computeSeasonStandings' wins/podiums/top5s/top10s are already
+ * that class's own class-relative stats (and, for Gamma/Delta, `poles` is
+ * already that class's own Class Pole count), so this one comparator serves
+ * every view without needing to know which one it's sorting.
  */
 function finalizeStandings(
   accum: Map<string, StandingsAccum>,
@@ -525,11 +546,25 @@ function finalizeStandings(
       top5s: a.top5s,
       top10s: a.top10s,
       poles: a.poleSubsessionIds.size,
+      lapsLed: a.lapsLed,
+      laps: a.laps,
       classId: a.classId,
     });
   }
 
-  standings.sort((x, y) => y.totalPoints - x.totalPoints || y.wins - x.wins || y.podiums - x.podiums);
+  standings.sort(
+    (x, y) =>
+      y.totalPoints - x.totalPoints ||
+      y.wins - x.wins ||
+      y.podiums - x.podiums ||
+      y.top5s - x.top5s ||
+      y.top10s - x.top10s ||
+      y.poles - x.poles ||
+      y.lapsLed - x.lapsLed ||
+      y.laps - x.laps ||
+      y.appearances - x.appearances ||
+      displayDriverName(x.driver.name).localeCompare(displayDriverName(y.driver.name))
+  );
 
   return standings.map((s, i) => ({ ...s, position: i + 1 }));
 }
@@ -684,6 +719,14 @@ export async function computeSeasonStandings(
     }
   }
 
+  // Alpha never earns its own "Class Pole" bonus (pole_bonus is
+  // structurally always 0 for Alpha — see README/computeOverallSeasonStandings'
+  // doc comment), so its "poles" stat — displayed and used as a tiebreaker —
+  // falls back to the true overall pole-sitter instead, same as the Overall
+  // view. Gamma/Delta keep using their own real Class Pole (pole_bonus).
+  const isAlphaClass = !awardsClassPoints;
+  const overallPoleDriverBySubsession = isAlphaClass ? computeOverallPoleDriverBySubsession(overallContext) : null;
+
   // Starts, appearances, poles, and points come straight from race_scores
   // regardless of whether a matching curated_race_results row was found —
   // except total_points, which uses the penalty-adjusted figure whenever
@@ -692,7 +735,15 @@ export async function computeSeasonStandings(
     const a = getAccum(s.driver_id);
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
-    if (s.pole_bonus > 0) a.poleSubsessionIds.add(s.subsession_id);
+    if (isAlphaClass) {
+      if (overallPoleDriverBySubsession!.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
+    } else if (s.pole_bonus > 0) {
+      a.poleSubsessionIds.add(s.subsession_id);
+    }
+    const custId = custIdByDriverId.get(s.driver_id);
+    const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    a.lapsLed += raw?.laps_led ?? 0;
+    a.laps += raw?.laps_complete ?? 0;
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
     const adjustment = classAdjustments.get(key);
     const totalPoints = adjustment ? adjustment.totalPoints : s.total_points;
@@ -704,6 +755,31 @@ export async function computeSeasonStandings(
   // comment on why a driver's missed rounds need to be in this pool too.
   const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
   return finalizeStandings(accum, driverById, season, allSubsessionIds);
+}
+
+/**
+ * subsessionId -> the driver who actually had grid position 1 on that
+ * round's race 1 — the TRUE overall pole-sitter, as opposed to
+ * `race_scores.pole_bonus` (each class's own "Class Pole" — fastest
+ * qualifier within just that driver's own class; see
+ * `computeOverallSeasonStandings`' own doc comment for why that's not the
+ * same thing). Shared by `computeOverallSeasonStandings` (which always needs
+ * the true overall pole) and `computeSeasonStandings` — but only for the
+ * Alpha class, which never earns its own "Class Pole" bonus (Alpha doesn't
+ * get class_points/pole_bonus at all — see README), so Alpha's own
+ * `pole_bonus` count is structurally always 0 and can't stand in as a real
+ * "poles" stat or tiebreaker column the way it can for Gamma/Delta.
+ */
+function computeOverallPoleDriverBySubsession(context: SeasonOverallContext): Map<number, string> {
+  const custIdToDriverId = new Map([...context.custIdByDriverId].map(([driverId, custId]) => [custId, driverId]));
+  const overallPoleDriverBySubsession = new Map<number, string>();
+  for (const raw of context.rawByKey.values()) {
+    if (raw.race_number === 1 && raw.starting_position === 1) {
+      const driverId = custIdToDriverId.get(raw.cust_id);
+      if (driverId) overallPoleDriverBySubsession.set(raw.subsession_id, driverId);
+    }
+  }
+  return overallPoleDriverBySubsession;
 }
 
 /**
@@ -760,18 +836,7 @@ export async function computeOverallSeasonStandings(
     return a;
   }
 
-  // subsessionId -> the driver who actually had grid position 1 on that
-  // round's race 1 — the true overall pole-sitter, as opposed to
-  // `pole_bonus` (each class's own fastest qualifier, see this function's
-  // own doc comment above).
-  const custIdToDriverId = new Map([...overallContext.custIdByDriverId].map(([driverId, custId]) => [custId, driverId]));
-  const overallPoleDriverBySubsession = new Map<number, string>();
-  for (const raw of overallContext.rawByKey.values()) {
-    if (raw.race_number === 1 && raw.starting_position === 1) {
-      const driverId = custIdToDriverId.get(raw.cust_id);
-      if (driverId) overallPoleDriverBySubsession.set(raw.subsession_id, driverId);
-    }
-  }
+  const overallPoleDriverBySubsession = computeOverallPoleDriverBySubsession(overallContext);
 
   for (const s of scores) {
     const a = getAccum(s.driver_id);
@@ -779,6 +844,11 @@ export async function computeOverallSeasonStandings(
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
     if (overallPoleDriverBySubsession.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
+
+    const custId = overallContext.custIdByDriverId.get(s.driver_id);
+    const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    a.lapsLed += raw?.laps_led ?? 0;
+    a.laps += raw?.laps_complete ?? 0;
 
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
     const adjustment = overallContext.adjustments.get(key);
@@ -811,6 +881,8 @@ export interface TeamSeasonStanding {
   starts: number;
   /** Distinct rounds (subsession_ids) this team had at least one driver in. */
   appearances: number;
+  /** Every driver who raced for this team this season, at least once — used to build the team-standings page's expandable roster detail (overall championship position/points/starts come from `computeOverallSeasonStandings`, joined in at the page level). */
+  driverIds: string[];
 }
 
 /**
@@ -859,12 +931,13 @@ export async function computeTeamSeasonStandings(
     starts: number;
     subsessionIds: Set<number>;
     roundPoints: Map<number, number>;
+    driverIds: Set<string>;
   }
   const accum = new Map<string, TeamAccum>();
   function getAccum(teamId: string): TeamAccum {
     let a = accum.get(teamId);
     if (!a) {
-      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map() };
+      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map(), driverIds: new Set() };
       accum.set(teamId, a);
     }
     return a;
@@ -878,6 +951,7 @@ export async function computeTeamSeasonStandings(
     const a = getAccum(s.team_id);
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
+    a.driverIds.add(s.driver_id);
 
     const key = `${s.subsession_id}:${s.race_number}:${s.team_id}`;
     if (!raceTeamGroups.has(key)) raceTeamGroups.set(key, []);
@@ -912,11 +986,226 @@ export async function computeTeamSeasonStandings(
       totalPoints,
       starts: a.starts,
       appearances: a.subsessionIds.size,
+      driverIds: [...a.driverIds],
     });
   }
 
   standings.sort((a, b) => b.totalPoints - a.totalPoints || a.teamName.localeCompare(b.teamName));
   return standings.map((s, i) => ({ ...s, position: i + 1 }));
+}
+
+// ---------------------------------------------------------------------------
+// Season driver "extended stats" — powers the Standings page's expandable
+// per-driver detail panel. Deliberately view-agnostic (computed once from
+// every class combined, via getSeasonOverallContext) rather than split
+// per-class/overall like DriverSeasonStanding — a driver only ever races in
+// one class in a given season, so "how many laps did they turn this season"
+// isn't a different number depending on which standings view is open.
+// ---------------------------------------------------------------------------
+
+export interface DriverSeasonExtendedStats {
+  laps: number;
+  lapsLed: number;
+  /** Sum of (starting position − final position) across every race this season — positive means net positions gained, negative means net lost. Uses the same penalty-adjusted final position (`adjusted_position` falling back to `finish_position`) as everywhere else in this file. */
+  netPositionsChange: number;
+  incidents: number;
+  /** null when `laps` is 0 (nothing to divide by) rather than showing a misleading 0. */
+  incidentsPerLap: number | null;
+  /** Season total penalty points (PP) — sums every logged penalty's effective (appeal-aware) PP against this driver, same figure `effectivePenaltyPoints` produces everywhere else (rule 57's season PP limit). NOT the same thing as a race's `points_deduction` (that's the points-scoring effect of a penalty, already folded into totalPoints) — this is the separate PP counter. */
+  penaltyPoints: number;
+  /**
+   * Season total finesse + pole bonus points earned — deliberately excludes
+   * Gamma/Delta's own class_points bonus, matching computeOverallSeasonStandings'
+   * own reasoning for leaving class_points out of the "overall" competition
+   * (it's each of those classes' own per-race class-position bonus, not
+   * something every driver can earn). A Gamma/Delta driver's own class_points
+   * total isn't reflected here.
+   */
+  bonusPoints: number;
+  /** Total km driven this season (laps completed × that round's matched circuit-layout length), or null if not even one of this driver's rounds could be matched to a circuit_layouts row — see resolveLayout. When only SOME rounds match, this is a lower bound (the unmatched rounds' laps are simply not counted) rather than null, so a driver with mostly-tracked rounds still shows a useful (if slightly conservative) figure. */
+  distanceKm: number | null;
+  /** Total corners navigated this season (laps completed × that round's matched layout's `corners`) divided by total incidents — "how many corners on average between incidents," a finer-grained version of incidentsPerLap. Null whenever it can't be computed cleanly: no round resolved to a layout with a corner count on file (see 0022_circuit_layout_corners.sql — many layouts won't have one yet), or this driver had 0 incidents (an undefined/infinite ratio, not a real number to show). Like distanceKm, a driver with only some rounds resolving to a corner count still gets a (conservative) figure from the ones that did. */
+  cornersPerIncident: number | null;
+}
+
+function normalizeTrackOrLayoutName(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Resolves a round's `track_name` + `curated_rounds.layout` column to one
+ * `circuit_layouts` row — a minimal, standalone re-derivation of
+ * newsRecap.ts's own `matchCircuitLayout` (same direct/normalized matching
+ * rules; see that function's doc comment for the full reasoning), duplicated
+ * here rather than imported since newsRecap.ts already imports FROM this
+ * file (getRoundBySubsessionId, getRoundResults, topTeamScorers) —
+ * importing back the other way would create a cycle. Only the resolved row
+ * is needed here (not newsRecap's admin-facing "issue" text), so this
+ * version just returns null on anything it can't resolve to exactly one
+ * layout. Callers pull whichever field(s) they need off the result
+ * (length_km for distance driven, corners for corners-per-incident) — kept
+ * as one shared resolution rather than two separate functions since it's
+ * the exact same matching logic either way.
+ */
+function resolveLayout(
+  trackName: string,
+  roundLayout: string | null,
+  circuits: Circuit[],
+  layouts: CircuitLayout[]
+): CircuitLayout | null {
+  const targetTrack = normalizeTrackOrLayoutName(trackName);
+  const circuit = circuits.find((c) => normalizeTrackOrLayoutName(c.name) === targetTrack);
+  if (!circuit) return null;
+  const circuitLayouts = layouts.filter((l) => l.circuit_id === circuit.id);
+  if (circuitLayouts.length === 0) return null;
+  if (circuitLayouts.length === 1) return circuitLayouts[0];
+  if (!roundLayout) return null;
+  const targetLayout = normalizeTrackOrLayoutName(roundLayout);
+  return circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout) ?? null;
+}
+
+/** Batched version of newsRecap.ts's fetchRoundLayout — one query for every round in the season instead of one per round. Same graceful-degradation-on-failure reasoning (this is a small admin-filled column that may not exist/be filled in for every round). */
+async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<number, string | null>> {
+  if (subsessionIds.length === 0) return new Map();
+  try {
+    const rows = await restGet<{ subsession_id: number; layout: string | null }[]>(
+      env,
+      `curated_rounds?select=subsession_id,layout&subsession_id=in.(${subsessionIds.join(',')})`
+    );
+    return new Map(rows.map((r) => [r.subsession_id, r.layout]));
+  } catch (err) {
+    console.error('Failed to fetch curated_rounds.layout for season distance-driven stats — distance will be omitted:', err);
+    return new Map();
+  }
+}
+
+/**
+ * Per-driver season totals for the Standings page's expandable detail panel
+ * — laps, laps led, net positions gained/lost, incidents/incidents-per-lap,
+ * season penalty points, bonus points, and distance driven. See
+ * `DriverSeasonExtendedStats`' own field comments for exactly what each
+ * figure includes/excludes.
+ */
+export async function getSeasonDriverExtendedStats(
+  env: SupabaseEnv,
+  season: Season,
+  exhibitionRoundIds?: Set<number>,
+  driversBasic?: DriverBasic[]
+): Promise<Map<string, DriverSeasonExtendedStats>> {
+  if (!isChampionshipSeason(season.name)) return new Map();
+
+  const [drivers, exhibitionIds] = await Promise.all([
+    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+  ]);
+
+  const overallContext = await getSeasonOverallContext(env, season, exhibitionIds, drivers);
+  const scores = overallContext.overallScores;
+  if (scores.length === 0) return new Map();
+
+  const subsessionIds = [...new Set(scores.map((s) => s.subsession_id))];
+  const [circuits, layouts, roundLayouts, seasonRounds] = await Promise.all([
+    getCircuits(env).catch((err) => {
+      console.error('Failed to fetch circuits for season distance-driven/corners-per-incident stats — both will be omitted:', err);
+      return [] as Circuit[];
+    }),
+    getAllCircuitLayouts(env).catch((err) => {
+      console.error('Failed to fetch circuit_layouts for season distance-driven/corners-per-incident stats — both will be omitted:', err);
+      return [] as CircuitLayout[];
+    }),
+    getRoundLayoutsForSubsessions(env, subsessionIds),
+    getRoundsForSeason(env, season.id),
+  ]);
+  const trackNameBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+  const kmBySubsession = new Map<number, number | null>();
+  const cornersBySubsession = new Map<number, number | null>();
+  for (const subsessionId of subsessionIds) {
+    const trackName = trackNameBySubsession.get(subsessionId);
+    const layout = trackName ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, layouts) : null;
+    kmBySubsession.set(subsessionId, layout?.length_km ?? null);
+    cornersBySubsession.set(subsessionId, layout?.corners ?? null);
+  }
+
+  interface ExtendedAccum {
+    laps: number;
+    lapsLed: number;
+    netPositionsChange: number;
+    incidents: number;
+    penaltyPoints: number;
+    bonusPoints: number;
+    distanceKm: number;
+    totalCorners: number;
+  }
+  const accum = new Map<string, ExtendedAccum>();
+  function getAccum(driverId: string): ExtendedAccum {
+    let a = accum.get(driverId);
+    if (!a) {
+      a = { laps: 0, lapsLed: 0, netPositionsChange: 0, incidents: 0, penaltyPoints: 0, bonusPoints: 0, distanceKm: 0, totalCorners: 0 };
+      accum.set(driverId, a);
+    }
+    return a;
+  }
+
+  for (const s of scores) {
+    const a = getAccum(s.driver_id);
+    a.bonusPoints += s.finesse_bonus + s.pole_bonus;
+
+    const custId = overallContext.custIdByDriverId.get(s.driver_id);
+    const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    if (!raw) continue;
+    a.laps += raw.laps_complete ?? 0;
+    a.lapsLed += raw.laps_led ?? 0;
+    a.incidents += raw.incidents ?? 0;
+
+    const finalPosition = raw.adjusted_position ?? raw.finish_position;
+    if (raw.starting_position !== null && finalPosition !== null) {
+      a.netPositionsChange += raw.starting_position - finalPosition;
+    }
+
+    const km = kmBySubsession.get(s.subsession_id);
+    if (km !== null && km !== undefined) a.distanceKm += (raw.laps_complete ?? 0) * km;
+
+    const corners = cornersBySubsession.get(s.subsession_id);
+    if (corners !== null && corners !== undefined) a.totalCorners += (raw.laps_complete ?? 0) * corners;
+  }
+
+  // Season penalty points (PP) — separate loop since penalties aren't
+  // per-(subsession,race,driver)-in-`scores`, they're their own table.
+  for (const p of overallContext.penalties) {
+    if (!p.driver_id) continue;
+    const a = getAccum(p.driver_id);
+    a.penaltyPoints += effectivePenaltyPoints(p);
+  }
+
+  // Whether at least one of this driver's rounds actually resolved to a
+  // known circuit length/corner count — distinguishes "0 because nothing
+  // matched" (show as unavailable) from "0 because they didn't drive" (show
+  // as 0).
+  const anyKmResolvedByDriver = new Map<string, boolean>();
+  const anyCornersResolvedByDriver = new Map<string, boolean>();
+  for (const s of scores) {
+    const km = kmBySubsession.get(s.subsession_id);
+    if (km !== null && km !== undefined) anyKmResolvedByDriver.set(s.driver_id, true);
+    const corners = cornersBySubsession.get(s.subsession_id);
+    if (corners !== null && corners !== undefined) anyCornersResolvedByDriver.set(s.driver_id, true);
+  }
+
+  const out = new Map<string, DriverSeasonExtendedStats>();
+  for (const [driverId, a] of accum) {
+    const hasCorners = anyCornersResolvedByDriver.get(driverId) === true;
+    out.set(driverId, {
+      laps: a.laps,
+      lapsLed: a.lapsLed,
+      netPositionsChange: a.netPositionsChange,
+      incidents: a.incidents,
+      incidentsPerLap: a.laps > 0 ? a.incidents / a.laps : null,
+      penaltyPoints: a.penaltyPoints,
+      bonusPoints: a.bonusPoints,
+      distanceKm: anyKmResolvedByDriver.get(driverId) ? a.distanceKm : null,
+      cornersPerIncident: hasCorners && a.incidents > 0 ? a.totalCorners / a.incidents : null,
+    });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
