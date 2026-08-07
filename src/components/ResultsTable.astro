@@ -26,6 +26,7 @@
 // stack).
 import { iracingResultsUrl, type RaceResultRow } from '../lib/results';
 import type { RaceLinks, Penalty } from '../lib/supabase';
+import { displayDriverName } from '../lib/supabase';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
@@ -277,10 +278,11 @@ for (const p of racePenalties) {
                   &#9654;
                 </span>
                 <span>
-                  {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
-                {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
+                {/* Car first, team second — every driver has a car, not every driver has a team. */}
                 {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" />}
+                {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
                 {row.tags.map((tag) => (
                   <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
                     {tag}

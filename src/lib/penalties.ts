@@ -187,12 +187,15 @@ export interface RankedPosition {
   lapsDownBefore: number;
   /**
    * A same-formula-comparable time value used to rank this driver against
-   * others in the same lapsDown group — not a normalized "how far past the
-   * threshold" figure, and not comparable across two rows with different
-   * lapsDown counts (see reorderByTimePenalty's own comments for exactly
-   * how it's derived in each case). Null when there wasn't enough data to
-   * compute one at all, in which case this row simply keeps its original
-   * relative position among its lapsDown peers.
+   * others in the same lapsDown group — not comparable across two rows with
+   * different lapsDown counts (see reorderByTimePenalty's own comments for
+   * exactly how it's derived in each case). For the lapsDown === 0 (lead
+   * lap) group specifically, this IS the driver's real, displayable margin:
+   * re-zeroed against whichever row actually has the smallest value now,
+   * so the current leader — even a penalized one who kept the win — always
+   * reads exactly 0. Null when there wasn't enough data to compute one at
+   * all, in which case this row simply keeps its original relative position
+   * among its lapsDown peers.
    */
   gapTenThousandths: number | null;
 }
@@ -292,6 +295,32 @@ export function reorderByTimePenalty(
     // re-ranking is skipped here for lack of data to rank it by).
     return { driverId: r.driverId, lapsDown: lapsDownBefore, lapsDownBefore, gap: null, touched, originalPosition };
   });
+
+  // Re-zero the lead-lap group's gap against whoever actually has the
+  // smallest one now, not whoever had it before any penalty. Every lead-lap
+  // row's gap above is "own original interval + own penalty" — i.e. total
+  // race time relative to the OLD leader's time as a zero point — which is
+  // exactly right for sorting (a constant offset never changes relative
+  // order) but wrong for DISPLAY once the actual leader was one of the
+  // penalized rows: if the leader picks up a penalty small enough to keep
+  // the win, their own gap above becomes their own penalty time (nonzero)
+  // instead of 0, and everyone else's gap is still measured against the
+  // leader's OLD (pre-penalty) time rather than their new, slower one. Both
+  // are wrong the same way: the leader should always show a 0 margin, and
+  // the rest of the field should shift by exactly the leader's penalty.
+  // Subtracting the new minimum from every lead-lap row's gap fixes both at
+  // once, and does so correctly however the reordering actually shook out
+  // — including a big enough leader penalty handing the win to someone else
+  // entirely, in which case every gap re-zeroes against THEM instead.
+  const leadLapGaps = keys.filter((k) => k.lapsDown === 0 && k.gap !== null).map((k) => k.gap as number);
+  if (leadLapGaps.length > 0) {
+    const newLeaderGap = Math.min(...leadLapGaps);
+    if (newLeaderGap !== 0) {
+      for (const k of keys) {
+        if (k.lapsDown === 0 && k.gap !== null) k.gap -= newLeaderGap;
+      }
+    }
+  }
 
   keys.sort((a, b) => {
     if (a.lapsDown !== b.lapsDown) return a.lapsDown - b.lapsDown;
@@ -400,18 +429,75 @@ function recomputeRow(
   penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>,
   /**
    * The OVERALL (never class-relative) reordering result for this driver
-   * this race, used only to refresh margin/overall-race-time display when
-   * THIS driver has their own penalty — see this file's Position
-   * recalculation header on why margin is always measured against the
-   * actual race leader regardless of which view (class or overall) a row
-   * belongs to. Undefined when the race wasn't reordered at all.
+   * this race, used to refresh margin/tags display — for EVERY row in a
+   * touched race, not just ones with their own penalty, since the leader
+   * a margin is measured against can itself change (see this file's
+   * Position recalculation header on why margin is always measured against
+   * the actual race leader regardless of which view — class or overall — a
+   * row belongs to). Undefined when the race wasn't reordered at all.
    */
   overallRanked: RankedPosition | undefined
 ): RaceResultRow {
   const pen = penaltyByRaceDriver.get(`${raceNumber}:${row.driver.id}`);
   const positionChanged = newPosition !== row.position;
   const classPositionChanged = newClassPosition !== originalClassPosition;
-  if (!pen && !positionChanged && !classPositionChanged) return row;
+
+  // Margin/tags are always measured against the CURRENT overall leader
+  // (reorderByTimePenalty re-zeroes the lead-lap group against whoever
+  // actually has the smallest total time now — see its own comments), so
+  // ANY row's margin can change even if that row itself was never
+  // penalized and never moved position: if the actual leader picked up a
+  // penalty small enough to keep the win, their own margin drops to 0 and
+  // everyone else's shifts by exactly the leader's penalty, all without
+  // anyone's relative ORDER (or points) changing at all. So this can't be
+  // gated on `pen` or a position change the way points/position below are.
+  let margin = row.margin;
+  let intervalTenThousandths = row.intervalTenThousandths;
+  let tags = row.tags;
+  if (overallRanked) {
+    if (overallRanked.lapsDown > 0) {
+      margin = `-${overallRanked.lapsDown}L`;
+      intervalTenThousandths = -1; // matches CuratedRaceResultRow's own "negative = laps down" convention
+    } else if (overallRanked.gapTenThousandths !== null) {
+      // Still on the lead lap post-penalty, so this is always >= 0 — same
+      // formatting results.ts's formatMargin() uses for a non-negative,
+      // nonzero interval (kept inline here rather than importing that
+      // function, to avoid a runtime value-level import cycle between this
+      // file and results.ts — the two already share type-only imports).
+      margin = overallRanked.gapTenThousandths === 0 ? '—' : (overallRanked.gapTenThousandths / 10000).toFixed(3);
+      intervalTenThousandths = overallRanked.gapTenThousandths;
+    }
+    // Only flag this when the penalty ITSELF pushed them further down than
+    // their completed laps already had them — an already-laps-down driver
+    // who got, say, a PP-only penalty this race (no time effect, or not
+    // enough to cross another boundary) shouldn't read as if the penalty
+    // caused a laps-down status they already had independent of it. Stays
+    // false for an untouched row regardless of any leader re-zeroing above,
+    // since that row's OWN lapsDown/lapsDownBefore never differ without its
+    // own penalty (see reorderByTimePenalty).
+    if (overallRanked.lapsDown > overallRanked.lapsDownBefore) {
+      tags = [...tags, `${overallRanked.lapsDown} Lap${overallRanked.lapsDown > 1 ? 's' : ''} Down (Penalty)`];
+    }
+  }
+
+  // Overall race time, unlike margin above, only ever changes for a driver
+  // who received their OWN penalty this race — it's this driver's own laps
+  // × own average lap (+ their own penalty), and no one else's penalty
+  // changes how many laps or how fast THIS driver actually drove.
+  let overallRaceTimeFormatted = row.overallRaceTimeFormatted;
+  let overallRaceTimeTenThousandths = row.overallRaceTimeTenThousandths;
+  if (pen && row.overallRaceTimeTenThousandths !== null) {
+    const newTotal = row.overallRaceTimeTenThousandths + pen.time * 10000;
+    overallRaceTimeTenThousandths = newTotal;
+    overallRaceTimeFormatted = formatLapTime(newTotal / 10000);
+  }
+
+  if (!pen && !positionChanged && !classPositionChanged) {
+    // Points/position genuinely untouched for this row — but margin/tags
+    // above may still have changed via leader re-zeroing, so this can't
+    // just return the original `row` unconditionally the way it used to.
+    return { ...row, margin, intervalTenThousandths, tags };
+  }
 
   const classified = !row.tags.includes('Unclassified');
   const canReposition = !row.dsq && classified && row.position !== null && format !== null;
@@ -436,49 +522,6 @@ function recomputeRow(
     format,
     penaltyByRaceDriver
   );
-
-  // Margin/overall-race-time only ever get refreshed for a driver who
-  // received a penalty THEMSELVES this race (`pen` set) — a driver who was
-  // merely cascaded past by someone else's penalty has a totally unchanged
-  // real gap to the leader, so their original (exact, pipeline-sourced)
-  // margin/overall-race-time stay exactly as they were. See
-  // reorderByTimePenalty's header for why lapsDown/gapTenThousandths are
-  // always computed against the OVERALL leader.
-  let margin = row.margin;
-  let intervalTenThousandths = row.intervalTenThousandths;
-  let overallRaceTimeFormatted = row.overallRaceTimeFormatted;
-  let overallRaceTimeTenThousandths = row.overallRaceTimeTenThousandths;
-  let tags = row.tags;
-  if (pen && overallRanked) {
-    if (overallRanked.lapsDown > 0) {
-      margin = `-${overallRanked.lapsDown}L`;
-      intervalTenThousandths = -1; // matches CuratedRaceResultRow's own "negative = laps down" convention
-    } else if (overallRanked.gapTenThousandths !== null) {
-      // Still on the lead lap post-penalty, so this is always >= 0 — same
-      // formatting results.ts's formatMargin() uses for a non-negative,
-      // nonzero interval (kept inline here rather than importing that
-      // function, to avoid a runtime value-level import cycle between this
-      // file and results.ts — the two already share type-only imports).
-      margin = overallRanked.gapTenThousandths === 0 ? '—' : (overallRanked.gapTenThousandths / 10000).toFixed(3);
-      intervalTenThousandths = overallRanked.gapTenThousandths;
-    }
-    // The driver's new EFFECTIVE total (base + this race's penalties) —
-    // only computable when we had an average lap for them to begin with
-    // (see RaceResultRow.overallRaceTimeTenThousandths's own doc comment).
-    if (row.overallRaceTimeTenThousandths !== null) {
-      const newTotal = row.overallRaceTimeTenThousandths + pen.time * 10000;
-      overallRaceTimeTenThousandths = newTotal;
-      overallRaceTimeFormatted = formatLapTime(newTotal / 10000);
-    }
-    // Only flag this when the penalty ITSELF pushed them further down than
-    // their completed laps already had them — an already-laps-down driver
-    // who got, say, a PP-only penalty this race (no time effect, or not
-    // enough to cross another boundary) shouldn't read as if the penalty
-    // caused a laps-down status they already had independent of it.
-    if (overallRanked.lapsDown > overallRanked.lapsDownBefore) {
-      tags = [...tags, `${overallRanked.lapsDown} Lap${overallRanked.lapsDown > 1 ? 's' : ''} Down (Penalty)`];
-    }
-  }
 
   return {
     ...row,

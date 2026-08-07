@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import { getNewsPostBySlug, resolveSupabaseEnv, formatDate } from '../../lib/supabase';
+import { getNewsPostBySlug, resolveSupabaseEnv, formatDate, displayDriverName } from '../../lib/supabase';
 import { getRoundBySubsessionId } from '../../lib/results';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classBadgeClasses } from '../../lib/classColors';
@@ -112,7 +112,7 @@ if (post.round_subsession_id !== null) {
                         <li class="flex items-center gap-1.5">
                           <span class="text-white/40">{entry.position}.</span>
                           <span>
-                            {entry.driver.name}
+                            {displayDriverName(entry.driver.name)}
                             {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
                           </span>
                           {entry.teamName && <TeamLogo name={entry.teamName} logoUrl={entry.teamLogoUrl} size="h-4 w-4" />}
@@ -130,7 +130,7 @@ if (post.round_subsession_id !== null) {
                 <ol class="mt-2 flex flex-col gap-1 text-sm text-white/70">
                   {race.topRookies.map((entry) => (
                     <li>
-                      {entry.position !== null && <span class="text-white/40">{entry.position}.</span>} {entry.driver.name}
+                      {entry.position !== null && <span class="text-white/40">{entry.position}.</span>} {displayDriverName(entry.driver.name)}
                       {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
                     </li>
                   ))}
@@ -141,7 +141,7 @@ if (post.round_subsession_id !== null) {
             {race.fastestLap && (
               <p class="mt-4 text-sm text-white/70">
                 <span class="mr-1 text-xs font-semibold uppercase tracking-wide text-white/40">Fastest Lap</span>
-                {race.fastestLap.driver.name}
+                {displayDriverName(race.fastestLap.driver.name)}
                 {race.fastestLap.driver.car_number !== null && ` #${race.fastestLap.driver.car_number}`} — {race.fastestLap.formatted}
                 {race.fastestLap.isTrackRecord && (
                   <span class="ml-2 rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold">
@@ -196,7 +196,7 @@ if (post.round_subsession_id !== null) {
                   <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
                     {team.entries.map((entry) => (
                       <li>
-                        Race {entry.raceNumber}: {entry.driverName}
+                        Race {entry.raceNumber}: {displayDriverName(entry.driverName)}
                         {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
                       </li>
                     ))}

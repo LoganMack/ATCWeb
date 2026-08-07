@@ -1,17 +1,25 @@
 ---
-import type { ChampionEntry } from '../lib/results';
+import type { ChampionEntry, DriverSeasonExtras } from '../lib/results';
 import { pctOf } from '../lib/results';
 import type { ChampionPhoto } from '../lib/supabase';
+import { displayDriverName } from '../lib/supabase';
 import StatBlock from './StatBlock.astro';
+import TeamLogo from './TeamLogo.astro';
 
 interface Props {
   entry: ChampionEntry;
   photos: ChampionPhoto[];
+  extras?: DriverSeasonExtras;
   index?: number;
 }
 
-const { entry, photos, index = 0 } = Astro.props;
+const { entry, photos, extras, index = 0 } = Astro.props;
 const { season, standing: d } = entry;
+const driverName = displayDriverName(d.driver.name);
+
+function raceWord(n: number): string {
+  return `${n} race${n === 1 ? '' : 's'}`;
+}
 
 // 1 large photo (slot 0) + 2 rows of 2 smaller photos underneath (slots
 // 1-4) — the second row exists purely to give the photo column enough
@@ -36,13 +44,13 @@ const smallPhotoRows = [
           type="button"
           data-lightbox
           data-lightbox-src={largePhoto.image_url}
-          data-lightbox-alt={`${d.driver.name} — ${season.name}`}
+          data-lightbox-alt={`${driverName} — ${season.name}`}
           class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
-          aria-label={`Enlarge photo of ${d.driver.name}, ${season.name}`}
+          aria-label={`Enlarge photo of ${driverName}, ${season.name}`}
         >
           <img
             src={largePhoto.image_url}
-            alt={`${d.driver.name} — ${season.name}`}
+            alt={`${driverName} — ${season.name}`}
             class="h-full w-full object-cover transition group-hover:scale-105"
             loading="lazy"
           />
@@ -61,13 +69,13 @@ const smallPhotoRows = [
                 type="button"
                 data-lightbox
                 data-lightbox-src={photo.image_url}
-                data-lightbox-alt={`${d.driver.name} — ${season.name}`}
+                data-lightbox-alt={`${driverName} — ${season.name}`}
                 class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
-                aria-label={`Enlarge photo of ${d.driver.name}, ${season.name}`}
+                aria-label={`Enlarge photo of ${driverName}, ${season.name}`}
               >
                 <img
                   src={photo.image_url}
-                  alt={`${d.driver.name} — ${season.name}`}
+                  alt={`${driverName} — ${season.name}`}
                   class="h-full w-full object-cover transition group-hover:scale-105"
                   loading="lazy"
                 />
@@ -85,9 +93,23 @@ const smallPhotoRows = [
     <div class="p-6">
       <div>
         <p class="text-xs uppercase tracking-widest text-white/50">{season.name}</p>
-        <h3 class="mt-1 font-display text-3xl leading-none">
-          {d.driver.name} {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
-        </h3>
+        <div class="mt-1 flex flex-wrap items-center gap-2">
+          <h3 class="font-display text-3xl leading-none">
+            {driverName} {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
+          </h3>
+          {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
+          {extras?.cars.map((c) => (
+            <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-6 w-6" title={`${c.carName} — ${raceWord(c.races)}`} />
+          ))}
+          {extras?.teams.map((t) => (
+            <TeamLogo
+              name={t.teamName}
+              logoUrl={t.logoUrl}
+              size="h-6 w-6"
+              title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
+            />
+          ))}
+        </div>
       </div>
 
       <dl class="mt-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">

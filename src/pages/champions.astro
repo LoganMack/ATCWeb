@@ -4,8 +4,8 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import ChampionCard from '../components/ChampionCard.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass } from '../lib/supabase';
-import { getChampions } from '../lib/results';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass, getExhibitionRoundIds } from '../lib/supabase';
+import { getChampions, getSeasonCarTeamStats, type DriverSeasonExtras } from '../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -32,17 +32,31 @@ const activeClass = classes.find((c) => c.name === requestedClassName) ?? classe
 
 let champions: Awaited<ReturnType<typeof getChampions>> = [];
 let photosBySeason = new Map<string, Awaited<ReturnType<typeof getChampionPhotosForClass>>>();
+let extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
 if (!loadError && activeClass) {
   try {
-    const [championsResult, photos] = await Promise.all([
+    const [championsResult, photos, exhibitionRoundIds] = await Promise.all([
       getChampions(supabaseEnv, seasons, activeClass.id),
       getChampionPhotosForClass(supabaseEnv, activeClass.id),
+      getExhibitionRoundIds(supabaseEnv),
     ]);
     champions = championsResult;
     for (const photo of photos) {
       if (!photosBySeason.has(photo.season_id)) photosBySeason.set(photo.season_id, []);
       photosBySeason.get(photo.season_id)!.push(photo);
     }
+
+    // Car(s)/team(s) raced for that season, shown alongside each champion.
+    // Computed per season here (not baked into getChampions/ChampionEntry)
+    // since admin/champions/index.astro also uses getChampions for photo
+    // management and has no use for this extra data.
+    const extrasEntries = await Promise.all(
+      champions.map(async (entry) => {
+        const statsByDriver = await getSeasonCarTeamStats(supabaseEnv, entry.season, exhibitionRoundIds);
+        return [entry.season.id, statsByDriver.get(entry.standing.driver.id)] as const;
+      })
+    );
+    extrasBySeasonId = new Map(extrasEntries);
   } catch (err) {
     console.error('Failed to compute champions:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -89,7 +103,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     {!loadError && champions.length > 0 && (
       <div class="mt-8 flex flex-col gap-5">
         {champions.map((entry, i) => (
-          <ChampionCard entry={entry} photos={photosBySeason.get(entry.season.id) ?? []} index={i} />
+          <ChampionCard
+            entry={entry}
+            photos={photosBySeason.get(entry.season.id) ?? []}
+            extras={extrasBySeasonId.get(entry.season.id)}
+            index={i}
+          />
         ))}
       </div>
     )}

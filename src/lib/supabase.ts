@@ -723,9 +723,11 @@ export interface CircuitLayout {
   lap_record_seconds: number | null;
   lap_record_holder: string | null;
   lap_record_date: string | null; // 'YYYY-MM-DD'
+  /** This specific layout's own image (e.g. its track map) — see 0021_circuit_layout_image.sql. Falls back to the parent circuit's logo_url when null; use `layoutImageUrl()`. */
+  image_url: string | null;
 }
 
-const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date';
+const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url';
 
 /** "1:42.512" from a raw seconds count (e.g. 102.512) — minutes are shown with no leading zero (per site-wide convention: no leading zeroes on lap records/times), while seconds/milliseconds keep their own fixed-width zero-padding since those are always exactly 2 and 3 digits within a minute. */
 export function formatLapTime(seconds: number | null): string {
@@ -744,6 +746,23 @@ export function formatLapTime(seconds: number | null): string {
  */
 export function displayLayoutName(name: string): string {
   return name === 'N/A' ? 'Full Course' : name;
+}
+
+/** A layout's own image if it has one on file, otherwise the parent circuit's shared logo (or null if neither exists). */
+export function layoutImageUrl(layout: Pick<CircuitLayout, 'image_url'>, circuit: Pick<Circuit, 'logo_url'> | null): string | null {
+  return layout.image_url ?? circuit?.logo_url ?? null;
+}
+
+/**
+ * "Chris Macdonald" from "Chris Macdonald5" — iRacing appends a trailing
+ * number directly to a driver's name to disambiguate real-name duplicates
+ * on the roster (see 0001_init.sql's `name` column comment). Display-only:
+ * never use this to write back to the stored `name` value, since the
+ * driver record needs to keep the exact iRacing-supplied name to stay
+ * aligned with iRacing (and unique in the database).
+ */
+export function displayDriverName(name: string): string {
+  return name.replace(/\d+$/, '');
 }
 
 /**

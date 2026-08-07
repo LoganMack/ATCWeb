@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass, displayDriverName } from '../../../lib/supabase';
 import { getChampions } from '../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -84,7 +84,7 @@ if (!loadError && activeClass) {
         >
           <div>
             <p class="font-semibold">{entry.season.name}</p>
-            <p class="text-sm text-white/50">{entry.standing.driver.name} · {entry.standing.totalPoints} pts</p>
+            <p class="text-sm text-white/50">{displayDriverName(entry.standing.driver.name)} · {entry.standing.totalPoints} pts</p>
           </div>
           <span class="text-sm text-white/50">{photoCountBySeason.get(entry.season.id) ?? 0} / 5 photos</span>
         </a>

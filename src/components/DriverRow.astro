@@ -1,6 +1,6 @@
 ---
 import type { Driver } from '../lib/supabase';
-import { formatDate } from '../lib/supabase';
+import { formatDate, displayDriverName } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 
@@ -34,7 +34,7 @@ const badgeClasses = classBadgeClasses(className);
   </td>
   <td class="py-2.5 pr-3" data-col="name">
     <div class="flex items-center gap-2">
-      <span class="font-semibold">{driver.name}</span>
+      <span class="font-semibold">{displayDriverName(driver.name)}</span>
       {driver.is_rookie && (
         <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">
           Rookie

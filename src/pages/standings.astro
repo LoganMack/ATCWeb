@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getExhibitionRoundIds } from '../lib/supabase';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getExhibitionRoundIds, displayDriverName } from '../lib/supabase';
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,
@@ -175,8 +175,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name}>
                     <div class="flex flex-wrap items-center gap-2">
                       <span>
-                        {row.driver.name} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                        {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
+                      {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
+                      {extras?.cars.map((c) => (
+                        <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} />
+                      ))}
                       {extras?.teams.map((t) => (
                         <TeamLogo
                           name={t.teamName}
@@ -184,9 +188,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           size="h-5 w-5"
                           title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
                         />
-                      ))}
-                      {extras?.cars.map((c) => (
-                        <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} />
                       ))}
                     </div>
                   </td>

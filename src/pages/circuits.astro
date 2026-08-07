@@ -10,6 +10,7 @@ import {
   formatLapTime,
   formatDate,
   displayLayoutName,
+  layoutImageUrl,
   type CircuitLayout,
 } from '../lib/supabase';
 
@@ -71,17 +72,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <p class="text-sm text-white/40">No results.</p>
                 ) : (
                   <div class="grid gap-3 sm:grid-cols-2">
-                    {circuitLayouts.map((layout) => (
-                      <div class="rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
-                        <p class="font-semibold">{displayLayoutName(layout.name)}</p>
-                        <p class="mt-1 text-xs text-white/50">{layout.length_km !== null ? `${layout.length_km} km` : '—'}</p>
-                        <p class="mt-1 text-xs text-white/50">
-                          {layout.lap_record_seconds !== null ? `Record ${formatLapTime(layout.lap_record_seconds)}` : 'No lap record on file'}
-                          {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
-                          {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
-                        </p>
-                      </div>
-                    ))}
+                    {circuitLayouts.map((layout) => {
+                      const imageUrl = layoutImageUrl(layout, circuit);
+                      return (
+                        <div class="flex gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+                          {imageUrl ? (
+                            <img src={imageUrl} alt="" class="h-14 w-14 flex-none rounded object-cover" />
+                          ) : (
+                            <div class="h-14 w-14 flex-none rounded bg-white/10"></div>
+                          )}
+                          <div>
+                            <p class="font-semibold">{displayLayoutName(layout.name)}</p>
+                            <p class="mt-1 text-xs text-white/50">{layout.length_km !== null ? `${layout.length_km} km` : '—'}</p>
+                            <p class="mt-1 text-xs text-white/50">
+                              {layout.lap_record_seconds !== null ? `Record ${formatLapTime(layout.lap_record_seconds)}` : 'No lap record on file'}
+                              {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
+                              {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
