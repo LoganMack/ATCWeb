@@ -2,7 +2,15 @@
 export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDrivers, getTeams, getAllNewsPosts, getEvents, getCircuits } from '../../lib/supabase';
+import {
+  resolveSupabaseEnv,
+  getDrivers,
+  getTeams,
+  getAllNewsPosts,
+  getEvents,
+  getCircuits,
+  getSeasons,
+} from '../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -12,13 +20,15 @@ let teamCount = 0;
 let draftCount = 0;
 let upcomingEventCount = 0;
 let circuitCount = 0;
+let seasonCount = 0;
 try {
-  const [drivers, teams, news, events, circuits] = await Promise.all([
+  const [drivers, teams, news, events, circuits, seasons] = await Promise.all([
     getDrivers(supabaseEnv),
     getTeams(supabaseEnv),
     getAllNewsPosts(supabaseEnv, accessToken),
     getEvents(supabaseEnv),
     getCircuits(supabaseEnv),
+    getSeasons(supabaseEnv),
   ]);
   driverCount = drivers.length;
   teamCount = teams.length;
@@ -26,16 +36,24 @@ try {
   const todayStr = new Date().toISOString().slice(0, 10);
   upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
   circuitCount = circuits.length;
+  seasonCount = seasons.length;
 } catch (err) {
   console.error('Failed to load admin dashboard counts:', err);
 }
 
+// Every /admin/* section, so nothing is ever admin-only-reachable by typing
+// the URL directly — keep this in sync with AdminLayout's own sub-nav links.
 const cards = [
   { href: '/admin/news', label: 'News', detail: `${draftCount} draft${draftCount === 1 ? '' : 's'}` },
   { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} on the roster` },
   { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
   { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming` },
   { href: '/admin/circuits', label: 'Circuits', detail: `${circuitCount} circuits` },
+  { href: '/admin/champions', label: 'Champions', detail: 'Manage champion photos' },
+  { href: '/admin/seasons', label: 'Seasons', detail: `${seasonCount} season${seasonCount === 1 ? '' : 's'}` },
+  { href: '/admin/car-logos', label: 'Car Logos', detail: 'Logos shown on results & standings' },
+  { href: '/admin/page-banners', label: 'Page Banners', detail: 'Header images for every page' },
+  { href: '/admin/penalty-offenses', label: 'Penalty Offenses', detail: 'Manage the offense list' },
   { href: '/admin/users', label: 'Users', detail: 'Assign admin access' },
 ];
 ---

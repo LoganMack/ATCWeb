@@ -3,9 +3,11 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import DriverRow from '../components/DriverRow.astro';
-import { getDrivers, getEvents, getPenaltiesForSubsessions, resolveSupabaseEnv } from '../lib/supabase';
+import PageBanner from '../components/PageBanner.astro';
+import { getDrivers, getEvents, getPenaltiesForSubsessions, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
 import { isOnProbationNow, computeSeasonPPState } from '../lib/penalties';
 import { getCurrentSeasonRounds } from '../lib/results';
+import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -29,6 +31,13 @@ try {
   console.error('Failed to load events for probation status:', err);
 }
 const onProbationNowByDriverId = new Map(drivers.map((d) => [d.id, isOnProbationNow(d, events)]));
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'roster');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
 
 // The roster's Penalty Pts column shows each driver's CURRENT SEASON tally
 // (rule 57 — see computeSeasonPPState's doc comment for why this is a live
@@ -73,7 +82,8 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
 ---
 
 <Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
-  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Driver Roster</h1>
 
     {loadError && (

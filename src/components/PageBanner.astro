@@ -1,0 +1,35 @@
+---
+// Fills the empty space every page has between the sticky nav and its own
+// <h1> (the `pt-28 sm:pt-36` top padding every top-level page section
+// uses) with an admin-managed image, when one's configured for that page
+// (see /admin/page-banners, page_banners table). Renders nothing at all
+// when no image is set — the section just stays plain black (the body's
+// own bg-brand-ink), same as before this existed.
+//
+// Deliberately only covers the top band of the section (a fixed height,
+// not the whole section) — most of these pages have a lot of content below
+// the header, and this is meant to decorate the header gap, not become a
+// full-page background image. The gradient fades the image out to solid
+// ink by the bottom of that band so it blends into the rest of the (black)
+// page rather than hard-cutting off.
+//
+// Usage: add `relative overflow-hidden` to the page's <section>, then drop
+// <PageBanner imageUrl={...} /> as the section's first child, before the
+// <h1>.
+interface Props {
+  imageUrl: string | null;
+}
+
+const { imageUrl } = Astro.props;
+---
+
+{imageUrl && (
+  <>
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 -z-20 h-40 bg-cover bg-center sm:h-56"
+      style={`background-image: url('${imageUrl}')`}
+    >
+    </div>
+    <div class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-40 bg-gradient-to-b from-brand-ink/30 via-brand-ink/80 to-brand-ink sm:h-56"></div>
+  </>
+)}

@@ -3,8 +3,10 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, formatDate } from '../lib/supabase';
+import PageBanner from '../components/PageBanner.astro';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getPageBanners, formatDate } from '../lib/supabase';
 import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
+import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -47,11 +49,19 @@ if (!loadError && activeSeason) {
 // every later round's number.
 const displayRoundNumbers = computeDisplayRoundNumbers(rounds, exhibitionRoundIds);
 
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'results');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
 <Layout title="Race Results" description="Historical race-by-race results for every Alpha Touring Challenge round.">
-  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Race Results</h1>
 
     <HistoryTabs active="results" />
@@ -66,24 +76,29 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <form method="GET" class="max-w-xs">
         <label class="flex flex-col gap-1.5 text-sm">
           <span class="text-white/60">Season</span>
-          <select
-            name="season"
-            onchange="this.form.submit()"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          >
-            <optgroup label="Championships" class="bg-brand-ink text-white">
-              {championshipSeasons.map((s) => (
-                <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-              ))}
-            </optgroup>
-            {exhibitionSeasons.length > 0 && (
-              <optgroup label="Exhibitions" class="bg-brand-ink text-white">
-                {exhibitionSeasons.map((s) => (
+          <div class="flex items-center gap-2">
+            {activeSeason?.logo_url && (
+              <img src={activeSeason.logo_url} alt="" class="h-9 w-9 flex-none rounded object-contain" />
+            )}
+            <select
+              name="season"
+              onchange="this.form.submit()"
+              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              <optgroup label="Championships" class="bg-brand-ink text-white">
+                {championshipSeasons.map((s) => (
                   <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
                 ))}
               </optgroup>
-            )}
-          </select>
+              {exhibitionSeasons.length > 0 && (
+                <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                  {exhibitionSeasons.map((s) => (
+                    <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
         </label>
       </form>
     )}

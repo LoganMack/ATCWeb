@@ -4,7 +4,8 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
 import UpcomingEventCard from '../components/UpcomingEventCard.astro';
-import { getNewsPosts, getUpcomingEvents, resolveSupabaseEnv } from '../lib/supabase';
+import { getNewsPosts, getUpcomingEvents, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { bannerUrlFor } from '../lib/pageBanners';
 import { resolveSiteLinks } from '../lib/links';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -20,6 +21,18 @@ try {
   console.error('Failed to load homepage data:', err);
 }
 
+// Hero background image (admin-managed, see /admin/page-banners and
+// page_banners table — page_key 'home'). No image configured just means no
+// image: the section renders plain black (this site's bg-brand-ink), same
+// as the body behind it, rather than the placeholder blue radial gradient
+// this used to always show.
+let heroImageUrl: string | null = null;
+try {
+  heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
+} catch (err) {
+  console.error('Failed to load homepage banner:', err);
+}
+
 // Cache this on Cloudflare's edge for a minute so most visits are served
 // instantly, while still picking up Supabase edits within ~60s.
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
@@ -28,27 +41,32 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 <Layout title="Home">
   <section class="relative overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <!--
-      Homepage hero background image. Drop the file at
-      public/images/hero-bg.jpg (see README for exact dimensions/format
-      guidance). The dark gradient overlay on top keeps the white headline
-      text readable regardless of what's in the photo; the radial glow is
-      layered above the photo for a bit of the old effect's depth.
+      Homepage hero background image — admin-managed (see
+      /admin/page-banners, page_key 'home'), no longer a static file. When
+      set, it fills this whole hero section with a dark overlay on top to
+      keep the white headline text readable. When not set, this section
+      renders nothing here at all — no image div, no gradient — so it's
+      just plain black (bg-brand-ink, same as the rest of the site), not
+      the blue radial-gradient placeholder this used to always show.
     -->
-    <div
-      class="pointer-events-none absolute inset-0 -z-20 bg-cover bg-center"
-      style="background-image: url('/images/hero-bg.jpg')"
-    >
-    </div>
-    <div class="pointer-events-none absolute inset-0 -z-10 bg-brand-ink/70"></div>
-    <div class="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(circle_at_50%_-10%,rgba(67,105,245,0.25),transparent_60%)]"></div>
+    {heroImageUrl && (
+      <>
+        <div
+          class="pointer-events-none absolute inset-0 -z-20 bg-cover bg-center"
+          style={`background-image: url('${heroImageUrl}')`}
+        >
+        </div>
+        <div class="pointer-events-none absolute inset-0 -z-10 bg-brand-ink/70"></div>
+      </>
+    )}
 
     <div class="mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
       <div class="text-center lg:text-left">
         <h1 class="reveal font-display text-5xl leading-[0.95] sm:text-7xl" style="transition-delay: 80ms">
           Alpha Touring<br />Challenge
         </h1>
-        <p class="reveal mt-6 text-lg text-white/70" style="transition-delay: 160ms">
-          The premier North American touring car series on iRacing.
+        <p class="reveal mt-6 text-lg italic text-white/70" style="transition-delay: 160ms">
+          iRacing's premier North American touring car series
         </p>
         <div
           class="reveal mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start"

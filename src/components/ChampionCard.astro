@@ -92,7 +92,10 @@ const smallPhotoRows = [
 
     <div class="p-6">
       <div>
-        <p class="text-xs uppercase tracking-widest text-white/50">{season.name}</p>
+        <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
+          {season.logo_url && <img src={season.logo_url} alt="" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+          {season.name}
+        </p>
         <div class="mt-1 flex flex-wrap items-center gap-2">
           <h3 class="font-display text-3xl leading-none">
             {driverName} {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}

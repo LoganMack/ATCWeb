@@ -3,7 +3,9 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import EventDetailCard from '../components/EventDetailCard.astro';
-import { getEvents, resolveSupabaseEnv } from '../lib/supabase';
+import PageBanner from '../components/PageBanner.astro';
+import { getEvents, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -14,6 +16,13 @@ try {
 } catch (err) {
   console.error('Failed to load events:', err);
   loadError = true;
+}
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'calendar');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
@@ -38,7 +47,8 @@ const calendarEvents = events.map((e) => ({
 ---
 
 <Layout title="Calendar" description="The Alpha Touring Challenge race calendar.">
-  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Calendar</h1>
     <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
       {upcoming.length} upcoming event{upcoming.length === 1 ? '' : 's'}.

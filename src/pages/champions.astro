@@ -4,8 +4,17 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import ChampionCard from '../components/ChampionCard.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass, getExhibitionRoundIds } from '../lib/supabase';
+import PageBanner from '../components/PageBanner.astro';
+import {
+  resolveSupabaseEnv,
+  getDriverClasses,
+  getSeasons,
+  getChampionPhotosForClass,
+  getExhibitionRoundIds,
+  getPageBanners,
+} from '../lib/supabase';
 import { getChampions, getSeasonCarTeamStats, type DriverSeasonExtras } from '../lib/results';
+import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -63,11 +72,19 @@ if (!loadError && activeClass) {
   }
 }
 
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'champions');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
 <Layout title="Champions" description="Past Alpha Touring Challenge season champions.">
-  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Champions</h1>
 
     <HistoryTabs active="champions" />

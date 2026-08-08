@@ -3,7 +3,9 @@ export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
 import NewsCard from '../../components/NewsCard.astro';
-import { getNewsPosts, resolveSupabaseEnv } from '../../lib/supabase';
+import PageBanner from '../../components/PageBanner.astro';
+import { getNewsPosts, getPageBanners, resolveSupabaseEnv } from '../../lib/supabase';
+import { bannerUrlFor } from '../../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -14,6 +16,13 @@ try {
 } catch (err) {
   console.error('Failed to load news posts:', err);
   loadError = true;
+}
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'news');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
 }
 
 // Every distinct season tag currently in use, for the filter dropdown —
@@ -35,7 +44,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="News" description="News and updates from Alpha Touring Challenge.">
-  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">News</h1>
 
     {loadError && (

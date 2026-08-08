@@ -34,6 +34,23 @@ input[type='checkbox'] {
   accent-color: theme('colors.brand.primary');
 }
 
+/* Every button/link on the site already fills with brand.primary
+   (#4369F5, sampled directly from the real logo files) — the one place a
+   *different*, non-brand blue was actually showing up was the browser's
+   own default focus ring (Chrome/Edge's native focus outline is a lighter
+   blue than #4369F5), since none of the site's buttons/links set their own
+   focus style. This replaces that default with the real ATC blue
+   everywhere, instead of removing focus indication outright. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid theme('colors.brand.primary');
+  outline-offset: 2px;
+}
+
 html {
   scroll-behavior: smooth;
 }

@@ -605,7 +605,43 @@ export async function getDistinctDriverCarNames(env: SupabaseEnv): Promise<strin
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
-// --- Storage (team logos, driver photos) --------------------------------
+// --- Page banners (see 0024_season_logos_and_page_banners.sql) -----------
+//
+// One optional background image per public page, keyed by a stable
+// `page_key` the app itself defines (see src/lib/pageBanners.ts for the
+// full list) — not a foreign key to anything, just a natural key like
+// car_logos' car_name. A page with no row here renders with no banner
+// (plain black, matching the site's dark background — see PageBanner.astro
+// and the homepage hero for how each renders that "nothing configured"
+// state).
+
+export interface PageBannerRow {
+  page_key: string;
+  image_url: string;
+}
+
+/** Every configured page banner. Small table — callers just filter/`.find()` this in memory rather than querying per page_key. */
+export function getPageBanners(env: SupabaseEnv) {
+  return restGet<PageBannerRow[]>(env, 'page_banners?select=page_key,image_url');
+}
+
+/** Upserts one page's banner image (by page_key). */
+export async function upsertPageBanner(env: SupabaseEnv, accessToken: string, data: PageBannerRow) {
+  const res = await fetch(`${env.url}/rest/v1/page_banners?on_conflict=page_key`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on page_banners: ${await res.text()}`);
+  const rows = (await res.json()) as PageBannerRow[];
+  return rows[0];
+}
+
+export function deletePageBanner(env: SupabaseEnv, accessToken: string, pageKey: string) {
+  return restDelete(env, accessToken, `page_banners?page_key=eq.${encodeURIComponent(pageKey)}`);
+}
+
+// --- Storage (team logos, driver photos, page banners) -------------------
 
 /**
  * Uploads a file to a public Storage bucket and returns its public URL.
@@ -615,7 +651,7 @@ export async function getDistinctDriverCarNames(env: SupabaseEnv): Promise<strin
 export async function uploadToStorage(
   env: SupabaseEnv,
   accessToken: string,
-  bucket: 'logos' | 'photos',
+  bucket: 'logos' | 'photos' | 'banners',
   path: string,
   file: File
 ): Promise<string> {
@@ -671,6 +707,11 @@ export async function getSeasonById(env: SupabaseEnv, id: string) {
     `seasons?select=id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks&id=eq.${encodeURIComponent(id)}`
   );
   return seasons[0] ?? null;
+}
+
+/** Sets (or clears, with `null`) a season's logo — the only field seasons can be admin-edited from (0024_season_logos_and_page_banners.sql). */
+export async function updateSeasonLogo(env: SupabaseEnv, accessToken: string, id: string, logoUrl: string | null) {
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { logo_url: logoUrl });
 }
 
 // ---------------------------------------------------------------------------

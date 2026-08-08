@@ -4,7 +4,15 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getDriverClasses, displayDriverName } from '../lib/supabase';
+import PageBanner from '../components/PageBanner.astro';
+import {
+  resolveSupabaseEnv,
+  getSeasons,
+  getExhibitionRoundIds,
+  getDriverClasses,
+  displayDriverName,
+  getPageBanners,
+} from '../lib/supabase';
 import {
   computeTeamSeasonStandings,
   computeOverallSeasonStandings,
@@ -12,6 +20,7 @@ import {
   type TeamSeasonStanding,
   type DriverSeasonStanding,
 } from '../lib/results';
+import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -66,11 +75,19 @@ if (!loadError && activeSeason) {
   }
 }
 
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'team-standings');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
 <Layout title="Team Standings" description="Full season team standings for every Alpha Touring Challenge season.">
-  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Team Standings</h1>
 
     <HistoryTabs active="teamStandings" />
@@ -90,15 +107,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <input type="hidden" name="view" value={view} />
           <label class="flex flex-col gap-1.5 text-sm">
             <span class="text-white/60">Season</span>
-            <select
-              name="season"
-              onchange="this.form.submit()"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            >
-              {championshipSeasons.map((s) => (
-                <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-              ))}
-            </select>
+            <div class="flex items-center gap-2">
+              {activeSeason?.logo_url && (
+                <img src={activeSeason.logo_url} alt="" class="h-9 w-9 flex-none rounded object-contain" />
+              )}
+              <select
+                name="season"
+                onchange="this.form.submit()"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              >
+                {championshipSeasons.map((s) => (
+                  <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+                ))}
+              </select>
+            </div>
           </label>
         </form>
 
