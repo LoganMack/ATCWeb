@@ -489,6 +489,12 @@ Bulk-fetching this much data raised a separate correctness risk: Supabase's host
 
 Net effect: the total request count for this whole page is now a small constant (global lookups plus a handful of paginated bulk queries) that does not grow with the number of classes, team-competition views, or per-season function calls — the only thing that can still add requests is the total amount of race data across the league's entire history crossing another 1000-row page boundary, which grows far more slowly than "6 functions × N seasons" ever did.
 
+## Fixed: sortable tables silently breaking their own expand/collapse rows (v0.36)
+
+Once Driver Stats was actually loading, its expandable rows didn't work: clicking a driver did nothing, and clicking again would seemingly collapse (and a third click, re-expand) a completely different row below it. Root cause: `src/scripts/sortable-table.ts`'s click-to-sort behavior re-sorts a table by moving each `<tr>` around, but it was treating every direct row the same — including a `[data-detail-row]` (the hidden expandable panel that sits right after its own `[data-expand-row]` summary row). A detail row never matches any column's sort key, so every table's detail rows would sort to one end as a group the moment any column header got clicked, getting separated from the summary rows they belong to. From then on, a summary row's very-next-sibling (what the expand/collapse code reads) was some unrelated row — clicking to expand silently touched the wrong row's hidden class instead. This wasn't new to Driver Stats — Standings and Team Standings combine the same two features (sortable columns + expandable rows) and had the identical latent bug, just apparently never triggered/noticed there before.
+
+Fixed in the one shared script: sorting now treats a `[data-expand-row]` and its immediately-following `[data-detail-row]` as one unit that always moves together, so they can never end up on opposite sides of a sort. A table with no detail rows at all (every other sortable table on the site — Roster, Teams, etc.) is completely unaffected, since every row there is just its own one-row "unit" either way.
+
 ## Re-importing the roster later
 
 Whenever the roster spreadsheet changes:

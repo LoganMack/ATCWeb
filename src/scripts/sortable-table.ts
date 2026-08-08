@@ -40,15 +40,42 @@ function initSortableTables() {
       dir = activeKey === key ? -dir : 1;
       activeKey = key;
 
-      const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>(':scope > tr'));
-      rows.sort((a, b) => {
-        const av = getSortValue(a, key);
-        const bv = getSortValue(b, key);
+      // A click-to-expand table (standings.astro, team-standings.astro,
+      // driver-stats.astro) pairs each sortable row with its own sibling
+      // `[data-detail-row]` right after it. Sorting the raw list of
+      // `:scope > tr` would treat that detail row as its own independent
+      // row — it never matches any `[data-col]` sort key, so every detail
+      // row in the table sorts to one end as a clump, getting separated
+      // from the summary row it belongs to. From that point on, a summary
+      // row's `nextElementSibling` (what the expand/collapse handler reads)
+      // is some OTHER row entirely, not its own detail panel — clicking to
+      // expand looks like it does nothing, and toggling it actually shows/
+      // hides whatever unrelated row now happens to sit next to it. Treating
+      // each `[data-expand-row]` + its immediately-following `[data-detail-row]`
+      // as one unit that always moves together fixes that; a table with no
+      // detail rows at all (every other sortable table on the site) behaves
+      // exactly as before, since every row is then just its own one-row unit.
+      const allRows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>(':scope > tr'));
+      const units: { primary: HTMLTableRowElement; detail: HTMLTableRowElement | null }[] = [];
+      for (let i = 0; i < allRows.length; i++) {
+        const row = allRows[i];
+        if (row.hasAttribute('data-detail-row')) continue; // consumed below, as the previous row's detail
+        const next = allRows[i + 1];
+        const detail = next && next.hasAttribute('data-detail-row') ? next : null;
+        units.push({ primary: row, detail });
+      }
+
+      units.sort((a, b) => {
+        const av = getSortValue(a.primary, key);
+        const bv = getSortValue(b.primary, key);
         if (av < bv) return -1 * dir;
         if (av > bv) return 1 * dir;
         return 0;
       });
-      rows.forEach((row) => tbody.appendChild(row));
+      units.forEach(({ primary, detail }) => {
+        tbody.appendChild(primary);
+        if (detail) tbody.appendChild(detail);
+      });
 
       headers.forEach((h) => h.removeAttribute('data-sort-dir'));
       th.setAttribute('data-sort-dir', dir === 1 ? 'asc' : 'desc');
