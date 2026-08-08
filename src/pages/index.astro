@@ -13,6 +13,7 @@ import {
   getExhibitionRoundIds,
   getSiteSettings,
   resolveSupabaseEnv,
+  formatDate,
 } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
 import {
@@ -28,20 +29,20 @@ import { classBadgeClasses } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Fetch 6 rather than the 3 this page used to show: 1 goes into the new
-// hero-row "latest story" slot, the rest fill the "more news" list further
-// down (see the template below).
+// Fetch 7 rather than the 3 this page used to show: 1 goes into the new
+// hero-row "latest story" slot, the other 6 fill the plain text "more news"
+// list right below it (see the template below).
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
 try {
-  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 6), getUpcomingEvents(supabaseEnv, 3)]);
+  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 7), getUpcomingEvents(supabaseEnv, 3)]);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
   console.error('Failed to load homepage data:', err);
 }
 const featuredNews = latestNews[0] ?? null;
-const moreNews = latestNews.slice(1);
+const moreNews = latestNews.slice(1, 7);
 
 // season_label on a post is freeform text (see NewsPost's own doc comment),
 // not an FK to `seasons` — this is a best-effort name match so NewsCard can
@@ -194,10 +195,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
       <div>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 40ms">
+            Recent News
+          </h2>
+        </div>
+
         {featuredNews ? (
-          <NewsCard post={featuredNews} index={0} featured logoBySeasonLabel={logoBySeasonLabel} />
+          <NewsCard post={featuredNews} index={0} logoBySeasonLabel={logoBySeasonLabel} />
         ) : (
-          <p class="reveal text-sm text-white/50">No news yet.</p>
+          <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">
+            No news yet.
+          </p>
         )}
       </div>
 
@@ -234,16 +243,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   <section class="mx-auto max-w-6xl px-6 pb-24">
     <div class="grid gap-12 lg:grid-cols-2 lg:gap-16">
       <div>
-        <div class="mb-6 flex items-end justify-between">
-          <h2 class="font-display text-3xl">More News</h2>
-          <a href="/news" class="text-sm text-white/60 hover:text-white">View all &rarr;</a>
-        </div>
         {moreNews.length === 0 ? (
           <p class="text-sm text-white/50">No more news yet.</p>
         ) : (
-          <div class="flex flex-col gap-4">
-            {moreNews.map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} />)}
-          </div>
+          <>
+            <ul class="divide-y divide-white/10">
+              {moreNews.map((post) => (
+                <li>
+                  <a
+                    href={`/news/${post.slug}`}
+                    class="flex items-baseline justify-between gap-4 py-3 text-white/80 transition hover:text-white"
+                  >
+                    <span class="truncate font-semibold">{post.title}</span>
+                    <span class="flex-none text-xs text-white/40">{formatDate(post.published_at)}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <a href="/news" class="mt-4 inline-block text-sm text-white/60 hover:text-white">View all &rarr;</a>
+          </>
         )}
       </div>
 
