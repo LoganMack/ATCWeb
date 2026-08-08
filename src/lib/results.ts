@@ -147,7 +147,8 @@ export interface DriverBasic {
   is_rookie: boolean;
 }
 
-function driversSelect(env: SupabaseEnv) {
+/** Exported so a caller needing MULTIPLE standings views for one season (e.g. the homepage's standings widget) can fetch this once and pass it as `driversBasic` to each call, same sharing reasoning as `getSeasonOverallContext`. */
+export function driversSelect(env: SupabaseEnv) {
   return restGet<DriverBasic[]>(env, 'drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie');
 }
 
@@ -427,8 +428,16 @@ interface SeasonOverallContext {
  * per-season loop at all. Splitting this function was what let that happen
  * without duplicating (and risking drifting from) the actual adjustment
  * math below.
+ *
+ * Exported so any other caller that needs MULTIPLE standings views for the
+ * same single season — e.g. the homepage's Overall/Alpha/Gamma/Delta/
+ * Rookies standings widget — can build this once and pass it as
+ * `precomputedOverallContext` to each of computeSeasonStandings /
+ * computeOverallSeasonStandings, instead of each view re-fetching its own
+ * copy. Same sharing story as computeDriverCareerStats, just for "many
+ * views, one season" instead of "one view, many seasons."
  */
-async function getSeasonOverallContext(
+export async function getSeasonOverallContext(
   env: SupabaseEnv,
   season: Season,
   exhibitionIds: Set<number>,

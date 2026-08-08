@@ -19,7 +19,16 @@
  * `preventDefault()` here wins regardless of Astro's exact interception
  * behavior in a given version, so this doesn't depend on
  * `data-astro-reload` doing anything at all.
+ *
+ * Because this fetch() happens entirely outside Astro's router, neither of
+ * the router lifecycle events pageProgress.ts listens for ever fires for
+ * it — so this calls showProgress()/hideProgress() itself around the
+ * request. The submitter button also gets its own inline "submitting..."
+ * label swap, since it's the one element the person actually clicked and
+ * deserves more direct feedback than the page-wide bar alone.
  */
+
+import { showProgress, hideProgress } from './pageProgress';
 
 function bindForm(form: HTMLFormElement) {
   if (form.dataset.hardSubmitBound === 'true') return;
@@ -33,13 +42,19 @@ function bindForm(form: HTMLFormElement) {
     const buttons = form.querySelectorAll<HTMLButtonElement>('button[type="submit"]');
     buttons.forEach((btn) => (btn.disabled = true));
 
+    const originalLabel = submitter?.textContent ?? null;
+    if (submitter) submitter.textContent = 'Working…';
+
+    showProgress();
+
     try {
       const res = await fetch(form.action, { method: 'POST', body: formData });
 
       if (res.redirected) {
         // Success path — do a real navigation to the real destination, so
         // any cookies set along the way (e.g. the session cookie on
-        // login) are actually in effect for it.
+        // login) are actually in effect for it. Leave the bar showing;
+        // the destination page's own load will clear it.
         window.location.assign(res.url);
         return;
       }
@@ -49,12 +64,15 @@ function bindForm(form: HTMLFormElement) {
       // that HTML directly rather than reloading the URL, which would be
       // a fresh GET that can't reproduce whatever the POST determined.
       const html = await res.text();
+      hideProgress();
       document.open();
       document.write(html);
       document.close();
     } catch (err) {
       console.error('Form submission failed:', err);
+      hideProgress();
       buttons.forEach((btn) => (btn.disabled = false));
+      if (submitter && originalLabel !== null) submitter.textContent = originalLabel;
       alert('Could not reach the server — check your connection and try again.');
     }
   });

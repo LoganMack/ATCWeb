@@ -102,6 +102,56 @@ h1, h2, h3, h4 {
   }
 }
 
+/* Instant, zero-JS tactile feedback for anything clickable. This fires the
+   moment a mouse/finger goes down — well before any server response comes
+   back — which is what actually answers "did my click register?" on a
+   page that's about to sit there loading for a moment. The network-request
+   side of that (an actual loading indicator for the time in between) is
+   handled separately by src/scripts/pageProgress.ts.
+
+   Links get a quick opacity dip rather than a scale, since `a` covers
+   everything from small nav text to full card components, and shrinking a
+   large card on press reads as glitchy rather than tactile. Buttons,
+   selects, and anything explicitly marked as a button (e.g. sortable
+   table headers) get a subtle press-down scale instead, since those are
+   always small, self-contained controls where a scale reads as a real
+   "press." */
+a:active {
+  opacity: 0.7;
+}
+
+button:active,
+select:active,
+[role='button']:active {
+  transform: scale(0.97);
+}
+
+/* Elements that don't already carry their own Tailwind transition utility
+   (most cards/nav links do, via hover: variants) get a minimal one here so
+   the press state above eases rather than snaps. This deliberately only
+   sets `transition-property`/`duration`/`timing-function` — never the
+   `transition` shorthand — so it can't clobber a more specific utility
+   class's own transition declaration elsewhere on the same element. */
+a,
+button,
+select,
+[role='button'] {
+  transition-property: opacity, transform, color, background-color, border-color;
+  transition-duration: 0.15s;
+  transition-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a:active {
+    opacity: 1;
+  }
+  button:active,
+  select:active,
+  [role='button']:active {
+    transform: none;
+  }
+}
+
 /* Sort direction indicator for sortable table headers — see
    src/scripts/sortable-table.ts. */
 th[data-sort-key]::after {

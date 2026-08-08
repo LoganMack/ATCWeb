@@ -4,32 +4,134 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
 import UpcomingEventCard from '../components/UpcomingEventCard.astro';
-import { getNewsPosts, getUpcomingEvents, getPageBanners, getSeasons, resolveSupabaseEnv } from '../lib/supabase';
+import {
+  getNewsPosts,
+  getUpcomingEvents,
+  getPageBanners,
+  getSeasons,
+  getDriverClasses,
+  getExhibitionRoundIds,
+  getSiteSettings,
+  resolveSupabaseEnv,
+} from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
-import { resolveSiteLinks } from '../lib/links';
+import {
+  computeSeasonStandings,
+  computeOverallSeasonStandings,
+  getSeasonOverallContext,
+  isChampionshipSeason,
+  driversSelect,
+  type DriverSeasonStanding,
+} from '../lib/results';
+import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../lib/siteSettings';
+import { classBadgeClasses } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const { discordUrl } = resolveSiteLinks(Astro.locals);
 
+// Fetch 6 rather than the 3 this page used to show: 1 goes into the new
+// hero-row "latest story" slot, the rest fill the "more news" list further
+// down (see the template below).
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
 try {
-  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 3), getUpcomingEvents(supabaseEnv, 3)]);
+  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 6), getUpcomingEvents(supabaseEnv, 3)]);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
   console.error('Failed to load homepage data:', err);
 }
+const featuredNews = latestNews[0] ?? null;
+const moreNews = latestNews.slice(1);
 
 // season_label on a post is freeform text (see NewsPost's own doc comment),
 // not an FK to `seasons` — this is a best-effort name match so NewsCard can
 // show that season's logo next to its tag, same as the champion cards do.
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 let logoBySeasonLabel = new Map<string, string>();
 try {
-  const seasons = await getSeasons(supabaseEnv);
+  seasons = await getSeasons(supabaseEnv);
   logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
 } catch (err) {
   console.error('Failed to load seasons for news card logos:', err);
+}
+
+// --- Top 5 standings widget ------------------------------------------------
+//
+// One toggle-able widget covering Overall + all 3 classes + Rookies. Rather
+// than 5 separate page navigations (which would need the new loading-bar
+// treatment — see pageProgress.ts — for every single toggle click), all 5
+// views are computed server-side up front and switched between client-side
+// with plain show/hide JS, same as the search-box filters elsewhere on the
+// site. That also means the classes/season-wide penalty context only needs
+// fetching ONCE (`getSeasonOverallContext`, shared via `precomputedOverallContext`
+// into every one of the 4 `compute*Standings` calls below) instead of once
+// per view — the same "share one expensive fetch across every view that
+// needs it" pattern computeDriverCareerStats had to be rebuilt around after
+// the Driver Stats subrequest-limit incident (see README v0.34/v0.35).
+interface StandingsTab {
+  key: string;
+  label: string;
+  rows: DriverSeasonStanding[];
+}
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let standingsTabs: StandingsTab[] = [];
+try {
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  const activeSeason = championshipSeasons.find((s) => s.is_current) ?? championshipSeasons[0];
+
+  if (activeSeason) {
+    const [driversBasic, exhibitionRoundIds, driverClasses] = await Promise.all([
+      driversSelect(supabaseEnv),
+      getExhibitionRoundIds(supabaseEnv),
+      getDriverClasses(supabaseEnv),
+    ]);
+    classes = driverClasses;
+
+    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
+
+    const overallStandings = await computeOverallSeasonStandings(
+      supabaseEnv,
+      activeSeason,
+      driversBasic,
+      exhibitionRoundIds,
+      overallContext
+    );
+
+    const perClass = await Promise.all(
+      classes.map(async (c) => ({
+        key: c.name,
+        label: c.name,
+        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, overallContext),
+      }))
+    );
+
+    // Rookies aren't their own competition with their own points formula —
+    // just the overall standings filtered down to rookie drivers, re-ranked
+    // 1..N among just themselves so "Rookie standings" reads the same way
+    // a class standings table does, rather than showing e.g. positions
+    // 4, 9, 15 with gaps.
+    const rookieStandings = overallStandings
+      .filter((s) => s.driver.is_rookie)
+      .map((s, i) => ({ ...s, position: i + 1 }));
+
+    standingsTabs = [
+      { key: 'overall', label: 'Overall', rows: overallStandings.slice(0, 5) },
+      ...perClass.map((c) => ({ ...c, rows: c.rows.slice(0, 5) })),
+      { key: 'rookies', label: 'Rookies', rows: rookieStandings.slice(0, 5) },
+    ];
+  }
+} catch (err) {
+  console.error('Failed to load homepage standings widget:', err);
+}
+
+// --- Featured broadcast (admin-managed, see /admin/site-settings) ---------
+let broadcastEmbedUrl: string | null = null;
+try {
+  const settings = await getSiteSettings(supabaseEnv);
+  const rawBroadcastUrl = siteSettingValue(settings, FEATURED_BROADCAST_URL_KEY);
+  broadcastEmbedUrl = rawBroadcastUrl ? youtubeEmbedUrl(rawBroadcastUrl) : null;
+} catch (err) {
+  console.error('Failed to load featured broadcast setting:', err);
 }
 
 // Hero background image (admin-managed, see /admin/page-banners and
@@ -50,7 +152,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="Home">
-  <section class="relative overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative overflow-hidden px-6 pb-16 pt-28 sm:pt-36">
     <!--
       Homepage hero background image — admin-managed (see
       /admin/page-banners, page_key 'home'), no longer a static file. When
@@ -74,38 +176,40 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </>
     )}
 
-    <div class="mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-center lg:gap-16">
-      <div class="text-center lg:text-left">
-        <h1 class="reveal font-display text-5xl leading-[0.95] sm:text-7xl" style="transition-delay: 80ms">
-          Alpha Touring<br />Challenge
-        </h1>
-        <p class="reveal mt-6 text-lg italic text-white/70" style="transition-delay: 160ms">
-          iRacing's premier North American touring car series
-        </p>
-        <div
-          class="reveal mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start"
-          style="transition-delay: 240ms"
-        >
-          <a
-            href={discordUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg bg-brand-primary px-8 py-3 font-semibold transition hover:brightness-110"
-          >
-            Sign Up
-          </a>
-        </div>
+    <!--
+      The old hero used to pair a big "Alpha Touring Challenge" headline +
+      tagline + Sign Up button on the left with Upcoming Events on the
+      right. Per Logan's request, that whole left-hand "sign-up blurb" is
+      now the most recent news story instead — Sign Up isn't lost, it's
+      just no longer duplicated here on top of the Discord button that's
+      always present in the top nav (see Nav.astro) and footer on every
+      page, homepage included. A small title stays here purely so the page
+      still has a proper heading for accessibility/SEO — it's deliberately
+      much smaller than the old hero headline so it doesn't read as a
+      second competing "blurb".
+    -->
+    <h1 class="reveal text-center font-display text-sm uppercase tracking-[0.3em] text-white/50 lg:text-left">
+      Alpha Touring Challenge
+    </h1>
+
+    <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
+      <div>
+        {featuredNews ? (
+          <NewsCard post={featuredNews} index={0} featured logoBySeasonLabel={logoBySeasonLabel} />
+        ) : (
+          <p class="reveal text-sm text-white/50">No news yet.</p>
+        )}
       </div>
 
       <div>
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 240ms">
+          <h2 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 40ms">
             Upcoming Events
           </h2>
         </div>
 
         {upcomingEvents.length === 0 && (
-          <p class="reveal text-sm text-white/50" style="transition-delay: 280ms">
+          <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">
             No results.
           </p>
         )}
@@ -118,7 +222,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <a
             href="/calendar"
             class="reveal mt-4 inline-block text-sm text-white/60 hover:text-white"
-            style={`transition-delay: ${280 + upcomingEvents.length * 60}ms`}
+            style={`transition-delay: ${80 + upcomingEvents.length * 60}ms`}
           >
             Full calendar &rarr;
           </a>
@@ -127,18 +231,136 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     </div>
   </section>
 
-  {latestNews.length > 0 && (
-    <section class="mx-auto max-w-6xl px-6 pb-24">
-      <div class="mb-8 flex items-end justify-between">
-        <h2 class="font-display text-3xl">Latest News</h2>
-        <a href="/news" class="text-sm text-white/60 hover:text-white">View all &rarr;</a>
-      </div>
-      <NewsCard post={latestNews[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} />
-      {latestNews.length > 1 && (
-        <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {latestNews.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} />)}
+  <section class="mx-auto max-w-6xl px-6 pb-24">
+    <div class="grid gap-12 lg:grid-cols-2 lg:gap-16">
+      <div>
+        <div class="mb-6 flex items-end justify-between">
+          <h2 class="font-display text-3xl">More News</h2>
+          <a href="/news" class="text-sm text-white/60 hover:text-white">View all &rarr;</a>
         </div>
-      )}
-    </section>
-  )}
+        {moreNews.length === 0 ? (
+          <p class="text-sm text-white/50">No more news yet.</p>
+        ) : (
+          <div class="flex flex-col gap-4">
+            {moreNews.map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} />)}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div class="mb-6 flex items-end justify-between gap-4">
+          <h2 class="font-display text-3xl">Standings</h2>
+          <a href="/standings" class="text-sm text-white/60 hover:text-white">Full standings &rarr;</a>
+        </div>
+
+        {standingsTabs.length === 0 ? (
+          <p class="text-sm text-white/50">No standings yet.</p>
+        ) : (
+          <div data-standings-widget>
+            <!--
+              Purely client-side tab switching — every view's rows are
+              already rendered below, this just toggles which `hidden`.
+              Deliberately NOT a link/form submission, so there's no server
+              round trip here and (correctly) no loading-bar treatment from
+              pageProgress.ts fires for it — same reasoning as the search-box
+              filters and sortable-table column clicks elsewhere on the site.
+            -->
+            <div class="flex flex-wrap gap-2" role="tablist">
+              {standingsTabs.map((tab, i) => (
+                <button
+                  type="button"
+                  role="tab"
+                  data-standings-tab={tab.key}
+                  aria-selected={i === 0 ? 'true' : 'false'}
+                  class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                    i === 0 ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+              {standingsTabs.map((tab, i) => (
+                <ol data-standings-panel={tab.key} class={i === 0 ? '' : 'hidden'}>
+                  {tab.rows.length === 0 ? (
+                    <li class="p-4 text-sm text-white/50">No results yet.</li>
+                  ) : (
+                    tab.rows.map((row) => {
+                      const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
+                      return (
+                        <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                          <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
+                          {row.driver.photo_url ? (
+                            <img src={row.driver.photo_url} alt="" class="h-8 w-8 flex-none rounded-full object-cover" />
+                          ) : (
+                            <div class="h-8 w-8 flex-none rounded-full bg-white/10"></div>
+                          )}
+                          <span class="min-w-0 flex-1 truncate font-semibold">{row.driver.name}</span>
+                          {rowClassName && (
+                            <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
+                              {rowClassName}
+                            </span>
+                          )}
+                          <span class="flex-none text-sm text-white/60">{row.totalPoints} pts</span>
+                        </li>
+                      );
+                    })
+                  )}
+                </ol>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    {broadcastEmbedUrl && (
+      <div class="mt-16">
+        <h2 class="mb-6 font-display text-3xl">Featured Broadcast</h2>
+        <div class="aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
+          <iframe
+            class="h-full w-full"
+            src={broadcastEmbedUrl}
+            title="Featured Broadcast"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+          ></iframe>
+        </div>
+      </div>
+    )}
+  </section>
 </Layout>
+
+<script>
+  function initStandingsWidget() {
+    document.querySelectorAll<HTMLElement>('[data-standings-widget]').forEach((widget) => {
+      if (widget.dataset.standingsInit === 'true') return;
+      widget.dataset.standingsInit = 'true';
+
+      const tabs = Array.from(widget.querySelectorAll<HTMLButtonElement>('[data-standings-tab]'));
+      const panels = Array.from(widget.querySelectorAll<HTMLElement>('[data-standings-panel]'));
+
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          const key = tab.dataset.standingsTab;
+          tabs.forEach((t) => {
+            const active = t === tab;
+            t.setAttribute('aria-selected', active ? 'true' : 'false');
+            t.classList.toggle('bg-brand-primary', active);
+            t.classList.toggle('text-white', active);
+            t.classList.toggle('bg-white/5', !active);
+            t.classList.toggle('text-white/60', !active);
+          });
+          panels.forEach((panel) => {
+            panel.classList.toggle('hidden', panel.dataset.standingsPanel !== key);
+          });
+        });
+      });
+    });
+  }
+
+  document.addEventListener('astro:page-load', initStandingsWidget);
+</script>

@@ -685,6 +685,36 @@ export function deletePageBanner(env: SupabaseEnv, accessToken: string, pageKey:
   return restDelete(env, accessToken, `page_banners?page_key=eq.${encodeURIComponent(pageKey)}`);
 }
 
+// --- Site settings (see 0026_site_settings.sql) ---------------------------
+//
+// A generic key/value table for one-off, site-wide values that don't have
+// a natural table of their own — unlike page_banners above, these aren't
+// per-page. First (and so far only) use: 'featured_broadcast_url' (see
+// src/lib/siteSettings.ts for the key constant and the YouTube-URL-to-
+// embed-URL parsing), managed from /admin/site-settings.
+
+export interface SiteSettingRow {
+  setting_key: string;
+  value: string | null;
+}
+
+/** Every configured site setting. Small table — callers just `.find()` this in memory rather than querying per key. */
+export function getSiteSettings(env: SupabaseEnv) {
+  return restGet<SiteSettingRow[]>(env, 'site_settings?select=setting_key,value');
+}
+
+/** Upserts one setting (by setting_key). Pass value: null to clear it back to "unset" without deleting the row. */
+export async function upsertSiteSetting(env: SupabaseEnv, accessToken: string, data: SiteSettingRow) {
+  const res = await fetch(`${env.url}/rest/v1/site_settings?on_conflict=setting_key`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on site_settings: ${await res.text()}`);
+  const rows = (await res.json()) as SiteSettingRow[];
+  return rows[0];
+}
+
 // --- Storage (team logos, driver photos, page banners) -------------------
 
 /**

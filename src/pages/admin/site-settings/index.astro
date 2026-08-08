@@ -1,0 +1,76 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getSiteSettings, upsertSiteSetting } from '../../../lib/supabase';
+import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../../../lib/siteSettings';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+let error: string | null = null;
+let saved = false;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const broadcastUrl = String(form.get('featured_broadcast_url') ?? '').trim();
+
+  if (broadcastUrl && !youtubeEmbedUrl(broadcastUrl)) {
+    error = "That doesn't look like a YouTube URL — paste the normal watch/share link (or leave it blank to remove the broadcast).";
+  } else {
+    try {
+      await upsertSiteSetting(supabaseEnv, accessToken, {
+        setting_key: FEATURED_BROADCAST_URL_KEY,
+        value: broadcastUrl || null,
+      });
+      saved = true;
+    } catch (err) {
+      console.error('Failed to save site settings:', err);
+      error = err instanceof Error ? err.message : 'Failed to save.';
+    }
+  }
+}
+
+let currentBroadcastUrl = '';
+try {
+  currentBroadcastUrl = siteSettingValue(await getSiteSettings(supabaseEnv), FEATURED_BROADCAST_URL_KEY) ?? '';
+} catch (err) {
+  console.error('Failed to load site settings:', err);
+  if (!error) error = 'Failed to load current settings.';
+}
+---
+
+<AdminLayout title="Site Settings">
+  <h1 class="reveal font-display text-4xl">Site Settings</h1>
+  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+    One-off, site-wide settings that don't belong to any one page.
+  </p>
+
+  {error && (
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+  {saved && !error && (
+    <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">Saved.</p>
+  )}
+
+  <form method="POST" data-astro-reload class="reveal mt-8 max-w-xl rounded-lg bg-white/5 p-5 ring-1 ring-white/10" style="transition-delay: 60ms">
+    <label for="featured_broadcast_url" class="font-semibold">Featured Broadcast</label>
+    <p class="mt-1 text-xs text-white/40">
+      The YouTube video/live URL shown in the homepage's "Featured Broadcast" section. Leave blank to hide that section entirely.
+    </p>
+    <input
+      id="featured_broadcast_url"
+      type="text"
+      name="featured_broadcast_url"
+      value={currentBroadcastUrl}
+      placeholder="https://www.youtube.com/watch?v=..."
+      class="mt-3 w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
+    />
+    <button
+      type="submit"
+      class="mt-4 rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110"
+    >
+      Save
+    </button>
+  </form>
+</AdminLayout>
