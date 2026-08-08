@@ -461,6 +461,19 @@ Career CPI can't just be an average of each season's own CPI (that would over-we
 
 **Bug fix: team standings were incorrectly dropping worst rounds.** `computeTeamSeasonStandings` had been applying the same "drop the worst `BASELINE_DROP_WEEKS + season.extra_drop_weeks` rounds" rule the driver championships use (`finalizeStandings`) — but per Logan, drop weeks are a driver-standings-only rule and should never have applied to the team championship. Every round a team scored in now counts toward its total, full stop. This was a genuine bug, not a design choice that changed; there was never a case where dropping team rounds was intentional.
 
+## Fixed: Driver Stats hitting Cloudflare's "too many subrequests" error (v0.34)
+
+The Driver Stats page (v0.33) worked locally but failed in production with `Too many subrequests by single Worker invocation`. The cause: `computeDriverCareerStats()` was looping every championship season and, for each one, calling the ordinary single-season standings/stats functions completely unshared — `computeSeasonStandings` (once per class), `computeOverallSeasonStandings`, `getSeasonDriverExtendedStats`, `computeTeamSeasonStandings` (overall + Delta), and `getSeasonCarTeamStats`. Every one of those independently fetches its own copy of the same season-wide penalty/results context (`getSeasonOverallContext`, itself ~5 queries) plus its own copies of season-independent lookups (drivers, teams, car logos, team season logos, circuits, circuit layouts) — so a single page load was issuing on the order of 50+ database requests *per season*. With more than a handful of championship seasons on file, that blew straight through Cloudflare Workers' per-request subrequest limit.
+
+The fix shares all of that instead of re-fetching it:
+- `getSeasonOverallContext`, `computeSeasonStandings`, `computeOverallSeasonStandings`, `computeTeamSeasonStandings`, and `getSeasonDriverExtendedStats` all gained an optional "precomputed context" parameter — when a caller already has the season's shared penalty context (or its own drivers/teams/car-logos/season-logos/circuits lookups), it can hand them in and skip the fetch entirely. Every existing single-season caller (Standings, Team Standings, Champions, Race Results) omits these and behaves exactly as before — this was purely additive.
+- `computeSeasonStandings` and `computeTeamSeasonStandings`'s per-class branch no longer issue their own separate `curated_race_results` fetch — both now just reuse the season-wide context's copy, which already covers every subsession the season had (a strict superset of what either needed).
+- `getSeasonDriverExtendedStats` no longer issues its own second `curated_rounds` fetch — the season-wide context now exposes the same rows it already had.
+- New `getRaceScoresForSeasonAllClasses()` fetches every class's `race_scores` rows for a season in one query instead of one query per class.
+- `computeDriverCareerStats()` now fetches every season-independent lookup (drivers, exhibition rounds, teams, car logos, team season logos, circuits, circuit layouts) exactly once for the whole run, and for each season fetches the shared penalty context and all-classes race scores exactly once, handing both to every per-season computation that needs them.
+
+Net effect: roughly 50+ requests per season down to about 7, regardless of how many classes or team-competition views a season needs — and that number stays flat as more seasons get added in the future, rather than growing with every one of the several functions this page calls. No output changed; this is purely a fetch-sharing optimization, verified by re-reading every touched function to confirm each still computes the exact same numbers, just from data it already had on hand instead of asking for it again.
+
 ## Re-importing the roster later
 
 Whenever the roster spreadsheet changes:
