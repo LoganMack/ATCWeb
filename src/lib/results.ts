@@ -40,6 +40,7 @@
 
 import {
   restGet,
+  restGetAll,
   getExhibitionRoundIds,
   getCarLogos,
   getSeasons,
@@ -159,25 +160,53 @@ function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId
   );
 }
 
-interface RaceScoreRowWithClass extends RaceScoreRow {
+/**
+ * Every field either `RaceScoreRow` (the per-class shape) or
+ * `RaceScoreOverallRow` (the cross-class shape) ever needs, off the same
+ * underlying `race_scores` table, plus `season_id` so a caller who fetched
+ * rows for MANY seasons at once can group them back out by season
+ * afterward. A value of this shape is structurally assignable anywhere a
+ * `RaceScoreRow[]` or `RaceScoreOverallRow[]` is expected (it's a strict
+ * superset of both), so `computeDriverCareerStats` can feed one bulk fetch
+ * straight into both computations without converting anything.
+ */
+interface RaceScoreBulkRow extends RaceScoreRow, RaceScoreOverallRowFields {
+  season_id: string;
+}
+interface RaceScoreOverallRowFields {
   class_id: number;
+  finish_points: number;
+  scored_position: number | null;
 }
 
 /**
- * Same rows `getRaceScoresForSeasonClass` returns, but for every class in
- * the season at once (one bulk query instead of one query per class) — the
- * class each row belongs to comes along on `class_id` so a caller can group
- * them back out itself. Exists for `computeDriverCareerStats`, which needs
- * every class's standings for every season on file; calling
- * `getRaceScoresForSeasonClass` once per class per season was a real
- * contributor to that function's subrequest-count problem (see its own doc
- * comment). Every other/older caller still uses the single-class query
- * above — this doesn't replace it.
+ * Every class's `race_scores` rows for EVERY given season, in one query —
+ * the multi-season equivalent of `getRaceScoresForSeasonClass` +
+ * `getRaceScoresForSeasonOverall` combined. Exists for
+ * `computeDriverCareerStats`, which needs this data for every championship
+ * season on file; calling either of those once per class per season (or
+ * even once per season) was the actual remaining cause of that function's
+ * subrequest-count problem even after its first optimization pass — see
+ * that function's own doc comment. Every other/older caller still uses the
+ * single-season queries above, unaffected.
  */
-function getRaceScoresForSeasonAllClasses(env: SupabaseEnv, seasonId: string) {
+function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
+  if (seasonIds.length === 0) return Promise.resolve([] as RaceScoreBulkRow[]);
   const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,classified,dsq';
-  return restGet<RaceScoreRowWithClass[]>(env, `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`);
+    'subsession_id,race_number,driver_id,class_id,team_id,season_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,classified,dsq,finish_points,scored_position';
+  // restGetAll, not restGet — this is easily the biggest single result set
+  // in the app (every class, every race, every driver, every championship
+  // season at once) and can run well past Supabase's default 1000-row
+  // response cap. See restGetAll's own doc comment.
+  // A stable order (subsession_id/race_number/driver_id together are
+  // unique per row) matters once a query is paginated across several
+  // requests — an unordered result set's row order isn't guaranteed
+  // consistent between separate requests, which could skip or duplicate
+  // rows across pages.
+  return restGetAll<RaceScoreBulkRow>(
+    env,
+    `race_scores?select=${select}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`
+  );
 }
 
 interface RaceScoreOverallRow {
@@ -218,9 +247,14 @@ function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: nu
   // the rest of the site.
   const select =
     'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,car_name,interval_ten_thousandths';
-  return restGet<CuratedRaceResultRow[]>(
+  // restGetAll — see getPenaltiesForSubsessions' identical reasoning; a
+  // whole-career query can span hundreds of rounds, well past Supabase's
+  // default 1000-row response cap. Explicit order (unique per row, same
+  // reasoning as getRaceScoresForSeasonsBulk) keeps a paginated fetch
+  // stable across requests.
+  return restGetAll<CuratedRaceResultRow>(
     env,
-    `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`
+    `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
   );
 }
 
@@ -251,9 +285,11 @@ interface RawLapStatsRow {
 async function getLapStatsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RawLapStatsRow[]> {
   if (subsessionIds.length === 0) return [];
   try {
-    return await restGet<RawLapStatsRow[]>(
+    // restGetAll — same reasoning (and same explicit order, for the same
+    // paginated-stability reason) as getCuratedRaceResultsForSubsessions.
+    return await restGetAll<RawLapStatsRow>(
       env,
-      `curated_race_results?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})`
+      `curated_race_results?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
     );
   } catch (err) {
     console.error('Failed to fetch average/best lap data (curated_race_results.average_lap_ten_thousandths) — falling back to interval-only penalty ranking and omitting lap-time stats:', err);
@@ -380,6 +416,17 @@ interface SeasonOverallContext {
  * class_points at all) — kept as one function so the two views can never
  * derive a different overall position/finish-points number for the same
  * driver in the same race.
+ *
+ * This is just a thin fetch-then-build wrapper around `buildSeasonOverallContext`
+ * (below) — every single-season caller (Standings, Team Standings, Champions,
+ * Race Results) goes through this one-season-at-a-time fetch exactly as
+ * before. `computeDriverCareerStats`, which needs this same context for
+ * MANY seasons at once, instead bulk-fetches the same 4 raw ingredients
+ * ONCE across every season and calls `buildSeasonOverallContext` directly
+ * per season on its own already-in-memory slice — no network calls in that
+ * per-season loop at all. Splitting this function was what let that happen
+ * without duplicating (and risking drifting from) the actual adjustment
+ * math below.
  */
 async function getSeasonOverallContext(
   env: SupabaseEnv,
@@ -387,11 +434,48 @@ async function getSeasonOverallContext(
   exhibitionIds: Set<number>,
   drivers: DriverBasic[]
 ): Promise<SeasonOverallContext> {
+  const overallScoresRaw = await getRaceScoresForSeasonOverall(env, season.id);
+  // Same exhibition-filtered scope the original single fetch-and-build
+  // version used for its subsessionIds — buildSeasonOverallContext below
+  // re-derives this same filtered set itself (cheap, in-memory), so this
+  // is just to keep this wrapper's OWN fetches scoped to exactly the same
+  // rounds as before, not a behavior change.
+  const filteredForFetchScope =
+    exhibitionIds.size > 0 ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : overallScoresRaw;
+  const subsessionIds = [...new Set(filteredForFetchScope.map((s) => s.subsession_id))];
+  const [rawResults, penalties, seasonRounds, lapStats] = await Promise.all([
+    getCuratedRaceResultsForSubsessions(env, subsessionIds),
+    getPenaltiesForSubsessions(env, subsessionIds),
+    getRoundsForSeason(env, season.id),
+    getLapStatsForSubsessions(env, subsessionIds),
+  ]);
+
+  return buildSeasonOverallContext(exhibitionIds, drivers, overallScoresRaw, rawResults, penalties, seasonRounds, lapStats);
+}
+
+/**
+ * Pure (no network) half of `getSeasonOverallContext` — everything from
+ * that function's body that isn't itself a fetch, taking the same 4 raw
+ * ingredients (this season's race_scores, curated_race_results, penalties,
+ * curated_rounds, plus average/best lap data) as plain arrays instead of
+ * fetching them. `getSeasonOverallContext` calls this immediately after its
+ * own one-season fetch; `computeDriverCareerStats` calls this directly,
+ * once per season, on slices of ONE bulk multi-season fetch instead —
+ * see that function's own doc comment for why.
+ */
+function buildSeasonOverallContext(
+  exhibitionIds: Set<number>,
+  drivers: DriverBasic[],
+  overallScoresRaw: RaceScoreOverallRow[],
+  rawResults: CuratedRaceResultRow[],
+  penalties: Penalty[],
+  seasonRounds: RoundSummary[],
+  lapStats: RawLapStatsRow[]
+): SeasonOverallContext {
   const custIdByDriverId = new Map(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
   );
 
-  const overallScoresRaw = await getRaceScoresForSeasonOverall(env, season.id);
   const overallScores =
     exhibitionIds.size > 0 ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : overallScoresRaw;
 
@@ -409,13 +493,6 @@ async function getSeasonOverallContext(
     };
   }
 
-  const subsessionIds = [...new Set(overallScores.map((s) => s.subsession_id))];
-  const [rawResults, penalties, seasonRounds, lapStats] = await Promise.all([
-    getCuratedRaceResultsForSubsessions(env, subsessionIds),
-    getPenaltiesForSubsessions(env, subsessionIds),
-    getRoundsForSeason(env, season.id),
-    getLapStatsForSubsessions(env, subsessionIds),
-  ]);
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const formatBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, r.format]));
@@ -1251,14 +1328,59 @@ function resolveLayout(
 async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<number, string | null>> {
   if (subsessionIds.length === 0) return new Map();
   try {
-    const rows = await restGet<{ subsession_id: number; layout: string | null }[]>(
+    // restGetAll — same reasoning as getCuratedRaceResultsForSubsessions;
+    // a whole-career call can pass hundreds of subsession_ids at once.
+    // subsession_id alone is unique here (one curated_rounds row per
+    // round), so it's also a sufficient stable sort for pagination.
+    const rows = await restGetAll<{ subsession_id: number; layout: string | null }>(
       env,
-      `curated_rounds?select=subsession_id,layout&subsession_id=in.(${subsessionIds.join(',')})`
+      `curated_rounds?select=subsession_id,layout&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc`
     );
     return new Map(rows.map((r) => [r.subsession_id, r.layout]));
   } catch (err) {
     console.error('Failed to fetch curated_rounds.layout for season distance-driven stats — distance will be omitted:', err);
     return new Map();
+  }
+}
+
+/**
+ * Combines `getCuratedRaceResultsForSubsessions`' columns with
+ * `getLapStatsForSubsessions`' two extra ones into ONE query — for
+ * `computeDriverCareerStats`' bulk path only. Every other caller keeps
+ * using the two separate, isolated queries (see `getLapStatsForSubsessions`'
+ * own doc comment for why they're isolated: an unverified column failing
+ * shouldn't be able to take down the main results/standings pipeline). A
+ * whole-career computation already issues several large paginated queries;
+ * merging these two identical-scope ones into one, just for this path,
+ * roughly halves that particular cost. Falls back to running the two
+ * separate (still safely isolated) queries if the combined one fails for
+ * any reason — e.g. those two columns genuinely missing on some
+ * deployment — so this never makes career stats less resilient than
+ * before, only faster in the common case.
+ */
+async function getCuratedRaceResultsWithLapStatsBulk(
+  env: SupabaseEnv,
+  subsessionIds: number[]
+): Promise<{ rawResults: CuratedRaceResultRow[]; lapStats: RawLapStatsRow[] }> {
+  if (subsessionIds.length === 0) return { rawResults: [], lapStats: [] };
+  const combinedSelect =
+    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,car_name,interval_ten_thousandths,average_lap_ten_thousandths,best_lap_ten_thousandths';
+  try {
+    const rows = await restGetAll<CuratedRaceResultRow & RawLapStatsRow>(
+      env,
+      `curated_race_results?select=${combinedSelect}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
+    );
+    return { rawResults: rows, lapStats: rows };
+  } catch (err) {
+    console.error(
+      'Combined curated_race_results+lap-stats bulk query failed — falling back to the two separate isolated queries:',
+      err
+    );
+    const [rawResults, lapStats] = await Promise.all([
+      getCuratedRaceResultsForSubsessions(env, subsessionIds),
+      getLapStatsForSubsessions(env, subsessionIds),
+    ]);
+    return { rawResults, lapStats };
   }
 }
 
@@ -1278,7 +1400,9 @@ export async function getSeasonDriverExtendedStats(
   precomputedOverallContext?: SeasonOverallContext,
   /** `circuits`/`circuit_layouts` aren't season-scoped at all — every season's distance/corners math resolves against the exact same global list, so a caller computing this for many seasons (`computeDriverCareerStats`) should fetch these ONCE for the whole run rather than once per season. */
   circuitsLookup?: Circuit[],
-  layoutsLookup?: CircuitLayout[]
+  layoutsLookup?: CircuitLayout[],
+  /** `curated_rounds.layout` for every subsession this call might touch, pre-fetched — see `circuitsLookup`'s reasoning. Must cover at least this season's own subsessions; a caller with a global map covering every season (`computeDriverCareerStats`) can just pass the same one to every season's call. */
+  roundLayoutsLookup?: Map<number, string | null>
 ): Promise<Map<string, DriverSeasonExtendedStats>> {
   if (!isChampionshipSeason(season.name)) return new Map();
 
@@ -1305,7 +1429,7 @@ export async function getSeasonDriverExtendedStats(
           console.error('Failed to fetch circuit_layouts for season distance-driven/corners-per-incident stats — both will be omitted:', err);
           return [] as CircuitLayout[];
         }),
-    getRoundLayoutsForSubsessions(env, subsessionIds),
+    roundLayoutsLookup ? Promise.resolve(roundLayoutsLookup) : getRoundLayoutsForSubsessions(env, subsessionIds),
   ]);
   // seasonRounds comes straight off the shared context now (same
   // curated_rounds fetch getSeasonOverallContext already made for
@@ -1681,18 +1805,22 @@ export async function computeDriverCareerStats(
   classes: Lookup[],
   exhibitionRoundIds?: Set<number>
 ): Promise<DriverCareerStats[]> {
-  // Every one of these is season-INDEPENDENT — the same list applies no
-  // matter which season is being processed below — so, unlike the
-  // single-season pages that otherwise reuse these same functions, they're
-  // fetched exactly once for this whole career computation rather than once
-  // per season. An earlier version of this function didn't do this (or
-  // share the per-season penalty context below), and looping every
-  // championship season through the ordinary per-season standings
-  // functions completely unshared blew straight through Cloudflare
-  // Workers' per-request subrequest limit once there were more than a
-  // handful of seasons on file ("Too many subrequests by single Worker
-  // invocation").
-  const [drivers, exhibitionIds, teams, carLogos, seasonLogoRows, circuits, layouts] = await Promise.all([
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  const championshipSeasonIds = championshipSeasons.map((s) => s.id);
+
+  // Every one of these is fetched exactly ONCE for this whole career
+  // computation — not once per season, not once per class — and then
+  // sliced/filtered per season entirely in memory below (no network calls
+  // at all inside the per-season loop). An earlier version of this
+  // function shared each season's context ACROSS that season's several
+  // computations, but still fetched that shared context once PER SEASON —
+  // looping N seasons through even one shared fetch each still summed to
+  // more subrequests than Cloudflare Workers allows per request ("Too many
+  // subrequests by single Worker invocation") once there were more than a
+  // handful of seasons on file. The only fix that stays flat no matter how
+  // many seasons get added in the future is to never issue a query "per
+  // season" at all — bulk-fetch across every season once, then filter.
+  const [drivers, exhibitionIds, teams, carLogos, seasonLogoRows, circuits, layouts, bulkScores, allRounds] = await Promise.all([
     driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
     getTeamsBasic(env),
@@ -1706,6 +1834,8 @@ export async function computeDriverCareerStats(
       console.error('Failed to fetch circuit_layouts for career distance/corners-per-incident stats — both will be omitted:', err);
       return [] as CircuitLayout[];
     }),
+    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+    getAllRounds(env),
   ]);
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   // Delta runs its own separate team competition (see computeTeamSeasonStandings'
@@ -1713,58 +1843,87 @@ export async function computeDriverCareerStats(
   // deltaTeamPosition unless their team happens to also field a Delta driver.
   const deltaClass = classes.find((c) => c.name === 'Delta');
 
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  // The one remaining set of per-subsession queries (curated_race_results,
+  // penalties, average/best lap data, curated_rounds.layout) — each run
+  // ONCE across the union of every subsession any championship season's
+  // race_scores rows touch, instead of once per season.
+  const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
+  const [{ rawResults, lapStats }, penalties, roundLayouts] = await Promise.all([
+    getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
+    getPenaltiesForSubsessions(env, allSubsessionIds),
+    getRoundLayoutsForSubsessions(env, allSubsessionIds),
+  ]);
 
   const seasonRowsByDriver = new Map<string, DriverCareerSeasonRow[]>();
 
-  await Promise.all(
-    championshipSeasons.map(async (season) => {
-      // One shared penalty/results context for this whole season — every
-      // per-class standing, the overall standing, the extended stats, and
-      // both team-standings views below all independently need this same
-      // data (see getSeasonOverallContext's own doc comment); fetching it
-      // once here instead of letting each of those 6+ calls fetch its own
-      // copy is the single biggest cut to this function's subrequest count.
-      const overallContext = await getSeasonOverallContext(env, season, exhibitionIds, drivers);
+  for (const season of championshipSeasons) {
+    // Slice this whole run's bulk fetches down to just this season — pure
+    // in-memory filtering (a subsession only ever belongs to one season),
+    // no network calls anywhere in this loop.
+    const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
+    if (seasonScores.length === 0) continue;
+    const seasonSubsessionIds = new Set(seasonScores.map((s) => s.subsession_id));
+    const seasonRawResults = rawResults.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+    const seasonPenalties = penalties.filter((p) => seasonSubsessionIds.has(p.subsession_id));
+    const seasonLapStats = lapStats.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+    const seasonRounds = allRounds.filter((r) => r.season_id === season.id);
 
-      // Same reasoning for each class's own race_scores rows — one bulk
-      // query for the whole season (every class at once) instead of one
-      // query per class.
-      const allClassScores = await getRaceScoresForSeasonAllClasses(env, season.id);
-      const scoresByClassId = new Map<number, RaceScoreRow[]>();
-      for (const row of allClassScores) {
-        if (!scoresByClassId.has(row.class_id)) scoresByClassId.set(row.class_id, []);
-        scoresByClassId.get(row.class_id)!.push(row);
-      }
+    // Same context every single-season page builds via getSeasonOverallContext
+    // — built directly here (no fetch) since every ingredient is already an
+    // in-memory slice of this run's bulk fetches.
+    const overallContext = buildSeasonOverallContext(
+      exhibitionIds,
+      drivers,
+      seasonScores,
+      seasonRawResults,
+      seasonPenalties,
+      seasonRounds,
+      seasonLapStats
+    );
 
-      const [classStandingsByClass, overallStandings, extendedStats, teamStandingsOverall, teamStandingsDelta, carTeamStats] =
-        await Promise.all([
-          Promise.all(
-            classes.map((c) =>
-              computeSeasonStandings(env, season, c.id, drivers, exhibitionIds, classes, overallContext, scoresByClassId.get(c.id))
+    const scoresByClassId = new Map<number, RaceScoreRow[]>();
+    for (const row of seasonScores) {
+      if (!scoresByClassId.has(row.class_id)) scoresByClassId.set(row.class_id, []);
+      scoresByClassId.get(row.class_id)!.push(row);
+    }
+
+    const [classStandingsByClass, overallStandings, extendedStats, teamStandingsOverall, teamStandingsDelta, carTeamStats] =
+      await Promise.all([
+        Promise.all(
+          classes.map((c) =>
+            computeSeasonStandings(
+              env,
+              season,
+              c.id,
+              drivers,
+              exhibitionIds,
+              classes,
+              overallContext,
+              scoresByClassId.get(c.id) ?? []
             )
-          ),
-          computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext),
-          getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts),
-          computeTeamSeasonStandings(env, season, exhibitionIds, undefined, drivers, teams, seasonLogoRows, classes, overallContext),
-          deltaClass
-            ? computeTeamSeasonStandings(
-                env,
-                season,
-                exhibitionIds,
-                deltaClass.id,
-                drivers,
-                teams,
-                seasonLogoRows,
-                classes,
-                overallContext,
-                scoresByClassId.get(deltaClass.id)
-              )
-            : Promise.resolve([]),
-          getSeasonCarTeamStats(env, season, exhibitionIds, drivers, teams, carLogos, seasonLogoRows, overallContext),
-        ]);
+          )
+        ),
+        computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext),
+        getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts, roundLayouts),
+        computeTeamSeasonStandings(env, season, exhibitionIds, undefined, drivers, teams, seasonLogoRows, classes, overallContext),
+        deltaClass
+          ? computeTeamSeasonStandings(
+              env,
+              season,
+              exhibitionIds,
+              deltaClass.id,
+              drivers,
+              teams,
+              seasonLogoRows,
+              classes,
+              overallContext,
+              scoresByClassId.get(deltaClass.id) ?? []
+            )
+          : Promise.resolve([]),
+        getSeasonCarTeamStats(env, season, exhibitionIds, drivers, teams, carLogos, seasonLogoRows, overallContext),
+      ]);
 
-      const overallPositionByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.position]));
+    const overallPositionByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.position]));
       const teamPositionByTeamId = new Map(teamStandingsOverall.map((t) => [t.teamId, t.position]));
       const deltaTeamPositionByTeamId = new Map(teamStandingsDelta.map((t) => [t.teamId, t.position]));
 
@@ -1805,8 +1964,7 @@ export async function computeDriverCareerStats(
           seasonRowsByDriver.get(driverId)!.push(row);
         }
       });
-    })
-  );
+  }
 
   const out: DriverCareerStats[] = [];
   for (const [driverId, seasonRows] of seasonRowsByDriver) {
@@ -1885,7 +2043,12 @@ export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {
 
 /** Every round across every season, most recent first — powers the "link to a round" picker on the news post editor (src/pages/admin/news/*), which needs to search/pick across all of history rather than one season at a time. One query rather than N getRoundsForSeason() calls, since a per-season loop would be exactly the kind of N+1 this file's header already warns against on pages that list many seasons at once. */
 export function getAllRounds(env: SupabaseEnv) {
-  return restGet<RoundSummary[]>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`);
+  // restGetAll — this app now has enough seasons/rounds on file (and
+  // computeDriverCareerStats reuses this exact function for its own
+  // whole-history fetch) that a plain restGet risks silently truncating at
+  // Supabase's default 1000-row response cap instead of erroring. See
+  // restGetAll's own doc comment.
+  return restGetAll<RoundSummary>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`);
 }
 
 export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: number) {

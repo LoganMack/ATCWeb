@@ -56,6 +56,46 @@ export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * Same as `restGet`, but pages through PostgREST's `Range` header until
+ * every row is back, instead of trusting a single response to contain
+ * everything. Supabase's hosted API defaults to capping any single
+ * response at 1000 rows (project-configurable, but not something this app
+ * controls or can assume) — a plain `restGet` on a query that can grow past
+ * that (e.g. `src/lib/results.ts`'s career-stats bulk queries, which span
+ * every championship season's `race_scores`/`curated_race_results` at
+ * once) would silently come back TRUNCATED rather than erroring, which is
+ * far worse than a loud failure: every computation built on top of it would
+ * just quietly be wrong for whichever rows got cut off.
+ *
+ * For any query whose result actually stays under one page, this behaves
+ * identically to `restGet` (one request, returned as soon as a
+ * shorter-than-`pageSize` page comes back) — safe to use as the default for
+ * any query without a natural small bound, not just ones already known to
+ * be large today.
+ */
+export async function restGetAll<T>(env: SupabaseEnv, path: string, pageSize = 1000): Promise<T[]> {
+  if (!env.url || !env.anonKey) {
+    throw new Error('Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).');
+  }
+  const out: T[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const res = await fetch(`${env.url}/rest/v1/${path}`, {
+      headers: { ...restHeaders(env), Range: `${offset}-${offset + pageSize - 1}` },
+    });
+    // PostgREST returns 206 for a partial page and (in some configurations)
+    // 200 when the requested range happens to cover the whole result —
+    // both are a successful response here, unlike every other status.
+    if (!res.ok && res.status !== 206) {
+      throw new Error(`Supabase REST error ${res.status} on ${path}: ${await res.text()}`);
+    }
+    const page = (await res.json()) as T[];
+    out.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return out;
+}
+
 export interface Driver {
   id: string;
   car_number: number | null;
@@ -1085,7 +1125,12 @@ export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: 
  */
 export async function getPenaltiesForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Penalty[]> {
   if (subsessionIds.length === 0) return [];
-  const rows = await restGet<PenaltyRow[]>(
+  // restGetAll (not restGet) — a whole-career query (src/lib/results.ts's
+  // computeDriverCareerStats) can span hundreds of rounds across every
+  // season at once, and a plain restGet would silently truncate at
+  // Supabase's default 1000-row response cap instead of erroring. See
+  // restGetAll's own doc comment.
+  const rows = await restGetAll<PenaltyRow>(
     env,
     `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`
   );
