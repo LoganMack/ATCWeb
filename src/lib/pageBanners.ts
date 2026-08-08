@@ -34,6 +34,8 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'circuits', label: 'Circuits', description: '/circuits' },
   { key: 'results', label: 'Race Results', description: '/results' },
   { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats' },
+  { key: 'team-stats', label: 'Team Stats', description: '/team-stats' },
+  { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame' },
 ];
 
 /** Looks up one page's configured banner URL, or null if none is set. */

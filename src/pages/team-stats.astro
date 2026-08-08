@@ -1,0 +1,29 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import PageBanner from '../components/PageBanner.astro';
+import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import { bannerUrlFor } from '../lib/pageBanners';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'team-stats');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+---
+
+<Layout title="Team Stats" description="Career team statistics for every Alpha Touring Challenge team.">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
+    <h1 class="reveal font-display text-5xl">Team Stats</h1>
+
+    <HistoryTabs active="teamStats" />
+
+    <p class="mt-10 text-white/60">Coming soon.</p>
+  </section>
+</Layout>

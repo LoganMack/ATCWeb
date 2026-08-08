@@ -7,11 +7,11 @@ const RULEBOOK_URL = 'https://docs.google.com/document/d/1a05Enq9lvnon3qBNnxeHhC
 
 const links: { href: string; label: string; external?: boolean }[] = [
   { href: '/', label: 'Home' },
-  { href: '/roster', label: 'Roster' },
   { href: '/calendar', label: 'Calendar' },
-  { href: '/champions', label: 'History' },
-  { href: '/teams', label: 'Teams' },
   { href: '/news', label: 'News' },
+  { href: '/roster', label: 'Drivers' },
+  { href: '/teams', label: 'Teams' },
+  { href: '/champions', label: 'History' },
   { href: RULEBOOK_URL, label: 'Rulebook', external: true },
 ];
 ---
@@ -42,7 +42,7 @@ const links: { href: string; label: string; external?: boolean }[] = [
         rel="noopener noreferrer"
         class="rounded-lg bg-brand-primary px-3 py-2 text-sm font-semibold text-white transition hover:brightness-110 sm:px-4"
       >
-        Discord
+        Sign-Up
       </a>
       <a
         href={redbubbleUrl}

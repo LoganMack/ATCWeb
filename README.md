@@ -509,6 +509,16 @@ Deliberately **not** wired up anywhere purely client-side — the search-box fil
 
 Below the standings row, a new **Featured Broadcast** section embeds a YouTube video/livestream — full width, only rendered when a URL is actually configured. That URL is a new admin-managed setting, `/admin/site-settings` (new generic `site_settings` key/value table, `0026_site_settings.sql`, same public-read/admin-write RLS shape as `page_banners`) rather than a page-specific table, since it's a single site-wide value with no natural table of its own. Pasting a normal YouTube watch/share/live URL is enough — `src/lib/siteSettings.ts` converts it to the embed form and rejects anything it doesn't recognize as YouTube.
 
+## Homepage/nav/history cleanup round (v0.38)
+
+A round of follow-up polish on the v0.37 redesign, plus a few unrelated site-wide tweaks bundled in since they landed together:
+
+- The featured "Recent News" story now uses the same image-top/text-below card layout as every other news card, instead of the wider image-left/text-right treatment. "More News" dropped its own heading and is now a plain 6-row text list (title + date, no images, "View all" link underneath) directly below the featured story. A stray "Alpha Touring Challenge" subtitle that had been left above the hero row is gone — the "Recent News" label is now the page's actual `<h1>` instead (visually unchanged, just the correct semantic element for accessibility/SEO).
+- The homepage **Standings** widget: dropped the little (nonexistent) profile-picture circles, and each driver row now shows their car number, primary car logo, and primary team logo after their name instead — same per-driver data `/standings` already shows (`getSeasonCarTeamStats`), just the top (most-raced) car/team only, to keep each row compact. Swapped the Rookies tab out (pulled back until there's more rookie-specific logic behind it) for two new team-standings tabs, **Alpha Team** and **Delta Team** — each class's own separate team competition (see `computeTeamSeasonStandings`' `classId` param), alongside the existing Overall/Alpha/Gamma/Delta driver tabs.
+- Top nav reordered to Home, Calendar, News, Drivers, Teams, History, Rulebook — "Roster" is now labeled "Drivers" (same `/roster` page, label only). The nav's "Discord" button is now labeled "Sign-Up" (still links to Discord, same as the footer's own Discord link).
+- The History sub-nav (`HistoryTabs.astro`, shared by Champions/Standings/Team Standings/Race Results/Driver Stats/Circuits) is now ordered Champions, Race Results, Standings, Team Standings, Driver Stats, Team Stats, Hall of Fame, Circuits — with two new placeholder pages, `/team-stats` and `/hall-of-fame` ("Coming soon" for now, both already wired into `/admin/page-banners` for whenever there's real content to build there).
+- The footer now has a public "Admin Login" link (`/admin/login`) above the existing "Admin Dashboard" link — the dashboard link only ever showed for someone already signed in as admin; the login link is visible to everyone, so an admin doesn't need to already know the URL to sign in from a fresh browser.
+
 ## Re-importing the roster later
 
 Whenever the roster spreadsheet changes:

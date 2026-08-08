@@ -28,6 +28,7 @@ const showAdminLink = isAdminView(Astro.locals);
     <div class="flex flex-wrap items-center justify-center gap-6">
       <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
       <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
+      <a href="/admin/login" class="hover:text-white/80">Admin Login</a>
       {showAdminLink && (
         <a href="/admin" class="hover:text-white/80">Admin Dashboard</a>
       )}

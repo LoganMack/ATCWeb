@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
 import UpcomingEventCard from '../components/UpcomingEventCard.astro';
+import TeamLogo from '../components/TeamLogo.astro';
 import {
   getNewsPosts,
   getUpcomingEvents,
@@ -13,16 +14,21 @@ import {
   getExhibitionRoundIds,
   getSiteSettings,
   resolveSupabaseEnv,
+  displayDriverName,
   formatDate,
 } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,
+  computeTeamSeasonStandings,
   getSeasonOverallContext,
+  getSeasonCarTeamStats,
   isChampionshipSeason,
   driversSelect,
   type DriverSeasonStanding,
+  type TeamSeasonStanding,
+  type DriverSeasonExtras,
 } from '../lib/results';
 import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../lib/siteSettings';
 import { classBadgeClasses } from '../lib/classColors';
@@ -58,24 +64,33 @@ try {
 
 // --- Top 5 standings widget ------------------------------------------------
 //
-// One toggle-able widget covering Overall + all 3 classes + Rookies. Rather
-// than 5 separate page navigations (which would need the new loading-bar
-// treatment — see pageProgress.ts — for every single toggle click), all 5
-// views are computed server-side up front and switched between client-side
+// One toggle-able widget covering Overall + all 3 classes' own driver
+// standings, plus Alpha's and Delta's own separate TEAM standings (Gamma
+// and an Overall team view aren't included here — only what was asked
+// for; the full /team-standings page still has its own Overall/Delta
+// toggle for the team competitions). No Rookies tab for now — pulled back
+// out until there's more rookie-specific logic to back it up.
+//
+// Rather than N separate page navigations (which would need the loading-bar
+// treatment — see pageProgress.ts — for every single toggle click), every
+// view is computed server-side up front and switched between client-side
 // with plain show/hide JS, same as the search-box filters elsewhere on the
-// site. That also means the classes/season-wide penalty context only needs
+// site. That also means the season-wide penalty context only needs
 // fetching ONCE (`getSeasonOverallContext`, shared via `precomputedOverallContext`
-// into every one of the 4 `compute*Standings` calls below) instead of once
-// per view — the same "share one expensive fetch across every view that
-// needs it" pattern computeDriverCareerStats had to be rebuilt around after
-// the Driver Stats subrequest-limit incident (see README v0.34/v0.35).
-interface StandingsTab {
-  key: string;
-  label: string;
-  rows: DriverSeasonStanding[];
-}
+// into every `compute*Standings` call below, including the team ones)
+// instead of once per view — the same "share one expensive fetch across
+// every view that needs it" pattern computeDriverCareerStats had to be
+// rebuilt around after the Driver Stats subrequest-limit incident (see
+// README v0.34/v0.35).
+type StandingsTab =
+  | { key: string; label: string; type: 'driver'; rows: DriverSeasonStanding[] }
+  | { key: string; label: string; type: 'team'; rows: TeamSeasonStanding[] };
+
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let standingsTabs: StandingsTab[] = [];
+// Per-driver car/team logos for the driver-standings tabs (see
+// getSeasonCarTeamStats' own doc comment) — keyed by driver id.
+let carTeamExtrasByDriverId = new Map<string, DriverSeasonExtras>();
 try {
   const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
   const activeSeason = championshipSeasons.find((s) => s.is_current) ?? championshipSeasons[0];
@@ -87,38 +102,54 @@ try {
       getDriverClasses(supabaseEnv),
     ]);
     classes = driverClasses;
+    const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
+    const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
 
     const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
 
-    const overallStandings = await computeOverallSeasonStandings(
-      supabaseEnv,
-      activeSeason,
-      driversBasic,
-      exhibitionRoundIds,
-      overallContext
-    );
+    const [overallStandings, carTeamExtras] = await Promise.all([
+      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
+      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, undefined, undefined, undefined, overallContext),
+    ]);
+    carTeamExtrasByDriverId = carTeamExtras;
 
-    const perClass = await Promise.all(
+    const perClassDriver = await Promise.all(
       classes.map(async (c) => ({
         key: c.name,
         label: c.name,
+        type: 'driver' as const,
         rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, overallContext),
       }))
     );
 
-    // Rookies aren't their own competition with their own points formula —
-    // just the overall standings filtered down to rookie drivers, re-ranked
-    // 1..N among just themselves so "Rookie standings" reads the same way
-    // a class standings table does, rather than showing e.g. positions
-    // 4, 9, 15 with gaps.
-    const rookieStandings = overallStandings
-      .filter((s) => s.driver.is_rookie)
-      .map((s, i) => ({ ...s, position: i + 1 }));
+    const teamTabDefs = [
+      { key: 'alpha-team', label: 'Alpha Team', classId: alphaClassId },
+      { key: 'delta-team', label: 'Delta Team', classId: deltaClassId },
+    ].filter((t): t is { key: string; label: string; classId: number } => t.classId !== undefined);
+
+    const teamTabs = await Promise.all(
+      teamTabDefs.map(async (t) => ({
+        key: t.key,
+        label: t.label,
+        type: 'team' as const,
+        rows: await computeTeamSeasonStandings(
+          supabaseEnv,
+          activeSeason,
+          exhibitionRoundIds,
+          t.classId,
+          driversBasic,
+          undefined,
+          undefined,
+          classes,
+          overallContext
+        ),
+      }))
+    );
 
     standingsTabs = [
-      { key: 'overall', label: 'Overall', rows: overallStandings.slice(0, 5) },
-      ...perClass.map((c) => ({ ...c, rows: c.rows.slice(0, 5) })),
-      { key: 'rookies', label: 'Rookies', rows: rookieStandings.slice(0, 5) },
+      { key: 'overall', label: 'Overall', type: 'driver', rows: overallStandings.slice(0, 5) },
+      ...perClassDriver.map((c) => ({ ...c, rows: c.rows.slice(0, 5) })),
+      ...teamTabs.map((t) => ({ ...t, rows: t.rows.slice(0, 5) })),
     ];
   }
 } catch (err) {
@@ -182,23 +213,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       tagline + Sign Up button on the left with Upcoming Events on the
       right. Per Logan's request, that whole left-hand "sign-up blurb" is
       now the most recent news story instead — Sign Up isn't lost, it's
-      just no longer duplicated here on top of the Discord button that's
-      always present in the top nav (see Nav.astro) and footer on every
-      page, homepage included. A small title stays here purely so the page
-      still has a proper heading for accessibility/SEO — it's deliberately
-      much smaller than the old hero headline so it doesn't read as a
-      second competing "blurb".
+      just no longer duplicated here on top of the Discord/Sign-Up button
+      that's always present in the top nav (see Nav.astro) and footer on
+      every page, homepage included. No standalone page title here anymore
+      (the "Recent News" / "Upcoming Events" labels below are the visible
+      headings) — an earlier pass left one in as a small subtitle purely
+      for an <h1>, but Logan flagged it as a stray leftover, so the
+      "Recent News" <h2> below now doubles as the page's real first
+      heading instead.
     -->
-    <h1 class="reveal text-center font-display text-sm uppercase tracking-[0.3em] text-white/50 lg:text-left">
-      Alpha Touring Challenge
-    </h1>
-
     <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
       <div>
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 40ms">
+          <!-- The page's one real <h1> — visually just a small subtitle
+               (see the comment above), not a big headline, but still the
+               actual page heading for accessibility/SEO purposes. -->
+          <h1 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 40ms">
             Recent News
-          </h2>
+          </h1>
         </div>
 
         {featuredNews ? (
@@ -304,18 +336,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <ol data-standings-panel={tab.key} class={i === 0 ? '' : 'hidden'}>
                   {tab.rows.length === 0 ? (
                     <li class="p-4 text-sm text-white/50">No results yet.</li>
-                  ) : (
+                  ) : tab.type === 'driver' ? (
                     tab.rows.map((row) => {
                       const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
+                      // Only the driver's primary (most-raced) car/team this
+                      // season — extras.cars/teams are sorted by races
+                      // descending — to keep each row compact; almost every
+                      // driver only has one of each anyway.
+                      const extras = carTeamExtrasByDriverId.get(row.driver.id);
+                      const primaryCar = extras?.cars[0];
+                      const primaryTeam = extras?.teams[0];
                       return (
                         <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
                           <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
-                          {row.driver.photo_url ? (
-                            <img src={row.driver.photo_url} alt="" class="h-8 w-8 flex-none rounded-full object-cover" />
-                          ) : (
-                            <div class="h-8 w-8 flex-none rounded-full bg-white/10"></div>
-                          )}
-                          <span class="min-w-0 flex-1 truncate font-semibold">{row.driver.name}</span>
+                          <span class="min-w-0 flex-1 truncate font-semibold">
+                            {displayDriverName(row.driver.name)}
+                            {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
+                          </span>
+                          {primaryCar && <TeamLogo name={primaryCar.carName} logoUrl={primaryCar.logoUrl} size="h-5 w-5" />}
+                          {primaryTeam && <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />}
                           {rowClassName && (
                             <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
                               {rowClassName}
@@ -325,6 +364,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         </li>
                       );
                     })
+                  ) : (
+                    tab.rows.map((row) => (
+                      <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                        <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
+                        <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
+                        <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
+                        <span class="flex-none text-sm text-white/60">{row.totalPoints} pts</span>
+                      </li>
+                    ))
                   )}
                 </ol>
               ))}
