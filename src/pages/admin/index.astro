@@ -21,6 +21,7 @@ let draftCount = 0;
 let upcomingEventCount = 0;
 let circuitCount = 0;
 let seasonCount = 0;
+let currentSeasonName: string | null = null;
 try {
   const [drivers, teams, news, events, circuits, seasons] = await Promise.all([
     getDrivers(supabaseEnv),
@@ -37,6 +38,7 @@ try {
   upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
   circuitCount = circuits.length;
   seasonCount = seasons.length;
+  currentSeasonName = seasons.find((s) => s.is_current)?.name ?? null;
 } catch (err) {
   console.error('Failed to load admin dashboard counts:', err);
 }
@@ -50,7 +52,11 @@ const cards = [
   { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming` },
   { href: '/admin/circuits', label: 'Circuits', detail: `${circuitCount} circuits` },
   { href: '/admin/champions', label: 'Champions', detail: 'Manage champion photos' },
-  { href: '/admin/seasons', label: 'Seasons', detail: `${seasonCount} season${seasonCount === 1 ? '' : 's'}` },
+  {
+    href: '/admin/seasons',
+    label: 'Seasons',
+    detail: currentSeasonName ? `Current: ${currentSeasonName}` : `${seasonCount} season${seasonCount === 1 ? '' : 's'}`,
+  },
   { href: '/admin/car-logos', label: 'Car Logos', detail: 'Logos shown on results & standings' },
   { href: '/admin/page-banners', label: 'Page Banners', detail: 'Header images for every page' },
   { href: '/admin/penalty-offenses', label: 'Penalty Offenses', detail: 'Manage the offense list' },
@@ -60,6 +66,11 @@ const cards = [
 
 <AdminLayout title="Dashboard">
   <h1 class="reveal font-display text-4xl">Dashboard</h1>
+  {currentSeasonName && (
+    <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
+      Current season: <span class="font-semibold text-brand-primary">{currentSeasonName}</span>
+    </p>
+  )}
   <div class="reveal mt-8 grid gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
     {cards.map((card) => (
       <a

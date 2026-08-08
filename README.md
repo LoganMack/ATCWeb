@@ -430,6 +430,29 @@ Three related changes to the results/penalty engine, all driven by rulebook 18.3
 
 **Fixed the one place a non-brand blue was actually rendering.** Every button/link on the site already fills with `brand.primary` (#4369F5) — sampled directly from the real logo files, confirmed via pixel-check, so there was no mismatch to find there. The one real gap: none of the site's buttons/links set their own focus style, so clicking or tabbing to one showed the *browser's* own default focus ring instead — a distinctly different, lighter blue than the site's actual color. `src/styles/global.css` now sets a global `:focus-visible` outline in `brand.primary` instead of leaving that to the browser default.
 
+## Season logo placement, photographer credit, admin-dashboard link, photo album links, and search bars everywhere (v0.32)
+
+**Season logos moved to the right of the season `<select>`**, not the left, on Standings/Team Standings/Race Results — purely a position swap from v0.31, no behavior change.
+
+**The homepage hero banner now fades to black at the bottom** instead of a flat dark overlay, matching the same top-to-bottom gradient `PageBanner.astro` already uses on every other page's header banner (see v0.31). Homepage only, per Logan — every other page's banner already worked this way.
+
+**Footer additions:** an "Admin Dashboard" link (next to Discord/Redbubble), visible only via `isAdminView()` — same admin-gated pattern used elsewhere, so it also respects the "View as Visitor" preview toggle right next to it. And a photographer credit line — "Photos by Jason Lin; All Rights Reserved; Glass & Steel Photography and Design" — with the studio name linking out to his Flickr (`https://www.flickr.com/people/200558998@N08/`).
+
+**News post previews no longer show the author byline**, and now show that post's season logo next to its season tag (best-effort matched by name — `news_posts.season_label` is freeform text, not a foreign key to `seasons`, per its own doc comment, so a label that doesn't exactly match a season's name just shows no logo). Applied to `NewsCard.astro` (the homepage's Latest News and the `/news` grid) and, for the season-logo half only, the full post page's own season tag too — the author byline stays there since that page isn't a "preview."
+
+**Race results can now link to that race's photo album.** A fourth per-race external link alongside iRacing Results/Download Replay/Watch Broadcast (`race_links.photo_album_url`, 0025_race_links_photo_album.sql) — same admin-editable "Edit links" form on `/results/[subsessionId]` as the other three.
+
+**Search bars added to Circuits, Teams, and Roster.** All three are plain client-side substring filters (no page reload, no extra query) over data already on the page:
+- **Circuits** (`/circuits`) matches a circuit's name or any of its layouts' display names.
+- **Teams** (`/teams`) matches a team's name or any current roster member's name (`drivers.team_id` — the same "current team" a driver's own profile shows — not the season-scoped `team_rosters` table).
+- **Roster** (`/roster`) matches a driver's name, car number, or team name, folded into the page's existing Active/Inactive/class filter script rather than a separate mechanism.
+
+Each shows a "No results." message when the search excludes everything, same wording the rest of the site already uses for a genuinely empty list.
+
+**Seasons can now be marked current from the admin.** `seasons.is_current` (the season every picker on the site defaults to) had no admin write path at all before this — 0024's `admin update seasons` policy existed, but nothing in the app actually flipped the flag. New `setCurrentSeason()` in `src/lib/supabase.ts` clears the old current season, then sets the new one (two requests, not one — `seasons` has a partial unique index allowing only one `is_current=true` row at a time, so the old one has to go false before the new one can go true). `/admin/seasons` gained a "Set as Current" button per season (hidden on the one already current), and the admin dashboard now shows the current season's name up top and on the Seasons card, so it's visible at a glance without opening that page.
+
+## Re-importing the roster later
+
 Whenever the roster spreadsheet changes:
 ```
 python3 supabase/seed/generate_seed.py path/to/roster.xlsx

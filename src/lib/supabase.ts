@@ -531,9 +531,12 @@ export interface RaceLinks {
   broadcast_url: string | null;
   /** The stewards' published incident report for this round (rule 51) — usually applies to the whole round rather than one specific race, but lives here since race_links is already the per-race external-link table and a round only rarely splits its report by race. */
   incident_report_url: string | null;
+  /** Wherever the series photographer's album for this specific race lives (0025_race_links_photo_album.sql) — e.g. a Flickr album. */
+  photo_album_url: string | null;
 }
 
-const RACE_LINKS_SELECT = 'subsession_id,race_number,iracing_subsession_id,replay_url,broadcast_url,incident_report_url';
+const RACE_LINKS_SELECT =
+  'subsession_id,race_number,iracing_subsession_id,replay_url,broadcast_url,incident_report_url,photo_album_url';
 
 /** Every race's links for one round, keyed by race_number. */
 export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Map<number, RaceLinks>> {
@@ -555,6 +558,7 @@ export async function upsertRaceLinks(
     replay_url?: string | null;
     broadcast_url?: string | null;
     incident_report_url?: string | null;
+    photo_album_url?: string | null;
   }
 ) {
   const res = await fetch(`${env.url}/rest/v1/race_links?on_conflict=subsession_id,race_number`, {
@@ -712,6 +716,25 @@ export async function getSeasonById(env: SupabaseEnv, id: string) {
 /** Sets (or clears, with `null`) a season's logo — the only field seasons can be admin-edited from (0024_season_logos_and_page_banners.sql). */
 export async function updateSeasonLogo(env: SupabaseEnv, accessToken: string, id: string, logoUrl: string | null) {
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { logo_url: logoUrl });
+}
+
+/**
+ * Marks one season as the current one (is_current=true), the season the
+ * public site's pickers default to (see standings.astro/team-standings.astro/
+ * results.astro all falling back to `seasons.find((s) => s.is_current)`).
+ * `seasons` has a partial unique index enforcing at most one is_current=true
+ * row at a time (0001_init.sql) — so the old current season has to be
+ * cleared to false FIRST, then the new one set to true, or the second PATCH
+ * would violate that index while the old row is still true. Two requests,
+ * not a transaction, since PostgREST doesn't expose one for plain REST
+ * calls — a failure between them would leave no season marked current
+ * rather than two, which is the safer of the two ways this could go wrong.
+ */
+export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, seasonId: string) {
+  await restPatch<Season>(env, accessToken, `seasons?is_current=eq.true&id=neq.${encodeURIComponent(seasonId)}`, {
+    is_current: false,
+  });
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(seasonId)}`, { is_current: true });
 }
 
 // ---------------------------------------------------------------------------

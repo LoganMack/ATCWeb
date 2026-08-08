@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../../layouts/Layout.astro';
 import NewsCard from '../../components/NewsCard.astro';
 import PageBanner from '../../components/PageBanner.astro';
-import { getNewsPosts, getPageBanners, resolveSupabaseEnv } from '../../lib/supabase';
+import { getNewsPosts, getPageBanners, getSeasons, resolveSupabaseEnv } from '../../lib/supabase';
 import { bannerUrlFor } from '../../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -23,6 +23,16 @@ try {
   bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'news');
 } catch (err) {
   console.error('Failed to load page banner:', err);
+}
+
+// season_label on a post is freeform text, not an FK to `seasons` — best-
+// effort name match so NewsCard can show that season's logo next to its tag.
+let logoBySeasonLabel = new Map<string, string>();
+try {
+  const seasons = await getSeasons(supabaseEnv);
+  logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
+} catch (err) {
+  console.error('Failed to load seasons for news card logos:', err);
 }
 
 // Every distinct season tag currently in use, for the filter dropdown —
@@ -97,10 +107,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {posts.length > 0 && (
       <div class="mt-10">
-        <NewsCard post={posts[0]} index={0} featured />
+        <NewsCard post={posts[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} />
         {posts.length > 1 && (
           <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} />)}
+            {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} />)}
           </div>
         )}
       </div>

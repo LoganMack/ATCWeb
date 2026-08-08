@@ -1,5 +1,6 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
+import { isAdminView } from '../lib/auth';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 const year = new Date().getFullYear();
@@ -14,6 +15,11 @@ const year = new Date().getFullYear();
 const isRealAdmin = Astro.locals.isRealAdmin;
 const viewAsVisitor = Astro.locals.viewAsVisitor;
 const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
+
+// Unlike "View as Visitor" above, this link itself SHOULD disappear while
+// previewing as a visitor (isAdminView, not isRealAdmin) — it's a plain
+// shortcut into /admin, not the toggle that controls the preview.
+const showAdminLink = isAdminView(Astro.locals);
 ---
 
 <footer class="border-t border-white/10 py-10">
@@ -22,6 +28,9 @@ const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
     <div class="flex flex-wrap items-center justify-center gap-6">
       <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
       <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
+      {showAdminLink && (
+        <a href="/admin" class="hover:text-white/80">Admin Dashboard</a>
+      )}
       {isRealAdmin && (
         <form method="POST" action="/api/view-mode" data-astro-reload>
           <input type="hidden" name="next" value={currentPath} />
@@ -39,4 +48,15 @@ const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
       )}
     </div>
   </div>
+  <p class="mx-auto mt-4 max-w-6xl px-6 text-center text-xs text-white/30">
+    Photos by Jason Lin; All Rights Reserved;{' '}
+    <a
+      href="https://www.flickr.com/people/200558998@N08/"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="underline decoration-white/20 underline-offset-2 hover:text-white/60"
+    >
+      Glass &amp; Steel Photography and Design
+    </a>
+  </p>
 </footer>

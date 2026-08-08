@@ -77,9 +77,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <label class="flex flex-col gap-1.5 text-sm">
           <span class="text-white/60">Season</span>
           <div class="flex items-center gap-2">
-            {activeSeason?.logo_url && (
-              <img src={activeSeason.logo_url} alt="" class="h-9 w-9 flex-none rounded object-contain" />
-            )}
             <select
               name="season"
               onchange="this.form.submit()"
@@ -98,6 +95,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </optgroup>
               )}
             </select>
+            {activeSeason?.logo_url && (
+              <img src={activeSeason.logo_url} alt="" class="h-9 w-9 flex-none rounded object-contain" />
+            )}
           </div>
         </label>
       </form>

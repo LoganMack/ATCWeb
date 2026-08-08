@@ -6,11 +6,14 @@ interface Props {
   post: NewsPost;
   index?: number;
   featured?: boolean;
+  /** season_label -> season logo_url, for the small logo next to the season tag. season_label is freeform text (see NewsPost's own doc comment), not an FK to `seasons`, so this is a best-effort name match built by the caller (see news/index.astro / index.astro) rather than a join. */
+  logoBySeasonLabel?: Map<string, string>;
 }
 
-const { post, index = 0, featured = false } = Astro.props;
+const { post, index = 0, featured = false, logoBySeasonLabel } = Astro.props;
 
 const date = formatDate(post.published_at);
+const seasonLogoUrl = post.season_label ? logoBySeasonLabel?.get(post.season_label) : undefined;
 ---
 
 <a
@@ -32,9 +35,12 @@ const date = formatDate(post.published_at);
   )}
   <div class={featured ? 'flex flex-col justify-center p-6 sm:w-1/2 sm:p-8' : 'p-6'}>
     <p class="flex flex-wrap items-center gap-2 text-xs uppercase tracking-widest text-white/50">
-      <span>{date} · {post.author_name}</span>
+      <span>{date}</span>
       {post.season_label && (
-        <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white/50">{post.season_label}</span>
+        <span class="flex items-center gap-1 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white/50">
+          {post.season_label}
+          {seasonLogoUrl && <img src={seasonLogoUrl} alt="" class="h-3 w-3 flex-none rounded-sm object-contain" />}
+        </span>
       )}
     </p>
     <h3 class={featured ? 'mt-2 font-display text-3xl sm:text-4xl' : 'mt-2 font-display text-2xl'}>{post.title}</h3>

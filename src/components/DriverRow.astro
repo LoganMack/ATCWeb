@@ -18,6 +18,12 @@ const { driver, index = 0, onProbation = false, seasonPenaltyPoints = driver.pen
 const className = driver.driver_classes?.name ?? '';
 const statusName = driver.driver_statuses?.name ?? '';
 const badgeClasses = classBadgeClasses(className);
+// Name + number + team, lowercased, for the roster search box (see
+// roster.astro's initRosterFilters) — same data-attribute-driven
+// client-side filter pattern as data-class/data-status above.
+const searchText = [displayDriverName(driver.name), driver.car_number !== null ? `#${driver.car_number}` : '', driver.teams?.name ?? '']
+  .join(' ')
+  .toLowerCase();
 ---
 
 <tr
@@ -25,6 +31,7 @@ const badgeClasses = classBadgeClasses(className);
   data-class={className}
   data-status={statusName}
   data-unassigned={String(driver.car_number === null && driver.appearances > 0)}
+  data-search={searchText}
 >
   <td
     class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70"

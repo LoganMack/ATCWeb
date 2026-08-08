@@ -78,6 +78,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
           iracing_subsession_id: numOrNull(form.get('iracing_subsession_id')),
           replay_url: strOrNull(form.get('replay_url')),
           broadcast_url: strOrNull(form.get('broadcast_url')),
+          photo_album_url: strOrNull(form.get('photo_album_url')),
         });
       } catch (err) {
         console.error('Failed to save race links:', err);

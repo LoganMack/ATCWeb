@@ -96,7 +96,16 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
       </p>
     )}
 
-    <div class="reveal mt-10 flex flex-wrap gap-6" style="transition-delay: 120ms">
+    <div class="reveal mt-10 max-w-sm" style="transition-delay: 100ms">
+      <input
+        type="search"
+        id="roster-search"
+        placeholder="Search drivers, numbers, or teams…"
+        class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </div>
+
+    <div class="reveal mt-4 flex flex-wrap gap-6" style="transition-delay: 120ms">
       <div class="flex flex-wrap gap-2" data-filter-group="class">
         {classes.map((c) => (
           <button
@@ -168,6 +177,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
         </tbody>
       </table>
     </div>
+    <p id="roster-search-empty" class="mt-4 hidden text-white/60">No results.</p>
   </section>
 
   <script>
@@ -177,11 +187,13 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
 
     function initRosterFilters() {
       const body = document.getElementById('roster-body');
+      const searchInput = document.getElementById('roster-search') as HTMLInputElement | null;
+      const empty = document.getElementById('roster-search-empty');
       if (!body) return;
 
       // Defaults match what's marked data-active="true" in the markup:
-      // all classes, active-ish drivers only.
-      const state: Record<string, string> = { class: 'All', status: 'Active' };
+      // all classes, active-ish drivers only, empty search.
+      const state: Record<string, string> = { class: 'All', status: 'Active', search: '' };
 
       function statusMatches(row: HTMLElement) {
         // Unassigned cuts across actual status entirely — it's asking "does
@@ -193,12 +205,21 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
         return row.dataset.status === state.status;
       }
 
+      function searchMatches(row: HTMLElement) {
+        if (!state.search) return true;
+        return (row.dataset.search ?? '').includes(state.search);
+      }
+
       function applyFilters() {
         const rows = body!.querySelectorAll<HTMLElement>('[data-class]');
+        let visibleCount = 0;
         rows.forEach((row) => {
           const classMatch = state.class === 'All' || row.dataset.class === state.class;
-          row.style.display = classMatch && statusMatches(row) ? '' : 'none';
+          const visible = classMatch && statusMatches(row) && searchMatches(row);
+          row.style.display = visible ? '' : 'none';
+          if (visible) visibleCount += 1;
         });
+        if (empty) empty.classList.toggle('hidden', visibleCount > 0);
       }
 
       document.querySelectorAll<HTMLElement>('[data-filter-group]').forEach((group) => {
@@ -212,6 +233,11 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
             applyFilters();
           });
         });
+      });
+
+      searchInput?.addEventListener('input', () => {
+        state.search = searchInput.value.trim().toLowerCase();
+        applyFilters();
       });
 
       // Apply the default filter state immediately — otherwise every row is

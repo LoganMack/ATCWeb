@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
 import UpcomingEventCard from '../components/UpcomingEventCard.astro';
-import { getNewsPosts, getUpcomingEvents, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { getNewsPosts, getUpcomingEvents, getPageBanners, getSeasons, resolveSupabaseEnv } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
 import { resolveSiteLinks } from '../lib/links';
 
@@ -19,6 +19,17 @@ try {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
   console.error('Failed to load homepage data:', err);
+}
+
+// season_label on a post is freeform text (see NewsPost's own doc comment),
+// not an FK to `seasons` — this is a best-effort name match so NewsCard can
+// show that season's logo next to its tag, same as the champion cards do.
+let logoBySeasonLabel = new Map<string, string>();
+try {
+  const seasons = await getSeasons(supabaseEnv);
+  logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
+} catch (err) {
+  console.error('Failed to load seasons for news card logos:', err);
 }
 
 // Hero background image (admin-managed, see /admin/page-banners and
@@ -43,11 +54,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <!--
       Homepage hero background image — admin-managed (see
       /admin/page-banners, page_key 'home'), no longer a static file. When
-      set, it fills this whole hero section with a dark overlay on top to
-      keep the white headline text readable. When not set, this section
-      renders nothing here at all — no image div, no gradient — so it's
-      just plain black (bg-brand-ink, same as the rest of the site), not
-      the blue radial-gradient placeholder this used to always show.
+      set, it fills this whole hero section, fading to solid black at the
+      bottom (same top-to-bottom gradient treatment PageBanner.astro uses
+      on every other page's header banner) rather than a flat dark overlay,
+      so it blends into the plain-black section below instead of cutting
+      off hard. When not set, this section renders nothing here at all — no
+      image div, no gradient — so it's just plain black (bg-brand-ink, same
+      as the rest of the site), not the blue radial-gradient placeholder
+      this used to always show.
     -->
     {heroImageUrl && (
       <>
@@ -56,7 +70,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           style={`background-image: url('${heroImageUrl}')`}
         >
         </div>
-        <div class="pointer-events-none absolute inset-0 -z-10 bg-brand-ink/70"></div>
+        <div class="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-brand-ink/30 via-brand-ink/80 to-brand-ink"></div>
       </>
     )}
 
@@ -119,10 +133,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <h2 class="font-display text-3xl">Latest News</h2>
         <a href="/news" class="text-sm text-white/60 hover:text-white">View all &rarr;</a>
       </div>
-      <NewsCard post={latestNews[0]} index={0} featured />
+      <NewsCard post={latestNews[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} />
       {latestNews.length > 1 && (
         <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {latestNews.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} />)}
+          {latestNews.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} />)}
         </div>
       )}
     </section>

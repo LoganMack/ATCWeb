@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import { getTeams, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { getTeams, getDrivers, getPageBanners, displayDriverName, resolveSupabaseEnv } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
 import TeamLogo from '../components/TeamLogo.astro';
 import PageBanner from '../components/PageBanner.astro';
@@ -16,6 +16,23 @@ try {
 } catch (err) {
   console.error('Failed to load teams:', err);
   loadError = true;
+}
+
+// Current roster (drivers.team_id — the same "current team" every driver's
+// profile shows, not the season-scoped team_rosters table) grouped by team
+// NAME (getDrivers's embedded `teams` has no id, just name/color/logo — see
+// its own doc comment), so the search box below can match on a team's
+// current member names too.
+let memberNamesByTeamName = new Map<string, string[]>();
+try {
+  const drivers = await getDrivers(supabaseEnv);
+  for (const d of drivers) {
+    if (!d.teams?.name) continue;
+    if (!memberNamesByTeamName.has(d.teams.name)) memberNamesByTeamName.set(d.teams.name, []);
+    memberNamesByTeamName.get(d.teams.name)!.push(displayDriverName(d.name));
+  }
+} catch (err) {
+  console.error('Failed to load drivers for team search:', err);
 }
 
 // Banner fetch failing shouldn't take down the whole page — worst case, no
@@ -56,7 +73,18 @@ const sortedTeams = [...teams].sort((a, b) => {
     )}
 
     {!loadError && (
-      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
+      <div class="reveal mt-8 max-w-sm" style="transition-delay: 80ms">
+        <input
+          type="search"
+          id="team-search"
+          placeholder="Search teams or drivers…"
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </div>
+    )}
+
+    {!loadError && (
+      <div class="mt-4 overflow-x-auto rounded-xl border border-white/10">
         <table class="w-full border-collapse" data-sortable>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -64,29 +92,67 @@ const sortedTeams = [...teams].sort((a, b) => {
               <th class="py-3 pr-4 font-medium" data-sort-key="status">Status</th>
             </tr>
           </thead>
-          <tbody>
-            {sortedTeams.map((team) => (
-              <tr class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}>
-                <td class="py-2.5 pl-4 pr-3" data-col="name">
-                  <div class="flex items-center gap-3">
-                    <TeamLogo name={team.name} logoUrl={team.logo_url} size="h-8 w-8" grayscale={team.status === 'inactive'} />
-                    <span class="font-semibold">{team.name}</span>
-                  </div>
-                </td>
-                <td class="py-2.5 pr-4" data-col="status" data-sort-value={team.status}>
-                  <span
-                    class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
-                      team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
-                    }`}
-                  >
-                    {team.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
+          <tbody id="team-list">
+            {sortedTeams.map((team) => {
+              const members = memberNamesByTeamName.get(team.name) ?? [];
+              const searchText = [team.name, ...members].join(' ').toLowerCase();
+              return (
+                <tr
+                  class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}
+                  data-search={searchText}
+                >
+                  <td class="py-2.5 pl-4 pr-3" data-col="name">
+                    <div class="flex items-center gap-3">
+                      <TeamLogo name={team.name} logoUrl={team.logo_url} size="h-8 w-8" grayscale={team.status === 'inactive'} />
+                      <span class="font-semibold">{team.name}</span>
+                    </div>
+                  </td>
+                  <td class="py-2.5 pr-4" data-col="status" data-sort-value={team.status}>
+                    <span
+                      class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                        team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
+                      }`}
+                    >
+                      {team.status}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     )}
+
+    {!loadError && <p id="team-search-empty" class="mt-4 hidden text-white/60">No results.</p>}
   </section>
+
+  <script>
+    // Plain substring search across each team's name + its current roster's
+    // driver names (data-search, lowercased server-side) — same
+    // show/hide-via-inline-style approach the roster/circuits filters use.
+    function initTeamSearch() {
+      const input = document.getElementById('team-search') as HTMLInputElement | null;
+      const list = document.getElementById('team-list');
+      const empty = document.getElementById('team-search-empty');
+      if (!input || !list) return;
+
+      function applySearch() {
+        const q = input!.value.trim().toLowerCase();
+        const rows = list!.querySelectorAll<HTMLElement>('[data-search]');
+        let visibleCount = 0;
+        rows.forEach((row) => {
+          const matches = !q || (row.dataset.search ?? '').includes(q);
+          row.style.display = matches ? '' : 'none';
+          if (matches) visibleCount += 1;
+        });
+        if (empty) empty.classList.toggle('hidden', visibleCount > 0);
+      }
+
+      input.addEventListener('input', applySearch);
+      applySearch();
+    }
+
+    document.addEventListener('astro:page-load', initTeamSearch);
+  </script>
 </Layout>

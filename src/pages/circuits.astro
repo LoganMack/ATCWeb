@@ -61,11 +61,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     {!loadError && circuits.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
 
     {!loadError && circuits.length > 0 && (
-      <div class="mt-8 flex flex-col gap-3">
+      <div class="reveal mt-8 max-w-sm" style="transition-delay: 80ms">
+        <input
+          type="search"
+          id="circuit-search"
+          placeholder="Search circuits or layouts…"
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </div>
+    )}
+
+    {!loadError && circuits.length > 0 && (
+      <div class="mt-4 flex flex-col gap-3" id="circuit-list">
         {circuits.map((circuit) => {
           const circuitLayouts = layoutsByCircuit.get(circuit.id) ?? [];
+          const searchText = [circuit.name, ...circuitLayouts.map((l) => displayLayoutName(l.name))]
+            .join(' ')
+            .toLowerCase();
           return (
-            <details class="group rounded-xl border border-white/10 bg-white/[0.03] transition open:bg-white/[0.05]">
+            <details class="group rounded-xl border border-white/10 bg-white/[0.03] transition open:bg-white/[0.05]" data-search={searchText}>
               <summary class="flex cursor-pointer list-none items-center gap-4 p-4">
                 {circuit.logo_url ? (
                   <img src={circuit.logo_url} alt="" class="h-10 w-10 flex-none rounded object-contain" />
@@ -112,5 +126,38 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         })}
       </div>
     )}
+
+    {!loadError && circuits.length > 0 && (
+      <p id="circuit-search-empty" class="mt-4 hidden text-white/60">No results.</p>
+    )}
   </section>
+
+  <script>
+    // Plain substring search across each circuit's name + its layouts'
+    // display names (data-search, lowercased server-side) — same
+    // show/hide-via-inline-style approach the roster/teams filters use.
+    function initCircuitSearch() {
+      const input = document.getElementById('circuit-search') as HTMLInputElement | null;
+      const list = document.getElementById('circuit-list');
+      const empty = document.getElementById('circuit-search-empty');
+      if (!input || !list) return;
+
+      function applySearch() {
+        const q = input!.value.trim().toLowerCase();
+        const items = list!.querySelectorAll<HTMLElement>('[data-search]');
+        let visibleCount = 0;
+        items.forEach((item) => {
+          const matches = !q || (item.dataset.search ?? '').includes(q);
+          item.style.display = matches ? '' : 'none';
+          if (matches) visibleCount += 1;
+        });
+        if (empty) empty.classList.toggle('hidden', visibleCount > 0);
+      }
+
+      input.addEventListener('input', applySearch);
+      applySearch();
+    }
+
+    document.addEventListener('astro:page-load', initCircuitSearch);
+  </script>
 </Layout>
