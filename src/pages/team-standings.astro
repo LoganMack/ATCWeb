@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, displayDriverName } from '../lib/supabase';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getDriverClasses, displayDriverName } from '../lib/supabase';
 import {
   computeTeamSeasonStandings,
   computeOverallSeasonStandings,
@@ -35,18 +35,27 @@ const activeSeason =
   championshipSeasons.find((s) => s.is_current) ??
   championshipSeasons[0];
 
+// Same "Overall combines every class, [class] is its own separate
+// competition" idea the news recap's topTeamOverall/topTeamDelta already
+// draws — see computeTeamSeasonStandings' own doc comment. Defaults to
+// Overall for the same reason the driver Standings page defaults there.
+const view = Astro.url.searchParams.get('view') === 'delta' ? 'delta' : 'overall';
+
 let standings: TeamSeasonStanding[] = [];
 // Keyed by driver id — powers each team row's expanded roster detail
 // (overall championship position/points/starts for every driver on the
 // team), joined in here rather than inside computeTeamSeasonStandings
 // itself since "overall standing" is a season-wide concept, not a
-// team-scoped one.
+// team-scoped one. Deliberately always the cross-class overall standing
+// regardless of which team view is showing — the roster detail's own job
+// is "where does this driver sit in the championship," not a per-view stat.
 let overallStandingByDriverId = new Map<string, DriverSeasonStanding>();
 if (!loadError && activeSeason) {
   try {
-    const exhibitionRoundIds = await getExhibitionRoundIds(supabaseEnv);
+    const [exhibitionRoundIds, classes] = await Promise.all([getExhibitionRoundIds(supabaseEnv), getDriverClasses(supabaseEnv)]);
+    const deltaClassId = view === 'delta' ? classes.find((c) => c.name === 'Delta')?.id : undefined;
     const [teamStandings, overallStandings] = await Promise.all([
-      computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds),
+      computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, deltaClassId),
       computeOverallSeasonStandings(supabaseEnv, activeSeason, undefined, exhibitionRoundIds),
     ]);
     standings = teamStandings;
@@ -76,20 +85,42 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" class="mt-8 flex flex-wrap items-end gap-4">
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Season</span>
-          <select
-            name="season"
-            onchange="this.form.submit()"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      <div class="mt-8 flex flex-wrap items-end justify-between gap-4">
+        <form method="GET" class="flex flex-wrap items-end gap-4">
+          <input type="hidden" name="view" value={view} />
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">Season</span>
+            <select
+              name="season"
+              onchange="this.form.submit()"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              {championshipSeasons.map((s) => (
+                <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+              ))}
+            </select>
+          </label>
+        </form>
+
+        <div class="flex gap-2">
+          <a
+            href={`/team-standings?view=overall${activeSeason ? `&season=${activeSeason.number}` : ''}`}
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
           >
-            {championshipSeasons.map((s) => (
-              <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-            ))}
-          </select>
-        </label>
-      </form>
+            Overall
+          </a>
+          <a
+            href={`/team-standings?view=delta${activeSeason ? `&season=${activeSeason.number}` : ''}`}
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              view === 'delta' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            Delta
+          </a>
+        </div>
+      </div>
     )}
 
     {!loadError && standings.length === 0 && (

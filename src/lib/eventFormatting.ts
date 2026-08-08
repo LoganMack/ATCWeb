@@ -56,6 +56,8 @@ export const WEATHER_LABELS: Record<Weather, string> = {
 export interface SessionSummary {
   label: string;
   startTime: string | null;
+  /** In-sim time of day for this session (0023_event_sim_times.sql) — the simulated clock time iRacing is set to, separate from startTime (the real-world/local time people need to show up). Null when not set for this session. */
+  simTime: string | null;
   weather: Weather | null;
   detail: string | null;
 }
@@ -68,6 +70,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Practice',
       startTime: event.practice_start_time,
+      simTime: event.practice_sim_time,
       weather: event.practice_weather,
       detail: event.practice_minutes ? `${event.practice_minutes} min` : null,
     });
@@ -80,6 +83,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Qualifying',
       startTime: event.qualifying_start_time,
+      simTime: event.qualifying_sim_time,
       weather: event.qualifying_weather,
       detail: parts.length ? parts.join(' / ') : null,
     });
@@ -89,6 +93,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
   sessions.push({
     label: 'Race 1',
     startTime: event.race1_start_time,
+    simTime: event.race1_sim_time,
     weather: event.race1_weather,
     detail: event.race1_laps ? `${event.race1_laps} laps` : null,
   });
@@ -97,6 +102,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Race 2',
       startTime: event.race2_start_time,
+      simTime: event.race2_sim_time,
       weather: event.race2_weather,
       detail: event.race2_laps ? `${event.race2_laps} laps` : null,
     });
@@ -106,6 +112,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Race 3',
       startTime: event.race3_start_time,
+      simTime: event.race3_sim_time,
       weather: event.race3_weather,
       detail: event.race3_laps ? `${event.race3_laps} laps` : null,
     });

@@ -55,6 +55,7 @@ const sessions = featured ? getEventSessions(event) : [];
           </span>
           <span class="text-white/50">
             {s.startTime && formatSessionTime(s.startTime)}
+            {s.simTime && ` (in-sim ${formatSessionTime(s.simTime)})`}
             {s.detail && ` · ${s.detail}`}
           </span>
         </li>

@@ -24,7 +24,7 @@ const badgeClasses = classBadgeClasses(className);
   class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
   data-class={className}
   data-status={statusName}
-  data-unassigned={driver.car_number === null && driver.appearances > 0}
+  data-unassigned={String(driver.car_number === null && driver.appearances > 0)}
 >
   <td
     class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70"

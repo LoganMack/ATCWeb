@@ -10,6 +10,8 @@ import {
   updateEvent,
   deleteEvent,
   getCircuits,
+  getAllCircuitLayouts,
+  displayLayoutName,
   type EventRecord,
   type EventFormat,
   type Weather,
@@ -48,23 +50,28 @@ function readForm(form: FormData): Partial<EventRecord> {
     results_url: optStr(form, 'results_url'),
 
     practice_start_time: optStr(form, 'practice_start_time'),
+    practice_sim_time: optStr(form, 'practice_sim_time'),
     practice_minutes: optInt(form, 'practice_minutes'),
     practice_weather: optWeather(form, 'practice_weather'),
 
     qualifying_start_time: optStr(form, 'qualifying_start_time'),
+    qualifying_sim_time: optStr(form, 'qualifying_sim_time'),
     qualifying_minutes: optInt(form, 'qualifying_minutes'),
     qualifying_laps: optInt(form, 'qualifying_laps'),
     qualifying_weather: optWeather(form, 'qualifying_weather'),
 
     race1_start_time: str(form, 'race1_start_time'),
+    race1_sim_time: optStr(form, 'race1_sim_time'),
     race1_laps: optInt(form, 'race1_laps'),
     race1_weather: optWeather(form, 'race1_weather'),
 
     race2_start_time: optStr(form, 'race2_start_time'),
+    race2_sim_time: optStr(form, 'race2_sim_time'),
     race2_laps: optInt(form, 'race2_laps'),
     race2_weather: optWeather(form, 'race2_weather'),
 
     race3_start_time: optStr(form, 'race3_start_time'),
+    race3_sim_time: optStr(form, 'race3_sim_time'),
     race3_laps: optInt(form, 'race3_laps'),
     race3_weather: optWeather(form, 'race3_weather'),
   };
@@ -102,7 +109,7 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const circuits = await getCircuits(supabaseEnv);
+const [circuits, layouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
 
 let event: EventRecord | null = null;
 if (!isNew && id) {
@@ -118,22 +125,28 @@ const d: Partial<EventRecord> = event ?? {
   fuel_limit_pct: null,
   results_url: '',
   practice_start_time: null,
+  practice_sim_time: null,
   practice_minutes: null,
   practice_weather: null,
   qualifying_start_time: null,
+  qualifying_sim_time: null,
   qualifying_minutes: null,
   qualifying_laps: null,
   qualifying_weather: null,
   race1_start_time: '',
+  race1_sim_time: null,
   race1_laps: null,
   race1_weather: null,
   race2_start_time: null,
+  race2_sim_time: null,
   race2_laps: null,
   race2_weather: null,
   race3_start_time: null,
+  race3_sim_time: null,
   race3_laps: null,
   race3_weather: null,
 };
+
 ---
 
 <AdminLayout title={isNew ? 'New Event' : 'Edit Event'}>
@@ -154,24 +167,36 @@ const d: Partial<EventRecord> = event ?? {
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Circuit</span>
         <select
+          id="circuit_id"
           name="circuit_id"
           required
           class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         >
           {circuits.map((c) => (
-            <option value={c.id} selected={c.id === d.circuit_id}>{c.name}</option>
+            <option value={c.id} selected={c.id === d.circuit_id} class="bg-brand-ink text-white">{c.name}</option>
           ))}
         </select>
       </label>
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Layout</span>
-        <input
-          type="text"
+        <select
+          id="layout"
           name="layout"
-          value={d.layout ?? ''}
-          placeholder="e.g. Full Course, Boot"
           class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
+        >
+          <option value="" selected={!d.layout} class="bg-brand-ink text-white">Not set</option>
+          {layouts.map((l) => (
+            <option
+              value={l.name}
+              selected={l.name === d.layout}
+              data-circuit-id={l.circuit_id}
+              class="bg-brand-ink text-white"
+            >
+              {displayLayoutName(l.name)}
+            </option>
+          ))}
+        </select>
+        <span class="text-xs text-white/40">Only shows layouts on file for the selected circuit — add more in Admin &rarr; Circuits.</span>
       </label>
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Event date</span>
@@ -189,9 +214,9 @@ const d: Partial<EventRecord> = event ?? {
           name="format"
           class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         >
-          <option value="sprint" selected={d.format === 'sprint'}>Sprint</option>
-          <option value="endurance" selected={d.format === 'endurance'}>Endurance</option>
-          <option value="special" selected={d.format === 'special'}>Special</option>
+          <option value="sprint" selected={d.format === 'sprint'} class="bg-brand-ink text-white">Sprint</option>
+          <option value="endurance" selected={d.format === 'endurance'} class="bg-brand-ink text-white">Endurance</option>
+          <option value="special" selected={d.format === 'special'} class="bg-brand-ink text-white">Special</option>
         </select>
       </label>
       <label class="flex flex-col gap-1.5 text-sm">
@@ -222,6 +247,7 @@ const d: Partial<EventRecord> = event ?? {
         label="Practice"
         showMinutes
         startTime={d.practice_start_time ?? null}
+        simTime={d.practice_sim_time ?? null}
         minutes={d.practice_minutes ?? null}
         weather={d.practice_weather ?? null}
       />
@@ -231,6 +257,7 @@ const d: Partial<EventRecord> = event ?? {
         showMinutes
         showLaps
         startTime={d.qualifying_start_time ?? null}
+        simTime={d.qualifying_sim_time ?? null}
         minutes={d.qualifying_minutes ?? null}
         laps={d.qualifying_laps ?? null}
         weather={d.qualifying_weather ?? null}
@@ -241,6 +268,7 @@ const d: Partial<EventRecord> = event ?? {
         showLaps
         required
         startTime={d.race1_start_time ?? null}
+        simTime={d.race1_sim_time ?? null}
         laps={d.race1_laps ?? null}
         weather={d.race1_weather ?? null}
       />
@@ -249,6 +277,7 @@ const d: Partial<EventRecord> = event ?? {
         label="Race 2 (optional)"
         showLaps
         startTime={d.race2_start_time ?? null}
+        simTime={d.race2_sim_time ?? null}
         laps={d.race2_laps ?? null}
         weather={d.race2_weather ?? null}
       />
@@ -257,6 +286,7 @@ const d: Partial<EventRecord> = event ?? {
         label="Race 3 (optional)"
         showLaps
         startTime={d.race3_start_time ?? null}
+        simTime={d.race3_sim_time ?? null}
         laps={d.race3_laps ?? null}
         weather={d.race3_weather ?? null}
       />
@@ -292,11 +322,41 @@ const d: Partial<EventRecord> = event ?? {
 </AdminLayout>
 
 <script>
+  // Layout <select> shows every circuit_layouts row up front (each <option>
+  // tagged data-circuit-id), then this filters which are actually visible
+  // to just the currently-chosen Circuit — re-run on Circuit change so
+  // switching circuits can't leave a mismatched layout selected. The blank
+  // "Not set" option (no data-circuit-id) always stays visible.
+  function initLayoutFilter() {
+    const circuitSelect = document.getElementById('circuit_id') as HTMLSelectElement | null;
+    const layoutSelect = document.getElementById('layout') as HTMLSelectElement | null;
+    if (!circuitSelect || !layoutSelect) return;
+
+    function applyFilter() {
+      const circuitId = circuitSelect!.value;
+      let selectedStillVisible = false;
+      Array.from(layoutSelect!.options).forEach((opt) => {
+        if (!opt.dataset.circuitId) return; // the blank "Not set" option
+        const matches = opt.dataset.circuitId === circuitId;
+        opt.hidden = !matches;
+        opt.disabled = !matches;
+        if (matches && opt.selected) selectedStillVisible = true;
+      });
+      if (!selectedStillVisible && layoutSelect!.value !== '') {
+        layoutSelect!.value = '';
+      }
+    }
+
+    circuitSelect.addEventListener('change', applyFilter);
+    applyFilter();
+  }
+
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
       });
     });
+    initLayoutFilter();
   });
 </script>

@@ -43,6 +43,7 @@ const sessions = getEventSessions(event);
           <WeatherIcon condition={s.weather} class="text-lg" />
         </div>
         <p class="mt-1 text-sm font-semibold">{s.startTime ? formatSessionTime(s.startTime) : 'TBD'}</p>
+        {s.simTime && <p class="text-xs text-white/50">In-sim {formatSessionTime(s.simTime)}</p>}
         {s.detail && <p class="text-xs text-white/50">{s.detail}</p>}
       </div>
     ))}

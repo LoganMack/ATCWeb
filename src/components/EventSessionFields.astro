@@ -10,6 +10,8 @@ interface Props {
   showLaps?: boolean;
   required?: boolean;
   startTime: string | null;
+  /** In-sim time of day (0023_event_sim_times.sql) — optional on every session type, unlike startTime which is required for race1. */
+  simTime?: string | null;
   minutes?: number | null;
   laps?: number | null;
   weather: string | null;
@@ -22,6 +24,7 @@ const {
   showLaps = false,
   required = false,
   startTime,
+  simTime = null,
   minutes = null,
   laps = null,
   weather,
@@ -30,7 +33,7 @@ const {
 
 <fieldset class="rounded-lg border border-white/10 p-4">
   <legend class="px-1 text-sm font-semibold text-white/80">{label}{required && ' *'}</legend>
-  <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+  <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/60">Start time</span>
       <input
@@ -38,6 +41,16 @@ const {
         name={`${prefix}_start_time`}
         required={required}
         value={startTime ?? ''}
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/60">In-sim time</span>
+      <input
+        type="time"
+        name={`${prefix}_sim_time`}
+        value={simTime ?? ''}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
@@ -74,10 +87,10 @@ const {
         name={`${prefix}_weather`}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
-        <option value="" selected={!weather}>Not set</option>
-        <option value="dry" selected={weather === 'dry'}>Dry</option>
-        <option value="mixed" selected={weather === 'mixed'}>Mixed</option>
-        <option value="wet" selected={weather === 'wet'}>Wet</option>
+        <option value="" selected={!weather} class="bg-brand-ink text-white">Not set</option>
+        <option value="dry" selected={weather === 'dry'} class="bg-brand-ink text-white">Dry</option>
+        <option value="mixed" selected={weather === 'mixed'} class="bg-brand-ink text-white">Mixed</option>
+        <option value="wet" selected={weather === 'wet'} class="bg-brand-ink text-white">Wet</option>
       </select>
     </label>
   </div>

@@ -823,23 +823,29 @@ export interface EventRecord {
   results_url: string | null;
 
   practice_start_time: string | null; // 'HH:MM:SS'
+  /** In-sim time of day for this session (0023_event_sim_times.sql) — a separate concept from practice_start_time above (that's the real-world/local clock time people need to show up; this is what iRacing's own clock is set to, affecting lighting/weather progression). Same 'HH:MM:SS' shape, no timezone (a sim clock has none). */
+  practice_sim_time: string | null;
   practice_minutes: number | null;
   practice_weather: Weather | null;
 
   qualifying_start_time: string | null;
+  qualifying_sim_time: string | null;
   qualifying_minutes: number | null;
   qualifying_laps: number | null;
   qualifying_weather: Weather | null;
 
   race1_start_time: string;
+  race1_sim_time: string | null;
   race1_laps: number | null;
   race1_weather: Weather | null;
 
   race2_start_time: string | null;
+  race2_sim_time: string | null;
   race2_laps: number | null;
   race2_weather: Weather | null;
 
   race3_start_time: string | null;
+  race3_sim_time: string | null;
   race3_laps: number | null;
   race3_weather: Weather | null;
 }
@@ -850,11 +856,11 @@ export interface EventWithCircuit extends EventRecord {
 
 const EVENT_SELECT =
   'id,circuit_id,layout,event_date,format,fuel_limit_pct,results_url,' +
-  'practice_start_time,practice_minutes,practice_weather,' +
-  'qualifying_start_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
-  'race1_start_time,race1_laps,race1_weather,' +
-  'race2_start_time,race2_laps,race2_weather,' +
-  'race3_start_time,race3_laps,race3_weather';
+  'practice_start_time,practice_sim_time,practice_minutes,practice_weather,' +
+  'qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
+  'race1_start_time,race1_sim_time,race1_laps,race1_weather,' +
+  'race2_start_time,race2_sim_time,race2_laps,race2_weather,' +
+  'race3_start_time,race3_sim_time,race3_laps,race3_weather';
 
 /** All events (with circuit name/logo embedded), soonest first. Powers the public calendar page. */
 export function getEvents(env: SupabaseEnv) {
