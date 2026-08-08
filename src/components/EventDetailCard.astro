@@ -1,5 +1,6 @@
 ---
 import type { EventWithCircuit } from '../lib/supabase';
+import { displayLayoutName } from '../lib/supabase';
 import { formatEventDate, formatSessionTime, FORMAT_BADGE_CLASSES, FORMAT_LABELS, getEventSessions } from '../lib/eventFormatting';
 import WeatherIcon from './WeatherIcon.astro';
 
@@ -23,7 +24,7 @@ const sessions = getEventSessions(event);
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{event.circuits?.name ?? 'TBA'}</h3>
-        {event.layout && <p class="mt-1 text-sm text-white/50">{event.layout}</p>}
+        {event.layout && <p class="mt-1 text-sm text-white/50">{displayLayoutName(event.layout)}</p>}
       </div>
     </div>
     <div class="flex flex-col items-end gap-2">

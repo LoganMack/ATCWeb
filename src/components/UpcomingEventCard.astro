@@ -1,5 +1,6 @@
 ---
 import type { EventWithCircuit } from '../lib/supabase';
+import { displayLayoutName } from '../lib/supabase';
 import {
   formatEventDate,
   formatEventDateShort,
@@ -39,7 +40,7 @@ const sessions = featured ? getEventSessions(event) : [];
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{circuitName}</h3>
-        {event.layout && <p class="text-sm text-white/50">{event.layout}</p>}
+        {event.layout && <p class="text-sm text-white/50">{displayLayoutName(event.layout)}</p>}
       </div>
     </div>
 

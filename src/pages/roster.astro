@@ -63,8 +63,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
 // "Active" here is a quick filter, not the literal driver_statuses.name —
 // it covers Active, Veteran, and New (i.e. everyone who isn't Inactive).
-// See ACTIVE_STATUSES in the filter script below.
-const statuses = ['Active', 'Inactive', 'All'];
+// See ACTIVE_STATUSES in the filter script below. "Unassigned" is a
+// different kind of filter entirely — it cuts across status (an unassigned
+// driver can be Active, Inactive, whatever) and instead shows every driver
+// with no current car number who has raced before (car_number null AND
+// appearances > 0 — see DriverRow.astro's data-unassigned attribute and
+// statusMatches() below).
+const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
 ---
 
 <Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
@@ -168,17 +173,21 @@ const statuses = ['Active', 'Inactive', 'All'];
       // all classes, active-ish drivers only.
       const state: Record<string, string> = { class: 'All', status: 'Active' };
 
-      function statusMatches(rowStatus: string | undefined) {
+      function statusMatches(row: HTMLElement) {
+        // Unassigned cuts across actual status entirely — it's asking "does
+        // this driver have no current number despite having raced before,"
+        // not "what's their driver_statuses value."
+        if (state.status === 'Unassigned') return row.dataset.unassigned === 'true';
         if (state.status === 'All') return true;
-        if (state.status === 'Active') return ACTIVE_STATUSES.includes(rowStatus ?? '');
-        return rowStatus === state.status;
+        if (state.status === 'Active') return ACTIVE_STATUSES.includes(row.dataset.status ?? '');
+        return row.dataset.status === state.status;
       }
 
       function applyFilters() {
         const rows = body!.querySelectorAll<HTMLElement>('[data-class]');
         rows.forEach((row) => {
           const classMatch = state.class === 'All' || row.dataset.class === state.class;
-          row.style.display = classMatch && statusMatches(row.dataset.status) ? '' : 'none';
+          row.style.display = classMatch && statusMatches(row) ? '' : 'none';
         });
       }
 

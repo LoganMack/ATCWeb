@@ -19,8 +19,22 @@ try {
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
 const todayStr = new Date().toISOString().slice(0, 10);
+// getEvents() has no date filter (see src/lib/supabase.ts), so backdated
+// events are already fetched — this just splits them for the List view.
 const upcoming = events.filter((e) => e.event_date >= todayStr);
 const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
+
+// Lean payload for the client-side Calendar view (see the script at the
+// bottom) — just what a day cell / detail panel needs, serialized into a
+// data attribute (same JSON-in-a-data-attribute pattern the Incident Report
+// page uses for data-edit-incident) rather than fetched again client-side.
+const calendarEvents = events.map((e) => ({
+  date: e.event_date,
+  circuit: e.circuits?.name ?? 'TBA',
+  logoUrl: e.circuits?.logo_url ?? null,
+  layout: e.layout,
+  format: e.format,
+}));
 ---
 
 <Layout title="Calendar" description="The Alpha Touring Challenge race calendar.">
@@ -30,6 +44,25 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
       {upcoming.length} upcoming event{upcoming.length === 1 ? '' : 's'}.
     </p>
 
+    <div class="reveal mt-6 flex flex-wrap gap-2" data-view-toggle style="transition-delay: 100ms">
+      <button
+        type="button"
+        data-view-value="list"
+        data-active="true"
+        class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+      >
+        List
+      </button>
+      <button
+        type="button"
+        data-view-value="calendar"
+        data-active="false"
+        class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+      >
+        Calendar
+      </button>
+    </div>
+
     {loadError && (
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load the calendar right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
@@ -38,19 +71,293 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
 
     {!loadError && events.length === 0 && <p class="mt-8 text-white/60">No results.</p>}
 
-    {!loadError && upcoming.length > 0 && (
-      <div class="mt-10 space-y-4">
-        {upcoming.map((event, i) => <EventDetailCard event={event} index={i} />)}
+    {!loadError && events.length > 0 && (
+      <div data-view-panel="list">
+        {upcoming.length > 0 && (
+          <div class="mt-10 space-y-4">
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} />)}
+          </div>
+        )}
+
+        {past.length > 0 && (
+          <>
+            <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
+            <div class="mt-6 space-y-4 opacity-70">
+              {past.map((event, i) => <EventDetailCard event={event} index={i} />)}
+            </div>
+          </>
+        )}
       </div>
     )}
 
-    {!loadError && past.length > 0 && (
-      <>
-        <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
-        <div class="mt-6 space-y-4 opacity-70">
-          {past.map((event, i) => <EventDetailCard event={event} index={i} />)}
+    {!loadError && events.length > 0 && (
+      <div data-view-panel="calendar" class="hidden mt-10" data-events={JSON.stringify(calendarEvents)}>
+        <div class="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            id="cal-prev"
+            aria-label="Previous month"
+            class="rounded-lg bg-white/5 px-3 py-1.5 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+          >
+            &larr;
+          </button>
+          <div class="flex items-center gap-3">
+            <h2 id="cal-month-label" class="font-display text-2xl"></h2>
+            <button
+              type="button"
+              id="cal-today"
+              class="rounded-lg bg-white/5 px-3 py-1 text-xs font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10"
+            >
+              Today
+            </button>
+          </div>
+          <button
+            type="button"
+            id="cal-next"
+            aria-label="Next month"
+            class="rounded-lg bg-white/5 px-3 py-1.5 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+          >
+            &rarr;
+          </button>
         </div>
-      </>
+
+        <div id="cal-grid" class="mt-4 grid grid-cols-7 gap-1.5"></div>
+
+        <div id="cal-day-detail" class="hidden mt-8 border-t border-white/10 pt-6"></div>
+      </div>
     )}
   </section>
+
+  <script>
+    // Two independent bits of interactivity on this page: the List/Calendar
+    // view toggle, and (when Calendar is showing) the month-grid itself.
+    // Kept as one self-contained script (no imports from src/lib — same
+    // "duplicate small helpers rather than import into the client bundle"
+    // convention every other interactive script on this site follows, e.g.
+    // ResultsTable.astro/team-standings.astro's own copies of the
+    // expand-row toggle) so this page doesn't pull the whole supabase.ts
+    // module into client JS just for two tiny formatting helpers.
+
+    interface CalendarEventLite {
+      date: string; // 'YYYY-MM-DD'
+      circuit: string;
+      logoUrl: string | null;
+      layout: string | null;
+      format: string;
+    }
+
+    const FORMAT_LABELS: Record<string, string> = { endurance: 'Endurance', sprint: 'Sprint', special: 'Special' };
+    const FORMAT_BADGE_CLASSES: Record<string, string> = {
+      endurance: 'bg-brand-blue/15 text-brand-blue',
+      special: 'bg-brand-pink/15 text-brand-pink',
+      sprint: 'bg-brand-gold/15 text-brand-gold',
+    };
+
+    /** Same "N/A" -> "Full Course" display-only substitution as displayLayoutName() in src/lib/supabase.ts. */
+    function displayLayoutName(name: string): string {
+      return name === 'N/A' ? 'Full Course' : name;
+    }
+
+    /** Same local-date-components parsing as eventFormatting.ts's parseDateOnly — avoids new Date('YYYY-MM-DD') silently shifting a day in negative-offset timezones. */
+    function parseDateOnly(dateStr: string): Date {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+
+    function formatEventDate(dateStr: string): string {
+      return parseDateOnly(dateStr).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+
+    function pad(n: number): string {
+      return String(n).padStart(2, '0');
+    }
+
+    function initViewToggle() {
+      const toggleGroup = document.querySelector<HTMLElement>('[data-view-toggle]');
+      const panels = document.querySelectorAll<HTMLElement>('[data-view-panel]');
+      if (!toggleGroup || panels.length === 0) return;
+
+      toggleGroup.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const value = btn.dataset.viewValue;
+          toggleGroup.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+            b.dataset.active = String(b === btn);
+          });
+          panels.forEach((p) => {
+            p.classList.toggle('hidden', p.dataset.viewPanel !== value);
+          });
+        });
+      });
+    }
+
+    function initCalendarGrid() {
+      const gridPanel = document.querySelector<HTMLElement>('[data-view-panel="calendar"]');
+      const grid = document.getElementById('cal-grid');
+      const monthLabelEl = document.getElementById('cal-month-label');
+      const detailPanel = document.getElementById('cal-day-detail');
+      const prevBtn = document.getElementById('cal-prev');
+      const nextBtn = document.getElementById('cal-next');
+      const todayBtn = document.getElementById('cal-today');
+      if (!gridPanel || !grid || !monthLabelEl || !detailPanel || !prevBtn || !nextBtn) return;
+
+      let allEvents: CalendarEventLite[] = [];
+      try {
+        allEvents = JSON.parse(gridPanel.dataset.events ?? '[]');
+      } catch {
+        allEvents = [];
+      }
+
+      const eventsByDate = new Map<string, CalendarEventLite[]>();
+      for (const ev of allEvents) {
+        if (!eventsByDate.has(ev.date)) eventsByDate.set(ev.date, []);
+        eventsByDate.get(ev.date)!.push(ev);
+      }
+
+      // Pinned to the 1st so setMonth() navigation can never skip/repeat a
+      // month due to day-of-month overflow (e.g. Jan 31 + 1 month -> Mar 3).
+      let current = new Date();
+      current.setDate(1);
+
+      function showDayDetail(dateStr: string, dayEvents: CalendarEventLite[]) {
+        detailPanel!.classList.remove('hidden');
+        detailPanel!.innerHTML = '';
+
+        const heading = document.createElement('h3');
+        heading.className = 'font-display text-xl';
+        heading.textContent = formatEventDate(dateStr);
+        detailPanel!.appendChild(heading);
+
+        const list = document.createElement('div');
+        list.className = 'mt-3 flex flex-col gap-3';
+        dayEvents.forEach((ev) => {
+          const card = document.createElement('div');
+          card.className = 'rounded-xl border border-white/10 bg-white/[0.03] p-4';
+
+          const row = document.createElement('div');
+          row.className = 'flex flex-wrap items-center justify-between gap-3';
+
+          const left = document.createElement('div');
+          left.className = 'flex items-center gap-3';
+          if (ev.logoUrl) {
+            const img = document.createElement('img');
+            img.src = ev.logoUrl;
+            img.alt = '';
+            img.className = 'h-9 w-9 flex-none rounded object-contain';
+            left.appendChild(img);
+          }
+          const textWrap = document.createElement('div');
+          const name = document.createElement('p');
+          name.className = 'font-semibold';
+          name.textContent = ev.circuit;
+          textWrap.appendChild(name);
+          if (ev.layout) {
+            const layoutP = document.createElement('p');
+            layoutP.className = 'text-xs text-white/50';
+            layoutP.textContent = displayLayoutName(ev.layout);
+            textWrap.appendChild(layoutP);
+          }
+          left.appendChild(textWrap);
+          row.appendChild(left);
+
+          const badge = document.createElement('span');
+          badge.className = `rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[ev.format] ?? ''}`;
+          badge.textContent = FORMAT_LABELS[ev.format] ?? ev.format;
+          row.appendChild(badge);
+
+          card.appendChild(row);
+          list.appendChild(card);
+        });
+        detailPanel!.appendChild(list);
+      }
+
+      function renderCalendar() {
+        const year = current.getFullYear();
+        const month = current.getMonth();
+        monthLabelEl!.textContent = current.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const numDays = new Date(year, month + 1, 0).getDate();
+        const startWeekday = new Date(year, month, 1).getDay();
+
+        grid!.innerHTML = '';
+
+        ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach((wd) => {
+          const el = document.createElement('div');
+          el.className = 'pb-1 text-center text-[10px] font-semibold uppercase tracking-wide text-white/40';
+          el.textContent = wd;
+          grid!.appendChild(el);
+        });
+
+        // Leading blanks pad the 1st of the month out to its actual weekday
+        // column — deliberately not showing the previous month's trailing
+        // days here (that month is one click away via Prev, fully
+        // interactive there instead of a half-rendered preview here).
+        for (let i = 0; i < startWeekday; i++) {
+          grid!.appendChild(document.createElement('div'));
+        }
+
+        for (let day = 1; day <= numDays; day++) {
+          const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
+          const dayEvents = eventsByDate.get(dateStr) ?? [];
+          const isToday = dateStr === todayIso;
+          const hasEvents = dayEvents.length > 0;
+
+          const cell = document.createElement('button');
+          cell.type = 'button';
+          cell.className = [
+            'flex min-h-[64px] flex-col items-start gap-1 rounded-lg border p-1.5 text-left transition',
+            hasEvents
+              ? 'border-brand-primary/40 bg-brand-primary/10 hover:bg-brand-primary/20 cursor-pointer'
+              : 'border-white/10 bg-white/[0.02] cursor-default',
+            isToday ? 'ring-1 ring-brand-primary' : '',
+          ].join(' ');
+          if (!hasEvents) cell.disabled = true;
+
+          const dayNum = document.createElement('span');
+          dayNum.className = 'font-display text-sm text-white/70';
+          dayNum.textContent = String(day);
+          cell.appendChild(dayNum);
+
+          dayEvents.slice(0, 2).forEach((ev) => {
+            const pill = document.createElement('span');
+            pill.className = `w-full truncate rounded px-1 py-0.5 text-[10px] font-semibold ${FORMAT_BADGE_CLASSES[ev.format] ?? 'bg-white/10 text-white/60'}`;
+            pill.textContent = ev.circuit;
+            cell.appendChild(pill);
+          });
+
+          if (hasEvents) {
+            cell.addEventListener('click', () => showDayDetail(dateStr, dayEvents));
+          }
+
+          grid!.appendChild(cell);
+        }
+      }
+
+      prevBtn.addEventListener('click', () => {
+        current.setMonth(current.getMonth() - 1);
+        detailPanel!.classList.add('hidden');
+        renderCalendar();
+      });
+      nextBtn.addEventListener('click', () => {
+        current.setMonth(current.getMonth() + 1);
+        detailPanel!.classList.add('hidden');
+        renderCalendar();
+      });
+      todayBtn?.addEventListener('click', () => {
+        current = new Date();
+        current.setDate(1);
+        detailPanel!.classList.add('hidden');
+        renderCalendar();
+      });
+
+      renderCalendar();
+    }
+
+    function initCalendarPage() {
+      initViewToggle();
+      initCalendarGrid();
+    }
+
+    document.addEventListener('astro:page-load', initCalendarPage);
+  </script>
 </Layout>
