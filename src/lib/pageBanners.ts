@@ -33,6 +33,7 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'news', label: 'News', description: '/news' },
   { key: 'circuits', label: 'Circuits', description: '/circuits' },
   { key: 'results', label: 'Race Results', description: '/results' },
+  { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats' },
 ];
 
 /** Looks up one page's configured banner URL, or null if none is set. */

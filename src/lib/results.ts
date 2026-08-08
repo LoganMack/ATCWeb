@@ -888,10 +888,12 @@ export interface TeamSeasonStanding {
 }
 
 /**
- * Final team standings for one season — same "worst rounds dropped" points
- * math driver standings use (`finalizeStandings`' own drop-week rule:
- * baseline 2 + `season.extra_drop_weeks`, at least 1 round always counted),
- * applied to each team's own per-round total instead of a driver's.
+ * Final team standings for one season — every round's points count, no
+ * drop weeks. Unlike driver standings (`finalizeStandings`' baseline-2 +
+ * `season.extra_drop_weeks` rule), the team championship has no
+ * worst-rounds-dropped rule at all — per Logan, drop weeks are specific to
+ * the driver championships. (An earlier version of this function
+ * mistakenly applied the same drop-week math here too; fixed.)
  *
  * A team's points for a given round are the sum of just its top 2 scoring
  * drivers that round (`topTeamScorers()` — same rule the news recap's Team
@@ -953,8 +955,6 @@ export async function computeTeamSeasonStandings(
     return a;
   }
 
-  let allSubsessionIds: Set<number>;
-
   if (classId === undefined) {
     // ---- Overall (cross-class) team competition ----
     const overallContext = await getSeasonOverallContext(env, season, exhibitionIds, drivers);
@@ -989,8 +989,6 @@ export async function computeTeamSeasonStandings(
       const a = getAccum(teamId);
       a.roundPoints.set(subsessionId, (a.roundPoints.get(subsessionId) ?? 0) + roundSum);
     }
-
-    allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
   } else {
     // ---- One class's own separate team competition (e.g. Delta's) ----
     const [scoresRaw, classes] = await Promise.all([getRaceScoresForSeasonClass(env, season.id, classId), getDriverClasses(env)]);
@@ -1096,21 +1094,20 @@ export async function computeTeamSeasonStandings(
       const a = getAccum(teamId);
       a.roundPoints.set(subsessionId, (a.roundPoints.get(subsessionId) ?? 0) + roundSum);
     }
-
-    allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
   }
 
-  const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
-
+  // Unlike driver standings, the team championship does NOT drop worst
+  // rounds — every round a team scored in counts toward its total. Per
+  // Logan: drop weeks are a driver-standings-only rule. (This function used
+  // to apply the same BASELINE_DROP_WEEKS + extra_drop_weeks logic
+  // finalizeStandings uses for drivers — that was a bug, not an intentional
+  // shared rule.)
   const standings: Omit<TeamSeasonStanding, 'position'>[] = [];
   for (const [teamId, a] of accum) {
     const team = teamById.get(teamId);
     if (!team) continue; // team record deleted/missing — skip rather than crash the page
 
-    const roundTotals = [...allSubsessionIds].map((id) => a.roundPoints.get(id) ?? 0).sort((x, y) => y - x);
-    const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
-    const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
-    const totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+    const totalPoints = [...a.roundPoints.values()].reduce((sum, p) => sum + p, 0);
 
     standings.push({
       teamId,
@@ -1159,6 +1156,8 @@ export interface DriverSeasonExtendedStats {
   distanceKm: number | null;
   /** Total corners navigated this season (laps completed × that round's matched layout's `corners`) divided by total incidents — "how many corners on average between incidents," a finer-grained version of incidentsPerLap. Null whenever it can't be computed cleanly: no round resolved to a layout with a corner count on file (see 0022_circuit_layout_corners.sql — many layouts won't have one yet), or this driver had 0 incidents (an undefined/infinite ratio, not a real number to show). Like distanceKm, a driver with only some rounds resolving to a corner count still gets a (conservative) figure from the ones that did. */
   cornersPerIncident: number | null;
+  /** The raw numerator behind `cornersPerIncident` (corners navigated, not divided by incidents yet) — null under the same "nothing resolved" condition `cornersPerIncident` uses (NOT null just because incidents was 0, unlike that field — a career-stats aggregator summing this across seasons needs the real total, and dividing by a separately-summed incident count itself, to get a mathematically correct career CPI rather than an average of season ratios). See computeDriverCareerStats. */
+  totalCorners: number | null;
 }
 
 function normalizeTrackOrLayoutName(s: string): string {
@@ -1336,6 +1335,7 @@ export async function getSeasonDriverExtendedStats(
       bonusPoints: a.bonusPoints,
       distanceKm: anyKmResolvedByDriver.get(driverId) ? a.distanceKm : null,
       cornersPerIncident: hasCorners && a.incidents > 0 ? a.totalCorners / a.incidents : null,
+      totalCorners: hasCorners ? a.totalCorners : null,
     });
   }
   return out;
@@ -1518,6 +1518,211 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
     })
   );
   return perSeason.filter((r): r is ChampionEntry => r !== null);
+}
+
+// ---------------------------------------------------------------------------
+// Career driver stats — every driver who has ever scored in a championship
+// season, with career totals summed across every class and season they've
+// raced, plus a season-by-season breakdown. Powers the "Driver Stats"
+// history tab (src/pages/driver-stats.astro).
+//
+// Nothing here is stored — like getChampions, it's fully recomputed by
+// looping every championship season (and, within each, every class), so a
+// driver who just got their first race_scores rows shows up automatically
+// on the very next page load, with no separate "add them to career stats"
+// step anywhere in the app.
+// ---------------------------------------------------------------------------
+
+/** One driver's stat line for one season (they raced exactly one class in a season, so this is also effectively "one class" — the class is carried on the row for display/grouping, not because a driver could have two rows in the same season). */
+export interface DriverCareerSeasonRow {
+  season: Season;
+  classId: number;
+  className: string;
+  wins: number;
+  podiums: number;
+  top5s: number;
+  top10s: number;
+  poles: number;
+  starts: number;
+  appearances: number;
+  laps: number;
+  lapsLed: number;
+  incidents: number;
+  /** Null under the same "nothing resolved to a layout with a corner count" condition DriverSeasonExtendedStats.totalCorners uses — see that field's own doc comment. */
+  totalCorners: number | null;
+  /** This driver's position in that season's class standings — 1 means they won that class's championship that season. */
+  classPosition: number;
+  /** This driver's position in that season's cross-class Overall driver standings. Null only if they somehow don't appear there despite having class_scores rows — shouldn't normally happen. */
+  overallPosition: number | null;
+  /** The overall (cross-class) Team Standings position of this driver's PRIMARY team that season (the team they raced under most, when they raced under more than one — see `teams` below for the full breakdown) — null if they had no team that season. */
+  teamPosition: number | null;
+  /** Same idea, but the Delta-only team competition's position for that same primary team — null if they had no team, or their team didn't score in the Delta competition that season (e.g. no Delta driver on the team, or this driver's own class isn't Delta and no teammate raced Delta either). */
+  deltaTeamPosition: number | null;
+  cars: DriverCarStat[];
+  teams: DriverTeamStat[];
+}
+
+export interface DriverCareerStats {
+  driver: DriverBasic;
+  /** Count of seasons this driver finished 1st in their class's standings — summed across every class they've ever raced, not just their current one. */
+  championships: number;
+  wins: number;
+  podiums: number;
+  poles: number;
+  top5s: number;
+  top10s: number;
+  laps: number;
+  lapsLed: number;
+  starts: number;
+  appearances: number;
+  /** Career-wide corners-per-incident — deliberately NOT an average of each season's own cornersPerIncident (that would over-weight low-incident seasons); it's total corners navigated across every season that resolved a corner count, divided by total incidents across the WHOLE career. Null under the same "nothing to compute from" conditions the per-season figure uses. */
+  cornersPerIncident: number | null;
+  /** Newest season first — same ordering the Champions/Standings pages use. */
+  seasons: DriverCareerSeasonRow[];
+}
+
+/**
+ * Computes every driver's full career stat line. Loops every championship
+ * season (exhibition seasons are excluded from all statistics, per
+ * `isChampionshipSeason`'s own doc comment) and, within each, every driver
+ * class, running the exact same per-season computations the Champions/
+ * Standings/Team Standings pages already use — this is purely an
+ * aggregation on top of those, not a new scoring engine.
+ */
+export async function computeDriverCareerStats(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classes: Lookup[],
+  exhibitionRoundIds?: Set<number>
+): Promise<DriverCareerStats[]> {
+  const [drivers, exhibitionIds] = await Promise.all([
+    driversSelect(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+  ]);
+  const driverById = new Map(drivers.map((d) => [d.id, d]));
+  // Delta runs its own separate team competition (see computeTeamSeasonStandings'
+  // own doc comment) — every other class's drivers just show "—" for
+  // deltaTeamPosition unless their team happens to also field a Delta driver.
+  const deltaClass = classes.find((c) => c.name === 'Delta');
+
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+
+  const seasonRowsByDriver = new Map<string, DriverCareerSeasonRow[]>();
+
+  await Promise.all(
+    championshipSeasons.map(async (season) => {
+      const [classStandingsByClass, overallStandings, extendedStats, teamStandingsOverall, teamStandingsDelta, carTeamStats] =
+        await Promise.all([
+          Promise.all(classes.map((c) => computeSeasonStandings(env, season, c.id, drivers, exhibitionIds, classes))),
+          computeOverallSeasonStandings(env, season, drivers, exhibitionIds),
+          getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers),
+          computeTeamSeasonStandings(env, season, exhibitionIds),
+          deltaClass ? computeTeamSeasonStandings(env, season, exhibitionIds, deltaClass.id) : Promise.resolve([]),
+          getSeasonCarTeamStats(env, season, exhibitionIds),
+        ]);
+
+      const overallPositionByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.position]));
+      const teamPositionByTeamId = new Map(teamStandingsOverall.map((t) => [t.teamId, t.position]));
+      const deltaTeamPositionByTeamId = new Map(teamStandingsDelta.map((t) => [t.teamId, t.position]));
+
+      classes.forEach((cls, i) => {
+        for (const standing of classStandingsByClass[i]) {
+          const driverId = standing.driver.id;
+          const extras = carTeamStats.get(driverId);
+          const ext = extendedStats.get(driverId);
+          // getSeasonCarTeamStats already sorts a driver's teams by
+          // racesUnderTeam descending — [0] is their primary team that
+          // season (the only one relevant for "their team's standing").
+          const primaryTeam = extras?.teams[0] ?? null;
+
+          const row: DriverCareerSeasonRow = {
+            season,
+            classId: cls.id,
+            className: cls.name,
+            wins: standing.wins,
+            podiums: standing.podiums,
+            top5s: standing.top5s,
+            top10s: standing.top10s,
+            poles: standing.poles,
+            starts: standing.starts,
+            appearances: standing.appearances,
+            laps: standing.laps,
+            lapsLed: standing.lapsLed,
+            incidents: ext?.incidents ?? 0,
+            totalCorners: ext?.totalCorners ?? null,
+            classPosition: standing.position,
+            overallPosition: overallPositionByDriverId.get(driverId) ?? null,
+            teamPosition: primaryTeam ? teamPositionByTeamId.get(primaryTeam.teamId) ?? null : null,
+            deltaTeamPosition: primaryTeam ? deltaTeamPositionByTeamId.get(primaryTeam.teamId) ?? null : null,
+            cars: extras?.cars ?? [],
+            teams: extras?.teams ?? [],
+          };
+
+          if (!seasonRowsByDriver.has(driverId)) seasonRowsByDriver.set(driverId, []);
+          seasonRowsByDriver.get(driverId)!.push(row);
+        }
+      });
+    })
+  );
+
+  const out: DriverCareerStats[] = [];
+  for (const [driverId, seasonRows] of seasonRowsByDriver) {
+    const driver = driverById.get(driverId);
+    if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
+
+    seasonRows.sort((a, b) => b.season.number - a.season.number);
+
+    let championships = 0;
+    let wins = 0;
+    let podiums = 0;
+    let poles = 0;
+    let top5s = 0;
+    let top10s = 0;
+    let laps = 0;
+    let lapsLed = 0;
+    let starts = 0;
+    let appearances = 0;
+    let totalCorners = 0;
+    let totalIncidents = 0;
+    let anyCornersResolved = false;
+
+    for (const r of seasonRows) {
+      if (r.classPosition === 1) championships++;
+      wins += r.wins;
+      podiums += r.podiums;
+      poles += r.poles;
+      top5s += r.top5s;
+      top10s += r.top10s;
+      laps += r.laps;
+      lapsLed += r.lapsLed;
+      starts += r.starts;
+      appearances += r.appearances;
+      totalIncidents += r.incidents;
+      if (r.totalCorners !== null) {
+        totalCorners += r.totalCorners;
+        anyCornersResolved = true;
+      }
+    }
+
+    out.push({
+      driver,
+      championships,
+      wins,
+      podiums,
+      poles,
+      top5s,
+      top10s,
+      laps,
+      lapsLed,
+      starts,
+      appearances,
+      cornersPerIncident: anyCornersResolved && totalIncidents > 0 ? totalCorners / totalIncidents : null,
+      seasons: seasonRows,
+    });
+  }
+
+  out.sort((a, b) => displayDriverName(a.driver.name).localeCompare(displayDriverName(b.driver.name)));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
