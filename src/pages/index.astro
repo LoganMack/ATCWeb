@@ -24,6 +24,8 @@ import {
   computeTeamSeasonStandings,
   getSeasonOverallContext,
   getSeasonCarTeamStats,
+  getTeamsBasic,
+  getAllTeamSeasonLogosSafe,
   isChampionshipSeason,
   driversSelect,
   type DriverSeasonStanding,
@@ -62,6 +64,37 @@ try {
   console.error('Failed to load seasons for news card logos:', err);
 }
 
+// --- Featured broadcast + hero banner (admin-managed) ----------------------
+//
+// Deliberately fetched BEFORE the standings widget below, not after — these
+// two are cheap (1 query each) and completely independent of it, so there's
+// no reason their success should depend on the widget's own (much pricier)
+// fetches having budget left over. See the standings widget's own doc
+// comment below for the full incident this ordering guards against: once
+// upon a time the widget alone could burn through nearly this whole page's
+// Cloudflare Workers subrequest budget, which silently starved whatever
+// ran after it on the same request — this used to be that code's neighbor,
+// and paid for it (that's why "the YouTube embed disappeared" and "no
+// standings" were ever reported as one bug, not two).
+let broadcastEmbedUrl: string | null = null;
+try {
+  const settings = await getSiteSettings(supabaseEnv);
+  const rawBroadcastUrl = siteSettingValue(settings, FEATURED_BROADCAST_URL_KEY);
+  broadcastEmbedUrl = rawBroadcastUrl ? youtubeEmbedUrl(rawBroadcastUrl) : null;
+} catch (err) {
+  console.error('Failed to load featured broadcast setting:', err);
+}
+
+// No image configured just means no image: the section renders plain black
+// (this site's bg-brand-ink), same as the body behind it, rather than the
+// placeholder blue radial gradient this used to always show.
+let heroImageUrl: string | null = null;
+try {
+  heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
+} catch (err) {
+  console.error('Failed to load homepage banner:', err);
+}
+
 // --- Top 5 standings widget ------------------------------------------------
 //
 // One toggle-able widget covering Overall + all 3 classes' own driver
@@ -96,10 +129,12 @@ try {
   const activeSeason = championshipSeasons.find((s) => s.is_current) ?? championshipSeasons[0];
 
   if (activeSeason) {
-    const [driversBasic, exhibitionRoundIds, driverClasses] = await Promise.all([
+    const [driversBasic, exhibitionRoundIds, driverClasses, teamsBasic, seasonLogoRows] = await Promise.all([
       driversSelect(supabaseEnv),
       getExhibitionRoundIds(supabaseEnv),
       getDriverClasses(supabaseEnv),
+      getTeamsBasic(supabaseEnv),
+      getAllTeamSeasonLogosSafe(supabaseEnv),
     ]);
     classes = driverClasses;
     const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
@@ -109,32 +144,37 @@ try {
 
     const [overallStandings, carTeamExtras] = await Promise.all([
       computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
-      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, undefined, undefined, undefined, overallContext),
+      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, teamsBasic, undefined, seasonLogoRows, overallContext),
     ]);
     carTeamExtrasByDriverId = carTeamExtras;
 
     // Per-class driver standings and per-class team standings deliberately
-    // do NOT reuse `overallContext`/`driversBasic` here, unlike Overall
-    // above — this widget originally shared them everywhere, which turned
-    // out to be the source of a real bug (Alpha's driver and team tabs
-    // showing wrong numbers): /standings and /team-standings never share a
-    // precomputedOverallContext into these two specific functions' classId
-    // branch (computeDriverCareerStats is the only other caller that shares
-    // a context at all, and it never goes through these two functions —
-    // see its own doc comment), so that combination had never actually been
-    // exercised anywhere else in the app. Rather than keep chasing the
-    // exact mechanism, this now calls both functions exactly the way
-    // /standings' "Per Class" view and /team-standings' Delta view already
-    // do — own independent fetch, proven correct — at the cost of a few
-    // more Supabase queries per homepage load (bounded: 3 classes + 2 team
-    // views, nowhere near the unbounded per-season blowup the driver-stats
-    // subrequest incident was about).
+    // do NOT reuse the Overall tab's own `overallContext` object above (see
+    // README v0.39 — sharing it there was the suspected cause of Alpha's
+    // driver/team tabs once showing wrong numbers). But building a whole
+    // separate ~5-query context PER TAB (3 classes + 2 team tabs = 5 more
+    // full rebuilds) turned out to have its own real cost: stacked on top
+    // of everything else this page already fetches, it pushed a single
+    // homepage load over Cloudflare Workers' per-request subrequest limit —
+    // which doesn't fail loudly, it just makes every fetch downstream of
+    // the limit (this widget, then the Featured Broadcast section right
+    // after it) silently return nothing, exactly what "No standings yet."
+    // plus a vanished YouTube embed looked like. The fix keeping both
+    // things true at once: build ONE second context here (still never
+    // shared with the Overall tab above) and share THAT one across all 5
+    // of these secondary tabs — same "isolated from Overall, shared among
+    // themselves" shape as before, at 1/5th the query cost. Everything
+    // else cheap and non-adjustment-related (driversBasic, classes,
+    // teamsBasic, seasonLogoRows) is shared with every tab, Overall
+    // included, same as it already safely was.
+    const perClassContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
+
     const perClassDriver = await Promise.all(
       classes.map(async (c) => ({
         key: c.name,
         label: c.name,
         type: 'driver' as const,
-        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, undefined, exhibitionRoundIds, classes),
+        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, perClassContext),
       }))
     );
 
@@ -148,7 +188,17 @@ try {
         key: t.key,
         label: t.label,
         type: 'team' as const,
-        rows: await computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, t.classId),
+        rows: await computeTeamSeasonStandings(
+          supabaseEnv,
+          activeSeason,
+          exhibitionRoundIds,
+          t.classId,
+          driversBasic,
+          teamsBasic,
+          seasonLogoRows,
+          classes,
+          perClassContext
+        ),
       }))
     );
 
@@ -160,28 +210,6 @@ try {
   }
 } catch (err) {
   console.error('Failed to load homepage standings widget:', err);
-}
-
-// --- Featured broadcast (admin-managed, see /admin/site-settings) ---------
-let broadcastEmbedUrl: string | null = null;
-try {
-  const settings = await getSiteSettings(supabaseEnv);
-  const rawBroadcastUrl = siteSettingValue(settings, FEATURED_BROADCAST_URL_KEY);
-  broadcastEmbedUrl = rawBroadcastUrl ? youtubeEmbedUrl(rawBroadcastUrl) : null;
-} catch (err) {
-  console.error('Failed to load featured broadcast setting:', err);
-}
-
-// Hero background image (admin-managed, see /admin/page-banners and
-// page_banners table — page_key 'home'). No image configured just means no
-// image: the section renders plain black (this site's bg-brand-ink), same
-// as the body behind it, rather than the placeholder blue radial gradient
-// this used to always show.
-let heroImageUrl: string | null = null;
-try {
-  heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
-} catch (err) {
-  console.error('Failed to load homepage banner:', err);
 }
 
 // Cache this on Cloudflare's edge for a minute so most visits are served

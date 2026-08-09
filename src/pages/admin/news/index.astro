@@ -2,10 +2,108 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsPosts, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getAllNewsPosts, createNewsPost, updateNewsPost, formatDate } from '../../../lib/supabase';
+import { parseCsv } from '../../../lib/csv';
+import { slugify } from '../../../lib/slug';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
+
+// ---------------------------------------------------------------------------
+// CSV import — same convention as Events'/Circuits'/the Incident Report's
+// importers. Rows are matched by slug (auto-generated from the title, same
+// as the single-post editor, when the column is left blank) — re-uploading
+// updates that post in place rather than duplicating it, and a blank cell
+// on an update leaves that field as-is. No column for the cover image FILE
+// itself (CSV can't carry binary attachments) — `cover_image_url` accepts a
+// direct image URL instead, same as circuits' logo column.
+// ---------------------------------------------------------------------------
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+
+  if (intent === 'import-csv') {
+    let imported = 0;
+    let skipped = 0;
+    try {
+      const file = form.get('csv_file');
+      if (file instanceof File) {
+        const existingPosts = await getAllNewsPosts(supabaseEnv, accessToken);
+        const text = await file.text();
+        const rows = parseCsv(text);
+        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+        const colIndex = (name: string) => header.indexOf(name);
+        const get = (row: string[], name: string) => {
+          const i = colIndex(name);
+          return i >= 0 ? (row[i] ?? '').trim() : '';
+        };
+
+        for (const row of rows.slice(1)) {
+          if (row.every((c) => c.trim() === '')) continue;
+
+          const title = get(row, 'title');
+          const body = get(row, 'body');
+          if (!title || !body) {
+            skipped++;
+            continue;
+          }
+          const slug = get(row, 'slug') || slugify(title);
+          if (!slug) {
+            skipped++;
+            continue;
+          }
+
+          const existing = existingPosts.find((p) => p.slug === slug);
+          const publishedDate = get(row, 'published_date');
+          const statusRaw = get(row, 'status').toLowerCase();
+
+          try {
+            if (existing) {
+              const patch: Record<string, unknown> = {};
+              patch.title = title;
+              patch.body = body;
+              const excerpt = get(row, 'excerpt');
+              if (excerpt) patch.excerpt = excerpt;
+              const authorName = get(row, 'author_name');
+              if (authorName) patch.author_name = authorName;
+              if (statusRaw === 'draft' || statusRaw === 'published') patch.status = statusRaw;
+              const seasonLabel = get(row, 'season_label');
+              if (seasonLabel) patch.season_label = seasonLabel;
+              const roundRaw = get(row, 'round_subsession_id');
+              if (roundRaw && Number.isFinite(Number(roundRaw))) patch.round_subsession_id = Number(roundRaw);
+              const coverImageUrl = get(row, 'cover_image_url');
+              if (coverImageUrl) patch.cover_image_url = coverImageUrl;
+              if (publishedDate) patch.published_at = `${publishedDate}T12:00:00.000Z`;
+              await updateNewsPost(supabaseEnv, accessToken, existing.id, patch);
+            } else {
+              const roundRaw = get(row, 'round_subsession_id');
+              await createNewsPost(supabaseEnv, accessToken, {
+                title,
+                slug,
+                excerpt: get(row, 'excerpt') || null,
+                body,
+                author_name: get(row, 'author_name') || displayName,
+                cover_image_url: get(row, 'cover_image_url') || null,
+                status: statusRaw === 'published' ? 'published' : 'draft',
+                season_label: get(row, 'season_label') || null,
+                round_subsession_id: roundRaw && Number.isFinite(Number(roundRaw)) ? Number(roundRaw) : null,
+                published_at: publishedDate ? `${publishedDate}T12:00:00.000Z` : new Date().toISOString(),
+              });
+            }
+            imported++;
+          } catch (err) {
+            console.error('Failed to import a news row:', err);
+            skipped++;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to import news CSV:', err);
+    }
+    return Astro.redirect(`/admin/news?imported=${imported}&skipped=${skipped}`, 302);
+  }
+}
 
 let posts: Awaited<ReturnType<typeof getAllNewsPosts>> = [];
 let loadError = false;
@@ -15,15 +113,59 @@ try {
   console.error('Failed to load news posts for admin:', err);
   loadError = true;
 }
+
+const importedCount = Astro.url.searchParams.get('imported');
+const skippedCount = Astro.url.searchParams.get('skipped');
 ---
 
 <AdminLayout title="News">
-  <div class="reveal flex items-center justify-between">
+  <div class="reveal flex flex-wrap items-center justify-between gap-3">
     <h1 class="font-display text-4xl">News</h1>
-    <a href="/admin/news/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
-      New Post
-    </a>
+    <div class="flex items-center gap-2">
+      <details class="relative">
+        <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
+          Import from CSV
+        </summary>
+        <div class="absolute right-0 z-10 mt-2 flex w-80 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
+          <a
+            href="/news-import-template.csv"
+            download
+            class="self-start rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20"
+          >
+            Download CSV template
+          </a>
+          <form method="POST" enctype="multipart/form-data" data-astro-reload class="flex flex-col gap-2">
+            <input type="hidden" name="intent" value="import-csv" />
+            <input
+              type="file"
+              name="csv_file"
+              accept=".csv"
+              required
+              class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
+            />
+            <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+              Upload
+            </button>
+          </form>
+          <p class="text-white/30">
+            Rows are matched by slug (auto-generated from the title when left blank) — re-uploading updates that
+            post in place instead of duplicating it. Cover image is a direct image URL, not a file upload. A row
+            missing its title or body is skipped rather than failing the whole import.
+          </p>
+        </div>
+      </details>
+      <a href="/admin/news/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+        New Post
+      </a>
+    </div>
   </div>
+
+  {importedCount !== null && (
+    <p class="reveal mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
+      Imported {importedCount} post{importedCount === '1' ? '' : 's'}.
+      {Number(skippedCount) > 0 && ` ${skippedCount} row${skippedCount === '1' ? '' : 's'} skipped (missing title/body).`}
+    </p>
+  )}
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">

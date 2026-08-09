@@ -7,8 +7,49 @@ import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getPageBanners, formatDate } from '../lib/supabase';
 import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
+import { parseCsv } from '../lib/csv';
+import { importRaceResultsCsv } from '../lib/raceResultsImport';
+import { isAdminView } from '../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const isAdmin = isAdminView(Astro.locals);
+
+// ---------------------------------------------------------------------------
+// Race Results CSV import — admin-only, reachable from here or (as a link
+// pointing back to this same panel) the event list's Calendar page. Unlike
+// the Events/Circuits/News importers, this one writes straight into the
+// external results pipeline's own tables — see src/lib/raceResultsImport.ts's
+// header comment for the full reasoning and its limitations.
+// ---------------------------------------------------------------------------
+if (isAdmin && Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+
+  if (intent === 'import-csv') {
+    let imported = 0;
+    let skipped = 0;
+    try {
+      const file = form.get('csv_file');
+      if (file instanceof File) {
+        const accessToken = Astro.locals.session!.accessToken;
+        const text = await file.text();
+        const rows = parseCsv(text);
+        const outcome = await importRaceResultsCsv(supabaseEnv, accessToken, rows);
+        imported = outcome.imported;
+        skipped = outcome.skipped;
+      }
+    } catch (err) {
+      console.error('Failed to import race results CSV:', err);
+    }
+    const redirectUrl = new URL(Astro.url);
+    redirectUrl.searchParams.set('imported', String(imported));
+    redirectUrl.searchParams.set('skipped', String(skipped));
+    return Astro.redirect(`${redirectUrl.pathname}${redirectUrl.search}`, 302);
+  }
+}
+
+const importedCount = Astro.url.searchParams.get('imported');
+const skippedCount = Astro.url.searchParams.get('skipped');
 
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 let loadError = false;
@@ -65,6 +106,53 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <h1 class="reveal font-display text-5xl">Race Results</h1>
 
     <HistoryTabs active="results" />
+
+    {isAdmin && (
+      <div id="import-race-results" class="reveal mt-4 flex flex-wrap items-center gap-2">
+        <details class="relative">
+          <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
+            Import Race Results from CSV
+          </summary>
+          <div class="absolute left-0 z-10 mt-2 flex w-96 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
+            <a
+              href="/race-results-import-template.csv"
+              download
+              class="self-start rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20"
+            >
+              Download CSV template
+            </a>
+            <form method="POST" enctype="multipart/form-data" data-astro-reload class="flex flex-col gap-2">
+              <input type="hidden" name="intent" value="import-csv" />
+              <input
+                type="file"
+                name="csv_file"
+                accept=".csv"
+                required
+                class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
+              />
+              <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+                Upload
+              </button>
+            </form>
+            <p class="text-white/30">
+              For exhibition races or one-off events the real iRacing results pipeline will never see — writes
+              directly into the same tables a real import would. Every row needs an `import_key` (your own label for
+              the round — reuse it to update that round instead of duplicating it) and a `driver_car_number` matching
+              an existing driver who already has an iRacing Customer ID set on their Roster profile. This app doesn't
+              know the real points formula, so scoring columns (finish/class/total points) must be filled in
+              yourself. Unrecognized rows are skipped rather than failing the whole upload.
+            </p>
+          </div>
+        </details>
+      </div>
+    )}
+
+    {importedCount !== null && (
+      <p class="reveal mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
+        Imported {importedCount} result{importedCount === '1' ? '' : 's'}.
+        {Number(skippedCount) > 0 && ` ${skippedCount} row${skippedCount === '1' ? '' : 's'} skipped (see server logs for details).`}
+      </p>
+    )}
 
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">

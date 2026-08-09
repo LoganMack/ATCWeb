@@ -4,10 +4,13 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import EventDetailCard from '../components/EventDetailCard.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { getEvents, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout, type LayoutRoundSummary } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
+import { isAdminView } from '../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const isAdmin = isAdminView(Astro.locals);
 
 let events: Awaited<ReturnType<typeof getEvents>> = [];
 let loadError = false;
@@ -16,6 +19,35 @@ try {
 } catch (err) {
   console.error('Failed to load events:', err);
   loadError = true;
+}
+
+// Every event card's "Race Recaps at this Layout" collapsible (see
+// EventDetailCard.astro) needs to know which historical rounds match its
+// own circuit+layout — computed here ONCE for the whole page (not per
+// card, several of which can repeat the same circuit) via a handful of
+// bulk fetches, then sliced in memory per event. The recap CONTENT itself
+// is intentionally NOT computed here at all — see findRoundsForLayout's own
+// doc comment and src/pages/api/round-recap/[subsessionId].ts for why that
+// part is deliberately deferred to a lazy, per-round client-side fetch.
+let layoutRoundsByEventId = new Map<string, LayoutRoundSummary[]>();
+try {
+  const [circuits, layouts, allRounds] = await Promise.all([
+    getCircuits(supabaseEnv),
+    getAllCircuitLayouts(supabaseEnv),
+    getAllRounds(supabaseEnv),
+  ]);
+  const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
+    supabaseEnv,
+    allRounds.map((r) => r.subsession_id)
+  );
+  for (const event of events) {
+    layoutRoundsByEventId.set(
+      event.id,
+      findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout)
+    );
+  }
+} catch (err) {
+  console.error('Failed to resolve layout race-recap history for the event list:', err);
 }
 
 let bannerUrl: string | null = null;
@@ -53,6 +85,16 @@ const calendarEvents = events.map((e) => ({
     <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
       {upcoming.length} upcoming event{upcoming.length === 1 ? '' : 's'}.
     </p>
+
+    {isAdmin && (
+      <a
+        href="/results?tab=import#import-race-results"
+        class="reveal mt-3 inline-block text-sm font-semibold text-brand-primary hover:underline"
+        style="transition-delay: 90ms"
+      >
+        + Import Race Results (CSV) &rarr;
+      </a>
+    )}
 
     <div class="reveal mt-6 flex flex-wrap gap-2" data-view-toggle style="transition-delay: 100ms">
       <button
@@ -96,7 +138,7 @@ const calendarEvents = events.map((e) => ({
       <div data-view-panel="list">
         {upcoming.length > 0 && (
           <div class="mt-10 space-y-4">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} />)}
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} />)}
           </div>
         )}
 
@@ -104,7 +146,7 @@ const calendarEvents = events.map((e) => ({
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 space-y-4 opacity-70">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} />)}
+              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} />)}
             </div>
           </div>
         )}
@@ -239,7 +281,17 @@ const calendarEvents = events.map((e) => ({
       let current = new Date();
       current.setDate(1);
 
-      function showDayDetail(dateStr: string, dayEvents: CalendarEventLite[]) {
+      // Shows the SAME full event card(s) the List view renders for this
+      // day — not a second, cut-down summary built from the lean
+      // `calendarEvents` payload (date/circuit/logo/layout/format only,
+      // still used above just to know which days have events and what to
+      // show in each day cell's small pills). Every event, upcoming or
+      // past, is already fully rendered somewhere in the List view's DOM
+      // (see EventDetailCard.astro's `data-event-date` attribute) — this
+      // just finds and deep-clones whichever card(s) match the clicked
+      // date, so Calendar view can never drift out of sync with List view
+      // on what a "full" event card actually shows.
+      function showDayDetail(dateStr: string) {
         detailPanel!.classList.remove('hidden');
         detailPanel!.innerHTML = '';
 
@@ -250,45 +302,26 @@ const calendarEvents = events.map((e) => ({
 
         const list = document.createElement('div');
         list.className = 'mt-3 flex flex-col gap-3';
-        dayEvents.forEach((ev) => {
-          const card = document.createElement('div');
-          card.className = 'rounded-xl border border-white/10 bg-white/[0.03] p-4';
 
-          const row = document.createElement('div');
-          row.className = 'flex flex-wrap items-center justify-between gap-3';
-
-          const left = document.createElement('div');
-          left.className = 'flex items-center gap-3';
-          if (ev.logoUrl) {
-            const img = document.createElement('img');
-            img.src = ev.logoUrl;
-            img.alt = '';
-            img.className = 'h-9 w-9 flex-none rounded object-contain';
-            left.appendChild(img);
-          }
-          const textWrap = document.createElement('div');
-          const name = document.createElement('p');
-          name.className = 'font-semibold';
-          name.textContent = ev.circuit;
-          textWrap.appendChild(name);
-          if (ev.layout) {
-            const layoutP = document.createElement('p');
-            layoutP.className = 'text-xs text-white/50';
-            layoutP.textContent = displayLayoutName(ev.layout);
-            textWrap.appendChild(layoutP);
-          }
-          left.appendChild(textWrap);
-          row.appendChild(left);
-
-          const badge = document.createElement('span');
-          badge.className = `rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[ev.format] ?? ''}`;
-          badge.textContent = FORMAT_LABELS[ev.format] ?? ev.format;
-          row.appendChild(badge);
-
-          card.appendChild(row);
-          list.appendChild(card);
+        const originals = document.querySelectorAll<HTMLElement>(`[data-event-date="${dateStr}"]`);
+        originals.forEach((original) => {
+          const clone = original.cloneNode(true) as HTMLElement;
+          // The original may not have scrolled into view yet (reveal.ts
+          // only reveals on scroll, and this clone can appear well before
+          // that happens if List view was never scrolled through) — force
+          // it visible rather than risk an invisible/stuck-at-opacity-0 card.
+          clone.classList.add('is-visible');
+          list.appendChild(clone);
         });
         detailPanel!.appendChild(list);
+
+        // The clones' own "Race Recaps at this Layout" <details> (if any)
+        // are brand new nodes, never seen by initRoundRecaps() before — as
+        // opposed to attributes/classes, addEventListener bindings are
+        // never copied by cloneNode(), so this re-runs the same guarded
+        // initializer to bind just these new ones (already-bound elements
+        // elsewhere on the page are unaffected — see its own WeakSet guard).
+        initRoundRecaps();
       }
 
       function renderCalendar() {
@@ -347,7 +380,7 @@ const calendarEvents = events.map((e) => ({
           });
 
           if (hasEvents) {
-            cell.addEventListener('click', () => showDayDetail(dateStr, dayEvents));
+            cell.addEventListener('click', () => showDayDetail(dateStr));
           }
 
           grid!.appendChild(cell);
@@ -374,6 +407,119 @@ const calendarEvents = events.map((e) => ({
       renderCalendar();
     }
 
+    // --- "Race Recaps at this Layout" lazy loading (EventDetailCard.astro) ---
+    //
+    // One native <details data-round-recap> per historical round; its
+    // content div (`[data-recap-body]`) starts empty and is only filled in
+    // the first time that round's <details> is actually opened, via
+    // /api/round-recap/[subsessionId] (see that route's own doc comment for
+    // why this can't just be computed up front for every round on the
+    // page). A WeakSet (not a `dataset` flag) tracks which elements are
+    // already bound — a `dataset` flag would survive `cloneNode()` (it
+    // copies attributes) even though the actual listener does NOT get
+    // copied, which would make a cloned round-recap panel (see
+    // showDayDetail() above) permanently un-clickable; a WeakSet correctly
+    // treats a clone as a distinct, not-yet-bound node.
+    interface RecapDriverLite {
+      name: string;
+      car_number: number | null;
+    }
+    interface RoundRecapLite {
+      races: {
+        raceNumber: number;
+        topByClass: { className: string; top3: { position: number; driver: RecapDriverLite }[] }[];
+        fastestLap: { driver: RecapDriverLite; formatted: string; isTrackRecord: boolean } | null;
+      }[];
+      topTeamOverall: { teamName: string; points: number } | null;
+    }
+
+    const recapCache = new Map<number, Promise<RoundRecapLite | null>>();
+    const boundRecapDetails = new WeakSet<HTMLDetailsElement>();
+
+    /** Same trailing-digit-stripping display rule as displayDriverName() in src/lib/supabase.ts. */
+    function displayDriverName(name: string): string {
+      return name.replace(/\d+$/, '');
+    }
+
+    function fetchRoundRecap(subsessionId: number): Promise<RoundRecapLite | null> {
+      if (!recapCache.has(subsessionId)) {
+        recapCache.set(
+          subsessionId,
+          fetch(`/api/round-recap/${subsessionId}`)
+            .then((res) => (res.ok ? (res.json() as Promise<RoundRecapLite>) : null))
+            .catch(() => null)
+        );
+      }
+      return recapCache.get(subsessionId)!;
+    }
+
+    function renderRoundRecap(container: HTMLElement, recap: RoundRecapLite | null) {
+      if (!recap) {
+        container.innerHTML = '<p class="text-xs text-white/40">Couldn’t load this recap.</p>';
+        return;
+      }
+      container.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'flex flex-col gap-2 text-xs';
+
+      if (recap.races.length === 0) {
+        wrap.innerHTML = '<p class="text-white/40">No results on file for this round.</p>';
+      }
+
+      recap.races.forEach((race) => {
+        const raceEl = document.createElement('div');
+        const heading = document.createElement('p');
+        heading.className = 'font-semibold text-white/70';
+        heading.textContent = `Race ${race.raceNumber}`;
+        raceEl.appendChild(heading);
+
+        race.topByClass.forEach((cls) => {
+          const line = document.createElement('p');
+          line.className = 'mt-0.5 text-white/50';
+          const names = cls.top3.map((t) => `${t.position}. ${displayDriverName(t.driver.name)}`).join(', ');
+          line.textContent = `${cls.className}: ${names}`;
+          raceEl.appendChild(line);
+        });
+
+        if (race.fastestLap) {
+          const fl = document.createElement('p');
+          fl.className = 'mt-0.5 text-white/50';
+          fl.textContent = `Fastest Lap: ${displayDriverName(race.fastestLap.driver.name)} — ${race.fastestLap.formatted}${
+            race.fastestLap.isTrackRecord ? ' (Track Record!)' : ''
+          }`;
+          raceEl.appendChild(fl);
+        }
+
+        wrap.appendChild(raceEl);
+      });
+
+      if (recap.topTeamOverall) {
+        const teamP = document.createElement('p');
+        teamP.className = 'font-semibold text-white/60';
+        teamP.textContent = `Top Team: ${recap.topTeamOverall.teamName} (${recap.topTeamOverall.points} pts)`;
+        wrap.appendChild(teamP);
+      }
+
+      container.appendChild(wrap);
+    }
+
+    function initRoundRecaps() {
+      document.querySelectorAll<HTMLDetailsElement>('[data-round-recap]').forEach((details) => {
+        if (boundRecapDetails.has(details)) return;
+        boundRecapDetails.add(details);
+
+        details.addEventListener('toggle', () => {
+          if (!details.open) return;
+          const subsessionId = Number(details.dataset.roundRecap);
+          const container = details.querySelector<HTMLElement>('[data-recap-body]');
+          if (!container || !Number.isFinite(subsessionId) || container.dataset.loaded === 'true') return;
+          container.dataset.loaded = 'true';
+          container.innerHTML = '<p class="text-xs text-white/40">Loading…</p>';
+          fetchRoundRecap(subsessionId).then((recap) => renderRoundRecap(container, recap));
+        });
+      });
+    }
+
     // Pure client-side show/hide, same as the search-box filters elsewhere
     // on the site — the Past Events block is already fully rendered in the
     // DOM (see the template above), so this never needs a server round
@@ -392,6 +538,7 @@ const calendarEvents = events.map((e) => ({
       initViewToggle();
       initCalendarGrid();
       initHidePastEventsToggle();
+      initRoundRecaps();
     }
 
     document.addEventListener('astro:page-load', initCalendarPage);

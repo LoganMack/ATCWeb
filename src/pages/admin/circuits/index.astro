@@ -2,9 +2,126 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getCircuits } from '../../../lib/supabase';
+import {
+  resolveSupabaseEnv,
+  getCircuits,
+  createCircuit,
+  updateCircuit,
+  getAllCircuitLayouts,
+  createCircuitLayout,
+  updateCircuitLayout,
+} from '../../../lib/supabase';
+import { parseCsv } from '../../../lib/csv';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+// ---------------------------------------------------------------------------
+// CSV import — same convention as Events'/the Incident Report's importers.
+// One row is a circuit, optionally with one layout attached (length/corners/
+// lap record) — a circuit with several layouts just needs several rows
+// repeating its name. Matched by name (case-insensitive) for the circuit,
+// and by (circuit, layout name) for the layout; re-uploading updates in
+// place rather than duplicating, and a blank cell on an update leaves that
+// field as it already is rather than clearing it. No column for the logo
+// FILE itself (CSV can't carry binary attachments) — `logo_url` accepts a
+// direct image URL instead, same as every other field here.
+// ---------------------------------------------------------------------------
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+  const accessToken = Astro.locals.session!.accessToken;
+
+  if (intent === 'import-csv') {
+    let imported = 0;
+    let skipped = 0;
+    try {
+      const file = form.get('csv_file');
+      if (file instanceof File) {
+        const [existingCircuits, existingLayouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
+        const text = await file.text();
+        const rows = parseCsv(text);
+        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+        const colIndex = (name: string) => header.indexOf(name);
+        const get = (row: string[], name: string) => {
+          const i = colIndex(name);
+          return i >= 0 ? (row[i] ?? '').trim() : '';
+        };
+
+        for (const row of rows.slice(1)) {
+          if (row.every((c) => c.trim() === '')) continue;
+
+          const name = get(row, 'name');
+          if (!name) {
+            skipped++;
+            continue;
+          }
+
+          try {
+            let circuit = existingCircuits.find((c) => c.name.toLowerCase() === name.toLowerCase());
+            const location = get(row, 'location');
+            const logoUrl = get(row, 'logo_url');
+
+            if (circuit) {
+              const patch: Record<string, unknown> = {};
+              if (location) patch.location = location;
+              if (logoUrl) patch.logo_url = logoUrl;
+              if (Object.keys(patch).length > 0) await updateCircuit(supabaseEnv, accessToken, circuit.id, patch);
+            } else {
+              circuit = await createCircuit(supabaseEnv, accessToken, {
+                name,
+                location: location || null,
+                logo_url: logoUrl || null,
+              });
+              existingCircuits.push(circuit);
+            }
+
+            const layoutName = get(row, 'layout_name');
+            if (layoutName) {
+              const existingLayout = existingLayouts.find(
+                (l) => l.circuit_id === circuit!.id && l.name.toLowerCase() === layoutName.toLowerCase()
+              );
+              const numOrUndef = (v: string) => (v ? Number(v) : undefined);
+              const lengthKm = numOrUndef(get(row, 'layout_length_km'));
+              const corners = numOrUndef(get(row, 'layout_corners'));
+              const lapRecordSeconds = numOrUndef(get(row, 'layout_lap_record_seconds'));
+              const lapRecordHolder = get(row, 'layout_lap_record_holder');
+              const lapRecordDate = get(row, 'layout_lap_record_date');
+
+              if (existingLayout) {
+                const patch: Record<string, unknown> = {};
+                if (lengthKm !== undefined) patch.length_km = lengthKm;
+                if (corners !== undefined) patch.corners = corners;
+                if (lapRecordSeconds !== undefined) patch.lap_record_seconds = lapRecordSeconds;
+                if (lapRecordHolder) patch.lap_record_holder = lapRecordHolder;
+                if (lapRecordDate) patch.lap_record_date = lapRecordDate;
+                if (Object.keys(patch).length > 0) await updateCircuitLayout(supabaseEnv, accessToken, existingLayout.id, patch);
+              } else {
+                const created = await createCircuitLayout(supabaseEnv, accessToken, {
+                  circuit_id: circuit.id,
+                  name: layoutName,
+                  length_km: lengthKm ?? null,
+                  corners: corners ?? null,
+                  lap_record_seconds: lapRecordSeconds ?? null,
+                  lap_record_holder: lapRecordHolder || null,
+                  lap_record_date: lapRecordDate || null,
+                });
+                existingLayouts.push(created);
+              }
+            }
+
+            imported++;
+          } catch (err) {
+            console.error('Failed to import a circuit row:', err);
+            skipped++;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Failed to import circuits CSV:', err);
+    }
+    return Astro.redirect(`/admin/circuits?imported=${imported}&skipped=${skipped}`, 302);
+  }
+}
 
 let circuits: Awaited<ReturnType<typeof getCircuits>> = [];
 let loadError = false;
@@ -14,15 +131,59 @@ try {
   console.error('Failed to load circuits for admin:', err);
   loadError = true;
 }
+
+const importedCount = Astro.url.searchParams.get('imported');
+const skippedCount = Astro.url.searchParams.get('skipped');
 ---
 
 <AdminLayout title="Circuits">
-  <div class="reveal flex items-center justify-between">
+  <div class="reveal flex flex-wrap items-center justify-between gap-3">
     <h1 class="font-display text-4xl">Circuits</h1>
-    <a href="/admin/circuits/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
-      New Circuit
-    </a>
+    <div class="flex items-center gap-2">
+      <details class="relative">
+        <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
+          Import from CSV
+        </summary>
+        <div class="absolute right-0 z-10 mt-2 flex w-80 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
+          <a
+            href="/circuits-import-template.csv"
+            download
+            class="self-start rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20"
+          >
+            Download CSV template
+          </a>
+          <form method="POST" enctype="multipart/form-data" data-astro-reload class="flex flex-col gap-2">
+            <input type="hidden" name="intent" value="import-csv" />
+            <input
+              type="file"
+              name="csv_file"
+              accept=".csv"
+              required
+              class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
+            />
+            <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+              Upload
+            </button>
+          </form>
+          <p class="text-white/30">
+            One row per circuit, optionally with one layout's details attached — repeat a circuit's name across
+            rows to add more than one layout. Rows are matched by name — re-uploading updates in place (a blank
+            cell leaves that field as-is) instead of duplicating. Logo is a direct image URL, not a file upload.
+          </p>
+        </div>
+      </details>
+      <a href="/admin/circuits/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+        New Circuit
+      </a>
+    </div>
   </div>
+
+  {importedCount !== null && (
+    <p class="reveal mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
+      Imported {importedCount} circuit{importedCount === '1' ? '' : 's'}.
+      {Number(skippedCount) > 0 && ` ${skippedCount} row${skippedCount === '1' ? '' : 's'} skipped (missing name).`}
+    </p>
+  )}
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">

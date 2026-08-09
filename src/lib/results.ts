@@ -304,8 +304,8 @@ interface TeamBasic {
   logo_url: string | null;
 }
 
-/** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_scores row — see `RaceResultRow.team`. */
-function getTeamsBasic(env: SupabaseEnv) {
+/** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_scores row — see `RaceResultRow.team`. Exported (like `driversSelect`) so a caller needing several team-scoped views at once — the homepage standings widget's Alpha/Delta team tabs — can fetch this once and share it via `teamsBasic`, instead of each tab re-fetching it. */
+export function getTeamsBasic(env: SupabaseEnv) {
   return restGet<TeamBasic[]>(env, 'teams?select=id,name,logo_url');
 }
 
@@ -327,8 +327,12 @@ function buildSeasonLogoMap(rows: { team_id: string; season_id: string; logo_url
  * been run against the live database, this just means every team shows its
  * current logo everywhere (the same behavior as before this feature
  * existed) instead of every one of those pages throwing.
+ *
+ * Exported for the same sharing reason as `getTeamsBasic` just above — the
+ * homepage standings widget's two team tabs can fetch this once and pass it
+ * into both `computeTeamSeasonStandings` calls via `seasonLogoRowsParam`.
  */
-async function getAllTeamSeasonLogosSafe(env: SupabaseEnv): ReturnType<typeof getAllTeamSeasonLogos> {
+export async function getAllTeamSeasonLogosSafe(env: SupabaseEnv): ReturnType<typeof getAllTeamSeasonLogos> {
   try {
     return await getAllTeamSeasonLogos(env);
   } catch (err) {
@@ -1333,8 +1337,67 @@ function resolveLayout(
   return circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout) ?? null;
 }
 
+/**
+ * Every historical round ever run at one specific circuit_layouts row,
+ * newest first — powers the event list's "Race Recaps at this Layout"
+ * collapsible (src/components/EventDetailCard.astro). Pure/no network calls
+ * itself: `allRounds` and `roundLayoutBySubsession` are meant to be fetched
+ * ONCE per page (getAllRounds() + getRoundLayoutsForSubsessions()) and
+ * reused across every event card on that page, same "bulk fetch once, slice
+ * in memory per card" reasoning as computeDriverCareerStats — a calendar
+ * page can show many events, several of which may repeat the same circuit,
+ * so resolving this per-card with its own fetches would multiply query
+ * count by the number of cards shown.
+ *
+ * The actual recap CONTENT (top finishers, fastest lap, etc.) is
+ * deliberately NOT computed here — that's the expensive part
+ * (computeRoundRecap, ~8 queries per round), and eagerly running it for
+ * every matching round of every event card could easily blow through
+ * Cloudflare Workers' subrequest limit on a calendar with any history at
+ * all (see README's homepage-widget incident for exactly this class of
+ * bug). Callers fetch each round's recap lazily, client-side, only once a
+ * visitor actually expands it — see src/pages/api/round-recap/[subsessionId].ts
+ * and src/scripts/roundRecap.ts.
+ */
+export interface LayoutRoundSummary {
+  subsessionId: number;
+  trackName: string;
+  startTime: string;
+  seasonLabel: string | null;
+}
+
+function resolveEventLayoutId(circuitId: string, eventLayoutName: string | null, layouts: CircuitLayout[]): string | null {
+  const circuitLayouts = layouts.filter((l) => l.circuit_id === circuitId);
+  if (circuitLayouts.length === 0) return null;
+  if (circuitLayouts.length === 1) return circuitLayouts[0].id;
+  if (!eventLayoutName) return null;
+  const targetLayout = normalizeTrackOrLayoutName(eventLayoutName);
+  return circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout)?.id ?? null;
+}
+
+export function findRoundsForLayout(
+  allRounds: RoundSummary[],
+  roundLayoutBySubsession: Map<number, string | null>,
+  circuits: Circuit[],
+  layouts: CircuitLayout[],
+  circuitId: string,
+  eventLayoutName: string | null
+): LayoutRoundSummary[] {
+  const targetLayoutId = resolveEventLayoutId(circuitId, eventLayoutName, layouts);
+  if (!targetLayoutId) return [];
+
+  const matches = allRounds.filter((r) => {
+    const resolved = resolveLayout(r.track_name, roundLayoutBySubsession.get(r.subsession_id) ?? null, circuits, layouts);
+    return resolved?.id === targetLayoutId;
+  });
+
+  return matches
+    .sort((a, b) => b.start_time.localeCompare(a.start_time))
+    .map((r) => ({ subsessionId: r.subsession_id, trackName: r.track_name, startTime: r.start_time, seasonLabel: r.season_label }));
+}
+
 /** Batched version of newsRecap.ts's fetchRoundLayout — one query for every round in the season instead of one per round. Same graceful-degradation-on-failure reasoning (this is a small admin-filled column that may not exist/be filled in for every round). */
-async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<number, string | null>> {
+export async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<number, string | null>> {
   if (subsessionIds.length === 0) return new Map();
   try {
     // restGetAll — same reasoning as getCuratedRaceResultsForSubsessions;

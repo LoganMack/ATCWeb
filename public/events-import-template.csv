@@ -1,0 +1,3 @@
+circuit_name,layout,event_date,format,fuel_limit_pct,results_url,practice_start_time,practice_sim_time,practice_minutes,practice_weather,qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,race1_start_time,race1_sim_time,race1_laps,race1_weather,race2_start_time,race2_sim_time,race2_laps,race2_weather,race3_start_time,race3_sim_time,race3_laps,race3_weather
+Watkins Glen,Full Course,2026-09-12,sprint,100,https://members.iracing.com/,19:00,14:00,15,dry,19:20,14:30,,10,dry,20:00,15:00,25,dry,,,,,,,,
+Road Atlanta,,2026-09-19,endurance,80,,18:30,12:00,20,dry,,,,,,,19:00,13:00,45,dry,,,,,,,

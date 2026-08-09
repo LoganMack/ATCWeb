@@ -203,13 +203,19 @@ function writeHeaders(env: SupabaseEnv, accessToken: string, extra?: Record<stri
   };
 }
 
-async function restGetAuthed<T>(env: SupabaseEnv, accessToken: string, path: string): Promise<T> {
+// restGetAuthed/restPost/restPatch/restDelete are exported (same reasoning
+// as restGet/restGetAll above) so src/lib/raceResultsImport.ts can write
+// directly into curated_rounds/curated_race_results/race_scores — tables
+// this file's usual per-table CRUD pattern deliberately never touches (see
+// that file's own header comment for why that boundary is broken there,
+// specifically, as a one-off approved exception).
+export async function restGetAuthed<T>(env: SupabaseEnv, accessToken: string, path: string): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, { headers: writeHeaders(env, accessToken) });
   if (!res.ok) throw new Error(`Supabase REST error ${res.status} on ${path}: ${await res.text()}`);
   return res.json() as Promise<T>;
 }
 
-async function restPost<T>(env: SupabaseEnv, accessToken: string, path: string, body: unknown): Promise<T> {
+export async function restPost<T>(env: SupabaseEnv, accessToken: string, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation' }),
@@ -220,7 +226,7 @@ async function restPost<T>(env: SupabaseEnv, accessToken: string, path: string, 
   return rows[0];
 }
 
-async function restPatch<T>(env: SupabaseEnv, accessToken: string, path: string, body: unknown): Promise<T> {
+export async function restPatch<T>(env: SupabaseEnv, accessToken: string, path: string, body: unknown): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, {
     method: 'PATCH',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation' }),
@@ -231,7 +237,7 @@ async function restPatch<T>(env: SupabaseEnv, accessToken: string, path: string,
   return rows[0];
 }
 
-async function restDelete(env: SupabaseEnv, accessToken: string, path: string): Promise<void> {
+export async function restDelete(env: SupabaseEnv, accessToken: string, path: string): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, {
     method: 'DELETE',
     headers: writeHeaders(env, accessToken),
