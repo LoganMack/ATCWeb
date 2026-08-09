@@ -7,10 +7,8 @@ import PageBanner from '../components/PageBanner.astro';
 import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
 import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout, type LayoutRoundSummary } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
-import { isAdminView } from '../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const isAdmin = isAdminView(Astro.locals);
 
 let events: Awaited<ReturnType<typeof getEvents>> = [];
 let loadError = false;
@@ -85,16 +83,6 @@ const calendarEvents = events.map((e) => ({
     <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
       {upcoming.length} upcoming event{upcoming.length === 1 ? '' : 's'}.
     </p>
-
-    {isAdmin && (
-      <a
-        href="/results?tab=import#import-race-results"
-        class="reveal mt-3 inline-block text-sm font-semibold text-brand-primary hover:underline"
-        style="transition-delay: 90ms"
-      >
-        + Import Race Results (CSV) &rarr;
-      </a>
-    )}
 
     <div class="reveal mt-6 flex flex-wrap gap-2" data-view-toggle style="transition-delay: 100ms">
       <button

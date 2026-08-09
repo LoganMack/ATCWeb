@@ -2,151 +2,10 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getEvents, getCircuits, createEvent, updateEvent, type EventFormat, type Weather } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getEvents } from '../../../lib/supabase';
 import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS } from '../../../lib/eventFormatting';
-import { parseCsv } from '../../../lib/csv';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-
-// ---------------------------------------------------------------------------
-// CSV import — same convention as the Incident Report's importer (see
-// src/pages/results/[subsessionId]/incidents.astro): a small collapsible
-// upload panel, one bad/unrecognized row skips just that row instead of
-// failing the whole batch, and the outcome is reported back via
-// `?imported=&skipped=` query params after a redirect (so a page refresh
-// never re-submits the file).
-//
-// Rows are matched to an existing event by (circuit, event_date) — the same
-// pair that already uniquely identifies "an event" everywhere else on this
-// site (the calendar shows one event per circuit+date) — so re-uploading a
-// corrected CSV updates those rows in place instead of creating duplicates.
-// On an update, a BLANK cell means "leave this field as it already is," not
-// "clear it" — only a value actually present in the CSV overwrites what's
-// stored; a brand new event uses the same defaults the single-event admin
-// form does for anything left blank.
-// ---------------------------------------------------------------------------
-if (Astro.request.method === 'POST') {
-  const form = await Astro.request.formData();
-  const intent = String(form.get('intent') ?? '');
-  const accessToken = Astro.locals.session!.accessToken;
-
-  if (intent === 'import-csv') {
-    let imported = 0;
-    let skipped = 0;
-    try {
-      const file = form.get('csv_file');
-      if (file instanceof File) {
-        const [circuits, existingEvents] = await Promise.all([getCircuits(supabaseEnv), getEvents(supabaseEnv)]);
-        const text = await file.text();
-        const rows = parseCsv(text);
-        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
-        const colIndex = (name: string) => header.indexOf(name);
-        const get = (row: string[], name: string) => {
-          const i = colIndex(name);
-          return i >= 0 ? (row[i] ?? '').trim() : '';
-        };
-        const FORMATS: EventFormat[] = ['sprint', 'endurance', 'special'];
-        const WEATHERS: Weather[] = ['dry', 'mixed', 'wet'];
-        const optWeather = (v: string): Weather | null => (WEATHERS.includes(v.toLowerCase() as Weather) ? (v.toLowerCase() as Weather) : null);
-
-        for (const row of rows.slice(1)) {
-          if (row.every((c) => c.trim() === '')) continue;
-
-          const circuitName = get(row, 'circuit_name');
-          const eventDate = get(row, 'event_date');
-          const race1StartTime = get(row, 'race1_start_time');
-          const circuit = circuits.find((c) => c.name.toLowerCase() === circuitName.toLowerCase());
-          const validDate = /^\d{4}-\d{2}-\d{2}$/.test(eventDate);
-
-          if (!circuit || !validDate || !race1StartTime) {
-            // Unrecognized circuit name, malformed/missing date, or missing
-            // Race 1 start time — the same 3 fields the single-event form
-            // itself requires. Skip just this row rather than the batch.
-            skipped++;
-            continue;
-          }
-
-          const existing = existingEvents.find((e) => e.circuit_id === circuit.id && e.event_date === eventDate);
-
-          // `field(name, parse)` reads a CSV cell (or undefined when the
-          // column doesn't exist / cell is blank) — used below to build a
-          // create payload (blank -> null/default) vs. an update payload
-          // (blank -> omitted key entirely, so it's left untouched).
-          const cell = (name: string) => {
-            const v = get(row, name);
-            return v === '' ? undefined : v;
-          };
-
-          if (existing) {
-            const patch: Record<string, unknown> = {};
-            const setIfPresent = (name: string, parse: (v: string) => unknown) => {
-              const v = cell(name);
-              if (v !== undefined) patch[name] = parse(v);
-            };
-            setIfPresent('layout', (v) => v);
-            setIfPresent('format', (v) => (FORMATS.includes(v.toLowerCase() as EventFormat) ? v.toLowerCase() : existing.format));
-            setIfPresent('fuel_limit_pct', (v) => Number(v));
-            setIfPresent('results_url', (v) => v);
-            for (const prefix of ['practice', 'qualifying', 'race1', 'race2', 'race3']) {
-              setIfPresent(`${prefix}_start_time`, (v) => v);
-              setIfPresent(`${prefix}_sim_time`, (v) => v);
-              if (prefix === 'practice' || prefix === 'qualifying') setIfPresent(`${prefix}_minutes`, (v) => Number(v));
-              if (prefix !== 'practice') setIfPresent(`${prefix}_laps`, (v) => Number(v));
-              setIfPresent(`${prefix}_weather`, (v) => optWeather(v));
-            }
-            try {
-              await updateEvent(supabaseEnv, accessToken, existing.id, patch);
-              imported++;
-            } catch (err) {
-              console.error('Failed to update an imported event row:', err);
-              skipped++;
-            }
-          } else {
-            const numOrNull = (v?: string) => (v ? Number(v) : null);
-            try {
-              await createEvent(supabaseEnv, accessToken, {
-                circuit_id: circuit.id,
-                layout: cell('layout') ?? null,
-                event_date: eventDate,
-                format: (FORMATS.includes(get(row, 'format').toLowerCase() as EventFormat) ? get(row, 'format').toLowerCase() : 'sprint') as EventFormat,
-                fuel_limit_pct: numOrNull(cell('fuel_limit_pct')),
-                results_url: cell('results_url') ?? null,
-                practice_start_time: cell('practice_start_time') ?? null,
-                practice_sim_time: cell('practice_sim_time') ?? null,
-                practice_minutes: numOrNull(cell('practice_minutes')),
-                practice_weather: optWeather(get(row, 'practice_weather')),
-                qualifying_start_time: cell('qualifying_start_time') ?? null,
-                qualifying_sim_time: cell('qualifying_sim_time') ?? null,
-                qualifying_minutes: numOrNull(cell('qualifying_minutes')),
-                qualifying_laps: numOrNull(cell('qualifying_laps')),
-                qualifying_weather: optWeather(get(row, 'qualifying_weather')),
-                race1_start_time: race1StartTime,
-                race1_sim_time: cell('race1_sim_time') ?? null,
-                race1_laps: numOrNull(cell('race1_laps')),
-                race1_weather: optWeather(get(row, 'race1_weather')),
-                race2_start_time: cell('race2_start_time') ?? null,
-                race2_sim_time: cell('race2_sim_time') ?? null,
-                race2_laps: numOrNull(cell('race2_laps')),
-                race2_weather: optWeather(get(row, 'race2_weather')),
-                race3_start_time: cell('race3_start_time') ?? null,
-                race3_sim_time: cell('race3_sim_time') ?? null,
-                race3_laps: numOrNull(cell('race3_laps')),
-                race3_weather: optWeather(get(row, 'race3_weather')),
-              });
-              imported++;
-            } catch (err) {
-              console.error('Failed to create an imported event row:', err);
-              skipped++;
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import events CSV:', err);
-    }
-    return Astro.redirect(`/admin/events?imported=${imported}&skipped=${skipped}`, 302);
-  }
-}
 
 let events: Awaited<ReturnType<typeof getEvents>> = [];
 let loadError = false;
@@ -156,60 +15,20 @@ try {
   console.error('Failed to load events for admin:', err);
   loadError = true;
 }
-
-const importedCount = Astro.url.searchParams.get('imported');
-const skippedCount = Astro.url.searchParams.get('skipped');
 ---
 
 <AdminLayout title="Events">
   <div class="reveal flex flex-wrap items-center justify-between gap-3">
     <h1 class="font-display text-4xl">Events</h1>
     <div class="flex items-center gap-2">
-      <details class="relative">
-        <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
-          Import from CSV
-        </summary>
-        <div class="absolute right-0 z-10 mt-2 flex w-80 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
-          <a
-            href="/events-import-template.csv"
-            download
-            class="self-start rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20"
-          >
-            Download CSV template
-          </a>
-          <form method="POST" enctype="multipart/form-data" data-astro-reload class="flex flex-col gap-2">
-            <input type="hidden" name="intent" value="import-csv" />
-            <input
-              type="file"
-              name="csv_file"
-              accept=".csv"
-              required
-              class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
-            />
-            <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
-              Upload
-            </button>
-          </form>
-          <p class="text-white/30">
-            Times are entered as Eastern, same as the event form. Rows are matched by circuit + date — re-uploading
-            updates those events in place (a blank cell leaves that field as-is) instead of duplicating them. An
-            unrecognized circuit name, or a row missing its date/Race 1 start time, is skipped rather than failing
-            the whole import.
-          </p>
-        </div>
-      </details>
+      <a href="/admin/import" class="rounded-lg bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
+        Import from CSV
+      </a>
       <a href="/admin/events/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
         New Event
       </a>
     </div>
   </div>
-
-  {importedCount !== null && (
-    <p class="reveal mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
-      Imported {importedCount} event{importedCount === '1' ? '' : 's'}.
-      {Number(skippedCount) > 0 && ` ${skippedCount} row${skippedCount === '1' ? '' : 's'} skipped (unrecognized circuit, or missing date/Race 1 start time).`}
-    </p>
-  )}
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
