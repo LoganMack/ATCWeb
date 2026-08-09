@@ -3,11 +3,53 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
+import TeamLogo from '../components/TeamLogo.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import StatBlock from '../components/StatBlock.astro';
+import {
+  resolveSupabaseEnv,
+  getDriverClasses,
+  getSeasons,
+  getExhibitionRoundIds,
+  getPageBanners,
+  getHallOfFameDrivers,
+  displayDriverName,
+} from '../lib/supabase';
+import { computeDriverCareerStats, type DriverCareerStats } from '../lib/results';
+import { classBadgeClasses } from '../lib/classColors';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let members: (DriverCareerStats & { bio: string | null })[] = [];
+try {
+  const [classes, seasons, exhibitionRoundIds, hofDrivers] = await Promise.all([
+    getDriverClasses(supabaseEnv),
+    getSeasons(supabaseEnv),
+    getExhibitionRoundIds(supabaseEnv),
+    getHallOfFameDrivers(supabaseEnv),
+  ]);
+  const bioById = new Map(hofDrivers.map((d) => [d.id, d.bio]));
+  if (bioById.size > 0) {
+    // Reuses the exact same career-stats computation Driver Stats uses (see
+    // src/lib/results.ts) rather than a separate query, so a Hall of Fame
+    // member's numbers here can never drift from their Driver Stats row —
+    // this just filters that full list down to the marked members
+    // (0027_hall_of_fame.sql / admin/drivers' "Hall of Fame member" toggle).
+    const careerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds);
+    members = careerStats
+      .filter((c) => bioById.has(c.driver.id))
+      .map((c) => ({ ...c, bio: bioById.get(c.driver.id) ?? null }));
+  }
+} catch (err) {
+  console.error('Failed to compute Hall of Fame:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+function raceWord(n: number): string {
+  return `${n} race${n === 1 ? '' : 's'}`;
+}
 
 let bannerUrl: string | null = null;
 try {
@@ -15,15 +57,169 @@ try {
 } catch (err) {
   console.error('Failed to load page banner:', err);
 }
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
 <Layout title="Hall of Fame" description="Alpha Touring Challenge's Hall of Fame.">
   <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Hall of Fame</h1>
+    <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+      Click a member to see their season-by-season breakdown.
+    </p>
 
     <HistoryTabs active="hallOfFame" />
 
-    <p class="mt-10 text-white/60">Coming soon.</p>
+    {loadError && (
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load the Hall of Fame right now.
+        <br /><span class="mt-1 block text-white/50">{loadError}</span>
+      </p>
+    )}
+
+    {!loadError && members.length === 0 && (
+      <p class="mt-10 text-white/60">No Hall of Fame members yet.</p>
+    )}
+
+    {!loadError && members.length > 0 && (
+      <div class="mt-8 flex flex-col gap-5">
+        {members.map((entry, i) => {
+          const name = displayDriverName(entry.driver.name);
+          return (
+            <div
+              class="reveal overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]"
+              style={`transition-delay: ${Math.min(i, 4) * 30}ms`}
+            >
+              <div
+                data-expand-row
+                tabindex="0"
+                role="button"
+                aria-expanded="false"
+                class="grid cursor-pointer gap-0 transition hover:bg-white/[0.02] sm:grid-cols-[200px_1fr]"
+              >
+                <div class="p-4">
+                  {entry.driver.photo_url ? (
+                    <img
+                      src={entry.driver.photo_url}
+                      alt={name}
+                      class="aspect-square w-full rounded-md object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div class="flex aspect-square w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
+                      No Photo
+                    </div>
+                  )}
+                </div>
+
+                <div class="p-6">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span
+                      data-chevron
+                      class="inline-block shrink-0 text-[10px] text-white/30 transition-transform duration-150"
+                      aria-hidden="true"
+                    >
+                      &#9654;
+                    </span>
+                    <h3 class="font-display text-3xl leading-none">
+                      {name} {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
+                    </h3>
+                  </div>
+
+                  {entry.bio && <p class="mt-3 max-w-2xl text-sm text-white/70">{entry.bio}</p>}
+
+                  <dl class="mt-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
+                    <StatBlock label="Championships" value={entry.championships} />
+                    <StatBlock label="Wins" value={entry.wins} sub={entry.starts ? `${entry.starts} starts` : undefined} />
+                    <StatBlock label="Poles" value={entry.poles} />
+                    <StatBlock label="Podiums" value={entry.podiums} />
+                    <StatBlock label="Top 5" labelSuffixLower="s" value={entry.top5s} />
+                    <StatBlock label="Top 10" labelSuffixLower="s" value={entry.top10s} />
+                    <StatBlock label="Starts" value={entry.starts} />
+                    <StatBlock label="Appearances" value={entry.appearances} />
+                  </dl>
+                </div>
+              </div>
+
+              <div data-detail-row class="hidden border-t border-white/10 bg-white/[0.02] p-4">
+                <div class="overflow-x-auto">
+                  <table class="w-full min-w-[860px] border-collapse text-xs">
+                    <thead>
+                      <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                        <th class="py-2 pr-3 font-medium">Season</th>
+                        <th class="py-2 pr-3 font-medium">Class</th>
+                        <th class="py-2 pr-3 font-medium">Car(s)</th>
+                        <th class="py-2 pr-3 font-medium">Team(s)</th>
+                        <th class="py-2 pr-3 text-center font-medium">Wins</th>
+                        <th class="py-2 pr-3 text-center font-medium">Poles</th>
+                        <th class="py-2 pr-3 text-center font-medium">Podiums</th>
+                        <th class="py-2 pr-3 text-center font-medium">Top 5s</th>
+                        <th class="py-2 pr-3 text-center font-medium">Top 10s</th>
+                        <th class="py-2 pr-3 text-center font-medium">Laps</th>
+                        <th class="py-2 pr-3 text-center font-medium">Laps Led</th>
+                        <th class="py-2 pr-3 text-center font-medium">CPI</th>
+                        <th class="py-2 pr-3 text-center font-medium">Starts</th>
+                        <th class="py-2 pr-3 text-center font-medium">Apps</th>
+                        <th class="py-2 pr-3 text-center font-medium">Class Pos</th>
+                        <th class="py-2 pr-3 text-center font-medium">Overall Pos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entry.seasons.map((r) => {
+                        const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
+                        return (
+                          <tr class="border-b border-white/5">
+                            <td class="py-2 pr-3 font-semibold text-white/90">{r.season.name}</td>
+                            <td class="py-2 pr-3">
+                              <span class={`rounded-lg border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}>
+                                {r.className}
+                              </span>
+                            </td>
+                            <td class="py-2 pr-3">
+                              <div class="flex flex-wrap items-center gap-1">
+                                {r.cars.map((c) => (
+                                  <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} />
+                                ))}
+                                {r.cars.length === 0 && <span class="text-white/30">—</span>}
+                              </div>
+                            </td>
+                            <td class="py-2 pr-3">
+                              <div class="flex flex-wrap items-center gap-1">
+                                {r.teams.map((t) => (
+                                  <TeamLogo
+                                    name={t.teamName}
+                                    logoUrl={t.logoUrl}
+                                    size="h-5 w-5"
+                                    title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
+                                  />
+                                ))}
+                                {r.teams.length === 0 && <span class="text-white/30">—</span>}
+                              </div>
+                            </td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.wins}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.poles}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.podiums}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.top5s}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.top10s}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.laps}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.lapsLed}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{seasonCpi !== null ? seasonCpi.toFixed(1) : '—'}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.starts}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.appearances}</td>
+                            <td class="py-2 pr-3 text-center font-semibold text-white/90">{r.classPosition}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{r.overallPosition ?? '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
   </section>
 </Layout>

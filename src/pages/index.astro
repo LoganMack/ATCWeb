@@ -113,12 +113,28 @@ try {
     ]);
     carTeamExtrasByDriverId = carTeamExtras;
 
+    // Per-class driver standings and per-class team standings deliberately
+    // do NOT reuse `overallContext`/`driversBasic` here, unlike Overall
+    // above — this widget originally shared them everywhere, which turned
+    // out to be the source of a real bug (Alpha's driver and team tabs
+    // showing wrong numbers): /standings and /team-standings never share a
+    // precomputedOverallContext into these two specific functions' classId
+    // branch (computeDriverCareerStats is the only other caller that shares
+    // a context at all, and it never goes through these two functions —
+    // see its own doc comment), so that combination had never actually been
+    // exercised anywhere else in the app. Rather than keep chasing the
+    // exact mechanism, this now calls both functions exactly the way
+    // /standings' "Per Class" view and /team-standings' Delta view already
+    // do — own independent fetch, proven correct — at the cost of a few
+    // more Supabase queries per homepage load (bounded: 3 classes + 2 team
+    // views, nowhere near the unbounded per-season blowup the driver-stats
+    // subrequest incident was about).
     const perClassDriver = await Promise.all(
       classes.map(async (c) => ({
         key: c.name,
         label: c.name,
         type: 'driver' as const,
-        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, overallContext),
+        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, undefined, exhibitionRoundIds, classes),
       }))
     );
 
@@ -132,17 +148,7 @@ try {
         key: t.key,
         label: t.label,
         type: 'team' as const,
-        rows: await computeTeamSeasonStandings(
-          supabaseEnv,
-          activeSeason,
-          exhibitionRoundIds,
-          t.classId,
-          driversBasic,
-          undefined,
-          undefined,
-          classes,
-          overallContext
-        ),
+        rows: await computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, t.classId),
       }))
     );
 

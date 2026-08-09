@@ -71,6 +71,17 @@ const calendarEvents = events.map((e) => ({
       >
         Calendar
       </button>
+
+      {past.length > 0 && (
+        <label class="ml-2 flex items-center gap-2 text-sm text-white/60">
+          <input
+            type="checkbox"
+            id="hide-past-events"
+            class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
+          />
+          Hide past events
+        </label>
+      )}
     </div>
 
     {loadError && (
@@ -90,12 +101,12 @@ const calendarEvents = events.map((e) => ({
         )}
 
         {past.length > 0 && (
-          <>
+          <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 space-y-4 opacity-70">
               {past.map((event, i) => <EventDetailCard event={event} index={i} />)}
             </div>
-          </>
+          </div>
         )}
       </div>
     )}
@@ -363,9 +374,24 @@ const calendarEvents = events.map((e) => ({
       renderCalendar();
     }
 
+    // Pure client-side show/hide, same as the search-box filters elsewhere
+    // on the site — the Past Events block is already fully rendered in the
+    // DOM (see the template above), so this never needs a server round
+    // trip and correctly doesn't trigger the pageProgress.ts loading bar.
+    function initHidePastEventsToggle() {
+      const checkbox = document.getElementById('hide-past-events') as HTMLInputElement | null;
+      const block = document.getElementById('past-events-block');
+      if (!checkbox || !block) return;
+
+      checkbox.addEventListener('change', () => {
+        block.classList.toggle('hidden', checkbox.checked);
+      });
+    }
+
     function initCalendarPage() {
       initViewToggle();
       initCalendarGrid();
+      initHidePastEventsToggle();
     }
 
     document.addEventListener('astro:page-load', initCalendarPage);

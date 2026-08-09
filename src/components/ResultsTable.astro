@@ -16,7 +16,9 @@
 // table on the round page.
 //
 // v0.22: every row is click-to-expand (see the `[data-expand-row]`/
-// `[data-detail-row]` pair below and the script at the bottom) — clicking a
+// `[data-detail-row]` pair below — the actual toggle behavior is the
+// shared src/scripts/expandRows.ts, loaded globally in Layout.astro, not
+// a script in this component) — clicking a
 // driver's row reveals a detail panel with their average/best lap, overall
 // race time (rule 18.3.2 — see src/lib/penalties.ts), and an itemized
 // points breakdown. That's also why the old Laps-led and combined
@@ -404,33 +406,3 @@ for (const p of racePenalties) {
     </table>
   </div>
 </div>
-
-<script>
-  // Click-to-expand rows (v0.22) — [data-expand-row] is always immediately
-  // followed in the DOM by its own [data-detail-row] (see the markup
-  // above), same "toggle the next sibling" convention the incident-report
-  // page uses for its appeal-notes reveal. Re-runs on every astro:page-load
-  // (view-transition navigations included), same as every other toggle
-  // script in this app.
-  function initResultsTableExpand() {
-    document.querySelectorAll<HTMLTableRowElement>('[data-expand-row]').forEach((row) => {
-      const toggle = () => {
-        const detail = row.nextElementSibling as HTMLElement | null;
-        if (!detail) return;
-        const expanded = row.getAttribute('aria-expanded') === 'true';
-        row.setAttribute('aria-expanded', String(!expanded));
-        detail.classList.toggle('hidden', expanded);
-        row.querySelector<HTMLElement>('[data-chevron]')?.classList.toggle('rotate-90', !expanded);
-      };
-      row.addEventListener('click', toggle);
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggle();
-        }
-      });
-    });
-  }
-
-  document.addEventListener('astro:page-load', initResultsTableExpand);
-</script>

@@ -3,11 +3,28 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
+import TeamLogo from '../components/TeamLogo.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getExhibitionRoundIds, getPageBanners, displayDriverName } from '../lib/supabase';
+import { computeTeamCareerStats, type TeamCareerStats } from '../lib/results';
+import { classBadgeClasses } from '../lib/classColors';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let careerStats: TeamCareerStats[] = [];
+try {
+  const [classes, seasons, exhibitionRoundIds] = await Promise.all([
+    getDriverClasses(supabaseEnv),
+    getSeasons(supabaseEnv),
+    getExhibitionRoundIds(supabaseEnv),
+  ]);
+  careerStats = await computeTeamCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds);
+} catch (err) {
+  console.error('Failed to compute team career stats:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
 
 let bannerUrl: string | null = null;
 try {
@@ -15,15 +32,207 @@ try {
 } catch (err) {
   console.error('Failed to load page banner:', err);
 }
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title="Team Stats" description="Career team statistics for every Alpha Touring Challenge team.">
-  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+<Layout title="Team Stats" description="Career statistics for every team that has ever raced in Alpha Touring Challenge.">
+  <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Team Stats</h1>
+    <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+      Career totals — rolled up from every driver whose primary team it was — across every season a team has
+      fielded a driver. Click a team to see their season-by-season breakdown.
+    </p>
 
     <HistoryTabs active="teamStats" />
 
-    <p class="mt-10 text-white/60">Coming soon.</p>
+    {loadError && (
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load team stats right now.
+        <br /><span class="mt-1 block text-white/50">{loadError}</span>
+      </p>
+    )}
+
+    {!loadError && (
+      <div class="mt-8 max-w-sm">
+        <input
+          type="search"
+          id="team-stats-search"
+          placeholder="Search teams…"
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </div>
+    )}
+
+    {!loadError && careerStats.length === 0 && (
+      <p class="mt-10 text-white/60">No results.</p>
+    )}
+
+    {!loadError && careerStats.length > 0 && (
+      <div class="mt-6 overflow-x-auto rounded-xl border border-white/10">
+        <table class="w-full border-collapse" data-sortable>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="name">Team</th>
+              <th class="py-3 pr-3 text-center font-medium" data-sort-key="championships">Champs</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="wins">Wins</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="podiums">Podiums</th>
+              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5<span class="lowercase">s</span></th>
+              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10<span class="lowercase">s</span></th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="laps">Laps</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lapsled">Laps Led</th>
+              <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="cpi">CPI</th>
+              <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="starts">Starts</th>
+              <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
+            </tr>
+          </thead>
+          <tbody id="team-stats-body">
+            {careerStats.map((entry) => {
+              const searchText = entry.teamName.toLowerCase();
+              return (
+                <>
+                <tr
+                  data-expand-row
+                  data-search={searchText}
+                  tabindex="0"
+                  role="button"
+                  aria-expanded="false"
+                  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+                >
+                  <td class="py-2.5 pl-4 pr-2 font-semibold" data-col="name" data-sort-value={entry.teamName}>
+                    <div class="flex items-center gap-2">
+                      <span
+                        data-chevron
+                        class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150"
+                        aria-hidden="true"
+                      >
+                        &#9654;
+                      </span>
+                      <TeamLogo name={entry.teamName} logoUrl={entry.logoUrl} size="h-5 w-5" title={entry.teamName} />
+                      <span>{entry.teamName}</span>
+                    </div>
+                  </td>
+                  <td class="py-2.5 pr-3 text-center font-semibold" data-col="championships">{entry.championships}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{entry.wins}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{entry.podiums}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{entry.top5s}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{entry.top10s}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{entry.poles}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="laps">{entry.laps}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lapsled">{entry.lapsLed}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="cpi" data-sort-value={entry.cornersPerIncident ?? ''}>
+                    {entry.cornersPerIncident !== null ? entry.cornersPerIncident.toFixed(1) : '—'}
+                  </td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="starts">{entry.starts}</td>
+                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{entry.appearances}</td>
+                </tr>
+                <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                  <td colspan={12} class="px-4 py-4 sm:pl-11">
+                    <div class="overflow-x-auto">
+                      <table class="w-full min-w-[920px] border-collapse">
+                        <thead>
+                          <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                            <th class="py-2 pr-3 font-medium">Season</th>
+                            <th class="py-2 pr-3 font-medium">Drivers</th>
+                            <th class="py-2 pr-3 text-center font-medium">Wins</th>
+                            <th class="py-2 pr-3 text-center font-medium">Poles</th>
+                            <th class="py-2 pr-3 text-center font-medium">Podiums</th>
+                            <th class="py-2 pr-3 text-center font-medium">Top 5s</th>
+                            <th class="py-2 pr-3 text-center font-medium">Top 10s</th>
+                            <th class="py-2 pr-3 text-center font-medium">Laps</th>
+                            <th class="py-2 pr-3 text-center font-medium">Laps Led</th>
+                            <th class="py-2 pr-3 text-center font-medium">CPI</th>
+                            <th class="py-2 pr-3 text-center font-medium">Starts</th>
+                            <th class="py-2 pr-3 text-center font-medium">Apps</th>
+                            <th class="py-2 pr-3 text-center font-medium">Team Pos</th>
+                            <th class="py-2 pr-3 text-center font-medium">Delta Team Pos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {entry.seasons.map((r) => {
+                            const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
+                            return (
+                              <tr class="border-b border-white/5">
+                                <td class="py-2 pr-3 font-semibold text-white/90">{r.season.name}</td>
+                                <td class="py-2 pr-3">
+                                  <div class="flex flex-wrap items-center gap-1.5">
+                                    {r.drivers.map((d) => (
+                                      <span class="inline-flex items-center gap-1 whitespace-nowrap text-white/70">
+                                        {displayDriverName(d.name)}
+                                        {d.carNumber !== null && <span class="text-white/40">#{d.carNumber}</span>}
+                                        <span class={`rounded border px-1 text-[9px] font-semibold uppercase tracking-wide ${classBadgeClasses(d.className)}`}>
+                                          {d.className}
+                                        </span>
+                                      </span>
+                                    ))}
+                                    {r.drivers.length === 0 && <span class="text-white/30">—</span>}
+                                  </div>
+                                </td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.wins}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.poles}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.podiums}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.top5s}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.top10s}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.laps}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.lapsLed}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{seasonCpi !== null ? seasonCpi.toFixed(1) : '—'}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.starts}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.appearances}</td>
+                                <td class="py-2 pr-3 text-center font-semibold text-white/90">{r.teamPosition ?? '—'}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{r.deltaTeamPosition ?? '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </td>
+                </tr>
+                </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+    <p id="team-stats-search-empty" class="mt-4 hidden text-white/60">No results.</p>
   </section>
+
+  <script>
+    // Click-to-expand itself is handled globally — see src/scripts/expandRows.ts.
+    // Search-filter logic mirrors driver-stats.astro's own (see that page's
+    // trailing script for the full reasoning on force-collapsing a filtered-
+    // out row's detail panel).
+    function initTeamStatsSearch() {
+      const body = document.getElementById('team-stats-body');
+      const searchInput = document.getElementById('team-stats-search') as HTMLInputElement | null;
+      const empty = document.getElementById('team-stats-search-empty');
+      if (!body || !searchInput) return;
+
+      function applyFilter() {
+        const term = searchInput!.value.trim().toLowerCase();
+        const rows = body!.querySelectorAll<HTMLTableRowElement>('[data-expand-row]');
+        let visibleCount = 0;
+        rows.forEach((row) => {
+          const matches = !term || (row.dataset.search ?? '').includes(term);
+          row.style.display = matches ? '' : 'none';
+          if (matches) {
+            visibleCount += 1;
+          } else if (row.getAttribute('aria-expanded') === 'true') {
+            const detail = row.nextElementSibling as HTMLElement | null;
+            row.setAttribute('aria-expanded', 'false');
+            detail?.classList.add('hidden');
+            row.querySelector<HTMLElement>('[data-chevron]')?.classList.remove('rotate-90');
+          }
+        });
+        if (empty) empty.classList.toggle('hidden', visibleCount > 0);
+      }
+
+      searchInput.addEventListener('input', applyFilter);
+    }
+
+    document.addEventListener('astro:page-load', initTeamStatsSearch);
+  </script>
 </Layout>

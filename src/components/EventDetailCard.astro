@@ -42,7 +42,13 @@ const sessions = getEventSessions(event);
           <p class="text-xs font-semibold uppercase tracking-wide text-white/50">{s.label}</p>
           <WeatherIcon condition={s.weather} class="text-lg" />
         </div>
-        <p class="mt-1 text-sm font-semibold">{s.startTime ? formatSessionTime(s.startTime) : 'TBD'}</p>
+        <p class="mt-1 text-sm font-semibold">
+          {s.startTime ? (
+            <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
+          ) : (
+            'TBD'
+          )}
+        </p>
         {s.simTime && <p class="text-xs text-white/50">In-sim {formatSessionTime(s.simTime)}</p>}
         {s.detail && <p class="text-xs text-white/50">{s.detail}</p>}
       </div>

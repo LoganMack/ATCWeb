@@ -35,14 +35,21 @@ const {
   <legend class="px-1 text-sm font-semibold text-white/80">{label}{required && ' *'}</legend>
   <div class="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
     <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/60">Start time</span>
+      <span class="text-white/60">Start time (Eastern)</span>
       <input
         type="time"
         name={`${prefix}_start_time`}
         required={required}
         value={startTime ?? ''}
+        data-time-input
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+      <!-- Filled in client-side (see the script at the bottom of this
+           component) once the browser knows both this value and the
+           event's date — every time in this app is entered as Eastern
+           (see src/lib/timezone.ts), so this is purely a "here's what
+           that is in YOUR timezone" convenience, not a second input. -->
+      <span data-time-local-preview class="text-xs text-white/40"></span>
     </label>
 
     <label class="flex flex-col gap-1.5 text-sm">
@@ -95,3 +102,43 @@ const {
     </label>
   </div>
 </fieldset>
+
+<script>
+  // This component is used up to 5 times per page (practice/qualifying/
+  // race1-3) — Astro dedupes identical inline scripts across repeated
+  // component instances automatically, so this runs once per page and
+  // just operates on every matching element/form, not "this" instance.
+  import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from '../lib/timezone';
+
+  function updatePreview(input: HTMLInputElement, eventDateValue: string) {
+    const preview = input.parentElement?.querySelector<HTMLElement>('[data-time-local-preview]');
+    if (!preview) return;
+    if (!input.value || !eventDateValue) {
+      preview.textContent = '';
+      return;
+    }
+    const utc = zonedTimeToUtc(eventDateValue, input.value, LEAGUE_TIME_ZONE);
+    if (!utc) {
+      preview.textContent = '';
+      return;
+    }
+    const local = utc.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    preview.textContent = `= ${local} in your timezone`;
+  }
+
+  function initEventTimePreviews() {
+    const dateInput = document.querySelector<HTMLInputElement>('input[name="event_date"]');
+    const timeInputs = document.querySelectorAll<HTMLInputElement>('[data-time-input]');
+    if (!dateInput || timeInputs.length === 0) return;
+    if (dateInput.dataset.timePreviewBound === 'true') return;
+    dateInput.dataset.timePreviewBound = 'true';
+
+    const updateAll = () => timeInputs.forEach((input) => updatePreview(input, dateInput.value));
+
+    dateInput.addEventListener('input', updateAll);
+    timeInputs.forEach((input) => input.addEventListener('input', () => updatePreview(input, dateInput.value)));
+    updateAll();
+  }
+
+  document.addEventListener('astro:page-load', initEventTimePreviews);
+</script>

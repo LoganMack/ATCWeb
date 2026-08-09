@@ -394,11 +394,13 @@ export interface DriverRecord {
   sign_up_date: string | null; // 'YYYY-MM-DD'
   on_probation: boolean;
   probation_started_at: string | null; // 'YYYY-MM-DD'
+  /** 0027_hall_of_fame.sql — toggled by an admin, powers the public /hall-of-fame page. See getHallOfFameDrivers(). */
+  is_hall_of_fame: boolean;
 }
 
 const DRIVER_ADMIN_SELECT =
   'id,car_number,name,status_id,class_id,team_id,is_rookie,car,appearances,starts,' +
-  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at';
+  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at,is_hall_of_fame';
 
 export async function getDriverById(env: SupabaseEnv, id: string) {
   const drivers = await restGet<DriverRecord[]>(
@@ -429,6 +431,25 @@ export interface DriverOption {
 /** Lean id/name/number list for admin dropdowns (e.g. picking a driver to add to a team's season roster). */
 export function getDriversBasic(env: SupabaseEnv) {
   return restGet<DriverOption[]>(env, 'drivers?select=id,name,car_number&order=name.asc');
+}
+
+export interface HallOfFameDriverInfo {
+  id: string;
+  bio: string | null;
+}
+
+/**
+ * Ids (+ bio, the one extra field the public Hall of Fame page needs that
+ * career-stats' own `DriverBasic` doesn't already carry) of every driver an
+ * admin has marked as a Hall of Fame member (0027_hall_of_fame.sql). The
+ * page itself gets everything else — name, photo, career totals,
+ * season-by-season breakdown — from `computeDriverCareerStats` in
+ * src/lib/results.ts and just filters that down to these ids, so a
+ * driver's HOF card always reflects the exact same numbers their Driver
+ * Stats row would.
+ */
+export function getHallOfFameDrivers(env: SupabaseEnv) {
+  return restGet<HallOfFameDriverInfo[]>(env, 'drivers?select=id,bio&is_hall_of_fame=eq.true');
 }
 
 // --- News (admin) ------------------------------------------------------

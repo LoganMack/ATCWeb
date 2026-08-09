@@ -2036,6 +2036,244 @@ export async function computeDriverCareerStats(
 }
 
 // ---------------------------------------------------------------------------
+// Career team stats — every team that has ever fielded a driver, with
+// career totals and a season-by-season breakdown. Powers the "Team Stats"
+// history tab (src/pages/team-stats.astro).
+//
+// Deliberately NOT a second whole-history computation — it's a pure
+// in-memory pivot of computeDriverCareerStats' own output (issues zero
+// extra Supabase queries), attributing each driver-season's stat line to
+// that driver's PRIMARY team that season (DriverCareerSeasonRow.teams[0] —
+// same "primary team" a driver's own Team Pos/Delta Team Pos columns
+// already use). A driver with no team that season contributes to no team's
+// totals. This intentionally rolls up individual results rather than
+// re-deriving team-level wins/podiums/etc. from scratch, since this site's
+// team championship (see computeTeamSeasonStandings) only ever scores
+// POINTS at the team level (top-2-scorers-per-race) — there's no separate
+// notion of a "team win" or "team pole" independent of its drivers' own
+// results to compute in the first place.
+// ---------------------------------------------------------------------------
+
+export interface TeamCareerSeasonDriver {
+  driverId: string;
+  name: string;
+  carNumber: number | null;
+  className: string;
+  starts: number;
+}
+
+/** One team's stat line for one season, rolled up from every driver whose PRIMARY team that season was this one. */
+export interface TeamCareerSeasonRow {
+  season: Season;
+  /** This team's position in that season's cross-class Overall Team Standings — 1 means they won the team championship that season. Null if, unusually, they had a primary-team driver but never appear there (shouldn't normally happen). */
+  teamPosition: number | null;
+  /** Same idea, the Delta-only team competition's position — null if not applicable (see DriverCareerSeasonRow.deltaTeamPosition's own doc comment). */
+  deltaTeamPosition: number | null;
+  wins: number;
+  podiums: number;
+  top5s: number;
+  top10s: number;
+  poles: number;
+  starts: number;
+  appearances: number;
+  laps: number;
+  lapsLed: number;
+  incidents: number;
+  totalCorners: number | null;
+  /** This team's roster that season (every driver whose primary team it was), most races first — a team can span multiple classes at once, so this carries each driver's own class rather than the row having one. */
+  drivers: TeamCareerSeasonDriver[];
+}
+
+export interface TeamCareerStats {
+  teamId: string;
+  teamName: string;
+  /** From the most recent season this team fielded a primary-team driver — teams don't have a single fixed logo (see 0019_team_season_logos.sql), so this is "their most current one on file," same reasoning DriverCareerStats uses the drivers table's own current name/photo for a driver spanning many seasons. */
+  logoUrl: string | null;
+  /** Count of seasons this team finished 1st in the Overall Team Standings. */
+  championships: number;
+  wins: number;
+  podiums: number;
+  poles: number;
+  top5s: number;
+  top10s: number;
+  laps: number;
+  lapsLed: number;
+  starts: number;
+  appearances: number;
+  cornersPerIncident: number | null;
+  /** Newest season first. */
+  seasons: TeamCareerSeasonRow[];
+}
+
+export async function computeTeamCareerStats(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classes: Lookup[],
+  exhibitionRoundIds?: Set<number>,
+  /** Skip this function's own computeDriverCareerStats call and pivot an already-fetched result instead — same sharing reasoning as this whole file's other `precomputed*` params. */
+  precomputedDriverCareerStats?: DriverCareerStats[]
+): Promise<TeamCareerStats[]> {
+  const driverCareerStats = precomputedDriverCareerStats ?? (await computeDriverCareerStats(env, seasons, classes, exhibitionRoundIds));
+
+  interface TeamSeasonAccum {
+    season: Season;
+    teamName: string;
+    logoUrl: string | null;
+    teamPosition: number | null;
+    deltaTeamPosition: number | null;
+    wins: number;
+    podiums: number;
+    top5s: number;
+    top10s: number;
+    poles: number;
+    starts: number;
+    appearances: number;
+    laps: number;
+    lapsLed: number;
+    incidents: number;
+    totalCorners: number;
+    anyCornersResolved: boolean;
+    drivers: TeamCareerSeasonDriver[];
+  }
+  // teamId -> seasonId -> that team's accumulated stats for that season
+  const bySeasonByTeam = new Map<string, Map<string, TeamSeasonAccum>>();
+
+  for (const driverStats of driverCareerStats) {
+    for (const row of driverStats.seasons) {
+      const primaryTeam = row.teams[0];
+      if (!primaryTeam) continue; // no team that season — doesn't contribute to any team's stats
+
+      if (!bySeasonByTeam.has(primaryTeam.teamId)) bySeasonByTeam.set(primaryTeam.teamId, new Map());
+      const bySeasonId = bySeasonByTeam.get(primaryTeam.teamId)!;
+      let accum = bySeasonId.get(row.season.id);
+      if (!accum) {
+        accum = {
+          season: row.season,
+          teamName: primaryTeam.teamName,
+          logoUrl: primaryTeam.logoUrl,
+          teamPosition: row.teamPosition,
+          deltaTeamPosition: row.deltaTeamPosition,
+          wins: 0,
+          podiums: 0,
+          top5s: 0,
+          top10s: 0,
+          poles: 0,
+          starts: 0,
+          appearances: 0,
+          laps: 0,
+          lapsLed: 0,
+          incidents: 0,
+          totalCorners: 0,
+          anyCornersResolved: false,
+          drivers: [],
+        };
+        bySeasonId.set(row.season.id, accum);
+      }
+
+      accum.wins += row.wins;
+      accum.podiums += row.podiums;
+      accum.top5s += row.top5s;
+      accum.top10s += row.top10s;
+      accum.poles += row.poles;
+      accum.starts += row.starts;
+      accum.appearances += row.appearances;
+      accum.laps += row.laps;
+      accum.lapsLed += row.lapsLed;
+      accum.incidents += row.incidents;
+      if (row.totalCorners !== null) {
+        accum.totalCorners += row.totalCorners;
+        accum.anyCornersResolved = true;
+      }
+      accum.drivers.push({
+        driverId: driverStats.driver.id,
+        name: driverStats.driver.name,
+        carNumber: driverStats.driver.car_number,
+        className: row.className,
+        starts: row.starts,
+      });
+    }
+  }
+
+  const out: TeamCareerStats[] = [];
+  for (const [teamId, bySeasonId] of bySeasonByTeam) {
+    const accums = [...bySeasonId.values()].sort((a, b) => b.season.number - a.season.number);
+    const seasonRows: TeamCareerSeasonRow[] = accums.map((a) => ({
+      season: a.season,
+      teamPosition: a.teamPosition,
+      deltaTeamPosition: a.deltaTeamPosition,
+      wins: a.wins,
+      podiums: a.podiums,
+      top5s: a.top5s,
+      top10s: a.top10s,
+      poles: a.poles,
+      starts: a.starts,
+      appearances: a.appearances,
+      laps: a.laps,
+      lapsLed: a.lapsLed,
+      incidents: a.incidents,
+      totalCorners: a.anyCornersResolved ? a.totalCorners : null,
+      drivers: [...a.drivers].sort((x, y) => y.starts - x.starts),
+    }));
+
+    let championships = 0;
+    let wins = 0;
+    let podiums = 0;
+    let poles = 0;
+    let top5s = 0;
+    let top10s = 0;
+    let laps = 0;
+    let lapsLed = 0;
+    let starts = 0;
+    let appearances = 0;
+    let totalCorners = 0;
+    let totalIncidents = 0;
+    let anyCornersResolved = false;
+
+    for (const r of seasonRows) {
+      if (r.teamPosition === 1) championships++;
+      wins += r.wins;
+      podiums += r.podiums;
+      poles += r.poles;
+      top5s += r.top5s;
+      top10s += r.top10s;
+      laps += r.laps;
+      lapsLed += r.lapsLed;
+      starts += r.starts;
+      appearances += r.appearances;
+      totalIncidents += r.incidents;
+      if (r.totalCorners !== null) {
+        totalCorners += r.totalCorners;
+        anyCornersResolved = true;
+      }
+    }
+
+    // accums[0] is the most recent season (sorted above) — its name/logo
+    // represent this team "as it is now" for the card header, same as a
+    // driver's own current `drivers.name`/`photo_url` do for DriverCareerStats.
+    out.push({
+      teamId,
+      teamName: accums[0].teamName,
+      logoUrl: accums[0].logoUrl,
+      championships,
+      wins,
+      podiums,
+      poles,
+      top5s,
+      top10s,
+      laps,
+      lapsLed,
+      starts,
+      appearances,
+      cornersPerIncident: anyCornersResolved && totalIncidents > 0 ? totalCorners / totalIncidents : null,
+      seasons: seasonRows,
+    });
+  }
+
+  out.sort((a, b) => a.teamName.localeCompare(b.teamName));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Race results — browsing rounds and their race-by-race results
 // ---------------------------------------------------------------------------
 

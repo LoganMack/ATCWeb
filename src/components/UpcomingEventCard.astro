@@ -54,7 +54,9 @@ const sessions = featured ? getEventSessions(event) : [];
             {s.label}
           </span>
           <span class="text-white/50">
-            {s.startTime && formatSessionTime(s.startTime)}
+            {s.startTime && (
+              <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
+            )}
             {s.simTime && ` (in-sim ${formatSessionTime(s.simTime)})`}
             {s.detail && ` · ${s.detail}`}
           </span>

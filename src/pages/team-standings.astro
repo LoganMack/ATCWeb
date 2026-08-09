@@ -226,31 +226,3 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
   </section>
 </Layout>
-
-<script>
-  // Same click-to-expand pattern as ResultsTable.astro's
-  // initResultsTableExpand — kept as its own copy (rather than a shared
-  // import) since Astro component <script> tags are bundled per-page and
-  // this page doesn't otherwise use ResultsTable.
-  function initTeamStandingsExpand() {
-    document.querySelectorAll<HTMLTableRowElement>('[data-expand-row]').forEach((row) => {
-      const toggle = () => {
-        const detail = row.nextElementSibling as HTMLElement | null;
-        if (!detail) return;
-        const expanded = row.getAttribute('aria-expanded') === 'true';
-        row.setAttribute('aria-expanded', String(!expanded));
-        detail.classList.toggle('hidden', expanded);
-        row.querySelector<HTMLElement>('[data-chevron]')?.classList.toggle('rotate-90', !expanded);
-      };
-      row.addEventListener('click', toggle);
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          toggle();
-        }
-      });
-    });
-  }
-
-  document.addEventListener('astro:page-load', initTeamStandingsExpand);
-</script>

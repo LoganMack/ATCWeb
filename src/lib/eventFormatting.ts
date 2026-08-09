@@ -1,4 +1,5 @@
 import type { EventFormat, EventRecord, Weather } from './supabase';
+import { zonedTimeToUtcIso, LEAGUE_TIME_ZONE } from './timezone';
 
 /**
  * `event_date` comes back from PostgREST as a plain 'YYYY-MM-DD' string with
@@ -56,7 +57,9 @@ export const WEATHER_LABELS: Record<Weather, string> = {
 export interface SessionSummary {
   label: string;
   startTime: string | null;
-  /** In-sim time of day for this session (0023_event_sim_times.sql) — the simulated clock time iRacing is set to, separate from startTime (the real-world/local time people need to show up). Null when not set for this session. */
+  /** `startTime` + the event's date, converted from Eastern (see src/lib/timezone.ts) to a real UTC instant — null whenever startTime is. Render this in a `data-utc-time` attribute (see src/scripts/localTime.ts) so the browser can re-render it in the viewer's own local timezone; the plain `formatSessionTime(startTime)` text remains a same-content Eastern-labeled fallback for no-JS. */
+  startTimeUtcIso: string | null;
+  /** In-sim time of day for this session (0023_event_sim_times.sql) — the simulated clock time iRacing is set to, separate from startTime (the real-world/local time people need to show up). Null when not set for this session. Deliberately never timezone-converted — a sim clock has no real-world timezone at all. */
   simTime: string | null;
   weather: Weather | null;
   detail: string | null;
@@ -65,11 +68,13 @@ export interface SessionSummary {
 /** Flattens an event's five possible sessions into a display-ready list, skipping any that were never scheduled. */
 export function getEventSessions(event: EventRecord): SessionSummary[] {
   const sessions: SessionSummary[] = [];
+  const utcIso = (startTime: string | null) => zonedTimeToUtcIso(event.event_date, startTime, LEAGUE_TIME_ZONE);
 
   if (event.practice_start_time) {
     sessions.push({
       label: 'Practice',
       startTime: event.practice_start_time,
+      startTimeUtcIso: utcIso(event.practice_start_time),
       simTime: event.practice_sim_time,
       weather: event.practice_weather,
       detail: event.practice_minutes ? `${event.practice_minutes} min` : null,
@@ -83,6 +88,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Qualifying',
       startTime: event.qualifying_start_time,
+      startTimeUtcIso: utcIso(event.qualifying_start_time),
       simTime: event.qualifying_sim_time,
       weather: event.qualifying_weather,
       detail: parts.length ? parts.join(' / ') : null,
@@ -93,6 +99,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
   sessions.push({
     label: 'Race 1',
     startTime: event.race1_start_time,
+    startTimeUtcIso: utcIso(event.race1_start_time),
     simTime: event.race1_sim_time,
     weather: event.race1_weather,
     detail: event.race1_laps ? `${event.race1_laps} laps` : null,
@@ -102,6 +109,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Race 2',
       startTime: event.race2_start_time,
+      startTimeUtcIso: utcIso(event.race2_start_time),
       simTime: event.race2_sim_time,
       weather: event.race2_weather,
       detail: event.race2_laps ? `${event.race2_laps} laps` : null,
@@ -112,6 +120,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     sessions.push({
       label: 'Race 3',
       startTime: event.race3_start_time,
+      startTimeUtcIso: utcIso(event.race3_start_time),
       simTime: event.race3_sim_time,
       weather: event.race3_weather,
       detail: event.race3_laps ? `${event.race3_laps} laps` : null,

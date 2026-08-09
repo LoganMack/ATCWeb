@@ -221,28 +221,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Same click-to-expand pattern as standings.astro's initStandingsExpand
-    // / ResultsTable.astro's initResultsTableExpand — kept as its own copy
-    // per page rather than a shared import, same reasoning those pages use.
-    function initDriverStatsExpand() {
-      document.querySelectorAll<HTMLTableRowElement>('[data-expand-row]').forEach((row) => {
-        const toggle = () => {
-          const detail = row.nextElementSibling as HTMLElement | null;
-          if (!detail) return;
-          const expanded = row.getAttribute('aria-expanded') === 'true';
-          row.setAttribute('aria-expanded', String(!expanded));
-          detail.classList.toggle('hidden', expanded);
-          row.querySelector<HTMLElement>('[data-chevron]')?.classList.toggle('rotate-90', !expanded);
-        };
-        row.addEventListener('click', toggle);
-        row.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            toggle();
-          }
-        });
-      });
-    }
+    // Click-to-expand itself is handled globally now — see
+    // src/scripts/expandRows.ts (a single delegated listener for every
+    // `[data-expand-row]`/`[data-detail-row]` pair on the site, fixing a
+    // real bug the old per-page copy of this had: no de-dup guard, so a
+    // second `astro:page-load` firing for the same content would double-
+    // bind every row's listener, making a click toggle open-then-closed
+    // in the same event — i.e. look like nothing happened until a full
+    // reload cleared the duplicate binding).
 
     // Filters the career table by driver name. A hidden row's detail panel
     // (if it happened to be open) gets force-collapsed too — otherwise an
@@ -277,7 +263,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       searchInput.addEventListener('input', applyFilter);
     }
 
-    document.addEventListener('astro:page-load', initDriverStatsExpand);
     document.addEventListener('astro:page-load', initDriverStatsSearch);
   </script>
 </Layout>
