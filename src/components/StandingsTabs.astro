@@ -1,0 +1,35 @@
+---
+// Small sub-nav shown at the top of the Standings and Team Standings pages
+// only — these two used to be separate tabs under History's own sub-nav
+// (HistoryTabs.astro), but per the site's Results/Standings top-nav
+// promotion they're now reachable directly from the main Nav.astro as a
+// single "Standings" link. This tiny two-tab bar is what makes the two
+// pages still feel like "one Standings section" (Drivers vs. Teams) rather
+// than two unrelated pages, without merging their (fairly different)
+// data-fetching/rendering into one mega-page.
+interface Props {
+  active: 'drivers' | 'teams';
+}
+
+const { active } = Astro.props;
+
+const tabs: { key: Props['active']; href: string; label: string }[] = [
+  { key: 'drivers', href: '/standings', label: 'Drivers' },
+  { key: 'teams', href: '/team-standings', label: 'Teams' },
+];
+---
+
+<div class="reveal mb-8 mt-12 flex gap-1 border-b border-white/10">
+  {tabs.map((tab) => (
+    <a
+      href={tab.href}
+      class={`-mb-px rounded-t-md border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
+        tab.key === active
+          ? 'border-brand-primary text-white'
+          : 'border-transparent text-white/50 hover:text-white'
+      }`}
+    >
+      {tab.label}
+    </a>
+  ))}
+</div>

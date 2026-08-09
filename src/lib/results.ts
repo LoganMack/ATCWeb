@@ -145,11 +145,14 @@ export interface DriverBasic {
   iracing_cust_id: number | null;
   /** Used by the news-recap's "top 3 rookies" stat (src/lib/newsRecap.ts) — otherwise unused by anything in this file. */
   is_rookie: boolean;
+  /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. nationality_2 is only ever meaningful when nationality_1 is also set (dual nationality); a driver with just one nationality leaves nationality_2 null. */
+  nationality_1: string | null;
+  nationality_2: string | null;
 }
 
 /** Exported so a caller needing MULTIPLE standings views for one season (e.g. the homepage's standings widget) can fetch this once and pass it as `driversBasic` to each call, same sharing reasoning as `getSeasonOverallContext`. */
 export function driversSelect(env: SupabaseEnv) {
-  return restGet<DriverBasic[]>(env, 'drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie');
+  return restGet<DriverBasic[]>(env, 'drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2');
 }
 
 function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId: number) {
@@ -858,6 +861,38 @@ export async function computeSeasonStandings(
   const isAlphaClass = !awardsClassPoints;
   const overallPoleDriverBySubsession = isAlphaClass ? computeOverallPoleDriverBySubsession(overallContext) : null;
 
+  // Alpha's points MUST come from the exact same source computeOverallSeasonStandings
+  // uses (finish_points + finesse_bonus + pole_bonus + points_deduction, with
+  // overallContext's OWN cross-class penalty adjustment applied) rather than
+  // this class's own classAdjustments/raw total_points — see the bug this
+  // fixes: `computeSeasonClassAdjustments` above only reprocesses a race when
+  // one of THIS class's own drivers was directly penalized
+  // (`computeSeasonClassAdjustments`'s `touched` check). A penalty against a
+  // driver in a DIFFERENT class can still shift an Alpha driver's OVERALL
+  // cross-class position (and therefore their position-based finish_points)
+  // without touching anything Alpha-relative at all — `computeSeasonOverallAdjustments`
+  // correctly catches that ripple (its own `touched` check is keyed off ANY
+  // driver in the race, any class), but the class-scoped pass above never
+  // sees it, so Alpha's per-class points silently stayed stuck at the
+  // pre-penalty (too-low, once the ripple should have moved them UP) value.
+  // Since Alpha never earns class_points, "Alpha standings" isn't really a
+  // separate competition from "Overall" at all — it's Overall's own formula,
+  // just reported per-class — so sourcing points from `overallContext`
+  // directly instead of re-deriving them class-locally is both the fix and
+  // the more honest model of what this table actually is.
+  const overallPointsByKey = isAlphaClass
+    ? new Map(
+        overallContext.overallScores
+          .filter((s) => s.class_id === classId)
+          .map((s) => {
+            const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+            const adjustment = overallContext.adjustments.get(key);
+            const points = adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+            return [key, points] as const;
+          })
+      )
+    : null;
+
   // Starts, appearances, poles, and points come straight from race_scores
   // regardless of whether a matching curated_race_results row was found —
   // except total_points, which uses the penalty-adjusted figure whenever
@@ -876,8 +911,17 @@ export async function computeSeasonStandings(
     a.lapsLed += raw?.laps_led ?? 0;
     a.laps += raw?.laps_complete ?? 0;
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
-    const adjustment = classAdjustments.get(key);
-    const totalPoints = adjustment ? adjustment.totalPoints : s.total_points;
+    let totalPoints: number;
+    if (isAlphaClass) {
+      // Falls back to this class's own raw total_points only if this row is
+      // somehow missing from overallContext.overallScores (shouldn't happen
+      // — that fetch covers every class every one of this class's rows also
+      // appears in — but never worse than the pre-fix behavior if it did).
+      totalPoints = overallPointsByKey!.get(key) ?? s.total_points;
+    } else {
+      const adjustment = classAdjustments.get(key);
+      totalPoints = adjustment ? adjustment.totalPoints : s.total_points;
+    }
     a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + totalPoints);
   }
 
@@ -1209,8 +1253,30 @@ export async function computeTeamSeasonStandings(
       awardsClassPoints
     );
 
+    // Alpha Team points must come from the same source computeSeasonStandings'
+    // isAlphaClass branch uses (see that function's own doc comment for the
+    // full bug this fixes) — class-scoped `classAdjustments` above only
+    // reprocesses a race when one of THIS class's own drivers was directly
+    // penalized, missing cross-class penalty ripples that can still shift an
+    // Alpha driver's overall position (and therefore their finish_points)
+    // via a different class's driver being penalized in the same race.
+    const isAlphaClass = !awardsClassPoints;
+    const overallPointsByKey = isAlphaClass
+      ? new Map(
+          overallContext.overallScores
+            .filter((s) => s.class_id === classId)
+            .map((s) => {
+              const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+              const adjustment = overallContext.adjustments.get(key);
+              const points = adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+              return [key, points] as const;
+            })
+        )
+      : null;
+
     const pointsOf = (s: RaceScoreRow) => {
       const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+      if (isAlphaClass) return overallPointsByKey!.get(key) ?? s.total_points;
       const adjustment = classAdjustments.get(key);
       return adjustment ? adjustment.totalPoints : s.total_points;
     };
@@ -2123,6 +2189,8 @@ export interface TeamCareerSeasonDriver {
   carNumber: number | null;
   className: string;
   starts: number;
+  nationality1: string | null;
+  nationality2: string | null;
 }
 
 /** One team's stat line for one season, rolled up from every driver whose PRIMARY team that season was this one. */
@@ -2253,6 +2321,8 @@ export async function computeTeamCareerStats(
         carNumber: driverStats.driver.car_number,
         className: row.className,
         starts: row.starts,
+        nationality1: driverStats.driver.nationality_1,
+        nationality2: driverStats.driver.nationality_2,
       });
     }
   }

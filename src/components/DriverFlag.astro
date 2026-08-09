@@ -1,0 +1,55 @@
+---
+// A driver's nationality flag, shown next to their name the same places car
+// and team logos already are (results tables, standings, driver stats,
+// hall of fame, etc. — see TeamLogo.astro's identical "small tile next to a
+// name" convention). Flags are fetched from flagcdn.com by ISO 3166-1
+// alpha-2 code rather than bundled as assets — one small `<img>` (or two,
+// for a dual-nationality driver) per code, no npm package or SVG set to
+// maintain in this repo.
+//
+// One nationality -> the whole tile is that flag. Two -> the tile is split
+// vertically, left half nationality_1's flag, right half nationality_2's —
+// each flag image is rendered at full tile size and clipped to its own
+// half with `clip-path`, rather than actually cropping/re-encoding an
+// image, so any flag aspect ratio still fills its half cleanly.
+import { countryName } from '../lib/countries';
+
+interface Props {
+  nationality1?: string | null;
+  nationality2?: string | null;
+  /** Tailwind size classes — defaults to a flag-shaped (not square) tile, unlike TeamLogo's default square. */
+  size?: string;
+}
+
+const { nationality1, nationality2, size = 'h-4 w-6' } = Astro.props;
+
+const code1 = nationality1?.toLowerCase() || null;
+const code2 = nationality2?.toLowerCase() || null;
+const label = code2 ? `${countryName(code1!)} / ${countryName(code2)}` : code1 ? countryName(code1) : '';
+---
+
+{code1 && code2 && (
+  <span class={`relative inline-block flex-none overflow-hidden rounded-sm ${size}`} title={label} aria-label={label}>
+    <img
+      src={`https://flagcdn.com/w80/${code1}.png`}
+      alt=""
+      class="absolute inset-0 h-full w-full object-cover"
+      style="clip-path: inset(0 50% 0 0);"
+    />
+    <img
+      src={`https://flagcdn.com/w80/${code2}.png`}
+      alt=""
+      class="absolute inset-0 h-full w-full object-cover"
+      style="clip-path: inset(0 0 0 50%);"
+    />
+  </span>
+)}
+
+{code1 && !code2 && (
+  <img
+    src={`https://flagcdn.com/w80/${code1}.png`}
+    alt=""
+    title={label}
+    class={`flex-none rounded-sm object-cover ${size}`}
+  />
+)}

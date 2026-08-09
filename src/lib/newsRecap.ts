@@ -146,6 +146,8 @@ export interface RecapTeamDriverEntry {
   driverName: string;
   carNumber: number | null;
   points: number;
+  nationality1: string | null;
+  nationality2: string | null;
 }
 
 export interface RecapTeamBreakdown {
@@ -396,7 +398,14 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   function addEntry(map: Map<string, RecapTeamBreakdown>, row: RaceResultRow, raceNumber: number, points: number) {
     const key = row.team!.name;
     if (!map.has(key)) map.set(key, { teamName: key, logoUrl: row.team!.logoUrl, entries: [] });
-    map.get(key)!.entries.push({ raceNumber, driverName: row.driver.name, carNumber: row.driver.car_number, points });
+    map.get(key)!.entries.push({
+      raceNumber,
+      driverName: row.driver.name,
+      carNumber: row.driver.car_number,
+      points,
+      nationality1: row.driver.nationality_1,
+      nationality2: row.driver.nationality_2,
+    });
   }
 
   for (const raceNumber of raceNumbers) {

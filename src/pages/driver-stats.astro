@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
+import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getDriverClasses, getSeasons, displayDriverName, getPageBanners } from '../lib/supabase';
 import { computeDriverCareerStats, type DriverCareerStats } from '../lib/results';
@@ -114,6 +115,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <span>
                         {name} {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
                       </span>
+                      <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                     </div>
                   </td>
                   <td class="py-2.5 pr-3 text-center font-semibold" data-col="championships">{entry.championships}</td>

@@ -6,13 +6,15 @@ const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 const RULEBOOK_URL = 'https://docs.google.com/document/d/1a05Enq9lvnon3qBNnxeHhCUFmlDlBXC0K3R9SXMKFoM/edit?usp=sharing';
 
 const links: { href: string; label: string; external?: boolean }[] = [
-  { href: '/', label: 'Home' },
-  { href: '/calendar', label: 'Calendar' },
   { href: '/news', label: 'News' },
+  { href: '/calendar', label: 'Calendar' },
+  { href: '/results', label: 'Results' },
+  { href: '/standings', label: 'Standings' },
   { href: '/roster', label: 'Drivers' },
   { href: '/teams', label: 'Teams' },
   { href: '/champions', label: 'History' },
   { href: RULEBOOK_URL, label: 'Rulebook', external: true },
+  { href: redbubbleUrl, label: 'Shop', external: true },
 ];
 ---
 
@@ -43,14 +45,6 @@ const links: { href: string; label: string; external?: boolean }[] = [
         class="rounded-lg bg-brand-primary px-3 py-2 text-sm font-semibold text-white transition hover:brightness-110 sm:px-4"
       >
         Sign-Up
-      </a>
-      <a
-        href={redbubbleUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="rounded-lg bg-brand-primary px-3 py-2 text-sm font-semibold text-white transition hover:brightness-110 sm:px-4"
-      >
-        Merch
       </a>
 
       <button

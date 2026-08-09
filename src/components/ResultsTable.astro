@@ -32,6 +32,7 @@ import { displayDriverName } from '../lib/supabase';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
+import DriverFlag from './DriverFlag.astro';
 
 /** `total_points` minus every bonus/deduction component — the base points this driver earned purely from their overall finishing position (see RaceResultRow.bonusPoints' own doc comment on the total_points formula). Shown as its own line in the expanded detail panel. */
 function finishPoints(row: RaceResultRow): number {
@@ -304,6 +305,7 @@ for (const p of racePenalties) {
                 <span>
                   {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
+                <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                 {/* Car first, team second — every driver has a car, not every driver has a team. */}
                 {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" />}
                 {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}

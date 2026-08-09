@@ -2,25 +2,20 @@
 // Shared sub-nav for the series-history pages. Kept as its own small tab
 // bar rather than separate top-level Nav.astro links, since the main nav
 // is already fairly full — Nav.astro only links to /champions ("History").
+//
+// Race Results, Standings, and Team Standings used to be tabs here too, but
+// they've been promoted to their own top-level Nav.astro links (Results,
+// Standings) and are no longer reachable from this History sub-nav — see
+// results.astro/standings.astro/team-standings.astro, which now render
+// StandingsTabs.astro (or nothing, for Results) instead of this component.
 interface Props {
-  active:
-    | 'champions'
-    | 'results'
-    | 'standings'
-    | 'teamStandings'
-    | 'driverStats'
-    | 'teamStats'
-    | 'hallOfFame'
-    | 'circuits';
+  active: 'champions' | 'driverStats' | 'teamStats' | 'hallOfFame' | 'circuits';
 }
 
 const { active } = Astro.props;
 
 const tabs: { key: Props['active']; href: string; label: string }[] = [
   { key: 'champions', href: '/champions', label: 'Champions' },
-  { key: 'results', href: '/results', label: 'Race Results' },
-  { key: 'standings', href: '/standings', label: 'Standings' },
-  { key: 'teamStandings', href: '/team-standings', label: 'Team Standings' },
   { key: 'driverStats', href: '/driver-stats', label: 'Driver Stats' },
   { key: 'teamStats', href: '/team-stats', label: 'Team Stats' },
   { key: 'hallOfFame', href: '/hall-of-fame', label: 'Hall of Fame' },

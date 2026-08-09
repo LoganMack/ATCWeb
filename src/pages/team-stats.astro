@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
+import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getDriverClasses, getSeasons, getExhibitionRoundIds, getPageBanners, displayDriverName } from '../lib/supabase';
 import { computeTeamCareerStats, type TeamCareerStats } from '../lib/results';
@@ -160,6 +161,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                   <div class="flex flex-wrap items-center gap-1.5">
                                     {r.drivers.map((d) => (
                                       <span class="inline-flex items-center gap-1 whitespace-nowrap text-white/70">
+                                        <DriverFlag nationality1={d.nationality1} nationality2={d.nationality2} />
                                         {displayDriverName(d.name)}
                                         {d.carNumber !== null && <span class="text-white/40">#{d.carNumber}</span>}
                                         <span class={`rounded border px-1 text-[9px] font-semibold uppercase tracking-wide ${classBadgeClasses(d.className)}`}>

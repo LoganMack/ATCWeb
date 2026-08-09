@@ -13,6 +13,7 @@ import {
   getTeams,
   type DriverRecord,
 } from '../../../lib/supabase';
+import { COUNTRIES } from '../../../lib/countries';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -42,6 +43,11 @@ function readForm(form: FormData): Partial<DriverRecord> {
     sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
     on_probation: form.get('on_probation') === 'on',
     probation_started_at: String(form.get('probation_started_at') ?? '').trim() || null,
+    nationality_1: String(form.get('nationality_1') ?? '').trim() || null,
+    // A second nationality only means anything once a first is set — clear
+    // it too if the first was cleared, rather than leaving an orphaned
+    // nationality_2 no flag would ever render with nationality_1 blank.
+    nationality_2: form.get('nationality_1') ? String(form.get('nationality_2') ?? '').trim() || null : null,
   };
 }
 
@@ -107,6 +113,8 @@ const d: Partial<DriverRecord> = driver ?? {
   bio: '',
   on_probation: false,
   probation_started_at: null,
+  nationality_1: null,
+  nationality_2: null,
 };
 ---
 
@@ -167,6 +175,31 @@ const d: Partial<DriverRecord> = driver ?? {
           <option value={c.id} selected={c.id === d.class_id}>{c.name}</option>
         ))}
       </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Nationality</span>
+      <select
+        name="nationality_1"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        <option value="">None</option>
+        {COUNTRIES.map((c) => (
+          <option value={c.code} selected={c.code === d.nationality_1}>{c.name}</option>
+        ))}
+      </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Second nationality (optional)</span>
+      <select
+        name="nationality_2"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        <option value="">None</option>
+        {COUNTRIES.map((c) => (
+          <option value={c.code} selected={c.code === d.nationality_2}>{c.name}</option>
+        ))}
+      </select>
+      <span class="text-xs text-white/40">Shown as a split flag (half each) next to this driver's name, wherever nationality is displayed.</span>
     </label>
     <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
       <span class="text-white/70">Team</span>

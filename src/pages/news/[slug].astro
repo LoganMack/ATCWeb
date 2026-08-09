@@ -8,6 +8,7 @@ import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classBadgeClasses } from '../../lib/classColors';
 import { isAdminView } from '../../lib/auth';
 import TeamLogo from '../../components/TeamLogo.astro';
+import DriverFlag from '../../components/DriverFlag.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -126,6 +127,7 @@ if (post.round_subsession_id !== null) {
                       {cls.top3.map((entry) => (
                         <li class="flex items-center gap-1.5">
                           <span class="text-white/40">{entry.position}.</span>
+                          <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                           <span>
                             {displayDriverName(entry.driver.name)}
                             {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
@@ -144,8 +146,10 @@ if (post.round_subsession_id !== null) {
                 <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Top Rookies</span>
                 <ol class="mt-2 flex flex-col gap-1 text-sm text-white/70">
                   {race.topRookies.map((entry) => (
-                    <li>
-                      {entry.position !== null && <span class="text-white/40">{entry.position}.</span>} {displayDriverName(entry.driver.name)}
+                    <li class="flex items-center gap-1.5">
+                      {entry.position !== null && <span class="text-white/40">{entry.position}.</span>}
+                      <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
+                      {displayDriverName(entry.driver.name)}
                       {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
                     </li>
                   ))}
@@ -154,8 +158,9 @@ if (post.round_subsession_id !== null) {
             )}
 
             {race.fastestLap && (
-              <p class="mt-4 text-sm text-white/70">
+              <p class="mt-4 flex flex-wrap items-center gap-1.5 text-sm text-white/70">
                 <span class="mr-1 text-xs font-semibold uppercase tracking-wide text-white/40">Fastest Lap</span>
+                <DriverFlag nationality1={race.fastestLap.driver.nationality_1} nationality2={race.fastestLap.driver.nationality_2} />
                 {displayDriverName(race.fastestLap.driver.name)}
                 {race.fastestLap.driver.car_number !== null && ` #${race.fastestLap.driver.car_number}`} — {race.fastestLap.formatted}
                 {race.fastestLap.isTrackRecord && (
@@ -211,9 +216,13 @@ if (post.round_subsession_id !== null) {
                   </div>
                   <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
                     {team.entries.map((entry) => (
-                      <li>
-                        Race {entry.raceNumber}: {displayDriverName(entry.driverName)}
-                        {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
+                      <li class="flex items-center gap-1.5">
+                        <span>Race {entry.raceNumber}:</span>
+                        <DriverFlag nationality1={entry.nationality1} nationality2={entry.nationality2} />
+                        <span>
+                          {displayDriverName(entry.driverName)}
+                          {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -237,9 +246,13 @@ if (post.round_subsession_id !== null) {
                   </div>
                   <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
                     {team.entries.map((entry) => (
-                      <li>
-                        Race {entry.raceNumber}: {displayDriverName(entry.driverName)}
-                        {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
+                      <li class="flex items-center gap-1.5">
+                        <span>Race {entry.raceNumber}:</span>
+                        <DriverFlag nationality1={entry.nationality1} nationality2={entry.nationality2} />
+                        <span>
+                          {displayDriverName(entry.driverName)}
+                          {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -260,10 +273,13 @@ if (post.round_subsession_id !== null) {
                   <p class="font-semibold">Race {race.raceNumber}</p>
                   <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
                     {race.sublimeFinesse.map((entry) => (
-                      <li>
-                        {displayDriverName(entry.driver.name)}
-                        {entry.carNumber !== null && ` #${entry.carNumber}`}
-                        {entry.incidents !== null && ` — ${entry.incidents}x`}
+                      <li class="flex items-center gap-1.5">
+                        <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
+                        <span>
+                          {displayDriverName(entry.driver.name)}
+                          {entry.carNumber !== null && ` #${entry.carNumber}`}
+                          {entry.incidents !== null && ` — ${entry.incidents}x`}
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -284,12 +300,15 @@ if (post.round_subsession_id !== null) {
                   <p class="font-semibold">Race {race.raceNumber}</p>
                   <ul class="mt-1.5 flex flex-col gap-0.5 text-sm text-white/60">
                     {race.nakedAggression.map((entry) => (
-                      <li>
-                        {displayDriverName(entry.driver.name)}
-                        {entry.carNumber !== null && ` #${entry.carNumber}`}
-                        {' '}— P{entry.startingPosition} &rarr; P{entry.finishPosition}
-                        <span class="ml-1 text-brand-gold">
-                          ({entry.positionsGained >= 0 ? '+' : ''}{entry.positionsGained})
+                      <li class="flex items-center gap-1.5">
+                        <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
+                        <span>
+                          {displayDriverName(entry.driver.name)}
+                          {entry.carNumber !== null && ` #${entry.carNumber}`}
+                          {' '}— P{entry.startingPosition} &rarr; P{entry.finishPosition}
+                          <span class="ml-1 text-brand-gold">
+                            ({entry.positionsGained >= 0 ? '+' : ''}{entry.positionsGained})
+                          </span>
                         </span>
                       </li>
                     ))}

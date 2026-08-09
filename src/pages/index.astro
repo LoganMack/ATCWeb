@@ -5,6 +5,7 @@ import Layout from '../layouts/Layout.astro';
 import NewsCard from '../components/NewsCard.astro';
 import UpcomingEventCard from '../components/UpcomingEventCard.astro';
 import TeamLogo from '../components/TeamLogo.astro';
+import DriverFlag from '../components/DriverFlag.astro';
 import {
   getNewsPosts,
   getUpcomingEvents,
@@ -387,6 +388,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             {displayDriverName(row.driver.name)}
                             {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                           </span>
+                          <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                           {primaryCar && <TeamLogo name={primaryCar.carName} logoUrl={primaryCar.logoUrl} size="h-5 w-5" />}
                           {primaryTeam && <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />}
                           {rowClassName && (

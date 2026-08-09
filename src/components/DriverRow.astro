@@ -3,6 +3,7 @@ import type { Driver } from '../lib/supabase';
 import { formatDate, displayDriverName } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
+import DriverFlag from './DriverFlag.astro';
 
 interface Props {
   driver: Driver;
@@ -42,6 +43,7 @@ const searchText = [displayDriverName(driver.name), driver.car_number !== null ?
   </td>
   <td class="py-2.5 pr-3" data-col="name">
     <div class="flex items-center gap-2">
+      <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
       <span class="font-semibold">{displayDriverName(driver.name)}</span>
       {driver.is_rookie && (
         <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">

@@ -2,8 +2,9 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import HistoryTabs from '../components/HistoryTabs.astro';
+import StandingsTabs from '../components/StandingsTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
+import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
 import {
   resolveSupabaseEnv,
@@ -90,7 +91,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Team Standings</h1>
 
-    <HistoryTabs active="teamStandings" />
+    <StandingsTabs active="teams" />
 
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -202,7 +203,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
                       {roster.map((driverStanding) => (
                         <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-                          <span class="font-semibold text-white/90">
+                          <span class="flex items-center gap-1.5 font-semibold text-white/90">
+                            <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />
                             {displayDriverName(driverStanding.driver.name)}
                             {driverStanding.driver.car_number !== null && (
                               <span class="text-white/40"> #{driverStanding.driver.car_number}</span>

@@ -2,7 +2,6 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import HistoryTabs from '../../components/HistoryTabs.astro';
 import ResultsTable from '../../components/ResultsTable.astro';
 import {
   resolveSupabaseEnv,
@@ -226,8 +225,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </span>
           </p>
         )}
-
-        <HistoryTabs active="results" />
 
         <div class="mt-8 flex flex-wrap items-center justify-between gap-2">
           <div class="flex gap-2">

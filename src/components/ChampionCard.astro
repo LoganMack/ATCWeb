@@ -5,6 +5,7 @@ import type { ChampionPhoto } from '../lib/supabase';
 import { displayDriverName } from '../lib/supabase';
 import StatBlock from './StatBlock.astro';
 import TeamLogo from './TeamLogo.astro';
+import DriverFlag from './DriverFlag.astro';
 
 interface Props {
   entry: ChampionEntry;
@@ -100,6 +101,7 @@ const smallPhotoRows = [
           <h3 class="font-display text-3xl leading-none">
             {driverName} {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
           </h3>
+          <DriverFlag nationality1={d.driver.nationality_1} nationality2={d.driver.nationality_2} />
           {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
           {extras?.cars.map((c) => (
             <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-6 w-6" title={`${c.carName} — ${raceWord(c.races)}`} />

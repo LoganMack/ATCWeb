@@ -120,6 +120,9 @@ export interface Driver {
   driver_statuses: { name: string } | null;
   driver_classes: { name: string } | null;
   teams: { name: string; primary_color_hex: string | null; logo_url: string | null } | null;
+  /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. */
+  nationality_1: string | null;
+  nationality_2: string | null;
 }
 
 export interface NewsPost {
@@ -153,7 +156,7 @@ export interface NewsPost {
 export function getDrivers(env: SupabaseEnv) {
   const select =
     'id,car_number,name,is_rookie,car,appearances,starts,seasons_count,' +
-    'penalty_points,penalty_points_max,sign_up_date,on_probation,probation_started_at,' +
+    'penalty_points,penalty_points_max,sign_up_date,on_probation,probation_started_at,nationality_1,nationality_2,' +
     'driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)';
   return restGet<Driver[]>(
     env,
@@ -402,11 +405,15 @@ export interface DriverRecord {
   probation_started_at: string | null; // 'YYYY-MM-DD'
   /** 0027_hall_of_fame.sql — toggled by an admin, powers the public /hall-of-fame page. See getHallOfFameDrivers(). */
   is_hall_of_fame: boolean;
+  /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. */
+  nationality_1: string | null;
+  nationality_2: string | null;
 }
 
 const DRIVER_ADMIN_SELECT =
   'id,car_number,name,status_id,class_id,team_id,is_rookie,car,appearances,starts,' +
-  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at,is_hall_of_fame';
+  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at,is_hall_of_fame,' +
+  'nationality_1,nationality_2';
 
 export async function getDriverById(env: SupabaseEnv, id: string) {
   const drivers = await restGet<DriverRecord[]>(

@@ -2,7 +2,6 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import HistoryTabs from '../components/HistoryTabs.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getPageBanners, formatDate } from '../lib/supabase';
 import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
@@ -64,8 +63,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Race Results</h1>
 
-    <HistoryTabs active="results" />
-
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load results right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
@@ -73,7 +70,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" class="max-w-xs">
+      <form method="GET" class="mt-8 max-w-xs">
         <label class="flex flex-col gap-1.5 text-sm">
           <span class="text-white/60">Season</span>
           <div class="flex items-center gap-2">

@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
+import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
 import StatBlock from '../components/StatBlock.astro';
 import {
@@ -125,6 +126,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <h3 class="font-display text-3xl leading-none">
                       {name} {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
                     </h3>
+                    <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                   </div>
 
                   {entry.bio && <p class="mt-3 max-w-2xl text-sm text-white/70">{entry.bio}</p>}
