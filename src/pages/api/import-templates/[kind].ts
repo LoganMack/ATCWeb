@@ -12,7 +12,13 @@ export const prerender = false;
  * same as the static files it replaced, which were unauthenticated too.
  */
 export const GET: APIRoute = async ({ params }) => {
-  const kind = String(params.kind ?? '');
+  // The admin page's download links point at `/api/import-templates/${kind}.csv`
+  // (so the link itself reads like a real filename) — this is a single
+  // dynamic segment route ([kind].ts), so params.kind arrives as e.g.
+  // "events.csv", not "events". Strip a trailing .csv before looking it up,
+  // otherwise every request 404s here (which is why "download" was
+  // producing a "File wasn't available on site" error in the browser).
+  const kind = String(params.kind ?? '').replace(/\.csv$/i, '');
   const csv = getImportTemplateCsv(kind);
   if (!csv) {
     return new Response('Unknown import template', { status: 404 });
