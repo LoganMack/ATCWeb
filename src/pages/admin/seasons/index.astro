@@ -2,7 +2,17 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getSeasons, updateSeasonLogo, setCurrentSeason, uploadToStorage } from '../../../lib/supabase';
+import {
+  resolveSupabaseEnv,
+  getSeasons,
+  updateSeasonLogo,
+  updateSeasonRuleset,
+  setCurrentSeason,
+  uploadToStorage,
+  getScoringRulesets,
+  resolveSeasonRuleset,
+  type ScoringRuleset,
+} from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -44,6 +54,15 @@ if (Astro.request.method === 'POST') {
       error = 'Failed to set that season as current.';
     }
     if (!error) return Astro.redirect('/admin/seasons', 302);
+  } else if (intent === 'set-ruleset') {
+    const rulesetId = String(form.get('scoring_ruleset_id') ?? '').trim() || null;
+    try {
+      await updateSeasonRuleset(supabaseEnv, accessToken, seasonId, rulesetId);
+    } catch (err) {
+      console.error('Failed to set season ruleset:', err);
+      error = 'Failed to save that ruleset assignment.';
+    }
+    if (!error) return Astro.redirect('/admin/seasons', 302);
   } else {
     const logoUrlField = String(form.get('logo_url') ?? '').trim();
     const logoFile = form.get('logo');
@@ -73,6 +92,14 @@ try {
 } catch (err) {
   console.error('Failed to load seasons:', err);
 }
+
+let rulesets: ScoringRuleset[] = [];
+try {
+  rulesets = await getScoringRulesets(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load scoring rulesets:', err);
+}
+const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
 ---
 
 <AdminLayout title="Seasons">
@@ -142,6 +169,30 @@ try {
               Set as Current
             </button>
           </form>
+        )}
+        <form method="POST" data-astro-reload class="flex items-center gap-2">
+          <input type="hidden" name="intent" value="set-ruleset" />
+          <input type="hidden" name="season_id" value={season.id} />
+          <label class="flex items-center gap-1.5 text-xs text-white/60">
+            Ruleset
+            <select
+              name="scoring_ruleset_id"
+              onchange="this.form.submit()"
+              class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+            >
+              <option value="" class="bg-brand-ink text-white" selected={!season.scoring_ruleset_id}>
+                {defaultRuleset ? `(use default — ${defaultRuleset.name})` : '(use default — none set)'}
+              </option>
+              {rulesets.map((r) => (
+                <option value={r.id} class="bg-brand-ink text-white" selected={r.id === season.scoring_ruleset_id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </form>
+        {!resolveSeasonRuleset(season, rulesets) && (
+          <span class="text-xs font-semibold text-brand-pink">No ruleset resolved — scoring will fail until one is assigned or a default is set</span>
         )}
       </div>
     ))}

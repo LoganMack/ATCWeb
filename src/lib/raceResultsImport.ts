@@ -1,63 +1,58 @@
 /**
- * Manual Race Results CSV import — the one importer of the four (Events,
- * Circuits, News, Race Results) that writes directly into curated_rounds,
- * curated_race_results, and race_scores: the three tables an external
- * iRacing-results pipeline otherwise owns exclusively (see results.ts's own
- * header comment, and 0004_champions.sql/0014_penalties.sql/
- * 0018_curated_rounds_layout.sql for the rule this deliberately breaks).
- * This is a one-off, Logan-approved exception — see
- * 0028_manual_results_import.sql's header for the reasoning and the
- * negative-subsession_id collision-safety scheme that makes it safe.
+ * Manual Race Results CSV import — writes RAW PER-DRIVER FINISH DATA only,
+ * into curated_rounds (the round itself) and curated_race_results (each
+ * driver's finish position, laps, incidents, lap times — the same shape the
+ * real iRacing-results pipeline populates). It deliberately does NOT write
+ * to race_scores: that table holds computed POINTS, produced by the
+ * database's own recalculate_race_scores() from a season's scoring ruleset
+ * (see Admin > Rulesets) — this importer's job ends at getting the raw
+ * results into the database, not at scoring them. A round imported here
+ * shows up on Race Results immediately; it will show up in Standings/Career
+ * Stats/News Recaps once its season has a scoring ruleset assigned and an
+ * admin recalculates that round's scores (that recalculation isn't part of
+ * this importer — see the note on Admin > Import for how the two connect).
+ *
+ * (Earlier versions of this importer also wrote directly into race_scores,
+ * requiring the admin to hand-supply every scoring field — finish_points,
+ * class_points, etc. That was a mismatch: those are the scoring engine's
+ * output, not raw data, and writing them here made manually-imported rows
+ * indistinguishable from real computed ones. Raw-only is the correct scope.)
+ *
+ * This is still the one importer of the four (Events, Circuits, News, Race
+ * Results) that writes directly into pipeline-owned tables — see
+ * results.ts's own header comment, and 0004_champions.sql/0014_penalties.sql/
+ * 0018_curated_rounds_layout.sql for the rule this deliberately breaks. This
+ * is a one-off, Logan-approved exception — see 0028_manual_results_import.sql's
+ * header for the reasoning and the negative-subsession_id collision-safety
+ * scheme that makes it safe.
  *
  * Meant for exhibition races or one-off events the real pipeline will never
- * see. If a round WILL eventually show up in a real pipeline import,
- * don't use this — a synthetic round and a real one for the same event
- * would show up as two separate rounds in every list on the site (the app
- * has no way to know they're "the same" race).
+ * see. If a round WILL eventually show up in a real pipeline import, don't
+ * use this — a synthetic round and a real one for the same event would show
+ * up as two separate rounds in every list on the site (the app has no way
+ * to know they're "the same" race).
  *
- * TWO IMPORTANT LIMITATIONS, both surfaced to the admin via skipped-row
- * counts rather than failing the whole upload:
- *
- * 1. This app has no visibility into the real pipeline's actual
- *    points-per-finish-position formula (it's computed entirely outside
- *    this repo) — so the CSV requires the admin to supply every scoring
- *    field directly (finish_points/class_points/total_points/
- *    finesse_bonus/pole_bonus/points_deduction) rather than have this code
- *    derive them from raw finishing position.
- *
- * 2. curated_race_results identifies a driver by `cust_id` (their iRacing
- *    customer id), never by this app's own driver_id — and every reader in
- *    results.ts (see getRoundResults/getSeasonOverallContext) joins a
- *    race_scores row to its curated_race_results row via
- *    `drivers.iracing_cust_id`, not a real foreign key. A driver with no
- *    iracing_cust_id set on their Roster profile literally cannot be
- *    joined this way — any CSV row for such a driver is skipped. Set the
- *    driver's iRacing Customer ID first (Admin > Roster) before importing
- *    their results.
+ * ONE IMPORTANT LIMITATION, surfaced to the admin via skipped-row counts
+ * rather than failing the whole upload: curated_race_results identifies a
+ * driver by `cust_id` (their iRacing customer id), never by this app's own
+ * driver_id — and every reader in results.ts (see getRoundResults/
+ * getSeasonOverallContext) joins a curated_race_results row to a driver via
+ * `drivers.iracing_cust_id`, not a real foreign key. A driver with no
+ * iracing_cust_id set on their Roster profile literally cannot be joined
+ * this way — any CSV row for such a driver is skipped. Set the driver's
+ * iRacing Customer ID first (Admin > Roster) before importing their results.
  */
-import {
-  restGet,
-  restGetAuthed,
-  restPost,
-  restPatch,
-  restDelete,
-  getCircuits,
-  getSeasons,
-  getDriverClasses,
-  type SupabaseEnv,
-} from './supabase';
-import { getTeamsBasic } from './results';
+import { restGet, restGetAuthed, restPost, restPatch, restDelete, getCircuits, getSeasons, type SupabaseEnv } from './supabase';
 
 interface ImportDriver {
   id: string;
+  name: string;
   car_number: number | null;
-  class_id: number;
-  team_id: string | null;
   iracing_cust_id: number | null;
 }
 
 function getDriversForImport(env: SupabaseEnv) {
-  return restGet<ImportDriver[]>(env, 'drivers?select=id,car_number,class_id,team_id,iracing_cust_id');
+  return restGet<ImportDriver[]>(env, 'drivers?select=id,name,car_number,iracing_cust_id');
 }
 
 interface ManualResultImportRow {
@@ -107,10 +102,10 @@ export interface RaceResultsImportOutcome {
  * Rows are grouped by their `import_key` column — every row sharing the
  * same key is treated as one round (one or more races within it), and gets
  * one synthetic subsession_id between them. Re-uploading a CSV with a key
- * that's already been imported REPLACES that round's race_scores/
- * curated_race_results rows entirely (deletes then reinserts) rather than
- * merging with what's already there, so a corrected file — including a
- * driver actually removed from it — fully takes over.
+ * that's already been imported REPLACES that round's curated_race_results
+ * rows entirely (deletes then reinserts) rather than merging with what's
+ * already there, so a corrected file — including a driver actually removed
+ * from it — fully takes over.
  */
 export async function importRaceResultsCsv(
   env: SupabaseEnv,
@@ -128,11 +123,9 @@ export async function importRaceResultsCsv(
     return i >= 0 ? (row[i] ?? '').trim() : '';
   };
 
-  const [circuits, seasons, classes, teams, drivers, existingImports] = await Promise.all([
+  const [circuits, seasons, drivers, existingImports] = await Promise.all([
     getCircuits(env),
     getSeasons(env),
-    getDriverClasses(env),
-    getTeamsBasic(env),
     getDriversForImport(env),
     getManualResultImports(env, accessToken),
   ]);
@@ -185,7 +178,6 @@ export async function importRaceResultsCsv(
 
     if (alreadyImported) {
       try {
-        await restDelete(env, accessToken, `race_scores?subsession_id=eq.${subsessionId}`);
         await restDelete(env, accessToken, `curated_race_results?subsession_id=eq.${subsessionId}`);
       } catch (err) {
         console.error(`Failed to clear previous rows for manual round "${importKey}" before re-import:`, err);
@@ -252,18 +244,8 @@ export async function importRaceResultsCsv(
       const raceNumber = raceNumberRaw ? Number(raceNumberRaw) : NaN;
       const finishPositionRaw = get(row, 'finish_position');
       const finishPosition = finishPositionRaw ? Number(finishPositionRaw) : NaN;
-      const finishPointsRaw = get(row, 'finish_points');
-      const classPointsRaw = get(row, 'class_points');
-      const totalPointsRaw = get(row, 'total_points');
 
-      if (
-        !driver ||
-        !Number.isFinite(raceNumber) ||
-        !Number.isFinite(finishPosition) ||
-        !finishPointsRaw ||
-        !classPointsRaw ||
-        !totalPointsRaw
-      ) {
+      if (!driver || !Number.isFinite(raceNumber) || !Number.isFinite(finishPosition)) {
         skipped++;
         continue;
       }
@@ -275,59 +257,34 @@ export async function importRaceResultsCsv(
         continue;
       }
 
-      const classNameRaw = get(row, 'class_name');
-      const classId = classNameRaw
-        ? classes.find((c) => c.name.toLowerCase() === classNameRaw.toLowerCase())?.id ?? driver.class_id
-        : driver.class_id;
-      const teamNameRaw = get(row, 'team_name');
-      const teamId = teamNameRaw
-        ? teams.find((t) => t.name.toLowerCase() === teamNameRaw.toLowerCase())?.id ?? driver.team_id
-        : driver.team_id;
-
       const startingPositionRaw = get(row, 'starting_position');
       const incidentsRaw = get(row, 'incidents');
       const lapsCompleteRaw = get(row, 'laps_complete');
       const lapsLedRaw = get(row, 'laps_led');
       const intervalRaw = get(row, 'interval_ten_thousandths');
-      const classifiedRaw = get(row, 'classified').toLowerCase();
-      const dsqRaw = get(row, 'dsq').toLowerCase();
-      const scoredPositionRaw = get(row, 'scored_position');
-      const finesseBonusRaw = get(row, 'finesse_bonus');
-      const poleBonusRaw = get(row, 'pole_bonus');
-      const pointsDeductionRaw = get(row, 'points_deduction');
+      const classNameRaw = get(row, 'class_name');
 
       try {
         await restPost(env, accessToken, 'curated_race_results', {
           subsession_id: subsessionId,
           race_number: raceNumber,
           cust_id: driver.iracing_cust_id,
+          // display_name is NOT NULL on curated_race_results — sourced from
+          // this app's own roster rather than the CSV, since the driver was
+          // already resolved by car number above and this app's name is the
+          // one every other page already shows for them.
+          display_name: driver.name,
+          car_name: get(row, 'car_name') || null,
+          car_class_name: classNameRaw || null,
           finish_position: finishPosition,
           starting_position: startingPositionRaw ? Number(startingPositionRaw) : finishPosition,
           adjusted_position: null,
           incidents: incidentsRaw ? Number(incidentsRaw) : 0,
           laps_complete: lapsCompleteRaw ? Number(lapsCompleteRaw) : null,
           laps_led: lapsLedRaw ? Number(lapsLedRaw) : 0,
-          car_name: get(row, 'car_name') || null,
           interval_ten_thousandths: intervalRaw ? Number(intervalRaw) : null,
           average_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'average_lap_time')),
           best_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'best_lap_time')),
-        });
-        await restPost(env, accessToken, 'race_scores', {
-          subsession_id: subsessionId,
-          race_number: raceNumber,
-          driver_id: driver.id,
-          class_id: classId,
-          team_id: teamId,
-          season_id: season.id,
-          finish_points: Number(finishPointsRaw),
-          class_points: Number(classPointsRaw),
-          total_points: Number(totalPointsRaw),
-          finesse_bonus: finesseBonusRaw ? Number(finesseBonusRaw) : 0,
-          pole_bonus: poleBonusRaw ? Number(poleBonusRaw) : 0,
-          points_deduction: pointsDeductionRaw ? Number(pointsDeductionRaw) : 0,
-          classified: classifiedRaw !== 'no' && classifiedRaw !== 'false' && classifiedRaw !== '0',
-          dsq: dsqRaw === 'yes' || dsqRaw === 'true' || dsqRaw === '1',
-          scored_position: scoredPositionRaw ? Number(scoredPositionRaw) : null,
         });
         imported++;
       } catch (err) {

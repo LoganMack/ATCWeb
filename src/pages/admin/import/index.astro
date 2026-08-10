@@ -363,6 +363,8 @@ interface ImportPanel {
   title: string;
   intent: string;
   help: string;
+  /** Which table(s) this importer writes to — shown as a small note under the title so it's clear at a glance what each upload actually touches. */
+  writesTo: string;
 }
 
 const panels: ImportPanel[] = [
@@ -370,6 +372,7 @@ const panels: ImportPanel[] = [
     kind: 'events',
     title: 'Events',
     intent: 'import-events',
+    writesTo: 'events',
     help:
       'Times are entered as Eastern, same as the event form. Rows are matched by circuit + date — re-uploading updates those events in place (a blank cell leaves that field as-is) instead of duplicating them. An unrecognized circuit name, or a row missing its date/Race 1 start time, is skipped rather than failing the whole import.',
   },
@@ -377,6 +380,7 @@ const panels: ImportPanel[] = [
     kind: 'circuits',
     title: 'Circuits',
     intent: 'import-circuits',
+    writesTo: 'circuits, circuit_layouts',
     help:
       "One row per circuit, optionally with one layout's details attached — repeat a circuit's name across rows to add more than one layout. Rows are matched by name — re-uploading updates in place (a blank cell leaves that field as-is) instead of duplicating. Logo is a direct image URL, not a file upload.",
   },
@@ -384,6 +388,7 @@ const panels: ImportPanel[] = [
     kind: 'news',
     title: 'News',
     intent: 'import-news',
+    writesTo: 'news_posts',
     help:
       'Rows are matched by slug (auto-generated from the title when left blank) — re-uploading updates that post in place instead of duplicating it. Cover image is a direct image URL, not a file upload. A row missing its title or body is skipped rather than failing the whole import.',
   },
@@ -391,8 +396,9 @@ const panels: ImportPanel[] = [
     kind: 'race-results',
     title: 'Race Results',
     intent: 'import-race-results',
+    writesTo: 'curated_rounds, curated_race_results — NOT race_scores',
     help:
-      "For exhibition races or one-off events the real iRacing results pipeline will never see — writes directly into the same tables a real import would. Every row needs an import_key (your own label for the round — reuse it to update that round instead of duplicating it) and a driver_car_number matching an existing driver who already has an iRacing Customer ID set on their Roster profile. This app doesn't know the real points formula, so scoring columns (finish/class/total points) must be filled in yourself. Unrecognized rows are skipped rather than failing the whole upload.",
+      "For exhibition races or one-off events the real iRacing results pipeline will never see — writes RAW per-driver finish data only (finish position, laps, incidents, lap times), the same shape a real pipeline import produces. It does not compute or store points — that's the scoring engine's job (Admin > Rulesets), triggered separately once a season has a ruleset assigned. Every row needs an import_key (your own label for the round — reuse it to update that round instead of duplicating it) and a driver_car_number matching an existing driver who already has an iRacing Customer ID set on their Roster profile. Unrecognized rows are skipped rather than failing the whole upload.",
   },
 ];
 ---
@@ -415,6 +421,7 @@ const panels: ImportPanel[] = [
     {panels.map((panel) => (
       <div class="rounded-xl border border-white/10 bg-white/[0.03] p-6">
         <h2 class="font-display text-2xl">{panel.title}</h2>
+        <p class="mt-1 font-mono text-[11px] uppercase tracking-wide text-white/35">Writes to: {panel.writesTo}</p>
         <a
           href={`/api/import-templates/${panel.kind}.csv`}
           download

@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import { getTeams, getDrivers, getPageBanners, displayDriverName, resolveSupabaseEnv } from '../lib/supabase';
+import { getTeams, getDrivers, getSeasons, getTeamRosterForSeason, getPageBanners, displayDriverName, resolveSupabaseEnv } from '../lib/supabase';
+import { driversSelect, type DriverBasic } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 import TeamLogo from '../components/TeamLogo.astro';
 import PageBanner from '../components/PageBanner.astro';
@@ -33,6 +34,33 @@ try {
   }
 } catch (err) {
   console.error('Failed to load drivers for team search:', err);
+}
+
+// The 3-driver-columns roster, sourced from the season-scoped team_rosters
+// table (rulebook: max 3 drivers/team) for whichever season is marked
+// current — deliberately NOT the same drivers.team_id list used for search
+// above, since a driver's "current team" field can drift out of sync with
+// which season roster they were actually locked into (team_rosters is the
+// source of truth the scoring engine itself uses for team eligibility).
+let rosterByTeamId = new Map<string, DriverBasic[]>();
+try {
+  const [seasons, driversBasic] = await Promise.all([getSeasons(supabaseEnv), driversSelect(supabaseEnv)]);
+  const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
+  if (currentSeason) {
+    const rosterEntries = await getTeamRosterForSeason(supabaseEnv, currentSeason.id);
+    const driverById = new Map(driversBasic.map((d) => [d.id, d]));
+    for (const entry of rosterEntries) {
+      const driver = driverById.get(entry.driver_id);
+      if (!driver) continue;
+      if (!rosterByTeamId.has(entry.team_id)) rosterByTeamId.set(entry.team_id, []);
+      rosterByTeamId.get(entry.team_id)!.push(driver);
+    }
+    for (const list of rosterByTeamId.values()) {
+      list.sort((a, b) => (a.car_number ?? Number.MAX_SAFE_INTEGER) - (b.car_number ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
+    }
+  }
+} catch (err) {
+  console.error('Failed to load current-season team rosters:', err);
 }
 
 // Banner fetch failing shouldn't take down the whole page — worst case, no
@@ -90,12 +118,16 @@ const sortedTeams = [...teams].sort((a, b) => {
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
               <th class="py-3 pr-4 font-medium" data-sort-key="status">Status</th>
+              <th class="py-3 pr-4 font-medium">Driver 1</th>
+              <th class="py-3 pr-4 font-medium">Driver 2</th>
+              <th class="py-3 pr-4 font-medium">Driver 3</th>
             </tr>
           </thead>
           <tbody id="team-list">
             {sortedTeams.map((team) => {
               const members = memberNamesByTeamName.get(team.name) ?? [];
-              const searchText = [team.name, ...members].join(' ').toLowerCase();
+              const roster = rosterByTeamId.get(team.id) ?? [];
+              const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
               return (
                 <tr
                   class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}
@@ -116,6 +148,18 @@ const sortedTeams = [...teams].sort((a, b) => {
                       {team.status}
                     </span>
                   </td>
+                  {[0, 1, 2].map((i) => (
+                    <td class="py-2.5 pr-4 text-white/70">
+                      {roster[i] ? (
+                        <>
+                          {displayDriverName(roster[i].name)}
+                          {roster[i].car_number !== null && <span class="text-white/40"> #{roster[i].car_number}</span>}
+                        </>
+                      ) : (
+                        <span class="text-white/25">—</span>
+                      )}
+                    </td>
+                  ))}
                 </tr>
               );
             })}

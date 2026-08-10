@@ -100,24 +100,30 @@ const NEWS_TEMPLATE: CsvTemplate = {
   ],
 };
 
+// Raw per-driver finish data only — writes to curated_rounds +
+// curated_race_results, NOT race_scores. Points are computed separately by
+// the scoring engine from a season's Ruleset (Admin > Rulesets) once that
+// season has one assigned; this importer's job is getting the raw finish
+// data in, not scoring it. class_name is informational only (goes on
+// curated_race_results.car_class_name for display) — it isn't a driver_classes
+// foreign key.
 const RACE_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format', 'status',
-    'strength_of_field', 'exhibition', 'race_number', 'driver_car_number', 'finish_position', 'starting_position',
-    'incidents', 'laps_complete', 'laps_led', 'car_name', 'interval_ten_thousandths', 'average_lap_time',
-    'best_lap_time', 'classified', 'dsq', 'scored_position', 'class_name', 'team_name', 'finish_points',
-    'class_points', 'total_points', 'finesse_bonus', 'pole_bonus', 'points_deduction',
+    'strength_of_field', 'exhibition', 'race_number', 'driver_car_number', 'class_name', 'car_name',
+    'finish_position', 'starting_position', 'incidents', 'laps_complete', 'laps_led', 'interval_ten_thousandths',
+    'average_lap_time', 'best_lap_time',
   ],
   exampleRows: [
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      'official', '1450', 'yes', '1', '4', '1', '1', '2', '32', '32', 'BMW M4 GT3', '0', '1:42.331', '1:41.998',
-      'yes', 'no', '1', '', '', '50', '10', '60', '2', '3', '0',
+      'official', '1450', 'yes', '1', '4', 'Alpha', 'BMW M4 GT3', '1', '1', '2', '32', '32', '0', '1:42.331',
+      '1:41.998',
     ],
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      'official', '1450', 'yes', '1', '12', '2', '3', '0', '32', '0', 'Ferrari 296 GT3', '15230', '1:43.010',
-      '1:42.550', 'yes', 'no', '2', '', '', '45', '7', '52', '0', '0', '0',
+      'official', '1450', 'yes', '1', '12', 'Gamma', 'Ferrari 296 GT3', '2', '3', '0', '32', '0', '15230',
+      '1:43.010', '1:42.550',
     ],
   ],
 };

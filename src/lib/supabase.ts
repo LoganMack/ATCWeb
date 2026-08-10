@@ -799,27 +799,37 @@ export interface Season {
    * for why).
    */
   extra_drop_weeks: number;
+  /**
+   * Which scoring_ruleset applies to this season — null means "use whichever
+   * ruleset is marked default" (see ScoringRuleset.is_default / resolveSeasonRuleset
+   * below), not "no ruleset at all." Column lives on `seasons` in the live
+   * database already (0031_scoring_rulesets_default.sql only added
+   * scoring_rulesets.is_default/updated_at, not this column); admin-editable
+   * from /admin/seasons.
+   */
+  scoring_ruleset_id: string | null;
 }
+
+const SEASON_SELECT = 'id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id';
 
 /** All seasons, newest first. */
 export function getSeasons(env: SupabaseEnv) {
-  return restGet<Season[]>(
-    env,
-    'seasons?select=id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks&order=number.desc'
-  );
+  return restGet<Season[]>(env, `seasons?select=${SEASON_SELECT}&order=number.desc`);
 }
 
 export async function getSeasonById(env: SupabaseEnv, id: string) {
-  const seasons = await restGet<Season[]>(
-    env,
-    `seasons?select=id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks&id=eq.${encodeURIComponent(id)}`
-  );
+  const seasons = await restGet<Season[]>(env, `seasons?select=${SEASON_SELECT}&id=eq.${encodeURIComponent(id)}`);
   return seasons[0] ?? null;
 }
 
 /** Sets (or clears, with `null`) a season's logo — the only field seasons can be admin-edited from (0024_season_logos_and_page_banners.sql). */
 export async function updateSeasonLogo(env: SupabaseEnv, accessToken: string, id: string, logoUrl: string | null) {
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { logo_url: logoUrl });
+}
+
+/** Assigns (or clears, with `null`) which scoring ruleset a season uses — see Season.scoring_ruleset_id. */
+export async function updateSeasonRuleset(env: SupabaseEnv, accessToken: string, id: string, rulesetId: string | null) {
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { scoring_ruleset_id: rulesetId });
 }
 
 /**
@@ -839,6 +849,109 @@ export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, se
     is_current: false,
   });
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(seasonId)}`, { is_current: true });
+}
+
+// --- Scoring rulesets (see 0031_scoring_rulesets_default.sql) --------------
+//
+// A ruleset's `rules` jsonb is what the DB-side recalculate_race_scores()
+// function reads to actually compute race_scores from raw curated_race_results
+// (base points per finish position, class-podium bonuses, Sublime Finesse,
+// Class Pole, PP-penalty point deductions, drop-week count, team roster
+// size/eligibility — see that function for the exact shape). This app treats
+// it as an opaque JSON blob (edited as raw text in the admin UI) rather than
+// modeling every field, since nothing in this repo's own TypeScript
+// re-derives points from it today — see resolveSeasonRuleset's own doc
+// comment for what "applying" a ruleset currently means app-side.
+
+export interface ScoringRuleset {
+  id: string;
+  name: string;
+  rulebook: string | null;
+  /** Raw JSON text (not parsed) — see this section's own header comment for the shape recalculate_race_scores() expects. Admin UI edits this as a textarea and validates it's parseable JSON before saving, but otherwise passes it through untouched. */
+  rules: string;
+  notes: string | null;
+  /** At most one ruleset can have this true at a time (partial unique index) — the ruleset a season falls back to when its own scoring_ruleset_id is null. See resolveSeasonRuleset. */
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+const SCORING_RULESET_SELECT = 'id,name,rulebook,rules,notes,is_default,created_at,updated_at';
+
+/** All scoring rulesets, alphabetical. */
+export function getScoringRulesets(env: SupabaseEnv) {
+  return restGet<ScoringRuleset[]>(env, `scoring_rulesets?select=${SCORING_RULESET_SELECT}&order=name.asc`);
+}
+
+export async function getScoringRulesetById(env: SupabaseEnv, id: string) {
+  const rulesets = await restGet<ScoringRuleset[]>(
+    env,
+    `scoring_rulesets?select=${SCORING_RULESET_SELECT}&id=eq.${encodeURIComponent(id)}`
+  );
+  return rulesets[0] ?? null;
+}
+
+export function createScoringRuleset(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { name: string; rulebook: string | null; rules: string; notes: string | null }
+) {
+  return restPost<ScoringRuleset>(env, accessToken, 'scoring_rulesets', data);
+}
+
+export function updateScoringRuleset(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<{ name: string; rulebook: string | null; rules: string; notes: string | null }>
+) {
+  return restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteScoringRuleset(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(id)}`);
+}
+
+/**
+ * Marks one ruleset as THE default (the one seasons with no ruleset of their
+ * own resolve to — see resolveSeasonRuleset). Same clear-then-set two-request
+ * pattern as setCurrentSeason, for the same reason: the partial unique index
+ * on is_default would reject setting a second row true while the old
+ * default is still true.
+ */
+export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: string, rulesetId: string) {
+  await restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?is_default=eq.true&id=neq.${encodeURIComponent(rulesetId)}`, {
+    is_default: false,
+  });
+  await restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(rulesetId)}`, {
+    is_default: true,
+  });
+}
+
+/**
+ * Resolves which ruleset actually applies to a season: the one it's
+ * explicitly assigned, or whichever is marked default if it isn't assigned
+ * one. Returns null only if neither exists (no ruleset assigned AND no
+ * default configured yet).
+ *
+ * IMPORTANT SCOPE NOTE: this app's own standings/career-stats/news-recap
+ * computations (src/lib/results.ts) read already-computed `race_scores`
+ * rows — they don't re-derive points from a ruleset's `rules` jsonb
+ * themselves (that derivation lives entirely in the DB-side
+ * recalculate_race_scores() function). So "resolving" a season's ruleset
+ * today is a season-metadata/admin-display concern (showing which ruleset
+ * is in effect, and which season rows still need one before scores can be
+ * (re)computed for them) — it does not change what any standings page
+ * shows. Wiring the resolved ruleset id back into an actual recompute is a
+ * separate, larger change (see this repo's chat history for the
+ * recalculate_race_scores() schema-drift issue found alongside this).
+ */
+export function resolveSeasonRuleset(season: Pick<Season, 'scoring_ruleset_id'>, rulesets: ScoringRuleset[]): ScoringRuleset | null {
+  if (season.scoring_ruleset_id) {
+    const assigned = rulesets.find((r) => r.id === season.scoring_ruleset_id);
+    if (assigned) return assigned;
+  }
+  return rulesets.find((r) => r.is_default) ?? null;
 }
 
 // ---------------------------------------------------------------------------
