@@ -107,23 +107,36 @@ const NEWS_TEMPLATE: CsvTemplate = {
 // data in, not scoring it. class_name is informational only (goes on
 // curated_race_results.car_class_name for display) — it isn't a driver_classes
 // foreign key.
+// driver_name and driver_car_number: at least one identifies the row's
+// driver (matched against the Roster) — name lets an admin fill this in
+// without knowing everyone's car number by heart; car number is kept for
+// CSVs built the old way, before this column existed. If both are given
+// they must resolve to the same roster driver, or the row is skipped as a
+// data-entry conflict rather than guessing which one is right.
+//
+// reason_out is optional and mirrors the real iRacing pipeline's own
+// values ('Running', 'Disconnected', 'Retired', 'Disqualified',
+// 'DQ/Scoring Invalidated') — recalculate_race_scores() reads it to decide
+// DSQ (see supabase/migrations/0032_fix_recalculate_race_scores.sql), so
+// this is how an exhibition/manual round can flag a DSQ the same way a
+// real pipeline import would. Leave it blank for a normal finish.
 const RACE_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format', 'status',
-    'strength_of_field', 'exhibition', 'race_number', 'driver_car_number', 'class_name', 'car_name',
+    'strength_of_field', 'exhibition', 'race_number', 'driver_name', 'driver_car_number', 'class_name', 'car_name',
     'finish_position', 'starting_position', 'incidents', 'laps_complete', 'laps_led', 'interval_ten_thousandths',
-    'average_lap_time', 'best_lap_time',
+    'average_lap_time', 'best_lap_time', 'reason_out',
   ],
   exampleRows: [
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      'official', '1450', 'yes', '1', '4', 'Alpha', 'BMW M4 GT3', '1', '1', '2', '32', '32', '0', '1:42.331',
-      '1:41.998',
+      'official', '1450', 'yes', '1', 'Jess Rakowski', '4', 'Alpha', 'BMW M4 GT3', '1', '1', '2', '32', '32', '0',
+      '1:42.331', '1:41.998', '',
     ],
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      'official', '1450', 'yes', '1', '12', 'Gamma', 'Ferrari 296 GT3', '2', '3', '0', '32', '0', '15230',
-      '1:43.010', '1:42.550',
+      'official', '1450', 'yes', '1', 'Kurt Smith', '12', 'Gamma', 'Ferrari 296 GT3', '2', '3', '0', '32', '0',
+      '15230', '1:43.010', '1:42.550', '',
     ],
   ],
 };

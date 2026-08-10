@@ -41,6 +41,22 @@
  * iracing_cust_id set on their Roster profile literally cannot be joined
  * this way — any CSV row for such a driver is skipped. Set the driver's
  * iRacing Customer ID first (Admin > Roster) before importing their results.
+ *
+ * A CSV row identifies WHICH driver it's about via `driver_name` and/or
+ * `driver_car_number` — either alone resolves against the Roster (see
+ * resolveImportDriver below); providing both requires them to agree, so a
+ * typo in one doesn't silently get resolved by trusting the other. The
+ * `display_name` actually written to curated_race_results always comes from
+ * the matched Roster row, not the CSV cell, so every other page stays
+ * consistent regardless of what the CSV's driver_name column says.
+ *
+ * `reason_out` is optional and mirrors the real iRacing pipeline's own
+ * values ('Running', 'Disconnected', 'Retired', 'Disqualified',
+ * 'DQ/Scoring Invalidated') — it's what recalculate_race_scores() reads to
+ * decide DSQ (0032_fix_recalculate_race_scores.sql), so it's the only way a
+ * manually-imported round can represent a DSQ the same way a real pipeline
+ * import would. Left blank, it behaves exactly as it did before this column
+ * existed (null, i.e. finished normally).
  */
 import { restGet, restGetAuthed, restPost, restPatch, restDelete, getCircuits, getSeasons, type SupabaseEnv } from './supabase';
 
@@ -53,6 +69,29 @@ interface ImportDriver {
 
 function getDriversForImport(env: SupabaseEnv) {
   return restGet<ImportDriver[]>(env, 'drivers?select=id,name,car_number,iracing_cust_id');
+}
+
+/**
+ * Identifies a CSV row's driver by driver_name and/or driver_car_number —
+ * either alone is enough (name lets an admin fill this in without knowing
+ * everyone's car number by heart; car number stays supported for CSVs built
+ * the old way, before driver_name existed as a column). If both are given
+ * they must agree; a mismatch is treated as a data-entry error rather than
+ * silently trusting one over the other, since guessing wrong here would
+ * attribute a result to the wrong driver.
+ */
+function resolveImportDriver(
+  drivers: ImportDriver[],
+  nameRaw: string,
+  carNumberRaw: string
+): { driver?: ImportDriver; conflict?: boolean } {
+  const carNumber = carNumberRaw ? Number(carNumberRaw) : NaN;
+  const byCarNumber = Number.isFinite(carNumber) ? drivers.find((d) => d.car_number === carNumber) : undefined;
+  const byName = nameRaw.trim() ? drivers.find((d) => d.name.toLowerCase() === nameRaw.trim().toLowerCase()) : undefined;
+  if (byName && byCarNumber && byName.id !== byCarNumber.id) {
+    return { conflict: true };
+  }
+  return { driver: byName ?? byCarNumber };
 }
 
 interface ManualResultImportRow {
@@ -187,7 +226,20 @@ export async function importRaceResultsCsv(
     }
 
     const startTimeIso = `${eventDate}T${eventTime}.000Z`;
-    const driverCarNumbers = new Set(groupRows.map((r) => get(r, 'driver_car_number')).filter(Boolean));
+
+    // Resolve every row's driver up front (name and/or car number — see
+    // resolveImportDriver above) so num_drivers below counts actual matched
+    // roster drivers rather than raw car-number strings, which would
+    // undercount any row identified by name alone.
+    const resolvedRows = groupRows.map((row) => {
+      const nameRaw = get(row, 'driver_name');
+      const carNumberRaw = get(row, 'driver_car_number');
+      const { driver, conflict } = resolveImportDriver(drivers, nameRaw, carNumberRaw);
+      return { row, nameRaw, carNumberRaw, driver, conflict };
+    });
+    const matchedDriverIds = new Set(
+      resolvedRows.filter((r) => r.driver && !r.conflict).map((r) => r.driver!.id)
+    );
 
     try {
       if (alreadyImported) {
@@ -199,7 +251,7 @@ export async function importRaceResultsCsv(
           layout: layoutName || null,
           format,
           strength_of_field: strengthOfField,
-          num_drivers: driverCarNumbers.size,
+          num_drivers: matchedDriverIds.size,
           status,
         });
       } else {
@@ -213,7 +265,7 @@ export async function importRaceResultsCsv(
           layout: layoutName || null,
           format,
           strength_of_field: strengthOfField,
-          num_drivers: driverCarNumbers.size,
+          num_drivers: matchedDriverIds.size,
           status,
         });
         await restPost(env, accessToken, 'manual_result_imports', { import_key: importKey, subsession_id: subsessionId });
@@ -236,22 +288,30 @@ export async function importRaceResultsCsv(
       console.error(`Failed to set the exhibition flag for manual round "${importKey}" (the round itself still imported):`, err);
     }
 
-    for (const row of groupRows) {
-      const carNumberRaw = get(row, 'driver_car_number');
-      const carNumber = carNumberRaw ? Number(carNumberRaw) : NaN;
-      const driver = Number.isFinite(carNumber) ? drivers.find((d) => d.car_number === carNumber) : undefined;
+    for (const { row, nameRaw, carNumberRaw, driver, conflict } of resolvedRows) {
       const raceNumberRaw = get(row, 'race_number');
       const raceNumber = raceNumberRaw ? Number(raceNumberRaw) : NaN;
       const finishPositionRaw = get(row, 'finish_position');
       const finishPosition = finishPositionRaw ? Number(finishPositionRaw) : NaN;
+      const whoDescription = nameRaw || (carNumberRaw ? `car #${carNumberRaw}` : '(no driver_name or driver_car_number given)');
 
+      if (conflict) {
+        console.error(
+          `Skipped a manual result row (round "${importKey}", race ${raceNumberRaw || '?'}): driver_name "${nameRaw}" and driver_car_number "${carNumberRaw}" match two different roster drivers — fix the mismatch and re-import.`
+        );
+        skipped++;
+        continue;
+      }
       if (!driver || !Number.isFinite(raceNumber) || !Number.isFinite(finishPosition)) {
+        console.error(
+          `Skipped a manual result row (round "${importKey}", race ${raceNumberRaw || '?'}): could not match driver ${whoDescription} to a roster entry, or race_number/finish_position was missing/invalid.`
+        );
         skipped++;
         continue;
       }
       if (driver.iracing_cust_id == null) {
         console.error(
-          `Skipped a manual result row (round "${importKey}", race ${raceNumber}, car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`
+          `Skipped a manual result row (round "${importKey}", race ${raceNumber}, ${whoDescription}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`
         );
         skipped++;
         continue;
@@ -263,6 +323,7 @@ export async function importRaceResultsCsv(
       const lapsLedRaw = get(row, 'laps_led');
       const intervalRaw = get(row, 'interval_ten_thousandths');
       const classNameRaw = get(row, 'class_name');
+      const reasonOutRaw = get(row, 'reason_out');
 
       try {
         await restPost(env, accessToken, 'curated_race_results', {
@@ -270,9 +331,10 @@ export async function importRaceResultsCsv(
           race_number: raceNumber,
           cust_id: driver.iracing_cust_id,
           // display_name is NOT NULL on curated_race_results — sourced from
-          // this app's own roster rather than the CSV, since the driver was
-          // already resolved by car number above and this app's name is the
-          // one every other page already shows for them.
+          // this app's own roster rather than the CSV's driver_name cell, so
+          // it always matches the name every other page shows for them (the
+          // driver was already resolved above by name and/or car number, so
+          // this doesn't lose anything if the CSV cell has a nickname/typo).
           display_name: driver.name,
           car_name: get(row, 'car_name') || null,
           car_class_name: classNameRaw || null,
@@ -285,10 +347,17 @@ export async function importRaceResultsCsv(
           interval_ten_thousandths: intervalRaw ? Number(intervalRaw) : null,
           average_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'average_lap_time')),
           best_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'best_lap_time')),
+          // What recalculate_race_scores() reads to decide DSQ (see
+          // supabase/migrations/0032_fix_recalculate_race_scores.sql) —
+          // 'Disqualified'/'DQ/Scoring Invalidated' zero the driver's whole
+          // round, matching the real iRacing pipeline's own values. Blank
+          // means "finished normally," same behavior as before this column
+          // existed (the field was always left null).
+          reason_out: reasonOutRaw || null,
         });
         imported++;
       } catch (err) {
-        console.error(`Failed to import a race-result row (round "${importKey}", race ${raceNumber}, car #${carNumber}):`, err);
+        console.error(`Failed to import a race-result row (round "${importKey}", race ${raceNumber}, ${whoDescription}):`, err);
         skipped++;
       }
     }
