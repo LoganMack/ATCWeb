@@ -1,8 +1,16 @@
 ---
 import type { EventWithCircuit } from '../lib/supabase';
 import { displayLayoutName, formatDate } from '../lib/supabase';
-import { formatEventDate, formatSessionTime, FORMAT_BADGE_CLASSES, FORMAT_LABELS, getEventSessions } from '../lib/eventFormatting';
-import type { LayoutRoundSummary } from '../lib/results';
+import {
+  formatEventDate,
+  formatSessionTime,
+  FORMAT_BADGE_CLASSES,
+  FORMAT_LABELS,
+  CATEGORY_BADGE_CLASSES,
+  CATEGORY_LABELS,
+  getEventSessions,
+} from '../lib/eventFormatting';
+import type { LayoutRoundSummary, RoundSummary } from '../lib/results';
 import WeatherIcon from './WeatherIcon.astro';
 
 interface Props {
@@ -18,9 +26,19 @@ interface Props {
    * it, same as any other optional section on this card.
    */
   layoutRounds?: LayoutRoundSummary[];
+  /**
+   * Which curated_rounds row this specific event represents, if any — see
+   * getEventRound()'s own doc comment in src/lib/results.ts for how this
+   * resolves (season_id+round_number auto-match, or the subsession_id
+   * manual override). Null for an event with no season/round set, one
+   * that's upcoming, or one whose round hasn't had results imported yet.
+   * Computed by the caller (calendar.astro), same "once per page, not once
+   * per card" reasoning as layoutRounds above.
+   */
+  linkedRound?: RoundSummary | null;
 }
 
-const { event, index = 0, layoutRounds = [] } = Astro.props;
+const { event, index = 0, layoutRounds = [], linkedRound = null } = Astro.props;
 const sessions = getEventSessions(event);
 ---
 
@@ -37,12 +55,24 @@ const sessions = getEventSessions(event);
       <div>
         <h3 class="font-display text-2xl leading-none">{event.circuits?.name ?? 'TBA'}</h3>
         {event.layout && <p class="mt-1 text-sm text-white/50">{displayLayoutName(event.layout)}</p>}
+        {event.season_id && event.round_number !== null && (
+          <p class="mt-1 text-sm text-white/50">
+            {event.seasons?.name ?? 'Season'} — Round {event.round_number}
+          </p>
+        )}
       </div>
     </div>
     <div class="flex flex-col items-end gap-2">
-      <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
-        {FORMAT_LABELS[event.format]}
-      </span>
+      <div class="flex flex-wrap items-center justify-end gap-1.5">
+        <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+          {FORMAT_LABELS[event.format]}
+        </span>
+        {event.category !== 'championship' && (
+          <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+            {CATEGORY_LABELS[event.category]}
+          </span>
+        )}
+      </div>
       <p class="text-sm text-white/60">{formatEventDate(event.event_date)}</p>
     </div>
   </div>
@@ -67,9 +97,14 @@ const sessions = getEventSessions(event);
     ))}
   </div>
 
-  {(event.fuel_limit_pct !== null || event.results_url) && (
+  {(event.fuel_limit_pct !== null || event.results_url || linkedRound) && (
     <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/60">
       {event.fuel_limit_pct !== null && <span>Fuel limit: {event.fuel_limit_pct}%</span>}
+      {linkedRound && (
+        <a href={`/results/${linkedRound.subsession_id}`} class="text-brand-primary hover:underline">
+          View Results &rarr;
+        </a>
+      )}
       {event.results_url && (
         <a href={event.results_url} target="_blank" rel="noopener noreferrer" class="text-brand-primary hover:underline">
           iRacing Results &rarr;

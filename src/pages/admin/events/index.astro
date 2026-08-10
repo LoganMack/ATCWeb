@@ -3,7 +3,7 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getEvents } from '../../../lib/supabase';
-import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS } from '../../../lib/eventFormatting';
+import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS } from '../../../lib/eventFormatting';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -61,16 +61,30 @@ try {
                   {event.circuits?.logo_url && (
                     <img src={event.circuits.logo_url} alt="" class="h-8 w-8 flex-none rounded object-contain" />
                   )}
-                  <span class="font-semibold">{event.circuits?.name ?? 'TBA'}</span>
+                  <div>
+                    <span class="font-semibold">{event.circuits?.name ?? 'TBA'}</span>
+                    {event.season_id && event.round_number !== null && (
+                      <p class="text-xs text-white/40">
+                        {event.seasons?.name ?? 'Season'} — Round {event.round_number}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </td>
               <td class="py-3 pr-3 text-white/60" data-col="date" data-sort-value={event.event_date}>
                 {formatEventDate(event.event_date)}
               </td>
               <td class="py-3 pr-3" data-col="format" data-sort-value={event.format}>
-                <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
-                  {FORMAT_LABELS[event.format]}
-                </span>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+                    {FORMAT_LABELS[event.format]}
+                  </span>
+                  {event.category !== 'championship' && (
+                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+                      {CATEGORY_LABELS[event.category]}
+                    </span>
+                  )}
+                </div>
               </td>
               <td class="py-3 pr-6 text-right">
                 <a href={`/admin/events/${event.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>

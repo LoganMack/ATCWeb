@@ -3,7 +3,7 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getPageBanners, formatDate } from '../lib/supabase';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, getPageBanners, formatDate } from '../lib/supabase';
 import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 
@@ -30,11 +30,13 @@ const activeSeason =
 
 let rounds: Awaited<ReturnType<typeof getRoundsForSeason>> = [];
 let exhibitionRoundIds: Set<number> = new Set();
+let testRoundIds: Set<number> = new Set();
 if (!loadError && activeSeason) {
   try {
-    [rounds, exhibitionRoundIds] = await Promise.all([
+    [rounds, exhibitionRoundIds, testRoundIds] = await Promise.all([
       getRoundsForSeason(supabaseEnv, activeSeason.id),
       getExhibitionRoundIds(supabaseEnv),
+      getTestRoundIds(supabaseEnv),
     ]);
   } catch (err) {
     console.error('Failed to load rounds:', err);
@@ -45,8 +47,24 @@ if (!loadError && activeSeason) {
 // Displayed round numbers skip exhibitions entirely — see
 // computeDisplayRoundNumbers — so an exhibition round just shows the
 // "Exhibition" label instead of a "Round N" that would otherwise shift
-// every later round's number.
+// every later round's number. Computed from the FULL round list, before
+// either filter below removes anything from what's actually rendered —
+// hiding exhibition/test rounds from view shouldn't renumber the
+// championship rounds still showing.
 const displayRoundNumbers = computeDisplayRoundNumbers(rounds, exhibitionRoundIds);
+
+// Opt-in hide filters — unchecked (i.e. show everything) is the default,
+// matching this page's existing behavior before either filter existed, so
+// nobody's view changes unless they actually check a box. Both checked
+// against the same round list computeDisplayRoundNumbers already used
+// above, not applied until after that numbering is settled.
+const hideExhibition = Astro.url.searchParams.get('hideExhibition') === '1';
+const hideTest = Astro.url.searchParams.get('hideTest') === '1';
+const visibleRounds = rounds.filter((r) => {
+  if (hideExhibition && exhibitionRoundIds.has(r.subsession_id)) return false;
+  if (hideTest && testRoundIds.has(r.subsession_id)) return false;
+  return true;
+});
 
 let bannerUrl: string | null = null;
 try {
@@ -97,6 +115,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             )}
           </div>
         </label>
+        <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
+          <label class="flex items-center gap-2 text-sm text-white/60">
+            <input
+              type="checkbox"
+              name="hideExhibition"
+              value="1"
+              checked={hideExhibition}
+              onchange="this.form.submit()"
+              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
+            />
+            Hide exhibition rounds
+          </label>
+          <label class="flex items-center gap-2 text-sm text-white/60">
+            <input
+              type="checkbox"
+              name="hideTest"
+              value="1"
+              checked={hideTest}
+              onchange="this.form.submit()"
+              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
+            />
+            Hide test rounds
+          </label>
+        </div>
       </form>
     )}
 
@@ -104,11 +146,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <p class="mt-10 text-white/60">No results.</p>
     )}
 
-    {!loadError && rounds.length > 0 && (
+    {!loadError && rounds.length > 0 && visibleRounds.length === 0 && (
+      <p class="mt-10 text-white/60">No rounds match the current filters.</p>
+    )}
+
+    {!loadError && visibleRounds.length > 0 && (
       <div class="mt-8 divide-y divide-white/10 rounded-xl border border-white/10">
-        {rounds.map((round) => {
+        {visibleRounds.map((round) => {
           const displayNumber = displayRoundNumbers.get(round.subsession_id) ?? null;
           const isExhibition = displayNumber === null;
+          const isTest = testRoundIds.has(round.subsession_id);
           return (
           <a
             href={`/results/${round.subsession_id}`}
@@ -124,6 +171,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </p>
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
+              {isTest && (
+                <span class="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white/60">
+                  Test
+                </span>
+              )}
               {round.strength_of_field !== null && <span>SoF {round.strength_of_field}</span>}
               {round.status !== 'official' && (
                 <span class="rounded-lg bg-brand-gold/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-gold">

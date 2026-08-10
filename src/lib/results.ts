@@ -53,7 +53,7 @@ import {
   getAllCircuitLayouts,
   type SupabaseEnv,
 } from './supabase';
-import type { Season, CarLogo, Penalty, Lookup, Circuit, CircuitLayout } from './supabase';
+import type { Season, CarLogo, Penalty, Lookup, Circuit, CircuitLayout, EventRecord } from './supabase';
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
@@ -2445,6 +2445,37 @@ export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: num
     `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`
   );
   return rounds[0] ?? null;
+}
+
+/**
+ * Resolves which curated_rounds row (if any) an event represents — see
+ * events.season_id/round_number/subsession_id's own doc comments in
+ * 0035_events_rounds_categories.sql for the two ways this can be set. The
+ * explicit subsession_id override always wins when present (it's how a
+ * season-agnostic TEST/EXHIBITION event, which has no round_number to
+ * match on, gets linked to a round at all); otherwise this looks up
+ * curated_rounds live by season_id+round_number, so a championship event
+ * scheduled well before its round exists resolves automatically the
+ * moment a matching round shows up — real pipeline or manual import —
+ * with no write-back step required on either side. Returns null when
+ * neither is set, or when what IS set doesn't match anything yet (an
+ * upcoming event with no results imported).
+ */
+export async function getEventRound(
+  env: SupabaseEnv,
+  event: Pick<EventRecord, 'subsession_id' | 'season_id' | 'round_number'>
+): Promise<RoundSummary | null> {
+  if (event.subsession_id !== null) {
+    return getRoundBySubsessionId(env, event.subsession_id);
+  }
+  if (event.season_id !== null && event.round_number !== null) {
+    const rounds = await restGet<RoundSummary[]>(
+      env,
+      `curated_rounds?select=${ROUND_SUMMARY_SELECT}&season_id=eq.${encodeURIComponent(event.season_id)}&round_number=eq.${event.round_number}`
+    );
+    return rounds[0] ?? null;
+  }
+  return null;
 }
 
 /**

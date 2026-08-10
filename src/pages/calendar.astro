@@ -5,7 +5,13 @@ import Layout from '../layouts/Layout.astro';
 import EventDetailCard from '../components/EventDetailCard.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
-import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout, type LayoutRoundSummary } from '../lib/results';
+import {
+  getAllRounds,
+  getRoundLayoutsForSubsessions,
+  findRoundsForLayout,
+  type LayoutRoundSummary,
+  type RoundSummary,
+} from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -28,6 +34,13 @@ try {
 // doc comment and src/pages/api/round-recap/[subsessionId].ts for why that
 // part is deliberately deferred to a lazy, per-round client-side fetch.
 let layoutRoundsByEventId = new Map<string, LayoutRoundSummary[]>();
+// Which curated_rounds row (if any) each event represents — same
+// season_id+round_number / subsession_id-override resolution as
+// getEventRound() (src/lib/results.ts), just done in bulk against the
+// allRounds fetch this page already needs for layoutRoundsByEventId above,
+// rather than issuing one more REST call per event on a page that can list
+// several dozen of them.
+let linkedRoundByEventId = new Map<string, RoundSummary | null>();
 try {
   const [circuits, layouts, allRounds] = await Promise.all([
     getCircuits(supabaseEnv),
@@ -38,11 +51,20 @@ try {
     supabaseEnv,
     allRounds.map((r) => r.subsession_id)
   );
+  const roundsBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
+  const roundsBySeasonRound = new Map(allRounds.map((r) => [`${r.season_id}:${r.round_number}`, r]));
   for (const event of events) {
     layoutRoundsByEventId.set(
       event.id,
       findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout)
     );
+    const linked =
+      event.subsession_id !== null
+        ? roundsBySubsession.get(event.subsession_id) ?? null
+        : event.season_id !== null && event.round_number !== null
+          ? roundsBySeasonRound.get(`${event.season_id}:${event.round_number}`) ?? null
+          : null;
+    linkedRoundByEventId.set(event.id, linked);
   }
 } catch (err) {
   console.error('Failed to resolve layout race-recap history for the event list:', err);
@@ -126,7 +148,7 @@ const calendarEvents = events.map((e) => ({
       <div data-view-panel="list">
         {upcoming.length > 0 && (
           <div class="mt-10 space-y-4">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} />)}
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} />)}
           </div>
         )}
 
@@ -134,7 +156,7 @@ const calendarEvents = events.map((e) => ({
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 space-y-4 opacity-70">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} />)}
+              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} />)}
             </div>
           </div>
         )}

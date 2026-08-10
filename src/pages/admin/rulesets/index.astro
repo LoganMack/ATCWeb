@@ -77,17 +77,28 @@ if (Astro.request.method === 'POST') {
     } else if (!rulesRaw) {
       error = 'Rules JSON is required.';
     } else {
-      let rules: string;
+      // Parse and keep the PARSED OBJECT — not a re-stringified JSON
+      // string — to validate it's real JSON before it ever reaches the
+      // database (recalculate_race_scores() reads this column directly, so
+      // a typo here — a trailing comma, an unquoted key — should fail
+      // loudly on THIS form, not silently break scoring the next time a
+      // round gets recalculated) AND because sending the object itself,
+      // not a string, is what makes PostgREST write it into the jsonb
+      // column as an actual object. Sending a JSON string here (the
+      // previous version of this code, via JSON.stringify) does NOT get
+      // re-parsed on the way in — it silently corrupts the column into a
+      // jsonb STRING SCALAR that only reads back valid on the surface;
+      // every rules->'...' lookup in recalculate_race_scores() then
+      // evaluates to NULL, which doesn't fail until the next recalculation
+      // hits a NOT NULL constraint. See ScoringRuleset.rules' own doc
+      // comment in src/lib/supabase.ts for the full story — this exact bug
+      // corrupted the live "ATC 18.3" ruleset in production.
+      let rules: unknown;
       try {
-        // Round-trip through parse/stringify purely to validate it's real
-        // JSON before it ever reaches the database — recalculate_race_scores()
-        // reads this column directly, so a typo here (a trailing comma, an
-        // unquoted key) should fail loudly on THIS form, not silently break
-        // scoring the next time a round gets recalculated.
-        rules = JSON.stringify(JSON.parse(rulesRaw));
+        rules = JSON.parse(rulesRaw);
       } catch (err) {
         error = `Rules must be valid JSON: ${err instanceof Error ? err.message : String(err)}`;
-        rules = '';
+        rules = null;
       }
       if (!error) {
         try {

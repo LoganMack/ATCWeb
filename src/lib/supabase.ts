@@ -556,10 +556,12 @@ export function deleteChampionPhoto(env: SupabaseEnv, accessToken: string, id: s
 export interface RoundOverride {
   subsession_id: number;
   is_exhibition: boolean;
+  /** 0036_round_test_flag.sql — independent of is_exhibition, see that migration's own comment for why these are two separate booleans rather than one category column. */
+  is_test: boolean;
   note: string | null;
 }
 
-const ROUND_OVERRIDE_SELECT = 'subsession_id,is_exhibition,note';
+const ROUND_OVERRIDE_SELECT = 'subsession_id,is_exhibition,is_test,note';
 
 /** subsession_ids flagged as a non-points exhibition — used to exclude those rounds from standings/champions even inside an otherwise-real championship season. */
 export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<number>> {
@@ -567,6 +569,12 @@ export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<numbe
     env,
     'round_overrides?select=subsession_id&is_exhibition=eq.true'
   );
+  return new Set(rows.map((r) => r.subsession_id));
+}
+
+/** subsession_ids flagged as a test round (0036_round_test_flag.sql) — used by the results list page's Test filter, same shape as getExhibitionRoundIds. */
+export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
+  const rows = await restGet<{ subsession_id: number }[]>(env, 'round_overrides?select=subsession_id&is_test=eq.true');
   return new Set(rows.map((r) => r.subsession_id));
 }
 
@@ -578,7 +586,7 @@ export async function getRoundOverride(env: SupabaseEnv, subsessionId: number) {
   return rows[0] ?? null;
 }
 
-/** Marks (or unmarks) one round as a non-points exhibition — upserts on subsession_id. */
+/** Marks (or unmarks) one round as a non-points exhibition — upserts on subsession_id. Only ever writes is_exhibition; a prior is_test flag on the same row (if any) survives untouched — see 0036_round_test_flag.sql for why these are independent. */
 export async function setRoundExhibition(
   env: SupabaseEnv,
   accessToken: string,
@@ -589,6 +597,18 @@ export async function setRoundExhibition(
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
     body: JSON.stringify({ subsession_id: subsessionId, is_exhibition: isExhibition }),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_overrides: ${await res.text()}`);
+  const rows = (await res.json()) as RoundOverride[];
+  return rows[0];
+}
+
+/** Marks (or unmarks) one round as a test round — same upsert shape as setRoundExhibition, independent flag. */
+export async function setRoundTest(env: SupabaseEnv, accessToken: string, subsessionId: number, isTest: boolean) {
+  const res = await fetch(`${env.url}/rest/v1/round_overrides?on_conflict=subsession_id`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify({ subsession_id: subsessionId, is_test: isTest }),
   });
   if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_overrides: ${await res.text()}`);
   const rows = (await res.json()) as RoundOverride[];
@@ -832,6 +852,39 @@ export async function updateSeasonRuleset(env: SupabaseEnv, accessToken: string,
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { scoring_ruleset_id: rulesetId });
 }
 
+/** One curated_rounds row's outcome from a recalculateSeasonScores() call — see recalculate_season_scores() (0034_recalculate_season_scores.sql) for why this is per-round instead of one pass/fail for the whole season. */
+export interface SeasonRecalcResult {
+  subsession_id: number;
+  rows_written: number | null;
+  error_message: string | null;
+}
+
+/**
+ * Admin > Seasons' "Recalculate" button — re-runs recalculate_race_scores()
+ * for every round in a season via the DB-side recalculate_season_scores()
+ * wrapper, rather than looping N individual RPC calls from here (one round
+ * trip instead of N, and the whole run stays inside one Postgres statement
+ * so a slow round can't leave the UI hanging on a partially-done season).
+ * A round-level failure doesn't abort the batch — it comes back as its own
+ * row with `error_message` set, right alongside the rounds that succeeded,
+ * so the caller can report exactly which rounds still need attention
+ * (a missing ruleset, a round with no format set, etc.) instead of an
+ * all-or-nothing outcome.
+ */
+export async function recalculateSeasonScores(
+  env: SupabaseEnv,
+  accessToken: string,
+  seasonId: string
+): Promise<SeasonRecalcResult[]> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/recalculate_season_scores`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken),
+    body: JSON.stringify({ p_season_id: seasonId }),
+  });
+  if (!res.ok) throw new Error(`Supabase RPC error ${res.status} on recalculate_season_scores: ${await res.text()}`);
+  return res.json() as Promise<SeasonRecalcResult[]>;
+}
+
 /**
  * Marks one season as the current one (is_current=true), the season the
  * public site's pickers default to (see standings.astro/team-standings.astro/
@@ -870,16 +923,31 @@ export interface ScoringRuleset {
   /**
    * Parsed JSON (an object), NOT a string — PostgREST returns jsonb columns
    * as native JSON on every read (GET, and the `return=representation` body
-   * of a create/update), same as any other jsonb column in this file. Only
-   * the *write* side (createScoringRuleset/updateScoringRuleset's own
-   * `rules: string` param below, a deliberately different shape) deals in a
-   * JSON string — the admin UI serializes the textarea's edited JSON before
-   * sending it, and Postgres's `::jsonb` cast re-parses that string back
-   * into the real object on the way in. Treating this field as a string too
-   * (it used to be typed that way) fed an already-parsed object into
-   * `JSON.parse`, which fails and falls through to displaying the object's
-   * default `[object Object]` stringification — see prettyJson() in
-   * src/pages/admin/rulesets/index.astro for the fix.
+   * of a create/update), same as any other jsonb column in this file.
+   * Treating this field as a string (it used to be typed that way) fed an
+   * already-parsed object into `JSON.parse`, which fails and falls through
+   * to displaying the object's default `[object Object]` stringification —
+   * see prettyJson() in src/pages/admin/rulesets/index.astro for that fix.
+   *
+   * createScoringRuleset/updateScoringRuleset's own `rules` param below is
+   * ALSO typed `unknown` (a parsed object), not a JSON string — a previous
+   * version of this comment claimed the write side should send a
+   * JSON-stringified string here because "Postgres's ::jsonb cast re-parses
+   * that string back into the real object on the way in." That's wrong, and
+   * it corrupted this exact column in production: PostgREST doesn't run the
+   * request body through Postgres's jsonb TEXT INPUT parser at all — it
+   * extracts each field's value from the parsed JSON request body and hands
+   * it to the target column already typed as JSON. A JSON *string* value
+   * (e.g. `"rules": "{\"drops\":2,...}"`) lands in a jsonb column as a
+   * jsonb STRING SCALAR whose content happens to look like JSON — it is
+   * NOT re-parsed into an object. That's silent: no error, just a
+   * `scoring_rulesets.rules` row that reads back as `jsonb_typeof = 'string'`
+   * instead of `'object'`, and every `v_rules->'base_points'->...` lookup
+   * in recalculate_race_scores() then evaluates to SQL NULL, which fails
+   * loudly only once — at the NOT NULL constraint on race_scores.finish_points
+   * when that round is next recalculated, by which point the mistake is
+   * long past. Sending the PARSED OBJECT (not a string) as the `rules`
+   * field is what makes PostgREST forward it as an actual JSON object value.
    */
   rules: unknown;
   notes: string | null;
@@ -907,7 +975,7 @@ export async function getScoringRulesetById(env: SupabaseEnv, id: string) {
 export function createScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
-  data: { name: string; rulebook: string | null; rules: string; notes: string | null }
+  data: { name: string; rulebook: string | null; rules: unknown; notes: string | null }
 ) {
   return restPost<ScoringRuleset>(env, accessToken, 'scoring_rulesets', data);
 }
@@ -916,7 +984,7 @@ export function updateScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  data: Partial<{ name: string; rulebook: string | null; rules: string; notes: string | null }>
+  data: Partial<{ name: string; rulebook: string | null; rules: unknown; notes: string | null }>
 ) {
   return restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(id)}`, data);
 }
@@ -1106,6 +1174,8 @@ export function deleteCircuitLayout(env: SupabaseEnv, accessToken: string, id: s
 
 export type Weather = 'dry' | 'mixed' | 'wet';
 export type EventFormat = 'endurance' | 'sprint' | 'special';
+/** 0035_events_rounds_categories.sql. 'championship' (default) expects season_id/round_number; 'test'/'exhibition' are season-agnostic, mirroring the round-level exhibition concept (round_overrides.is_exhibition) at the event level. */
+export type EventCategory = 'championship' | 'test' | 'exhibition';
 
 export interface EventRecord {
   id: string;
@@ -1115,6 +1185,12 @@ export interface EventRecord {
   format: EventFormat;
   fuel_limit_pct: number | null;
   results_url: string | null;
+  category: EventCategory;
+  /** Paired with round_number (both null or both set — enforced by events_season_round_paired). Which round this event represents — matched live against curated_rounds by season_id+round_number, not a stored link. See getEventRound() in results.ts. */
+  season_id: string | null;
+  round_number: number | null;
+  /** Manual override/pin to a specific curated_rounds row — see this column's own comment in 0035_events_rounds_categories.sql for when to use this instead of season_id+round_number auto-matching. */
+  subsession_id: number | null;
 
   practice_start_time: string | null; // 'HH:MM:SS'
   /** In-sim time of day for this session (0023_event_sim_times.sql) — a separate concept from practice_start_time above (that's the real-world/local clock time people need to show up; this is what iRacing's own clock is set to, affecting lighting/weather progression). Same 'HH:MM:SS' shape, no timezone (a sim clock has none). */
@@ -1146,25 +1222,27 @@ export interface EventRecord {
 
 export interface EventWithCircuit extends EventRecord {
   circuits: { name: string; logo_url: string | null } | null;
+  /** Embedded from season_id (PostgREST FK join) — null for a season-agnostic TEST/EXHIBITION event, or a championship event that hasn't been assigned a season yet. Just for display ("Round N — ATC17"); the actual round resolution is getEventRound() in results.ts, keyed off season_id/round_number/subsession_id, not this embed. */
+  seasons: { name: string; number: number } | null;
 }
 
 const EVENT_SELECT =
-  'id,circuit_id,layout,event_date,format,fuel_limit_pct,results_url,' +
+  'id,circuit_id,layout,event_date,format,fuel_limit_pct,results_url,category,season_id,round_number,subsession_id,' +
   'practice_start_time,practice_sim_time,practice_minutes,practice_weather,' +
   'qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
   'race1_start_time,race1_sim_time,race1_laps,race1_weather,' +
   'race2_start_time,race2_sim_time,race2_laps,race2_weather,' +
   'race3_start_time,race3_sim_time,race3_laps,race3_weather';
 
-/** All events (with circuit name/logo embedded), soonest first. Powers the public calendar page. */
+/** All events (with circuit name/logo and season name/number embedded), soonest first. Powers the public calendar page. */
 export function getEvents(env: SupabaseEnv) {
-  const select = `${EVENT_SELECT},circuits(name,logo_url)`;
+  const select = `${EVENT_SELECT},circuits(name,logo_url),seasons(name,number)`;
   return restGet<EventWithCircuit[]>(env, `events?select=${encodeURIComponent(select)}&order=event_date.asc`);
 }
 
 /** The next `limit` events from today onward — powers the homepage "Upcoming Events" widget. */
 export function getUpcomingEvents(env: SupabaseEnv, limit: number) {
-  const select = `${EVENT_SELECT},circuits(name,logo_url)`;
+  const select = `${EVENT_SELECT},circuits(name,logo_url),seasons(name,number)`;
   const today = new Date().toISOString().slice(0, 10);
   return restGet<EventWithCircuit[]>(
     env,

@@ -12,10 +12,14 @@ import {
   getCircuits,
   getAllCircuitLayouts,
   displayLayoutName,
+  getSeasons,
+  formatDate,
   type EventRecord,
   type EventFormat,
+  type EventCategory,
   type Weather,
 } from '../../../lib/supabase';
+import { getEventRound } from '../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -39,8 +43,21 @@ function optWeather(form: FormData, name: string): Weather | null {
   const v = str(form, name);
   return v === 'dry' || v === 'mixed' || v === 'wet' ? v : null;
 }
+function optCategory(form: FormData, name: string): EventCategory {
+  const v = str(form, name);
+  return v === 'test' || v === 'exhibition' ? v : 'championship';
+}
 
 function readForm(form: FormData): Partial<EventRecord> {
+  const category = optCategory(form, 'category');
+  // TEST/EXHIBITION are season-agnostic (per Logan) — even if stale
+  // season/round values are sitting in the submitted form (e.g. the admin
+  // switched category after picking a season), don't persist them. A
+  // championship event keeps whatever season/round the form submitted,
+  // including both-blank (allowed — see events_season_round_paired; a
+  // championship event can be scheduled before its season/round is known).
+  const seasonId = category === 'championship' ? optStr(form, 'season_id') : null;
+  const roundNumber = category === 'championship' ? optInt(form, 'round_number') : null;
   return {
     circuit_id: str(form, 'circuit_id'),
     layout: optStr(form, 'layout'),
@@ -48,6 +65,10 @@ function readForm(form: FormData): Partial<EventRecord> {
     format: (str(form, 'format') || 'sprint') as EventFormat,
     fuel_limit_pct: optInt(form, 'fuel_limit_pct'),
     results_url: optStr(form, 'results_url'),
+    category,
+    season_id: seasonId,
+    round_number: roundNumber,
+    subsession_id: optInt(form, 'subsession_id'),
 
     practice_start_time: optStr(form, 'practice_start_time'),
     practice_sim_time: optStr(form, 'practice_sim_time'),
@@ -93,6 +114,8 @@ if (Astro.request.method === 'POST') {
     const data = readForm(form);
     if (!data.circuit_id || !data.event_date || !data.race1_start_time) {
       error = 'Circuit, event date, and Race 1 start time are required.';
+    } else if ((data.season_id === null) !== (data.round_number === null)) {
+      error = 'Season and round number must be set together (or both left blank).';
     } else {
       try {
         if (isNew) {
@@ -109,13 +132,19 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const [circuits, layouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
+const [circuits, layouts, seasons] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getSeasons(supabaseEnv)]);
 
 let event: EventRecord | null = null;
 if (!isNew && id) {
   event = await getEventById(supabaseEnv, id);
   if (!event) return Astro.redirect('/admin/events', 302);
 }
+
+// Only meaningful once results actually exist for whatever round this event
+// represents (see getEventRound's own doc comment) — null for every
+// upcoming event, and for a past one nothing's been imported/matched to
+// yet. Shown as a "View Results" link below the form when resolved.
+const linkedRound = event ? await getEventRound(supabaseEnv, event) : null;
 
 const d: Partial<EventRecord> = event ?? {
   circuit_id: circuits[0]?.id ?? '',
@@ -124,6 +153,10 @@ const d: Partial<EventRecord> = event ?? {
   format: 'sprint',
   fuel_limit_pct: null,
   results_url: '',
+  category: 'championship',
+  season_id: null,
+  round_number: null,
+  subsession_id: null,
   practice_start_time: null,
   practice_sim_time: null,
   practice_minutes: null,
@@ -219,6 +252,63 @@ const d: Partial<EventRecord> = event ?? {
           <option value="special" selected={d.format === 'special'} class="bg-brand-ink text-white">Special</option>
         </select>
       </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Category</span>
+        <select
+          id="category"
+          name="category"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        >
+          <option value="championship" selected={d.category === 'championship'} class="bg-brand-ink text-white">Championship</option>
+          <option value="test" selected={d.category === 'test'} class="bg-brand-ink text-white">Test</option>
+          <option value="exhibition" selected={d.category === 'exhibition'} class="bg-brand-ink text-white">Exhibition</option>
+        </select>
+        <span class="text-xs text-white/40">Test and Exhibition are season-agnostic — no season/round below.</span>
+      </label>
+      <div id="season-round-fields" class="contents">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Season</span>
+          <select
+            name="season_id"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            <option value="" selected={!d.season_id} class="bg-brand-ink text-white">Not set yet</option>
+            {seasons.map((s) => (
+              <option value={s.id} selected={s.id === d.season_id} class="bg-brand-ink text-white">{s.name}</option>
+            ))}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Round number</span>
+          <input
+            type="number"
+            min="1"
+            name="round_number"
+            value={d.round_number ?? ''}
+            placeholder="e.g. 4"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+          <span class="text-xs text-white/40">Must be set together with Season — this is what lets results uploaded later auto-link back to this event.</span>
+        </label>
+      </div>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Round override (subsession id)</span>
+        <input
+          type="number"
+          name="subsession_id"
+          value={d.subsession_id ?? ''}
+          placeholder="Usually leave blank"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <span class="text-xs text-white/40">
+          Only needed to manually point a Test/Exhibition event at a round already on Race Results (Season/Round auto-matching doesn't apply to those) — leave blank otherwise.
+        </span>
+      </label>
+      {linkedRound && (
+        <p class="text-sm text-white/60 sm:col-span-2">
+          Linked round: <a href={`/results/${linkedRound.subsession_id}`} class="font-semibold text-brand-primary hover:underline">{linkedRound.track_name} — {formatDate(linkedRound.start_time)}</a>
+        </p>
+      )}
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Fuel limit (%)</span>
         <input
@@ -351,6 +441,29 @@ const d: Partial<EventRecord> = event ?? {
     applyFilter();
   }
 
+  // Test/Exhibition are season-agnostic (per Logan) — hides the
+  // Season/Round inputs rather than removing them from the DOM, since
+  // readForm() server-side already ignores season_id/round_number for
+  // those two categories regardless of what's submitted (see its own
+  // comment) — this is purely about not showing fields that won't be used.
+  function initCategoryFields() {
+    const categorySelect = document.getElementById('category') as HTMLSelectElement | null;
+    const seasonRoundFields = document.getElementById('season-round-fields');
+    if (!categorySelect || !seasonRoundFields) return;
+
+    function applyVisibility() {
+      // Toggling inline `display` directly rather than Tailwind's `hidden`
+      // class — this element already carries `contents` (so its two child
+      // labels lay out as direct grid items, not nested inside a block
+      // wrapper) and `display: none` needs to win outright when hiding, not
+      // fight `display: contents` over class-order specificity.
+      seasonRoundFields!.style.display = categorySelect!.value === 'championship' ? '' : 'none';
+    }
+
+    categorySelect.addEventListener('change', applyVisibility);
+    applyVisibility();
+  }
+
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -358,5 +471,6 @@ const d: Partial<EventRecord> = event ?? {
       });
     });
     initLayoutFilter();
+    initCategoryFields();
   });
 </script>

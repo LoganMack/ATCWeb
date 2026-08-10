@@ -7,7 +7,9 @@ import {
   resolveSupabaseEnv,
   getDriverClasses,
   getExhibitionRoundIds,
+  getTestRoundIds,
   setRoundExhibition,
+  setRoundTest,
   getRaceLinksForSubsession,
   upsertRaceLinks,
   formatDate,
@@ -56,6 +58,16 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
   }
 
+  if (intent === 'toggle-test') {
+    const nextIsTest = String(form.get('next') ?? 'true') === 'true';
+    try {
+      await setRoundTest(supabaseEnv, Astro.locals.session!.accessToken, subsessionId, nextIsTest);
+    } catch (err) {
+      console.error('Failed to update round test flag:', err);
+    }
+    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
+  }
+
   if (intent === 'save-race-links') {
     // Empty strings from the form mean "clear this field" (null), not
     // "leave whatever was there" — the form always shows the current
@@ -95,17 +107,19 @@ let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
 let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let exhibitionRoundIds: Set<number> = new Set();
+let testRoundIds: Set<number> = new Set();
 let raceLinksByRace: Map<number, RaceLinks> = new Map();
 let penalties: Penalty[] = [];
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, roundResults, classes, exhibitionRoundIds, raceLinksByRace, penalties] = await Promise.all([
+    [round, roundResults, classes, exhibitionRoundIds, testRoundIds, raceLinksByRace, penalties] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(supabaseEnv, subsessionId),
       getDriverClasses(supabaseEnv),
       getExhibitionRoundIds(supabaseEnv),
+      getTestRoundIds(supabaseEnv),
       getRaceLinksForSubsession(supabaseEnv, subsessionId),
       getPenaltiesForSubsession(supabaseEnv, subsessionId),
     ]);
@@ -144,6 +158,11 @@ const orderedClassIds = classes.map((c) => c.id).filter((id) => roundResults.byC
 const isRoundFlaggedExhibition = exhibitionRoundIds.has(subsessionId);
 const isSeasonExhibition = round?.season_label ? !isChampionshipSeason(round.season_label) : false;
 const isExhibition = isRoundFlaggedExhibition || isSeasonExhibition;
+// Independent of isExhibition — see 0036_round_test_flag.sql. A round can't
+// be BOTH season-flagged-exhibition and season-flagged-test since that's a
+// property of the season name, but the manual per-round flags (this one and
+// is_exhibition) aren't mutually exclusive by design.
+const isTest = testRoundIds.has(subsessionId);
 
 // The displayed "Round N" skips exhibitions entirely (so flagging round 1
 // makes round 2 become "Round 1") — needs every round in this round's
@@ -226,6 +245,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </p>
         )}
 
+        {isTest && (
+          <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
+            <span class="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white/60">
+              Test
+            </span>
+            <span class="text-white/40">Flagged as a test round — the Race Results list can filter these out.</span>
+          </p>
+        )}
+
         <div class="mt-8 flex flex-wrap items-center justify-between gap-2">
           <div class="flex gap-2">
             <a
@@ -295,16 +323,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         })}
 
         {isAdmin && !isSeasonExhibition && (
-          <form method="POST" data-astro-reload class="mt-16 border-t border-white/10 pt-6">
-            <input type="hidden" name="intent" value="toggle-exhibition" />
-            <input type="hidden" name="next" value={isRoundFlaggedExhibition ? 'false' : 'true'} />
-            <button
-              type="submit"
-              class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
-            >
-              {isRoundFlaggedExhibition ? 'Unflag as exhibition' : 'Flag this round as an exhibition'}
-            </button>
-          </form>
+          <div class="mt-16 flex flex-wrap gap-3 border-t border-white/10 pt-6">
+            <form method="POST" data-astro-reload>
+              <input type="hidden" name="intent" value="toggle-exhibition" />
+              <input type="hidden" name="next" value={isRoundFlaggedExhibition ? 'false' : 'true'} />
+              <button
+                type="submit"
+                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+              >
+                {isRoundFlaggedExhibition ? 'Unflag as exhibition' : 'Flag this round as an exhibition'}
+              </button>
+            </form>
+            <form method="POST" data-astro-reload>
+              <input type="hidden" name="intent" value="toggle-test" />
+              <input type="hidden" name="next" value={isTest ? 'false' : 'true'} />
+              <button
+                type="submit"
+                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+              >
+                {isTest ? 'Unflag as test' : 'Flag this round as a test'}
+              </button>
+            </form>
+          </div>
         )}
       </>
     )}

@@ -1,4 +1,4 @@
-import type { EventFormat, EventRecord, Weather } from './supabase';
+import type { EventCategory, EventFormat, EventRecord, Weather } from './supabase';
 import { zonedTimeToUtcIso, LEAGUE_TIME_ZONE } from './timezone';
 
 /**
@@ -46,6 +46,26 @@ export const FORMAT_BADGE_CLASSES: Record<EventFormat, string> = {
   endurance: 'bg-brand-blue/15 text-brand-blue',
   special: 'bg-brand-pink/15 text-brand-pink',
   sprint: 'bg-brand-gold/15 text-brand-gold',
+};
+
+export const CATEGORY_LABELS: Record<EventCategory, string> = {
+  championship: 'Championship',
+  test: 'Test',
+  exhibition: 'Exhibition',
+};
+
+// Championship is the default/normal case and deliberately gets no special
+// treatment here — callers only render a category badge when it's NOT
+// 'championship', same "only flag the anomalous state" convention as
+// round.status !== 'official' on the Race Results list. Test is a plain
+// neutral grey (a private/practice session — nothing to celebrate visually);
+// Exhibition gets a blue/pink/gold gradient — all three brand colors at
+// once, since it doesn't belong to any one class/format the way a real
+// championship round does.
+export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
+  championship: '',
+  test: 'bg-white/10 text-white/50',
+  exhibition: 'bg-gradient-to-r from-brand-blue/25 via-brand-pink/25 to-brand-gold/25 text-white ring-1 ring-white/10',
 };
 
 export const WEATHER_LABELS: Record<Weather, string> = {
