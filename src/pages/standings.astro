@@ -50,8 +50,20 @@ const activeSeason =
   championshipSeasons.find((s) => s.is_current) ??
   championshipSeasons[0];
 
+// Gamma/Delta didn't exist for every season (see seasons.gamma_enabled/
+// delta_enabled, 0037_class_and_scoring_fixes.sql) — the Class picker for
+// the active season only offers classes that actually competed that
+// season, so there's no "Gamma" option to pick for a season Gamma never
+// raced in. Alpha has no flag — every championship season has it.
+const classesForActiveSeason = classes.filter(
+  (c) => (c.name !== 'Gamma' || activeSeason?.gamma_enabled) && (c.name !== 'Delta' || activeSeason?.delta_enabled)
+);
+
 const requestedClassName = Astro.url.searchParams.get('class');
-const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
+const activeClass =
+  classesForActiveSeason.find((c) => c.name === requestedClassName) ??
+  classesForActiveSeason.find((c) => c.name === 'Alpha') ??
+  classesForActiveSeason[0];
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 
@@ -143,7 +155,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 onchange="this.form.submit()"
                 class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
               >
-                {classes.map((c) => (
+                {classesForActiveSeason.map((c) => (
                   <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
                 ))}
               </select>

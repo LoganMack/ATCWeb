@@ -828,9 +828,14 @@ export interface Season {
    * from /admin/seasons.
    */
   scoring_ruleset_id: string | null;
+  /** Whether the Gamma class competed this season — see 0037_class_and_scoring_fixes.sql. Gamma didn't exist before ATC16, so this is false for older seasons unless an admin turns it on. Controls whether Gamma standings/champions/tabs show for this season on the public site. */
+  gamma_enabled: boolean;
+  /** Same idea as gamma_enabled, for Delta — didn't exist before ATC5. */
+  delta_enabled: boolean;
 }
 
-const SEASON_SELECT = 'id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id';
+const SEASON_SELECT =
+  'id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id,gamma_enabled,delta_enabled';
 
 /** All seasons, newest first. */
 export function getSeasons(env: SupabaseEnv) {
@@ -850,6 +855,16 @@ export async function updateSeasonLogo(env: SupabaseEnv, accessToken: string, id
 /** Assigns (or clears, with `null`) which scoring ruleset a season uses — see Season.scoring_ruleset_id. */
 export async function updateSeasonRuleset(env: SupabaseEnv, accessToken: string, id: string, rulesetId: string | null) {
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { scoring_ruleset_id: rulesetId });
+}
+
+/** Toggles a season's Gamma/Delta class-activation flags — see Season.gamma_enabled/delta_enabled. */
+export async function updateSeasonClassFlags(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  flags: { gamma_enabled: boolean; delta_enabled: boolean }
+) {
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, flags);
 }
 
 /** One curated_rounds row's outcome from a recalculateSeasonScores() call — see recalculate_season_scores() (0034_recalculate_season_scores.sql) for why this is per-round instead of one pass/fail for the whole season. */

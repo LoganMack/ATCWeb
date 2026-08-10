@@ -32,17 +32,32 @@ try {
   loadError = err instanceof Error ? err.message : String(err);
 }
 
+// Gamma/Delta didn't exist for every season (seasons.gamma_enabled/
+// delta_enabled, 0037_class_and_scoring_fixes.sql) — a class tab only shows
+// at all if at least one season actually enables it, and the seasons that
+// class's champion list considers are narrowed to just the enabled ones,
+// so e.g. Gamma never shows a "champion" for a season before it existed.
+// Alpha has no flag — every championship season has it.
+function classIsEnabledFor(className: string, season: Awaited<ReturnType<typeof getSeasons>>[number]): boolean {
+  if (className === 'Gamma') return season.gamma_enabled;
+  if (className === 'Delta') return season.delta_enabled;
+  return true;
+}
+const visibleClasses = classes.filter((c) => seasons.some((s) => classIsEnabledFor(c.name, s)));
+
 // Defaults to Alpha. Class switching is a real navigation (?class=Gamma)
 // rather than a client-side toggle — computing a season's standings isn't
 // free, so it only happens for the class actually being viewed.
 const requestedClassName = Astro.url.searchParams.get('class');
-const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
+const activeClass =
+  visibleClasses.find((c) => c.name === requestedClassName) ?? visibleClasses.find((c) => c.name === 'Alpha') ?? visibleClasses[0];
 
 let champions: ChampionEntry[] = [];
 let photosBySeason = new Map<string, Awaited<ReturnType<typeof getChampionPhotosForClass>>>();
 let extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
 if (!loadError && activeClass) {
   try {
+    const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
     // getChampionsWithExtras bulk-fetches every ingredient (drivers, teams,
     // race_scores, curated_race_results, ...) ONCE across every
     // championship season and slices per season in memory, instead of
@@ -52,7 +67,7 @@ if (!loadError && activeClass) {
     // "Too many subrequests by single Worker invocation" limit once enough
     // seasons had real standings data. See that function's own doc comment.
     const [{ champions: championsResult, extrasBySeasonId: extrasResult }, photos] = await Promise.all([
-      getChampionsWithExtras(supabaseEnv, seasons, activeClass.id),
+      getChampionsWithExtras(supabaseEnv, eligibleSeasons, activeClass.id),
       getChampionPhotosForClass(supabaseEnv, activeClass.id),
     ]);
     champions = championsResult;
@@ -95,7 +110,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && (
       <div class="flex flex-wrap gap-2">
-        {classes.map((c) => (
+        {visibleClasses.map((c) => (
           <a
             href={`/champions?class=${encodeURIComponent(c.name)}`}
             class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
