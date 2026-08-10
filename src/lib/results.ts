@@ -1876,6 +1876,100 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
   return perSeason.filter((r): r is ChampionEntry => r !== null);
 }
 
+export interface ChampionsWithExtras {
+  champions: ChampionEntry[];
+  /** season.id -> that champion's car/team stats, same shape getSeasonCarTeamStats returns — see that function's own doc comment. Undefined for a champion whose driver_id somehow doesn't appear in that season's stats map (shouldn't normally happen). */
+  extrasBySeasonId: Map<string, DriverSeasonExtras | undefined>;
+}
+
+/**
+ * Same result as calling getChampions() and then, for every entry, a
+ * per-season getSeasonCarTeamStats() — but fetched ONCE across every
+ * season instead of once (getChampions' own scoresRaw check) or twice
+ * (the car/team stats) PER SEASON.
+ *
+ * src/pages/champions.astro used to do exactly that: getChampions(), then
+ * `Promise.all(champions.map(async (entry) => getSeasonCarTeamStats(...)))`
+ * with none of that function's optional precomputed-lookup params filled
+ * in, so every single champion entry re-fetched its own drivers/teams/
+ * car-logos/season-logos/race_scores/curated_race_results from scratch.
+ * That was always somewhat wasteful, but stayed under Cloudflare Workers'
+ * per-invocation subrequest limit while only a couple of recent seasons
+ * had any race_scores data at all. Once enough seasons had real
+ * standings — the official-rounds flip plus the season recalculate button
+ * (0034_recalculate_season_scores.sql) — the page started failing with
+ * "Too many subrequests by single Worker invocation".
+ *
+ * This mirrors computeDriverCareerStats' identical fix for the identical
+ * problem (see that function's own doc comment): bulk-fetch every shared
+ * ingredient once across every championship season, then slice/filter
+ * per season entirely in memory, so the total subrequest count for this
+ * whole page stays flat no matter how many seasons end up with real
+ * standings.
+ */
+export async function getChampionsWithExtras(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classId: number
+): Promise<ChampionsWithExtras> {
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  const championshipSeasonIds = championshipSeasons.map((s) => s.id);
+
+  const [drivers, exhibitionIds, classes, teams, carLogos, seasonLogoRows, bulkScores] = await Promise.all([
+    driversSelect(env),
+    getExhibitionRoundIds(env),
+    getDriverClasses(env),
+    getTeamsBasic(env),
+    getCarLogos(env),
+    getAllTeamSeasonLogosSafe(env),
+    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+  ]);
+
+  const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
+  const [{ rawResults, lapStats }, penalties, allRounds] = await Promise.all([
+    getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
+    getPenaltiesForSubsessions(env, allSubsessionIds),
+    getAllRounds(env),
+  ]);
+
+  const champions: ChampionEntry[] = [];
+  const extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
+
+  for (const season of championshipSeasons) {
+    // Pure in-memory slice of this run's bulk fetches — no network calls
+    // anywhere in this loop, same reasoning as computeDriverCareerStats.
+    const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
+    if (seasonScores.length === 0) continue;
+    const seasonSubsessionIds = new Set(seasonScores.map((s) => s.subsession_id));
+    const seasonRawResults = rawResults.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+    const seasonPenalties = penalties.filter((p) => seasonSubsessionIds.has(p.subsession_id));
+    const seasonLapStats = lapStats.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+    const seasonRounds = allRounds.filter((r) => r.season_id === season.id);
+
+    const overallContext = buildSeasonOverallContext(
+      exhibitionIds,
+      drivers,
+      seasonScores,
+      seasonRawResults,
+      seasonPenalties,
+      seasonRounds,
+      seasonLapStats
+    );
+
+    const classScores = seasonScores.filter((s) => s.class_id === classId);
+    const standings = await computeSeasonStandings(env, season, classId, drivers, exhibitionIds, classes, overallContext, classScores);
+    if (standings.length === 0) continue;
+
+    const champion = standings[0];
+    champions.push({ season, standing: champion });
+
+    const statsByDriver = await getSeasonCarTeamStats(env, season, exhibitionIds, drivers, teams, carLogos, seasonLogoRows, overallContext);
+    extrasBySeasonId.set(season.id, statsByDriver.get(champion.driver.id));
+  }
+
+  return { champions, extrasBySeasonId };
+}
+
 // ---------------------------------------------------------------------------
 // Career driver stats — every driver who has ever scored in a championship
 // season, with career totals summed across every class and season they've
