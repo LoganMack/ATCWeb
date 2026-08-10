@@ -50,6 +50,7 @@ function pointsBreakdownLines(row: RaceResultRow): BreakdownLine[] {
   if (row.classPoints !== 0) lines.push({ label: 'Class', value: row.classPoints });
   if (row.finesseBonus !== 0) lines.push({ label: 'Finesse', value: row.finesseBonus });
   if (row.poleBonus !== 0) lines.push({ label: 'Pole', value: row.poleBonus });
+  if (row.aggressionBonus !== 0) lines.push({ label: 'Aggression', value: row.aggressionBonus });
   if (row.pointsDeduction !== 0) lines.push({ label: 'Deduction', value: row.pointsDeduction });
   return lines;
 }
@@ -283,6 +284,11 @@ for (const p of racePenalties) {
                   {row.wasAdjusted && row.penaltyOldPosition === null && (
                     <sup class="ml-0.5 text-[10px] font-sans text-brand-pink" title={`Finished ${row.finishPosition}, adjusted for a penalty`}>
                       *
+                    </sup>
+                  )}
+                  {row.aggressionBonusWon && (
+                    <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Naked Aggression bonus — most net positions gained this race">
+                      A
                     </sup>
                   )}
                 </div>

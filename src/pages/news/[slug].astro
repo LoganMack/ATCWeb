@@ -309,6 +309,14 @@ if (post.round_subsession_id !== null) {
                           <span class="ml-1 text-brand-gold">
                             ({entry.positionsGained >= 0 ? '+' : ''}{entry.positionsGained})
                           </span>
+                          {entry.bonusAwarded && (
+                            <span
+                              class="ml-1.5 rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold"
+                              title="Naked Aggression bonus point — most net positions gained this race"
+                            >
+                              Bonus
+                            </span>
+                          )}
                         </span>
                       </li>
                     ))}

@@ -122,6 +122,8 @@ export interface RecapOvertakeEntry {
   startingPosition: number;
   finishPosition: number;
   positionsGained: number;
+  /** True when this driver actually earned the Naked Aggression bonus POINT this race (race_scores.aggression_bonus > 0 — the single best net gain that race, shared by every driver tied for it) — mirrors RaceResultRow.aggressionBonusWon. Distinct from just being ranked in this top-5 list: a driver can lead this list without the eligibility this bonus requires (classified, not DSQ'd, a real starting position — see recalculate_race_scores()), or several drivers can share the win at once. */
+  bonusAwarded: boolean;
 }
 
 export interface RecapRace {
@@ -353,7 +355,12 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     // (every class combined), by raw starting/finish position (not the
     // penalty-adjusted classification) — this is about who actually drove
     // through the field on track, independent of any post-race stewarding.
-    const nakedAggression: RecapOvertakeEntry[] = overallRows
+    // Whoever actually earned the bonus POINT this race (bonusAwarded,
+    // possibly more than one driver tied for the best net gain — see
+    // aggressionBonusWon's own doc comment) is always included even if a
+    // large tie group would otherwise push them past the top-5 cutoff, so
+    // the recap never silently omits an actual bonus winner.
+    const rankedGainers: RecapOvertakeEntry[] = overallRows
       .filter((r) => !r.dsq && r.startingPosition !== null)
       .map((r) => ({
         driver: r.driver,
@@ -361,9 +368,13 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
         startingPosition: r.startingPosition as number,
         finishPosition: r.finishPosition,
         positionsGained: (r.startingPosition as number) - r.finishPosition,
+        bonusAwarded: r.aggressionBonusWon,
       }))
-      .sort((a, b) => b.positionsGained - a.positionsGained)
-      .slice(0, 5);
+      .sort((a, b) => b.positionsGained - a.positionsGained);
+    const nakedAggression: RecapOvertakeEntry[] = [
+      ...rankedGainers.slice(0, 5),
+      ...rankedGainers.slice(5).filter((r) => r.bonusAwarded),
+    ];
 
     return { raceNumber, topByClass, topRookies, fastestLap, sublimeFinesse, nakedAggression };
   });

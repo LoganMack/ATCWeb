@@ -360,6 +360,8 @@ interface ScoreLike {
   classPoints: number;
   finesseBonus: number;
   poleBonus: number;
+  /** Like finesseBonus/poleBonus — a penalty never touches this (recalculate_race_scores() computes it off the officially-adjusted position, upstream of any of this file's own display-time recompute), so it only ever needs to be read here, never written. */
+  aggressionBonus: number;
   pointsDeduction: number;
   dsq: boolean;
   classified: boolean;
@@ -410,7 +412,7 @@ function recomputeScorePoints(
   // that keeps an untouched (or class-only-affected) driver's finish points
   // byte-for-byte what the pipeline actually scored, only ever consulting
   // our own FINISH_POINTS table for a driver whose position genuinely moved.
-  const originalFinishPoints = s.totalPoints - s.classPoints - s.finesseBonus - s.poleBonus - s.pointsDeduction;
+  const originalFinishPoints = s.totalPoints - s.classPoints - s.finesseBonus - s.poleBonus - s.aggressionBonus - s.pointsDeduction;
   const finishPoints =
     canReposition && positionChanged && newPosition !== null
       ? finishPointsForPosition(format as Format, newPosition)
@@ -428,7 +430,7 @@ function recomputeScorePoints(
       : s.classPoints;
 
   const pointsDeduction = s.pointsDeduction - (pen?.points ?? 0);
-  const totalPoints = finishPoints + classPoints + s.finesseBonus + s.poleBonus + pointsDeduction;
+  const totalPoints = finishPoints + classPoints + s.finesseBonus + s.poleBonus + s.aggressionBonus + pointsDeduction;
 
   return { totalPoints, classPoints, pointsDeduction };
 }
@@ -526,6 +528,7 @@ function recomputeRow(
       classPoints: row.classPoints,
       finesseBonus: row.finesseBonus,
       poleBonus: row.poleBonus,
+      aggressionBonus: row.aggressionBonus,
       pointsDeduction: row.pointsDeduction,
       dsq: row.dsq,
       classified,
@@ -546,7 +549,7 @@ function recomputeRow(
     position: effectivePosition,
     classPoints: recomputed.classPoints,
     pointsDeduction: recomputed.pointsDeduction,
-    bonusPoints: recomputed.classPoints + row.finesseBonus + row.poleBonus + recomputed.pointsDeduction,
+    bonusPoints: recomputed.classPoints + row.finesseBonus + row.poleBonus + row.aggressionBonus + recomputed.pointsDeduction,
     totalPoints: recomputed.totalPoints,
     wasAdjusted: row.wasAdjusted || (canReposition && positionChanged),
     penaltyOldPosition: canReposition && positionChanged ? row.position : row.penaltyOldPosition,
@@ -704,6 +707,7 @@ export interface SeasonScoreRow {
   finishPoints: number;
   finesseBonus: number;
   poleBonus: number;
+  aggressionBonus: number;
   pointsDeduction: number;
   /** This driver's own completed laps this race — see Positionable's own doc comment (results.ts's rawByKey). */
   lapsComplete: number | null;
@@ -715,7 +719,7 @@ export interface SeasonOverallAdjustment {
   newPosition: number | null;
   finishPoints: number;
   pointsDeduction: number;
-  /** finishPoints + finesseBonus + poleBonus + pointsDeduction — deliberately excluding class_points, matching computeOverallSeasonStandings' own points formula. */
+  /** finishPoints + finesseBonus + poleBonus + aggressionBonus + pointsDeduction — deliberately excluding class_points, matching computeOverallSeasonStandings' own points formula. */
   overallTotalPoints: number;
 }
 
@@ -809,7 +813,7 @@ export function computeSeasonOverallAdjustments(
           ? finishPointsForPosition(format as Format, newPosition)
           : r.finishPoints;
       const pointsDeduction = r.pointsDeduction - (pen?.points ?? 0);
-      const overallTotalPoints = finishPoints + r.finesseBonus + r.poleBonus + pointsDeduction;
+      const overallTotalPoints = finishPoints + r.finesseBonus + r.poleBonus + r.aggressionBonus + pointsDeduction;
 
       out.set(rowKey(r.subsessionId, r.raceNumber, r.driverId), {
         newPosition: canReposition ? newPosition : r.scoredPosition,
@@ -836,6 +840,7 @@ export interface SeasonClassScoreRow {
   classPoints: number;
   finesseBonus: number;
   poleBonus: number;
+  aggressionBonus: number;
   pointsDeduction: number;
   /** This driver's own completed laps this race — see Positionable's own doc comment. */
   lapsComplete: number | null;
@@ -933,13 +938,13 @@ export function computeSeasonClassAdjustments(
 
       const canReposition = !r.dsq && r.classified && format !== null;
       const overall = overallAdjustments.get(rowKey(r.subsessionId, r.raceNumber, r.driverId));
-      const finishPoints = overall ? overall.finishPoints : r.totalPoints - r.classPoints - r.finesseBonus - r.poleBonus - r.pointsDeduction;
+      const finishPoints = overall ? overall.finishPoints : r.totalPoints - r.classPoints - r.finesseBonus - r.poleBonus - r.aggressionBonus - r.pointsDeduction;
       const pointsDeduction = overall ? overall.pointsDeduction : r.pointsDeduction - (pen?.points ?? 0);
       const classPoints =
         canReposition && classPositionChanged
           ? classPointsForPosition(format as Format, newClassPosition, awardsClassPoints)
           : r.classPoints;
-      const totalPoints = finishPoints + classPoints + r.finesseBonus + r.poleBonus + pointsDeduction;
+      const totalPoints = finishPoints + classPoints + r.finesseBonus + r.poleBonus + r.aggressionBonus + pointsDeduction;
 
       out.set(rowKey(r.subsessionId, r.raceNumber, r.driverId), {
         newClassPosition: canReposition ? newClassPosition : r.classPosition,
