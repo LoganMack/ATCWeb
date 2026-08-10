@@ -867,8 +867,21 @@ export interface ScoringRuleset {
   id: string;
   name: string;
   rulebook: string | null;
-  /** Raw JSON text (not parsed) — see this section's own header comment for the shape recalculate_race_scores() expects. Admin UI edits this as a textarea and validates it's parseable JSON before saving, but otherwise passes it through untouched. */
-  rules: string;
+  /**
+   * Parsed JSON (an object), NOT a string — PostgREST returns jsonb columns
+   * as native JSON on every read (GET, and the `return=representation` body
+   * of a create/update), same as any other jsonb column in this file. Only
+   * the *write* side (createScoringRuleset/updateScoringRuleset's own
+   * `rules: string` param below, a deliberately different shape) deals in a
+   * JSON string — the admin UI serializes the textarea's edited JSON before
+   * sending it, and Postgres's `::jsonb` cast re-parses that string back
+   * into the real object on the way in. Treating this field as a string too
+   * (it used to be typed that way) fed an already-parsed object into
+   * `JSON.parse`, which fails and falls through to displaying the object's
+   * default `[object Object]` stringification — see prettyJson() in
+   * src/pages/admin/rulesets/index.astro for the fix.
+   */
+  rules: unknown;
   notes: string | null;
   /** At most one ruleset can have this true at a time (partial unique index) — the ruleset a season falls back to when its own scoring_ruleset_id is null. See resolveSeasonRuleset. */
   is_default: boolean;

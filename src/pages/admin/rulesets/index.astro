@@ -17,13 +17,28 @@ const accessToken = Astro.locals.session!.accessToken;
 
 let error: string | null = null;
 
-/** Pretty-prints for display; returns the original string unchanged if it isn't valid JSON (shouldn't happen for a row already saved through this page, but a ruleset created before this UI existed could in theory hold anything). */
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
+/**
+ * Pretty-prints a ruleset's `rules` for the edit textarea. This is a parsed
+ * JSON value (an object) straight from Supabase, not a string — jsonb
+ * columns always come back as native JSON on read (see ScoringRuleset.rules'
+ * own doc comment for why). Running that object through JSON.parse (the old
+ * bug here) throws, since JSON.parse needs a string; the catch block then
+ * returned the object itself, and the textarea rendered its default
+ * `[object Object]` stringification instead of the JSON.
+ *
+ * Still handles a value that genuinely arrives as a string (e.g. a row
+ * poked in by hand outside this UI) by parsing-then-re-stringifying it for
+ * consistent indentation, falling back to the raw string if that fails.
+ */
+function prettyJson(value: unknown): string {
+  if (typeof value === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
+    }
   }
+  return JSON.stringify(value, null, 2);
 }
 
 if (Astro.request.method === 'POST') {
