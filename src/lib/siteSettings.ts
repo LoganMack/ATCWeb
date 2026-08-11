@@ -6,7 +6,7 @@
  * they mean.
  */
 
-/** The homepage "Featured Broadcast" YouTube URL — set from /admin/site-settings, rendered by src/pages/index.astro. */
+/** The homepage "Featured Broadcast" YouTube URL — set from /admin/site-properties, rendered by src/pages/index.astro. */
 export const FEATURED_BROADCAST_URL_KEY = 'featured_broadcast_url';
 
 /**

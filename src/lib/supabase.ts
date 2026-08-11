@@ -847,7 +847,7 @@ export function deletePageBanner(env: SupabaseEnv, accessToken: string, pageKey:
 // a natural table of their own — unlike page_banners above, these aren't
 // per-page. First (and so far only) use: 'featured_broadcast_url' (see
 // src/lib/siteSettings.ts for the key constant and the YouTube-URL-to-
-// embed-URL parsing), managed from /admin/site-settings.
+// embed-URL parsing), managed from /admin/site-properties.
 
 export interface SiteSettingRow {
   setting_key: string;

@@ -1,7 +1,7 @@
 /**
  * The full list of pages that can have an admin-managed banner image (see
  * 0024_season_logos_and_page_banners.sql / page_banners table). Drives both
- * /admin/page-banners (one row per entry here) and each public page's own
+ * /admin/site-properties (one row per entry here) and each public page's own
  * fetch (`banners.find((b) => b.page_key === 'standings')`, etc).
  *
  * Deliberately scoped to top-level/static pages only — dynamic detail pages
