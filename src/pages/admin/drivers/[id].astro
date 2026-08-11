@@ -11,8 +11,13 @@ import {
   getDriverStatuses,
   getDriverClasses,
   getTeams,
+  getDriversForNumberCheck,
+  getDriverLastRace,
+  setDriverCarNumber,
+  formatDate,
   type DriverRecord,
 } from '../../../lib/supabase';
+import { getAllProfiles } from '../../../lib/auth';
 import { COUNTRIES } from '../../../lib/countries';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -22,22 +27,25 @@ const isNew = id === 'new';
 
 let error: string | null = null;
 
+// Status, appearances/starts/seasons/penalty-points(-max), and car_number
+// are all deliberately absent here — see the template for why each one is
+// no longer a form field at all:
+//   - status_id: fully automatic now (sync_driver_statuses(), called below)
+//   - appearances/starts/seasons_count/penalty_points/penalty_points_max:
+//     only ever computed by other logic (results/penalties pages)
+//   - car_number: goes through setDriverCarNumber() separately below, not
+//     a plain field on this payload, since it needs the conflict-resolution
+//     logic that function implements (see its own doc comment)
 function readForm(form: FormData): Partial<DriverRecord> {
-  const carNumberRaw = String(form.get('car_number') ?? '').trim();
+  const iratingRaw = String(form.get('starting_irating') ?? '').trim();
   return {
     name: String(form.get('name') ?? '').trim(),
-    car_number: carNumberRaw ? Number(carNumberRaw) : null,
-    status_id: Number(form.get('status_id')),
     class_id: Number(form.get('class_id')),
     team_id: String(form.get('team_id') ?? '') || null,
     is_rookie: form.get('is_rookie') === 'on',
     is_hall_of_fame: form.get('is_hall_of_fame') === 'on',
     car: String(form.get('car') ?? '').trim() || null,
-    appearances: Number(form.get('appearances') ?? 0),
-    starts: Number(form.get('starts') ?? 0),
-    seasons_count: Number(form.get('seasons_count') ?? 0),
-    penalty_points: Number(form.get('penalty_points') ?? 0),
-    penalty_points_max: Number(form.get('penalty_points_max') ?? 11),
+    starting_irating: iratingRaw ? Number(iratingRaw) : null,
     photo_url: String(form.get('photo_url') ?? '').trim() || null,
     bio: String(form.get('bio') ?? '').trim() || null,
     sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
@@ -50,6 +58,18 @@ function readForm(form: FormData): Partial<DriverRecord> {
     nationality_2: form.get('nationality_1') ? String(form.get('nationality_2') ?? '').trim() || null : null,
   };
 }
+
+function readCarNumber(form: FormData): number | null {
+  const raw = String(form.get('car_number') ?? '').trim();
+  return raw ? Number(raw) : null;
+}
+
+const [statuses, classes, teams] = await Promise.all([
+  getDriverStatuses(supabaseEnv),
+  getDriverClasses(supabaseEnv),
+  getTeams(supabaseEnv),
+]);
+const newStatusId = statuses.find((s) => s.name === 'New')?.id ?? statuses[0]?.id;
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -65,15 +85,36 @@ if (Astro.request.method === 'POST') {
     }
   } else {
     const data = readForm(form);
+    const carNumber = readCarNumber(form);
     if (!data.name) {
       error = 'Name is required.';
     } else {
       try {
         if (isNew) {
-          const created = await createDriver(supabaseEnv, accessToken, data);
+          // Created with no car_number — set separately below via
+          // setDriverCarNumber() so the same conflict-resolution logic
+          // (block if held by anyone not Inactive, free it up if they are)
+          // applies on creation exactly like it does on every later edit,
+          // instead of a plain insert bypassing it.
+          const created = await createDriver(supabaseEnv, accessToken, { ...data, status_id: newStatusId });
+          try {
+            await setDriverCarNumber(supabaseEnv, accessToken, created.id, carNumber);
+          } catch (numErr) {
+            // Driver row already exists at this point (see comment above —
+            // no real cross-request transaction here, same tradeoff this
+            // codebase already accepts elsewhere, e.g. setCurrentSeason).
+            // Land them on the new driver's own edit page instead of a
+            // dead end, so fixing the number is a one-field retry.
+            return Astro.redirect(
+              `/admin/drivers/${created.id}?error=${encodeURIComponent(numErr instanceof Error ? numErr.message : String(numErr))}`,
+              302
+            );
+          }
           return Astro.redirect(`/admin/drivers/${created.id}`, 302);
         } else if (id) {
           await updateDriver(supabaseEnv, accessToken, id, data);
+          await setDriverCarNumber(supabaseEnv, accessToken, id, carNumber);
+          return Astro.redirect(`/admin/drivers/${id}`, 302);
         }
       } catch (err) {
         console.error('Failed to save driver:', err);
@@ -83,22 +124,23 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const [statuses, classes, teams] = await Promise.all([
-  getDriverStatuses(supabaseEnv),
-  getDriverClasses(supabaseEnv),
-  getTeams(supabaseEnv),
-]);
-
 let driver: DriverRecord | null = null;
 if (!isNew && id) {
   driver = await getDriverById(supabaseEnv, id);
   if (!driver) return Astro.redirect('/admin/drivers', 302);
 }
 
+// Query-string error — see the redirect above for why creation surfaces its
+// car_number failure this way instead of re-rendering the form inline.
+if (!error) {
+  const qsError = Astro.url.searchParams.get('error');
+  if (qsError) error = qsError;
+}
+
 const d: Partial<DriverRecord> = driver ?? {
   name: '',
   car_number: null,
-  status_id: statuses[0]?.id,
+  status_id: newStatusId,
   class_id: classes[0]?.id,
   team_id: null,
   is_rookie: false,
@@ -109,6 +151,7 @@ const d: Partial<DriverRecord> = driver ?? {
   seasons_count: 0,
   penalty_points: 0,
   penalty_points_max: 11,
+  starting_irating: null,
   photo_url: '',
   bio: '',
   on_probation: false,
@@ -116,6 +159,64 @@ const d: Partial<DriverRecord> = driver ?? {
   nationality_1: null,
   nationality_2: null,
 };
+
+const statusName = statuses.find((s) => s.id === d.status_id)?.name ?? null;
+
+// Countdown note — same "90 days AND 12 rounds since their last race"
+// threshold sync_driver_statuses() itself uses (see driver_last_race's own
+// doc comment / 0040_inactivity_90d_or_12_rounds.sql), so this can never say
+// something the automatic status change won't actually do. Both thresholds
+// have to be crossed — whichever takes longer is effectively what's being
+// waited on — so the note calls out whichever one(s) haven't been met yet
+// rather than a single day-count, since the rounds side depends on the
+// league's future schedule and can't be reduced to a date. Only meaningful
+// for New/Active (Veteran is exempt; Inactive already IS inactive) and only
+// once the driver actually exists (a not-yet-created driver has no id to
+// look up race history for).
+let inactivityNote: string | null = null;
+if (!isNew && driver && (statusName === 'New' || statusName === 'Active')) {
+  const { last_race_at: lastRaceAt, rounds_since_last_race: roundsSince } = await getDriverLastRace(
+    supabaseEnv,
+    driver.id
+  );
+  if (lastRaceAt) {
+    const daysSince = Math.floor((Date.now() - new Date(lastRaceAt).getTime()) / (1000 * 60 * 60 * 24));
+    const rounds = roundsSince ?? 0;
+    const daysMet = daysSince >= 90;
+    const roundsMet = rounds >= 12;
+    const lastRacedStr = `last raced ${formatDate(lastRaceAt)}`;
+
+    if (daysMet && roundsMet) {
+      inactivityNote = `${daysSince} days and ${rounds} rounds since their last race (${lastRacedStr}) — both thresholds are met, so this will flip to Inactive the next time statuses sync.`;
+    } else if (daysMet && !roundsMet) {
+      inactivityNote = `90+ days since their last race (${lastRacedStr}), but only ${rounds}/12 official rounds have run since then — becomes Inactive once the 12th round happens.`;
+    } else if (!daysMet && roundsMet) {
+      const daysLeft = 90 - daysSince;
+      inactivityNote = `12+ rounds have run since their last race (${lastRacedStr}), but the 90-day mark isn't reached yet — becomes Inactive in ${daysLeft} day${daysLeft === 1 ? '' : 's'} if they don't race again.`;
+    } else {
+      const daysLeft = 90 - daysSince;
+      inactivityNote = `${lastRacedStr[0].toUpperCase()}${lastRacedStr.slice(1)} — ${rounds}/12 rounds run since then, and the 90-day mark is ${daysLeft} day${daysLeft === 1 ? '' : 's'} away. Becomes Inactive once both are met.`;
+    }
+  } else {
+    inactivityNote = "Clock hasn't started yet — becomes Inactive once 90 days AND 12 rounds have passed since their first race.";
+  }
+}
+
+// Live "is this number taken?" lookup — fetched once, matched client-side
+// as the admin types (see the script below), rather than a round trip per
+// keystroke. Excludes this driver's own current number so editing a driver
+// without changing their number never flags itself as a conflict.
+const numberLookup = (await getDriversForNumberCheck(supabaseEnv)).filter((r) => r.id !== d.id);
+
+let profileNameById = new Map<string, string>();
+if (!isNew && driver && (driver.created_by || driver.updated_by)) {
+  try {
+    const profiles = await getAllProfiles(supabaseEnv, accessToken);
+    profileNameById = new Map(profiles.map((p) => [p.id, p.display_name || p.iracing_name || 'Unknown admin']));
+  } catch (err) {
+    console.error('Failed to load profiles for driver audit info:', err);
+  }
+}
 ---
 
 <AdminLayout title={isNew ? 'New Driver' : d.name || 'Edit Driver'}>
@@ -141,9 +242,11 @@ const d: Partial<DriverRecord> = driver ?? {
       <input
         type="number"
         name="car_number"
+        id="car_number_input"
         value={d.car_number ?? ''}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+      <span id="car_number_hint" class="text-xs text-white/40"></span>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Car</span>
@@ -154,17 +257,20 @@ const d: Partial<DriverRecord> = driver ?? {
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
-    <label class="flex flex-col gap-1.5 text-sm">
+    <div class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Status</span>
-      <select
-        name="status_id"
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      >
-        {statuses.map((s) => (
-          <option value={s.id} selected={s.id === d.status_id}>{s.name}</option>
-        ))}
-      </select>
-    </label>
+      <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-white/80">
+        {statusName ?? '—'}
+      </div>
+      {inactivityNote && <span class="text-xs text-white/40">{inactivityNote}</span>}
+      {!inactivityNote && statusName && (
+        <span class="text-xs text-white/40">
+          {statusName === 'Veteran'
+            ? 'Veterans are exempt from automatic inactivity.'
+            : 'Set automatically — race activity is what changes this now.'}
+        </span>
+      )}
+    </div>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Class</span>
       <select
@@ -172,9 +278,23 @@ const d: Partial<DriverRecord> = driver ?? {
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         {classes.map((c) => (
-          <option value={c.id} selected={c.id === d.class_id}>{c.name}</option>
+          <option value={c.id} selected={c.id === d.class_id} class="bg-brand-ink text-white">{c.name}</option>
         ))}
       </select>
+    </label>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Starting iRating</span>
+      <input
+        type="number"
+        name="starting_irating"
+        min="0"
+        max="20000"
+        step="1"
+        value={d.starting_irating ?? ''}
+        placeholder="e.g. 2500"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+      <span class="text-xs text-white/40">iRatings on iRacing typically run 500–12000 — just a reference point, not enforced.</span>
     </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Nationality</span>
@@ -182,9 +302,9 @@ const d: Partial<DriverRecord> = driver ?? {
         name="nationality_1"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
-        <option value="">None</option>
+        <option value="" class="bg-brand-ink text-white">None</option>
         {COUNTRIES.map((c) => (
-          <option value={c.code} selected={c.code === d.nationality_1}>{c.name}</option>
+          <option value={c.code} selected={c.code === d.nationality_1} class="bg-brand-ink text-white">{c.name}</option>
         ))}
       </select>
     </label>
@@ -194,9 +314,9 @@ const d: Partial<DriverRecord> = driver ?? {
         name="nationality_2"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
-        <option value="">None</option>
+        <option value="" class="bg-brand-ink text-white">None</option>
         {COUNTRIES.map((c) => (
-          <option value={c.code} selected={c.code === d.nationality_2}>{c.name}</option>
+          <option value={c.code} selected={c.code === d.nationality_2} class="bg-brand-ink text-white">{c.name}</option>
         ))}
       </select>
       <span class="text-xs text-white/40">Shown as a split flag (half each) next to this driver's name, wherever nationality is displayed.</span>
@@ -207,9 +327,9 @@ const d: Partial<DriverRecord> = driver ?? {
         name="team_id"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
-        <option value="">No team</option>
+        <option value="" class="bg-brand-ink text-white">No team</option>
         {teams.map((t) => (
-          <option value={t.id} selected={t.id === d.team_id}>{t.name}</option>
+          <option value={t.id} selected={t.id === d.team_id} class="bg-brand-ink text-white">{t.name}</option>
         ))}
       </select>
     </label>
@@ -221,57 +341,21 @@ const d: Partial<DriverRecord> = driver ?? {
         value={d.sign_up_date ?? ''}
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+      {isNew && <span class="text-xs text-white/40">Defaults to today — this is when the 45-day New-driver clock starts counting from their first race.</span>}
     </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Appearances</span>
-      <input
-        type="number"
-        name="appearances"
-        value={d.appearances}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-    </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Starts</span>
-      <input
-        type="number"
-        name="starts"
-        value={d.starts}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-    </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Seasons</span>
-      <input
-        type="number"
-        name="seasons_count"
-        value={d.seasons_count}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-    </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Penalty points (this season)</span>
-      <input
-        type="number"
-        name="penalty_points"
-        value={d.penalty_points}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-      <span class="text-xs text-white/40">
-        Auto-recomputed from scratch (season-scoped, not career) every time a penalty is added, edited, or removed
-        for this driver on a results page — editing it here is only for a one-off correction and will be overwritten
-        the next time one of their penalties changes.
-      </span>
-    </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Penalty points max</span>
-      <input
-        type="number"
-        name="penalty_points_max"
-        value={d.penalty_points_max}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-    </label>
+
+    <div class="flex flex-col gap-1.5 text-sm sm:col-span-2">
+      <span class="text-white/70">Career stats</span>
+      <div class="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-white/70 sm:grid-cols-5">
+        <div><span class="text-white/40">Appearances</span> <span class="font-semibold text-white/90">{d.appearances}</span></div>
+        <div><span class="text-white/40">Starts</span> <span class="font-semibold text-white/90">{d.starts}</span></div>
+        <div><span class="text-white/40">Seasons</span> <span class="font-semibold text-white/90">{d.seasons_count}</span></div>
+        <div><span class="text-white/40">PP (season)</span> <span class="font-semibold text-white/90">{d.penalty_points}</span></div>
+        <div><span class="text-white/40">PP max</span> <span class="font-semibold text-white/90">{d.penalty_points_max}</span></div>
+      </div>
+      <span class="text-xs text-white/40">Read-only — computed from results/penalties, not editable here.</span>
+    </div>
+
     <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
       <span class="text-white/70">Photo URL</span>
       <input
@@ -318,6 +402,17 @@ const d: Partial<DriverRecord> = driver ?? {
       <span class="text-white/70">Hall of Fame member</span>
     </label>
 
+    {!isNew && driver && (driver.created_by || driver.updated_by) && (
+      <p class="text-xs text-white/30 sm:col-span-2">
+        {driver.created_by && (
+          <>Created by {profileNameById.get(driver.created_by) ?? 'an admin'} on {formatDate(driver.created_at)}. </>
+        )}
+        {driver.updated_by && (
+          <>Last updated by {profileNameById.get(driver.updated_by) ?? 'an admin'} on {formatDate(driver.updated_at)}.</>
+        )}
+      </p>
+    )}
+
     <div class="mt-2 flex gap-3 sm:col-span-2">
       <button
         type="submit"
@@ -347,12 +442,60 @@ const d: Partial<DriverRecord> = driver ?? {
   )}
 </AdminLayout>
 
-<script>
+<script type="application/json" id="car-number-lookup-data" set:html={JSON.stringify(numberLookup)} />
+<script define:vars={{ isNew, todayIso: new Date().toISOString().slice(0, 10) }}>
   document.addEventListener('astro:page-load', () => {
-    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+    document.querySelectorAll('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
       });
     });
+
+    // Default sign-up date to today on creation only — Logan: "the sign up
+    // date should populate when the driver is created." Left as a normal
+    // editable field (not read-only) since correcting it for a
+    // backfilled/historical driver is a legitimate one-off edit, same
+    // reasoning as probation_started_at below it.
+    if (isNew) {
+      const signUpInput = document.querySelector('input[name="sign_up_date"]');
+      if (signUpInput && !signUpInput.value) signUpInput.value = todayIso;
+    }
+
+    const input = document.getElementById('car_number_input');
+    const hint = document.getElementById('car_number_hint');
+    const dataEl = document.getElementById('car-number-lookup-data');
+    if (!input || !hint || !dataEl) return;
+    let lookup = [];
+    try {
+      lookup = JSON.parse(dataEl.textContent || '[]');
+    } catch {
+      lookup = [];
+    }
+
+    function updateHint() {
+      const raw = input.value.trim();
+      if (!raw) {
+        hint.textContent = '';
+        return;
+      }
+      const num = Number(raw);
+      const match = lookup.find((d) => d.car_number === num);
+      if (!match) {
+        hint.textContent = 'Available.';
+        hint.className = 'text-xs text-brand-primary';
+        return;
+      }
+      const status = match.driver_statuses?.name ?? 'unknown status';
+      if (status === 'Inactive') {
+        hint.textContent = `Car #${num} was last used by ${match.name} (Inactive) — saving will free it up from them.`;
+        hint.className = 'text-xs text-brand-gold';
+      } else {
+        hint.textContent = `Car #${num} is currently used by ${match.name} (${status}) — saving will be blocked until it's changed.`;
+        hint.className = 'text-xs text-brand-pink';
+      }
+    }
+
+    input.addEventListener('input', updateHint);
+    updateHint();
   });
 </script>
