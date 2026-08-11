@@ -1,0 +1,90 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import { resolveSupabaseEnv } from '../lib/supabase';
+import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
+
+// General sign-in for any account (admin or driver). Admins landing here
+// via a direct link still sign in fine — /admin/* itself keeps gating on
+// the real role separately (see src/middleware.ts) and admins hitting a
+// gated page get sent to /admin/login instead, which additionally handles
+// the "signed in but not admin yet" promotion messaging that doesn't apply
+// to a driver account here.
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const next = Astro.url.searchParams.get('next') || '/';
+const session = Astro.locals.session;
+
+if (session) {
+  return Astro.redirect(next, 302);
+}
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const email = String(form.get('email') ?? '').trim();
+  const password = String(form.get('password') ?? '');
+
+  if (!email || !password) {
+    error = 'Enter both an email and a password.';
+  } else {
+    try {
+      const newSession = await signInWithPassword(supabaseEnv, email, password);
+      const cookieOptions = authCookieOptions(Astro.url);
+      Astro.cookies.set(ACCESS_TOKEN_COOKIE, newSession.accessToken, { ...cookieOptions, maxAge: 60 * 60 });
+      Astro.cookies.set(REFRESH_TOKEN_COOKIE, newSession.refreshToken, {
+        ...cookieOptions,
+        maxAge: 60 * 60 * 24 * 30,
+      });
+      return Astro.redirect(next, 302);
+    } catch (err) {
+      console.error('Login failed:', err);
+      error = err instanceof Error ? err.message : 'Login failed for an unknown reason.';
+    }
+  }
+}
+---
+
+<Layout title="Sign In">
+  <section class="mx-auto flex max-w-sm flex-col px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-4xl">Sign In</h1>
+
+    {error && (
+      <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    )}
+
+    <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Email</span>
+        <input
+          type="email"
+          name="email"
+          required
+          autocomplete="email"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Password</span>
+        <input
+          type="password"
+          name="password"
+          required
+          autocomplete="current-password"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
+      <button
+        type="submit"
+        class="mt-2 rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+      >
+        Sign In
+      </button>
+      <p class="text-center text-xs text-white/40">
+        Don't have an account? <a href="/signup" class="text-brand-primary hover:underline">Sign up</a>
+      </p>
+    </form>
+  </section>
+</Layout>

@@ -1,0 +1,136 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import { resolveSupabaseEnv } from '../lib/supabase';
+import { signUp, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const session = Astro.locals.session;
+
+// Already signed in? Nothing more to do here.
+if (session) {
+  return Astro.redirect('/', 302);
+}
+
+let error: string | null = null;
+let checkEmail = false;
+let submittedEmail = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const email = String(form.get('email') ?? '').trim();
+  const password = String(form.get('password') ?? '');
+  const confirmPassword = String(form.get('confirm_password') ?? '');
+  const displayName = String(form.get('display_name') ?? '').trim();
+  submittedEmail = email;
+
+  if (!email || !password) {
+    error = 'Enter an email and a password.';
+  } else if (password.length < 8) {
+    error = 'Password must be at least 8 characters.';
+  } else if (password !== confirmPassword) {
+    error = "Passwords don't match.";
+  } else {
+    try {
+      const { session: newSession } = await signUp(supabaseEnv, email, password, displayName || undefined);
+      if (newSession) {
+        // No email confirmation required — sign them in immediately, same
+        // cookies as the admin login flow.
+        const cookieOptions = authCookieOptions(Astro.url);
+        Astro.cookies.set(ACCESS_TOKEN_COOKIE, newSession.accessToken, { ...cookieOptions, maxAge: 60 * 60 });
+        Astro.cookies.set(REFRESH_TOKEN_COOKIE, newSession.refreshToken, {
+          ...cookieOptions,
+          maxAge: 60 * 60 * 24 * 30,
+        });
+        return Astro.redirect('/', 302);
+      }
+      checkEmail = true;
+    } catch (err) {
+      console.error('Sign-up failed:', err);
+      error = err instanceof Error ? err.message : 'Sign-up failed for an unknown reason.';
+    }
+  }
+}
+---
+
+<Layout title="Sign Up">
+  <section class="mx-auto flex max-w-sm flex-col px-6 pb-24 pt-28 sm:pt-36">
+    <h1 class="reveal font-display text-4xl">Sign Up</h1>
+    <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
+      Create an account with your email and a password.
+    </p>
+
+    {error && (
+      <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    )}
+
+    {checkEmail && (
+      <div class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
+        <p>
+          Almost there — we sent a confirmation link to <strong>{submittedEmail}</strong>. Click it to activate your
+          account, then come back and sign in.
+        </p>
+        <p class="mt-2 text-white/60">
+          Don't see it? Check spam — confirmation emails occasionally land there.
+        </p>
+      </div>
+    )}
+
+    {!checkEmail && (
+      <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Display name</span>
+          <input
+            type="text"
+            name="display_name"
+            autocomplete="name"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Email</span>
+          <input
+            type="email"
+            name="email"
+            required
+            autocomplete="email"
+            value={submittedEmail}
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Password</span>
+          <input
+            type="password"
+            name="password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Confirm password</span>
+          <input
+            type="password"
+            name="confirm_password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <button
+          type="submit"
+          class="mt-2 rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        >
+          Sign Up
+        </button>
+        <p class="text-center text-xs text-white/40">
+          Already have an account? <a href="/login" class="text-brand-primary hover:underline">Sign in</a>
+        </p>
+      </form>
+    )}
+  </section>
+</Layout>

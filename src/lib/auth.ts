@@ -81,6 +81,76 @@ export async function signInWithPassword(
   };
 }
 
+/**
+ * Result of a sign-up attempt. `session` is null when the account needs
+ * email confirmation before it can sign in (GoTrue's default "Confirm
+ * email" setting) — the account was still created, there's just no active
+ * session yet. `session` is populated when confirmation isn't required
+ * (or wasn't required for this particular attempt), exactly like a normal
+ * sign-in, so the caller can log the person straight in.
+ */
+export interface SignUpResult {
+  session: Session | null;
+}
+
+interface GoTrueSignUpResponse {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  user?: { id: string; email: string | null } | null;
+  id?: string;
+  email?: string | null;
+}
+
+/**
+ * Public self-service sign-up against Supabase Auth. A `profiles` row
+ * (role: 'driver') is created automatically by the `on_auth_user_created`
+ * trigger (see supabase/migrations/0002_auth_admin.sql) — no app-side
+ * plumbing needed for that part.
+ *
+ * Note on existing emails: GoTrue deliberately avoids confirming or denying
+ * whether an email is already registered (a standard anti-enumeration
+ * measure), so a repeat sign-up for an existing, already-confirmed address
+ * can come back looking like success without actually creating or changing
+ * anything — there's no reliable way to distinguish that case from a
+ * genuine new sign-up from this response alone.
+ */
+export async function signUp(
+  env: SupabaseEnv,
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<SignUpResult> {
+  const res = await fetch(`${env.url}/auth/v1/signup`, {
+    method: 'POST',
+    headers: authHeaders(env),
+    body: JSON.stringify({
+      email,
+      password,
+      data: displayName ? { display_name: displayName } : undefined,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Sign-up failed (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as GoTrueSignUpResponse;
+
+  // access_token is only present when no email confirmation is required —
+  // otherwise this response is just the (unconfirmed) user row.
+  if (data.access_token && data.refresh_token && data.expires_in && data.user) {
+    return {
+      session: {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
+        user: { id: data.user.id, email: data.user.email },
+      },
+    };
+  }
+  return { session: null };
+}
+
 /** Exchange a refresh token for a new session. Throws if the refresh token is invalid/expired. */
 export async function refreshSession(env: SupabaseEnv, refreshToken: string): Promise<Session> {
   const res = await fetch(`${env.url}/auth/v1/token?grant_type=refresh_token`, {
