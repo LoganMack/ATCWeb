@@ -4,6 +4,7 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
+  getTeams,
   getTeamById,
   createTeam,
   updateTeam,
@@ -11,6 +12,7 @@ import {
   uploadToStorage,
   getSeasons,
   getDriversBasic,
+  getTeamRosterForSeason,
   getTeamRosterForTeamSeason,
   addTeamRosterEntry,
   removeTeamRosterEntry,
@@ -53,10 +55,19 @@ if (Astro.request.method === 'POST') {
   if (intent === 'add-roster' || intent === 'remove-roster') {
     const seasonId = String(form.get('season_id') ?? '');
     const driverId = String(form.get('driver_id') ?? '');
+    // Set client-side (see the script below) when the admin confirms
+    // transferring a driver who's already on another team's roster this
+    // season — the client can't do the transfer itself (no direct DB
+    // access), so it just flags the intent and the server does both halves
+    // of it here.
+    const transferFromTeamId = String(form.get('transfer_from_team_id') ?? '');
     rosterSeasonId = seasonId || null;
     if (!isNew && id && seasonId && driverId) {
       try {
         if (intent === 'add-roster') {
+          if (transferFromTeamId) {
+            await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: transferFromTeamId, driver_id: driverId });
+          }
           await addTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
         } else {
           await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
@@ -117,6 +128,12 @@ if (Astro.request.method === 'POST') {
 
     if (!name) {
       error = 'Team name is required.';
+    } else if (
+      (await getTeams(supabaseEnv)).some(
+        (other) => other.name.trim().toLowerCase() === name.toLowerCase() && other.id !== id
+      )
+    ) {
+      error = `A team named "${name}" already exists.`;
     } else {
       try {
         let teamId = isNew ? null : id!;
@@ -183,6 +200,32 @@ if (!isNew && id) {
     }
   }
 }
+
+// Cross-team lookup for the selected season — powers the "this driver is
+// already on another team, transfer them?" confirmation below (the DB
+// trigger in 0008_team_rosters.sql blocks a driver being on two rosters at
+// once either way; this is purely so the admin gets a friendly prompt
+// instead of a raw rejected-insert error).
+const otherTeamByDriverId = new Map<string, { teamId: string; teamName: string }>();
+if (!isNew && id && selectedSeasonId) {
+  try {
+    const [seasonRosterAllTeams, allTeams] = await Promise.all([
+      getTeamRosterForSeason(supabaseEnv, selectedSeasonId),
+      getTeams(supabaseEnv),
+    ]);
+    const teamNameById = new Map(allTeams.map((tm) => [tm.id, tm.name]));
+    for (const entry of seasonRosterAllTeams) {
+      if (entry.team_id !== id) {
+        const teamName = teamNameById.get(entry.team_id);
+        if (teamName) otherTeamByDriverId.set(entry.driver_id, { teamId: entry.team_id, teamName });
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load cross-team roster data:', err);
+  }
+}
+
+const selectedSeasonName = seasons.find((s) => s.id === selectedSeasonId)?.name ?? '';
 const rosterDriverIds = new Set(rosterEntries.map((r) => r.driver_id));
 const rosterDriversOnTeam = rosterDrivers
   .filter((d) => rosterDriverIds.has(d.id))
@@ -195,7 +238,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
   <h1 class="reveal font-display text-4xl">{isNew ? 'New Team' : t.name}</h1>
 
   {error && (
-    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   <form method="POST" data-astro-reload enctype="multipart/form-data" class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
@@ -232,7 +275,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
     </label>
 
     <div class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Logo</span>
+      <span class="text-white/70">Primary Logo</span>
       {t.logo_url && (
         <img src={t.logo_url} alt="" class="mb-2 h-16 w-16 rounded object-contain ring-1 ring-white/10" />
       )}
@@ -242,10 +285,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
         accept="image/png,image/jpeg,image/webp,image/svg+xml"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
       />
-      <span class="text-xs text-white/40">
-        PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo — it never touches any historical
-        logo set below.
-      </span>
+      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG.</span>
     </div>
 
     <div class="mt-2 flex gap-3">
@@ -265,12 +305,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
 
   {!isNew && (
     <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 85ms">
-      <h2 class="text-lg font-semibold">Historical Logos</h2>
-      <p class="mt-1 text-sm text-white/50">
-        Teams have looked different across seasons — set a logo here for any season this team raced under a
-        different look, and results/standings/news for that season will show it instead of the current logo above.
-        A season with nothing set here just falls back to the current logo.
-      </p>
+      <h2 class="text-lg font-semibold">Logos by Season</h2>
 
       {historicalLogoError && (
         <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{historicalLogoError}</p>
@@ -339,11 +374,7 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
 
   {!isNew && (
     <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 90ms">
-      <h2 class="text-lg font-semibold">Season Roster</h2>
-      <p class="mt-1 text-sm text-white/50">
-        Who drove for this team, season by season. Max 4 drivers per team per season, and a driver can only be on
-        one team's roster in a given season.
-      </p>
+      <h2 class="text-lg font-semibold">Roster by Season</h2>
 
       {seasons.length === 0 ? (
         <p class="mt-4 text-sm text-white/40">No results.</p>
@@ -386,9 +417,17 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
           </ul>
 
           {selectedSeasonId && (
-            <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
+            <form
+              method="POST"
+              data-astro-reload
+              data-add-roster-form
+              data-team-name={t.name}
+              data-season-name={selectedSeasonName}
+              class="mt-4 flex flex-wrap items-end gap-3"
+            >
               <input type="hidden" name="intent" value="add-roster" />
               <input type="hidden" name="season_id" value={selectedSeasonId} />
+              <input type="hidden" name="transfer_from_team_id" value="" data-transfer-from-team-id />
               <label class="flex flex-col gap-1.5 text-sm">
                 <span class="text-white/60">Add driver</span>
                 <select
@@ -396,11 +435,20 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
                   disabled={rosterFull || availableDrivers.length === 0}
                   class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary disabled:opacity-40"
                 >
-                  {availableDrivers.map((d) => (
-                    <option value={d.id} class="bg-brand-ink text-white">
-                      {d.name}{d.car_number !== null ? ` #${d.car_number}` : ''}
-                    </option>
-                  ))}
+                  {availableDrivers.map((d) => {
+                    const other = otherTeamByDriverId.get(d.id);
+                    return (
+                      <option
+                        value={d.id}
+                        data-driver-name={d.name}
+                        data-other-team-id={other?.teamId ?? ''}
+                        data-other-team-name={other?.teamName ?? ''}
+                        class="bg-brand-ink text-white"
+                      >
+                        {d.name}{d.car_number !== null ? ` #${d.car_number}` : ''}{other ? ` (on ${other.teamName})` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
               <button
@@ -437,6 +485,39 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+
+    // "Add driver" on the Roster by Season form — if the selected driver is
+    // already on another team's roster this season, confirm the transfer
+    // before submitting (the server enforces the same rule regardless, see
+    // 0008_team_rosters.sql, but this avoids the admin hitting that as a
+    // raw rejected-insert error). On confirm, stash which team to remove
+    // them from first; on cancel, don't submit at all.
+    document.querySelectorAll<HTMLFormElement>('[data-add-roster-form]').forEach((form) => {
+      form.addEventListener('submit', (e) => {
+        const select = form.querySelector<HTMLSelectElement>('select[name="driver_id"]');
+        const transferField = form.querySelector<HTMLInputElement>('[data-transfer-from-team-id]');
+        if (!select || !transferField) return;
+
+        transferField.value = '';
+
+        const option = select.selectedOptions[0];
+        const otherTeamId = option?.dataset.otherTeamId;
+        const otherTeamName = option?.dataset.otherTeamName;
+        if (!option || !otherTeamId || !otherTeamName) return;
+
+        const driverName = option.dataset.driverName ?? option.textContent?.trim() ?? 'This driver';
+        const teamName = form.dataset.teamName ?? 'this team';
+        const seasonName = form.dataset.seasonName ?? 'this season';
+        const confirmed = confirm(
+          `${driverName} is currently assigned to ${otherTeamName} for ${seasonName}. Do you want to transfer this driver from ${otherTeamName} to ${teamName}?`
+        );
+        if (!confirmed) {
+          e.preventDefault();
+          return;
+        }
+        transferField.value = otherTeamId;
       });
     });
   });

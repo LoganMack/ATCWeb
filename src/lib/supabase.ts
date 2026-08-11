@@ -349,7 +349,7 @@ export interface TeamSeasonLogo {
 
 const TEAM_SEASON_LOGO_SELECT = 'id,team_id,season_id,logo_url';
 
-/** One team's historical logo overrides, across every season it has one for — powers the "Historical Logos" list on the admin team edit page. */
+/** One team's historical logo overrides, across every season it has one for — powers the "Logos by Season" list on the admin team edit page. */
 export function getTeamSeasonLogosForTeam(env: SupabaseEnv, teamId: string) {
   return restGet<TeamSeasonLogo[]>(
     env,

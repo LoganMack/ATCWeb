@@ -11,6 +11,7 @@ import {
   getDriverStatuses,
   getDriverClasses,
   getDriversForNumberCheck,
+  getDriversBasic,
   getDriverLastRace,
   setDriverCarNumber,
   getSiteSettings,
@@ -126,6 +127,12 @@ if (Astro.request.method === 'POST') {
     const carNumber = readCarNumber(form);
     if (!data.name) {
       error = 'Name is required.';
+    } else if (
+      (await getDriversBasic(supabaseEnv)).some(
+        (other) => other.name.trim().toLowerCase() === data.name!.toLowerCase() && other.id !== id
+      )
+    ) {
+      error = `A driver named "${data.name}" already exists.`;
     } else {
       try {
         if (isNew) {
@@ -257,12 +264,14 @@ try {
 // Countdown note — same "both configured thresholds since their last race"
 // rule sync_driver_statuses() itself uses (see driver_last_race's own doc
 // comment / 0041_driver_settings.sql). Both thresholds have to be crossed —
-// whichever takes longer is effectively what's being waited on — so the
-// note calls out whichever one(s) haven't been met yet rather than a single
-// day-count, since the rounds side depends on the league's future schedule
-// and can't be reduced to a date. Only meaningful for New/Active (Veteran is
-// exempt; Inactive already IS inactive) and only once the driver actually
-// exists (a not-yet-created driver has no id to look up race history for).
+// whichever takes longer is effectively what's being waited on. Always the
+// same "progress toward both thresholds" wording/format regardless of
+// which threshold(s) are already met — a single-line, semicolon-separated
+// summary — rather than switching to different phrasing per case, which
+// just made an already-simple status harder to scan for no real benefit.
+// Only meaningful for New/Active (Veteran is exempt; Inactive already IS
+// inactive) and only once the driver actually exists (a not-yet-created
+// driver has no id to look up race history for).
 let inactivityNote: string | null = null;
 if (!isNew && driver && (statusName === 'New' || statusName === 'Active')) {
   const { last_race_at: lastRaceAt, rounds_since_last_race: roundsSince } = await getDriverLastRace(
@@ -272,24 +281,7 @@ if (!isNew && driver && (statusName === 'New' || statusName === 'Active')) {
   if (lastRaceAt) {
     const daysSince = Math.floor((Date.now() - new Date(lastRaceAt).getTime()) / (1000 * 60 * 60 * 24));
     const rounds = roundsSince ?? 0;
-    const daysMet = daysSince >= inactivityDays;
-    const roundsMet = rounds >= inactivityRounds;
-    const lastRacedStr = `last raced ${formatDate(lastRaceAt)}`;
-
-    if (daysMet && roundsMet) {
-      inactivityNote = `${daysSince} days and ${rounds} rounds since their last race (${lastRacedStr}) — both thresholds are met, so this will flip to Inactive the next time statuses sync.`;
-    } else if (daysMet && !roundsMet) {
-      inactivityNote = `${inactivityDays}+ days since their last race (${lastRacedStr}), but only ${rounds}/${inactivityRounds} official rounds have run since then — becomes Inactive once the ${inactivityRounds}th round happens.`;
-    } else if (!daysMet && roundsMet) {
-      const daysLeft = inactivityDays - daysSince;
-      inactivityNote = `${inactivityRounds}+ rounds have run since their last race (${lastRacedStr}), but the ${inactivityDays}-day mark isn't reached yet — becomes Inactive in ${daysLeft} day${daysLeft === 1 ? '' : 's'} if they don't race again.`;
-    } else {
-      // Three-line "progress toward both thresholds" format, rendered with
-      // whitespace-pre-line below (see the template) so these \n's actually
-      // produce line breaks instead of collapsing like normal HTML
-      // whitespace.
-      inactivityNote = `Last raced ${formatDate(lastRaceAt)}\n${rounds}/${inactivityRounds} rounds absent\n${daysSince}/${inactivityDays} days absent`;
-    }
+    inactivityNote = `Last raced ${formatDate(lastRaceAt)}; ${rounds}/${inactivityRounds} rounds absent; ${daysSince}/${inactivityDays} days absent`;
   } else {
     inactivityNote = `Inactive if absent ${inactivityDays} days and ${inactivityRounds} rounds after sign-up.`;
   }
@@ -320,7 +312,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
         <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-white/80">
           {statusName ?? '—'}
         </div>
-        {inactivityNote && <span class="max-w-xs whitespace-pre-line text-xs text-white/40">{inactivityNote}</span>}
+        {inactivityNote && <span class="max-w-xs text-xs text-white/40">{inactivityNote}</span>}
         {!inactivityNote && statusName && (
           <span class="max-w-xs text-xs text-white/40">
             {statusName === 'Veteran'
@@ -333,7 +325,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
   </div>
 
   {error && (
-    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
   <form

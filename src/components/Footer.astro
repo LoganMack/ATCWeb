@@ -15,6 +15,7 @@ const year = new Date().getFullYear();
 const isRealAdmin = Astro.locals.isRealAdmin;
 const viewAsVisitor = Astro.locals.viewAsVisitor;
 const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
+const isSignedIn = Boolean(Astro.locals.session);
 
 // Unlike "View as Visitor" above, this link itself SHOULD disappear while
 // previewing as a visitor (isAdminView, not isRealAdmin) — it's a plain
@@ -28,10 +29,18 @@ const showAdminLink = isAdminView(Astro.locals);
     <div class="flex flex-wrap items-center justify-center gap-6">
       <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
       <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
-      <a href="/login" class="hover:text-white/80">Login</a>
-      <a href="/signup" class="hover:text-white/80">Sign Up</a>
+      {isSignedIn ? (
+        <form method="POST" action="/api/logout" data-astro-reload>
+          <button type="submit" class="cursor-pointer border-0 bg-transparent p-0 text-inherit hover:text-white/80">Logout</button>
+        </form>
+      ) : (
+        <>
+          <a href="/login" class="hover:text-white/80">Login</a>
+          <a href="/signup" class="hover:text-white/80">Sign Up</a>
+        </>
+      )}
       {showAdminLink && (
-        <a href="/admin" class="hover:text-white/80">Admin Dashboard</a>
+        <a href="/admin" class="hover:text-white/80">Admin Panel</a>
       )}
       {isRealAdmin && (
         <form method="POST" action="/api/view-mode" data-astro-reload>
