@@ -4,12 +4,28 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import DriverRow from '../components/DriverRow.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { getDrivers, getEvents, getPenaltiesForSubsessions, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { getDrivers, getEvents, getPenaltiesForSubsessions, getPageBanners, getSiteSettings, resolveSupabaseEnv } from '../lib/supabase';
 import { isOnProbationNow, computeSeasonPPState } from '../lib/penalties';
 import { getCurrentSeasonRounds } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
+import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+// Probation's own length is admin-editable (0041_driver_settings.sql) — a
+// failed load just falls back to siteSettingInt's built-in defaults (the
+// rulebook's original 45 days / 4 rounds), same fallback isOnProbationNow's
+// own default params use, so a hiccup here never silently changes anyone's
+// probation status.
+let probationDays = 45;
+let probationRounds = 4;
+try {
+  const settings = await getSiteSettings(supabaseEnv);
+  probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
+  probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
+} catch (err) {
+  console.error('Failed to load driver settings for probation length:', err);
+}
 
 let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
 let loadError: string | null = null;
@@ -30,7 +46,9 @@ try {
 } catch (err) {
   console.error('Failed to load events for probation status:', err);
 }
-const onProbationNowByDriverId = new Map(drivers.map((d) => [d.id, isOnProbationNow(d, events)]));
+const onProbationNowByDriverId = new Map(
+  drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
+);
 
 let bannerUrl: string | null = null;
 try {

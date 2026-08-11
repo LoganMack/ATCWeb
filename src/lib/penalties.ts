@@ -969,13 +969,20 @@ export interface DriverPPState {
 
 /**
  * Whether a driver's probation is still in effect as of `today` (defaults
- * to right now). Rule 61: "Probation lasts for either 4 rounds or 45 days,
- * whichever is longer" — confirmed with Logan that "4 rounds" means every
+ * to right now). Rule 61: "Probation lasts for either N rounds or M days,
+ * whichever is longer" — confirmed with Logan that "rounds" means every
  * scheduled calendar round, not just ones this driver actually starts, so
  * this counts events rather than race_scores appearances. Both conditions
- * must clear (45 days elapsed AND 4 qualifying rounds have passed) for
- * probation to end, which is exactly equivalent to "whichever threshold is
- * later" — see this function's own logic for why.
+ * must clear (probationDays elapsed AND probationRounds qualifying rounds
+ * have passed) for probation to end, which is exactly equivalent to
+ * "whichever threshold is later" — see this function's own logic for why.
+ *
+ * probationDays/probationRounds default to the rulebook's original 45/4
+ * (rule 61) for any caller that doesn't pass them explicitly, but as of
+ * 0041_driver_settings.sql these are admin-editable from the "Driver
+ * Settings" panel above the admin Drivers list — src/pages/roster.astro (the
+ * only real caller) loads them from site_settings and passes them through,
+ * so a defaulted call here only happens if a future caller forgets to.
  *
  * Probation itself runs on this independent calendar clock regardless of
  * season boundaries — only the PP tally that triggers it (see
@@ -984,16 +991,18 @@ export interface DriverPPState {
 export function isOnProbationNow(
   driver: { on_probation: boolean; probation_started_at: string | null },
   events: { event_date: string }[],
-  today: Date = new Date()
+  today: Date = new Date(),
+  probationDays: number = 45,
+  probationRounds: number = 4
 ): boolean {
   if (!driver.on_probation || !driver.probation_started_at) return false;
   const start = new Date(`${driver.probation_started_at}T00:00:00`);
   const daysElapsed = (today.getTime() - start.getTime()) / 86_400_000;
-  if (daysElapsed < 45) return true;
+  if (daysElapsed < probationDays) return true;
 
   const todayStr = today.toISOString().slice(0, 10);
   const roundsElapsed = events.filter((e) => e.event_date > driver.probation_started_at! && e.event_date <= todayStr).length;
-  return roundsElapsed < 4;
+  return roundsElapsed < probationRounds;
 }
 
 export interface ApplyPPResult {

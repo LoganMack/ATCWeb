@@ -453,7 +453,7 @@ export function getDriversForNumberCheck(env: SupabaseEnv) {
   );
 }
 
-/** Every driver's most recent race, plus how many official league rounds have run since then (league-wide, not season/class-scoped) — see driver_last_race (0039_driver_admin_overhaul.sql, revised by 0040_inactivity_90d_or_12_rounds.sql). rounds_since_last_race is null exactly when last_race_at is null (never raced / no iracing_cust_id). Powers both sync_driver_statuses() and the admin edit page's inactivity note — a driver goes Inactive once BOTH 90 days and 12 rounds have passed since last_race_at (whichever threshold takes longer). */
+/** Every driver's most recent race, plus how many official league rounds have run since then (league-wide, not season/class-scoped) — see driver_last_race (0039_driver_admin_overhaul.sql, revised by 0040_inactivity_90d_or_12_rounds.sql). rounds_since_last_race is null exactly when last_race_at is null (never raced / no iracing_cust_id). Powers both sync_driver_statuses() and the admin edit page's inactivity note — a driver goes Inactive once BOTH the configured inactivity-days and inactivity-rounds thresholds have passed since last_race_at (whichever takes longer — see 0041_driver_settings.sql). */
 export interface DriverLastRace {
   last_race_at: string | null;
   rounds_since_last_race: number | null;
@@ -493,18 +493,39 @@ export async function setDriverCarNumber(
 
 /**
  * Re-derives every driver's status from race activity — see
- * sync_driver_statuses() (0039_driver_admin_overhaul.sql, threshold revised
- * by 0040_inactivity_90d_or_12_rounds.sql) for the exact rule (New/Active ->
- * Inactive once BOTH 90 days and 12 official rounds have passed since their
- * last race; Inactive -> Active on return; Veteran untouched). Status
- * editing was removed from the admin driver form entirely per Logan ("that
- * should all be automatic") — this is what keeps status current instead,
- * called opportunistically whenever an admin loads the Drivers pages (this
- * app has no cron/scheduled-worker infrastructure to run it on a real
- * timer). Returns how many rows changed.
+ * sync_driver_statuses() (0039_driver_admin_overhaul.sql, threshold made
+ * dual day/round by 0040_inactivity_90d_or_12_rounds.sql, both thresholds
+ * made admin-configurable via site_settings by 0041_driver_settings.sql)
+ * for the exact rule (New/Active -> Inactive once BOTH the configured
+ * inactivity-days and inactivity-rounds have passed since their last race;
+ * Inactive -> Active on return; Veteran untouched). Status editing was
+ * removed from the admin driver form entirely per Logan ("that should all
+ * be automatic") — this is what keeps status current instead, called
+ * opportunistically whenever an admin loads the Drivers pages (this app has
+ * no cron/scheduled-worker infrastructure to run it on a real timer).
+ * Returns how many rows changed.
  */
 export async function syncDriverStatuses(env: SupabaseEnv, accessToken: string): Promise<number> {
   const res = await fetch(`${env.url}/rest/v1/rpc/sync_driver_statuses`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as number;
+}
+
+/**
+ * Re-derives is_rookie from career history — see sync_rookie_status()
+ * (0041_driver_settings.sql). Once a driver reaches 3+ appearances in a
+ * single season, they lose rookie status for good (this only ever flips
+ * true -> false, never back). Rookie status is no longer admin-editable —
+ * every new driver starts as a rookie (see createDriver's is_rookie: true
+ * caller in the admin form) and this is what turns it off automatically.
+ * Same opportunistic-call pattern as syncDriverStatuses. Returns how many
+ * rows changed.
+ */
+export async function syncRookieStatus(env: SupabaseEnv, accessToken: string): Promise<number> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/sync_rookie_status`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken),
   });

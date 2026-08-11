@@ -2,9 +2,75 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDrivers } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getDrivers, getSiteSettings, upsertSiteSetting, syncDriverStatuses, syncRookieStatus } from '../../../lib/supabase';
+import {
+  PROBATION_DAYS_KEY,
+  PROBATION_ROUNDS_KEY,
+  INACTIVITY_DAYS_KEY,
+  INACTIVITY_ROUNDS_KEY,
+  siteSettingInt,
+} from '../../../lib/siteSettings';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+let error: string | null = null;
+let saved = false;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  // Blank/non-numeric/negative just falls back to the field's own default
+  // via siteSettingInt on the next load, same tolerant handling as reading
+  // these values back — a stray bad value here can't wedge the automation.
+  function readIntField(name: string): string {
+    const raw = String(form.get(name) ?? '').trim();
+    const n = Number(raw);
+    return raw && Number.isFinite(n) && n > 0 ? String(Math.round(n)) : '';
+  }
+  try {
+    await Promise.all([
+      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: PROBATION_DAYS_KEY, value: readIntField('probation_days') || null }),
+      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: PROBATION_ROUNDS_KEY, value: readIntField('probation_rounds') || null }),
+      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_DAYS_KEY, value: readIntField('inactivity_days') || null }),
+      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_ROUNDS_KEY, value: readIntField('inactivity_rounds') || null }),
+    ]);
+    saved = true;
+  } catch (err) {
+    console.error('Failed to save driver settings:', err);
+    error = err instanceof Error ? err.message : 'Failed to save driver settings.';
+  }
+}
+
+let probationDays = 45;
+let probationRounds = 4;
+let inactivityDays = 90;
+let inactivityRounds = 12;
+try {
+  const settings = await getSiteSettings(supabaseEnv);
+  probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
+  probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
+  inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
+  inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
+} catch (err) {
+  console.error('Failed to load driver settings:', err);
+  if (!error) error = 'Failed to load current driver settings.';
+}
+
+// No cron/scheduled-worker infrastructure in this app — status and rookie
+// automation both run opportunistically here, the one admin page every
+// admin visits before touching any individual driver. Best-effort: a sync
+// failure shouldn't block the page from showing the (possibly stale)
+// driver list.
+try {
+  await syncDriverStatuses(supabaseEnv, accessToken);
+} catch (err) {
+  console.error('Failed to sync driver statuses:', err);
+}
+try {
+  await syncRookieStatus(supabaseEnv, accessToken);
+} catch (err) {
+  console.error('Failed to sync rookie status:', err);
+}
 
 let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
 let loadError = false;
@@ -23,6 +89,77 @@ try {
       New Driver
     </a>
   </div>
+
+  {error && (
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+  {saved && !error && (
+    <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">Saved.</p>
+  )}
+
+  <details class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-5" style="transition-delay: 40ms">
+    <summary class="cursor-pointer font-semibold text-white/80">Driver Settings</summary>
+    <p class="mt-2 max-w-2xl text-xs text-white/40">
+      Both pairs below follow the same "whichever is longer" rule: a driver only crosses over once BOTH the days
+      threshold AND the rounds threshold have been met.
+    </p>
+    <form method="POST" data-astro-reload class="mt-4 grid gap-4 sm:grid-cols-2">
+      <div class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Probation length</span>
+        <div class="flex items-center gap-2">
+          <input
+            type="number"
+            name="probation_days"
+            min="1"
+            step="1"
+            value={probationDays}
+            class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+          <span class="text-white/50">days, or</span>
+          <input
+            type="number"
+            name="probation_rounds"
+            min="1"
+            step="1"
+            value={probationRounds}
+            class="w-20 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+          <span class="text-white/50">rounds</span>
+        </div>
+      </div>
+      <div class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Time to become inactive</span>
+        <div class="flex items-center gap-2">
+          <input
+            type="number"
+            name="inactivity_days"
+            min="1"
+            step="1"
+            value={inactivityDays}
+            class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+          <span class="text-white/50">days, or</span>
+          <input
+            type="number"
+            name="inactivity_rounds"
+            min="1"
+            step="1"
+            value={inactivityRounds}
+            class="w-20 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+          <span class="text-white/50">rounds</span>
+        </div>
+      </div>
+      <div class="sm:col-span-2">
+        <button
+          type="submit"
+          class="rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  </details>
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
