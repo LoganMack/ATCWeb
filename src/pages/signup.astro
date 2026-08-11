@@ -33,7 +33,13 @@ if (Astro.request.method === 'POST') {
     error = "Passwords don't match.";
   } else {
     try {
-      const { session: newSession } = await signUp(supabaseEnv, email, password, displayName || undefined);
+      const { session: newSession } = await signUp(
+        supabaseEnv,
+        email,
+        password,
+        displayName || undefined,
+        `${Astro.url.origin}/login`
+      );
       if (newSession) {
         // No email confirmation required — sign them in immediately, same
         // cookies as the admin login flow.
@@ -62,19 +68,14 @@ if (Astro.request.method === 'POST') {
     </p>
 
     {error && (
-      <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+      <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
     )}
 
     {checkEmail && (
-      <div class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
-        <p>
-          Almost there — we sent a confirmation link to <strong>{submittedEmail}</strong>. Click it to activate your
-          account, then come back and sign in.
-        </p>
-        <p class="mt-2 text-white/60">
-          Don't see it? Check spam — confirmation emails occasionally land there.
-        </p>
-      </div>
+      <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
+        We sent a confirmation link to <strong>{submittedEmail}</strong>. Click it to activate your account, allowing
+        you to sign-in.
+      </p>
     )}
 
     {!checkEmail && (

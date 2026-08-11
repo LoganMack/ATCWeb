@@ -12,5 +12,5 @@ export const POST: APIRoute = async ({ locals, cookies, redirect }) => {
   }
   cookies.delete(ACCESS_TOKEN_COOKIE, { path: AUTH_COOKIE_PATH });
   cookies.delete(REFRESH_TOKEN_COOKIE, { path: AUTH_COOKIE_PATH });
-  return redirect('/admin/login', 302);
+  return redirect('/login', 302);
 };

@@ -1,8 +1,8 @@
 ---
 // Shared chrome for every /admin/* page — sub-nav + who's-logged-in + log
 // out. Route protection itself happens in src/middleware.ts (redirects to
-// /admin/login before this layout ever renders), so this component can
-// safely assume Astro.locals.session is a signed-in admin.
+// /login before this layout ever renders), so this component can safely
+// assume Astro.locals.session is a signed-in admin.
 import Layout from './Layout.astro';
 
 interface Props {

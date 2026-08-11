@@ -22,8 +22,11 @@ import {
 } from './lib/auth';
 
 const ADMIN_PREFIX = '/admin';
-// Paths under /admin that must stay reachable without a session (the login
-// page itself — redirecting it to itself would be an infinite loop).
+// Paths under /admin that must stay reachable without a session.
+// /admin/login is just a redirect stub to /login now (see that file) for
+// old bookmarks, but it's still nominally "under /admin" by URL, so without
+// this exemption the gate below would redirect an unauthenticated visitor
+// away from it before it ever got the chance to redirect them itself.
 const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
 
 export const onRequest = defineMiddleware(async (context, next) => {
@@ -82,7 +85,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (isAdminRoute && !isPublicAdminPath) {
     const session = context.locals.session;
     if (!session || session.profile?.role !== 'admin') {
-      return context.redirect(`/admin/login?next=${encodeURIComponent(pathname)}`, 302);
+      return context.redirect(`/login?next=${encodeURIComponent(pathname)}`, 302);
     }
   }
 

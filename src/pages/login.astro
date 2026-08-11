@@ -5,24 +5,31 @@ import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/supabase';
 import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
 
-// General sign-in for any account (admin or driver). Admins landing here
-// via a direct link still sign in fine — /admin/* itself keeps gating on
-// the real role separately (see src/middleware.ts) and admins hitting a
-// gated page get sent to /admin/login instead, which additionally handles
-// the "signed in but not admin yet" promotion messaging that doesn't apply
-// to a driver account here.
+// The one sign-in page for every account — admin or driver. There's no
+// separate "admin login": role is just a property of the account
+// (profiles.role), checked by src/middleware.ts on every /admin/* request,
+// so signing in here and then visiting /admin works automatically for an
+// admin account and doesn't for anything else. /admin/login is now just a
+// thin redirect here for old bookmarks.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const next = Astro.url.searchParams.get('next') || '/';
 const session = Astro.locals.session;
 
-if (session) {
+// Signed in already, but landed here anyway (e.g. followed an old
+// /admin/login link, or a bookmarked /login?next=/admin/... while already
+// signed in as a non-admin) — if they're not an admin and `next` points
+// into /admin, redirecting them straight there would just bounce them
+// right back here via the middleware gate. Show the promotion hint instead
+// of looping.
+const needsPromotion = Boolean(session && next.startsWith('/admin') && session.profile?.role !== 'admin');
+if (session && !needsPromotion) {
   return Astro.redirect(next, 302);
 }
 
 let error: string | null = null;
 
-if (Astro.request.method === 'POST') {
+if (!needsPromotion && Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const email = String(form.get('email') ?? '').trim();
   const password = String(form.get('password') ?? '');
@@ -40,6 +47,10 @@ if (Astro.request.method === 'POST') {
       });
       return Astro.redirect(next, 302);
     } catch (err) {
+      // Surfacing Supabase's actual error text (not a generic "incorrect
+      // password") on purpose — it's the fastest way to tell "wrong
+      // password" apart from "this account's email was never confirmed"
+      // apart from a genuine config/network problem.
       console.error('Login failed:', err);
       error = err instanceof Error ? err.message : 'Login failed for an unknown reason.';
     }
@@ -52,39 +63,69 @@ if (Astro.request.method === 'POST') {
     <h1 class="reveal font-display text-4xl">Sign In</h1>
 
     {error && (
-      <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+      <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
     )}
 
-    <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Email</span>
-        <input
-          type="email"
-          name="email"
-          required
-          autocomplete="email"
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Password</span>
-        <input
-          type="password"
-          name="password"
-          required
-          autocomplete="current-password"
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
-      </label>
-      <button
-        type="submit"
-        class="mt-2 rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
-      >
-        Sign In
-      </button>
-      <p class="text-center text-xs text-white/40">
-        Don't have an account? <a href="/signup" class="text-brand-primary hover:underline">Sign up</a>
-      </p>
-    </form>
+    {needsPromotion && session && (
+      <div class="reveal mt-6 rounded-lg border border-brand-tertiary/30 bg-brand-tertiary/10 p-4 text-sm text-white/80">
+        <p>
+          You're signed in as <strong>{session.user.email}</strong>, but this account doesn't have admin access yet.
+        </p>
+        <p class="mt-2">
+          {session.profile
+            ? 'Run this in the Supabase SQL editor to promote it:'
+            : "No profile row exists yet for this account (it was likely created before the admin system was set up) — run this in the Supabase SQL editor:"}
+        </p>
+        <pre class="mt-2 overflow-x-auto rounded-md bg-black/30 p-3 text-xs text-white/90"><code>{session.profile
+            ? `update profiles set role = 'admin' where id = '${session.user.id}';`
+            : `insert into profiles (id, role, display_name)\nvalues ('${session.user.id}', 'admin', '${session.user.email ?? ''}')\non conflict (id) do update set role = 'admin';`}</code></pre>
+        <p class="mt-2 text-white/60">Then just reload this page — no need to sign in again.</p>
+        <form method="POST" action="/api/logout" class="mt-3">
+          <button
+            type="submit"
+            class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+          >
+            Sign out
+          </button>
+        </form>
+      </div>
+    )}
+
+    {!needsPromotion && (
+      <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Email</span>
+          <input
+            type="email"
+            name="email"
+            required
+            autocomplete="email"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-white/70">Password</span>
+            <a href="/forgot-password" class="text-xs text-brand-primary hover:underline">Forgot password?</a>
+          </div>
+          <input
+            type="password"
+            name="password"
+            required
+            autocomplete="current-password"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <button
+          type="submit"
+          class="mt-2 rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        >
+          Sign In
+        </button>
+        <p class="text-center text-xs text-white/40">
+          Don't have an account? <a href="/signup" class="text-brand-primary hover:underline">Sign up</a>
+        </p>
+      </form>
+    )}
   </section>
 </Layout>

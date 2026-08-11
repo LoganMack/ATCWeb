@@ -50,6 +50,27 @@ function authHeaders(env: SupabaseEnv, accessToken?: string) {
   };
 }
 
+/**
+ * GoTrue error responses are JSON (e.g. `{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}`),
+ * not plain text — every call site used to throw that raw JSON blob as the
+ * error message, which is both ugly (long unbroken string, prone to
+ * overflowing a fixed-width error box) and unnecessary, since GoTrue always
+ * puts the actual human-readable text in `msg` or `error_description`. This
+ * pulls that out, falling back to the raw body only if it genuinely isn't
+ * JSON (a real network/proxy error page, say) so nothing is ever silently
+ * swallowed.
+ */
+function goTrueErrorMessage(status: number, body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { msg?: string; error_description?: string; message?: string };
+    const text = parsed.msg || parsed.error_description || parsed.message;
+    if (text) return text;
+  } catch {
+    // Not JSON — fall through to the raw body below.
+  }
+  return `Request failed (${status}): ${body}`;
+}
+
 interface GoTrueTokenResponse {
   access_token: string;
   refresh_token: string;
@@ -69,8 +90,7 @@ export async function signInWithPassword(
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Sign-in failed (${res.status}): ${body}`);
+    throw new Error(goTrueErrorMessage(res.status, await res.text()));
   }
   const data = (await res.json()) as GoTrueTokenResponse;
   return {
@@ -119,9 +139,22 @@ export async function signUp(
   env: SupabaseEnv,
   email: string,
   password: string,
-  displayName?: string
+  displayName?: string,
+  redirectTo?: string
 ): Promise<SignUpResult> {
-  const res = await fetch(`${env.url}/auth/v1/signup`, {
+  const url = new URL(`${env.url}/auth/v1/signup`);
+  // Without this, GoTrue falls back to whatever "Site URL" is configured in
+  // the Supabase dashboard for the confirmation email's link — which
+  // defaults to localhost and has nothing to do with where this request
+  // actually came from. Passing it explicitly per-request means the link
+  // always points back to the real origin (this domain, or localhost during
+  // local dev) regardless of what the dashboard default is set to. GoTrue
+  // still only honors values that are also in that project's Redirect URLs
+  // allowlist (Authentication > URL Configuration) — an admin has to add
+  // this origin there once, this param alone isn't enough.
+  if (redirectTo) url.searchParams.set('redirect_to', redirectTo);
+
+  const res = await fetch(url, {
     method: 'POST',
     headers: authHeaders(env),
     body: JSON.stringify({
@@ -131,8 +164,7 @@ export async function signUp(
     }),
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Sign-up failed (${res.status}): ${body}`);
+    throw new Error(goTrueErrorMessage(res.status, await res.text()));
   }
   const data = (await res.json()) as GoTrueSignUpResponse;
 
@@ -149,6 +181,52 @@ export async function signUp(
     };
   }
   return { session: null };
+}
+
+/**
+ * Sends a "reset your password" email via GoTrue. Deliberately never throws
+ * on "no account with that email" — GoTrue itself returns 200 either way
+ * (a standard anti-enumeration measure, same reasoning as signUp's own doc
+ * comment), so callers should always show the same generic confirmation
+ * regardless of whether anything was actually sent. Only a genuine
+ * request/network failure throws.
+ *
+ * `redirectTo` matters here even more than it does for signUp: the emailed
+ * link's destination is entirely controlled by this (and by the project's
+ * Redirect URLs allowlist in the Supabase dashboard — see signUp's doc
+ * comment) — get it wrong and the link goes to a `localhost` that doesn't
+ * exist for whoever clicks it.
+ */
+export async function requestPasswordReset(env: SupabaseEnv, email: string, redirectTo: string): Promise<void> {
+  const url = new URL(`${env.url}/auth/v1/recover`);
+  url.searchParams.set('redirect_to', redirectTo);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: authHeaders(env),
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    throw new Error(goTrueErrorMessage(res.status, await res.text()));
+  }
+}
+
+/**
+ * Sets a new password using the access token from a password-recovery
+ * email link (the `#access_token=...&type=recovery` fragment GoTrue
+ * redirects to — see src/pages/reset-password.astro for how that token
+ * gets from the URL fragment into this call). That token is a normal,
+ * short-lived session access token, so it doubles as proof the request is
+ * legitimate — no separate "old password" check needed.
+ */
+export async function updatePassword(env: SupabaseEnv, recoveryAccessToken: string, newPassword: string): Promise<void> {
+  const res = await fetch(`${env.url}/auth/v1/user`, {
+    method: 'PUT',
+    headers: authHeaders(env, recoveryAccessToken),
+    body: JSON.stringify({ password: newPassword }),
+  });
+  if (!res.ok) {
+    throw new Error(goTrueErrorMessage(res.status, await res.text()));
+  }
 }
 
 /** Exchange a refresh token for a new session. Throws if the refresh token is invalid/expired. */
@@ -246,7 +324,7 @@ export const AUTH_COOKIE_PATH = '/';
  * which otherwise looks exactly like "login silently fails" — the sign-in
  * call succeeds and the redirect to /admin fires, but the cookie never
  * actually gets stored, so the middleware immediately bounces you back to
- * /admin/login with nothing on screen to explain why. On the real Cloudflare
+ * /login with nothing on screen to explain why. On the real Cloudflare
  * deployment (always https) this still resolves to `true` as before.
  */
 export function authCookieOptions(url: URL) {
