@@ -176,6 +176,15 @@ if (Astro.request.method === 'POST') {
             error = 'Failed to upload that photo.';
           }
           if (!error) {
+            // Car number set FIRST, deliberately — it's the one part of
+            // this save that can fail on a conflict (see
+            // setDriverCarNumber's own doc comment), and this driver row
+            // already exists either way, so checking/claiming the number
+            // before touching anything else means a conflict blocks the
+            // whole save atomically instead of silently committing the
+            // other field changes (name, bio, etc.) while only the number
+            // change gets rejected.
+            await setDriverCarNumber(supabaseEnv, accessToken, id, carNumber);
             await updateDriver(supabaseEnv, accessToken, id, {
               ...data,
               // sign_up_date isn't in readForm's return (it's edit-only,
@@ -185,7 +194,6 @@ if (Astro.request.method === 'POST') {
               sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
               photo_url,
             });
-            await setDriverCarNumber(supabaseEnv, accessToken, id, carNumber);
             return Astro.redirect(`/admin/drivers/${id}`, 302);
           }
         }
@@ -276,11 +284,14 @@ if (!isNew && driver && (statusName === 'New' || statusName === 'Active')) {
       const daysLeft = inactivityDays - daysSince;
       inactivityNote = `${inactivityRounds}+ rounds have run since their last race (${lastRacedStr}), but the ${inactivityDays}-day mark isn't reached yet — becomes Inactive in ${daysLeft} day${daysLeft === 1 ? '' : 's'} if they don't race again.`;
     } else {
-      const daysLeft = inactivityDays - daysSince;
-      inactivityNote = `${lastRacedStr[0].toUpperCase()}${lastRacedStr.slice(1)} — ${rounds}/${inactivityRounds} rounds run since then, and the ${inactivityDays}-day mark is ${daysLeft} day${daysLeft === 1 ? '' : 's'} away. Becomes Inactive once both are met.`;
+      // Three-line "progress toward both thresholds" format, rendered with
+      // whitespace-pre-line below (see the template) so these \n's actually
+      // produce line breaks instead of collapsing like normal HTML
+      // whitespace.
+      inactivityNote = `Last raced ${formatDate(lastRaceAt)}\n${rounds}/${inactivityRounds} rounds absent\n${daysSince}/${inactivityDays} days absent`;
     }
   } else {
-    inactivityNote = `Clock hasn't started yet — becomes Inactive once ${inactivityDays} days AND ${inactivityRounds} rounds have passed since their first race.`;
+    inactivityNote = `Inactive if absent ${inactivityDays} days and ${inactivityRounds} rounds after sign-up.`;
   }
 }
 
@@ -309,12 +320,12 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
         <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-white/80">
           {statusName ?? '—'}
         </div>
-        {inactivityNote && <span class="max-w-xs text-xs text-white/40">{inactivityNote}</span>}
+        {inactivityNote && <span class="max-w-xs whitespace-pre-line text-xs text-white/40">{inactivityNote}</span>}
         {!inactivityNote && statusName && (
           <span class="max-w-xs text-xs text-white/40">
             {statusName === 'Veteran'
-              ? 'Veterans are exempt from automatic inactivity.'
-              : 'Set automatically — race activity is what changes this now.'}
+              ? 'Veterans are exempt from inactivity.'
+              : 'Inactive until next appearance.'}
           </span>
         )}
       </div>
@@ -558,7 +569,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
         hint!.textContent = `Car #${num} was last used by ${match.name} (Inactive) — saving will free it up from them.`;
         hint!.className = 'text-xs text-brand-gold';
       } else {
-        hint!.textContent = `Car #${num} is currently used by ${match.name} (${status}) — saving will be blocked until it's changed.`;
+        hint!.textContent = `Car #${num} is currently used by ${match.name} (${status}).`;
         hint!.className = 'text-xs text-brand-pink';
       }
     }

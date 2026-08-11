@@ -99,10 +99,6 @@ try {
 
   <details class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-5" style="transition-delay: 40ms">
     <summary class="cursor-pointer font-semibold text-white/80">Driver Settings</summary>
-    <p class="mt-2 max-w-2xl text-xs text-white/40">
-      Both pairs below follow the same "whichever is longer" rule: a driver only crosses over once BOTH the days
-      threshold AND the rounds threshold have been met.
-    </p>
     <form method="POST" data-astro-reload class="mt-4 grid gap-4 sm:grid-cols-2">
       <div class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Probation length</span>
@@ -115,7 +111,7 @@ try {
             value={probationDays}
             class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
-          <span class="text-white/50">days, or</span>
+          <span class="text-white/50">days, and</span>
           <input
             type="number"
             name="probation_rounds"
@@ -138,7 +134,7 @@ try {
             value={inactivityDays}
             class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
-          <span class="text-white/50">days, or</span>
+          <span class="text-white/50">days, and</span>
           <input
             type="number"
             name="inactivity_rounds"

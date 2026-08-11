@@ -26,6 +26,30 @@
  * request. The submitter button also gets its own inline "submitting..."
  * label swap, since it's the one element the person actually clicked and
  * deserves more direct feedback than the page-wide bar alone.
+ *
+ * On the non-redirect (same-page re-render) path below, document.write()
+ * swaps in the server's fresh HTML but does NOT give us a real navigation —
+ * it reuses this same window/JS realm rather than loading a new one. That
+ * matters because every `<script type="module">` on the page (this file
+ * included, plus reveal.ts, pageProgress.ts, sortable-table.ts, and every
+ * per-page init script) is already in this realm's module registry from the
+ * real initial page load, so the identical <script> tags in the newly
+ * written HTML do NOT re-execute — browsers only ever run a given module
+ * specifier's top-level code once per realm. Concretely, that means
+ * `astro:page-load` — which those modules only ever dispatch/listen for
+ * from their own top-level code — never fires again on its own, so nothing
+ * that depends on it re-initializes: reveal.ts never adds `.is-visible` to
+ * the freshly-rendered `.reveal` elements (which is why an inline error or
+ * "Saved." banner can render correctly in the DOM yet stay invisible at
+ * opacity:0 forever, looking exactly like the save silently did nothing),
+ * forms on the new page never get re-bound for their own next submit, and
+ * every other astro:page-load-driven script (sortable tables, search
+ * filters, local time formatting, etc.) goes stale. The event listeners
+ * those modules registered on `document` earlier DO survive document.write
+ * (open()/write()/close() resets the Document's content, not its existing
+ * listeners), so manually re-dispatching the event below reaches all of
+ * them and re-runs their init logic against the new DOM — the same effect
+ * a real navigation would have had.
  */
 
 import { showProgress, hideProgress } from './pageProgress';
@@ -68,6 +92,10 @@ function bindForm(form: HTMLFormElement) {
       document.open();
       document.write(html);
       document.close();
+      // See the top-of-file comment — without this, the just-written page
+      // (including any error/"Saved." banner) never becomes visible and
+      // nothing else that depends on astro:page-load re-initializes.
+      document.dispatchEvent(new Event('astro:page-load'));
     } catch (err) {
       console.error('Form submission failed:', err);
       hideProgress();

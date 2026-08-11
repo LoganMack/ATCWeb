@@ -13,6 +13,11 @@ export interface Country {
 }
 
 export const COUNTRIES: Country[] = [
+  // United States and Canada first — by far our most common driver
+  // nationalities, so they shouldn't require scrolling the rest of the
+  // (otherwise alphabetical) list to find. Removed from their normal
+  // alphabetical spot further down (C / U) so they only appear once.
+  { code: 'us', name: 'United States' }, { code: 'ca', name: 'Canada' },
   { code: 'af', name: 'Afghanistan' }, { code: 'al', name: 'Albania' }, { code: 'dz', name: 'Algeria' },
   { code: 'ad', name: 'Andorra' }, { code: 'ao', name: 'Angola' }, { code: 'ar', name: 'Argentina' },
   { code: 'am', name: 'Armenia' }, { code: 'au', name: 'Australia' }, { code: 'at', name: 'Austria' },
@@ -22,7 +27,7 @@ export const COUNTRIES: Country[] = [
   { code: 'bo', name: 'Bolivia' }, { code: 'ba', name: 'Bosnia and Herzegovina' }, { code: 'bw', name: 'Botswana' },
   { code: 'br', name: 'Brazil' }, { code: 'bn', name: 'Brunei' }, { code: 'bg', name: 'Bulgaria' },
   { code: 'bf', name: 'Burkina Faso' }, { code: 'bi', name: 'Burundi' }, { code: 'kh', name: 'Cambodia' },
-  { code: 'cm', name: 'Cameroon' }, { code: 'ca', name: 'Canada' }, { code: 'cv', name: 'Cape Verde' },
+  { code: 'cm', name: 'Cameroon' }, { code: 'cv', name: 'Cape Verde' },
   { code: 'cf', name: 'Central African Republic' }, { code: 'td', name: 'Chad' }, { code: 'cl', name: 'Chile' },
   { code: 'cn', name: 'China' }, { code: 'co', name: 'Colombia' }, { code: 'km', name: 'Comoros' },
   { code: 'cg', name: 'Congo' }, { code: 'cd', name: 'Congo (DRC)' }, { code: 'cr', name: 'Costa Rica' },
@@ -75,7 +80,7 @@ export const COUNTRIES: Country[] = [
   { code: 'tt', name: 'Trinidad and Tobago' }, { code: 'tn', name: 'Tunisia' }, { code: 'tr', name: 'Turkey' },
   { code: 'tm', name: 'Turkmenistan' }, { code: 'tv', name: 'Tuvalu' }, { code: 'ug', name: 'Uganda' },
   { code: 'ua', name: 'Ukraine' }, { code: 'ae', name: 'United Arab Emirates' },
-  { code: 'gb', name: 'United Kingdom' }, { code: 'us', name: 'United States' }, { code: 'uy', name: 'Uruguay' },
+  { code: 'gb', name: 'United Kingdom' }, { code: 'uy', name: 'Uruguay' },
   { code: 'uz', name: 'Uzbekistan' }, { code: 'vu', name: 'Vanuatu' }, { code: 'va', name: 'Vatican City' },
   { code: 've', name: 'Venezuela' }, { code: 'vn', name: 'Vietnam' }, { code: 'ye', name: 'Yemen' },
   { code: 'zm', name: 'Zambia' }, { code: 'zw', name: 'Zimbabwe' },
