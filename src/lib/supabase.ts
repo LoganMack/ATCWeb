@@ -537,6 +537,45 @@ export function deleteDriver(env: SupabaseEnv, accessToken: string, id: string) 
   return restDelete(env, accessToken, `drivers?id=eq.${encodeURIComponent(id)}`);
 }
 
+// --- Driver season classes (per-season class override, see 0037_class_and_scoring_fixes.sql) -
+
+export interface DriverSeasonClass {
+  driver_id: string;
+  season_id: string;
+  class_id: number;
+}
+
+const DRIVER_SEASON_CLASS_SELECT = 'driver_id,season_id,class_id';
+
+/** One driver's per-season class overrides — powers the "Driver Class by Season" list on the admin driver edit page. A season with no row here falls back to the driver's primary class (drivers.class_id) — same fallback scoring itself uses (see recalculate_race_scores in 0037_class_and_scoring_fixes.sql). */
+export function getDriverSeasonClassesForDriver(env: SupabaseEnv, driverId: string) {
+  return restGet<DriverSeasonClass[]>(
+    env,
+    `driver_season_classes?select=${DRIVER_SEASON_CLASS_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}`
+  );
+}
+
+/** Upserts a driver's class for one season — replaces whatever was set for that season before. The table's primary key is (driver_id, season_id), so this can never leave a driver with two classes in the same season. */
+export async function upsertDriverSeasonClass(env: SupabaseEnv, accessToken: string, data: DriverSeasonClass) {
+  const res = await fetch(`${env.url}/rest/v1/driver_season_classes?on_conflict=driver_id,season_id`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on driver_season_classes: ${await res.text()}`);
+  const rows = (await res.json()) as DriverSeasonClass[];
+  return rows[0];
+}
+
+/** Clears a driver's class override for one season — they fall back to their primary class for that season again. */
+export function deleteDriverSeasonClass(env: SupabaseEnv, accessToken: string, driverId: string, seasonId: string) {
+  return restDelete(
+    env,
+    accessToken,
+    `driver_season_classes?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
 export interface DriverOption {
   id: string;
   name: string;
