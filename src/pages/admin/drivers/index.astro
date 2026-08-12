@@ -2,8 +2,15 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDrivers, getSiteSettings, upsertSiteSetting, syncDriverStatuses, syncRookieStatus } from '../../../lib/supabase';
-import { syncResultsWithRoster } from '../../../lib/raceResultsImport';
+import {
+  resolveSupabaseEnv,
+  getDrivers,
+  getSiteSettings,
+  upsertSiteSetting,
+  syncDriverStatuses,
+  syncRookieStatus,
+  syncResultsWithRoster,
+} from '../../../lib/supabase';
 import {
   PROBATION_DAYS_KEY,
   PROBATION_ROUNDS_KEY,
@@ -124,7 +131,7 @@ try {
         <input type="hidden" name="intent" value="sync-results-roster" />
         <button
           type="submit"
-          data-confirm="Scan every race result on file for drivers who raced but have no matching roster entry, and either link them onto an existing same-named driver or create a new roster entry for them. Continue?"
+          data-confirm="Scan every real (non-exhibition) race result on file for drivers who raced but have no matching roster entry, and either link them onto an existing same-named driver or create a new roster entry for them. Exhibition rounds/seasons are skipped, so AI and one-off exhibition drivers won't get synced in. Continue?"
           class="rounded-lg bg-white/5 px-5 py-2.5 font-semibold text-white/80 ring-1 ring-white/10 transition hover:bg-white/10"
         >
           Sync Results with Roster

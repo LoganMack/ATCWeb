@@ -641,6 +641,41 @@ export async function syncRookieStatus(env: SupabaseEnv, accessToken: string): P
   return (await res.json()) as number;
 }
 
+export interface SyncResultsWithRosterOutcome {
+  /** Newly created drivers rows — see sync_results_with_roster() for the full rule. */
+  created: string[];
+  /** Existing drivers rows that just had their iracing_cust_id filled in. */
+  linked: string[];
+}
+
+/**
+ * Admin > Drivers "Sync Results with Roster" button. Every cust_id that
+ * raced in a real (non-exhibition) round but has no matching drivers row —
+ * see results.ts's RaceResultRow.notInRoster for the front-end symptom this
+ * fixes — either gets linked onto an existing same-named driver who has no
+ * cust_id yet, or a new minimal drivers row is created for it.
+ *
+ * Deliberately a single RPC call (same opportunistic-automation pattern as
+ * syncDriverStatuses/syncRookieStatus above) rather than doing the lookup
+ * and per-driver creates/updates from the Worker: an earlier version did
+ * exactly that and could burn through dozens to hundreds of subrequests in
+ * one click (paging through all of curated_race_results, then one REST call
+ * per driver touched), which is exactly what tripped Cloudflare's
+ * per-invocation subrequest limit in production. See
+ * sync_results_with_roster() (0047_sync_results_with_roster.sql) for the
+ * actual logic — it also excludes exhibition rounds/seasons there (Logan:
+ * "sometimes those include AI drivers"), which the original version never
+ * did at all.
+ */
+export async function syncResultsWithRoster(env: SupabaseEnv, accessToken: string): Promise<SyncResultsWithRosterOutcome> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/sync_results_with_roster`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as SyncResultsWithRosterOutcome;
+}
+
 export function deleteDriver(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `drivers?id=eq.${encodeURIComponent(id)}`);
 }

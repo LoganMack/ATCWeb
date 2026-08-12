@@ -44,7 +44,6 @@
  */
 import {
   restGet,
-  restGetAll,
   restGetAuthed,
   restPost,
   restPatch,
@@ -52,11 +51,6 @@ import {
   getCircuits,
   getSeasons,
   getAllDriverSeasonCarNumbers,
-  getDriversForCustIdCheck,
-  getDriverClasses,
-  getDriverStatuses,
-  createDriver,
-  updateDriver,
   type SupabaseEnv,
 } from './supabase';
 
@@ -348,145 +342,4 @@ export async function importRaceResultsCsv(
   }
 
   return { imported, skipped };
-}
-
-// ---------------------------------------------------------------------------
-// Sync Results with Roster — Admin > Drivers button
-//
-// recalculate_race_scores() inner-joins curated_race_results to drivers via
-// iracing_cust_id (see this file's own header comment above, and
-// results.ts's RaceResultRow.notInRoster) — a cust_id with no matching
-// drivers row, or a drivers row that exists but never had its
-// iracing_cust_id set, never gets a race_scores row at all and silently
-// vanishes from every scored view. results.ts's getRoundResults now shows
-// those as greyed-out "Driver not listed in roster" rows on the results
-// pages themselves; this is what actually FIXES it, by giving every such
-// cust_id a real, joinable drivers row.
-//
-// Reads curated_race_results directly (this file's own established one-off
-// exception to the "never touch pipeline tables" rule — see the header
-// comment) but only ever WRITES to drivers, never to any pipeline table.
-// ---------------------------------------------------------------------------
-
-export interface UnrosteredEntrant {
-  custId: number;
-  displayName: string;
-}
-
-/**
- * Every distinct cust_id that has actually raced (appears anywhere in
- * curated_race_results — every subsession on file, not just one round) but
- * has no drivers row whose iracing_cust_id matches it. Reads only
- * cust_id/display_name (not the full result row) since that's all this
- * needs — same isolation reasoning as results.ts's getDisplayNamesForSubsessions.
- */
-export async function getUnrosteredCustIds(env: SupabaseEnv): Promise<UnrosteredEntrant[]> {
-  const [results, rosteredDrivers] = await Promise.all([
-    restGetAll<{ cust_id: number; display_name: string }>(
-      env,
-      'curated_race_results?select=cust_id,display_name&order=cust_id.asc'
-    ),
-    getDriversForCustIdCheck(env),
-  ]);
-  const rosteredCustIds = new Set(rosteredDrivers.map((d) => d.iracing_cust_id));
-  const displayNameByCustId = new Map<number, string>();
-  for (const r of results) {
-    if (rosteredCustIds.has(r.cust_id)) continue;
-    // A cust_id's display_name can occasionally differ between imports
-    // (e.g. a mid-season iRacing name change) — last one wins, which is
-    // only ever a placeholder anyway (an admin can rename a linked/created
-    // driver afterward, same as any other driver).
-    displayNameByCustId.set(r.cust_id, r.display_name);
-  }
-  return [...displayNameByCustId.entries()].map(([custId, displayName]) => ({ custId, displayName }));
-}
-
-export interface SyncResultsWithRosterOutcome {
-  /** Newly created drivers rows — a cust_id that never matched ANY existing driver by name, so a brand-new minimal drivers row (class defaulted to the lowest sort_order class, status "New" — see below) was the only option. */
-  created: string[];
-  /**
-   * Existing drivers rows that just had their iracing_cust_id filled in —
-   * for a cust_id whose pipeline display_name matched exactly one existing
-   * driver who had no iracing_cust_id of their own yet. This is the more
-   * common real case: an admin already added the driver by hand (Admin >
-   * Drivers > New Driver) but never knew to also set their iRacing Customer
-   * ID (there was no field for it until this feature), so their results
-   * were silently dropping the whole time despite them "being on the
-   * roster" in every way a human would recognize. Only ever an EXACT
-   * (case-insensitive) name match against a driver with no cust_id of their
-   * own — never against one who already has a different cust_id set, and
-   * never a fuzzy/partial match, to keep this from ever mis-linking two
-   * different people.
-   */
-  linked: string[];
-}
-
-/**
- * The Drivers admin page's "Sync Results with Roster" button. For every
- * cust_id getUnrosteredCustIds finds: links it onto an existing driver of
- * the exact same name if exactly one unambiguous candidate exists (see
- * `linked` above), otherwise creates a brand-new minimal drivers row for it
- * (see `created` above). Every created row still needs a human pass —
- * confirming/fixing the name, assigning a real class/team, and (rarely)
- * merging it into an existing driver by hand if this cust_id turns out to
- * belong to someone already on the roster under a differently-spelled name,
- * which this exact-match heuristic can't catch.
- */
-export async function syncResultsWithRoster(env: SupabaseEnv, accessToken: string): Promise<SyncResultsWithRosterOutcome> {
-  const [unrostered, classes, statuses, allDrivers] = await Promise.all([
-    getUnrosteredCustIds(env),
-    getDriverClasses(env),
-    getDriverStatuses(env),
-    // Broader than getDriversForCustIdCheck (which only returns drivers who
-    // already HAVE a cust_id) — the name-match candidates below are
-    // specifically drivers who DON'T have one yet.
-    restGet<{ id: string; name: string; iracing_cust_id: number | null }[]>(env, 'drivers?select=id,name,iracing_cust_id'),
-  ]);
-  if (unrostered.length === 0) return { created: [], linked: [] };
-
-  const defaultClassId = classes[0]?.id;
-  const newStatusId = statuses.find((s) => s.name === 'New')?.id ?? statuses[0]?.id;
-  if (defaultClassId === undefined || newStatusId === undefined) {
-    throw new Error('No driver classes/statuses configured — cannot sync roster entries.');
-  }
-
-  // name.toLowerCase() -> every unlinked driver with that name, so an
-  // ambiguous name (two different unlinked drivers sharing a name) is
-  // detectable and deliberately skipped to "created" instead of guessing.
-  const unlinkedByLowerName = new Map<string, { id: string; name: string }[]>();
-  for (const d of allDrivers) {
-    if (d.iracing_cust_id != null) continue;
-    const key = d.name.trim().toLowerCase();
-    if (!unlinkedByLowerName.has(key)) unlinkedByLowerName.set(key, []);
-    unlinkedByLowerName.get(key)!.push(d);
-  }
-
-  const created: string[] = [];
-  const linked: string[] = [];
-  for (const entrant of unrostered) {
-    const candidates = unlinkedByLowerName.get(entrant.displayName.trim().toLowerCase()) ?? [];
-    if (candidates.length === 1) {
-      await updateDriver(env, accessToken, candidates[0].id, { iracing_cust_id: entrant.custId });
-      linked.push(candidates[0].name);
-      // Remove them as a candidate for any later entrant this same run,
-      // since they now have a cust_id — prevents two different unrostered
-      // cust_ids that happen to share a display_name from both linking onto
-      // the same driver.
-      unlinkedByLowerName.set(
-        entrant.displayName.trim().toLowerCase(),
-        candidates.filter((c) => c.id !== candidates[0].id)
-      );
-      continue;
-    }
-    const newDriver = await createDriver(env, accessToken, {
-      name: entrant.displayName,
-      iracing_cust_id: entrant.custId,
-      class_id: defaultClassId,
-      status_id: newStatusId,
-      is_rookie: true,
-    });
-    created.push(newDriver.name);
-  }
-
-  return { created, linked };
 }
