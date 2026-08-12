@@ -109,6 +109,8 @@ interface RaceScoreRow {
   finesse_bonus: number;
   points_deduction: number;
   pole_bonus: number;
+  /** "Naked Aggression" bonus (0033_naked_aggression_bonus.sql) — folded into total_points same as every other bonus component; every reader that backs out finish_points from total_points, or recomputes it on a penalty, needs this. */
+  aggression_bonus: number;
   classified: boolean;
   dsq: boolean;
 }
@@ -169,7 +171,7 @@ export function driversSelect(env: SupabaseEnv) {
 
 function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId: number) {
   const select =
-    'subsession_id,race_number,driver_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,classified,dsq';
+    'subsession_id,race_number,driver_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,classified,dsq';
   return restGet<RaceScoreRow[]>(
     env,
     `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`
@@ -209,7 +211,7 @@ interface RaceScoreOverallRowFields {
 function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
   if (seasonIds.length === 0) return Promise.resolve([] as RaceScoreBulkRow[]);
   const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,season_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,classified,dsq,finish_points,scored_position';
+    'subsession_id,race_number,driver_id,class_id,team_id,season_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,classified,dsq,finish_points,scored_position';
   // restGetAll, not restGet — this is easily the biggest single result set
   // in the app (every class, every race, every driver, every championship
   // season at once) and can run well past Supabase's default 1000-row
@@ -235,6 +237,8 @@ interface RaceScoreOverallRow {
   finesse_bonus: number;
   pole_bonus: number;
   points_deduction: number;
+  /** "Naked Aggression" bonus (0033_naked_aggression_bonus.sql) — see RaceScoreRow's identical field for why every points-recompute path needs this. */
+  aggression_bonus: number;
   dsq: boolean;
   classified: boolean;
   scored_position: number | null;
@@ -243,7 +247,7 @@ interface RaceScoreOverallRow {
 /** Every class combined — see `computeOverallSeasonStandings` and `getSeasonCarTeamStats`. */
 function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
   const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,dsq,classified,scored_position';
+    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
   return restGet<RaceScoreOverallRow[]>(
     env,
     `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`
@@ -558,6 +562,7 @@ function buildSeasonOverallContext(
       finishPoints: s.finish_points,
       finesseBonus: s.finesse_bonus,
       poleBonus: s.pole_bonus,
+      aggressionBonus: s.aggression_bonus,
       pointsDeduction: s.points_deduction,
       lapsComplete: raw?.laps_complete ?? null,
       averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
@@ -827,6 +832,7 @@ export async function computeSeasonStandings(
         classPoints: r.score.class_points,
         finesseBonus: r.score.finesse_bonus,
         poleBonus: r.score.pole_bonus,
+        aggressionBonus: r.score.aggression_bonus,
         pointsDeduction: r.score.points_deduction,
         lapsComplete: r.lapsComplete,
         averageLapTenThousandths: r.averageLapTenThousandths,
@@ -1249,6 +1255,7 @@ export async function computeTeamSeasonStandings(
           classPoints: r.score.class_points,
           finesseBonus: r.score.finesse_bonus,
           poleBonus: r.score.pole_bonus,
+          aggressionBonus: r.score.aggression_bonus,
           pointsDeduction: r.score.points_deduction,
           lapsComplete: r.lapsComplete,
           averageLapTenThousandths: r.averageLapTenThousandths,
@@ -2767,10 +2774,14 @@ export interface RaceResultRow {
   classPoints: number;
   finesseBonus: number;
   poleBonus: number;
+  /** "Naked Aggression" bonus (0033_naked_aggression_bonus.sql) — most net positions gained this race, see `aggressionBonusWon`. */
+  aggressionBonus: number;
   pointsDeduction: number;
   polePosition: boolean;
   /** True when `finesse_bonus > 0` — the "3 incidents or less" bonus was actually awarded for this race (mirrors `polePosition`'s use of `pole_bonus > 0` rather than re-deriving the rule from a raw threshold). */
   incidentsBonus: boolean;
+  /** True when `aggression_bonus > 0` — this driver actually won the Naked Aggression bonus this race (mirrors `polePosition`/`incidentsBonus`'s use of their own bonus column). */
+  aggressionBonusWon: boolean;
   incidents: number | null;
   laps: number | null;
   lapsLed: number | null;
@@ -2847,7 +2858,7 @@ type RaceScoreWithClass = RaceScoreRow & {
  */
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,total_points,classified,dsq,scored_position';
+    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,total_points,classified,dsq,scored_position';
   const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
@@ -2918,13 +2929,15 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
       totalPoints: score.total_points,
       originalTotalPoints: score.total_points,
-      bonusPoints: score.class_points + score.finesse_bonus + score.pole_bonus + score.points_deduction,
+      bonusPoints: score.class_points + score.finesse_bonus + score.pole_bonus + score.aggression_bonus + score.points_deduction,
       classPoints: score.class_points,
       finesseBonus: score.finesse_bonus,
       poleBonus: score.pole_bonus,
+      aggressionBonus: score.aggression_bonus,
       pointsDeduction: score.points_deduction,
       polePosition: score.pole_bonus > 0,
       incidentsBonus: score.finesse_bonus > 0,
+      aggressionBonusWon: score.aggression_bonus > 0,
       incidents: raw.incidents,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
