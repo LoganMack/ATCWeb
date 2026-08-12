@@ -299,6 +299,88 @@ export function deleteTeam(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `teams?id=eq.${encodeURIComponent(id)}`);
 }
 
+// --- Organizations (persistent identity across team renames, see 0043_organizations.sql) -
+
+export interface Organization {
+  id: string;
+  name: string;
+}
+
+export interface OrganizationTeamSeason {
+  id: string;
+  organization_id: string;
+  team_id: string;
+  season_id: string;
+}
+
+export function getOrganizations(env: SupabaseEnv) {
+  return restGet<Organization[]>(env, 'organizations?select=id,name&order=name.asc');
+}
+
+export async function getOrganizationById(env: SupabaseEnv, id: string) {
+  const orgs = await restGet<Organization[]>(env, `organizations?select=id,name&id=eq.${encodeURIComponent(id)}`);
+  return orgs[0] ?? null;
+}
+
+/** Every organization<->team season link, across every org — computeTeamCareerStats (src/lib/results.ts) fetches this once and builds a team+season -> organization lookup from it, rather than querying per-organization. */
+export function getAllOrganizationTeamSeasons(env: SupabaseEnv) {
+  return restGet<OrganizationTeamSeason[]>(env, 'organization_team_seasons?select=id,organization_id,team_id,season_id');
+}
+
+export function getOrganizationTeamSeasons(env: SupabaseEnv, organizationId: string) {
+  return restGet<OrganizationTeamSeason[]>(
+    env,
+    `organization_team_seasons?select=id,organization_id,team_id,season_id&organization_id=eq.${encodeURIComponent(organizationId)}`
+  );
+}
+
+export function createOrganization(env: SupabaseEnv, accessToken: string, data: { name: string }) {
+  return restPost<Organization>(env, accessToken, 'organizations', data);
+}
+
+export function updateOrganization(env: SupabaseEnv, accessToken: string, id: string, data: { name: string }) {
+  return restPatch<Organization>(env, accessToken, `organizations?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteOrganization(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `organizations?id=eq.${encodeURIComponent(id)}`);
+}
+
+/**
+ * Sets (or clears) which team represents an organization for one season.
+ * Both uniqueness rules (one team per org per season, one org per team per
+ * season — see 0043_organizations.sql) mean this can't be a plain upsert:
+ * assigning a team here first has to release any existing claim on that
+ * exact (org, season) slot AND any existing claim another org has on that
+ * exact (team, season) pair, before inserting the new link. Passing
+ * `teamId: null` just clears this org's slot for that season without
+ * creating a new link.
+ */
+export async function setOrganizationTeamForSeason(
+  env: SupabaseEnv,
+  accessToken: string,
+  organizationId: string,
+  seasonId: string,
+  teamId: string | null
+) {
+  await restDelete(
+    env,
+    accessToken,
+    `organization_team_seasons?organization_id=eq.${encodeURIComponent(organizationId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+  if (!teamId) return;
+  await restDelete(
+    env,
+    accessToken,
+    `organization_team_seasons?team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+  await restPost<OrganizationTeamSeason>(env, accessToken, 'organization_team_seasons', {
+    organization_id: organizationId,
+    team_id: teamId,
+    season_id: seasonId,
+  });
+}
+
 // --- Team rosters (season-scoped team membership, max 4 drivers/team/season, see 0008_team_rosters.sql) -
 
 export interface TeamRosterEntry {

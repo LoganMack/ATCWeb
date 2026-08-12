@@ -1,0 +1,61 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getOrganizations, getAllOrganizationTeamSeasons } from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let organizations: Awaited<ReturnType<typeof getOrganizations>> = [];
+let seasonCountByOrg = new Map<string, number>();
+let loadError = false;
+try {
+  const [orgs, links] = await Promise.all([getOrganizations(supabaseEnv), getAllOrganizationTeamSeasons(supabaseEnv)]);
+  organizations = orgs;
+  for (const link of links) {
+    seasonCountByOrg.set(link.organization_id, (seasonCountByOrg.get(link.organization_id) ?? 0) + 1);
+  }
+} catch (err) {
+  console.error('Failed to load organizations for admin:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="Organizations">
+  <div class="reveal flex items-center justify-between">
+    <h1 class="font-display text-4xl">Organizations</h1>
+    <a href="/admin/organizations/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      New Organization
+    </a>
+  </div>
+
+  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
+    Links a team's identity across renames — e.g. if "Nova Racing" became "Apex Nova" partway through ATC's history,
+    an organization here ties both team records together so Team Stats shows one continuous career. Teams that have
+    never been renamed don't need an organization at all.
+  </p>
+
+  {loadError && (
+    <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load organizations.
+    </p>
+  )}
+
+  {!loadError && organizations.length === 0 && (
+    <p class="reveal mt-8 text-sm text-white/60" style="transition-delay: 80ms">No organizations yet.</p>
+  )}
+
+  {!loadError && organizations.length > 0 && (
+    <div class="reveal mt-8 divide-y divide-white/10 rounded-xl border border-white/10" style="transition-delay: 80ms">
+      {organizations.map((org) => (
+        <a
+          href={`/admin/organizations/${org.id}`}
+          class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+        >
+          <p class="font-semibold">{org.name}</p>
+          <span class="text-sm text-white/50">{seasonCountByOrg.get(org.id) ?? 0} season{(seasonCountByOrg.get(org.id) ?? 0) === 1 ? '' : 's'} linked</span>
+        </a>
+      ))}
+    </div>
+  )}
+</AdminLayout>

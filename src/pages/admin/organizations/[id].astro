@@ -1,0 +1,189 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  getOrganizations,
+  getOrganizationById,
+  createOrganization,
+  updateOrganization,
+  deleteOrganization,
+  getOrganizationTeamSeasons,
+  setOrganizationTeamForSeason,
+  getSeasons,
+  getTeams,
+  type Organization,
+} from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const { id } = Astro.params;
+const isNew = id === 'new';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? 'save');
+
+  if (intent === 'set-season-team') {
+    const seasonId = String(form.get('season_id') ?? '');
+    const teamId = String(form.get('team_id') ?? '');
+    if (!isNew && id && seasonId) {
+      try {
+        await setOrganizationTeamForSeason(supabaseEnv, accessToken, id, seasonId, teamId || null);
+        return Astro.redirect(`/admin/organizations/${id}`, 302);
+      } catch (err) {
+        console.error('Failed to link organization team for season:', err);
+        error = err instanceof Error ? err.message : 'Failed to save that season link.';
+      }
+    }
+  } else if (intent === 'delete' && !isNew && id) {
+    try {
+      await deleteOrganization(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/organizations', 302);
+    } catch (err) {
+      console.error('Failed to delete organization:', err);
+      error = 'Failed to delete this organization.';
+    }
+  } else {
+    const name = String(form.get('name') ?? '').trim();
+    if (!name) {
+      error = 'Organization name is required.';
+    } else if (
+      (await getOrganizations(supabaseEnv)).some((other) => other.name.trim().toLowerCase() === name.toLowerCase() && other.id !== id)
+    ) {
+      error = `An organization named "${name}" already exists.`;
+    } else {
+      try {
+        if (isNew) {
+          const created = await createOrganization(supabaseEnv, accessToken, { name });
+          return Astro.redirect(`/admin/organizations/${created.id}`, 302);
+        } else if (id) {
+          await updateOrganization(supabaseEnv, accessToken, id, { name });
+          return Astro.redirect(`/admin/organizations/${id}`, 302);
+        }
+      } catch (err) {
+        console.error('Failed to save organization:', err);
+        error = err instanceof Error ? err.message : 'Failed to save changes.';
+      }
+    }
+  }
+}
+
+let organization: Organization | null = null;
+if (!isNew && id) {
+  organization = await getOrganizationById(supabaseEnv, id);
+  if (!organization) return Astro.redirect('/admin/organizations', 302);
+}
+
+const o: Partial<Organization> = organization ?? { name: '' };
+
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let teams: Awaited<ReturnType<typeof getTeams>> = [];
+let teamIdBySeasonId = new Map<string, string>();
+if (!isNew && id) {
+  try {
+    const [seasonsResult, teamsResult, links] = await Promise.all([
+      getSeasons(supabaseEnv),
+      getTeams(supabaseEnv),
+      getOrganizationTeamSeasons(supabaseEnv, id),
+    ]);
+    seasons = seasonsResult;
+    teams = teamsResult;
+    teamIdBySeasonId = new Map(links.map((l) => [l.season_id, l.team_id]));
+  } catch (err) {
+    console.error('Failed to load organization season links:', err);
+  }
+}
+---
+
+<AdminLayout title={isNew ? 'New Organization' : o.name || 'Edit Organization'}>
+  <a href="/admin/organizations" class="text-sm text-white/50 hover:text-white">&larr; Back to Organizations</a>
+
+  <h1 class="reveal mt-3 font-display text-4xl" style="transition-delay: 40ms">{isNew ? 'New Organization' : o.name}</h1>
+
+  {error && (
+    <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  <form method="POST" data-astro-reload class="reveal mt-8 flex max-w-xl flex-col gap-4" style="transition-delay: 80ms">
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Organization name</span>
+      <input
+        type="text"
+        name="name"
+        required
+        value={o.name}
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+    </label>
+    <div class="flex gap-3">
+      <button type="submit" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+        {isNew ? 'Create Organization' : 'Save Changes'}
+      </button>
+    </div>
+  </form>
+
+  {!isNew && (
+    <>
+      <h2 class="reveal mt-12 font-display text-2xl" style="transition-delay: 100ms">Seasons</h2>
+      <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 100ms">
+        Pick which team represented this organization in each season. Team Stats will then package all of these
+        seasons together under "{o.name}", using the most recently linked team's logo.
+      </p>
+
+      <div class="reveal mt-4 divide-y divide-white/10 rounded-xl border border-white/10" style="transition-delay: 120ms">
+        {seasons.map((season) => (
+          <form method="POST" data-astro-reload class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+            <input type="hidden" name="intent" value="set-season-team" />
+            <input type="hidden" name="season_id" value={season.id} />
+            <p class="font-semibold">{season.name}</p>
+            <div class="flex items-center gap-2">
+              <select
+                name="team_id"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+              >
+                <option value="">— None —</option>
+                {teams.map((team) => (
+                  <option value={team.id} selected={teamIdBySeasonId.get(season.id) === team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
+              >
+                Save
+              </button>
+            </div>
+          </form>
+        ))}
+        {seasons.length === 0 && <p class="px-6 py-4 text-sm text-white/50">No seasons on file.</p>}
+      </div>
+
+      <form method="POST" data-astro-reload class="reveal mt-10">
+        <input type="hidden" name="intent" value="delete" />
+        <button
+          type="submit"
+          data-confirm="Delete this organization? Its teams and their stats stay intact — this only removes the grouping."
+          class="rounded-lg bg-brand-pink/10 px-5 py-2.5 font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+        >
+          Delete Organization
+        </button>
+      </form>
+    </>
+  )}
+</AdminLayout>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+  });
+</script>

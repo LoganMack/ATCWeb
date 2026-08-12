@@ -51,9 +51,11 @@ import {
   displayDriverName,
   getCircuits,
   getAllCircuitLayouts,
+  getAllOrganizationTeamSeasons,
+  getOrganizations,
   type SupabaseEnv,
 } from './supabase';
-import type { Season, CarLogo, Penalty, Lookup, Circuit, CircuitLayout } from './supabase';
+import type { Season, CarLogo, Penalty, Lookup, Circuit, CircuitLayout, Organization, OrganizationTeamSeason } from './supabase';
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
@@ -2281,9 +2283,11 @@ export interface TeamCareerSeasonRow {
 }
 
 export interface TeamCareerStats {
+  /** An organization id when this row represents a linked group of renamed teams (see 0043_organizations.sql), or just the team's own id when it was never linked to an organization. Not consumed anywhere outside this file's own computation today, but kept as a stable identity for the row. */
   teamId: string;
+  /** The organization's name when linked; otherwise this team's own (single, current) name — unaffected either way for a team that's never been part of an organization. */
   teamName: string;
-  /** From the most recent season this team fielded a primary-team driver — teams don't have a single fixed logo (see 0019_team_season_logos.sql), so this is "their most current one on file," same reasoning DriverCareerStats uses the drivers table's own current name/photo for a driver spanning many seasons. */
+  /** From the most recent season this team (or, for a linked organization, whichever team represented it that season) fielded a primary-team driver — teams don't have a single fixed logo (see 0019_team_season_logos.sql), so this is "their most current one on file," same reasoning DriverCareerStats uses the drivers table's own current name/photo for a driver spanning many seasons. */
   logoUrl: string | null;
   /** Count of seasons this team finished 1st in the Overall Team Standings. */
   championships: number;
@@ -2307,9 +2311,27 @@ export async function computeTeamCareerStats(
   classes: Lookup[],
   exhibitionRoundIds?: Set<number>,
   /** Skip this function's own computeDriverCareerStats call and pivot an already-fetched result instead — same sharing reasoning as this whole file's other `precomputed*` params. */
-  precomputedDriverCareerStats?: DriverCareerStats[]
+  precomputedDriverCareerStats?: DriverCareerStats[],
+  /** Same sharing reasoning — skip the organizations/links fetch when a caller already has them. */
+  precomputedOrganizations?: Organization[],
+  precomputedOrgTeamSeasons?: OrganizationTeamSeason[]
 ): Promise<TeamCareerStats[]> {
-  const driverCareerStats = precomputedDriverCareerStats ?? (await computeDriverCareerStats(env, seasons, classes, exhibitionRoundIds));
+  const [driverCareerStats, organizations, orgTeamSeasons] = await Promise.all([
+    precomputedDriverCareerStats ? Promise.resolve(precomputedDriverCareerStats) : computeDriverCareerStats(env, seasons, classes, exhibitionRoundIds),
+    precomputedOrganizations ? Promise.resolve(precomputedOrganizations) : getOrganizations(env),
+    precomputedOrgTeamSeasons ? Promise.resolve(precomputedOrgTeamSeasons) : getAllOrganizationTeamSeasons(env),
+  ]);
+
+  // (team_id, season_id) -> organization_id — a team that's never been
+  // linked to an organization (the common case) simply has no entry here,
+  // and computeTeamCareerStats' whole grouping step below reduces to
+  // "everyone is grouped by their own team_id," i.e. today's behavior,
+  // unchanged (see 0043_organizations.sql).
+  const orgIdByTeamSeason = new Map<string, string>();
+  for (const link of orgTeamSeasons) {
+    orgIdByTeamSeason.set(`${link.team_id}:${link.season_id}`, link.organization_id);
+  }
+  const orgById = new Map(organizations.map((o) => [o.id, o]));
 
   interface TeamSeasonAccum {
     season: Season;
@@ -2392,9 +2414,26 @@ export async function computeTeamCareerStats(
     }
   }
 
-  const out: TeamCareerStats[] = [];
+  // Regroup the per-(team, season) accumulations above by organization —
+  // a team+season with no organization link falls back to its own team_id
+  // as a singleton group key, so an unlinked team's output row is identical
+  // to what this function produced before organizations existed.
+  interface GroupedAccum extends TeamSeasonAccum {
+    teamId: string;
+  }
+  const bySeasonByGroup = new Map<string, GroupedAccum[]>();
   for (const [teamId, bySeasonId] of bySeasonByTeam) {
-    const accums = [...bySeasonId.values()].sort((a, b) => b.season.number - a.season.number);
+    for (const [seasonId, accum] of bySeasonId) {
+      const groupKey = orgIdByTeamSeason.get(`${teamId}:${seasonId}`) ?? `team:${teamId}`;
+      if (!bySeasonByGroup.has(groupKey)) bySeasonByGroup.set(groupKey, []);
+      bySeasonByGroup.get(groupKey)!.push({ ...accum, teamId });
+    }
+  }
+
+  const out: TeamCareerStats[] = [];
+  for (const [groupKey, groupAccums] of bySeasonByGroup) {
+    const accums = groupAccums.sort((a, b) => b.season.number - a.season.number);
+    const organization = groupKey.startsWith('team:') ? null : orgById.get(groupKey) ?? null;
     const seasonRows: TeamCareerSeasonRow[] = accums.map((a) => ({
       season: a.season,
       teamPosition: a.teamPosition,
@@ -2445,12 +2484,18 @@ export async function computeTeamCareerStats(
       }
     }
 
-    // accums[0] is the most recent season (sorted above) — its name/logo
-    // represent this team "as it is now" for the card header, same as a
-    // driver's own current `drivers.name`/`photo_url` do for DriverCareerStats.
+    // accums[0] is the most recent season (sorted above) — its logo
+    // represents this team (or, when grouped, whichever team most recently
+    // represented the organization) "as it is now" for the card header,
+    // same reasoning DriverCareerStats uses a driver's current photo_url
+    // for a driver spanning many seasons. The name, though, comes from the
+    // organization itself when linked (that's the whole point — an
+    // organization's own name doesn't change just because the team
+    // representing it this season did), falling back to the team's own
+    // name when there's no organization.
     out.push({
-      teamId,
-      teamName: accums[0].teamName,
+      teamId: organization?.id ?? accums[0].teamId,
+      teamName: organization?.name ?? accums[0].teamName,
       logoUrl: accums[0].logoUrl,
       championships,
       wins,
