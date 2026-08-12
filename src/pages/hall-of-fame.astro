@@ -7,6 +7,7 @@ import TeamLogo from '../components/TeamLogo.astro';
 import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
 import StatBlock from '../components/StatBlock.astro';
+import PhotoGrid from '../components/PhotoGrid.astro';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
@@ -14,7 +15,9 @@ import {
   getExhibitionRoundIds,
   getPageBanners,
   getHallOfFameDrivers,
+  getAllHallOfFamePhotos,
   displayDriverName,
+  type HallOfFamePhoto,
 } from '../lib/supabase';
 import { computeDriverCareerStats, type DriverCareerStats } from '../lib/results';
 import { classBadgeClasses } from '../lib/classColors';
@@ -24,6 +27,7 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let loadError: string | null = null;
 let members: (DriverCareerStats & { bio: string | null })[] = [];
+let photosByDriver = new Map<string, HallOfFamePhoto[]>();
 try {
   const [classes, seasons, exhibitionRoundIds, hofDrivers] = await Promise.all([
     getDriverClasses(supabaseEnv),
@@ -38,7 +42,14 @@ try {
     // member's numbers here can never drift from their Driver Stats row —
     // this just filters that full list down to the marked members
     // (0027_hall_of_fame.sql / admin/drivers' "Hall of Fame member" toggle).
-    const careerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds);
+    const [careerStats, allPhotos] = await Promise.all([
+      computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds),
+      getAllHallOfFamePhotos(supabaseEnv),
+    ]);
+    for (const photo of allPhotos) {
+      if (!photosByDriver.has(photo.driver_id)) photosByDriver.set(photo.driver_id, []);
+      photosByDriver.get(photo.driver_id)!.push(photo);
+    }
     members = careerStats
       .filter((c) => bioById.has(c.driver.id))
       .map((c) => ({ ...c, bio: bioById.get(c.driver.id) ?? null }));
@@ -66,9 +77,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Hall of Fame</h1>
-    <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-      Click a member to see their season-by-season breakdown.
-    </p>
 
     <HistoryTabs active="hallOfFame" />
 
@@ -97,22 +105,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 tabindex="0"
                 role="button"
                 aria-expanded="false"
-                class="grid cursor-pointer gap-0 transition hover:bg-white/[0.02] sm:grid-cols-[200px_1fr]"
+                class="grid cursor-pointer gap-0 transition hover:bg-white/[0.02] sm:grid-cols-[264px_1fr]"
               >
-                <div class="p-4">
-                  {entry.driver.photo_url ? (
-                    <img
-                      src={entry.driver.photo_url}
-                      alt={name}
-                      class="aspect-square w-full rounded-md object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div class="flex aspect-square w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
-                      No Photo
-                    </div>
-                  )}
-                </div>
+                <PhotoGrid photos={photosByDriver.get(entry.driver.id) ?? []} altText={name} />
 
                 <div class="p-6">
                   <div class="flex flex-wrap items-center gap-2">

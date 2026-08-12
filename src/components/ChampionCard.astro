@@ -6,6 +6,7 @@ import { displayDriverName } from '../lib/supabase';
 import StatBlock from './StatBlock.astro';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
+import PhotoGrid from './PhotoGrid.astro';
 
 interface Props {
   entry: ChampionEntry;
@@ -21,17 +22,6 @@ const driverName = displayDriverName(d.driver.name);
 function raceWord(n: number): string {
   return `${n} race${n === 1 ? '' : 's'}`;
 }
-
-// 1 large photo (slot 0) + 2 rows of 2 smaller photos underneath (slots
-// 1-4) — the second row exists purely to give the photo column enough
-// height to come closer to matching the stats column's height instead of
-// leaving a lot of empty space at the bottom of the card.
-const slots = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
-const largePhoto = slots[0];
-const smallPhotoRows = [
-  [slots[1], slots[2]],
-  [slots[3], slots[4]],
-];
 ---
 
 <article
@@ -39,57 +29,7 @@ const smallPhotoRows = [
   style={`transition-delay: ${Math.min(index, 4) * 30}ms`}
 >
   <div class="grid sm:grid-cols-[264px_1fr]">
-    <div class="flex flex-col gap-1 p-1">
-      {largePhoto ? (
-        <button
-          type="button"
-          data-lightbox
-          data-lightbox-src={largePhoto.image_url}
-          data-lightbox-alt={`${driverName} — ${season.name}`}
-          class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
-          aria-label={`Enlarge photo of ${driverName}, ${season.name}`}
-        >
-          <img
-            src={largePhoto.image_url}
-            alt={`${driverName} — ${season.name}`}
-            class="h-full w-full object-cover transition group-hover:scale-105"
-            loading="lazy"
-          />
-        </button>
-      ) : (
-        <div class="flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
-          Photo 1
-        </div>
-      )}
-
-      {smallPhotoRows.map((row, rowIndex) => (
-        <div class="grid grid-cols-2 gap-1">
-          {row.map((photo, i) =>
-            photo ? (
-              <button
-                type="button"
-                data-lightbox
-                data-lightbox-src={photo.image_url}
-                data-lightbox-alt={`${driverName} — ${season.name}`}
-                class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
-                aria-label={`Enlarge photo of ${driverName}, ${season.name}`}
-              >
-                <img
-                  src={photo.image_url}
-                  alt={`${driverName} — ${season.name}`}
-                  class="h-full w-full object-cover transition group-hover:scale-105"
-                  loading="lazy"
-                />
-              </button>
-            ) : (
-              <div class="flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
-                Photo {rowIndex * 2 + i + 2}
-              </div>
-            )
-          )}
-        </div>
-      ))}
-    </div>
+    <PhotoGrid photos={photos} altText={`${driverName} — ${season.name}`} />
 
     <div class="p-6">
       <div>

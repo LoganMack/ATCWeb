@@ -51,13 +51,14 @@ const cards = [
   { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
   { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming` },
   { href: '/admin/circuits', label: 'Circuits', detail: `${circuitCount} circuits` },
-  { href: '/admin/champions', label: 'Champions', detail: 'Manage champion photos' },
+  { href: '/admin/champions', label: 'Photo Management', detail: 'Champion & Hall of Fame photos' },
   { href: '/admin/import', label: 'Import', detail: 'Bulk CSV import for Events/Circuits/News/Race Results' },
   {
     href: '/admin/seasons',
     label: 'Seasons',
     detail: currentSeasonName ? `Current: ${currentSeasonName}` : `${seasonCount} season${seasonCount === 1 ? '' : 's'}`,
   },
+  { href: '/admin/rulesets', label: 'Rulesets', detail: 'Scoring rulesets' },
   { href: '/admin/site-properties', label: 'Site Properties', detail: 'Banners, broadcast URL, car logos & penalty offenses' },
   { href: '/admin/users', label: 'Users', detail: 'Assign admin access' },
 ];

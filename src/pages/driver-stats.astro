@@ -7,21 +7,42 @@ import TeamLogo from '../components/TeamLogo.astro';
 import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getDriverClasses, getSeasons, displayDriverName, getPageBanners } from '../lib/supabase';
-import { computeDriverCareerStats, type DriverCareerStats } from '../lib/results';
+import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../lib/results';
 import { classBadgeClasses } from '../lib/classColors';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let loadError: string | null = null;
-let careerStats: DriverCareerStats[] = [];
+let allCareerStats: DriverCareerStats[] = [];
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 try {
-  const [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
-  careerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes);
+  const [classesResult, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+  classes = classesResult;
+  allCareerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes);
 } catch (err) {
   console.error('Failed to compute driver career stats:', err);
   loadError = err instanceof Error ? err.message : String(err);
 }
+
+// Overall (career totals across every class) vs one filter per class —
+// a driver only shows up under a class filter if they've actually raced
+// it at least once, and their line there is re-aggregated from just that
+// class's season rows (see aggregateDriverCareerStats), not their whole
+// career. All free — computeDriverCareerStats already fetched every
+// driver's full season-by-season breakdown above, so filtering per class
+// is pure in-memory work, no extra queries.
+const requestedClassName = Astro.url.searchParams.get('class');
+const activeClass = classes.find((c) => c.name === requestedClassName) ?? null;
+
+const careerStats: DriverCareerStats[] = activeClass
+  ? allCareerStats
+      .map((entry) => {
+        const classSeasons = entry.seasons.filter((s) => s.classId === activeClass.id);
+        return classSeasons.length > 0 ? aggregateDriverCareerStats(entry.driver, classSeasons) : null;
+      })
+      .filter((entry): entry is DriverCareerStats => entry !== null)
+  : allCareerStats;
 
 function raceWord(n: number): string {
   return `${n} race${n === 1 ? '' : 's'}`;
@@ -41,10 +62,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Driver Stats</h1>
-    <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-      Career totals across every class and every season a driver has raced in. Click a driver to see their
-      season-by-season breakdown.
-    </p>
 
     <HistoryTabs active="driverStats" />
 
@@ -56,7 +73,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="mt-8 max-w-sm">
+      <div class="mt-8 flex flex-wrap gap-2">
+        <a
+          href="/driver-stats"
+          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            !activeClass ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+          }`}
+        >
+          Overall
+        </a>
+        {classes.map((c) => (
+          <a
+            href={`/driver-stats?class=${encodeURIComponent(c.name)}`}
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              activeClass?.id === c.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            {c.name}
+          </a>
+        ))}
+      </div>
+    )}
+
+    {!loadError && (
+      <div class="mt-4 max-w-sm">
         <input
           type="search"
           id="driver-stats-search"

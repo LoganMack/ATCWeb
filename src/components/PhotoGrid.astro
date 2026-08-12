@@ -1,0 +1,71 @@
+---
+// Shared "1 large photo + 2 rows of 2 smaller photos" layout (up to 5
+// photos total) — originally built for the public Champions card
+// (ChampionCard.astro), and reused as-is by the Hall of Fame page so both
+// look identical, per Logan ("adapt the hall of fame to use a 5 photo
+// layout like the champions tab"). The second row exists purely to give
+// the photo column enough height to come closer to matching whatever's
+// next to it (stats/bio text), instead of leaving a lot of empty space at
+// the bottom of the card.
+interface PhotoLike {
+  image_url: string;
+  sort_order: number;
+}
+
+interface Props {
+  photos: PhotoLike[];
+  /** Alt text for every photo in this grid — callers pass something like `${name} — ${season.name}` or just `${name}`. */
+  altText: string;
+}
+
+const { photos, altText } = Astro.props;
+
+const slots = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
+const largePhoto = slots[0];
+const smallPhotoRows = [
+  [slots[1], slots[2]],
+  [slots[3], slots[4]],
+];
+---
+
+<div class="flex flex-col gap-1 p-1">
+  {largePhoto ? (
+    <button
+      type="button"
+      data-lightbox
+      data-lightbox-src={largePhoto.image_url}
+      data-lightbox-alt={altText}
+      class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
+      aria-label={`Enlarge photo of ${altText}`}
+    >
+      <img src={largePhoto.image_url} alt={altText} class="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" />
+    </button>
+  ) : (
+    <div class="flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
+      Photo 1
+    </div>
+  )}
+
+  {smallPhotoRows.map((row, rowIndex) => (
+    <div class="grid grid-cols-2 gap-1">
+      {row.map((photo, i) =>
+        photo ? (
+          <button
+            type="button"
+            data-lightbox
+            data-lightbox-src={photo.image_url}
+            data-lightbox-alt={altText}
+            class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
+            aria-label={`Enlarge photo of ${altText}`}
+          >
+            <img src={photo.image_url} alt={altText} class="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" />
+          </button>
+        ) : (
+          <div class="flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
+            Photo {rowIndex * 2 + i + 2}
+          </div>
+        )
+      )}
+    </div>
+  ))}
+</div>
