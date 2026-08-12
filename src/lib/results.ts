@@ -55,7 +55,17 @@ import {
   getOrganizations,
   type SupabaseEnv,
 } from './supabase';
-import type { Season, CarLogo, Penalty, Lookup, Circuit, CircuitLayout, Organization, OrganizationTeamSeason } from './supabase';
+import type {
+  Season,
+  CarLogo,
+  Penalty,
+  Lookup,
+  Circuit,
+  CircuitLayout,
+  Organization,
+  OrganizationTeamSeason,
+  EventRecord,
+} from './supabase';
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
@@ -1921,6 +1931,112 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
   return perSeason.filter((r): r is ChampionEntry => r !== null);
 }
 
+/**
+ * Same per-season champion list as getChampions(), but additionally
+ * resolves each champion's DriverSeasonExtras (cars/teams raced that
+ * season) — built for the public Champions page, which used to call
+ * getChampions() and then a SEPARATE per-champion getSeasonCarTeamStats()
+ * call. That old pattern issued a fresh round of queries per season/champion
+ * and started tripping Cloudflare Workers' "Too many subrequests by single
+ * Worker invocation" limit once enough seasons had real standings data — the
+ * exact same class of bug getChampions() itself already had to fix (see that
+ * function's own doc comment). This function reuses the SAME per-season
+ * overallContext getChampions() already builds when calling
+ * getSeasonCarTeamStats (via its precomputedOverallContext param), so no
+ * extra per-season network calls are introduced.
+ *
+ * Kept as a separate function rather than folding into getChampions() itself
+ * — Admin > Champions only needs the plain champion list and shouldn't pay
+ * for extras it never renders.
+ */
+export async function getChampionsWithExtras(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classId: number
+): Promise<{ champions: ChampionEntry[]; extrasBySeasonId: Map<string, DriverSeasonExtras | undefined> }> {
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  const championshipSeasonIds = championshipSeasons.map((s) => s.id);
+
+  const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows] = await Promise.all([
+    driversSelect(env),
+    getExhibitionRoundIds(env),
+    getDriverClasses(env),
+    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+    getAllRounds(env),
+    getTeamsBasic(env),
+    getCarLogos(env),
+    getAllTeamSeasonLogosSafe(env),
+  ]);
+
+  const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
+  const [{ rawResults, lapStats }, penalties] = await Promise.all([
+    getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
+    getPenaltiesForSubsessions(env, allSubsessionIds),
+  ]);
+
+  const extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
+
+  const perSeason = await Promise.all(
+    championshipSeasons.map(async (season) => {
+      // Pure in-memory filtering from here down — no network calls inside
+      // this per-season loop except the one getSeasonCarTeamStats call
+      // below, which itself reuses overallContext and skips its own
+      // race_scores/curated_race_results fetches — same "bulk-fetch once,
+      // slice in memory" shape as getChampions().
+      const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
+      if (seasonScores.length === 0) return null;
+      const seasonSubsessionIds = new Set(seasonScores.map((s) => s.subsession_id));
+      const seasonRawResults = rawResults.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+      const seasonPenalties = penalties.filter((p) => seasonSubsessionIds.has(p.subsession_id));
+      const seasonLapStats = lapStats.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+      const seasonRounds = allRounds.filter((r) => r.season_id === season.id);
+
+      const overallContext = buildSeasonOverallContext(
+        exhibitionIds,
+        drivers,
+        seasonScores,
+        seasonRawResults,
+        seasonPenalties,
+        seasonRounds,
+        seasonLapStats
+      );
+
+      const classScores = seasonScores.filter((s) => s.class_id === classId);
+      const standings = await computeSeasonStandings(
+        env,
+        season,
+        classId,
+        drivers,
+        exhibitionIds,
+        classes,
+        overallContext,
+        classScores
+      );
+      if (standings.length === 0) return null;
+
+      const champion = standings[0];
+      const extras = await getSeasonCarTeamStats(
+        env,
+        season,
+        exhibitionIds,
+        drivers,
+        teams,
+        carLogos,
+        seasonLogoRows,
+        overallContext
+      );
+      extrasBySeasonId.set(season.id, extras.get(champion.driver.id));
+
+      return { season, standing: champion };
+    })
+  );
+
+  return {
+    champions: perSeason.filter((r): r is ChampionEntry => r !== null),
+    extrasBySeasonId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Career driver stats — every driver who has ever scored in a championship
 // season, with career totals summed across every class and season they've
@@ -2547,6 +2663,38 @@ export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: num
     `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`
   );
   return rounds[0] ?? null;
+}
+
+/**
+ * Resolves an admin-scheduled Event to whichever curated_rounds row (real or
+ * manually-imported) represents it, if any exists yet — live, with no
+ * stored link (see events.season_id/round_number/subsession_id's own
+ * comments in 0035_events_rounds_categories.sql). Two resolution paths,
+ * tried in the order the migration's column comments say to prefer:
+ *
+ * 1. season_id + round_number auto-matching — curated_rounds.round_number's
+ *    OWN numbering (set by the real iRacing pipeline), not the site's
+ *    computed-for-display "Round N" (see computeDisplayRoundNumbers below,
+ *    a different number entirely). Only ever populated for real pipeline
+ *    imports; the manual CSV importer always leaves it null, which is fine
+ *    — TEST/EXHIBITION events (the only things that importer's rounds tend
+ *    to back) are season-agnostic and don't use this path anyway.
+ * 2. subsession_id — the manual admin override/pin, used as a fallback when
+ *    auto-matching isn't applicable (season-agnostic events, which have no
+ *    round_number to match on) or found nothing (e.g. auto-matching applies
+ *    in principle but no matching round has been imported yet under that
+ *    exact round_number).
+ */
+export async function getEventRound(env: SupabaseEnv, event: EventRecord): Promise<RoundSummary | null> {
+  if (event.season_id && event.round_number != null) {
+    const rounds = await getRoundsForSeason(env, event.season_id);
+    const match = rounds.find((r) => r.round_number === event.round_number);
+    if (match) return match;
+  }
+  if (event.subsession_id != null) {
+    return getRoundBySubsessionId(env, event.subsession_id);
+  }
+  return null;
 }
 
 /**
