@@ -3,6 +3,7 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getDrivers, getSiteSettings, upsertSiteSetting, syncDriverStatuses, syncRookieStatus } from '../../../lib/supabase';
+import { syncResultsWithRoster } from '../../../lib/raceResultsImport';
 import {
   PROBATION_DAYS_KEY,
   PROBATION_ROUNDS_KEY,
@@ -17,29 +18,62 @@ const accessToken = Astro.locals.session!.accessToken;
 let error: string | null = null;
 let saved = false;
 
+// How many names to actually list out in the post-sync banner below — a
+// season or two of backlog can mean dozens of newly-linked/created drivers,
+// which would otherwise make for an unreasonably long redirect URL (see the
+// redirect below, which is what actually carries this list across the
+// POST-then-render-same-page pattern every other admin page here uses).
+const SYNC_NAMES_SHOWN = 20;
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
-  // Blank/non-numeric/negative just falls back to the field's own default
-  // via siteSettingInt on the next load, same tolerant handling as reading
-  // these values back — a stray bad value here can't wedge the automation.
-  function readIntField(name: string): string {
-    const raw = String(form.get(name) ?? '').trim();
-    const n = Number(raw);
-    return raw && Number.isFinite(n) && n > 0 ? String(Math.round(n)) : '';
-  }
-  try {
-    await Promise.all([
-      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: PROBATION_DAYS_KEY, value: readIntField('probation_days') || null }),
-      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: PROBATION_ROUNDS_KEY, value: readIntField('probation_rounds') || null }),
-      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_DAYS_KEY, value: readIntField('inactivity_days') || null }),
-      upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_ROUNDS_KEY, value: readIntField('inactivity_rounds') || null }),
-    ]);
-    saved = true;
-  } catch (err) {
-    console.error('Failed to save driver settings:', err);
-    error = err instanceof Error ? err.message : 'Failed to save driver settings.';
+  const intent = String(form.get('intent') ?? 'save-settings');
+
+  if (intent === 'sync-results-roster') {
+    try {
+      const outcome = await syncResultsWithRoster(supabaseEnv, accessToken);
+      const allNames = [...outcome.created, ...outcome.linked];
+      const params = new URLSearchParams({
+        synced_created: String(outcome.created.length),
+        synced_linked: String(outcome.linked.length),
+        synced_names: allNames.slice(0, SYNC_NAMES_SHOWN).join(', '),
+        synced_more: String(Math.max(0, allNames.length - SYNC_NAMES_SHOWN)),
+      });
+      return Astro.redirect(`/admin/drivers?${params.toString()}`, 302);
+    } catch (err) {
+      console.error('Failed to sync results with roster:', err);
+      error = err instanceof Error ? err.message : 'Failed to sync results with roster.';
+    }
+  } else {
+    // Blank/non-numeric/negative just falls back to the field's own default
+    // via siteSettingInt on the next load, same tolerant handling as reading
+    // these values back — a stray bad value here can't wedge the automation.
+    function readIntField(name: string): string {
+      const raw = String(form.get(name) ?? '').trim();
+      const n = Number(raw);
+      return raw && Number.isFinite(n) && n > 0 ? String(Math.round(n)) : '';
+    }
+    try {
+      await Promise.all([
+        upsertSiteSetting(supabaseEnv, accessToken, { setting_key: PROBATION_DAYS_KEY, value: readIntField('probation_days') || null }),
+        upsertSiteSetting(supabaseEnv, accessToken, { setting_key: PROBATION_ROUNDS_KEY, value: readIntField('probation_rounds') || null }),
+        upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_DAYS_KEY, value: readIntField('inactivity_days') || null }),
+        upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_ROUNDS_KEY, value: readIntField('inactivity_rounds') || null }),
+      ]);
+      saved = true;
+    } catch (err) {
+      console.error('Failed to save driver settings:', err);
+      error = err instanceof Error ? err.message : 'Failed to save driver settings.';
+    }
   }
 }
+
+// Sync result banner — query-string carried (see the redirect above), same
+// convention as Admin > Import's imported/skipped counts.
+const syncedCreated = Astro.url.searchParams.get('synced_created');
+const syncedLinked = Astro.url.searchParams.get('synced_linked');
+const syncedNames = Astro.url.searchParams.get('synced_names');
+const syncedMore = Astro.url.searchParams.get('synced_more');
 
 let probationDays = 45;
 let probationRounds = 4;
@@ -83,11 +117,23 @@ try {
 ---
 
 <AdminLayout title="Drivers">
-  <div class="reveal flex items-center justify-between">
+  <div class="reveal flex flex-wrap items-center justify-between gap-3">
     <h1 class="font-display text-4xl">Drivers</h1>
-    <a href="/admin/drivers/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
-      New Driver
-    </a>
+    <div class="flex flex-wrap items-center gap-2">
+      <form method="POST" data-astro-reload>
+        <input type="hidden" name="intent" value="sync-results-roster" />
+        <button
+          type="submit"
+          data-confirm="Scan every race result on file for drivers who raced but have no matching roster entry, and either link them onto an existing same-named driver or create a new roster entry for them. Continue?"
+          class="rounded-lg bg-white/5 px-5 py-2.5 font-semibold text-white/80 ring-1 ring-white/10 transition hover:bg-white/10"
+        >
+          Sync Results with Roster
+        </button>
+      </form>
+      <a href="/admin/drivers/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+        New Driver
+      </a>
+    </div>
   </div>
 
   {error && (
@@ -96,10 +142,32 @@ try {
   {saved && !error && (
     <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">Saved.</p>
   )}
+  {(syncedCreated !== null || syncedLinked !== null) && !error && (
+    <div class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
+      <p>
+        Sync complete — {syncedCreated} new roster {Number(syncedCreated) === 1 ? 'entry' : 'entries'} created,{' '}
+        {syncedLinked} existing {Number(syncedLinked) === 1 ? 'driver' : 'drivers'} linked to their results.
+      </p>
+      {syncedNames && (
+        <p class="mt-1 text-white/50">
+          {syncedNames}
+          {Number(syncedMore) > 0 && ` (+${syncedMore} more)`}
+        </p>
+      )}
+      {Number(syncedCreated) > 0 && (
+        <p class="mt-2 text-xs text-white/40">
+          Newly created entries default to the lowest class and status "New" — open each one to confirm their name,
+          set a real class/team, and double check they aren't actually a duplicate of an existing driver under a
+          different spelling.
+        </p>
+      )}
+    </div>
+  )}
 
   <details class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-5" style="transition-delay: 40ms">
     <summary class="cursor-pointer font-semibold text-white/80">Driver Settings</summary>
     <form method="POST" data-astro-reload class="mt-4 grid gap-4 sm:grid-cols-2">
+      <input type="hidden" name="intent" value="save-settings" />
       <div class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Probation length</span>
         <div class="flex items-center gap-2">
@@ -194,3 +262,13 @@ try {
     </table>
   </div>
 </AdminLayout>
+
+<script>
+  document.addEventListener('astro:page-load', () => {
+    document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
+      });
+    });
+  });
+</script>

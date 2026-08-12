@@ -42,12 +42,12 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const isAdmin = isAdminView(Astro.locals);
 const subsessionId = Number(Astro.params.subsessionId);
 
-/** Builds a round-wide driver lookup straight from getRoundResults() — shared by both the page render and the CSV importer below, which needs it independently since it runs during POST handling, before the page's own data-loading section. */
+/** Builds a round-wide driver lookup straight from getRoundResults() — shared by both the page render and the CSV importer below, which needs it independently since it runs during POST handling, before the page's own data-loading section. Deliberately excludes notInRoster rows (see results.ts's RaceResultRow.notInRoster) — their driver.id is a synthetic `unrostered:<custId>` string, not a real drivers.id, and penalties.driver_id is a NOT NULL uuid FK into drivers — offering one of these as a pickable "driver at fault" would fail at the database with an invalid-uuid error the moment anyone actually logged a penalty against them. Use the Drivers admin page's "Sync Results with Roster" button to give them a real roster entry first if they need a penalty logged. */
 async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
   const results = await getRoundResults(supabaseEnv, subsessionId);
   const out = new Map<string, DriverBasic>();
   for (const rows of results.overall.values()) {
-    for (const row of rows) out.set(row.driver.id, row.driver);
+    for (const row of rows) if (!row.notInRoster) out.set(row.driver.id, row.driver);
   }
   return out;
 }
@@ -298,9 +298,11 @@ function deltaClass(n: number | null): string {
 // the old per-race dialog, the driver being penalized is no longer excluded
 // from the "Involved" list — per Logan, involvement should be inclusive so
 // the penalized driver's own car can be tagged alongside anyone else's.
+// notInRoster rows are excluded — see loadRoundDrivers' own doc comment
+// above on why their synthetic id can never be a valid penalties.driver_id.
 const driverById = new Map<string, DriverBasic>();
 for (const rows of originalResults.overall.values()) {
-  for (const row of rows) driverById.set(row.driver.id, row.driver);
+  for (const row of rows) if (!row.notInRoster) driverById.set(row.driver.id, row.driver);
 }
 const roundDrivers = [...driverById.values()].sort((a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity));
 const raceNumbers = [...originalResults.overall.keys()].sort((a, b) => a - b);

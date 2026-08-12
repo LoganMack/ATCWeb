@@ -473,6 +473,21 @@ export interface DriverRecord {
   status_id: number;
   class_id: number;
   team_id: string | null;
+  /**
+   * Their iRacing customer id — the ONLY thing that links this drivers row
+   * to their actual race results (curated_race_results.cust_id,
+   * recalculate_race_scores()'s entrant join, driver_last_race — see those
+   * for the full list). Added to `drivers` outside this repo's migrations
+   * (see 0005_round_overrides.sql's grant-fix note), and until now had no
+   * admin UI field at all despite raceResultsImport.ts's own doc comment
+   * telling admins to "set it first on their Roster profile" — the Sync
+   * Results with Roster button (src/lib/raceResultsImport.ts's
+   * syncResultsWithRoster) is what actually needs this field editable, so
+   * a driver it links (rather than creates fresh) can be corrected by hand
+   * afterward, and so an admin can fix a genuine mismatch without a direct
+   * database edit.
+   */
+  iracing_cust_id: number | null;
   is_rookie: boolean;
   car: string | null;
   appearances: number;
@@ -500,7 +515,7 @@ export interface DriverRecord {
 }
 
 const DRIVER_ADMIN_SELECT =
-  'id,car_number,name,status_id,class_id,team_id,is_rookie,car,appearances,starts,' +
+  'id,car_number,name,status_id,class_id,team_id,iracing_cust_id,is_rookie,car,appearances,starts,' +
   'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at,is_hall_of_fame,' +
   'nationality_1,nationality_2,starting_irating,created_at,updated_at,created_by,updated_by';
 
@@ -533,6 +548,17 @@ export function getDriversForNumberCheck(env: SupabaseEnv) {
     env,
     'drivers?select=id,name,car_number,driver_statuses(name)&car_number=not.is.null'
   );
+}
+
+/** Every driver who already has an iRacing Customer ID set — used both by the admin driver edit page's "is this cust_id already claimed by someone else?" check (see readForm/the save handler in admin/drivers/[id].astro) and by raceResultsImport.ts's syncResultsWithRoster, which must never link a cust_id to more than one drivers row (recalculate_race_scores() joins on this column — a duplicate would double-count that one raw result). */
+export interface DriverCustIdLookup {
+  id: string;
+  name: string;
+  iracing_cust_id: number | null;
+}
+
+export function getDriversForCustIdCheck(env: SupabaseEnv) {
+  return restGet<DriverCustIdLookup[]>(env, 'drivers?select=id,name,iracing_cust_id&iracing_cust_id=not.is.null');
 }
 
 /** Every driver's most recent race, plus how many official league rounds have run since then (league-wide, not season/class-scoped) — see driver_last_race (0039_driver_admin_overhaul.sql, revised by 0040_inactivity_90d_or_12_rounds.sql). rounds_since_last_race is null exactly when last_race_at is null (never raced / no iracing_cust_id). Powers both sync_driver_statuses() and the admin edit page's inactivity note — a driver goes Inactive once BOTH the configured inactivity-days and inactivity-rounds thresholds have passed since last_race_at (whichever takes longer — see 0041_driver_settings.sql). */

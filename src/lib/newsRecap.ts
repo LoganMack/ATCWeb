@@ -281,11 +281,13 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
 
   // cust_id -> driver, built once from the round's own results — best_lap
   // rows are keyed by cust_id (iRacing's own id, same as the rest of
-  // curated_race_results), not this app's driver uuid.
+  // curated_race_results), not this app's driver uuid. Excludes notInRoster
+  // rows for the same reason `overallRows` below does (they'd otherwise let
+  // an unrostered entrant get credited with a Fastest Lap highlight).
   const driverByCustId = new Map<number, DriverBasic>();
   for (const rows of roundResults.overall.values()) {
     for (const row of rows) {
-      if (row.driver.iracing_cust_id !== null) driverByCustId.set(row.driver.iracing_cust_id, row.driver);
+      if (!row.notInRoster && row.driver.iracing_cust_id !== null) driverByCustId.set(row.driver.iracing_cust_id, row.driver);
     }
   }
   const bestLapsByRace = new Map<number, RawBestLapRow[]>();
@@ -295,7 +297,15 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   }
 
   const races: RecapRace[] = raceNumbers.map((raceNumber) => {
-    const overallRows = roundResults.overall.get(raceNumber) ?? [];
+    // Excludes notInRoster rows (see results.ts's RaceResultRow.notInRoster)
+    // — an entrant with no roster entry yet is a data-hygiene gap for an
+    // admin to fix (Drivers admin > "Sync Results with Roster"), not
+    // someone this auto-generated recap should be crediting by name in a
+    // public news post (their pipeline-sourced display_name, or a bare
+    // "Cust #12345" fallback, isn't a real roster identity to feature).
+    // topByClass below is unaffected either way — byClass never contains
+    // notInRoster rows in the first place (see getRoundResults).
+    const overallRows = (roundResults.overall.get(raceNumber) ?? []).filter((r) => !r.notInRoster);
 
     const topByClass: RecapClassTop3[] = orderedClassIds
       .map((classId): RecapClassTop3 | null => {

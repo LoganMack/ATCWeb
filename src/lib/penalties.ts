@@ -511,6 +511,32 @@ function recomputeRow(
     overallRaceTimeFormatted = formatLapTime(newTotal / 10000);
   }
 
+  // An entrant with no drivers row at all (see RaceResultRow.notInRoster's
+  // own doc comment) is never scored — recalculate_race_scores() never
+  // produced a race_scores row for them in the first place, so there's no
+  // points formula to re-run here. Position/margin/tags are still real,
+  // pipeline-sourced data and DO legitimately move when a penalty cascade
+  // reshuffles the field around them (margin/overallRaceTime already
+  // updated above), but they must never be handed real points just because
+  // recomputeScorePoints would otherwise assign finishPointsForPosition to
+  // whatever position they land on. Only ever true in the Overall view (see
+  // notInRoster's own doc comment), so this never needs to touch class
+  // points/positions.
+  if (row.notInRoster) {
+    return {
+      ...row,
+      position: newPosition,
+      wasAdjusted: row.wasAdjusted || positionChanged,
+      penaltyOldPosition: positionChanged ? row.position : row.penaltyOldPosition,
+      hasPenalty: row.hasPenalty || Boolean(pen),
+      margin,
+      intervalTenThousandths,
+      overallRaceTimeFormatted,
+      overallRaceTimeTenThousandths,
+      tags,
+    };
+  }
+
   if (!pen && !positionChanged && !classPositionChanged) {
     // Points/position genuinely untouched for this row — but margin/tags
     // above may still have changed via leader re-zeroing, so this can't

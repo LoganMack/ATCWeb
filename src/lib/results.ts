@@ -317,6 +317,35 @@ async function getLapStatsForSubsessions(env: SupabaseEnv, subsessionIds: number
   }
 }
 
+interface RawDisplayNameRow {
+  subsession_id: number;
+  race_number: number;
+  cust_id: number;
+  /** NOT NULL on the underlying table (see raceResultsImport.ts's own note on this column) — the results pipeline's own name for this cust_id, independent of this app's `drivers.name`. Only ever needed for an entrant who raced but has no matching `drivers` row at all (see toUnrosteredRow in getRoundResults) — every other reader already has a real `drivers` row to get a name from instead, hence isolating this one column the same way average/best lap above are isolated. */
+  display_name: string;
+}
+
+/**
+ * Same isolation reasoning as getLapStatsForSubsessions right above —
+ * display_name isn't selected by the shared getCuratedRaceResultsForSubsessions
+ * query, so a schema hiccup on this one column degrades only the "show an
+ * unrostered entrant's real name" feature (getRoundResults falls back to
+ * "Cust #<id>" per row when this comes back empty) rather than taking down
+ * every page that shares that query.
+ */
+async function getDisplayNamesForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RawDisplayNameRow[]> {
+  if (subsessionIds.length === 0) return [];
+  try {
+    return await restGetAll<RawDisplayNameRow>(
+      env,
+      `curated_race_results?select=subsession_id,race_number,cust_id,display_name&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
+    );
+  } catch (err) {
+    console.error('Failed to fetch display_name (curated_race_results.display_name) — unrostered entrants will show as "Cust #<id>" instead of their real name:', err);
+    return [];
+  }
+}
+
 interface TeamBasic {
   id: string;
   name: string;
@@ -2836,6 +2865,20 @@ export interface RaceResultRow {
   overallRaceTimeFormatted: string;
   /** Raw ten-thousandths-of-a-second value overallRaceTimeFormatted is formatted from — same reasoning as averageLapTenThousandths. Null when there's no data to compute it from. */
   overallRaceTimeTenThousandths: number | null;
+  /**
+   * True for an entrant who actually raced this round (present in
+   * curated_race_results, the raw results pipeline data) but has no
+   * matching row in `drivers` at all — recalculate_race_scores() inner-
+   * joins to `drivers`, so a cust_id with no roster entry never gets a
+   * race_scores row and would otherwise vanish from this round's results
+   * entirely (see toUnrosteredRow). Only ever true in the Overall view —
+   * there's no way to know what class an unrostered entrant belongs to, so
+   * they can't be placed in any per-class view. Never scored: every points
+   * field above is 0 for this row and src/lib/penalties.ts's recomputeRow
+   * deliberately never assigns them real points either, even if another
+   * driver's penalty reshuffles them to a new position.
+   */
+  notInRoster: boolean;
 }
 
 export interface RoundResults {
@@ -2865,7 +2908,7 @@ type RaceScoreWithClass = RaceScoreRow & {
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,total_points,classified,dsq,scored_position';
-  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats] = await Promise.all([
+  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
     driversSelect(env),
@@ -2874,14 +2917,20 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     getRoundBySubsessionId(env, subsessionId),
     getAllTeamSeasonLogosSafe(env),
     getLapStatsForSubsessions(env, [subsessionId]),
+    getDisplayNamesForSubsessions(env, [subsessionId]),
   ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   const custIdByDriverId = new Map(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
   );
+  // Every cust_id this app actually has a driver for — anyone in
+  // curated_race_results whose cust_id isn't in here raced this round but
+  // was never added to the roster at all (see toUnrosteredRow below).
+  const rosteredCustIds = new Set(custIdByDriverId.values());
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const displayNameByKey = new Map(displayNames.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.display_name]));
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   // This round's season, for the historical-logo lookup below — team logos
@@ -2959,6 +3008,76 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
       overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
       overallRaceTimeTenThousandths,
+      notInRoster: false,
+    };
+  }
+
+  /**
+   * A row for an entrant who actually raced this round but has no matching
+   * `drivers` row at all — see RaceResultRow.notInRoster's own doc comment
+   * for the mechanism. Deliberately mirrors toRow() above wherever real data
+   * exists for them (car, laps, margin, average/best lap all come straight
+   * from the same raw pipeline row every scored driver's row is built from)
+   * and zeroes out everything that would otherwise require a race_scores
+   * row to exist (points, team, pole/finesse/aggression bonuses, class).
+   */
+  function toUnrosteredRow(raw: CuratedRaceResultRow, position: number | null): RaceResultRow {
+    const lapStatsRow = lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id));
+    const averageLapTenThousandths = lapStatsRow?.average_lap_ten_thousandths ?? null;
+    const bestLapTenThousandths = lapStatsRow?.best_lap_ten_thousandths ?? null;
+    const overallRaceTimeTenThousandths =
+      averageLapTenThousandths !== null && raw.laps_complete !== null ? raw.laps_complete * averageLapTenThousandths : null;
+    const displayName = displayNameByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id)) ?? `Cust #${raw.cust_id}`;
+
+    return {
+      raceNumber: raw.race_number,
+      // No class to place them under — never used, since unmatched rows
+      // only ever go into the Overall view (getRoundResults never adds
+      // them to byClass). A real class id would wrongly imply a per-class
+      // view could show them.
+      classId: -1,
+      position,
+      dsq: false,
+      driver: {
+        id: `unrostered:${raw.cust_id}`,
+        name: displayName,
+        car_number: null,
+        photo_url: null,
+        iracing_cust_id: raw.cust_id,
+        is_rookie: false,
+        nationality_1: null,
+        nationality_2: null,
+      },
+      finishPosition: raw.finish_position,
+      startingPosition: raw.starting_position,
+      wasAdjusted: false,
+      totalPoints: 0,
+      originalTotalPoints: 0,
+      bonusPoints: 0,
+      classPoints: 0,
+      finesseBonus: 0,
+      poleBonus: 0,
+      aggressionBonus: 0,
+      pointsDeduction: 0,
+      polePosition: false,
+      incidentsBonus: false,
+      aggressionBonusWon: false,
+      incidents: raw.incidents,
+      laps: raw.laps_complete,
+      lapsLed: raw.laps_led,
+      tags: ['Driver not listed in roster'],
+      margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(raw.race_number) ?? null),
+      intervalTenThousandths: raw.interval_ten_thousandths,
+      penaltyOldPosition: null,
+      hasPenalty: false,
+      team: null,
+      car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
+      averageLapFormatted: formatLapTime(averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null),
+      averageLapTenThousandths,
+      bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
+      overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
+      overallRaceTimeTenThousandths,
+      notInRoster: true,
     };
   }
 
@@ -3009,9 +3128,23 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     byRaceAll.get(m.score.race_number)!.push(m);
   }
 
+  // Entrants who actually raced (present in curated_race_results) but have
+  // no matching `drivers` row at all — see toUnrosteredRow/notInRoster's
+  // own doc comments. Grouped by race the same way `matched` is above.
+  const unmatchedByRace = new Map<number, CuratedRaceResultRow[]>();
+  for (const raw of rawResults) {
+    if (rosteredCustIds.has(raw.cust_id)) continue;
+    if (!unmatchedByRace.has(raw.race_number)) unmatchedByRace.set(raw.race_number, []);
+    unmatchedByRace.get(raw.race_number)!.push(raw);
+  }
+
   const overallRawPos = (m: Matched) => m.raw.adjusted_position ?? m.raw.finish_position;
+  const unrosteredRawPos = (raw: CuratedRaceResultRow) => raw.adjusted_position ?? raw.finish_position;
   const overall = new Map<number, RaceResultRow[]>();
-  for (const [raceNumber, group] of byRaceAll) {
+  const allRaceNumbers = new Set<number>([...byRaceAll.keys(), ...unmatchedByRace.keys()]);
+  for (const raceNumber of allRaceNumbers) {
+    const group = byRaceAll.get(raceNumber) ?? [];
+    const unmatchedGroup = unmatchedByRace.get(raceNumber) ?? [];
     const ranked = group
       .filter((m) => !m.score.dsq && m.score.scored_position !== null)
       .sort((a, b) => (a.score.scored_position as number) - (b.score.scored_position as number));
@@ -3021,8 +3154,21 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     const unranked = group
       .filter((m) => m.score.dsq || m.score.scored_position === null)
       .sort((a, b) => overallRawPos(a) - overallRawPos(b));
+
+    // race_scores.scored_position IS the same raw finish/adjusted position
+    // every entrant already has on curated_race_results (recalculate_race_
+    // scores() carries it straight through, unrenumbered) — so an
+    // unrostered entrant's raw position sorts correctly alongside everyone
+    // else's scored_position with no re-derivation needed, keeping the
+    // Overall view a complete, truthfully-ordered field instead of tacking
+    // unrostered rows onto the end.
+    const rankedAndUnrostered = [
+      ...ranked.map((m) => ({ row: toRow(m.score, m.driver, m.raw, m.score.scored_position), rawPos: overallRawPos(m) })),
+      ...unmatchedGroup.map((raw) => ({ row: toUnrosteredRow(raw, unrosteredRawPos(raw)), rawPos: unrosteredRawPos(raw) })),
+    ].sort((a, b) => a.rawPos - b.rawPos);
+
     overall.set(raceNumber, [
-      ...ranked.map((m) => toRow(m.score, m.driver, m.raw, m.score.scored_position)),
+      ...rankedAndUnrostered.map((r) => r.row),
       ...unranked.map((m) => toRow(m.score, m.driver, m.raw, null)),
     ]);
   }

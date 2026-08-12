@@ -275,7 +275,7 @@ for (const p of racePenalties) {
             tabindex="0"
             role="button"
             aria-expanded="false"
-            class={`cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.03] ${row.dsq ? 'opacity-50' : ''}`}
+            class={`cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.03] ${row.dsq || row.notInRoster ? 'opacity-50' : ''}`}
           >
             <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
               <div class="flex h-8 flex-col items-start justify-center">
@@ -353,7 +353,7 @@ for (const p of racePenalties) {
               )}
             </td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.laps ?? '—'}</td>
-            <td class="py-2.5 pr-4 text-center font-semibold">{row.totalPoints}</td>
+            <td class="py-2.5 pr-4 text-center font-semibold">{row.notInRoster ? '—' : row.totalPoints}</td>
           </tr>
           <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
             <td colspan={showClass ? 8 : 7} class="px-4 py-4 sm:pl-11">
@@ -385,24 +385,39 @@ for (const p of racePenalties) {
               </div>
               <div class="mt-4">
                 <div class="text-[10px] uppercase tracking-wide text-white/30">Points Breakdown</div>
-                <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-white/60">
-                  {breakdownLines.map((line) => (
-                    <span>
-                      {line.label}:{' '}
-                      <span class="font-semibold text-white/90">
-                        {line.value > 0 && line.label !== 'Finish' ? '+' : ''}
-                        {line.value}
+                {row.notInRoster ? (
+                  // This entrant has no drivers roster entry at all, so
+                  // recalculate_race_scores() never produced a race_scores
+                  // row for them (see RaceResultRow.notInRoster's own doc
+                  // comment) — there's no points formula to itemize here.
+                  // Use the admin "Sync Results with Roster" button on the
+                  // Drivers admin page to add them to the roster, which will
+                  // let them be scored on the next recalculation.
+                  <p class="mt-1 text-white/40">
+                    Not scored — this driver isn't on the roster yet, so no points were calculated for this result.
+                  </p>
+                ) : (
+                  <>
+                    <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-white/60">
+                      {breakdownLines.map((line) => (
+                        <span>
+                          {line.label}:{' '}
+                          <span class="font-semibold text-white/90">
+                            {line.value > 0 && line.label !== 'Finish' ? '+' : ''}
+                            {line.value}
+                          </span>
+                        </span>
+                      ))}
+                      <span class="text-white/40">
+                        Total: <span class="font-semibold text-white/90">{row.totalPoints}</span>
                       </span>
-                    </span>
-                  ))}
-                  <span class="text-white/40">
-                    Total: <span class="font-semibold text-white/90">{row.totalPoints}</span>
-                  </span>
-                </div>
-                {penaltyPointsDelta(row) !== 0 && (
-                  <div class={`mt-1.5 text-[11px] font-semibold ${penaltyPointsDelta(row) > 0 ? 'text-brand-blue' : 'text-brand-pink'}`}>
-                    {penaltyPointsDelta(row) > 0 ? '+' : ''}{penaltyPointsDelta(row)} pt{Math.abs(penaltyPointsDelta(row)) === 1 ? '' : 's'} from this round's penalties
-                  </div>
+                    </div>
+                    {penaltyPointsDelta(row) !== 0 && (
+                      <div class={`mt-1.5 text-[11px] font-semibold ${penaltyPointsDelta(row) > 0 ? 'text-brand-blue' : 'text-brand-pink'}`}>
+                        {penaltyPointsDelta(row) > 0 ? '+' : ''}{penaltyPointsDelta(row)} pt{Math.abs(penaltyPointsDelta(row)) === 1 ? '' : 's'} from this round's penalties
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </td>

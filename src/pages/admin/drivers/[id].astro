@@ -11,6 +11,7 @@ import {
   getDriverStatuses,
   getDriverClasses,
   getDriversForNumberCheck,
+  getDriversForCustIdCheck,
   getDriversBasic,
   getDriverLastRace,
   setDriverCarNumber,
@@ -74,10 +75,18 @@ function extFromFile(file: File): string {
 //     now, not duplicated here
 function readForm(form: FormData): Partial<DriverRecord> {
   const iratingRaw = String(form.get('starting_irating') ?? '').trim();
+  const custIdRaw = String(form.get('iracing_cust_id') ?? '').trim();
   return {
     name: String(form.get('name') ?? '').trim(),
     class_id: Number(form.get('class_id')),
     starting_irating: iratingRaw ? Number(iratingRaw) : null,
+    // The only column that actually links this driver to their real race
+    // results (see supabase.ts's DriverRecord.iracing_cust_id and
+    // raceResultsImport.ts's syncResultsWithRoster) — editable here mainly
+    // so a mistakenly-created duplicate from that sync can be fixed by hand
+    // (move the id onto the correct existing driver, delete the duplicate)
+    // rather than needing a direct database edit.
+    iracing_cust_id: custIdRaw ? Number(custIdRaw) : null,
     bio: String(form.get('bio') ?? '').trim() || null,
     // Only ever present on the edit form (see template) — absent on create
     // just reads back as false/null here, which are exactly the right
@@ -230,6 +239,16 @@ if (Astro.request.method === 'POST') {
       )
     ) {
       error = `A driver named "${data.name}" already exists.`;
+    } else if (
+      data.iracing_cust_id !== null &&
+      data.iracing_cust_id !== undefined &&
+      (await getDriversForCustIdCheck(supabaseEnv)).some((other) => other.iracing_cust_id === data.iracing_cust_id && other.id !== id)
+    ) {
+      // Two drivers rows sharing one iracing_cust_id would make
+      // recalculate_race_scores()'s join match BOTH of them against the
+      // same raw curated_race_results row, double-counting that result —
+      // see getDriversForCustIdCheck's own doc comment.
+      error = `iRacing Customer ID ${data.iracing_cust_id} is already assigned to another driver.`;
     } else {
       try {
         if (isNew) {
@@ -523,6 +542,23 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
         placeholder="e.g. 2500"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
+    </label>
+
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">iRacing Customer ID</span>
+      <input
+        type="number"
+        name="iracing_cust_id"
+        min="0"
+        step="1"
+        value={d.iracing_cust_id ?? ''}
+        placeholder="e.g. 123456"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      />
+      <span class="text-xs text-white/40">
+        Required for this driver's results to show up scored anywhere on the site. Usually set automatically by the
+        "Sync Results with Roster" button on the Drivers list — only edit this by hand to fix a mismatch.
+      </span>
     </label>
 
     <label class="flex flex-col gap-1.5 text-sm">
