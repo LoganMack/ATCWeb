@@ -18,6 +18,7 @@ import {
   deletePenalty,
   formatDate,
   getDriverClasses,
+  getDriverSeasonCarNumbersForSeason,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
@@ -30,6 +31,7 @@ import {
   effectivePenaltyPoints,
 } from '../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../lib/penaltyActions';
+import { resolveDriverByCarNumberForSeason } from '../../../lib/raceResultsImport';
 import { parseCsv } from '../../../lib/csv';
 import { isAdminView } from '../../../lib/auth';
 
@@ -118,8 +120,24 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     try {
       const file = form.get('csv_file');
       if (file instanceof File) {
-        const [importOffenses, importDriverById] = await Promise.all([getPenaltyOffenses(supabaseEnv), loadRoundDrivers()]);
+        const [importOffenses, importDriverById, importRound] = await Promise.all([
+          getPenaltyOffenses(supabaseEnv),
+          loadRoundDrivers(),
+          getRoundBySubsessionId(supabaseEnv, subsessionId),
+        ]);
         const importDrivers = [...importDriverById.values()];
+        // Season-scoped car numbers (0044_driver_season_car_numbers.sql) —
+        // see resolveDriverByCarNumberForSeason's own doc comment for why
+        // matching by a driver's CURRENT car_number alone isn't reliable
+        // for a past round.
+        const seasonCarNumberRows = importRound?.season_id
+          ? await getDriverSeasonCarNumbersForSeason(supabaseEnv, importRound.season_id)
+          : [];
+        const seasonCarNumbers = new Map(seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]));
+        const resolveDriver = (carNumber: number) =>
+          Number.isFinite(carNumber) && importRound?.season_id
+            ? resolveDriverByCarNumberForSeason(importDrivers, seasonCarNumbers, importRound.season_id, carNumber)
+            : importDrivers.find((d) => d.car_number === carNumber);
         const text = await file.text();
         const rows = parseCsv(text);
         const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
@@ -135,7 +153,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
 
           const raceNumber = Number(get(row, 'race_number'));
           const carNumber = Number(get(row, 'driver_car_number'));
-          const driver = importDrivers.find((d) => d.car_number === carNumber);
+          const driver = resolveDriver(carNumber);
           if (!Number.isFinite(raceNumber) || !driver) {
             skipped++;
             continue;
@@ -151,7 +169,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
             .map((s) => Number(s.trim()))
             .filter((n) => Number.isFinite(n));
           const involvedDriverIds = involvedCarNumbers
-            .map((n) => importDrivers.find((d) => d.car_number === n)?.id)
+            .map((n) => resolveDriver(n)?.id)
             .filter((id): id is string => Boolean(id));
 
           const isWarningRaw = get(row, 'is_warning').toLowerCase();

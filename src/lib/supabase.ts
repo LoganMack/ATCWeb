@@ -658,6 +658,58 @@ export function deleteDriverSeasonClass(env: SupabaseEnv, accessToken: string, d
   );
 }
 
+// --- Driver season car numbers (per-season number override, see 0044_driver_season_car_numbers.sql) -
+
+export interface DriverSeasonCarNumber {
+  driver_id: string;
+  season_id: string;
+  car_number: number;
+}
+
+const DRIVER_SEASON_CAR_NUMBER_SELECT = 'driver_id,season_id,car_number';
+
+/** One driver's per-season car number overrides — powers the "Driver Number by Season" list on the admin driver edit page. A season with no row here falls back to the driver's current number (drivers.car_number). */
+export function getDriverSeasonCarNumbersForDriver(env: SupabaseEnv, driverId: string) {
+  return restGet<DriverSeasonCarNumber[]>(
+    env,
+    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}`
+  );
+}
+
+/** Every driver's number override for one season — used by the admin edit page to validate a new number isn't already claimed by someone else that season. */
+export function getDriverSeasonCarNumbersForSeason(env: SupabaseEnv, seasonId: string) {
+  return restGet<DriverSeasonCarNumber[]>(
+    env,
+    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
+/** Every driver_season_car_numbers row, across every season — the manual Race Results and Incident Report CSV importers fetch this once (rather than per-round-season) to resolve a CSV row's car number to a driver_id for that round's own season, before falling back to drivers.car_number. */
+export function getAllDriverSeasonCarNumbers(env: SupabaseEnv) {
+  return restGet<DriverSeasonCarNumber[]>(env, `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}`);
+}
+
+/** Upserts a driver's car number for one season — replaces whatever was set for that season before. The table's primary key is (driver_id, season_id); its (season_id, car_number) unique constraint is the hard backstop against two drivers sharing a number in the same season (see 0044_driver_season_car_numbers.sql) — callers should validate that themselves first for a friendly error message, since this will otherwise throw a raw constraint-violation error. */
+export async function upsertDriverSeasonCarNumber(env: SupabaseEnv, accessToken: string, data: DriverSeasonCarNumber) {
+  const res = await fetch(`${env.url}/rest/v1/driver_season_car_numbers?on_conflict=driver_id,season_id`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on driver_season_car_numbers: ${await res.text()}`);
+  const rows = (await res.json()) as DriverSeasonCarNumber[];
+  return rows[0];
+}
+
+/** Clears a driver's car number override for one season — they fall back to their current number (drivers.car_number) for that season again. */
+export function deleteDriverSeasonCarNumber(env: SupabaseEnv, accessToken: string, driverId: string, seasonId: string) {
+  return restDelete(
+    env,
+    accessToken,
+    `driver_season_car_numbers?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
 export interface DriverOption {
   id: string;
   name: string;
