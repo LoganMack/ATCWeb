@@ -1,4 +1,4 @@
--- Alpha Touring Challenge — organizations
+-- Alpha Touring Challenge — organizations sql
 --
 -- Some teams have gone through multiple name changes over ATC's history —
 -- historically each rename created a brand-new `teams` row (teams.name is
