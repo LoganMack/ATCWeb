@@ -52,30 +52,59 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'save');
 
-  if (intent === 'add-roster' || intent === 'remove-roster') {
+  if (intent === 'save-roster') {
+    // Whole-season batch save (per Logan: the old add/remove-one-driver-at-
+    // a-time flow saved and reloaded on every single selection, which got
+    // annoying fast). The form posts up to 4 slot values (driver_slot_1..4,
+    // empty string for an unused slot) representing the FULL desired
+    // roster for this team+season in one shot; this diffs that against
+    // what's actually on file and only writes the rows that changed.
     const seasonId = String(form.get('season_id') ?? '');
-    const driverId = String(form.get('driver_id') ?? '');
-    // Set client-side (see the script below) when the admin confirms
-    // transferring a driver who's already on another team's roster this
-    // season — the client can't do the transfer itself (no direct DB
-    // access), so it just flags the intent and the server does both halves
-    // of it here.
-    const transferFromTeamId = String(form.get('transfer_from_team_id') ?? '');
+    const desiredIds = Array.from(
+      new Set(
+        [1, 2, 3, 4]
+          .map((n) => String(form.get(`driver_slot_${n}`) ?? '').trim())
+          .filter((v) => v.length > 0)
+      )
+    );
     rosterSeasonId = seasonId || null;
-    if (!isNew && id && seasonId && driverId) {
-      try {
-        if (intent === 'add-roster') {
-          if (transferFromTeamId) {
-            await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: transferFromTeamId, driver_id: driverId });
+    if (!isNew && id && seasonId) {
+      if (desiredIds.length > 4) {
+        rosterError = 'A team roster can have at most 4 drivers in a season.';
+      } else {
+        try {
+          const [currentRoster, seasonRosterAllTeams] = await Promise.all([
+            getTeamRosterForTeamSeason(supabaseEnv, id, seasonId),
+            getTeamRosterForSeason(supabaseEnv, seasonId),
+          ]);
+          const currentIds = new Set(currentRoster.map((r) => r.driver_id));
+          const desiredIdSet = new Set(desiredIds);
+
+          // Remove first (so a team swapping two drivers at once never
+          // transiently exceeds 4 and trips the roster-size trigger).
+          for (const entry of currentRoster) {
+            if (!desiredIdSet.has(entry.driver_id)) {
+              await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: entry.driver_id });
+            }
           }
-          await addTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
-        } else {
-          await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
+          for (const driverId of desiredIds) {
+            if (currentIds.has(driverId)) continue; // unchanged, already on this team
+            // Transfer: same trigger in 0008_team_rosters.sql would reject
+            // adding a driver who's still on another team's roster this
+            // season, so clear that other claim first — mirrors what the
+            // old per-driver flow did with its explicit confirm() prompt,
+            // just without needing a second round trip to ask first.
+            const other = seasonRosterAllTeams.find((r) => r.driver_id === driverId && r.team_id !== id);
+            if (other) {
+              await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: other.team_id, driver_id: driverId });
+            }
+            await addTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
+          }
+          return Astro.redirect(`/admin/teams/${id}?season=${seasonId}`, 302);
+        } catch (err) {
+          console.error('Failed to save team roster:', err);
+          rosterError = err instanceof Error ? err.message : 'Failed to save the roster.';
         }
-        return Astro.redirect(`/admin/teams/${id}?season=${seasonId}`, 302);
-      } catch (err) {
-        console.error('Failed to update team roster:', err);
-        rosterError = err instanceof Error ? err.message : 'Failed to update the roster.';
       }
     }
     // Falls through (no redirect) so the page re-renders with rosterError
@@ -230,8 +259,6 @@ const rosterDriverIds = new Set(rosterEntries.map((r) => r.driver_id));
 const rosterDriversOnTeam = rosterDrivers
   .filter((d) => rosterDriverIds.has(d.id))
   .sort((a, b) => a.name.localeCompare(b.name));
-const availableDrivers = rosterDrivers.filter((d) => !rosterDriverIds.has(d.id));
-const rosterFull = rosterDriversOnTeam.length >= 4;
 ---
 
 <AdminLayout title={isNew ? 'New Team' : t.name || 'Edit Team'}>
@@ -399,68 +426,66 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
             <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{rosterError}</p>
           )}
 
-          <ul class="mt-4 flex flex-col gap-2">
-            {rosterDriversOnTeam.length === 0 && <li class="text-sm text-white/40">No results.</li>}
-            {rosterDriversOnTeam.map((d) => (
-              <li class="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
-                <span>
-                  {d.name} {d.car_number !== null && <span class="text-white/40">#{d.car_number}</span>}
-                </span>
-                <form method="POST" data-astro-reload>
-                  <input type="hidden" name="intent" value="remove-roster" />
-                  <input type="hidden" name="season_id" value={selectedSeasonId ?? ''} />
-                  <input type="hidden" name="driver_id" value={d.id} />
-                  <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
-                </form>
-              </li>
-            ))}
-          </ul>
-
-          {selectedSeasonId && (
-            <form
-              method="POST"
-              data-astro-reload
-              data-add-roster-form
-              data-team-name={t.name}
-              data-season-name={selectedSeasonName}
-              class="mt-4 flex flex-wrap items-end gap-3"
-            >
-              <input type="hidden" name="intent" value="add-roster" />
-              <input type="hidden" name="season_id" value={selectedSeasonId} />
-              <input type="hidden" name="transfer_from_team_id" value="" data-transfer-from-team-id />
-              <label class="flex flex-col gap-1.5 text-sm">
-                <span class="text-white/60">Add driver</span>
-                <select
-                  name="driver_id"
-                  disabled={rosterFull || availableDrivers.length === 0}
-                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary disabled:opacity-40"
-                >
-                  {availableDrivers.map((d) => {
-                    const other = otherTeamByDriverId.get(d.id);
-                    return (
-                      <option
-                        value={d.id}
-                        data-driver-name={d.name}
-                        data-other-team-id={other?.teamId ?? ''}
-                        data-other-team-name={other?.teamName ?? ''}
-                        class="bg-brand-ink text-white"
-                      >
-                        {d.name}{d.car_number !== null ? ` #${d.car_number}` : ''}{other ? ` (on ${other.teamName})` : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-              </label>
-              <button
-                type="submit"
-                disabled={rosterFull || availableDrivers.length === 0}
-                class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10 disabled:opacity-40"
+          {selectedSeasonId && (() => {
+            // 4 fixed slots (the roster's own hard cap — 0008_team_rosters.sql)
+            // instead of a growing checkbox list of every driver in league
+            // history. Each slot is pre-filled with the corresponding current
+            // roster member, in the same order rosterDriversOnTeam is
+            // already sorted (alphabetical) so a reload doesn't reshuffle
+            // who's in which slot. One Save button posts all 4 at once —
+            // add/remove/swap all resolve in a single request instead of
+            // reloading per click.
+            const allDriversSorted = rosterDrivers.slice().sort((a, b) => a.name.localeCompare(b.name));
+            const slots = [0, 1, 2, 3].map((i) => rosterDriversOnTeam[i]?.id ?? '');
+            return (
+              <form
+                method="POST"
+                data-astro-reload
+                data-roster-form
+                data-team-name={t.name}
+                data-season-name={selectedSeasonName}
+                class="mt-4 flex flex-col gap-3"
               >
-                Add to roster
-              </button>
-              {rosterFull && <span class="text-xs text-white/40">Roster is full (4/4) for this season.</span>}
-            </form>
-          )}
+                <input type="hidden" name="intent" value="save-roster" />
+                <input type="hidden" name="season_id" value={selectedSeasonId} />
+                {slots.map((slotValue, i) => (
+                  <label class="flex flex-col gap-1.5 text-sm">
+                    <span class="text-white/60">Driver {i + 1}</span>
+                    <select
+                      name={`driver_slot_${i + 1}`}
+                      data-roster-slot
+                      class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                    >
+                      <option value="" class="bg-brand-ink text-white">— Empty —</option>
+                      {allDriversSorted.map((d) => {
+                        const other = otherTeamByDriverId.get(d.id);
+                        return (
+                          <option
+                            value={d.id}
+                            selected={d.id === slotValue}
+                            data-driver-name={d.name}
+                            data-other-team-name={other?.teamName ?? ''}
+                            class="bg-brand-ink text-white"
+                          >
+                            {d.name}{d.car_number !== null ? ` #${d.car_number}` : ''}{other ? ` (on ${other.teamName})` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+                ))}
+                <div class="mt-1 flex items-center gap-3">
+                  <button
+                    type="submit"
+                    class="rounded-lg bg-brand-primary px-5 py-2.5 text-sm font-semibold transition hover:brightness-110"
+                  >
+                    Save Roster
+                  </button>
+                  <span class="text-xs text-white/40">Pick up to 4 drivers, leave the rest as — Empty —.</span>
+                </div>
+              </form>
+            );
+          })()}
         </>
       )}
     </div>
@@ -488,36 +513,45 @@ const rosterFull = rosterDriversOnTeam.length >= 4;
       });
     });
 
-    // "Add driver" on the Roster by Season form — if the selected driver is
-    // already on another team's roster this season, confirm the transfer
-    // before submitting (the server enforces the same rule regardless, see
-    // 0008_team_rosters.sql, but this avoids the admin hitting that as a
-    // raw rejected-insert error). On confirm, stash which team to remove
-    // them from first; on cancel, don't submit at all.
-    document.querySelectorAll<HTMLFormElement>('[data-add-roster-form]').forEach((form) => {
+    // Roster by Season now saves all 4 slots in one request instead of
+    // reloading per driver — this just guards the submit client-side:
+    // block picking the same driver twice, and fold what used to be a
+    // per-driver "transfer this person?" confirm() into one combined
+    // prompt covering every slot that's pulling someone off another
+    // team's roster this season (the server enforces the actual transfer
+    // and the 4-per-team cap regardless — see 0008_team_rosters.sql — this
+    // is purely so the admin isn't surprised by it after the fact).
+    document.querySelectorAll<HTMLFormElement>('[data-roster-form]').forEach((form) => {
       form.addEventListener('submit', (e) => {
-        const select = form.querySelector<HTMLSelectElement>('select[name="driver_id"]');
-        const transferField = form.querySelector<HTMLInputElement>('[data-transfer-from-team-id]');
-        if (!select || !transferField) return;
+        const selects = Array.from(form.querySelectorAll<HTMLSelectElement>('[data-roster-slot]'));
+        const chosenIds = selects.map((s) => s.value).filter((v) => v.length > 0);
 
-        transferField.value = '';
+        const hasDuplicate = chosenIds.some((id, i) => chosenIds.indexOf(id) !== i);
+        if (hasDuplicate) {
+          e.preventDefault();
+          alert('The same driver is selected in more than one slot — pick each driver only once.');
+          return;
+        }
 
-        const option = select.selectedOptions[0];
-        const otherTeamId = option?.dataset.otherTeamId;
-        const otherTeamName = option?.dataset.otherTeamName;
-        if (!option || !otherTeamId || !otherTeamName) return;
+        const transfers: string[] = [];
+        for (const select of selects) {
+          const option = select.selectedOptions[0];
+          const otherTeamName = option?.dataset.otherTeamName;
+          if (option && option.value && otherTeamName) {
+            const driverName = option.dataset.driverName ?? option.textContent?.trim() ?? 'This driver';
+            transfers.push(`${driverName} (currently on ${otherTeamName})`);
+          }
+        }
+        if (transfers.length === 0) return;
 
-        const driverName = option.dataset.driverName ?? option.textContent?.trim() ?? 'This driver';
         const teamName = form.dataset.teamName ?? 'this team';
         const seasonName = form.dataset.seasonName ?? 'this season';
         const confirmed = confirm(
-          `${driverName} is currently assigned to ${otherTeamName} for ${seasonName}. Do you want to transfer this driver from ${otherTeamName} to ${teamName}?`
+          `These drivers will be transferred to ${teamName} for ${seasonName}:\n\n${transfers.join('\n')}\n\nContinue?`
         );
         if (!confirmed) {
           e.preventDefault();
-          return;
         }
-        transferField.value = otherTeamId;
       });
     });
   });

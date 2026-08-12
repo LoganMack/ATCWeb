@@ -27,16 +27,32 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'save');
 
-  if (intent === 'set-season-team') {
-    const seasonId = String(form.get('season_id') ?? '');
-    const teamId = String(form.get('team_id') ?? '');
-    if (!isNew && id && seasonId) {
+  if (intent === 'set-season-teams') {
+    // Whole-organization batch save (per Logan: saving one season's team
+    // link at a time, each with its own Save button and reload, got
+    // annoying with a lot of seasons on file). One form now posts every
+    // season's chosen team_id_<season_id> field at once; this only calls
+    // setOrganizationTeamForSeason for the seasons that actually changed,
+    // so an org with 17 seasons doesn't fire 17 writes just because the
+    // admin only touched one.
+    if (!isNew && id) {
       try {
-        await setOrganizationTeamForSeason(supabaseEnv, accessToken, id, seasonId, teamId || null);
+        const [seasonsForSave, existingLinks] = await Promise.all([
+          getSeasons(supabaseEnv),
+          getOrganizationTeamSeasons(supabaseEnv, id),
+        ]);
+        const currentTeamIdBySeasonId = new Map(existingLinks.map((l) => [l.season_id, l.team_id]));
+        for (const season of seasonsForSave) {
+          const submittedTeamId = String(form.get(`team_id_${season.id}`) ?? '').trim() || null;
+          const currentTeamId = currentTeamIdBySeasonId.get(season.id) ?? null;
+          if (submittedTeamId !== currentTeamId) {
+            await setOrganizationTeamForSeason(supabaseEnv, accessToken, id, season.id, submittedTeamId);
+          }
+        }
         return Astro.redirect(`/admin/organizations/${id}`, 302);
       } catch (err) {
-        console.error('Failed to link organization team for season:', err);
-        error = err instanceof Error ? err.message : 'Failed to save that season link.';
+        console.error('Failed to save organization season links:', err);
+        error = err instanceof Error ? err.message : 'Failed to save those season links.';
       }
     }
   } else if (intent === 'delete' && !isNew && id) {
@@ -134,35 +150,37 @@ if (!isNew && id) {
         seasons together under "{o.name}", using the most recently linked team's logo.
       </p>
 
-      <div class="reveal mt-4 divide-y divide-white/10 rounded-xl border border-white/10" style="transition-delay: 120ms">
-        {seasons.map((season) => (
-          <form method="POST" data-astro-reload class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-            <input type="hidden" name="intent" value="set-season-team" />
-            <input type="hidden" name="season_id" value={season.id} />
-            <p class="font-semibold">{season.name}</p>
-            <div class="flex items-center gap-2">
-              <select
-                name="team_id"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-              >
-                <option value="">— None —</option>
-                {teams.map((team) => (
-                  <option value={team.id} selected={teamIdBySeasonId.get(season.id) === team.id}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
-              >
-                Save
-              </button>
-            </div>
-          </form>
-        ))}
-        {seasons.length === 0 && <p class="px-6 py-4 text-sm text-white/50">No seasons on file.</p>}
-      </div>
+      {seasons.length === 0 ? (
+        <p class="reveal mt-4 px-6 py-4 text-sm text-white/50" style="transition-delay: 120ms">No seasons on file.</p>
+      ) : (
+        <form method="POST" data-astro-reload class="reveal mt-4" style="transition-delay: 120ms">
+          <input type="hidden" name="intent" value="set-season-teams" />
+          <div class="divide-y divide-white/10 rounded-xl border border-white/10">
+            {seasons.map((season) => (
+              <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
+                <p class="font-semibold">{season.name}</p>
+                <select
+                  name={`team_id_${season.id}`}
+                  class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                >
+                  <option value="">— None —</option>
+                  {teams.map((team) => (
+                    <option value={team.id} selected={teamIdBySeasonId.get(season.id) === team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <button
+            type="submit"
+            class="mt-4 rounded-lg bg-brand-primary px-5 py-2.5 text-sm font-semibold transition hover:brightness-110"
+          >
+            Save Season Links
+          </button>
+        </form>
+      )}
 
       <form method="POST" data-astro-reload class="reveal mt-10">
         <input type="hidden" name="intent" value="delete" />

@@ -2386,6 +2386,10 @@ export interface TeamCareerSeasonDriver {
 /** One team's stat line for one season, rolled up from every driver whose PRIMARY team that season was this one. */
 export interface TeamCareerSeasonRow {
   season: Season;
+  /** The actual team that fielded drivers THIS season — for an org-linked row (see TeamCareerStats.teamName's own comment), this can differ season to season even though every row here is grouped under one organization name/logo (e.g. "Double Yellow" the org vs. "Yellow Tide Racing" the team that represented it in ATC13). For a team that's never been part of an organization this is just that team's own (single) name, same as the parent row's teamName. */
+  teamName: string;
+  /** This specific season's team logo — same per-season provenance as teamName above (0019_team_season_logos.sql's historical-logo override when set, else that team's current logo), NOT necessarily the same image as the parent row's logoUrl. */
+  logoUrl: string | null;
   /** This team's position in that season's cross-class Overall Team Standings — 1 means they won the team championship that season. Null if, unusually, they had a primary-team driver but never appear there (shouldn't normally happen). */
   teamPosition: number | null;
   /** Same idea, the Delta-only team competition's position — null if not applicable (see DriverCareerSeasonRow.deltaTeamPosition's own doc comment). */
@@ -2559,6 +2563,8 @@ export async function computeTeamCareerStats(
     const organization = groupKey.startsWith('team:') ? null : orgById.get(groupKey) ?? null;
     const seasonRows: TeamCareerSeasonRow[] = accums.map((a) => ({
       season: a.season,
+      teamName: a.teamName,
+      logoUrl: a.logoUrl,
       teamPosition: a.teamPosition,
       deltaTeamPosition: a.deltaTeamPosition,
       wins: a.wins,
