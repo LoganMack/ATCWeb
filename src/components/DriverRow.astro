@@ -31,7 +31,7 @@ const searchText = [displayDriverName(driver.name), driver.car_number !== null ?
   class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
   data-class={className}
   data-status={statusName}
-  data-unassigned={String(driver.car_number === null && driver.appearances > 0)}
+  data-unassigned={String(driver.car_number === null)}
   data-search={searchText}
 >
   <td

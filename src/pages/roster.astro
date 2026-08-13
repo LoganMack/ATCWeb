@@ -93,9 +93,11 @@ const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
 // See ACTIVE_STATUSES in the filter script below. "Unassigned" is a
 // different kind of filter entirely — it cuts across status (an unassigned
 // driver can be Active, Inactive, whatever) and instead shows every driver
-// with no current car number who has raced before (car_number null AND
-// appearances > 0 — see DriverRow.astro's data-unassigned attribute and
-// statusMatches() below).
+// with no current car number, period (car_number null — see
+// DriverRow.astro's data-unassigned attribute and statusMatches() below).
+// Per Logan: a numberless driver is fine to still show up under the Active
+// filter, but should never show under Inactive specifically — Unassigned
+// is meant to be its own catch-all, not something Inactive also duplicates.
 const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
 ---
 
@@ -215,11 +217,16 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
 
       function statusMatches(row: HTMLElement) {
         // Unassigned cuts across actual status entirely — it's asking "does
-        // this driver have no current number despite having raced before,"
-        // not "what's their driver_statuses value."
+        // this driver have no current number," full stop, not "what's their
+        // driver_statuses value."
         if (state.status === 'Unassigned') return row.dataset.unassigned === 'true';
         if (state.status === 'All') return true;
         if (state.status === 'Active') return ACTIVE_STATUSES.includes(row.dataset.status ?? '');
+        // Inactive is the one status Unassigned deliberately does NOT also
+        // show up under — a numberless driver belongs to the Unassigned
+        // catch-all, not duplicated into Inactive too, even if their actual
+        // driver_statuses value is literally "Inactive".
+        if (state.status === 'Inactive') return row.dataset.status === 'Inactive' && row.dataset.unassigned !== 'true';
         return row.dataset.status === state.status;
       }
 

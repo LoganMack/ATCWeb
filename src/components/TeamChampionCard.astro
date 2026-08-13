@@ -1,0 +1,63 @@
+---
+// Team-championship analogue of ChampionCard.astro — one season's #1 team
+// (Alpha/Overall or Delta, per champions.astro's "Alpha Team"/"Delta Team"
+// filters) instead of one season's #1 driver. No PhotoGrid here since teams
+// don't have champion photos the way drivers do — a single large TeamLogo
+// fills that column instead.
+import type { TeamChampionEntry } from '../lib/results';
+import type { DriverBasic } from '../lib/results';
+import { displayDriverName } from '../lib/supabase';
+import StatBlock from './StatBlock.astro';
+import TeamLogo from './TeamLogo.astro';
+import DriverFlag from './DriverFlag.astro';
+
+interface Props {
+  entry: TeamChampionEntry;
+  /** This team's season roster, resolved from `standing.driverIds` — see champions.astro. Already sorted for display. */
+  roster: DriverBasic[];
+  index?: number;
+}
+
+const { entry, roster, index = 0 } = Astro.props;
+const { season, standing: t } = entry;
+---
+
+<article
+  class="reveal overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]"
+  style={`transition-delay: ${Math.min(index, 4) * 30}ms`}
+>
+  <div class="grid sm:grid-cols-[264px_1fr]">
+    <div class="flex items-center justify-center bg-white/[0.02] p-8 sm:p-6">
+      <TeamLogo name={t.teamName} logoUrl={t.logoUrl} size="h-28 w-28" />
+    </div>
+
+    <div class="p-6">
+      <div>
+        <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
+          {season.logo_url && <img src={season.logo_url} alt="" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+          {season.name}
+        </p>
+        <h3 class="mt-1 font-display text-3xl leading-none">{t.teamName}</h3>
+      </div>
+
+      <dl class="mt-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
+        <StatBlock label="Total Points" value={t.totalPoints} />
+        <StatBlock label="Starts" value={t.starts} sub="races" />
+        <StatBlock label="Appearances" value={t.appearances} sub="rounds" />
+        <StatBlock label="Drivers" value={roster.length} />
+      </dl>
+
+      {roster.length > 0 && (
+        <div class="mt-6 grid gap-x-4 gap-y-2 border-t border-white/10 pt-5 sm:grid-cols-2">
+          {roster.map((driver) => (
+            <div class="flex items-center gap-1.5 text-sm text-white/70">
+              <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
+              <span>{displayDriverName(driver.name)}</span>
+              {driver.car_number !== null && <span class="text-white/40">#{driver.car_number}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+</article>

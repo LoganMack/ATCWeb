@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import ChampionCard from '../components/ChampionCard.astro';
+import TeamChampionCard from '../components/TeamChampionCard.astro';
 import PageBanner from '../components/PageBanner.astro';
 import {
   resolveSupabaseEnv,
@@ -11,8 +12,17 @@ import {
   getSeasons,
   getChampionPhotosForClass,
   getPageBanners,
+  displayDriverName,
 } from '../lib/supabase';
-import { getChampionsWithExtras, type ChampionEntry, type DriverSeasonExtras } from '../lib/results';
+import {
+  getChampionsWithExtras,
+  getTeamChampions,
+  driversSelect,
+  type ChampionEntry,
+  type DriverSeasonExtras,
+  type TeamChampionEntry,
+  type DriverBasic,
+} from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -52,10 +62,53 @@ const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass =
   visibleClasses.find((c) => c.name === requestedClassName) ?? visibleClasses.find((c) => c.name === 'Alpha') ?? visibleClasses[0];
 
+// Two more filters alongside the driver-class ones above: team champions,
+// not driver champions. "Alpha Team" is the same class-blind OVERALL team
+// competition already live on /team-standings' "Overall" tab (just
+// relabeled here, per Logan — there's no genuinely separate Alpha-only team
+// competition anywhere else in the app), "Delta Team" is that class's own
+// separate competition, same split computeTeamSeasonStandings documents.
+// A real navigation (?team=alpha / ?team=delta), same reasoning as the
+// class tabs — mutually exclusive with the `class` param (whichever query
+// param combination the link sets wins, since these are plain <a href>
+// full-page navigations).
+const deltaEnabledAnySeason = seasons.some((s) => s.delta_enabled);
+const requestedTeam = Astro.url.searchParams.get('team');
+const activeTeamView: 'alpha' | 'delta' | null =
+  requestedTeam === 'delta' && deltaEnabledAnySeason ? 'delta' : requestedTeam === 'alpha' ? 'alpha' : null;
+
 let champions: ChampionEntry[] = [];
 let photosBySeason = new Map<string, Awaited<ReturnType<typeof getChampionPhotosForClass>>>();
 let extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
-if (!loadError && activeClass) {
+let teamChampions: TeamChampionEntry[] = [];
+let rosterByTeamChampion = new Map<string, DriverBasic[]>();
+
+if (!loadError && activeTeamView) {
+  try {
+    const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
+    const classId = activeTeamView === 'delta' ? deltaClassId : undefined;
+    // getTeamChampions bulk-fetches every ingredient ONCE across every
+    // championship season and slices per season in memory — same
+    // subrequest-limit reasoning as getChampionsWithExtras just below. See
+    // that function's own doc comment.
+    const [teamChampionsResult, drivers] = await Promise.all([
+      getTeamChampions(supabaseEnv, seasons, classId),
+      driversSelect(supabaseEnv),
+    ]);
+    teamChampions = teamChampionsResult;
+    const driverById = new Map(drivers.map((d) => [d.id, d]));
+    for (const entry of teamChampionsResult) {
+      const roster = entry.standing.driverIds
+        .map((id) => driverById.get(id))
+        .filter((d): d is DriverBasic => d !== undefined)
+        .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
+      rosterByTeamChampion.set(entry.season.id, roster);
+    }
+  } catch (err) {
+    console.error('Failed to compute team champions:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+} else if (!loadError && activeClass) {
   try {
     const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
     // getChampionsWithExtras bulk-fetches every ingredient (drivers, teams,
@@ -114,20 +167,50 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <a
             href={`/champions?class=${encodeURIComponent(c.name)}`}
             class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              !activeTeamView && c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
             }`}
           >
             {c.name}
           </a>
         ))}
+        <a
+          href="/champions?team=alpha"
+          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            activeTeamView === 'alpha' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+          }`}
+        >
+          Alpha Team
+        </a>
+        {deltaEnabledAnySeason && (
+          <a
+            href="/champions?team=delta"
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              activeTeamView === 'delta' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            Delta Team
+          </a>
+        )}
       </div>
     )}
 
-    {!loadError && champions.length === 0 && (
+    {!loadError && activeTeamView && teamChampions.length === 0 && (
       <p class="mt-10 text-white/60">No results.</p>
     )}
 
-    {!loadError && champions.length > 0 && (
+    {!loadError && activeTeamView && teamChampions.length > 0 && (
+      <div class="mt-8 flex flex-col gap-5">
+        {teamChampions.map((entry, i) => (
+          <TeamChampionCard entry={entry} roster={rosterByTeamChampion.get(entry.season.id) ?? []} index={i} />
+        ))}
+      </div>
+    )}
+
+    {!loadError && !activeTeamView && champions.length === 0 && (
+      <p class="mt-10 text-white/60">No results.</p>
+    )}
+
+    {!loadError && !activeTeamView && champions.length > 0 && (
       <div class="mt-8 flex flex-col gap-5">
         {champions.map((entry, i) => (
           <ChampionCard

@@ -2073,6 +2073,91 @@ export async function getChampionsWithExtras(
   };
 }
 
+export interface TeamChampionEntry {
+  season: Season;
+  standing: TeamSeasonStanding;
+}
+
+/**
+ * Team-championship analogue of getChampions() — one entry per season the
+ * given team competition (the OVERALL/cross-class competition when classId
+ * is omitted, otherwise that class's own separate competition — same split
+ * computeTeamSeasonStandings' own doc comment describes) has any
+ * race_scores data for, newest season first. Built for the public
+ * Champions page's Alpha Team / Delta Team filters.
+ *
+ * Same bulk-fetch-once-then-slice-in-memory shape as getChampions() (see
+ * that function's own doc comment for the exact Cloudflare Workers
+ * subrequest-limit bug this avoids) — computeTeamSeasonStandings is handed
+ * every ingredient it would otherwise fetch itself for a given season
+ * (precomputedOverallContext, and for the per-class branch,
+ * precomputedScoresRaw too), so its own per-season body makes zero network
+ * calls here. A season with no rows for the requested competition (e.g.
+ * Delta before it existed, or before it was enabled) is skipped
+ * automatically, same as getChampions() skips a class's pre-existence.
+ */
+export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], classId?: number): Promise<TeamChampionEntry[]> {
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  const championshipSeasonIds = championshipSeasons.map((s) => s.id);
+
+  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds] = await Promise.all([
+    driversSelect(env),
+    getExhibitionRoundIds(env),
+    getDriverClasses(env),
+    getTeamsBasic(env),
+    getAllTeamSeasonLogosSafe(env),
+    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+    getAllRounds(env),
+  ]);
+
+  const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
+  const [{ rawResults, lapStats }, penalties] = await Promise.all([
+    getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
+    getPenaltiesForSubsessions(env, allSubsessionIds),
+  ]);
+
+  const perSeason = await Promise.all(
+    championshipSeasons.map(async (season) => {
+      // Pure in-memory filtering from here down — no network calls inside
+      // this per-season loop, same as getChampions().
+      const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
+      if (seasonScores.length === 0) return null;
+      const seasonSubsessionIds = new Set(seasonScores.map((s) => s.subsession_id));
+      const seasonRawResults = rawResults.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+      const seasonPenalties = penalties.filter((p) => seasonSubsessionIds.has(p.subsession_id));
+      const seasonLapStats = lapStats.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+      const seasonRounds = allRounds.filter((r) => r.season_id === season.id);
+
+      const overallContext = buildSeasonOverallContext(
+        exhibitionIds,
+        drivers,
+        seasonScores,
+        seasonRawResults,
+        seasonPenalties,
+        seasonRounds,
+        seasonLapStats
+      );
+
+      const precomputedScoresRaw = classId !== undefined ? seasonScores.filter((s) => s.class_id === classId) : undefined;
+
+      const standings = await computeTeamSeasonStandings(
+        env,
+        season,
+        exhibitionIds,
+        classId,
+        drivers,
+        teamsBasic,
+        seasonLogoRows,
+        classes,
+        overallContext,
+        precomputedScoresRaw
+      );
+      return standings.length > 0 ? { season, standing: standings[0] } : null;
+    })
+  );
+  return perSeason.filter((r): r is TeamChampionEntry => r !== null);
+}
+
 // ---------------------------------------------------------------------------
 // Career driver stats — every driver who has ever scored in a championship
 // season, with career totals summed across every class and season they've

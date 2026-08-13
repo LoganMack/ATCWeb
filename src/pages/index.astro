@@ -38,20 +38,20 @@ import { classBadgeClasses } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Fetch 7 rather than the 3 this page used to show: 1 goes into the new
-// hero-row "latest story" slot, the other 6 fill the plain text "more news"
+// Fetch 8 rather than the 4 this page used to show: 1 goes into the new
+// hero-row "latest story" slot, the other 7 fill the plain text "more news"
 // list right below it (see the template below).
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
 try {
-  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 7), getUpcomingEvents(supabaseEnv, 3)]);
+  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 8), getUpcomingEvents(supabaseEnv, 3)]);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
   console.error('Failed to load homepage data:', err);
 }
 const featuredNews = latestNews[0] ?? null;
-const moreNews = latestNews.slice(1, 7);
+const moreNews = latestNews.slice(1, 8);
 
 // season_label on a post is freeform text (see NewsPost's own doc comment),
 // not an FK to `seasons` — this is a best-effort name match so NewsCard can
