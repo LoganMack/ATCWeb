@@ -209,7 +209,12 @@ const calendarEvents = events.map((e) => ({
     // convention every other interactive script on this site follows, e.g.
     // ResultsTable.astro/team-standings.astro's own copies of the
     // expand-row toggle) so this page doesn't pull the whole supabase.ts
-    // module into client JS just for two tiny formatting helpers.
+    // module into client JS just for two tiny formatting helpers. The one
+    // exception is pageProgress.ts below — it's already a pure client
+    // script with no server/data-layer baggage (same thing
+    // hard-form-submit.ts imports), so pulling it in doesn't violate that
+    // convention.
+    import { showProgress, hideProgress } from '../scripts/pageProgress';
 
     interface CalendarEventLite {
       date: string; // 'YYYY-MM-DD'
@@ -463,6 +468,18 @@ const calendarEvents = events.map((e) => ({
       return recapCache.get(subsessionId)!;
     }
 
+    // This request bypasses Astro's router entirely (it's a plain fetch()
+    // fired from a <details> toggle, not a navigation), so — same reasoning
+    // as hard-form-submit.ts — it's invisible to pageProgress.ts's own
+    // astro:before-preparation/astro:page-load listeners and needs the
+    // global bar driven directly.
+    function fetchRoundRecapWithProgress(subsessionId: number): Promise<RoundRecapLite | null> {
+      const alreadyCached = recapCache.has(subsessionId);
+      if (alreadyCached) return fetchRoundRecap(subsessionId);
+      showProgress();
+      return fetchRoundRecap(subsessionId).finally(() => hideProgress());
+    }
+
     function renderRoundRecap(container: HTMLElement, recap: RoundRecapLite | null) {
       if (!recap) {
         container.innerHTML = '<p class="text-xs text-white/40">Couldn’t load this recap.</p>';
@@ -525,7 +542,7 @@ const calendarEvents = events.map((e) => ({
           if (!container || !Number.isFinite(subsessionId) || container.dataset.loaded === 'true') return;
           container.dataset.loaded = 'true';
           container.innerHTML = '<p class="text-xs text-white/40">Loading…</p>';
-          fetchRoundRecap(subsessionId).then((recap) => renderRoundRecap(container, recap));
+          fetchRoundRecapWithProgress(subsessionId).then((recap) => renderRoundRecap(container, recap));
         });
       });
     }

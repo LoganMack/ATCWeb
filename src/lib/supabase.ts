@@ -1023,6 +1023,19 @@ export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: 
   return new Map(rows.map((r) => [r.race_number, r]));
 }
 
+/**
+ * Every race_links row across every round that has a broadcast_url set —
+ * powers the Media page's Videos → Broadcasts filter (default filter),
+ * which needs "every broadcast link on file" rather than one round at a
+ * time like getRaceLinksForSubsession above. src/lib/results.ts's
+ * getAllBroadcastVideos() joins this with getAllRounds() for track/date
+ * display context; kept here (rather than there) since it's a plain
+ * race_links read with no results-pipeline computation involved.
+ */
+export function getAllBroadcastRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
+  return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&broadcast_url=not.is.null`);
+}
+
 /** Upserts one race's links — replaces whatever was set for that (subsession_id, race_number) before. Any field left undefined stays whatever it already was; pass null explicitly to clear a field. */
 export async function upsertRaceLinks(
   env: SupabaseEnv,
@@ -1486,9 +1499,12 @@ export interface CircuitLayout {
   image_url: string | null;
   /** Number of corners on this layout, admin-entered — see 0022_circuit_layout_corners.sql. Powers the Standings page's season "corners per incident" stat (src/lib/results.ts's getSeasonDriverExtendedStats); null until Logan fills it in for a given layout. */
   corners: number | null;
+  /** YouTube link to an admin-recorded track guide for this layout (0049_media_page.sql) — shown on the public Circuits page and as the "Track Guide" filter on the Media page's Videos tab. */
+  track_guide_url: string | null;
 }
 
-const CIRCUIT_LAYOUT_SELECT = 'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners';
+const CIRCUIT_LAYOUT_SELECT =
+  'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners,track_guide_url';
 
 /** "1:42.512" from a raw seconds count (e.g. 102.512) — minutes are shown with no leading zero (per site-wide convention: no leading zeroes on lap records/times), while seconds/milliseconds keep their own fixed-width zero-padding since those are always exactly 2 and 3 digits within a minute. */
 export function formatLapTime(seconds: number | null): string {
@@ -1512,6 +1528,25 @@ export function displayLayoutName(name: string): string {
 /** A layout's own image if it has one on file, otherwise the parent circuit's shared logo (or null if neither exists). */
 export function layoutImageUrl(layout: Pick<CircuitLayout, 'image_url'>, circuit: Pick<Circuit, 'logo_url'> | null): string | null {
   return layout.image_url ?? circuit?.logo_url ?? null;
+}
+
+/**
+ * Pulls the 11-character video ID out of any of the URL shapes YouTube
+ * hands out (watch?v=, youtu.be/, /embed/, /shorts/) — every video entry on
+ * the Media page (admin-entered or derived from race_links.broadcast_url)
+ * is expected to be a YouTube link, per Logan. Returns null for anything
+ * that doesn't match, so callers can fall back to a plain "watch" link
+ * instead of a broken thumbnail/embed.
+ */
+export function youtubeVideoId(url: string): string | null {
+  const match = /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/.exec(url);
+  return match ? match[1] : null;
+}
+
+/** YouTube's predictable thumbnail URL for a video, or null if the ID couldn't be parsed out of the given URL — see youtubeVideoId. */
+export function youtubeThumbnailUrl(url: string): string | null {
+  const id = youtubeVideoId(url);
+  return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null;
 }
 
 /**
@@ -1898,4 +1933,105 @@ export async function getWarningCounts(env: SupabaseEnv, subsessionIds: number[]
     out.set(r.driver_id, (out.get(r.driver_id) ?? 0) + 1);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// MEDIA PAGE — videos (cinematics/educational/other), graphics, meetups
+// (0049_media_page.sql). Broadcasts and Track Guide, the Videos tab's other
+// two filters, aren't stored here — see getAllBroadcastRaceLinks above and
+// CircuitLayout.track_guide_url.
+// ---------------------------------------------------------------------------
+
+export type MediaVideoCategory = 'cinematic' | 'educational' | 'other';
+
+export interface MediaVideo {
+  id: string;
+  category: MediaVideoCategory;
+  title: string;
+  youtube_url: string;
+  created_at: string;
+}
+
+const MEDIA_VIDEO_SELECT = 'id,category,title,youtube_url,created_at';
+
+/** Every admin-entered video (cinematics + educational + other combined), newest first — the public Media page filters this client-side... no, server-side by re-querying per filter; this is the one used by the admin list, which shows all three categories together. */
+export function getAllMediaVideos(env: SupabaseEnv) {
+  return restGet<MediaVideo[]>(env, `media_videos?select=${MEDIA_VIDEO_SELECT}&order=created_at.desc`);
+}
+
+/** One category's videos, newest first — powers the public Media page's Cinematics/Educational/Other filters. */
+export function getMediaVideosByCategory(env: SupabaseEnv, category: MediaVideoCategory) {
+  return restGet<MediaVideo[]>(
+    env,
+    `media_videos?select=${MEDIA_VIDEO_SELECT}&category=eq.${encodeURIComponent(category)}&order=created_at.desc`
+  );
+}
+
+export function createMediaVideo(env: SupabaseEnv, accessToken: string, data: { category: MediaVideoCategory; title: string; youtube_url: string }) {
+  return restPost<MediaVideo>(env, accessToken, 'media_videos', data);
+}
+
+export function updateMediaVideo(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Pick<MediaVideo, 'category' | 'title' | 'youtube_url'>>) {
+  return restPatch<MediaVideo>(env, accessToken, `media_videos?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteMediaVideo(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `media_videos?id=eq.${encodeURIComponent(id)}`);
+}
+
+export interface MediaGraphic {
+  id: string;
+  title: string;
+  image_url: string;
+  created_at: string;
+}
+
+const MEDIA_GRAPHIC_SELECT = 'id,title,image_url,created_at';
+
+/** Every uploaded graphic, newest first — powers both the admin list and the public Media page's Graphics tab. */
+export function getAllMediaGraphics(env: SupabaseEnv) {
+  return restGet<MediaGraphic[]>(env, `media_graphics?select=${MEDIA_GRAPHIC_SELECT}&order=created_at.desc`);
+}
+
+export function createMediaGraphic(env: SupabaseEnv, accessToken: string, data: { title: string; image_url: string }) {
+  return restPost<MediaGraphic>(env, accessToken, 'media_graphics', data);
+}
+
+export function deleteMediaGraphic(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `media_graphics?id=eq.${encodeURIComponent(id)}`);
+}
+
+export interface MediaMeetup {
+  id: string;
+  title: string;
+  photo_url: string | null;
+  /** Admin-entered directly (no geocoding) — see 0049_media_page.sql. */
+  latitude: number;
+  longitude: number;
+  location_label: string | null;
+  meetup_date: string | null; // 'YYYY-MM-DD'
+  created_at: string;
+}
+
+const MEDIA_MEETUP_SELECT = 'id,title,photo_url,latitude,longitude,location_label,meetup_date,created_at';
+
+/** Every meetup, newest first — powers both the admin list and the public Media page's Meetups map (one pin per row). */
+export function getAllMediaMeetups(env: SupabaseEnv) {
+  return restGet<MediaMeetup[]>(env, `media_meetups?select=${MEDIA_MEETUP_SELECT}&order=created_at.desc`);
+}
+
+export function createMediaMeetup(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { title: string; photo_url?: string | null; latitude: number; longitude: number; location_label?: string | null; meetup_date?: string | null }
+) {
+  return restPost<MediaMeetup>(env, accessToken, 'media_meetups', data);
+}
+
+export function updateMediaMeetup(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Omit<MediaMeetup, 'id' | 'created_at'>>) {
+  return restPatch<MediaMeetup>(env, accessToken, `media_meetups?id=eq.${encodeURIComponent(id)}`, data);
+}
+
+export function deleteMediaMeetup(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `media_meetups?id=eq.${encodeURIComponent(id)}`);
 }

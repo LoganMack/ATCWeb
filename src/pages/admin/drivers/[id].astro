@@ -700,12 +700,14 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
                           name="class_id"
                           value={c.id}
                           checked={c.id === effectiveClassId}
-                          onchange="this.form.submit()"
                           class="h-3.5 w-3.5 border-white/20 bg-white/5 accent-brand-primary"
                         />
                         {c.name}{!hasOverride && c.id === d.class_id ? ' (primary)' : ''}
                       </label>
                     ))}
+                    <button type="submit" class="rounded-md bg-white/10 px-2.5 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/20">
+                      Save
+                    </button>
                   </form>
                   {hasOverride && (
                     <form method="POST" data-astro-reload>

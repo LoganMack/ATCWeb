@@ -53,6 +53,7 @@ import {
   getAllCircuitLayouts,
   getAllOrganizationTeamSeasons,
   getOrganizations,
+  getAllBroadcastRaceLinks,
   type SupabaseEnv,
 } from './supabase';
 import type {
@@ -2790,6 +2791,47 @@ export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: num
     `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`
   );
   return rounds[0] ?? null;
+}
+
+/** One race's broadcast link, joined with its round's track/date/season for display — what the Media page's Videos → Broadcasts filter (the tab's default) actually renders. */
+export interface BroadcastVideo {
+  subsession_id: number;
+  race_number: number;
+  broadcast_url: string;
+  track_name: string;
+  season_label: string | null;
+  start_time: string;
+}
+
+/**
+ * Every broadcast link on file, newest round first — joins
+ * getAllBroadcastRaceLinks() (supabase.ts, the raw race_links rows) with
+ * getAllRounds() (this file) for the track/date/season context the
+ * Broadcasts filter displays alongside each link. A race_links row whose
+ * round has no matching curated_rounds entry (shouldn't normally happen,
+ * but curated_rounds is an externally-populated table this repo doesn't
+ * control — see this file's header) is skipped rather than shown with
+ * blank context.
+ */
+export async function getAllBroadcastVideos(env: SupabaseEnv): Promise<BroadcastVideo[]> {
+  const [links, rounds] = await Promise.all([getAllBroadcastRaceLinks(env), getAllRounds(env)]);
+  const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
+  const out: BroadcastVideo[] = [];
+  for (const link of links) {
+    if (!link.broadcast_url) continue;
+    const round = roundBySubsession.get(link.subsession_id);
+    if (!round) continue;
+    out.push({
+      subsession_id: link.subsession_id,
+      race_number: link.race_number,
+      broadcast_url: link.broadcast_url,
+      track_name: round.track_name,
+      season_label: round.season_label,
+      start_time: round.start_time,
+    });
+  }
+  out.sort((a, b) => b.start_time.localeCompare(a.start_time));
+  return out;
 }
 
 /**

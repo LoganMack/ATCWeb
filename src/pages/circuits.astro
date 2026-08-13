@@ -114,6 +114,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                               {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
                             </p>
+                            {layout.track_guide_url && (
+                              <a
+                                href={layout.track_guide_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="mt-1 inline-block text-xs font-semibold text-brand-primary hover:underline"
+                              >
+                                Watch Track Guide →
+                              </a>
+                            )}
                           </div>
                         </div>
                       );

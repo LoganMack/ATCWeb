@@ -1,0 +1,345 @@
+---
+export const prerender = false;
+
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  uploadToStorage,
+  getAllMediaVideos,
+  createMediaVideo,
+  deleteMediaVideo,
+  getAllMediaGraphics,
+  createMediaGraphic,
+  deleteMediaGraphic,
+  getAllMediaMeetups,
+  createMediaMeetup,
+  deleteMediaMeetup,
+  formatDate,
+  youtubeThumbnailUrl,
+  type MediaVideo,
+  type MediaVideoCategory,
+} from '../../../lib/supabase';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+let error: string | null = null;
+
+function extFromFile(file: File): string {
+  const fromName = file.name.split('.').pop();
+  if (fromName && fromName.length <= 5) return fromName.toLowerCase();
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+  };
+  return map[file.type] ?? 'png';
+}
+
+const VIDEO_CATEGORIES: { value: MediaVideoCategory; label: string }[] = [
+  { value: 'cinematic', label: 'Cinematic' },
+  { value: 'educational', label: 'Educational' },
+  { value: 'other', label: 'Other' },
+];
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+
+  try {
+    if (intent === 'add-video') {
+      const category = String(form.get('category') ?? '') as MediaVideoCategory;
+      const title = String(form.get('title') ?? '').trim();
+      const youtube_url = String(form.get('youtube_url') ?? '').trim();
+      if (!title || !youtube_url || !VIDEO_CATEGORIES.some((c) => c.value === category)) {
+        error = 'A category, title, and YouTube URL are all required.';
+      } else {
+        await createMediaVideo(supabaseEnv, accessToken, { category, title, youtube_url });
+        return Astro.redirect('/admin/media', 302);
+      }
+    } else if (intent === 'delete-video') {
+      const id = String(form.get('id') ?? '');
+      if (id) await deleteMediaVideo(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/media', 302);
+    } else if (intent === 'add-graphic') {
+      const title = String(form.get('title') ?? '').trim();
+      const imageFile = form.get('image');
+      if (!title || !(imageFile instanceof File) || imageFile.size === 0) {
+        error = 'A title and an image file are both required.';
+      } else {
+        const path = `media-graphic-${Date.now()}.${extFromFile(imageFile)}`;
+        const image_url = await uploadToStorage(supabaseEnv, accessToken, 'photos', path, imageFile);
+        await createMediaGraphic(supabaseEnv, accessToken, { title, image_url });
+        return Astro.redirect('/admin/media', 302);
+      }
+    } else if (intent === 'delete-graphic') {
+      const id = String(form.get('id') ?? '');
+      if (id) await deleteMediaGraphic(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/media', 302);
+    } else if (intent === 'add-meetup') {
+      const title = String(form.get('title') ?? '').trim();
+      const latitudeRaw = String(form.get('latitude') ?? '').trim();
+      const longitudeRaw = String(form.get('longitude') ?? '').trim();
+      const locationLabel = String(form.get('location_label') ?? '').trim();
+      const meetupDate = String(form.get('meetup_date') ?? '').trim();
+      const photoFile = form.get('photo');
+      const latitude = Number(latitudeRaw);
+      const longitude = Number(longitudeRaw);
+
+      if (!title || !latitudeRaw || !longitudeRaw || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        error = 'A title and valid latitude/longitude are required.';
+      } else {
+        let photo_url: string | null = null;
+        if (photoFile instanceof File && photoFile.size > 0) {
+          const path = `media-meetup-${Date.now()}.${extFromFile(photoFile)}`;
+          photo_url = await uploadToStorage(supabaseEnv, accessToken, 'photos', path, photoFile);
+        }
+        await createMediaMeetup(supabaseEnv, accessToken, {
+          title,
+          photo_url,
+          latitude,
+          longitude,
+          location_label: locationLabel || null,
+          meetup_date: meetupDate || null,
+        });
+        return Astro.redirect('/admin/media', 302);
+      }
+    } else if (intent === 'delete-meetup') {
+      const id = String(form.get('id') ?? '');
+      if (id) await deleteMediaMeetup(supabaseEnv, accessToken, id);
+      return Astro.redirect('/admin/media', 302);
+    }
+  } catch (err) {
+    console.error('Failed to save media page content:', err);
+    error = err instanceof Error ? err.message : 'Failed to save changes.';
+  }
+}
+
+let videos: MediaVideo[] = [];
+let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
+let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
+let loadError = false;
+try {
+  [videos, graphics, meetups] = await Promise.all([getAllMediaVideos(supabaseEnv), getAllMediaGraphics(supabaseEnv), getAllMediaMeetups(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load media page content for admin:', err);
+  loadError = true;
+}
+---
+
+<AdminLayout title="Media">
+  <h1 class="reveal font-display text-4xl">Media</h1>
+  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
+    Manages the public Media page's Videos (Cinematics/Educational/Other — Broadcasts comes from Race Results links,
+    and Track Guide comes from each circuit layout's own field on the Circuits admin page), Graphics, and Meetups tabs.
+  </p>
+
+  {loadError && (
+    <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">Couldn't load Media page content.</p>
+  )}
+
+  {error && (
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+  )}
+
+  {!loadError && (
+    <>
+      <section class="reveal mt-10 border-t border-white/10 pt-8" style="transition-delay: 60ms">
+        <h2 class="text-lg font-semibold">Videos</h2>
+        <p class="mt-1 text-sm text-white/50">Cinematics, Educational, and Other — all expected to be YouTube links.</p>
+
+        <ul class="mt-4 flex flex-col gap-2">
+          {videos.length === 0 && <li class="text-sm text-white/40">No results.</li>}
+          {videos.map((v) => {
+            const thumb = youtubeThumbnailUrl(v.youtube_url);
+            return (
+              <li class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+                <div class="flex items-center gap-3">
+                  {thumb ? (
+                    <img src={thumb} alt="" class="h-10 w-16 flex-none rounded object-cover" />
+                  ) : (
+                    <div class="h-10 w-16 flex-none rounded bg-white/10"></div>
+                  )}
+                  <div>
+                    <p class="font-semibold">{v.title}</p>
+                    <p class="mt-0.5 text-xs text-white/50">
+                      <span class="rounded bg-white/10 px-1.5 py-0.5 uppercase tracking-wide">{v.category}</span>{' '}
+                      <a href={v.youtube_url} target="_blank" rel="noopener noreferrer" class="text-brand-primary hover:underline">
+                        {v.youtube_url}
+                      </a>
+                    </p>
+                  </div>
+                </div>
+                <form method="POST" data-astro-reload>
+                  <input type="hidden" name="intent" value="delete-video" />
+                  <input type="hidden" name="id" value={v.id} />
+                  <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                </form>
+              </li>
+            );
+          })}
+        </ul>
+
+        <details class="relative mt-4">
+          <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
+            Add a video
+          </summary>
+          <form method="POST" data-astro-reload class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <input type="hidden" name="intent" value="add-video" />
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Category</span>
+              <select name="category" class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary">
+                {VIDEO_CATEGORIES.map((c) => (
+                  <option value={c.value} class="bg-brand-ink text-white">{c.label}</option>
+                ))}
+              </select>
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Title</span>
+              <input type="text" name="title" required class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">YouTube URL</span>
+              <input
+                type="url"
+                name="youtube_url"
+                required
+                placeholder="https://youtube.com/watch?v=…"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              />
+            </label>
+            <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
+              Add Video
+            </button>
+          </form>
+        </details>
+      </section>
+
+      <section class="reveal mt-10 border-t border-white/10 pt-8" style="transition-delay: 80ms">
+        <h2 class="text-lg font-semibold">Graphics</h2>
+        <p class="mt-1 text-sm text-white/50">Uploaded images shown in a gallery on the public Media page.</p>
+
+        <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {graphics.length === 0 && <p class="col-span-full text-sm text-white/40">No results.</p>}
+          {graphics.map((g) => (
+            <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-2 text-sm ring-1 ring-white/10">
+              <img src={g.image_url} alt="" class="h-24 w-full rounded object-cover" />
+              <p class="truncate text-xs font-semibold" title={g.title}>{g.title}</p>
+              <form method="POST" data-astro-reload>
+                <input type="hidden" name="intent" value="delete-graphic" />
+                <input type="hidden" name="id" value={g.id} />
+                <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+              </form>
+            </div>
+          ))}
+        </div>
+
+        <details class="relative mt-4">
+          <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
+            Add a graphic
+          </summary>
+          <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <input type="hidden" name="intent" value="add-graphic" />
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Title</span>
+              <input type="text" name="title" required class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Image</span>
+              <input
+                type="file"
+                name="image"
+                required
+                accept="image/png,image/jpeg,image/webp"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+              />
+            </label>
+            <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
+              Add Graphic
+            </button>
+          </form>
+        </details>
+      </section>
+
+      <section class="reveal mt-10 border-t border-white/10 pt-8" style="transition-delay: 100ms">
+        <h2 class="text-lg font-semibold">Meetups</h2>
+        <p class="mt-1 text-sm text-white/50">
+          Shown as pins on a US map on the public Media page. Latitude/longitude are entered directly — look them up
+          (e.g. right-click a spot on Google Maps and copy the coordinates) rather than just an address.
+        </p>
+
+        <ul class="mt-4 flex flex-col gap-2">
+          {meetups.length === 0 && <li class="text-sm text-white/40">No results.</li>}
+          {meetups.map((m) => (
+            <li class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+              <div class="flex items-center gap-3">
+                {m.photo_url ? (
+                  <img src={m.photo_url} alt="" class="h-10 w-10 flex-none rounded object-cover" />
+                ) : (
+                  <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+                )}
+                <div>
+                  <p class="font-semibold">{m.title}</p>
+                  <p class="mt-0.5 text-xs text-white/50">
+                    {m.location_label && `${m.location_label} · `}
+                    {m.latitude.toFixed(4)}, {m.longitude.toFixed(4)}
+                    {m.meetup_date && ` · ${formatDate(m.meetup_date)}`}
+                  </p>
+                </div>
+              </div>
+              <form method="POST" data-astro-reload>
+                <input type="hidden" name="intent" value="delete-meetup" />
+                <input type="hidden" name="id" value={m.id} />
+                <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+              </form>
+            </li>
+          ))}
+        </ul>
+
+        <details class="relative mt-4">
+          <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
+            Add a meetup
+          </summary>
+          <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+            <input type="hidden" name="intent" value="add-meetup" />
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Title</span>
+              <input type="text" name="title" required placeholder="Summer Meetup — Atlanta" class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Location label (optional)</span>
+              <input type="text" name="location_label" placeholder="Atlanta, GA" class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Latitude</span>
+                <input type="number" step="any" name="latitude" required placeholder="33.7490" class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+              </label>
+              <label class="flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Longitude</span>
+                <input type="number" step="any" name="longitude" required placeholder="-84.3880" class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+              </label>
+            </div>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Date (optional)</span>
+              <input type="date" name="meetup_date" class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Photo (optional)</span>
+              <input
+                type="file"
+                name="photo"
+                accept="image/png,image/jpeg,image/webp"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+              />
+            </label>
+            <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
+              Add Meetup
+            </button>
+          </form>
+        </details>
+      </section>
+    </>
+  )}
+</AdminLayout>
