@@ -218,22 +218,23 @@ const d: Partial<EventRecord> = event ?? {
           class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         >
           <option value="" selected={!d.layout} class="bg-brand-ink text-white">Not set</option>
+          {/*
+            selected is scoped by circuit_id too, not just name — layout
+            names are NOT unique across circuits ("Grand Prix" alone appears
+            on 23 different circuits, "Full Course" on 7). events.layout is
+            plain text (no FK to circuit_layouts), so matching by name only
+            meant EVERY same-named option across EVERY circuit got the
+            `selected` HTML attribute at once; the browser then picks
+            whichever one is last in DOM order as the actually-selected
+            option (almost never this event's own circuit), and
+            initLayoutFilter() below — seeing that "selected" option doesn't
+            belong to the current circuit — reset the whole dropdown back to
+            "Not set". This is what made assigning a layout look like it
+            silently failed on save.
+          */}
           {layouts.map((l) => (
             <option
               value={l.name}
-              // Scoped by circuit_id too, not just name — layout names are
-              // NOT unique across circuits ("Grand Prix" alone appears on
-              // 23 different circuits, "Full Course" on 7). events.layout
-              // is plain text (no FK to circuit_layouts), so matching by
-              // name only meant EVERY same-named option across EVERY
-              // circuit got the `selected` HTML attribute at once; the
-              // browser then picks whichever one is last in DOM order as
-              // the actually-selected option (almost never this event's
-              // own circuit), and initLayoutFilter() below — seeing that
-              // "selected" option doesn't belong to the current circuit —
-              // reset the whole dropdown back to "Not set". This is what
-              // made assigning a layout look like it silently failed on
-              // save.
               selected={l.name === d.layout && l.circuit_id === d.circuit_id}
               data-circuit-id={l.circuit_id}
               class="bg-brand-ink text-white"
