@@ -95,9 +95,11 @@ const {
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         <option value="" selected={!weather} class="bg-brand-ink text-white">Not set</option>
-        <option value="dry" selected={weather === 'dry'} class="bg-brand-ink text-white">Dry</option>
+        <option value="clear" selected={weather === 'clear'} class="bg-brand-ink text-white">Clear</option>
+        <option value="partly_cloudy" selected={weather === 'partly_cloudy'} class="bg-brand-ink text-white">Partly Cloudy</option>
+        <option value="overcast" selected={weather === 'overcast'} class="bg-brand-ink text-white">Overcast</option>
+        <option value="raining" selected={weather === 'raining'} class="bg-brand-ink text-white">Raining</option>
         <option value="mixed" selected={weather === 'mixed'} class="bg-brand-ink text-white">Mixed</option>
-        <option value="wet" selected={weather === 'wet'} class="bg-brand-ink text-white">Wet</option>
       </select>
     </label>
   </div>

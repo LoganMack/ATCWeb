@@ -13,7 +13,7 @@ const { condition, class: className = '' } = Astro.props;
 const label = condition ? WEATHER_LABELS[condition] : 'Not set';
 ---
 
-{condition === 'dry' && (
+{condition === 'clear' && (
   <svg
     role="img"
     aria-label={label}
@@ -39,6 +39,70 @@ const label = condition ? WEATHER_LABELS[condition] : 'Not set';
   </svg>
 )}
 
+{condition === 'partly_cloudy' && (
+  <svg
+    role="img"
+    aria-label={label}
+    class={`inline-block text-brand-gold/80 ${className}`}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    width="1em"
+    height="1em"
+  >
+    <title>{label}</title>
+    <circle cx="16.5" cy="6.5" r="2.5" fill="currentColor" stroke="none" />
+    <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.3-1.5A4 4 0 0 0 6.5 16.5" />
+  </svg>
+)}
+
+{condition === 'overcast' && (
+  <svg
+    role="img"
+    aria-label={label}
+    class={`inline-block text-white/60 ${className}`}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    width="1em"
+    height="1em"
+  >
+    <title>{label}</title>
+    <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6.5 6.5 0 0 0-12.6 2A4 4 0 0 0 6 19h11.5Z" />
+  </svg>
+)}
+
+{condition === 'raining' && (
+  <svg
+    role="img"
+    aria-label={label}
+    class={`inline-block text-brand-blue ${className}`}
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    width="1em"
+    height="1em"
+  >
+    <title>{label}</title>
+    <path d="M17.5 15a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.3-1.5A4 4 0 0 0 6.5 12.5" />
+    <line x1="8" y1="17" x2="7" y2="21" />
+    <line x1="12" y1="17" x2="11" y2="21" />
+    <line x1="16" y1="17" x2="15" y2="21" />
+  </svg>
+)}
+
 {condition === 'mixed' && (
   <svg
     role="img"
@@ -57,29 +121,7 @@ const label = condition ? WEATHER_LABELS[condition] : 'Not set';
     <title>{label}</title>
     <circle cx="16.5" cy="6.5" r="2.5" fill="currentColor" stroke="none" />
     <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.3-1.5A4 4 0 0 0 6.5 16.5" />
-  </svg>
-)}
-
-{condition === 'wet' && (
-  <svg
-    role="img"
-    aria-label={label}
-    class={`inline-block text-brand-blue ${className}`}
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    width="1em"
-    height="1em"
-  >
-    <title>{label}</title>
-    <path d="M17.5 15a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.3-1.5A4 4 0 0 0 6.5 12.5" />
-    <line x1="8" y1="17" x2="8" y2="21" />
-    <line x1="12" y1="18" x2="12" y2="22" />
-    <line x1="16" y1="17" x2="16" y2="21" />
+    <line x1="10" y1="21" x2="9" y2="23" />
   </svg>
 )}
 

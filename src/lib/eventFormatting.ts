@@ -69,9 +69,11 @@ export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
 };
 
 export const WEATHER_LABELS: Record<Weather, string> = {
-  dry: 'Dry',
+  clear: 'Clear',
+  partly_cloudy: 'Partly Cloudy',
+  overcast: 'Overcast',
+  raining: 'Raining',
   mixed: 'Mixed',
-  wet: 'Wet',
 };
 
 export interface SessionSummary {

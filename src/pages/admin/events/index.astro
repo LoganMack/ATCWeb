@@ -2,15 +2,16 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getEvents } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
 import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS } from '../../../lib/eventFormatting';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let events: Awaited<ReturnType<typeof getEvents>> = [];
+let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
 let loadError = false;
 try {
-  events = await getEvents(supabaseEnv);
+  [events, layouts] = await Promise.all([getEvents(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
 } catch (err) {
   console.error('Failed to load events for admin:', err);
   loadError = true;
@@ -54,12 +55,14 @@ try {
           </tr>
         </thead>
         <tbody>
-          {events.map((event) => (
+          {events.map((event) => {
+            const imageUrl = eventImageUrl(event, event.circuits, layouts);
+            return (
             <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
               <td class="py-3 pl-6 pr-3" data-col="circuit">
                 <div class="flex items-center gap-3">
-                  {event.circuits?.logo_url && (
-                    <img src={event.circuits.logo_url} alt="" class="h-8 w-8 flex-none rounded object-contain" />
+                  {imageUrl && (
+                    <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" />
                   )}
                   <div>
                     <span class="font-semibold">{event.circuits?.name ?? 'TBA'}</span>
@@ -90,7 +93,8 @@ try {
                 <a href={`/admin/events/${event.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

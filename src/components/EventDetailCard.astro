@@ -1,6 +1,6 @@
 ---
-import type { EventWithCircuit } from '../lib/supabase';
-import { displayLayoutName, formatDate } from '../lib/supabase';
+import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
+import { displayLayoutName, formatDate, eventImageUrl } from '../lib/supabase';
 import {
   formatEventDate,
   formatSessionTime,
@@ -36,10 +36,20 @@ interface Props {
    * per card" reasoning as layoutRounds above.
    */
   linkedRound?: RoundSummary | null;
+  /**
+   * Every circuit_layouts row on file — used to look up this event's own
+   * layout image (by circuit_id + layout name, since events.layout has no
+   * FK) so it can take priority over the circuit's generic logo. Same
+   * "computed/fetched once per page, passed in per card" reasoning as
+   * layoutRounds above. Optional — falls back to just the circuit logo
+   * (the old behavior) if a caller doesn't have this on hand.
+   */
+  layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
 }
 
-const { event, index = 0, layoutRounds = [], linkedRound = null } = Astro.props;
+const { event, index = 0, layoutRounds = [], linkedRound = null, layouts = [] } = Astro.props;
 const sessions = getEventSessions(event);
+const imageUrl = eventImageUrl(event, event.circuits, layouts);
 ---
 
 <article
@@ -49,8 +59,8 @@ const sessions = getEventSessions(event);
 >
   <div class="flex flex-wrap items-start justify-between gap-4">
     <div class="flex items-center gap-4">
-      {event.circuits?.logo_url && (
-        <img src={event.circuits.logo_url} alt="" class="h-12 w-12 flex-none rounded object-contain" />
+      {imageUrl && (
+        <img src={imageUrl} alt="" class="h-12 w-12 flex-none rounded object-contain" />
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{event.circuits?.name ?? 'TBA'}</h3>
@@ -99,7 +109,31 @@ const sessions = getEventSessions(event);
 
   {(event.fuel_limit_pct !== null || event.results_url || linkedRound) && (
     <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/60">
-      {event.fuel_limit_pct !== null && <span>Fuel limit: {event.fuel_limit_pct}%</span>}
+      {event.fuel_limit_pct !== null && (
+        <span class="flex items-center gap-1">
+          <svg
+            role="img"
+            aria-label="Fuel limit"
+            class="inline-block text-white/50"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            width="1em"
+            height="1em"
+          >
+            <title>Fuel limit</title>
+            <line x1="3" y1="22" x2="15" y2="22" />
+            <line x1="4" y1="9" x2="14" y2="9" />
+            <path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18" />
+            <path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2 2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5" />
+          </svg>
+          {event.fuel_limit_pct}%
+        </span>
+      )}
       {linkedRound && (
         <a href={`/results/${linkedRound.subsession_id}`} class="text-brand-primary hover:underline">
           View Results &rarr;

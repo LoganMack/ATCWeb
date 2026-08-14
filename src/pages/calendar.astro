@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import EventDetailCard from '../components/EventDetailCard.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSupabaseEnv } from '../lib/supabase';
+import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSupabaseEnv, eventImageUrl } from '../lib/supabase';
 import {
   getAllRounds,
   getRoundLayoutsForSubsessions,
@@ -33,6 +33,10 @@ try {
 // is intentionally NOT computed here at all — see findRoundsForLayout's own
 // doc comment and src/pages/api/round-recap/[subsessionId].ts for why that
 // part is deliberately deferred to a lazy, per-round client-side fetch.
+// Hoisted out of the try block below so it's also usable for the
+// client-side calendarEvents payload and the EventDetailCard layouts prop
+// (both need it after the try/catch, not just inside it).
+let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
 let layoutRoundsByEventId = new Map<string, LayoutRoundSummary[]>();
 // Which curated_rounds row (if any) each event represents — same
 // season_id+round_number / subsession_id-override resolution as
@@ -42,11 +46,12 @@ let layoutRoundsByEventId = new Map<string, LayoutRoundSummary[]>();
 // several dozen of them.
 let linkedRoundByEventId = new Map<string, RoundSummary | null>();
 try {
-  const [circuits, layouts, allRounds] = await Promise.all([
+  const [circuits, layoutsResult, allRounds] = await Promise.all([
     getCircuits(supabaseEnv),
     getAllCircuitLayouts(supabaseEnv),
     getAllRounds(supabaseEnv),
   ]);
+  layouts = layoutsResult;
   const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
     supabaseEnv,
     allRounds.map((r) => r.subsession_id)
@@ -92,7 +97,7 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
 const calendarEvents = events.map((e) => ({
   date: e.event_date,
   circuit: e.circuits?.name ?? 'TBA',
-  logoUrl: e.circuits?.logo_url ?? null,
+  logoUrl: eventImageUrl(e, e.circuits, layouts),
   layout: e.layout,
   format: e.format,
 }));
@@ -148,7 +153,7 @@ const calendarEvents = events.map((e) => ({
       <div data-view-panel="list">
         {upcoming.length > 0 && (
           <div class="mt-10 space-y-4">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} />)}
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
 
@@ -156,7 +161,7 @@ const calendarEvents = events.map((e) => ({
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 space-y-4 opacity-70">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} />)}
+              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
             </div>
           </div>
         )}

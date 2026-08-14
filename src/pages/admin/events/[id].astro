@@ -39,9 +39,10 @@ function optInt(form: FormData, name: string): number | null {
   const v = str(form, name);
   return v ? Number(v) : null;
 }
+const WEATHER_VALUES: Weather[] = ['clear', 'partly_cloudy', 'overcast', 'raining', 'mixed'];
 function optWeather(form: FormData, name: string): Weather | null {
   const v = str(form, name);
-  return v === 'dry' || v === 'mixed' || v === 'wet' ? v : null;
+  return (WEATHER_VALUES as string[]).includes(v) ? (v as Weather) : null;
 }
 function optCategory(form: FormData, name: string): EventCategory {
   const v = str(form, name);

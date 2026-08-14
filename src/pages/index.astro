@@ -9,6 +9,7 @@ import DriverFlag from '../components/DriverFlag.astro';
 import {
   getNewsPosts,
   getUpcomingEvents,
+  getAllCircuitLayouts,
   getPageBanners,
   getSeasons,
   getDriverClasses,
@@ -43,8 +44,16 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // list right below it (see the template below).
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
+// Just for eventImageUrl() below, so a layout's own image (once one's on
+// file) takes priority over the circuit's generic logo on the "Next Up"
+// card, same as everywhere else an event shows a circuit image.
+let eventLayouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
 try {
-  [latestNews, upcomingEvents] = await Promise.all([getNewsPosts(supabaseEnv, 8), getUpcomingEvents(supabaseEnv, 3)]);
+  [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
+    getNewsPosts(supabaseEnv, 8),
+    getUpcomingEvents(supabaseEnv, 3),
+    getAllCircuitLayouts(supabaseEnv),
+  ]);
 } catch (err) {
   // Supabase not configured yet / unreachable at build time — render the
   // page gracefully instead of failing the whole request.
@@ -291,7 +300,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         )}
 
         <div class="space-y-3">
-          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} />)}
+          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} layouts={eventLayouts} />)}
         </div>
 
         {upcomingEvents.length > 0 && (

@@ -1,6 +1,6 @@
 ---
-import type { EventWithCircuit } from '../lib/supabase';
-import { displayLayoutName } from '../lib/supabase';
+import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
+import { displayLayoutName, eventImageUrl } from '../lib/supabase';
 import {
   formatEventDate,
   formatEventDateShort,
@@ -15,11 +15,14 @@ interface Props {
   event: EventWithCircuit;
   featured?: boolean;
   index?: number;
+  /** See EventDetailCard.astro's own doc comment on this same prop — a layout's own image takes priority over the circuit's generic logo. Optional — falls back to just the circuit logo if a caller doesn't have this on hand. */
+  layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
 }
 
-const { event, featured = false, index = 0 } = Astro.props;
+const { event, featured = false, index = 0, layouts = [] } = Astro.props;
 const circuitName = event.circuits?.name ?? 'TBA';
 const sessions = featured ? getEventSessions(event) : [];
+const imageUrl = eventImageUrl(event, event.circuits, layouts);
 ---
 
 {featured ? (
@@ -35,8 +38,8 @@ const sessions = featured ? getEventSessions(event) : [];
     </div>
 
     <div class="mt-3 flex items-center gap-3">
-      {event.circuits?.logo_url && (
-        <img src={event.circuits.logo_url} alt="" class="h-10 w-10 flex-none rounded object-contain" />
+      {imageUrl && (
+        <img src={imageUrl} alt="" class="h-10 w-10 flex-none rounded object-contain" />
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{circuitName}</h3>
@@ -71,8 +74,8 @@ const sessions = featured ? getEventSessions(event) : [];
     style={`transition-delay: ${280 + index * 60}ms`}
   >
     <div class="flex items-center gap-3">
-      {event.circuits?.logo_url && (
-        <img src={event.circuits.logo_url} alt="" class="h-7 w-7 flex-none rounded object-contain" />
+      {imageUrl && (
+        <img src={imageUrl} alt="" class="h-7 w-7 flex-none rounded object-contain" />
       )}
       <div>
         <p class="font-semibold">{circuitName}</p>

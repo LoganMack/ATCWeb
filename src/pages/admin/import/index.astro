@@ -62,7 +62,7 @@ if (Astro.request.method === 'POST') {
           return i >= 0 ? (row[i] ?? '').trim() : '';
         };
         const FORMATS: EventFormat[] = ['sprint', 'endurance', 'special'];
-        const WEATHERS: Weather[] = ['dry', 'mixed', 'wet'];
+        const WEATHERS: Weather[] = ['clear', 'partly_cloudy', 'overcast', 'raining', 'mixed'];
         const optWeather = (v: string): Weather | null => (WEATHERS.includes(v.toLowerCase() as Weather) ? (v.toLowerCase() as Weather) : null);
 
         for (const row of rows.slice(1)) {

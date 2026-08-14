@@ -1531,6 +1531,26 @@ export function layoutImageUrl(layout: Pick<CircuitLayout, 'image_url'>, circuit
 }
 
 /**
+ * Same fallback order as layoutImageUrl (a layout's own image first, the
+ * parent circuit's shared logo second), but for an *event* rather than a
+ * CircuitLayout row directly — events.layout is a plain text name (no FK to
+ * circuit_layouts, see that column's own comment on EventRecord below), so
+ * this looks the matching layout up out of a full layouts list by
+ * (circuit_id, name) instead of already holding a layout row. Used
+ * everywhere an event/calendar card shows a circuit image, so a layout's
+ * own track image (once one's on file) takes priority over the circuit's
+ * generic logo — same priority the public Circuits page already uses.
+ */
+export function eventImageUrl(
+  event: { circuit_id: string; layout: string | null },
+  circuit: Pick<Circuit, 'logo_url'> | null,
+  layouts: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[]
+): string | null {
+  const matchedLayout = event.layout ? layouts.find((l) => l.circuit_id === event.circuit_id && l.name === event.layout) : undefined;
+  return matchedLayout?.image_url ?? circuit?.logo_url ?? null;
+}
+
+/**
  * Pulls the 11-character video ID out of any of the URL shapes YouTube
  * hands out (watch?v=, youtu.be/, /embed/, /shorts/) — every video entry on
  * the Media page (admin-entered or derived from race_links.broadcast_url)
@@ -1604,7 +1624,8 @@ export function deleteCircuitLayout(env: SupabaseEnv, accessToken: string, id: s
 
 // --- Events ----------------------------------------------------------------
 
-export type Weather = 'dry' | 'mixed' | 'wet';
+/** 0050_weather_conditions_expanded.sql — expanded from the original dry/mixed/wet to this more granular set. */
+export type Weather = 'clear' | 'partly_cloudy' | 'overcast' | 'raining' | 'mixed';
 export type EventFormat = 'endurance' | 'sprint' | 'special';
 /** 0035_events_rounds_categories.sql. 'championship' (default) expects season_id/round_number; 'test'/'exhibition' are season-agnostic, mirroring the round-level exhibition concept (round_overrides.is_exhibition) at the event level. */
 export type EventCategory = 'championship' | 'test' | 'exhibition';
