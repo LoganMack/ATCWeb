@@ -21,8 +21,11 @@ const links: { href: string; label: string; external?: boolean }[] = [
 
 <header class="sticky top-0 z-50 border-b border-white/10 bg-brand-ink/80 backdrop-blur">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-    <a href="/" class="flex items-center" transition:name="site-logo">
+    <a href="/" class="relative flex items-center" transition:name="site-logo">
       <img src="/logos/atc18-white.png" alt="Alpha Touring Challenge" class="h-9 w-auto sm:h-11" />
+      <span class="absolute -bottom-1 -right-2 rounded bg-brand-primary px-1 py-px text-[8px] font-display font-semibold uppercase leading-none tracking-wide text-white sm:-right-2.5 sm:text-[9px]">
+        Beta
+      </span>
     </a>
 
     <nav class="hidden items-center gap-8 font-display text-lg uppercase tracking-widest sm:flex">

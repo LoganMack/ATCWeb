@@ -17,6 +17,8 @@ import {
 import {
   computeTeamSeasonStandings,
   computeOverallSeasonStandings,
+  getSeasonOverallContext,
+  driversSelect,
   isChampionshipSeason,
   type TeamSeasonStanding,
   type DriverSeasonStanding,
@@ -62,11 +64,22 @@ let standings: TeamSeasonStanding[] = [];
 let overallStandingByDriverId = new Map<string, DriverSeasonStanding>();
 if (!loadError && activeSeason) {
   try {
-    const [exhibitionRoundIds, classes] = await Promise.all([getExhibitionRoundIds(supabaseEnv), getDriverClasses(supabaseEnv)]);
+    const [driversBasic, exhibitionRoundIds, classes] = await Promise.all([
+      driversSelect(supabaseEnv),
+      getExhibitionRoundIds(supabaseEnv),
+      getDriverClasses(supabaseEnv),
+    ]);
     const deltaClassId = view === 'delta' ? classes.find((c) => c.name === 'Delta')?.id : undefined;
+    // Shared with both calls below (computeOverallSeasonStandings always
+    // needs it; computeTeamSeasonStandings only uses it in the Overall
+    // branch, ignoring it harmlessly in the Delta branch) instead of each
+    // independently re-fetching its own copy — see standings.astro's
+    // identical fix for why this matters (Cloudflare Workers resource
+    // limit, Error 1102).
+    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
     const [teamStandings, overallStandings] = await Promise.all([
-      computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, deltaClassId),
-      computeOverallSeasonStandings(supabaseEnv, activeSeason, undefined, exhibitionRoundIds),
+      computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, deltaClassId, driversBasic, undefined, undefined, classes, overallContext),
+      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
     ]);
     standings = teamStandings;
     overallStandingByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s]));

@@ -17,6 +17,18 @@
   "observability": {
     "enabled": true
   },
+  // Without this, the Worker runs under Cloudflare's default per-request
+  // CPU budget (50ms on the paid plan, 10ms on Workers Free) — easy to blow
+  // past on pages that recompute a whole season's standings server-side
+  // (Standings, Champions, career stats), especially as more rounds pile up
+  // over a season. That's what "Error 1102: Worker exceeded resource
+  // limits" on those pages actually is. 30000 is the maximum allowed
+  // (Workers Paid plan only — Free plan is hard-capped at 10ms and this
+  // setting has no effect there, so if pages are still erroring after a
+  // deploy with this in place, the account needs the Workers Paid plan).
+  "limits": {
+    "cpu_ms": 30000
+  },
   // Found the real bug: once a "vars" block exists here at all, Wrangler
   // treats it as the *complete* set of runtime vars for the Worker and
   // silently drops anything set only in the dashboard that isn't also

@@ -19,6 +19,8 @@ import {
   computeOverallSeasonStandings,
   getSeasonCarTeamStats,
   getSeasonDriverExtendedStats,
+  getSeasonOverallContext,
+  driversSelect,
   isChampionshipSeason,
   type DriverSeasonStanding,
   type DriverSeasonExtras,
@@ -79,13 +81,25 @@ let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
 if (!loadError && activeSeason) {
   try {
-    const exhibitionRoundIds = await getExhibitionRoundIds(supabaseEnv);
+    const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getExhibitionRoundIds(supabaseEnv)]);
+    // Built ONCE and shared across all three calls below instead of each
+    // independently re-fetching its own copy (curated_race_results,
+    // penalties, curated_rounds, lap stats) — this page used to rebuild
+    // that ~4-query context three separate times per request (once each
+    // for standings/car-team-stats/extended-stats), which was enough to
+    // trip Cloudflare Workers' per-request resource limit (Error 1102) on
+    // seasons with more than a handful of rounds on file. Same
+    // already-proven sharing pattern computeDriverCareerStats uses across
+    // every class + team + extended-stats view at once — see this
+    // repo's README/computeDriverCareerStats' own doc comment for why
+    // sharing this way is safe.
+    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
     const [standingsResult, extras, extendedStats] = await Promise.all([
       view === 'class' && activeClass
-        ? computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id, undefined, exhibitionRoundIds, classes)
-        : computeOverallSeasonStandings(supabaseEnv, activeSeason, undefined, exhibitionRoundIds),
-      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds),
-      getSeasonDriverExtendedStats(supabaseEnv, activeSeason, exhibitionRoundIds),
+        ? computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id, driversBasic, exhibitionRoundIds, classes, overallContext)
+        : computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
+      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, undefined, undefined, undefined, overallContext),
+      getSeasonDriverExtendedStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, overallContext),
     ]);
     standings = standingsResult;
     extrasByDriverId = extras;

@@ -11,6 +11,8 @@ import {
   getEventSessions,
 } from '../lib/eventFormatting';
 import type { LayoutRoundSummary, RoundSummary } from '../lib/results';
+import { buildEventIcsBlock } from '../lib/ics';
+import { slugify } from '../lib/slug';
 import WeatherIcon from './WeatherIcon.astro';
 
 interface Props {
@@ -50,6 +52,14 @@ interface Props {
 const { event, index = 0, layoutRounds = [], linkedRound = null, layouts = [] } = Astro.props;
 const sessions = getEventSessions(event);
 const imageUrl = eventImageUrl(event, event.circuits, layouts);
+
+// "Add to Calendar" only makes sense for an event that hasn't happened yet
+// — same plain string comparison calendar.astro's own upcoming/past split
+// uses, since event_date is always 'YYYY-MM-DD'.
+const todayStr = new Date().toISOString().slice(0, 10);
+const isUpcoming = event.event_date >= todayStr;
+const icsBlock = isUpcoming ? buildEventIcsBlock(event, layouts) : null;
+const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.event_date}.ics`;
 ---
 
 <article
@@ -84,6 +94,25 @@ const imageUrl = eventImageUrl(event, event.circuits, layouts);
         )}
       </div>
       <p class="text-sm text-white/60">{formatEventDate(event.event_date)}</p>
+      {icsBlock && (
+        <button
+          type="button"
+          data-ics-download
+          data-ics-event={icsBlock}
+          data-ics-filename={icsFilename}
+          class="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1 text-xs font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <line x1="16" y1="2" x2="16" y2="6" />
+            <line x1="8" y1="2" x2="8" y2="6" />
+            <line x1="3" y1="10" x2="21" y2="10" />
+            <line x1="12" y1="14" x2="12" y2="18" />
+            <line x1="10" y1="16" x2="14" y2="16" />
+          </svg>
+          Add to Calendar
+        </button>
+      )}
     </div>
   </div>
 
