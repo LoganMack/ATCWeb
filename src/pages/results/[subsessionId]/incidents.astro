@@ -652,8 +652,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <select
                     name="race_number"
                     data-incident-race-field
+                    required={raceNumbers.length > 1}
                     class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                   >
+                    {raceNumbers.length > 1 && (
+                      <option value="" selected disabled hidden class="bg-brand-ink text-white">Select race…</option>
+                    )}
                     {raceNumbers.map((n) => <option value={n} class="bg-brand-ink text-white">Race {n}</option>)}
                   </select>
                 </label>
@@ -680,102 +684,110 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <div class="grid grid-cols-2 gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Incident #
-                  <input type="text" name="incident_number" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  <input type="text" name="incident_number" data-incident-number-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Lap
-                  <input type="number" name="lap" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  <input type="number" name="lap" data-incident-lap-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
               </div>
 
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Description
-                <textarea name="description" rows="2" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"></textarea>
-              </label>
+              <p data-incident-missing-fields class="text-[11px] font-semibold text-brand-gold"></p>
 
-              <div class="grid grid-cols-2 gap-3">
+              <div data-incident-rest class="hidden flex-col gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Time penalty (seconds)
-                  <input type="number" step="0.001" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  Description
+                  <textarea name="description" rows="2" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"></textarea>
                 </label>
-                <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Points penalty
-                  <input type="number" name="points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+
+                <label data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Penalty points (PP)
+                  <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
-              </div>
 
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Penalty points (PP)
-                <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-              </label>
-
-              <label data-fault-only class="flex items-center gap-2 text-xs text-white/70">
-                <input type="checkbox" name="is_warning" />
-                This is a warning (rulebook: 2 warnings escalates to +1 PP)
-              </label>
-
-              <label class="flex items-center gap-2 text-xs text-white/70">
-                <input type="checkbox" name="is_appealed" data-appeal-checkbox />
-                This penalty was appealed
-              </label>
-
-              <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-white/5 p-3">
-                <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Appeal result
-                  <textarea
-                    name="appeal_result"
-                    rows="2"
-                    placeholder="e.g. Upheld — reduced to 5s"
-                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                  ></textarea>
-                </label>
-                <div class="grid grid-cols-2 gap-3">
+                <div data-fault-only class="grid grid-cols-2 gap-3">
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    New time penalty (seconds)
-                    <input type="number" step="0.001" name="appeal_time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    Time penalty (seconds)
+                    <input type="number" step="0.001" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                   </label>
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    New points penalty
-                    <input type="number" name="appeal_points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    Points penalty
+                    <input type="number" name="points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                   </label>
                 </div>
-                <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  New penalty points (PP)
-                  <input type="number" name="appeal_penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+
+                <label data-fault-only class="flex items-center gap-2 text-xs text-white/70">
+                  <input type="checkbox" name="is_warning" />
+                  This is a warning (rulebook: 2 warnings escalates to +1 PP)
                 </label>
-                <p class="text-[11px] text-white/30">
-                  These replace the original time/points/PP everywhere (this race's results, season standings, season
-                  PP) once appealed — the original values above stay on record but stop being applied.
-                </p>
+
+                <label class="flex items-center gap-2 text-xs text-white/70">
+                  <input type="checkbox" name="is_appealed" data-appeal-checkbox />
+                  This penalty was appealed
+                </label>
+
+                <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-white/5 p-3">
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Appeal result
+                    <textarea
+                      name="appeal_result"
+                      rows="2"
+                      placeholder="e.g. Upheld — reduced to 5s"
+                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                    ></textarea>
+                  </label>
+                  <div class="grid grid-cols-2 gap-3">
+                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                      New time penalty (seconds)
+                      <input type="number" step="0.001" name="appeal_time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                      New points penalty
+                      <input type="number" name="appeal_points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    </label>
+                  </div>
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    New penalty points (PP)
+                    <input type="number" name="appeal_penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  </label>
+                  <p class="text-[11px] text-white/30">
+                    These replace the original time/points/PP everywhere (this race's results, season standings, season
+                    PP) once appealed — the original values above stay on record but stop being applied.
+                  </p>
+                </div>
+
+                <fieldset data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
+                  <legend class="mb-1">Offenses (rulebook section 5)</legend>
+                  <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                    {offenses.length === 0 && <span class="text-white/30">No offenses configured — add some at /admin/site-properties.</span>}
+                    {offenses.map((o) => (
+                      <label class="flex items-center gap-2 text-xs text-white/70">
+                        <input type="checkbox" name="offense_ids" value={o.id} />
+                        {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
+                  <legend class="mb-1">Involved</legend>
+                  <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                    {roundDrivers.length === 0 && <span class="text-white/30">No drivers in this round.</span>}
+                    {roundDrivers.map((d) => (
+                      <label class="flex items-center gap-2 text-xs text-white/70">
+                        <input type="checkbox" name="involved_driver_ids" value={d.id} />
+                        {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
               </div>
 
-              <fieldset data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
-                <legend class="mb-1">Offenses (rulebook section 5)</legend>
-                <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-                  {offenses.length === 0 && <span class="text-white/30">No offenses configured — add some at /admin/site-properties.</span>}
-                  {offenses.map((o) => (
-                    <label class="flex items-center gap-2 text-xs text-white/70">
-                      <input type="checkbox" name="offense_ids" value={o.id} />
-                      {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
-                <legend class="mb-1">Involved</legend>
-                <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-                  {roundDrivers.length === 0 && <span class="text-white/30">No drivers in this round.</span>}
-                  {roundDrivers.map((d) => (
-                    <label class="flex items-center gap-2 text-xs text-white/70">
-                      <input type="checkbox" name="involved_driver_ids" value={d.id} />
-                      {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <button type="submit" class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110">
+              <button
+                type="submit"
+                data-incident-save-button
+                class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+              >
                 Save Incident
               </button>
             </form>
@@ -834,15 +846,26 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const appealCheckbox = dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!;
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
     // Everything that only makes sense when a specific driver is actually
-    // at fault — offenses (rulebook section 5) and the warning checkbox —
-    // hidden once "Racing Incident" (the driver select's "racing_incident"
-    // sentinel option) is picked. See 0020_penalty_racing_incident.sql.
+    // at fault — offenses (rulebook section 5), the warning checkbox, and
+    // the penalty inputs (PP, time penalty, points penalty) — hidden once
+    // "Racing Incident" (the driver select's "racing_incident" sentinel
+    // option) is picked. See 0020_penalty_racing_incident.sql.
     const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
     // The blank placeholder option ("Select driver…") is disabled/unselectable
     // once the user has interacted with the field — only used as the default
     // so nothing is pre-selected. Treat it the same as "no driver chosen yet"
     // for fault-field visibility, same as "racing_incident" itself.
     const isDriverChosen = (value: string) => value !== '' && value !== 'racing_incident';
+
+    // The four "core" fields that must be filled in before the rest of the
+    // form is even shown — Race is only required when the round has more
+    // than one race (server only renders `required` on the select in that
+    // case, so `raceField.required` reflects that at runtime).
+    const numberField = dialog.querySelector<HTMLInputElement>('[data-incident-number-field]')!;
+    const lapField = dialog.querySelector<HTMLInputElement>('[data-incident-lap-field]')!;
+    const missingFieldsEl = dialog.querySelector<HTMLElement>('[data-incident-missing-fields]')!;
+    const restEl = dialog.querySelector<HTMLElement>('[data-incident-rest]')!;
+    const saveButton = dialog.querySelector<HTMLButtonElement>('[data-incident-save-button]')!;
 
     function setAppealFieldsVisible(visible: boolean) {
       appealFields.classList.toggle('hidden', !visible);
@@ -853,16 +876,44 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       faultOnlyFields.forEach((el) => el.classList.toggle('hidden', !visible));
       if (!visible) {
         // Clear rather than just hide, so switching to Racing Incident
-        // never leaves a hidden offense/warning silently in the submitted
-        // form data.
+        // never leaves a hidden offense/warning/penalty value silently in
+        // the submitted form data.
         dialog.querySelectorAll<HTMLInputElement>('[name="offense_ids"]').forEach((cb) => (cb.checked = false));
         const warningBox = dialog.querySelector<HTMLInputElement>('[name="is_warning"]');
         if (warningBox) warningBox.checked = false;
+        const clear = (name: string) => {
+          const el = dialog.querySelector<HTMLInputElement>(`[name="${name}"]`);
+          if (el) el.value = '';
+        };
+        clear('penalty_points');
+        clear('time_penalty_seconds');
+        clear('points_penalty');
       }
+    }
+
+    // Race, Driver, Incident #, and Lap are the "core" fields — until all
+    // of them are filled in, the rest of the form stays hidden and Save
+    // stays disabled, with a message telling the user what's still missing.
+    function updateFormValidity() {
+      const missing: string[] = [];
+      if (raceField.required && !raceField.value) missing.push('Race');
+      if (!isDriverChosen(driverField.value)) missing.push('Driver');
+      if (!numberField.value.trim()) missing.push('Incident #');
+      if (!lapField.value.trim()) missing.push('Lap');
+
+      const isValid = missing.length === 0;
+      restEl.classList.toggle('hidden', !isValid);
+      restEl.classList.toggle('flex', isValid);
+      saveButton.disabled = !isValid;
+      missingFieldsEl.textContent = isValid ? '' : `Still needed: ${missing.join(', ')}`;
     }
 
     appealCheckbox.addEventListener('change', () => setAppealFieldsVisible(appealCheckbox.checked));
     driverField.addEventListener('change', () => setFaultFieldsVisible(isDriverChosen(driverField.value)));
+    raceField.addEventListener('change', updateFormValidity);
+    driverField.addEventListener('change', updateFormValidity);
+    numberField.addEventListener('input', updateFormValidity);
+    lapField.addEventListener('input', updateFormValidity);
 
     document.querySelectorAll<HTMLButtonElement>('[data-open-incident-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -874,6 +925,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         // form.reset() restores the blank placeholder (its `selected`
         // attribute) — Driver starts unselected on every new Add, per Logan.
         setFaultFieldsVisible(isDriverChosen(driverField.value));
+        // Nothing is filled in yet on a fresh Add — form starts collapsed
+        // with Save disabled until Race/Driver/Incident #/Lap are set.
+        updateFormValidity();
         dialog.showModal();
       });
     });
@@ -917,6 +971,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         });
 
         setFaultFieldsVisible(isDriverChosen(driverField.value));
+        // Existing incidents already have their core fields filled in, so
+        // this should immediately expand the rest of the form and enable Save.
+        updateFormValidity();
 
         dialog.showModal();
       });
