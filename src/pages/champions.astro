@@ -3,27 +3,25 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import ChampionCard from '../components/ChampionCard.astro';
-import TeamChampionCard from '../components/TeamChampionCard.astro';
 import PageBanner from '../components/PageBanner.astro';
-import {
-  resolveSupabaseEnv,
-  getDriverClasses,
-  getSeasons,
-  getChampionPhotosForClass,
-  getPageBanners,
-  displayDriverName,
-} from '../lib/supabase';
-import {
-  getChampionsWithExtras,
-  getTeamChampions,
-  driversSelect,
-  type ChampionEntry,
-  type DriverSeasonExtras,
-  type TeamChampionEntry,
-  type DriverBasic,
-} from '../lib/results';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getPageBanners } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
+
+// Pilot for the sitewide "shell renders instantly, data fills in after"
+// pattern (PERFORMANCE_AUDIT.md #5). This page used to await the full
+// cross-season champions/team-champions computation right here in its own
+// frontmatter — since Astro's client router waits for a page's whole HTML
+// response before swapping the DOM, that meant clicking into /champions
+// left the browser sitting on the OLD page for ~5+ seconds with nothing
+// but the top progress bar to show for it.
+//
+// Now this page only fetches what it actually needs to render immediately
+// (driver classes + seasons, for the filter tabs — cheap, same as any
+// other page's reference-table lookups) and renders a loading skeleton in
+// place of the cards. The expensive part moved to champions/fragment.astro,
+// fetched client-side by the <script> below once this shell has already
+// painted. See that file for the full explanation of why it re-resolves
+// the class/team query params itself instead of receiving them passed in.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -85,64 +83,6 @@ const requestedTeam = Astro.url.searchParams.get('team');
 const activeTeamView: 'alpha' | 'delta' | null =
   requestedTeam === 'delta' && deltaEnabledAnySeason ? 'delta' : requestedTeam === 'alpha' ? 'alpha' : null;
 
-let champions: ChampionEntry[] = [];
-let photosBySeason = new Map<string, Awaited<ReturnType<typeof getChampionPhotosForClass>>>();
-let extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
-let teamChampions: TeamChampionEntry[] = [];
-let rosterByTeamChampion = new Map<string, DriverBasic[]>();
-
-if (!loadError && activeTeamView) {
-  try {
-    const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
-    const classId = activeTeamView === 'delta' ? deltaClassId : undefined;
-    // getTeamChampions bulk-fetches every ingredient ONCE across every
-    // championship season and slices per season in memory — same
-    // subrequest-limit reasoning as getChampionsWithExtras just below. See
-    // that function's own doc comment.
-    const [teamChampionsResult, drivers] = await Promise.all([
-      getTeamChampions(supabaseEnv, seasons, classId),
-      driversSelect(supabaseEnv),
-    ]);
-    teamChampions = teamChampionsResult;
-    const driverById = new Map(drivers.map((d) => [d.id, d]));
-    for (const entry of teamChampionsResult) {
-      const roster = entry.standing.driverIds
-        .map((id) => driverById.get(id))
-        .filter((d): d is DriverBasic => d !== undefined)
-        .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
-      rosterByTeamChampion.set(entry.season.id, roster);
-    }
-  } catch (err) {
-    console.error('Failed to compute team champions:', err);
-    loadError = err instanceof Error ? err.message : String(err);
-  }
-} else if (!loadError && activeClass) {
-  try {
-    const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
-    // getChampionsWithExtras bulk-fetches every ingredient (drivers, teams,
-    // race_scores, curated_race_results, ...) ONCE across every
-    // championship season and slices per season in memory, instead of
-    // this page separately calling getChampions() and then a per-champion
-    // getSeasonCarTeamStats() — that old pattern issued a fresh round of
-    // queries per season/champion and started tripping Cloudflare Workers'
-    // "Too many subrequests by single Worker invocation" limit once enough
-    // seasons had real standings data. See that function's own doc comment.
-    const [{ champions: championsResult, extrasBySeasonId: extrasResult }, photos] = await Promise.all([
-      getChampionsWithExtras(supabaseEnv, eligibleSeasons, activeClass.id),
-      getChampionPhotosForClass(supabaseEnv, activeClass.id),
-    ]);
-    champions = championsResult;
-    extrasBySeasonId = extrasResult;
-    for (const photo of photos) {
-      if (!photosBySeason.has(photo.season_id)) photosBySeason.set(photo.season_id, []);
-      photosBySeason.get(photo.season_id)!.push(photo);
-    }
-  } catch (err) {
-    console.error('Failed to compute champions:', err);
-    loadError = err instanceof Error ? err.message : String(err);
-  }
-}
-
 let bannerUrl: string | null = null;
 try {
   bannerUrl = bannerUrlFor(await pageBannersPromise, 'champions');
@@ -202,33 +142,53 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
     )}
 
-    {!loadError && activeTeamView && teamChampions.length === 0 && (
-      <p class="mt-10 text-white/60">No results.</p>
-    )}
-
-    {!loadError && activeTeamView && teamChampions.length > 0 && (
-      <div class="mt-8 flex flex-col gap-5">
-        {teamChampions.map((entry, i) => (
-          <TeamChampionCard entry={entry} roster={rosterByTeamChampion.get(entry.season.id) ?? []} index={i} />
-        ))}
-      </div>
-    )}
-
-    {!loadError && !activeTeamView && champions.length === 0 && (
-      <p class="mt-10 text-white/60">No results.</p>
-    )}
-
-    {!loadError && !activeTeamView && champions.length > 0 && (
-      <div class="mt-8 flex flex-col gap-5">
-        {champions.map((entry, i) => (
-          <ChampionCard
-            entry={entry}
-            photos={photosBySeason.get(entry.season.id) ?? []}
-            extras={extrasBySeasonId.get(entry.season.id)}
-            index={i}
-          />
-        ))}
+    {!loadError && (
+      <div data-champions-results data-fragment-url={`/champions/fragment${Astro.url.search}`}>
+        <div class="mt-8 flex flex-col gap-5" aria-live="polite" aria-busy="true">
+          <span class="sr-only">Loading champions…</span>
+          <div class="h-40 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-40 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-40 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        </div>
       </div>
     )}
   </section>
 </Layout>
+
+<script>
+  // Pilot for the sitewide "shell renders instantly, data fills in after"
+  // pattern — see champions.astro's own top-of-file comment and
+  // champions/fragment.astro for the full explanation. This runs on every
+  // soft navigation (including switching class/team tabs, since those are
+  // real ?class=/?team= navigations, not client-side toggles — each lands
+  // here fresh with its own skeleton already in the server-rendered shell).
+  function initChampionsResults() {
+    const container = document.querySelector<HTMLElement>('[data-champions-results]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Champions fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        // reveal.ts's IntersectionObserver only ever looks at `.reveal`
+        // elements that exist in the DOM at astro:page-load time — these
+        // cards land well after that, via this fetch, so without this
+        // they'd sit at opacity:0 forever (see global.css's `.reveal`
+        // rule). Marking them visible immediately (rather than replicating
+        // reveal.ts's scroll-triggered observer here) is the right call
+        // anyway: this content is appearing because a load just finished,
+        // not because the user scrolled to it.
+        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+      })
+      .catch((err) => {
+        console.error('Failed to load champions results:', err);
+        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load champions right now — try refreshing the page.</p>';
+      });
+  }
+
+  document.addEventListener('astro:page-load', initChampionsResults);
+</script>

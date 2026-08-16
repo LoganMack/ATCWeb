@@ -1,0 +1,151 @@
+---
+export const prerender = false;
+
+import ChampionCard from '../../components/ChampionCard.astro';
+import TeamChampionCard from '../../components/TeamChampionCard.astro';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass, displayDriverName } from '../../lib/supabase';
+import {
+  getChampionsWithExtras,
+  getTeamChampions,
+  driversSelect,
+  type ChampionEntry,
+  type DriverSeasonExtras,
+  type TeamChampionEntry,
+  type DriverBasic,
+} from '../../lib/results';
+
+/**
+ * Pilot for the sitewide "shell renders instantly, data fills in after"
+ * pattern (PERFORMANCE_AUDIT.md #5) — champions.astro now only fetches the
+ * cheap stuff (driver classes, seasons) needed to render its filter tabs,
+ * then renders a loading skeleton and fetches THIS route client-side for
+ * the actual champions/team-champions cards. This is where the expensive
+ * cross-season computation that used to block the whole page transition
+ * now lives, so it no longer holds up the shell.
+ *
+ * Deliberately reuses ChampionCard.astro/TeamChampionCard.astro as-is
+ * (same components champions.astro rendered server-side before this
+ * change) rather than re-implementing their markup in client-side JS —
+ * that keeps this fragment and a normal SSR page from ever drifting apart,
+ * at the cost of a small amount of duplicated query-param resolution below
+ * (NOT of any of the actual expensive data fetching, which only ever runs
+ * here now).
+ *
+ * Returns a bare HTML fragment — no <Layout>, no <html>/<head> — meant
+ * only to be dropped into champions.astro's results container via
+ * `container.innerHTML = await res.text()`. Never linked to directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let loadError: string | null = null;
+try {
+  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load champions filters (fragment):', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+// Same resolution logic as champions.astro — see that file for the full
+// explanation of each rule. Kept in sync by hand since it's cheap,
+// dependency-free query-param interpretation, not a fetch to dedupe.
+function classIsEnabledFor(className: string, season: Awaited<ReturnType<typeof getSeasons>>[number]): boolean {
+  if (className === 'Gamma') return season.gamma_enabled;
+  if (className === 'Delta') return season.delta_enabled;
+  return true;
+}
+const visibleClasses = classes.filter((c) => seasons.some((s) => classIsEnabledFor(c.name, s)));
+
+const requestedClassName = Astro.url.searchParams.get('class');
+const activeClass =
+  visibleClasses.find((c) => c.name === requestedClassName) ?? visibleClasses.find((c) => c.name === 'Alpha') ?? visibleClasses[0];
+
+const deltaEnabledAnySeason = seasons.some((s) => s.delta_enabled);
+const requestedTeam = Astro.url.searchParams.get('team');
+const activeTeamView: 'alpha' | 'delta' | null =
+  requestedTeam === 'delta' && deltaEnabledAnySeason ? 'delta' : requestedTeam === 'alpha' ? 'alpha' : null;
+
+let champions: ChampionEntry[] = [];
+let photosBySeason = new Map<string, Awaited<ReturnType<typeof getChampionPhotosForClass>>>();
+let extrasBySeasonId = new Map<string, DriverSeasonExtras | undefined>();
+let teamChampions: TeamChampionEntry[] = [];
+let rosterByTeamChampion = new Map<string, DriverBasic[]>();
+
+if (!loadError && activeTeamView) {
+  try {
+    const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
+    const classId = activeTeamView === 'delta' ? deltaClassId : undefined;
+    const [teamChampionsResult, drivers] = await Promise.all([
+      getTeamChampions(supabaseEnv, seasons, classId),
+      driversSelect(supabaseEnv),
+    ]);
+    teamChampions = teamChampionsResult;
+    const driverById = new Map(drivers.map((d) => [d.id, d]));
+    for (const entry of teamChampionsResult) {
+      const roster = entry.standing.driverIds
+        .map((id) => driverById.get(id))
+        .filter((d): d is DriverBasic => d !== undefined)
+        .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
+      rosterByTeamChampion.set(entry.season.id, roster);
+    }
+  } catch (err) {
+    console.error('Failed to compute team champions (fragment):', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+} else if (!loadError && activeClass) {
+  try {
+    const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
+    const [{ champions: championsResult, extrasBySeasonId: extrasResult }, photos] = await Promise.all([
+      getChampionsWithExtras(supabaseEnv, eligibleSeasons, activeClass.id),
+      getChampionPhotosForClass(supabaseEnv, activeClass.id),
+    ]);
+    champions = championsResult;
+    extrasBySeasonId = extrasResult;
+    for (const photo of photos) {
+      if (!photosBySeason.has(photo.season_id)) photosBySeason.set(photo.season_id, []);
+      photosBySeason.get(photo.season_id)!.push(photo);
+    }
+  } catch (err) {
+    console.error('Failed to compute champions (fragment):', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+{loadError && (
+  <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    Couldn't load champions right now. If this mentions permission/RLS, race_scores or curated_race_results
+    likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
+    it has to be run manually in the Supabase SQL editor.
+    <br /><span class="mt-1 block text-white/50">{loadError}</span>
+  </p>
+)}
+
+{!loadError && activeTeamView && teamChampions.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
+
+{!loadError && activeTeamView && teamChampions.length > 0 && (
+  <div class="mt-8 flex flex-col gap-5">
+    {teamChampions.map((entry, i) => (
+      <TeamChampionCard entry={entry} roster={rosterByTeamChampion.get(entry.season.id) ?? []} index={i} />
+    ))}
+  </div>
+)}
+
+{!loadError && !activeTeamView && champions.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
+
+{!loadError && !activeTeamView && champions.length > 0 && (
+  <div class="mt-8 flex flex-col gap-5">
+    {champions.map((entry, i) => (
+      <ChampionCard
+        entry={entry}
+        photos={photosBySeason.get(entry.season.id) ?? []}
+        extras={extrasBySeasonId.get(entry.season.id)}
+        index={i}
+      />
+    ))}
+  </div>
+)}
