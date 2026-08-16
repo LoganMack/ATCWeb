@@ -3,11 +3,13 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/supabase';
-import { getAllProfiles, setProfileRole } from '../../../lib/auth';
+import { getAllProfiles, getProfile, setProfileRole } from '../../../lib/auth';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
 const currentUserId = Astro.locals.session!.user.id;
+const actor = { id: currentUserId, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 
@@ -17,7 +19,15 @@ if (Astro.request.method === 'POST') {
   const role = form.get('role') === 'admin' ? 'admin' : 'driver';
   if (profileId) {
     try {
+      const targetProfile = await getProfile(supabaseEnv, accessToken, profileId);
       await setProfileRole(supabaseEnv, accessToken, profileId, role);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'user',
+        entity_label: targetProfile?.display_name || `User ${profileId.slice(0, 8)}`,
+        entity_id: profileId,
+        details: `Role set to ${role}`,
+      });
     } catch (err) {
       console.error('Failed to update role:', err);
       error = 'Failed to update that user’s role.';

@@ -11,9 +11,11 @@ import {
   formatDate,
 } from '../../../../lib/supabase';
 import { getAllRounds } from '../../../../lib/results';
+import { logActivity, actorNameFor } from '../../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 const { id } = Astro.params;
 
 if (!id) return Astro.redirect('/admin/news', 302);
@@ -45,6 +47,12 @@ if (Astro.request.method === 'POST') {
   if (intent === 'delete') {
     try {
       await deleteNewsPost(supabaseEnv, accessToken, id);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'delete',
+        entity_type: 'news',
+        entity_label: post.title,
+        entity_id: id,
+      });
       return Astro.redirect('/admin/news', 302);
     } catch (err) {
       console.error('Failed to delete news post:', err);
@@ -98,6 +106,12 @@ if (Astro.request.method === 'POST') {
           season_label: season_label || null,
           round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
           published_at,
+        });
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'news',
+          entity_label: title,
+          entity_id: id,
         });
         post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
         if (!post) return Astro.redirect('/admin/news', 302);

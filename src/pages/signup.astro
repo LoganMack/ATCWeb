@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/supabase';
 import { signUp, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
+import { logActivity } from '../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const session = Astro.locals.session;
@@ -49,6 +50,15 @@ if (Astro.request.method === 'POST') {
           ...cookieOptions,
           maxAge: 60 * 60 * 24 * 30,
         });
+        // Logged as the new user's own action (not an admin's) — RLS's
+        // "insert_activity_log" policy (0051_activity_log.sql) allows
+        // exactly this one non-admin case: auth.uid() = actor_id.
+        await logActivity(
+          supabaseEnv,
+          newSession.accessToken,
+          { id: newSession.user.id, name: displayName || email },
+          { action: 'add', entity_type: 'user', entity_label: displayName || email, entity_id: newSession.user.id }
+        );
         return Astro.redirect('/', 302);
       }
       checkEmail = true;

@@ -10,6 +10,7 @@ import {
   updateEvent,
   deleteEvent,
   getCircuits,
+  getCircuitById,
   getAllCircuitLayouts,
   displayLayoutName,
   getSeasons,
@@ -20,9 +21,11 @@ import {
   type Weather,
 } from '../../../lib/supabase';
 import { getEventRound } from '../../../lib/results';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 const { id } = Astro.params;
 const isNew = id === 'new';
 
@@ -105,7 +108,17 @@ if (Astro.request.method === 'POST') {
 
   if (intent === 'delete' && !isNew && id) {
     try {
+      // event (below) isn't loaded yet at this point — fetch fresh for the
+      // log entry's label.
+      const deletedEvent = await getEventById(supabaseEnv, id);
+      const deletedCircuit = deletedEvent ? await getCircuitById(supabaseEnv, deletedEvent.circuit_id) : null;
       await deleteEvent(supabaseEnv, accessToken, id);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'delete',
+        entity_type: 'event',
+        entity_label: deletedCircuit ? `${deletedCircuit.name} — ${deletedEvent?.event_date}` : deletedEvent?.event_date,
+        entity_id: id,
+      });
       return Astro.redirect('/admin/events', 302);
     } catch (err) {
       console.error('Failed to delete event:', err);
@@ -119,11 +132,25 @@ if (Astro.request.method === 'POST') {
       error = 'Season and round number must be set together (or both left blank).';
     } else {
       try {
+        const circuitForLog = await getCircuitById(supabaseEnv, data.circuit_id);
+        const eventLabel = circuitForLog ? `${circuitForLog.name} — ${data.event_date}` : data.event_date;
         if (isNew) {
           const created = await createEvent(supabaseEnv, accessToken, data);
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'add',
+            entity_type: 'event',
+            entity_label: eventLabel,
+            entity_id: created.id,
+          });
           return Astro.redirect(`/admin/events/${created.id}`, 302);
         } else if (id) {
           await updateEvent(supabaseEnv, accessToken, id, data);
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'event',
+            entity_label: eventLabel,
+            entity_id: id,
+          });
         }
       } catch (err) {
         console.error('Failed to save event:', err);

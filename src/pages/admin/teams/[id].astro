@@ -25,9 +25,11 @@ import {
   type TeamRosterEntry,
   type TeamSeasonLogo,
 } from '../../../lib/supabase';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 const { id } = Astro.params;
 const isNew = id === 'new';
 
@@ -100,6 +102,16 @@ if (Astro.request.method === 'POST') {
             }
             await addTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: id, driver_id: driverId });
           }
+          const rosterChanged = currentRoster.some((r) => !desiredIdSet.has(r.driver_id)) || desiredIds.some((d) => !currentIds.has(d));
+          if (rosterChanged) {
+            const teamForLog = await getTeamById(supabaseEnv, id);
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'edit',
+              entity_type: 'team',
+              entity_label: `${teamForLog?.name ?? 'Team'} — roster`,
+              entity_id: id,
+            });
+          }
           return Astro.redirect(`/admin/teams/${id}?season=${seasonId}`, 302);
         } catch (err) {
           console.error('Failed to save team roster:', err);
@@ -124,6 +136,13 @@ if (Astro.request.method === 'POST') {
         const path = `${id}-season-${seasonId}-${Date.now()}.${extFromFile(file)}`;
         const logo_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, file);
         await upsertTeamSeasonLogo(supabaseEnv, accessToken, { team_id: id, season_id: seasonId, logo_url });
+        const teamForLog = await getTeamById(supabaseEnv, id);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'team',
+          entity_label: `${teamForLog?.name ?? 'Team'} — season logo added`,
+          entity_id: id,
+        });
         return Astro.redirect(`/admin/teams/${id}`, 302);
       } catch (err) {
         console.error('Failed to upload historical team logo:', err);
@@ -135,6 +154,13 @@ if (Astro.request.method === 'POST') {
     if (!isNew && id && logoId) {
       try {
         await deleteTeamSeasonLogo(supabaseEnv, accessToken, logoId);
+        const teamForLog = await getTeamById(supabaseEnv, id);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'team',
+          entity_label: `${teamForLog?.name ?? 'Team'} — season logo removed`,
+          entity_id: id,
+        });
         return Astro.redirect(`/admin/teams/${id}`, 302);
       } catch (err) {
         console.error('Failed to remove historical team logo:', err);
@@ -143,7 +169,16 @@ if (Astro.request.method === 'POST') {
     }
   } else if (intent === 'delete' && !isNew && id) {
     try {
+      // team (below) isn't loaded yet at this point — fetch fresh for the
+      // log entry's label.
+      const deletedName = (await getTeamById(supabaseEnv, id))?.name;
       await deleteTeam(supabaseEnv, accessToken, id);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'delete',
+        entity_type: 'team',
+        entity_label: deletedName,
+        entity_id: id,
+      });
       return Astro.redirect('/admin/teams', 302);
     } catch (err) {
       console.error('Failed to delete team:', err);
@@ -178,6 +213,13 @@ if (Astro.request.method === 'POST') {
           const logo_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, logoFile);
           await updateTeam(supabaseEnv, accessToken, teamId!, { logo_url });
         }
+
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: isNew ? 'add' : 'edit',
+          entity_type: 'team',
+          entity_label: name,
+          entity_id: teamId,
+        });
 
         return Astro.redirect(`/admin/teams/${teamId}`, 302);
       } catch (err) {

@@ -27,12 +27,14 @@ import {
   getAllNewsPosts,
   createNewsPost,
   updateNewsPost,
+  uploadToStorage,
   type EventFormat,
   type Weather,
 } from '../../../lib/supabase';
 import { parseCsv } from '../../../lib/csv';
 import { slugify } from '../../../lib/slug';
 import { importRaceResultsCsv } from '../../../lib/raceResultsImport';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -42,16 +44,55 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
   const accessToken = Astro.locals.session!.accessToken;
+  const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
   const redirectWithCounts = (kind: ImportKind, imported: number, skipped: number) =>
     Astro.redirect(`/admin/import?kind=${kind}&imported=${imported}&skipped=${skipped}`, 302);
 
+  // Uploads the raw spreadsheet to the 'imports' Storage bucket (see
+  // 0051_activity_log.sql) and logs one activity_log row for the whole
+  // import, so the Activity Log page can offer a direct download of exactly
+  // what was uploaded. Best-effort — a failure here (or in logActivity
+  // itself, which already swallows its own errors) never blocks the import
+  // that already happened.
+  // Nouns mirror RESULT_LABELS further down this file (kept as a small
+  // local copy rather than shared — that const isn't declared until after
+  // this POST-handling block runs, so referencing it here directly would
+  // hit a temporal-dead-zone error).
+  const IMPORT_KIND_NOUNS: Record<ImportKind, string> = {
+    events: 'event',
+    circuits: 'circuit',
+    news: 'post',
+    'race-results': 'result',
+  };
+
+  async function logImport(kind: ImportKind, file: File, imported: number, skipped: number) {
+    let fileUrl: string | null = null;
+    try {
+      const ext = file.name.split('.').pop() || 'csv';
+      const path = `${kind}-${Date.now()}.${ext}`;
+      fileUrl = await uploadToStorage(supabaseEnv, accessToken, 'imports', path, file);
+    } catch (err) {
+      console.error('Failed to store import spreadsheet for the activity log:', err);
+    }
+    await logActivity(supabaseEnv, accessToken, actor, {
+      action: 'add',
+      entity_type: 'import',
+      entity_label: `${IMPORT_KIND_NOUNS[kind]} import`,
+      details: `${imported} imported, ${skipped} skipped`,
+      file_url: fileUrl,
+      file_name: file.name,
+    });
+  }
+
   if (intent === 'import-events') {
     let imported = 0;
     let skipped = 0;
+    let uploadedFile: File | null = null;
     try {
       const file = form.get('csv_file');
       if (file instanceof File) {
+        uploadedFile = file;
         const [circuits, existingEvents] = await Promise.all([getCircuits(supabaseEnv), getEvents(supabaseEnv)]);
         const text = await file.text();
         const rows = parseCsv(text);
@@ -152,15 +193,18 @@ if (Astro.request.method === 'POST') {
     } catch (err) {
       console.error('Failed to import events CSV:', err);
     }
+    if (uploadedFile) await logImport('events', uploadedFile, imported, skipped);
     return redirectWithCounts('events', imported, skipped);
   }
 
   if (intent === 'import-circuits') {
     let imported = 0;
     let skipped = 0;
+    let uploadedFile: File | null = null;
     try {
       const file = form.get('csv_file');
       if (file instanceof File) {
+        uploadedFile = file;
         const [existingCircuits, existingLayouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
         const text = await file.text();
         const rows = parseCsv(text);
@@ -243,16 +287,19 @@ if (Astro.request.method === 'POST') {
     } catch (err) {
       console.error('Failed to import circuits CSV:', err);
     }
+    if (uploadedFile) await logImport('circuits', uploadedFile, imported, skipped);
     return redirectWithCounts('circuits', imported, skipped);
   }
 
   if (intent === 'import-news') {
     let imported = 0;
     let skipped = 0;
+    let uploadedFile: File | null = null;
     try {
       const file = form.get('csv_file');
       const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
       if (file instanceof File) {
+        uploadedFile = file;
         const existingPosts = await getAllNewsPosts(supabaseEnv, accessToken);
         const text = await file.text();
         const rows = parseCsv(text);
@@ -325,15 +372,18 @@ if (Astro.request.method === 'POST') {
     } catch (err) {
       console.error('Failed to import news CSV:', err);
     }
+    if (uploadedFile) await logImport('news', uploadedFile, imported, skipped);
     return redirectWithCounts('news', imported, skipped);
   }
 
   if (intent === 'import-race-results') {
     let imported = 0;
     let skipped = 0;
+    let uploadedFile: File | null = null;
     try {
       const file = form.get('csv_file');
       if (file instanceof File) {
+        uploadedFile = file;
         const text = await file.text();
         const rows = parseCsv(text);
         const outcome = await importRaceResultsCsv(supabaseEnv, accessToken, rows);
@@ -343,6 +393,7 @@ if (Astro.request.method === 'POST') {
     } catch (err) {
       console.error('Failed to import race results CSV:', err);
     }
+    if (uploadedFile) await logImport('race-results', uploadedFile, imported, skipped);
     return redirectWithCounts('race-results', imported, skipped);
   }
 }

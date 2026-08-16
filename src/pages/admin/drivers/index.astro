@@ -18,9 +18,11 @@ import {
   INACTIVITY_ROUNDS_KEY,
   siteSettingInt,
 } from '../../../lib/siteSettings';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 let saved = false;
@@ -40,6 +42,14 @@ if (Astro.request.method === 'POST') {
     try {
       const outcome = await syncResultsWithRoster(supabaseEnv, accessToken);
       const allNames = [...outcome.created, ...outcome.linked];
+      if (allNames.length > 0) {
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: outcome.created.length > 0 ? 'add' : 'edit',
+          entity_type: 'driver',
+          entity_label: 'Sync Results with Roster',
+          details: `${outcome.created.length} created, ${outcome.linked.length} linked: ${allNames.slice(0, SYNC_NAMES_SHOWN).join(', ')}${allNames.length > SYNC_NAMES_SHOWN ? ` (+${allNames.length - SYNC_NAMES_SHOWN} more)` : ''}`,
+        });
+      }
       const params = new URLSearchParams({
         synced_created: String(outcome.created.length),
         synced_linked: String(outcome.linked.length),
@@ -67,6 +77,11 @@ if (Astro.request.method === 'POST') {
         upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_DAYS_KEY, value: readIntField('inactivity_days') || null }),
         upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INACTIVITY_ROUNDS_KEY, value: readIntField('inactivity_rounds') || null }),
       ]);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'site_property',
+        entity_label: 'Driver Settings (probation/inactivity)',
+      });
       saved = true;
     } catch (err) {
       console.error('Failed to save driver settings:', err);

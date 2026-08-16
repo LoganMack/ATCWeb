@@ -34,9 +34,11 @@ import {
 import { getAllProfiles } from '../../../lib/auth';
 import { COUNTRIES } from '../../../lib/countries';
 import { INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 const { id } = Astro.params;
 const isNew = id === 'new';
 
@@ -153,7 +155,16 @@ if (Astro.request.method === 'POST') {
 
   if (intent === 'delete' && !isNew && id) {
     try {
+      // driver (below) isn't loaded yet at this point — fetch fresh for the
+      // log entry's label.
+      const deletedName = (await getDriverById(supabaseEnv, id))?.name;
       await deleteDriver(supabaseEnv, accessToken, id);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'delete',
+        entity_type: 'driver',
+        entity_label: deletedName,
+        entity_id: id,
+      });
       return Astro.redirect('/admin/drivers', 302);
     } catch (err) {
       console.error('Failed to delete driver:', err);
@@ -174,7 +185,15 @@ if (Astro.request.method === 'POST') {
             await upsertDriverSeasonClass(supabaseEnv, accessToken, { driver_id: id, season_id: seasonId, class_id: classId });
           }
         }
-        if (!seasonClassError) return Astro.redirect(`/admin/drivers/${id}`, 302);
+        if (!seasonClassError) {
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'driver',
+            entity_label: `Season class override (${seasons.find((s) => s.id === seasonId)?.name ?? seasonId})`,
+            entity_id: id,
+          });
+          return Astro.redirect(`/admin/drivers/${id}`, 302);
+        }
       } catch (err) {
         console.error('Failed to update driver season class:', err);
         seasonClassError = err instanceof Error ? err.message : "Failed to save that season's class.";
@@ -222,7 +241,15 @@ if (Astro.request.method === 'POST') {
             }
           }
         }
-        if (!seasonNumberError) return Astro.redirect(`/admin/drivers/${id}`, 302);
+        if (!seasonNumberError) {
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'driver',
+            entity_label: `Season car number override (${seasons.find((s) => s.id === seasonId)?.name ?? seasonId})`,
+            entity_id: id,
+          });
+          return Astro.redirect(`/admin/drivers/${id}`, 302);
+        }
       } catch (err) {
         console.error('Failed to update driver season car number:', err);
         seasonNumberError = err instanceof Error ? err.message : "Failed to save that season's number.";
@@ -287,6 +314,12 @@ if (Astro.request.method === 'POST') {
                 302
               );
             }
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'add',
+              entity_type: 'driver',
+              entity_label: data.name,
+              entity_id: created.id,
+            });
             return Astro.redirect(`/admin/drivers/${created.id}`, 302);
           }
         } else if (id) {
@@ -316,6 +349,12 @@ if (Astro.request.method === 'POST') {
               // page), so this never accidentally blanks it.
               sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
               photo_url,
+            });
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'edit',
+              entity_type: 'driver',
+              entity_label: data.name,
+              entity_id: id,
             });
             return Astro.redirect(`/admin/drivers/${id}`, 302);
           }

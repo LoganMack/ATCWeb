@@ -15,9 +15,11 @@ import {
   getTeams,
   type Organization,
 } from '../../../lib/supabase';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 const { id } = Astro.params;
 const isNew = id === 'new';
 
@@ -42,12 +44,26 @@ if (Astro.request.method === 'POST') {
           getOrganizationTeamSeasons(supabaseEnv, id),
         ]);
         const currentTeamIdBySeasonId = new Map(existingLinks.map((l) => [l.season_id, l.team_id]));
+        let changedCount = 0;
         for (const season of seasonsForSave) {
           const submittedTeamId = String(form.get(`team_id_${season.id}`) ?? '').trim() || null;
           const currentTeamId = currentTeamIdBySeasonId.get(season.id) ?? null;
           if (submittedTeamId !== currentTeamId) {
             await setOrganizationTeamForSeason(supabaseEnv, accessToken, id, season.id, submittedTeamId);
+            changedCount++;
           }
+        }
+        if (changedCount > 0) {
+          // o (below) isn't loaded yet at this point — same reasoning as the
+          // delete branch's own comment above.
+          const orgName = (await getOrganizationById(supabaseEnv, id))?.name;
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'organization',
+            entity_label: orgName,
+            entity_id: id,
+            details: `Updated season↔team links for ${changedCount} season${changedCount === 1 ? '' : 's'}`,
+          });
         }
         return Astro.redirect(`/admin/organizations/${id}`, 302);
       } catch (err) {
@@ -57,7 +73,17 @@ if (Astro.request.method === 'POST') {
     }
   } else if (intent === 'delete' && !isNew && id) {
     try {
+      // organization (below) isn't loaded yet at this point in the script —
+      // this POST-handling block runs before that section — so look the
+      // name up fresh rather than reference it uninitialized.
+      const deletedName = (await getOrganizationById(supabaseEnv, id))?.name;
       await deleteOrganization(supabaseEnv, accessToken, id);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'delete',
+        entity_type: 'organization',
+        entity_label: deletedName,
+        entity_id: id,
+      });
       return Astro.redirect('/admin/organizations', 302);
     } catch (err) {
       console.error('Failed to delete organization:', err);
@@ -75,9 +101,21 @@ if (Astro.request.method === 'POST') {
       try {
         if (isNew) {
           const created = await createOrganization(supabaseEnv, accessToken, { name });
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'add',
+            entity_type: 'organization',
+            entity_label: name,
+            entity_id: created.id,
+          });
           return Astro.redirect(`/admin/organizations/${created.id}`, 302);
         } else if (id) {
           await updateOrganization(supabaseEnv, accessToken, id, { name });
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'organization',
+            entity_label: name,
+            entity_id: id,
+          });
           return Astro.redirect(`/admin/organizations/${id}`, 302);
         }
       } catch (err) {

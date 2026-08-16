@@ -11,9 +11,11 @@ import {
   uploadToStorage,
   displayDriverName,
 } from '../../../../lib/supabase';
+import { logActivity, actorNameFor } from '../../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 const { driverId } = Astro.params;
 
 function extFromFile(file: File): string {
@@ -45,6 +47,12 @@ if (Astro.request.method === 'POST') {
     if (photoId) {
       try {
         await deleteHallOfFamePhoto(supabaseEnv, accessToken, photoId);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'photo',
+          entity_label: `Hall of Fame photo — ${displayDriverName(driver.name)}`,
+          entity_id: photoId,
+        });
       } catch (err) {
         console.error('Failed to delete Hall of Fame photo:', err);
         error = 'Failed to delete that photo.';
@@ -61,6 +69,11 @@ if (Astro.request.method === 'POST') {
           driver_id: driver.id,
           image_url,
           sort_order: slot,
+        });
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'add',
+          entity_type: 'photo',
+          entity_label: `Hall of Fame photo — ${displayDriverName(driver.name)} (slot ${slot + 1})`,
         });
       } catch (err) {
         console.error('Failed to upload Hall of Fame photo:', err);

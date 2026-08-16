@@ -11,9 +11,11 @@ import {
   setDefaultScoringRuleset,
   type ScoringRuleset,
 } from '../../../lib/supabase';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 
@@ -136,7 +138,16 @@ if (Astro.request.method === 'POST') {
   if (intent === 'delete') {
     if (id) {
       try {
+        // rulesets (below) isn't loaded yet at this point — fetch fresh for
+        // the log entry's label.
+        const deletedName = (await getScoringRulesets(supabaseEnv)).find((r) => r.id === id)?.name;
         await deleteScoringRuleset(supabaseEnv, accessToken, id);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'ruleset',
+          entity_label: deletedName,
+          entity_id: id,
+        });
       } catch (err) {
         console.error('Failed to delete scoring ruleset:', err);
         error = err instanceof Error ? err.message : 'Failed to remove that ruleset.';
@@ -147,6 +158,13 @@ if (Astro.request.method === 'POST') {
     if (id) {
       try {
         await setDefaultScoringRuleset(supabaseEnv, accessToken, id);
+        const rulesetName = (await getScoringRulesets(supabaseEnv)).find((r) => r.id === id)?.name;
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'ruleset',
+          entity_label: `${rulesetName ?? 'Ruleset'} — set as default`,
+          entity_id: id,
+        });
       } catch (err) {
         console.error('Failed to set default scoring ruleset:', err);
         error = 'Failed to set that ruleset as the default.';
@@ -191,8 +209,20 @@ if (Astro.request.method === 'POST') {
         try {
           if (id) {
             await updateScoringRuleset(supabaseEnv, accessToken, id, { name, rulebook, notes, rules });
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'edit',
+              entity_type: 'ruleset',
+              entity_label: name,
+              entity_id: id,
+            });
           } else {
-            await createScoringRuleset(supabaseEnv, accessToken, { name, rulebook, notes, rules });
+            const created = await createScoringRuleset(supabaseEnv, accessToken, { name, rulebook, notes, rules });
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'add',
+              entity_type: 'ruleset',
+              entity_label: name,
+              entity_id: created?.id,
+            });
           }
           return Astro.redirect('/admin/rulesets', 302);
         } catch (err) {

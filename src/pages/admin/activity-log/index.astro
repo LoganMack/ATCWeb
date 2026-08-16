@@ -1,0 +1,172 @@
+---
+export const prerender = false;
+
+// Admin Activity Log — one row per admin-side mutation, written by
+// src/lib/activityLog.ts's logActivity() from every admin CRUD page (see
+// that file's header comment for the full list of call sites). Read-only —
+// nothing on this page writes to activity_log itself, it only queries it.
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, restGetAuthed, formatDate } from '../../../lib/supabase';
+import type { ActivityAction, ActivityLogRow } from '../../../lib/activityLog';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+// Two independent filter dimensions, per Logan: action (add/edit/delete)
+// and category (all/imports/incident reports). "All" is the default for
+// both — no filter applied — rather than a real fourth action/category
+// value, so the PostgREST query below only adds a clause when one is
+// actually chosen.
+const ACTIONS: ActivityAction[] = ['add', 'edit', 'delete'];
+const actionParam = Astro.url.searchParams.get('action');
+const selectedAction: ActivityAction | null = ACTIONS.includes(actionParam as ActivityAction) ? (actionParam as ActivityAction) : null;
+
+type Category = 'imports' | 'incidents';
+const categoryParam = Astro.url.searchParams.get('category');
+const selectedCategory: Category | null = categoryParam === 'imports' || categoryParam === 'incidents' ? categoryParam : null;
+
+// Caps how far back the log reads — this is an audit trail, not a paged
+// table; 300 most-recent rows is comfortably more than a season of admin
+// activity while keeping the query cheap. Revisit with real pagination if
+// that ever stops being true.
+const ROW_LIMIT = 300;
+
+function buildHref(action: ActivityAction | null, category: Category | null): string {
+  const params = new URLSearchParams();
+  if (action) params.set('action', action);
+  if (category) params.set('category', category);
+  const qs = params.toString();
+  return `/admin/activity-log${qs ? `?${qs}` : ''}`;
+}
+
+let entries: ActivityLogRow[] = [];
+let loadError = false;
+try {
+  const filters: string[] = [];
+  if (selectedAction) filters.push(`action=eq.${selectedAction}`);
+  if (selectedCategory === 'imports') filters.push(`entity_type=eq.import`);
+  if (selectedCategory === 'incidents') filters.push(`entity_type=eq.incident`);
+  const query = ['select=*', 'order=created_at.desc', `limit=${ROW_LIMIT}`, ...filters].join('&');
+  entries = await restGetAuthed<ActivityLogRow[]>(supabaseEnv, accessToken, `activity_log?${query}`);
+} catch (err) {
+  console.error('Failed to load activity log:', err);
+  loadError = true;
+}
+
+const ACTION_LABELS: Record<ActivityAction, string> = { add: 'Added', edit: 'Edited', delete: 'Deleted' };
+const ACTION_BADGE_CLASSES: Record<ActivityAction, string> = {
+  add: 'bg-brand-primary/15 text-brand-primary',
+  edit: 'bg-brand-gold/15 text-brand-gold',
+  delete: 'bg-brand-pink/15 text-brand-pink',
+};
+
+function entityTypeLabel(entityType: string): string {
+  const labels: Record<string, string> = {
+    incident: 'Incident',
+    season: 'Season',
+    driver: 'Driver',
+    team: 'Team',
+    event: 'Event',
+    circuit: 'Circuit',
+    organization: 'Organization',
+    ruleset: 'Ruleset',
+    news: 'News',
+    photo: 'Photo',
+    site_property: 'Site Property',
+    user: 'User',
+    import: 'Import',
+  };
+  return labels[entityType] ?? entityType;
+}
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return `${formatDate(iso)} ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+---
+
+<AdminLayout title="Activity Log">
+  <h1 class="reveal font-display text-4xl">Activity Log</h1>
+  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+    Every admin-side add/edit/delete across the site, newest first — who did it and when. Showing the most recent
+    {ROW_LIMIT} entries.
+  </p>
+
+  <div class="reveal mt-6 flex flex-wrap items-center gap-4" style="transition-delay: 60ms">
+    <div class="flex flex-wrap gap-1.5">
+      <a
+        href={buildHref(null, selectedCategory)}
+        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!selectedAction ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      >
+        All
+      </a>
+      {ACTIONS.map((a) => (
+        <a
+          href={buildHref(a, selectedCategory)}
+          class={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${selectedAction === a ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        >
+          {a}
+        </a>
+      ))}
+    </div>
+    <span class="text-white/20">|</span>
+    <div class="flex flex-wrap gap-1.5">
+      <a
+        href={buildHref(selectedAction, null)}
+        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!selectedCategory ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      >
+        All
+      </a>
+      <a
+        href={buildHref(selectedAction, 'imports')}
+        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'imports' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      >
+        Imports
+      </a>
+      <a
+        href={buildHref(selectedAction, 'incidents')}
+        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'incidents' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      >
+        Incident Reports
+      </a>
+    </div>
+  </div>
+
+  {loadError && (
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load the activity log.
+    </p>
+  )}
+
+  {!loadError && entries.length === 0 && (
+    <p class="reveal mt-8 text-sm text-white/40">No activity logged yet for this filter.</p>
+  )}
+
+  {!loadError && entries.length > 0 && (
+    <div class="reveal mt-8 flex flex-col gap-2" style="transition-delay: 80ms">
+      {entries.map((entry) => (
+        <div class="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class={`rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ACTION_BADGE_CLASSES[entry.action]}`}>
+                {ACTION_LABELS[entry.action]}
+              </span>
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-white/40">{entityTypeLabel(entry.entity_type)}</span>
+              <span class="font-semibold text-white/90">{entry.entity_label ?? '—'}</span>
+            </div>
+            {entry.details && <p class="mt-1 text-xs text-white/50">{entry.details}</p>}
+          </div>
+          <div class="flex flex-none flex-col items-end gap-1 text-right text-xs text-white/40">
+            <span>{entry.actor_name}</span>
+            <span>{formatTimestamp(entry.created_at)}</span>
+            {entry.file_url && (
+              <a href={entry.file_url} download={entry.file_name ?? undefined} class="font-semibold text-brand-primary hover:underline">
+                Download{entry.file_name ? ` (${entry.file_name})` : ''}
+              </a>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )}
+</AdminLayout>

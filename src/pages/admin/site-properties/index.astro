@@ -32,9 +32,11 @@ import {
 } from '../../../lib/supabase';
 import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../../../lib/siteSettings';
 import { BANNER_PAGES } from '../../../lib/pageBanners';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 let saved = false;
@@ -71,6 +73,11 @@ if (Astro.request.method === 'POST') {
       if (carName) {
         try {
           await deleteCarLogo(supabaseEnv, accessToken, carName);
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'delete',
+            entity_type: 'site_property',
+            entity_label: `Car logo — ${carName}`,
+          });
         } catch (err) {
           console.error('Failed to delete car logo:', err);
           error = 'Failed to remove that logo.';
@@ -86,6 +93,7 @@ if (Astro.request.method === 'POST') {
         error = 'Car name is required.';
       } else {
         try {
+          const existedBefore = (await getCarLogos(supabaseEnv)).some((c) => c.car_name === carName);
           let logo_url = logoUrlField || null;
           if (logoFile instanceof File && logoFile.size > 0) {
             const path = `car-${slugify(carName)}-${Date.now()}.${extFromFile(logoFile)}`;
@@ -95,6 +103,11 @@ if (Astro.request.method === 'POST') {
             error = 'Provide a logo file or a logo URL.';
           } else {
             await upsertCarLogo(supabaseEnv, accessToken, { car_name: carName, logo_url });
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: existedBefore ? 'edit' : 'add',
+              entity_type: 'site_property',
+              entity_label: `Car logo — ${carName}`,
+            });
             return Astro.redirect('/admin/site-properties', 302);
           }
         } catch (err) {
@@ -111,6 +124,12 @@ if (Astro.request.method === 'POST') {
       if (id) {
         try {
           await deletePenaltyOffense(supabaseEnv, accessToken, id);
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'delete',
+            entity_type: 'site_property',
+            entity_label: 'Penalty offense',
+            entity_id: id,
+          });
         } catch (err) {
           console.error('Failed to delete penalty offense:', err);
           error = 'Failed to remove that offense.';
@@ -129,8 +148,20 @@ if (Astro.request.method === 'POST') {
         try {
           if (id) {
             await updatePenaltyOffense(supabaseEnv, accessToken, id, { name, reference_points: referencePoints, sort_order: sortOrder });
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'edit',
+              entity_type: 'site_property',
+              entity_label: `Penalty offense — ${name}`,
+              entity_id: id,
+            });
           } else {
-            await createPenaltyOffense(supabaseEnv, accessToken, { name, reference_points: referencePoints, sort_order: sortOrder });
+            const created = await createPenaltyOffense(supabaseEnv, accessToken, { name, reference_points: referencePoints, sort_order: sortOrder });
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'add',
+              entity_type: 'site_property',
+              entity_label: `Penalty offense — ${name}`,
+              entity_id: created?.id,
+            });
           }
           return Astro.redirect('/admin/site-properties', 302);
         } catch (err) {
@@ -149,6 +180,11 @@ if (Astro.request.method === 'POST') {
     } else if (intent === 'delete') {
       try {
         await deletePageBanner(supabaseEnv, accessToken, pageKey);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'site_property',
+          entity_label: `Page banner — ${pageKey}`,
+        });
       } catch (err) {
         console.error('Failed to remove page banner:', err);
         error = 'Failed to remove that banner.';
@@ -168,6 +204,11 @@ if (Astro.request.method === 'POST') {
           error = 'Provide an image file or an image URL.';
         } else {
           await upsertPageBanner(supabaseEnv, accessToken, { page_key: pageKey, image_url });
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'site_property',
+            entity_label: `Page banner — ${pageKey}`,
+          });
           return Astro.redirect('/admin/site-properties', 302);
         }
       } catch (err) {
@@ -185,6 +226,12 @@ if (Astro.request.method === 'POST') {
         await upsertSiteSetting(supabaseEnv, accessToken, {
           setting_key: FEATURED_BROADCAST_URL_KEY,
           value: broadcastUrl || null,
+        });
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'site_property',
+          entity_label: 'Featured Broadcast URL',
+          details: broadcastUrl || '(cleared)',
         });
         saved = true;
       } catch (err) {

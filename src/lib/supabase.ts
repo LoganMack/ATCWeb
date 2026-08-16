@@ -1164,17 +1164,19 @@ export async function upsertSiteSetting(env: SupabaseEnv, accessToken: string, d
   return rows[0];
 }
 
-// --- Storage (team logos, driver photos, page banners) -------------------
+// --- Storage (team logos, driver photos, page banners, import spreadsheets) -
 
 /**
  * Uploads a file to a public Storage bucket and returns its public URL.
  * `x-upsert: true` lets re-uploading to the same path (e.g. replacing a
- * team's logo) overwrite in place instead of erroring.
+ * team's logo) overwrite in place instead of erroring. 'imports' (see
+ * 0051_activity_log.sql) holds the raw spreadsheet behind each bulk import,
+ * so its activity_log row can offer a direct download link back to it.
  */
 export async function uploadToStorage(
   env: SupabaseEnv,
   accessToken: string,
-  bucket: 'logos' | 'photos' | 'banners',
+  bucket: 'logos' | 'photos' | 'banners' | 'imports',
   path: string,
   file: File
 ): Promise<string> {

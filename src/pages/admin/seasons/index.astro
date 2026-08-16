@@ -5,6 +5,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
   getSeasons,
+  getSeasonById,
   updateSeasonLogo,
   updateSeasonRuleset,
   updateSeasonClassFlags,
@@ -16,9 +17,11 @@ import {
   type ScoringRuleset,
   type SeasonRecalcResult,
 } from '../../../lib/supabase';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 // Set only by the "recalculate" intent below, and deliberately NOT followed
@@ -46,11 +49,22 @@ if (Astro.request.method === 'POST') {
   const intent = String(form.get('intent') ?? 'save');
   const seasonId = String(form.get('season_id') ?? '');
 
+  // seasons (below) isn't loaded yet at this point — this POST-handling
+  // block runs before that section — so fetch a fresh copy here for every
+  // branch's activity_log entry label.
+  const seasonForLog = seasonId ? await getSeasonById(supabaseEnv, seasonId) : null;
+
   if (!seasonId) {
     error = 'Missing season.';
   } else if (intent === 'remove') {
     try {
       await updateSeasonLogo(supabaseEnv, accessToken, seasonId, null);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'season',
+        entity_label: `${seasonForLog?.name ?? 'Season'} — logo removed`,
+        entity_id: seasonId,
+      });
     } catch (err) {
       console.error('Failed to remove season logo:', err);
       error = 'Failed to remove that logo.';
@@ -60,6 +74,16 @@ if (Astro.request.method === 'POST') {
     try {
       const results = await recalculateSeasonScores(supabaseEnv, accessToken, seasonId);
       recalcResult = { seasonId, results };
+      const rulesetsForLog = await getScoringRulesets(supabaseEnv);
+      const resolvedRuleset = seasonForLog ? resolveSeasonRuleset(seasonForLog, rulesetsForLog) : null;
+      const failures = results.filter((r) => r.error_message !== null);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'season',
+        entity_label: `${seasonForLog?.name ?? 'Season'} — recalculated`,
+        entity_id: seasonId,
+        details: `Ruleset: ${resolvedRuleset?.name ?? 'none resolved'}. ${results.length} round${results.length === 1 ? '' : 's'}, ${failures.length} failed.`,
+      });
     } catch (err) {
       console.error('Failed to recalculate season scores:', err);
       error = err instanceof Error ? err.message : 'Failed to recalculate this season.';
@@ -68,6 +92,12 @@ if (Astro.request.method === 'POST') {
   } else if (intent === 'set-current') {
     try {
       await setCurrentSeason(supabaseEnv, accessToken, seasonId);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'season',
+        entity_label: `Current season set to ${seasonForLog?.name ?? seasonId}`,
+        entity_id: seasonId,
+      });
     } catch (err) {
       console.error('Failed to set current season:', err);
       error = 'Failed to set that season as current.';
@@ -77,6 +107,12 @@ if (Astro.request.method === 'POST') {
     const rulesetId = String(form.get('scoring_ruleset_id') ?? '').trim() || null;
     try {
       await updateSeasonRuleset(supabaseEnv, accessToken, seasonId, rulesetId);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'season',
+        entity_label: `${seasonForLog?.name ?? 'Season'} — ruleset assignment`,
+        entity_id: seasonId,
+      });
     } catch (err) {
       console.error('Failed to set season ruleset:', err);
       error = 'Failed to save that ruleset assignment.';
@@ -89,6 +125,13 @@ if (Astro.request.method === 'POST') {
     const delta_enabled = form.get('delta_enabled') === '1';
     try {
       await updateSeasonClassFlags(supabaseEnv, accessToken, seasonId, { gamma_enabled, delta_enabled });
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'season',
+        entity_label: `${seasonForLog?.name ?? 'Season'} — class settings`,
+        entity_id: seasonId,
+        details: `Gamma: ${gamma_enabled ? 'on' : 'off'}, Delta: ${delta_enabled ? 'on' : 'off'}`,
+      });
     } catch (err) {
       console.error('Failed to set season class flags:', err);
       error = 'Failed to save those class settings.';
@@ -108,6 +151,12 @@ if (Astro.request.method === 'POST') {
         error = 'Provide a logo file or a logo URL.';
       } else {
         await updateSeasonLogo(supabaseEnv, accessToken, seasonId, logo_url);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'season',
+          entity_label: `${seasonForLog?.name ?? 'Season'} — logo`,
+          entity_id: seasonId,
+        });
         return Astro.redirect('/admin/seasons', 302);
       }
     } catch (err) {

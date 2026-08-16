@@ -5,10 +5,12 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, createNewsPost, uploadToStorage, formatDate } from '../../../lib/supabase';
 import { getAllRounds } from '../../../lib/results';
 import { slugify } from '../../../lib/slug';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
 const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 
@@ -82,6 +84,12 @@ if (Astro.request.method === 'POST') {
         season_label: season_label || null,
         round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
         published_at,
+      });
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'add',
+        entity_type: 'news',
+        entity_label: title,
+        entity_id: post.id,
       });
       return Astro.redirect(`/admin/news/${post.id}/edit`, 302);
     } catch (err) {

@@ -19,6 +19,7 @@ import {
   formatDate,
   getDriverClasses,
   getDriverSeasonCarNumbersForSeason,
+  uploadToStorage,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
@@ -34,6 +35,7 @@ import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField
 import { resolveDriverByCarNumberForSeason } from '../../../lib/raceResultsImport';
 import { parseCsv } from '../../../lib/csv';
 import { isAdminView } from '../../../lib/auth';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
@@ -56,13 +58,24 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
   const accessToken = Astro.locals.session!.accessToken;
+  const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+  // round (below) isn't loaded yet at this point — this POST-handling block
+  // runs before that section — so fetch a fresh copy here for every
+  // branch's activity_log entry label.
+  const roundForLog = await getRoundBySubsessionId(supabaseEnv, subsessionId);
+  const roundLabel = roundForLog ? `${roundForLog.track_name} (${formatDate(roundForLog.start_time)})` : `Round ${subsessionId}`;
 
   if (intent === 'add-incident' || intent === 'update-incident') {
     const raceNumber = Number(form.get('race_number'));
-    // Empty string means the "Racing Incident (no driver at fault)" option
-    // was selected — stored as a real null, not an empty string, per
-    // 0020_penalty_racing_incident.sql.
-    const driverId = String(form.get('driver_id') ?? '') || null;
+    // The Driver field's default option is a disabled blank placeholder
+    // (value="") so a driver must always be actively chosen — "racing_incident"
+    // is the sentinel for the "Racing Incident (no driver at fault)" choice,
+    // stored as a real null per 0020_penalty_racing_incident.sql. An empty
+    // string here shouldn't normally reach the server (the placeholder is
+    // disabled + the field is `required`), but falls back to null (same as
+    // Racing Incident) rather than erroring if it ever does.
+    const driverIdRaw = String(form.get('driver_id') ?? '');
+    const driverId = driverIdRaw && driverIdRaw !== 'racing_incident' ? driverIdRaw : null;
     // Offenses/warning describe a specific driver's fault — force them
     // empty/off server-side for a Racing Incident regardless of what the
     // form actually submitted (the dialog hides and clears both once
@@ -89,13 +102,24 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     };
 
     try {
+      let savedPenaltyId: string | null = null;
       if (intent === 'add-incident' && Number.isFinite(raceNumber)) {
-        await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
+        const created = await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
+        savedPenaltyId = created?.id ?? null;
       } else if (intent === 'update-incident') {
         const penaltyId = String(form.get('penalty_id') ?? '');
-        if (penaltyId) await updatePenalty(supabaseEnv, accessToken, penaltyId, data, offenseIds, involvedDriverIds);
+        if (penaltyId) {
+          await updatePenalty(supabaseEnv, accessToken, penaltyId, data, offenseIds, involvedDriverIds);
+          savedPenaltyId = penaltyId;
+        }
       }
       if (driverId) await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: intent === 'add-incident' ? 'add' : 'edit',
+        entity_type: 'incident',
+        entity_label: `${roundLabel} — Race ${raceNumber}${data.incident_number ? ` #${data.incident_number}` : ''}`,
+        entity_id: savedPenaltyId,
+      });
     } catch (err) {
       console.error('Failed to save incident:', err);
     }
@@ -106,7 +130,15 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     const penaltyId = String(form.get('penalty_id') ?? '');
     const driverId = String(form.get('driver_id') ?? '');
     try {
-      if (penaltyId) await deletePenalty(supabaseEnv, accessToken, penaltyId);
+      if (penaltyId) {
+        await deletePenalty(supabaseEnv, accessToken, penaltyId);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'incident',
+          entity_label: roundLabel,
+          entity_id: penaltyId,
+        });
+      }
       if (driverId) await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
     } catch (err) {
       console.error('Failed to delete incident:', err);
@@ -117,9 +149,11 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   if (intent === 'import-csv') {
     let imported = 0;
     let skipped = 0;
+    let uploadedFile: File | null = null;
     try {
       const file = form.get('csv_file');
       if (file instanceof File) {
+        uploadedFile = file;
         const [importOffenses, importDriverById, importRound] = await Promise.all([
           getPenaltyOffenses(supabaseEnv),
           loadRoundDrivers(),
@@ -212,6 +246,28 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
       }
     } catch (err) {
       console.error('Failed to import CSV:', err);
+    }
+    if (uploadedFile) {
+      // entity_type: 'incident' (not 'import') so this shows up under the
+      // Activity Log's "Incident Reports" filter, matching this page's own
+      // purpose — the download link still works regardless of entity_type,
+      // since that's driven by file_url being set, not by category.
+      let fileUrl: string | null = null;
+      try {
+        const ext = uploadedFile.name.split('.').pop() || 'csv';
+        const path = `incidents-${subsessionId}-${Date.now()}.${ext}`;
+        fileUrl = await uploadToStorage(supabaseEnv, accessToken, 'imports', path, uploadedFile);
+      } catch (err) {
+        console.error('Failed to store incident import spreadsheet for the activity log:', err);
+      }
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'add',
+        entity_type: 'incident',
+        entity_label: `${roundLabel} — CSV import`,
+        details: `${imported} imported, ${skipped} skipped`,
+        file_url: fileUrl,
+        file_name: uploadedFile.name,
+      });
     }
     return Astro.redirect(`${Astro.url.pathname}?imported=${imported}&skipped=${skipped}`, 302);
   }
@@ -606,15 +662,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <select
                     name="driver_id"
                     data-incident-driver-field
+                    required
                     class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                   >
+                    <option value="" selected disabled hidden class="bg-brand-ink text-white">Select driver…</option>
+                    <option value="racing_incident" class="bg-brand-ink text-white">Racing Incident (no driver at fault)</option>
                     {roundDrivers.map((d) => (
                       <option value={d.id} class="bg-brand-ink text-white">
                         {d.car_number !== null ? `#${d.car_number} — ` : ''}
                         {d.name}
                       </option>
                     ))}
-                    <option value="" class="bg-brand-ink text-white">Racing Incident (no driver at fault)</option>
                   </select>
                 </label>
               </div>
@@ -777,9 +835,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
     // Everything that only makes sense when a specific driver is actually
     // at fault — offenses (rulebook section 5) and the warning checkbox —
-    // hidden once "Racing Incident" (the driver select's empty-value
-    // option) is picked. See 0020_penalty_racing_incident.sql.
+    // hidden once "Racing Incident" (the driver select's "racing_incident"
+    // sentinel option) is picked. See 0020_penalty_racing_incident.sql.
     const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
+    // The blank placeholder option ("Select driver…") is disabled/unselectable
+    // once the user has interacted with the field — only used as the default
+    // so nothing is pre-selected. Treat it the same as "no driver chosen yet"
+    // for fault-field visibility, same as "racing_incident" itself.
+    const isDriverChosen = (value: string) => value !== '' && value !== 'racing_incident';
 
     function setAppealFieldsVisible(visible: boolean) {
       appealFields.classList.toggle('hidden', !visible);
@@ -799,7 +862,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     }
 
     appealCheckbox.addEventListener('change', () => setAppealFieldsVisible(appealCheckbox.checked));
-    driverField.addEventListener('change', () => setFaultFieldsVisible(driverField.value !== ''));
+    driverField.addEventListener('change', () => setFaultFieldsVisible(isDriverChosen(driverField.value)));
 
     document.querySelectorAll<HTMLButtonElement>('[data-open-incident-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -808,7 +871,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         idField.value = '';
         heading.textContent = 'Add Incident';
         setAppealFieldsVisible(false);
-        setFaultFieldsVisible(driverField.value !== '');
+        // form.reset() restores the blank placeholder (its `selected`
+        // attribute) — Driver starts unselected on every new Add, per Logan.
+        setFaultFieldsVisible(isDriverChosen(driverField.value));
         dialog.showModal();
       });
     });
@@ -821,7 +886,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         idField.value = p.id;
         heading.textContent = 'Edit Incident';
         raceField.value = String(p.race_number);
-        driverField.value = p.driver_id ?? '';
+        driverField.value = p.driver_id ?? 'racing_incident';
 
         const set = (name: string, value: string) => {
           const el = dialog.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`);
@@ -851,7 +916,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           cb.checked = (p.involved_driver_ids ?? []).includes(cb.value);
         });
 
-        setFaultFieldsVisible(driverField.value !== '');
+        setFaultFieldsVisible(isDriverChosen(driverField.value));
 
         dialog.showModal();
       });
