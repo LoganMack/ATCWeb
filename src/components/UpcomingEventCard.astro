@@ -47,7 +47,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
 
     <div class="mt-3 flex items-center gap-3">
       {imageUrl && (
-        <img src={imageUrl} alt="" class="h-10 w-10 flex-none rounded object-contain" />
+        <img src={imageUrl} alt="" loading="lazy" class="h-10 w-10 flex-none rounded object-contain" />
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{circuitName}</h3>
@@ -103,7 +103,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
   >
     <div class="flex items-center gap-3">
       {imageUrl && (
-        <img src={imageUrl} alt="" class="h-7 w-7 flex-none rounded object-contain" />
+        <img src={imageUrl} alt="" loading="lazy" class="h-7 w-7 flex-none rounded object-contain" />
       )}
       <div>
         <p class="font-semibold">{circuitName}</p>

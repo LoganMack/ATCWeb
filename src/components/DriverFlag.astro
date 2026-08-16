@@ -33,12 +33,14 @@ const label = code2 ? `${countryName(code1!)} / ${countryName(code2)}` : code1 ?
     <img
       src={`https://flagcdn.com/w80/${code1}.png`}
       alt=""
+      loading="lazy"
       class="absolute inset-0 h-full w-full object-cover"
       style="clip-path: inset(0 50% 0 0);"
     />
     <img
       src={`https://flagcdn.com/w80/${code2}.png`}
       alt=""
+      loading="lazy"
       class="absolute inset-0 h-full w-full object-cover"
       style="clip-path: inset(0 0 0 50%);"
     />
@@ -50,6 +52,7 @@ const label = code2 ? `${countryName(code1!)} / ${countryName(code2)}` : code1 ?
     src={`https://flagcdn.com/w80/${code1}.png`}
     alt=""
     title={label}
+    loading="lazy"
     class={`flex-none rounded-sm object-cover ${size}`}
   />
 )}

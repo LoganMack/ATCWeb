@@ -22,7 +22,7 @@ const hoverText = title ?? name;
 ---
 
 {logoUrl ? (
-  <img src={logoUrl} alt="" title={hoverText} class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''}`} />
+  <img src={logoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''}`} />
 ) : (
   <div
     class={`${size} flex-none rounded bg-white/10 flex items-center justify-center text-[9px] font-bold uppercase tracking-wide text-white/50 ${grayscale ? 'opacity-60' : ''}`}

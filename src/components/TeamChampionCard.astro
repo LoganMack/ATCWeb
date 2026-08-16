@@ -34,7 +34,7 @@ const { season, standing: t } = entry;
     <div class="p-6">
       <div>
         <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
-          {season.logo_url && <img src={season.logo_url} alt="" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+          {season.logo_url && <img src={season.logo_url} alt="" loading="lazy" class="h-4 w-4 flex-none rounded-sm object-contain" />}
           {season.name}
         </p>
         <h3 class="mt-1 font-display text-3xl leading-none">{t.teamName}</h3>

@@ -27,6 +27,14 @@ import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
+// Kicked off immediately, in parallel with everything else below — the
+// banner doesn't depend on classes/seasons/champions data at all, but this
+// page used to `await` it dead last, after the (much more expensive)
+// champions/team-champions computation had already fully finished. Started
+// here and awaited only once it's actually needed, near the bottom, so it
+// overlaps with all of that instead of adding its own round trip on top.
+const pageBannersPromise = getPageBanners(supabaseEnv);
+
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 // Holds the actual thrown error message (not just a boolean) — the tables
@@ -137,7 +145,7 @@ if (!loadError && activeTeamView) {
 
 let bannerUrl: string | null = null;
 try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'champions');
+  bannerUrl = bannerUrlFor(await pageBannersPromise, 'champions');
 } catch (err) {
   console.error('Failed to load page banner:', err);
 }
