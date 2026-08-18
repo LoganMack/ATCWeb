@@ -7,6 +7,8 @@
 // the photo column enough height to come closer to matching whatever's
 // next to it (stats/bio text), instead of leaving a lot of empty space at
 // the bottom of the card.
+import { resizedImageUrl } from '../lib/supabase';
+
 interface PhotoLike {
   image_url: string;
   sort_order: number;
@@ -19,6 +21,14 @@ interface Props {
 }
 
 const { photos, altText } = Astro.props;
+// Grid thumbnails are resized well down from whatever an admin originally
+// uploaded (these are the biggest single images anywhere on the site);
+// the lightbox "enlarge" view still gets a real, much larger image, just
+// bounded at 1600w rather than however many megapixels the original file
+// was — still gets format=auto's WebP/AVIF conversion either way.
+const LARGE_THUMB_WIDTH = 640;
+const SMALL_THUMB_WIDTH = 260;
+const LIGHTBOX_WIDTH = 1600;
 
 const slots = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
 const largePhoto = slots[0];
@@ -33,12 +43,17 @@ const smallPhotoRows = [
     <button
       type="button"
       data-lightbox
-      data-lightbox-src={largePhoto.image_url}
+      data-lightbox-src={resizedImageUrl(largePhoto.image_url, { width: LIGHTBOX_WIDTH })}
       data-lightbox-alt={altText}
       class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
       aria-label={`Enlarge photo of ${altText}`}
     >
-      <img src={largePhoto.image_url} alt={altText} class="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" />
+      <img
+        src={resizedImageUrl(largePhoto.image_url, { width: LARGE_THUMB_WIDTH })}
+        alt={altText}
+        class="h-full w-full object-cover transition group-hover:scale-105"
+        loading="lazy"
+      />
     </button>
   ) : (
     <div class="flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">
@@ -53,12 +68,17 @@ const smallPhotoRows = [
           <button
             type="button"
             data-lightbox
-            data-lightbox-src={photo.image_url}
+            data-lightbox-src={resizedImageUrl(photo.image_url, { width: LIGHTBOX_WIDTH })}
             data-lightbox-alt={altText}
             class="group relative block aspect-video w-full overflow-hidden rounded-md bg-white/5"
             aria-label={`Enlarge photo of ${altText}`}
           >
-            <img src={photo.image_url} alt={altText} class="h-full w-full object-cover transition group-hover:scale-105" loading="lazy" />
+            <img
+              src={resizedImageUrl(photo.image_url, { width: SMALL_THUMB_WIDTH })}
+              alt={altText}
+              class="h-full w-full object-cover transition group-hover:scale-105"
+              loading="lazy"
+            />
           </button>
         ) : (
           <div class="flex aspect-video w-full items-center justify-center rounded-md bg-white/5 text-[10px] uppercase tracking-wide text-white/20">

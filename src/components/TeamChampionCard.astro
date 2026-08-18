@@ -10,6 +10,7 @@ import { displayDriverName } from '../lib/supabase';
 import StatBlock from './StatBlock.astro';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
+import { resizedImageUrl } from '../lib/supabase';
 
 interface Props {
   entry: TeamChampionEntry;
@@ -28,13 +29,13 @@ const { season, standing: t } = entry;
 >
   <div class="grid sm:grid-cols-[264px_1fr]">
     <div class="flex items-center justify-center bg-white/[0.02] p-8 sm:p-6">
-      <TeamLogo name={t.teamName} logoUrl={t.logoUrl} size="h-28 w-28" />
+      <TeamLogo name={t.teamName} logoUrl={t.logoUrl} size="h-28 w-28" resizeWidth={224} />
     </div>
 
     <div class="p-6">
       <div>
         <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
-          {season.logo_url && <img src={season.logo_url} alt="" loading="lazy" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+          {season.logo_url && <img src={resizedImageUrl(season.logo_url, { width: 32 })} alt="" loading="lazy" class="h-4 w-4 flex-none rounded-sm object-contain" />}
           {season.name}
         </p>
         <h3 class="mt-1 font-display text-3xl leading-none">{t.teamName}</h3>

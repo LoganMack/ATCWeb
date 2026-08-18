@@ -197,9 +197,13 @@ try {
       }))
     );
 
+    // delta-team only offered when the CURRENT season actually has the
+    // separate Delta Team championship active — see 0052_delta_team_enabled.sql
+    // (that competition didn't exist before ATC10, distinct from the Delta
+    // driver class itself, which is what deltaClassId reflects).
     const teamTabDefs = [
       { key: 'alpha-team', label: 'Alpha Team', classId: alphaClassId },
-      { key: 'delta-team', label: 'Delta Team', classId: deltaClassId },
+      ...(activeSeason.delta_team_enabled ? [{ key: 'delta-team', label: 'Delta Team', classId: deltaClassId }] : []),
     ].filter((t): t is { key: string; label: string; classId: number } => t.classId !== undefined);
 
     const teamTabs = await Promise.all(

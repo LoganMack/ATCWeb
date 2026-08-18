@@ -39,7 +39,17 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'media', label: 'Media', description: '/media' },
 ];
 
-/** Looks up one page's configured banner URL, or null if none is set. */
+import { resizedImageUrl } from './supabase';
+
+/**
+ * Looks up one page's configured banner URL, or null if none is set.
+ * Banners are full-page-width background images — often the single
+ * heaviest image on any given page — so this is the one place that fixes
+ * all of them (every PageBanner.astro strip plus the homepage hero) at
+ * once via resizedImageUrl (see that function's own doc comment for the
+ * Cloudflare Transformations setup this depends on).
+ */
 export function bannerUrlFor(banners: { page_key: string; image_url: string }[], pageKey: string): string | null {
-  return banners.find((b) => b.page_key === pageKey)?.image_url ?? null;
+  const url = banners.find((b) => b.page_key === pageKey)?.image_url ?? null;
+  return resizedImageUrl(url, { width: 1600 });
 }

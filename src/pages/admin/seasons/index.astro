@@ -123,14 +123,15 @@ if (Astro.request.method === 'POST') {
     // field is simply absent from the form data, not sent as "false".
     const gamma_enabled = form.get('gamma_enabled') === '1';
     const delta_enabled = form.get('delta_enabled') === '1';
+    const delta_team_enabled = form.get('delta_team_enabled') === '1';
     try {
-      await updateSeasonClassFlags(supabaseEnv, accessToken, seasonId, { gamma_enabled, delta_enabled });
+      await updateSeasonClassFlags(supabaseEnv, accessToken, seasonId, { gamma_enabled, delta_enabled, delta_team_enabled });
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'edit',
         entity_type: 'season',
         entity_label: `${seasonForLog?.name ?? 'Season'} — class settings`,
         entity_id: seasonId,
-        details: `Gamma: ${gamma_enabled ? 'on' : 'off'}, Delta: ${delta_enabled ? 'on' : 'off'}`,
+        details: `Gamma: ${gamma_enabled ? 'on' : 'off'}, Delta: ${delta_enabled ? 'on' : 'off'}, Delta Team: ${delta_team_enabled ? 'on' : 'off'}`,
       });
     } catch (err) {
       console.error('Failed to set season class flags:', err);
@@ -299,6 +300,17 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Delta
+          </label>
+          <label class="flex items-center gap-1.5 text-xs text-white/60" title="The separate Delta TEAM championship — distinct from the Delta class above. Didn't exist until ATC10.">
+            <input
+              type="checkbox"
+              name="delta_team_enabled"
+              value="1"
+              checked={season.delta_team_enabled}
+              onchange="this.form.submit()"
+              class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
+            />
+            Delta Team
           </label>
         </form>
         <form

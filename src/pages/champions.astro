@@ -78,7 +78,12 @@ const activeClass =
 // class tabs — mutually exclusive with the `class` param (whichever query
 // param combination the link sets wins, since these are plain <a href>
 // full-page navigations).
-const deltaEnabledAnySeason = seasons.some((s) => s.delta_enabled);
+//
+// Gated on delta_team_enabled, NOT delta_enabled — the Delta Team
+// championship is a separate competition from the Delta driver class (see
+// 0052_delta_team_enabled.sql) with its own, later start date (ATC10 vs.
+// the class's own ATC5).
+const deltaEnabledAnySeason = seasons.some((s) => s.delta_team_enabled);
 const requestedTeam = Astro.url.searchParams.get('team');
 const activeTeamView: 'alpha' | 'delta' | null =
   requestedTeam === 'delta' && deltaEnabledAnySeason ? 'delta' : requestedTeam === 'alpha' ? 'alpha' : null;

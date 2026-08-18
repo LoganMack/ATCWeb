@@ -6,6 +6,7 @@
 // for car logos (race results/standings rows) — both just need "a name, an
 // optional logo, show it small, and reveal the full name/label on hover."
 import { teamInitials } from '../lib/teamLogo';
+import { resizedImageUrl } from '../lib/supabase';
 
 interface Props {
   name: string;
@@ -15,14 +16,23 @@ interface Props {
   grayscale?: boolean;
   /** Hover text — defaults to `name`. Pass an override (e.g. "Apex Racing — 4 races") when the caller has more to say than just the name, like the standings page's per-team/per-car race counts. */
   title?: string;
+  /**
+   * Pixel width to request from Cloudflare Transformations (resizedImageUrl)
+   * — defaults to 96, comfortably covering every `size` this component is
+   * actually used at (h-4 through h-10, i.e. 16-40px, even at 2x retina)
+   * except TeamChampionCard's one large "h-28 w-28" (112px) champion-logo
+   * usage, which passes a bigger value explicitly.
+   */
+  resizeWidth?: number;
 }
 
-const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title } = Astro.props;
+const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title, resizeWidth = 96 } = Astro.props;
 const hoverText = title ?? name;
+const resizedLogoUrl = resizedImageUrl(logoUrl, { width: resizeWidth });
 ---
 
-{logoUrl ? (
-  <img src={logoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''}`} />
+{resizedLogoUrl ? (
+  <img src={resizedLogoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''}`} />
 ) : (
   <div
     class={`${size} flex-none rounded bg-white/10 flex items-center justify-center text-[9px] font-bold uppercase tracking-wide text-white/50 ${grayscale ? 'opacity-60' : ''}`}

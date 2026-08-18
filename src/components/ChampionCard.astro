@@ -2,7 +2,7 @@
 import type { ChampionEntry, DriverSeasonExtras } from '../lib/results';
 import { pctOf } from '../lib/results';
 import type { ChampionPhoto } from '../lib/supabase';
-import { displayDriverName } from '../lib/supabase';
+import { displayDriverName, resizedImageUrl } from '../lib/supabase';
 import StatBlock from './StatBlock.astro';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
@@ -34,7 +34,7 @@ function raceWord(n: number): string {
     <div class="p-6">
       <div>
         <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
-          {season.logo_url && <img src={season.logo_url} alt="" loading="lazy" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+          {season.logo_url && <img src={resizedImageUrl(season.logo_url, { width: 32 })} alt="" loading="lazy" class="h-4 w-4 flex-none rounded-sm object-contain" />}
           {season.name}
         </p>
         <div class="mt-1 flex flex-wrap items-center gap-2">

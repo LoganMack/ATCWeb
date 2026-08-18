@@ -61,8 +61,17 @@ let standings: TeamSeasonStanding[] = [];
 // team-scoped one. Deliberately always the cross-class overall standing
 // regardless of which team view is showing — the roster detail's own job
 // is "where does this driver sit in the championship," not a per-view stat.
+// The Delta driver CLASS and the separate Delta TEAM championship have
+// different histories (see 0052_delta_team_enabled.sql) — the class raced
+// from ATC5, but the standalone Delta Team competition didn't start until
+// ATC10. Skipping the computation entirely for an out-of-range season
+// (rather than just letting it come back empty) avoids wasted queries and
+// lets the template show a specific explanation instead of a bare "No
+// results."
+const deltaNotActiveForSeason = view === 'delta' && activeSeason ? !activeSeason.delta_team_enabled : false;
+
 let overallStandingByDriverId = new Map<string, DriverSeasonStanding>();
-if (!loadError && activeSeason) {
+if (!loadError && activeSeason && !deltaNotActiveForSeason) {
   try {
     const [driversBasic, exhibitionRoundIds, classes] = await Promise.all([
       driversSelect(supabaseEnv),
@@ -159,11 +168,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
     )}
 
-    {!loadError && standings.length === 0 && (
+    {!loadError && deltaNotActiveForSeason && (
+      <p class="mt-10 text-white/60">The Delta Team championship began in ATC10 — no standings for {activeSeason?.name}.</p>
+    )}
+
+    {!loadError && !deltaNotActiveForSeason && standings.length === 0 && (
       <p class="mt-10 text-white/60">No results.</p>
     )}
 
-    {!loadError && standings.length > 0 && (
+    {!loadError && !deltaNotActiveForSeason && standings.length > 0 && (
       <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
         <table class="w-full border-collapse" data-sortable>
           <thead>

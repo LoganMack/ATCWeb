@@ -1,6 +1,6 @@
 ---
 import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
-import { displayLayoutName, eventImageUrl } from '../lib/supabase';
+import { displayLayoutName, eventImageUrl, resizedImageUrl } from '../lib/supabase';
 import {
   formatEventDate,
   formatEventDateShort,
@@ -24,7 +24,7 @@ interface Props {
 const { event, featured = false, index = 0, layouts = [] } = Astro.props;
 const circuitName = event.circuits?.name ?? 'TBA';
 const sessions = featured ? getEventSessions(event) : [];
-const imageUrl = eventImageUrl(event, event.circuits, layouts);
+const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 80 });
 // Only the featured card gets its own "Add to Calendar" button — the
 // compact list rows below it are plain links into /calendar (a whole row
 // is itself an <a>), where a nested <button> would be invalid markup and

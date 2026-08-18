@@ -62,7 +62,9 @@ const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass =
   visibleClasses.find((c) => c.name === requestedClassName) ?? visibleClasses.find((c) => c.name === 'Alpha') ?? visibleClasses[0];
 
-const deltaEnabledAnySeason = seasons.some((s) => s.delta_enabled);
+// Gated on delta_team_enabled, NOT delta_enabled — see champions.astro's
+// own comment on this same line (0052_delta_team_enabled.sql).
+const deltaEnabledAnySeason = seasons.some((s) => s.delta_team_enabled);
 const requestedTeam = Astro.url.searchParams.get('team');
 const activeTeamView: 'alpha' | 'delta' | null =
   requestedTeam === 'delta' && deltaEnabledAnySeason ? 'delta' : requestedTeam === 'alpha' ? 'alpha' : null;
@@ -77,8 +79,19 @@ if (!loadError && activeTeamView) {
   try {
     const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
     const classId = activeTeamView === 'delta' ? deltaClassId : undefined;
+    // getTeamChampions skips any season with no race_scores data for the
+    // requested competition, but that alone isn't enough for Delta: the
+    // Delta CLASS raced from ATC5, well before the Delta TEAM championship
+    // existed (ATC10) — without this filter, ATC5-ATC9 would each surface
+    // a spurious "Delta Team champion" just because Delta-class drivers
+    // happened to have team_id set that season. Narrowing the season list
+    // itself (rather than changing getTeamChampions) keeps this the same
+    // "gate at the call site" shape as classIsEnabledFor's Gamma/Delta
+    // filtering just above, and leaves the Alpha Team view (classId
+    // undefined) completely unaffected.
+    const teamSeasons = activeTeamView === 'delta' ? seasons.filter((s) => s.delta_team_enabled) : seasons;
     const [teamChampionsResult, drivers] = await Promise.all([
-      getTeamChampions(supabaseEnv, seasons, classId),
+      getTeamChampions(supabaseEnv, teamSeasons, classId),
       driversSelect(supabaseEnv),
     ]);
     teamChampions = teamChampionsResult;

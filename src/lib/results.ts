@@ -2396,7 +2396,13 @@ export async function computeDriverCareerStats(
         computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext),
         getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts, roundLayouts),
         computeTeamSeasonStandings(env, season, exhibitionIds, undefined, drivers, teams, seasonLogoRows, classes, overallContext),
-        deltaClass
+        // Gated on delta_team_enabled, not just deltaClass existing — the
+        // Delta driver class raced from ATC5, but the separate Delta TEAM
+        // championship this powers (deltaTeamPosition, below) didn't start
+        // until ATC10 (see 0052_delta_team_enabled.sql). Without this,
+        // ATC5-ATC9 driver rows would show a deltaTeamPosition implying a
+        // championship that didn't exist yet.
+        deltaClass && season.delta_team_enabled
           ? computeTeamSeasonStandings(
               env,
               season,

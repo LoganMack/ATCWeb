@@ -1196,6 +1196,41 @@ export async function uploadToStorage(
   return `${env.url}/storage/v1/object/public/${bucket}/${path}`;
 }
 
+/**
+ * Wraps a Supabase Storage image URL in a Cloudflare Transformations
+ * request (`/cdn-cgi/image/...`) so it's resized/re-encoded on Cloudflare's
+ * edge (`format=auto` picks WebP/AVIF per the visitor's Accept header)
+ * instead of shipping every logo/photo at whatever resolution it was
+ * originally uploaded at — see PERFORMANCE_AUDIT.md #4. Requires
+ * Images > Transformations enabled on the zone AND this project's Supabase
+ * Storage host allow-listed under Transformations > Sources (both
+ * dashboard-only, done once — not something this code can turn on itself).
+ *
+ * Root-relative on purpose (no origin baked in): `/cdn-cgi/image/...`
+ * resolves against whatever origin the page itself is served from, so this
+ * works unmodified on the production domain and any preview deployment
+ * alike. Local `astro dev` doesn't have Transformations in front of it, so
+ * these URLs would 404 there — acceptable, since local dev never needs the
+ * optimization and every other Supabase-hosted `<img>` already just points
+ * straight at the origin file today.
+ *
+ * Only rewrites actual Supabase Storage URLs — anything else (flagcdn.com,
+ * a relative path, null/undefined) passes through unchanged, since only
+ * this project's Storage bucket is allow-listed as a Transformations
+ * source. Also passes through unchanged if no width/height was requested —
+ * there'd be nothing to actually resize.
+ */
+export function resizedImageUrl(url: string | null | undefined, options: { width?: number; height?: number }): string | null {
+  if (!url) return null;
+  if (!url.includes('.supabase.co/storage/v1/object/public/')) return url;
+  if (!options.width && !options.height) return url;
+
+  const params = ['format=auto', 'fit=scale-down'];
+  if (options.width) params.push(`width=${options.width}`);
+  if (options.height) params.push(`height=${options.height}`);
+  return `/cdn-cgi/image/${params.join(',')}/${url}`;
+}
+
 // ---------------------------------------------------------------------------
 // SEASONS
 // ---------------------------------------------------------------------------
@@ -1229,10 +1264,19 @@ export interface Season {
   gamma_enabled: boolean;
   /** Same idea as gamma_enabled, for Delta — didn't exist before ATC5. */
   delta_enabled: boolean;
+  /**
+   * Whether the separate Delta TEAM championship ran this season — see
+   * 0052_delta_team_enabled.sql. NOT the same thing as delta_enabled: the
+   * Delta driver class existed from ATC5, but the standalone Delta Team
+   * competition/standings (shown alongside "Alpha Team" on /champions and
+   * /team-standings) didn't start until ATC10. Controls whether Delta Team
+   * standings/champions/positions show for this season on the public site.
+   */
+  delta_team_enabled: boolean;
 }
 
 const SEASON_SELECT =
-  'id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id,gamma_enabled,delta_enabled';
+  'id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id,gamma_enabled,delta_enabled,delta_team_enabled';
 
 /** All seasons, newest first. */
 export function getSeasons(env: SupabaseEnv) {
@@ -1254,12 +1298,12 @@ export async function updateSeasonRuleset(env: SupabaseEnv, accessToken: string,
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { scoring_ruleset_id: rulesetId });
 }
 
-/** Toggles a season's Gamma/Delta class-activation flags — see Season.gamma_enabled/delta_enabled. */
+/** Toggles a season's Gamma/Delta class-activation flags, plus the separate Delta Team championship flag — see Season.gamma_enabled/delta_enabled/delta_team_enabled. */
 export async function updateSeasonClassFlags(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  flags: { gamma_enabled: boolean; delta_enabled: boolean }
+  flags: { gamma_enabled: boolean; delta_enabled: boolean; delta_team_enabled: boolean }
 ) {
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, flags);
 }

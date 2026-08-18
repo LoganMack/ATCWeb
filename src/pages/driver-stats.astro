@@ -3,54 +3,42 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
-import TeamLogo from '../components/TeamLogo.astro';
-import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, displayDriverName, getPageBanners } from '../lib/supabase';
-import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../lib/results';
-import { classBadgeClasses } from '../lib/classColors';
+import { resolveSupabaseEnv, getDriverClasses, getPageBanners } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
+
+// Same shell-then-spinner split as champions.astro/champions/fragment.astro
+// (PERFORMANCE_AUDIT.md #5) — this page used to await the full
+// computeDriverCareerStats() call (every driver's whole season-by-season
+// history) right here in its own frontmatter, which blocked Astro's client
+// router from swapping the DOM until that finished. Now this shell only
+// fetches what it needs to render the class-filter tabs immediately
+// (driver classes — cheap, same shape as any other page's reference-table
+// lookup) and renders a loading skeleton in place of the table. The
+// expensive part moved to driver-stats/fragment.astro, fetched client-side
+// by the <script> below once this shell has already painted.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-let loadError: string | null = null;
-let allCareerStats: DriverCareerStats[] = [];
+// Kicked off immediately, in parallel with everything below — same reasoning
+// as champions.astro's pageBannersPromise.
+const pageBannersPromise = getPageBanners(supabaseEnv);
+
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let loadError: string | null = null;
 try {
-  const [classesResult, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
-  classes = classesResult;
-  allCareerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes);
+  classes = await getDriverClasses(supabaseEnv);
 } catch (err) {
-  console.error('Failed to compute driver career stats:', err);
+  console.error('Failed to load driver stats filters:', err);
   loadError = err instanceof Error ? err.message : String(err);
 }
 
-// Overall (career totals across every class) vs one filter per class —
-// a driver only shows up under a class filter if they've actually raced
-// it at least once, and their line there is re-aggregated from just that
-// class's season rows (see aggregateDriverCareerStats), not their whole
-// career. All free — computeDriverCareerStats already fetched every
-// driver's full season-by-season breakdown above, so filtering per class
-// is pure in-memory work, no extra queries.
 const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass = classes.find((c) => c.name === requestedClassName) ?? null;
 
-const careerStats: DriverCareerStats[] = activeClass
-  ? allCareerStats
-      .map((entry) => {
-        const classSeasons = entry.seasons.filter((s) => s.classId === activeClass.id);
-        return classSeasons.length > 0 ? aggregateDriverCareerStats(entry.driver, classSeasons) : null;
-      })
-      .filter((entry): entry is DriverCareerStats => entry !== null)
-  : allCareerStats;
-
-function raceWord(n: number): string {
-  return `${n} race${n === 1 ? '' : 's'}`;
-}
-
 let bannerUrl: string | null = null;
 try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'driver-stats');
+  bannerUrl = bannerUrlFor(await pageBannersPromise, 'driver-stats');
 } catch (err) {
   console.error('Failed to load page banner:', err);
 }
@@ -106,163 +94,61 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
     )}
 
-    {!loadError && careerStats.length === 0 && (
-      <p class="mt-10 text-white/60">No results.</p>
-    )}
-
-    {!loadError && careerStats.length > 0 && (
-      <div class="mt-6 overflow-x-auto rounded-xl border border-white/10">
-        <table class="w-full border-collapse" data-sortable>
-          <thead>
-            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-              <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="name">Driver</th>
-              <th class="py-3 pr-3 text-center font-medium" data-sort-key="championships">Champs</th>
-              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="wins">Wins</th>
-              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="podiums">Podiums</th>
-              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5<span class="lowercase">s</span></th>
-              <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10<span class="lowercase">s</span></th>
-              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
-              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="laps">Laps</th>
-              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lapsled">Laps Led</th>
-              <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="cpi">CPI</th>
-              <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="starts">Starts</th>
-              <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
-            </tr>
-          </thead>
-          <tbody id="driver-stats-body">
-            {careerStats.map((entry) => {
-              const name = displayDriverName(entry.driver.name);
-              const searchText = name.toLowerCase();
-              return (
-                <>
-                <tr
-                  data-expand-row
-                  data-search={searchText}
-                  tabindex="0"
-                  role="button"
-                  aria-expanded="false"
-                  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
-                >
-                  <td class="py-2.5 pl-4 pr-2 font-semibold" data-col="name" data-sort-value={name}>
-                    <div class="flex items-center gap-2">
-                      <span
-                        data-chevron
-                        class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150"
-                        aria-hidden="true"
-                      >
-                        &#9654;
-                      </span>
-                      <span>
-                        {name} {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
-                      </span>
-                      <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
-                    </div>
-                  </td>
-                  <td class="py-2.5 pr-3 text-center font-semibold" data-col="championships">{entry.championships}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{entry.wins}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{entry.podiums}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{entry.top5s}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{entry.top10s}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{entry.poles}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="laps">{entry.laps}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lapsled">{entry.lapsLed}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="cpi" data-sort-value={entry.cornersPerIncident ?? ''}>
-                    {entry.cornersPerIncident !== null ? entry.cornersPerIncident.toFixed(1) : '—'}
-                  </td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="starts">{entry.starts}</td>
-                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{entry.appearances}</td>
-                </tr>
-                <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
-                  <td colspan={12} class="px-4 py-4 sm:pl-11">
-                    <div class="overflow-x-auto">
-                      <table class="w-full min-w-[860px] border-collapse">
-                        <thead>
-                          <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
-                            <th class="py-2 pr-3 font-medium">Season</th>
-                            <th class="py-2 pr-3 font-medium">Class</th>
-                            <th class="py-2 pr-3 font-medium">Car(s)</th>
-                            <th class="py-2 pr-3 font-medium">Team(s)</th>
-                            <th class="py-2 pr-3 text-center font-medium">Wins</th>
-                            <th class="py-2 pr-3 text-center font-medium">Poles</th>
-                            <th class="py-2 pr-3 text-center font-medium">Podiums</th>
-                            <th class="py-2 pr-3 text-center font-medium">Top 5s</th>
-                            <th class="py-2 pr-3 text-center font-medium">Top 10s</th>
-                            <th class="py-2 pr-3 text-center font-medium">Laps</th>
-                            <th class="py-2 pr-3 text-center font-medium">Laps Led</th>
-                            <th class="py-2 pr-3 text-center font-medium">CPI</th>
-                            <th class="py-2 pr-3 text-center font-medium">Starts</th>
-                            <th class="py-2 pr-3 text-center font-medium">Apps</th>
-                            <th class="py-2 pr-3 text-center font-medium">Class Pos</th>
-                            <th class="py-2 pr-3 text-center font-medium">Overall Pos</th>
-                            <th class="py-2 pr-3 text-center font-medium">Team Pos</th>
-                            <th class="py-2 pr-3 text-center font-medium">Delta Team Pos</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {entry.seasons.map((r) => {
-                            const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
-                            return (
-                              <tr class="border-b border-white/5">
-                                <td class="py-2 pr-3 font-semibold text-white/90">{r.season.name}</td>
-                                <td class="py-2 pr-3">
-                                  <span class={`rounded-lg border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}>
-                                    {r.className}
-                                  </span>
-                                </td>
-                                <td class="py-2 pr-3">
-                                  <div class="flex flex-wrap items-center gap-1">
-                                    {r.cars.map((c) => (
-                                      <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} />
-                                    ))}
-                                    {r.cars.length === 0 && <span class="text-white/30">—</span>}
-                                  </div>
-                                </td>
-                                <td class="py-2 pr-3">
-                                  <div class="flex flex-wrap items-center gap-1">
-                                    {r.teams.map((t) => (
-                                      <TeamLogo
-                                        name={t.teamName}
-                                        logoUrl={t.logoUrl}
-                                        size="h-5 w-5"
-                                        title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
-                                      />
-                                    ))}
-                                    {r.teams.length === 0 && <span class="text-white/30">—</span>}
-                                  </div>
-                                </td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.wins}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.poles}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.podiums}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.top5s}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.top10s}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.laps}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.lapsLed}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{seasonCpi !== null ? seasonCpi.toFixed(1) : '—'}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.starts}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.appearances}</td>
-                                <td class="py-2 pr-3 text-center font-semibold text-white/90">{r.classPosition}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.overallPosition ?? '—'}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.teamPosition ?? '—'}</td>
-                                <td class="py-2 pr-3 text-center text-white/70">{r.deltaTeamPosition ?? '—'}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </td>
-                </tr>
-                </>
-              );
-            })}
-          </tbody>
-        </table>
+    {!loadError && (
+      <div data-driver-stats-results data-fragment-url={`/driver-stats/fragment${Astro.url.search}`}>
+        <div class="mt-6 flex flex-col gap-2" aria-live="polite" aria-busy="true">
+          <span class="sr-only">Loading driver stats…</span>
+          <div class="h-10 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+        </div>
       </div>
     )}
-    <p id="driver-stats-search-empty" class="mt-4 hidden text-white/60">No results.</p>
   </section>
 
   <script>
+    // Fetches driver-stats/fragment.astro (the expensive
+    // computeDriverCareerStats table) client-side once this shell has
+    // already painted — see this file's top-of-file comment and
+    // driver-stats/fragment.astro for the full explanation.
+    function initDriverStatsResults() {
+      const container = document.querySelector<HTMLElement>('[data-driver-stats-results]');
+      const url = container?.dataset.fragmentUrl;
+      if (!container || !url) return;
+      // Cleared immediately, before the fetch even resolves — this
+      // function re-runs on every astro:page-load, including the
+      // synthetic one dispatched below once the fragment lands. Without
+      // this guard that synthetic dispatch would see the same
+      // data-fragment-url still sitting on the container and kick off
+      // another fetch, which would dispatch again, forever.
+      delete container.dataset.fragmentUrl;
+
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Driver stats fragment request failed (${res.status})`);
+          return res.text();
+        })
+        .then((html) => {
+          container.innerHTML = html;
+          // This table (and this page's own search box, via
+          // initDriverStatsSearch below) only bind up at astro:page-load
+          // time — sortable-table.ts binds each <table data-sortable>'s
+          // headers then, and initDriverStatsSearch looks up
+          // #driver-stats-body then. Both already ran once against a shell
+          // that had neither element yet. Re-dispatching the same event is
+          // the codebase's own established fix for "content changed
+          // without a real navigation" (see hard-form-submit.ts's doc
+          // comment) — every sitewide astro:page-load listener re-scans or
+          // is guarded per-element, so firing it again here is safe.
+          document.dispatchEvent(new Event('astro:page-load'));
+        })
+        .catch((err) => {
+          console.error('Failed to load driver stats:', err);
+          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load driver stats right now — try refreshing the page.</p>';
+        });
+    }
+
+    document.addEventListener('astro:page-load', initDriverStatsResults);
+
     // Click-to-expand itself is handled globally now — see
     // src/scripts/expandRows.ts (a single delegated listener for every
     // `[data-expand-row]`/`[data-detail-row]` pair on the site, fixing a
@@ -276,7 +162,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // (if it happened to be open) gets force-collapsed too — otherwise an
     // expanded season table could be left dangling below a row that just
     // disappeared, since the summary and detail rows are two independent
-    // <tr> elements and only the summary row carries data-search.
+    // <tr> elements and only the summary row carries data-search. No-ops
+    // until driver-stats/fragment.astro's table has actually landed in the
+    // DOM (see initDriverStatsResults above) — re-runs on the synthetic
+    // astro:page-load it dispatches once that happens.
     function initDriverStatsSearch() {
       const body = document.getElementById('driver-stats-body');
       const searchInput = document.getElementById('driver-stats-search') as HTMLInputElement | null;

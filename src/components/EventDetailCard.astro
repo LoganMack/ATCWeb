@@ -1,6 +1,6 @@
 ---
 import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
-import { displayLayoutName, formatDate, eventImageUrl } from '../lib/supabase';
+import { displayLayoutName, formatDate, eventImageUrl, resizedImageUrl } from '../lib/supabase';
 import {
   formatEventDate,
   formatSessionTime,
@@ -51,7 +51,7 @@ interface Props {
 
 const { event, index = 0, layoutRounds = [], linkedRound = null, layouts = [] } = Astro.props;
 const sessions = getEventSessions(event);
-const imageUrl = eventImageUrl(event, event.circuits, layouts);
+const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 96 });
 
 // "Add to Calendar" only makes sense for an event that hasn't happened yet
 // — same plain string comparison calendar.astro's own upcoming/past split
