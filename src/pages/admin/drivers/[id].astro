@@ -14,6 +14,7 @@ import {
   getDriversForCustIdCheck,
   getDriversBasic,
   getDriverLastRace,
+  buildInactivityNote,
   setDriverCarNumber,
   getSiteSettings,
   getSeasons,
@@ -454,18 +455,9 @@ try {
 // inactive) and only once the driver actually exists (a not-yet-created
 // driver has no id to look up race history for).
 let inactivityNote: string | null = null;
-if (!isNew && driver && (statusName === 'New' || statusName === 'Active')) {
-  const { last_race_at: lastRaceAt, rounds_since_last_race: roundsSince } = await getDriverLastRace(
-    supabaseEnv,
-    driver.id
-  );
-  if (lastRaceAt) {
-    const daysSince = Math.floor((Date.now() - new Date(lastRaceAt).getTime()) / (1000 * 60 * 60 * 24));
-    const rounds = roundsSince ?? 0;
-    inactivityNote = `Last raced ${formatDate(lastRaceAt)}; ${rounds}/${inactivityRounds} rounds absent; ${daysSince}/${inactivityDays} days absent`;
-  } else {
-    inactivityNote = `Inactive if absent ${inactivityDays} days and ${inactivityRounds} rounds after sign-up.`;
-  }
+if (!isNew && driver) {
+  const lastRace = statusName === 'New' || statusName === 'Active' ? await getDriverLastRace(supabaseEnv, driver.id) : null;
+  inactivityNote = buildInactivityNote(statusName, lastRace, inactivityDays, inactivityRounds);
 }
 
 // Live "is this number taken?" lookup — fetched once, matched client-side
@@ -494,13 +486,6 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
           {statusName ?? '—'}
         </div>
         {inactivityNote && <span class="max-w-xs text-xs text-white/40">{inactivityNote}</span>}
-        {!inactivityNote && statusName && (
-          <span class="max-w-xs text-xs text-white/40">
-            {statusName === 'Veteran'
-              ? 'Veterans are exempt from inactivity.'
-              : 'Inactive until next appearance.'}
-          </span>
-        )}
       </div>
     )}
   </div>

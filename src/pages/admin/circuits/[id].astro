@@ -13,11 +13,15 @@ import {
   createCircuitLayout,
   updateCircuitLayout,
   deleteCircuitLayout,
+  getTrackGuidesForLayout,
+  createTrackGuide,
+  deleteTrackGuide,
   formatLapTime,
   formatDate,
   displayLayoutName,
   type Circuit,
   type CircuitLayout,
+  type TrackGuide,
 } from '../../../lib/supabase';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
@@ -59,7 +63,6 @@ if (Astro.request.method === 'POST') {
       const lapRecordSecondsRaw = String(form.get('lap_record_seconds') ?? '').trim();
       const lapRecordHolder = String(form.get('lap_record_holder') ?? '').trim();
       const lapRecordDate = String(form.get('lap_record_date') ?? '').trim();
-      const trackGuideUrl = String(form.get('track_guide_url') ?? '').trim();
       const layoutId = String(form.get('layout_id') ?? '');
       const layoutImageFile = form.get('layout_image');
 
@@ -73,7 +76,6 @@ if (Astro.request.method === 'POST') {
           lap_record_seconds: lapRecordSecondsRaw ? Number(lapRecordSecondsRaw) : null,
           lap_record_holder: lapRecordHolder || null,
           lap_record_date: lapRecordDate || null,
-          track_guide_url: trackGuideUrl || null,
         };
         try {
           let savedLayoutId: string | null = null;
@@ -119,6 +121,43 @@ if (Astro.request.method === 'POST') {
       } catch (err) {
         console.error('Failed to delete circuit layout:', err);
         layoutError = 'Failed to delete this layout.';
+      }
+    }
+    return Astro.redirect(`/admin/circuits/${id}`, 302);
+  } else if (intent === 'add-track-guide' && !isNew && id) {
+    const layoutId = String(form.get('layout_id') ?? '');
+    const guideUrl = String(form.get('url') ?? '').trim();
+    const guideTitle = String(form.get('title') ?? '').trim();
+    if (!layoutId || !guideUrl) {
+      layoutError = 'A layout and a URL are required to add a track guide.';
+    } else {
+      try {
+        await createTrackGuide(supabaseEnv, accessToken, { layout_id: layoutId, url: guideUrl, title: guideTitle || null });
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'add',
+          entity_type: 'circuit',
+          entity_label: `${circuitForLog?.name ?? 'Circuit'} — track guide`,
+          entity_id: layoutId,
+        });
+      } catch (err) {
+        console.error('Failed to add track guide:', err);
+        layoutError = err instanceof Error ? err.message : 'Failed to add this track guide.';
+      }
+    }
+    return Astro.redirect(`/admin/circuits/${id}`, 302);
+  } else if (intent === 'delete-track-guide' && !isNew && id) {
+    const trackGuideId = String(form.get('track_guide_id') ?? '');
+    if (trackGuideId) {
+      try {
+        await deleteTrackGuide(supabaseEnv, accessToken, trackGuideId);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'circuit',
+          entity_label: `${circuitForLog?.name ?? 'Circuit'} — track guide`,
+        });
+      } catch (err) {
+        console.error('Failed to delete track guide:', err);
+        layoutError = 'Failed to delete this track guide.';
       }
     }
     return Astro.redirect(`/admin/circuits/${id}`, 302);
@@ -184,9 +223,12 @@ if (!isNew && id) {
 const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null, location: null };
 
 let layouts: CircuitLayout[] = [];
+let trackGuidesByLayoutId = new Map<string, TrackGuide[]>();
 if (!isNew && id) {
   try {
     layouts = await getCircuitLayouts(supabaseEnv, id);
+    const guideLists = await Promise.all(layouts.map((l) => getTrackGuidesForLayout(supabaseEnv, l.id)));
+    layouts.forEach((l, i) => trackGuidesByLayoutId.set(l.id, guideLists[i]));
   } catch (err) {
     console.error('Failed to load circuit layouts:', err);
   }
@@ -282,7 +324,8 @@ if (!isNew && id) {
                     {layout.lap_record_seconds !== null && ` · Record ${formatLapTime(layout.lap_record_seconds)}`}
                     {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                     {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
-                    {layout.track_guide_url && ' · Track guide on file'}
+                    {(trackGuidesByLayoutId.get(layout.id)?.length ?? 0) > 0 &&
+                      ` · ${trackGuidesByLayoutId.get(layout.id)!.length} track guide${trackGuidesByLayoutId.get(layout.id)!.length === 1 ? '' : 's'}`}
                   </p>
                 </div>
               </div>
@@ -363,17 +406,6 @@ if (!isNew && id) {
                       />
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                      Track guide (YouTube URL)
-                      <input
-                        type="url"
-                        name="track_guide_url"
-                        placeholder="https://youtube.com/watch?v=…"
-                        value={layout.track_guide_url ?? ''}
-                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                      />
-                      <span class="text-white/40">Shown on the public Circuits page and the Media page's Track Guide filter.</span>
-                    </label>
-                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
                       Layout image
                       <input
                         type="file"
@@ -397,6 +429,63 @@ if (!isNew && id) {
                   <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
                 </form>
               </div>
+            </div>
+
+            <div class="mt-3 border-t border-white/10 pt-3">
+              <p class="text-xs font-semibold text-white/50">Track Guides</p>
+              {(trackGuidesByLayoutId.get(layout.id)?.length ?? 0) === 0 && (
+                <p class="mt-1 text-xs text-white/30">None on file.</p>
+              )}
+              {(trackGuidesByLayoutId.get(layout.id)?.length ?? 0) > 0 && (
+                <ul class="mt-1.5 flex flex-col gap-1">
+                  {trackGuidesByLayoutId.get(layout.id)!.map((guide) => (
+                    <li class="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/5 px-2.5 py-1.5 text-xs">
+                      <a href={guide.url} target="_blank" rel="noopener noreferrer" class="text-brand-primary hover:underline">
+                        {guide.title || guide.url}
+                      </a>
+                      <form method="POST" data-astro-reload>
+                        <input type="hidden" name="intent" value="delete-track-guide" />
+                        <input type="hidden" name="track_guide_id" value={guide.id} />
+                        <button type="submit" class="font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                      </form>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <details class="relative mt-2">
+                <summary class="cursor-pointer list-none text-xs font-semibold text-white/50 transition hover:text-white/80">
+                  + Add a track guide
+                </summary>
+                <form method="POST" data-astro-reload class="mt-2 flex flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                  <input type="hidden" name="intent" value="add-track-guide" />
+                  <input type="hidden" name="layout_id" value={layout.id} />
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Title (optional)
+                    <input
+                      type="text"
+                      name="title"
+                      placeholder="e.g. Full Course Guide"
+                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                    />
+                  </label>
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    YouTube URL
+                    <input
+                      type="url"
+                      name="url"
+                      required
+                      placeholder="https://youtube.com/watch?v=…"
+                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+                  >
+                    Add
+                  </button>
+                </form>
+              </details>
             </div>
           </li>
         ))}
@@ -460,15 +549,6 @@ if (!isNew && id) {
             <input
               type="date"
               name="lap_record_date"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Track guide (YouTube URL)</span>
-            <input
-              type="url"
-              name="track_guide_url"
-              placeholder="https://youtube.com/watch?v=…"
               class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
             />
           </label>

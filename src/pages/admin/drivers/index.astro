@@ -2,6 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import DriverFlag from '../../../components/DriverFlag.astro';
 import {
   resolveSupabaseEnv,
   getDrivers,
@@ -10,6 +11,9 @@ import {
   syncDriverStatuses,
   syncRookieStatus,
   syncResultsWithRoster,
+  getAllDriverLastRaces,
+  buildInactivityNote,
+  formatDate,
 } from '../../../lib/supabase';
 import {
   PROBATION_DAYS_KEY,
@@ -136,6 +140,18 @@ try {
   console.error('Failed to load drivers for admin:', err);
   loadError = true;
 }
+
+// Status hover tooltip — same message the edit page shows next to the
+// Status pill (see buildInactivityNote's own doc comment), reused verbatim
+// here rather than re-derived. One bulk driver_last_race query for the
+// whole roster instead of one getDriverLastRace() call per row.
+let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
+try {
+  const lastRaces = await getAllDriverLastRaces(supabaseEnv);
+  lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
+} catch (err) {
+  console.error('Failed to load driver_last_race for admin drivers list:', err);
+}
 ---
 
 <AdminLayout title="Drivers">
@@ -261,6 +277,8 @@ try {
           <th class="py-3 pr-3 font-medium" data-sort-key="name">Driver</th>
           <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
           <th class="py-3 pr-3 font-medium" data-sort-key="class">Class</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="nationality">Nationality</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="signup">Sign-up</th>
           <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
           <th class="py-3 pr-6 font-medium"></th>
         </tr>
@@ -274,7 +292,23 @@ try {
             <td class="py-3 pr-3 font-semibold" data-col="name">{driver.name}</td>
             <td class="py-3 pr-3 text-white/60" data-col="team">{driver.teams?.name ?? '—'}</td>
             <td class="py-3 pr-3 text-white/60" data-col="class">{driver.driver_classes?.name}</td>
-            <td class="py-3 pr-3 text-white/60" data-col="status">{driver.driver_statuses?.name}</td>
+            <td class="py-3 pr-3" data-col="nationality">
+              {driver.nationality_1 ? (
+                <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
+              ) : (
+                <span class="text-white/30">—</span>
+              )}
+            </td>
+            <td class="py-3 pr-3 text-white/60" data-col="signup" data-sort-value={driver.sign_up_date ?? ''}>
+              {driver.sign_up_date ? formatDate(driver.sign_up_date) : '—'}
+            </td>
+            <td
+              class="py-3 pr-3 text-white/60"
+              data-col="status"
+              title={buildInactivityNote(driver.driver_statuses?.name ?? null, lastRaceByDriverId.get(driver.id), inactivityDays, inactivityRounds) ?? undefined}
+            >
+              {driver.driver_statuses?.name}
+            </td>
             <td class="py-3 pr-6 text-right">
               <a href={`/admin/drivers/${driver.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
             </td>

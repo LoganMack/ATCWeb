@@ -50,7 +50,7 @@ export const FORMAT_BADGE_CLASSES: Record<EventFormat, string> = {
 
 export const CATEGORY_LABELS: Record<EventCategory, string> = {
   championship: 'Championship',
-  test: 'Test',
+  test: 'Test Session',
   exhibition: 'Exhibition',
 };
 
@@ -117,15 +117,20 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     });
   }
 
-  // Race 1 always shows — it's the one required session.
-  sessions.push({
-    label: 'Race 1',
-    startTime: event.race1_start_time,
-    startTimeUtcIso: utcIso(event.race1_start_time),
-    simTime: event.race1_sim_time,
-    weather: event.race1_weather,
-    detail: event.race1_laps ? `${event.race1_laps} laps` : null,
-  });
+  // Race 1 used to always show, back when it was the one required session —
+  // Test Session events can now be saved with no races at all
+  // (0054_test_session_no_race_required.sql), so this follows the same
+  // "only show if it has a start time" rule Race 2/3 already used.
+  if (event.race1_start_time) {
+    sessions.push({
+      label: 'Race 1',
+      startTime: event.race1_start_time,
+      startTimeUtcIso: utcIso(event.race1_start_time),
+      simTime: event.race1_sim_time,
+      weather: event.race1_weather,
+      detail: event.race1_laps ? `${event.race1_laps} laps` : null,
+    });
+  }
 
   if (event.race2_start_time) {
     sessions.push({

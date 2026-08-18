@@ -1,5 +1,5 @@
 ---
-import type { NewsPost } from '../lib/supabase';
+import type { NewsPost, NewsTag } from '../lib/supabase';
 import { formatDate } from '../lib/supabase';
 
 interface Props {
@@ -8,12 +8,15 @@ interface Props {
   featured?: boolean;
   /** season_label -> season logo_url, for the small logo next to the season tag. season_label is freeform text (see NewsPost's own doc comment), not an FK to `seasons`, so this is a best-effort name match built by the caller (see news/index.astro / index.astro) rather than a join. */
   logoBySeasonLabel?: Map<string, string>;
+  /** post id -> its assigned tags (0055_news_tags.sql) — bulk-fetched once per page by the caller (getAllNewsPostTags(), grouped by post_id) and passed in here, same "fetch once, map by id" convention as logoBySeasonLabel. */
+  tagsByPostId?: Map<string, NewsTag[]>;
 }
 
-const { post, index = 0, featured = false, logoBySeasonLabel } = Astro.props;
+const { post, index = 0, featured = false, logoBySeasonLabel, tagsByPostId } = Astro.props;
 
 const date = formatDate(post.published_at);
 const seasonLogoUrl = post.season_label ? logoBySeasonLabel?.get(post.season_label) : undefined;
+const tags = tagsByPostId?.get(post.id) ?? [];
 ---
 
 <a
@@ -42,6 +45,12 @@ const seasonLogoUrl = post.season_label ? logoBySeasonLabel?.get(post.season_lab
           {seasonLogoUrl && <img src={seasonLogoUrl} alt="" class="h-3 w-3 flex-none rounded-sm object-contain" />}
         </span>
       )}
+      {post.round_subsession_id !== null && (
+        <span class="rounded bg-brand-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-brand-primary">RESULTS</span>
+      )}
+      {tags.map((tag) => (
+        <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-white/50">{tag.name}</span>
+      ))}
     </p>
     <h3 class={featured ? 'mt-2 font-display text-3xl sm:text-4xl' : 'mt-2 font-display text-2xl'}>{post.title}</h3>
     {post.excerpt && <p class="mt-2 text-white/70">{post.excerpt}</p>}

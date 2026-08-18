@@ -55,6 +55,19 @@ try {
   hofError = err instanceof Error ? err.message : String(err);
 }
 
+// Gamma/Delta didn't exist for every season (seasons.gamma_enabled/
+// delta_enabled, 0037_class_and_scoring_fixes.sql) — same gating champions.astro
+// / champions/fragment.astro already apply to the public Champions page.
+// This admin page was missing it, which let e.g. a Delta season-3 "champion"
+// show up here (and offer photo upload for it) even though Delta didn't
+// exist until ATC5. Kept in sync by hand with the other two copies, same
+// convention as those files already establish for this exact helper.
+function classIsEnabledFor(className: string, season: Awaited<ReturnType<typeof getSeasons>>[number]): boolean {
+  if (className === 'Gamma') return season.gamma_enabled;
+  if (className === 'Delta') return season.delta_enabled;
+  return true;
+}
+
 const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
 
@@ -62,8 +75,9 @@ let champions: Awaited<ReturnType<typeof getChampions>> = [];
 let photoCountBySeason = new Map<string, number>();
 if (!loadError && activeClass) {
   try {
+    const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
     const [championsResult, photos] = await Promise.all([
-      getChampions(supabaseEnv, seasons, activeClass.id),
+      getChampions(supabaseEnv, eligibleSeasons, activeClass.id),
       getChampionPhotosForClass(supabaseEnv, activeClass.id),
     ]);
     champions = championsResult;

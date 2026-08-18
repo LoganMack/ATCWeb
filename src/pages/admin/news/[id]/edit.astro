@@ -9,6 +9,9 @@ import {
   deleteNewsPost,
   uploadToStorage,
   formatDate,
+  getAllNewsTags,
+  getTagIdsForPost,
+  setPostTags,
 } from '../../../../lib/supabase';
 import { getAllRounds } from '../../../../lib/results';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';
@@ -107,6 +110,7 @@ if (Astro.request.method === 'POST') {
           round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
           published_at,
         });
+        await setPostTags(supabaseEnv, accessToken, id, form.getAll('tag_ids').map(String));
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
           entity_type: 'news',
@@ -138,6 +142,14 @@ for (const r of allRounds) {
   roundsBySeasonLabel.get(key)!.push(r);
 }
 const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).filter((s): s is string => Boolean(s)))].sort();
+
+let allTags: Awaited<ReturnType<typeof getAllNewsTags>> = [];
+let selectedTagIds: string[] = [];
+try {
+  [allTags, selectedTagIds] = await Promise.all([getAllNewsTags(supabaseEnv), getTagIdsForPost(supabaseEnv, id)]);
+} catch (err) {
+  console.error('Failed to load news tags for the news editor:', err);
+}
 ---
 
 <AdminLayout title="Edit Post">
@@ -270,6 +282,26 @@ const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).
         fastest laps, team points) at the bottom.
       </span>
     </label>
+    <fieldset class="flex flex-col gap-1.5 text-sm">
+      <legend class="text-white/70">Tags</legend>
+      {allTags.length === 0 ? (
+        <p class="text-xs text-white/40">
+          No tags yet — <a href="/admin/news/tags" class="text-brand-primary hover:underline">create some</a> to select them here.
+        </p>
+      ) : (
+        <div class="flex flex-wrap gap-3">
+          {allTags.map((tag) => (
+            <label class="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 ring-1 ring-white/10">
+              <input type="checkbox" name="tag_ids" value={tag.id} checked={selectedTagIds.includes(tag.id)} />
+              <span>{tag.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <span class="text-xs text-white/40">
+        Managed on the <a href="/admin/news/tags" class="text-brand-primary hover:underline">News Tags</a> page.
+      </span>
+    </fieldset>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Status</legend>
       <label class="flex items-center gap-2">

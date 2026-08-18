@@ -85,7 +85,10 @@ function readForm(form: FormData): Partial<EventRecord> {
     qualifying_laps: optInt(form, 'qualifying_laps'),
     qualifying_weather: optWeather(form, 'qualifying_weather'),
 
-    race1_start_time: str(form, 'race1_start_time'),
+    // Test Session events don't require any races to be saved
+    // (0054_test_session_no_race_required.sql) — every other category still
+    // requires race1_start_time, enforced below in the validation check.
+    race1_start_time: category === 'test' ? optStr(form, 'race1_start_time') : str(form, 'race1_start_time'),
     race1_sim_time: optStr(form, 'race1_sim_time'),
     race1_laps: optInt(form, 'race1_laps'),
     race1_weather: optWeather(form, 'race1_weather'),
@@ -126,7 +129,7 @@ if (Astro.request.method === 'POST') {
     }
   } else {
     const data = readForm(form);
-    if (!data.circuit_id || !data.event_date || !data.race1_start_time) {
+    if (!data.circuit_id || !data.event_date || (data.category !== 'test' && !data.race1_start_time)) {
       error = 'Circuit, event date, and Race 1 start time are required.';
     } else if ((data.season_id === null) !== (data.round_number === null)) {
       error = 'Season and round number must be set together (or both left blank).';
@@ -283,7 +286,7 @@ const d: Partial<EventRecord> = event ?? {
           class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
       </label>
-      <label class="flex flex-col gap-1.5 text-sm">
+      <label id="format-field" class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Format</span>
         <select
           name="format"
@@ -302,7 +305,7 @@ const d: Partial<EventRecord> = event ?? {
           class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         >
           <option value="championship" selected={d.category === 'championship'} class="bg-brand-ink text-white">Championship</option>
-          <option value="test" selected={d.category === 'test'} class="bg-brand-ink text-white">Test</option>
+          <option value="test" selected={d.category === 'test'} class="bg-brand-ink text-white">Test Session</option>
           <option value="exhibition" selected={d.category === 'exhibition'} class="bg-brand-ink text-white">Exhibition</option>
         </select>
         <span class="text-xs text-white/40">Test and Exhibition are season-agnostic — no season/round below.</span>
@@ -488,9 +491,20 @@ const d: Partial<EventRecord> = event ?? {
   // readForm() server-side already ignores season_id/round_number for
   // those two categories regardless of what's submitted (see its own
   // comment) — this is purely about not showing fields that won't be used.
+  //
+  // Test Session additionally hides the Format field entirely (not used —
+  // see CATEGORY_LABELS/CATEGORY_BADGE_CLASSES in eventFormatting.ts, the
+  // format badge shows a literal "Test Session" override on cards instead)
+  // and drops `required` off Race 1's start time input, since Test Session
+  // events can now be saved with zero races
+  // (0054_test_session_no_race_required.sql) — mirrored here so the browser
+  // doesn't block submission on a field the server no longer requires
+  // either (see readForm()'s race1_start_time handling above).
   function initCategoryFields() {
     const categorySelect = document.getElementById('category') as HTMLSelectElement | null;
     const seasonRoundFields = document.getElementById('season-round-fields');
+    const formatField = document.getElementById('format-field');
+    const race1StartTime = document.querySelector<HTMLInputElement>('input[name="race1_start_time"]');
     if (!categorySelect || !seasonRoundFields) return;
 
     function applyVisibility() {
@@ -500,6 +514,10 @@ const d: Partial<EventRecord> = event ?? {
       // wrapper) and `display: none` needs to win outright when hiding, not
       // fight `display: contents` over class-order specificity.
       seasonRoundFields!.style.display = categorySelect!.value === 'championship' ? '' : 'none';
+
+      const isTest = categorySelect!.value === 'test';
+      if (formatField) formatField.style.display = isTest ? 'none' : '';
+      if (race1StartTime) race1StartTime.required = !isTest;
     }
 
     categorySelect.addEventListener('change', applyVisibility);

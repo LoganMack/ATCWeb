@@ -575,6 +575,44 @@ export async function getDriverLastRace(env: SupabaseEnv, driverId: string): Pro
   return rows[0] ?? { last_race_at: null, rounds_since_last_race: null };
 }
 
+/** Bulk form of getDriverLastRace — one unfiltered query against the same driver_last_race view, for pages that need every driver's row at once (the admin Drivers list's status tooltip) rather than one REST call per driver. */
+export interface DriverLastRaceRow extends DriverLastRace {
+  driver_id: string;
+}
+
+export function getAllDriverLastRaces(env: SupabaseEnv): Promise<DriverLastRaceRow[]> {
+  return restGet<DriverLastRaceRow[]>(env, 'driver_last_race?select=driver_id,last_race_at,rounds_since_last_race');
+}
+
+/**
+ * The same inactivity-countdown message shown on the admin driver edit page
+ * (next to the Status pill) — pulled out here so the admin Drivers LIST page
+ * can reuse it verbatim as a hover tooltip instead of re-deriving its own
+ * copy that could drift out of sync. Always returns a message for any
+ * recognized status (New/Active/Veteran/Inactive); null only for an
+ * unrecognized/missing status name (e.g. a brand new driver with no status
+ * yet), same as the edit page's own "only meaningful once the driver
+ * actually exists" guard.
+ */
+export function buildInactivityNote(
+  statusName: string | null,
+  lastRace: DriverLastRace | null | undefined,
+  inactivityDays: number,
+  inactivityRounds: number
+): string | null {
+  if (statusName === 'Veteran') return 'Veterans are exempt from inactivity.';
+  if (statusName === 'Inactive') return 'Inactive until next appearance.';
+  if (statusName === 'New' || statusName === 'Active') {
+    if (!lastRace?.last_race_at) {
+      return `Inactive if absent ${inactivityDays} days and ${inactivityRounds} rounds after sign-up.`;
+    }
+    const daysSince = Math.floor((Date.now() - new Date(lastRace.last_race_at).getTime()) / (1000 * 60 * 60 * 24));
+    const rounds = lastRace.rounds_since_last_race ?? 0;
+    return `Last raced ${formatDate(lastRace.last_race_at)}; ${rounds}/${inactivityRounds} rounds absent; ${daysSince}/${inactivityDays} days absent`;
+  }
+  return null;
+}
+
 /**
  * The ONLY path for changing a driver's car_number — enforces Logan's rule
  * (block if held by anyone not Inactive; silently free it up if the holder
@@ -834,6 +872,62 @@ export function updateNewsPost(env: SupabaseEnv, accessToken: string, id: string
 
 export function deleteNewsPost(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `news_posts?id=eq.${encodeURIComponent(id)}`);
+}
+
+// --- News tags (0055_news_tags.sql) -----------------------------------
+//
+// Separate from the display-only "RESULTS" tag (derived straight from
+// round_subsession_id, no table of its own — see NewsCard.astro/
+// news/[slug].astro) — these are freely admin-managed labels a post can
+// carry any number of, via the news_post_tags join table.
+
+export interface NewsTag {
+  id: string;
+  name: string;
+}
+
+const NEWS_TAG_SELECT = 'id,name';
+
+/** All tags, alphabetical — the admin tag-management page's list and the checkbox set on the post editor both use this. Public read (RLS), so no access token needed. */
+export function getAllNewsTags(env: SupabaseEnv) {
+  return restGet<NewsTag[]>(env, `news_tags?select=${NEWS_TAG_SELECT}&order=name.asc`);
+}
+
+export function createNewsTag(env: SupabaseEnv, accessToken: string, name: string) {
+  return restPost<NewsTag>(env, accessToken, 'news_tags', { name });
+}
+
+export function deleteNewsTag(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `news_tags?id=eq.${encodeURIComponent(id)}`);
+}
+
+export interface NewsPostTagLink {
+  post_id: string;
+  news_tags: { id: string; name: string } | null;
+}
+
+/** Every post<->tag link across every post, tag name embedded via PostgREST resource embedding — callers (NewsCard.astro's public pages) fetch this once and group it into a post_id -> NewsTag[] map, same "fetch once, map by id" convention as logoBySeasonLabel. Public read (RLS). */
+export function getAllNewsPostTags(env: SupabaseEnv) {
+  return restGet<NewsPostTagLink[]>(env, 'news_post_tags?select=post_id,news_tags(id,name)');
+}
+
+/** Tag ids currently assigned to one post — pre-checks the post editor's tag checkboxes. Public read (RLS). */
+export async function getTagIdsForPost(env: SupabaseEnv, postId: string) {
+  const rows = await restGet<{ tag_id: string }[]>(env, `news_post_tags?select=tag_id&post_id=eq.${encodeURIComponent(postId)}`);
+  return rows.map((r) => r.tag_id);
+}
+
+/** Full tag objects (id + name) assigned to one post — for the single-post detail page (news/[slug].astro), which only ever needs one post's worth and shouldn't pull every post's tag links like getAllNewsPostTags() does. */
+export async function getTagsForPost(env: SupabaseEnv, postId: string): Promise<NewsTag[]> {
+  const rows = await restGet<NewsPostTagLink[]>(env, `news_post_tags?select=post_id,news_tags(id,name)&post_id=eq.${encodeURIComponent(postId)}`);
+  return rows.map((r) => r.news_tags).filter((t): t is NewsTag => t !== null);
+}
+
+/** Delete-all-then-insert sync of a post's tag set from the editor's checkbox list — simplest correct approach for a small set, same pattern setOrganizationTeamForSeason() uses for its own many-to-many join table (0043_organizations.sql). */
+export async function setPostTags(env: SupabaseEnv, accessToken: string, postId: string, tagIds: string[]) {
+  await restDelete(env, accessToken, `news_post_tags?post_id=eq.${encodeURIComponent(postId)}`);
+  if (tagIds.length === 0) return;
+  await restPost(env, accessToken, 'news_post_tags', tagIds.map((tag_id) => ({ post_id: postId, tag_id })));
 }
 
 // --- Champion photos (up to 5 per season+class, see /admin/champions) ------
@@ -1545,12 +1639,10 @@ export interface CircuitLayout {
   image_url: string | null;
   /** Number of corners on this layout, admin-entered — see 0022_circuit_layout_corners.sql. Powers the Standings page's season "corners per incident" stat (src/lib/results.ts's getSeasonDriverExtendedStats); null until Logan fills it in for a given layout. */
   corners: number | null;
-  /** YouTube link to an admin-recorded track guide for this layout (0049_media_page.sql) — shown on the public Circuits page and as the "Track Guide" filter on the Media page's Videos tab. */
-  track_guide_url: string | null;
 }
 
 const CIRCUIT_LAYOUT_SELECT =
-  'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners,track_guide_url';
+  'id,circuit_id,name,length_km,lap_record_seconds,lap_record_holder,lap_record_date,image_url,corners';
 
 /** "1:42.512" from a raw seconds count (e.g. 102.512) — minutes are shown with no leading zero (per site-wide convention: no leading zeroes on lap records/times), while seconds/milliseconds keep their own fixed-width zero-padding since those are always exactly 2 and 3 digits within a minute. */
 export function formatLapTime(seconds: number | null): string {
@@ -1668,6 +1760,42 @@ export function deleteCircuitLayout(env: SupabaseEnv, accessToken: string, id: s
   return restDelete(env, accessToken, `circuit_layouts?id=eq.${encodeURIComponent(id)}`);
 }
 
+// --- Track guides (one-to-many per layout, see 0053_track_guides.sql) ------
+// Replaces the old single circuit_layouts.track_guide_url column — a layout
+// can now have any number of guide videos. Managed independently of the
+// layout's own metadata form on the admin Circuits page (its own add/remove
+// mini-list), shown grouped by layout on the public Media page.
+
+export interface TrackGuide {
+  id: string;
+  layout_id: string;
+  title: string | null;
+  url: string;
+  sort_order: number;
+}
+
+const TRACK_GUIDE_SELECT = 'id,layout_id,title,url,sort_order';
+
+export function getTrackGuidesForLayout(env: SupabaseEnv, layoutId: string) {
+  return restGet<TrackGuide[]>(
+    env,
+    `track_guides?select=${TRACK_GUIDE_SELECT}&layout_id=eq.${encodeURIComponent(layoutId)}&order=sort_order.asc,created_at.asc`
+  );
+}
+
+/** Every track guide for every layout in one query — powers the public Media page's Track Guide filter, which needs all of them up front (grouped by layout in memory) rather than one request per layout. */
+export function getAllTrackGuides(env: SupabaseEnv) {
+  return restGet<TrackGuide[]>(env, `track_guides?select=${TRACK_GUIDE_SELECT}&order=layout_id.asc,sort_order.asc,created_at.asc`);
+}
+
+export function createTrackGuide(env: SupabaseEnv, accessToken: string, data: Partial<TrackGuide>) {
+  return restPost<TrackGuide>(env, accessToken, 'track_guides', data);
+}
+
+export function deleteTrackGuide(env: SupabaseEnv, accessToken: string, id: string) {
+  return restDelete(env, accessToken, `track_guides?id=eq.${encodeURIComponent(id)}`);
+}
+
 // --- Events ----------------------------------------------------------------
 
 /** 0050_weather_conditions_expanded.sql — expanded from the original dry/mixed/wet to this more granular set. */
@@ -1703,7 +1831,8 @@ export interface EventRecord {
   qualifying_laps: number | null;
   qualifying_weather: Weather | null;
 
-  race1_start_time: string;
+  /** Nullable since 0054_test_session_no_race_required.sql — was NOT NULL back when every event was assumed to have at least one scheduled race; a Test Session can now be saved with none. */
+  race1_start_time: string | null;
   race1_sim_time: string | null;
   race1_laps: number | null;
   race1_weather: Weather | null;
@@ -2006,7 +2135,7 @@ export async function getWarningCounts(env: SupabaseEnv, subsessionIds: number[]
 // MEDIA PAGE — videos (cinematics/educational/other), graphics, meetups
 // (0049_media_page.sql). Broadcasts and Track Guide, the Videos tab's other
 // two filters, aren't stored here — see getAllBroadcastRaceLinks above and
-// CircuitLayout.track_guide_url.
+// the track_guides table (0053_track_guides.sql).
 // ---------------------------------------------------------------------------
 
 export type MediaVideoCategory = 'cinematic' | 'educational' | 'other';

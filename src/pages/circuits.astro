@@ -8,6 +8,7 @@ import {
   resolveSupabaseEnv,
   getCircuits,
   getAllCircuitLayouts,
+  getAllTrackGuides,
   formatLapTime,
   formatDate,
   displayLayoutName,
@@ -21,9 +22,23 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let circuits: Awaited<ReturnType<typeof getCircuits>> = [];
 let layouts: CircuitLayout[] = [];
+// A layout's track guide(s) now live in their own table (0053_track_guides.sql,
+// any number per layout) rather than a single URL column — this page just
+// needs the count per layout to decide whether/what to link, the actual
+// guide list lives on the Media page's Track Guide filter.
+let guideCountByLayoutId = new Map<string, number>();
 let loadError = false;
 try {
-  [circuits, layouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
+  const [circuitsResult, layoutsResult, allGuides] = await Promise.all([
+    getCircuits(supabaseEnv),
+    getAllCircuitLayouts(supabaseEnv),
+    getAllTrackGuides(supabaseEnv),
+  ]);
+  circuits = circuitsResult;
+  layouts = layoutsResult;
+  for (const guide of allGuides) {
+    guideCountByLayoutId.set(guide.layout_id, (guideCountByLayoutId.get(guide.layout_id) ?? 0) + 1);
+  }
 } catch (err) {
   console.error('Failed to load circuits:', err);
   loadError = true;
@@ -114,14 +129,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                               {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
                             </p>
-                            {layout.track_guide_url && (
+                            {(guideCountByLayoutId.get(layout.id) ?? 0) > 0 && (
                               <a
-                                href={layout.track_guide_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                                href={`/media?tab=videos&filter=trackguide&layout=${encodeURIComponent(layout.id)}`}
                                 class="mt-1 inline-block text-xs font-semibold text-brand-primary hover:underline"
                               >
-                                Watch Track Guide →
+                                {guideCountByLayoutId.get(layout.id)! > 1 ? 'Watch Track Guides →' : 'Watch Track Guide →'}
                               </a>
                             )}
                           </div>

@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import { getNewsPostBySlug, getSeasons, resolveSupabaseEnv, formatDate, displayDriverName } from '../../lib/supabase';
+import { getNewsPostBySlug, getSeasons, resolveSupabaseEnv, formatDate, displayDriverName, getTagsForPost, type NewsTag } from '../../lib/supabase';
 import { getRoundBySubsessionId } from '../../lib/results';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classBadgeClasses } from '../../lib/classColors';
@@ -38,6 +38,15 @@ if (post.season_label) {
   } catch (err) {
     console.error('Failed to load seasons for the post season tag logo:', err);
   }
+}
+
+// Assigned tags (0055_news_tags.sql) — separate from the RESULTS tag above,
+// which is derived from round_subsession_id and needs no query of its own.
+let tags: NewsTag[] = [];
+try {
+  tags = await getTagsForPost(supabaseEnv, post.id);
+} catch (err) {
+  console.error('Failed to load tags for news post:', err);
 }
 
 // Simple paragraph splitting — no Markdown dependency for MVP1. If you need
@@ -77,6 +86,12 @@ if (post.round_subsession_id !== null) {
           {seasonLogoUrl && <img src={seasonLogoUrl} alt="" class="h-3.5 w-3.5 flex-none rounded-sm object-contain" />}
         </span>
       )}
+      {post.round_subsession_id !== null && (
+        <span class="rounded bg-brand-primary/15 px-2 py-0.5 text-[11px] font-semibold text-brand-primary">RESULTS</span>
+      )}
+      {tags.map((tag) => (
+        <span class="rounded bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/50">{tag.name}</span>
+      ))}
     </p>
 
     {post.round_subsession_id !== null && roundTrackName && (

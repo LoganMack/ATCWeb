@@ -21,9 +21,10 @@ const ACTIONS: ActivityAction[] = ['add', 'edit', 'delete'];
 const actionParam = Astro.url.searchParams.get('action');
 const selectedAction: ActivityAction | null = ACTIONS.includes(actionParam as ActivityAction) ? (actionParam as ActivityAction) : null;
 
-type Category = 'imports' | 'incidents';
+type Category = 'imports' | 'incidents' | 'drivers' | 'teams';
+const CATEGORIES: Category[] = ['imports', 'incidents', 'drivers', 'teams'];
 const categoryParam = Astro.url.searchParams.get('category');
-const selectedCategory: Category | null = categoryParam === 'imports' || categoryParam === 'incidents' ? categoryParam : null;
+const selectedCategory: Category | null = (CATEGORIES as string[]).includes(categoryParam ?? '') ? (categoryParam as Category) : null;
 
 // Caps how far back the log reads — this is an audit trail, not a paged
 // table; 300 most-recent rows is comfortably more than a season of admin
@@ -46,6 +47,8 @@ try {
   if (selectedAction) filters.push(`action=eq.${selectedAction}`);
   if (selectedCategory === 'imports') filters.push(`entity_type=eq.import`);
   if (selectedCategory === 'incidents') filters.push(`entity_type=eq.incident`);
+  if (selectedCategory === 'drivers') filters.push(`entity_type=eq.driver`);
+  if (selectedCategory === 'teams') filters.push(`entity_type=eq.team`);
   const query = ['select=*', 'order=created_at.desc', `limit=${ROW_LIMIT}`, ...filters].join('&');
   entries = await restGetAuthed<ActivityLogRow[]>(supabaseEnv, accessToken, `activity_log?${query}`);
 } catch (err) {
@@ -128,6 +131,18 @@ function formatTimestamp(iso: string): string {
         class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'incidents' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
       >
         Incident Reports
+      </a>
+      <a
+        href={buildHref(selectedAction, 'drivers')}
+        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'drivers' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      >
+        Drivers
+      </a>
+      <a
+        href={buildHref(selectedAction, 'teams')}
+        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'teams' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      >
+        Teams
       </a>
     </div>
   </div>

@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, createNewsPost, uploadToStorage, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv, createNewsPost, uploadToStorage, formatDate, getAllNewsTags, setPostTags } from '../../../lib/supabase';
 import { getAllRounds } from '../../../lib/results';
 import { slugify } from '../../../lib/slug';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
@@ -85,6 +85,8 @@ if (Astro.request.method === 'POST') {
         round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
         published_at,
       });
+      const tagIds = form.getAll('tag_ids').map(String);
+      if (tagIds.length > 0) await setPostTags(supabaseEnv, accessToken, post.id, tagIds);
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'add',
         entity_type: 'news',
@@ -120,6 +122,13 @@ for (const r of allRounds) {
 // than filtered to real "ATCxx" seasons only). Free text, not a strict
 // picker — see 0017_news_round_season.sql for why.
 const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).filter((s): s is string => Boolean(s)))].sort();
+
+let allTags: Awaited<ReturnType<typeof getAllNewsTags>> = [];
+try {
+  allTags = await getAllNewsTags(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load news tags for the news editor:', err);
+}
 ---
 
 <AdminLayout title="New Post">
@@ -236,6 +245,26 @@ const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).
         fastest laps, team points) at the bottom.
       </span>
     </label>
+    <fieldset class="flex flex-col gap-1.5 text-sm">
+      <legend class="text-white/70">Tags</legend>
+      {allTags.length === 0 ? (
+        <p class="text-xs text-white/40">
+          No tags yet — <a href="/admin/news/tags" class="text-brand-primary hover:underline">create some</a> to select them here.
+        </p>
+      ) : (
+        <div class="flex flex-wrap gap-3">
+          {allTags.map((tag) => (
+            <label class="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 ring-1 ring-white/10">
+              <input type="checkbox" name="tag_ids" value={tag.id} />
+              <span>{tag.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <span class="text-xs text-white/40">
+        Managed on the <a href="/admin/news/tags" class="text-brand-primary hover:underline">News Tags</a> page.
+      </span>
+    </fieldset>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Status</legend>
       <label class="flex items-center gap-2">

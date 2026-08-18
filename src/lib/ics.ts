@@ -58,9 +58,10 @@ function toIcsUtc(iso: string): string {
 /**
  * One VEVENT block (no VCALENDAR wrapper — see this file's header) for a
  * single event, or null when there's genuinely no start time to build one
- * from (getEventSessions() found nothing timed — in practice this never
- * happens since race1_start_time is required, but a caller shouldn't have
- * to know that to stay safe against a future schema change).
+ * from (getEventSessions() found nothing timed — happens for a Test Session
+ * saved with no races at all, see 0054_test_session_no_race_required.sql;
+ * every other category still always has at least race1_start_time). The
+ * card's "Add to Calendar" button just doesn't render when this is null.
  *
  * The block covers every scheduled session (Practice through Race 3) as one
  * calendar entry rather than one entry per session — DTSTART is the

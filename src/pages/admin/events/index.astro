@@ -79,10 +79,19 @@ try {
               </td>
               <td class="py-3 pr-3" data-col="format" data-sort-value={event.format}>
                 <div class="flex flex-wrap items-center gap-1.5">
-                  <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
-                    {FORMAT_LABELS[event.format]}
-                  </span>
-                  {event.category !== 'championship' && (
+                  {event.category === 'test' ? (
+                    // Test Session events don't use the format field (see
+                    // eventFormatting.ts) — same override as
+                    // EventDetailCard.astro/UpcomingEventCard.astro.
+                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES.test}`}>
+                      {CATEGORY_LABELS.test}
+                    </span>
+                  ) : (
+                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+                      {FORMAT_LABELS[event.format]}
+                    </span>
+                  )}
+                  {event.category !== 'championship' && event.category !== 'test' && (
                     <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
                       {CATEGORY_LABELS[event.category]}
                     </span>

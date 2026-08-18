@@ -9,6 +9,7 @@ import {
   getMediaVideosByCategory,
   getAllMediaMeetups,
   getAllCircuitLayouts,
+  getAllTrackGuides,
   getCircuits,
   getPageBanners,
   formatDate,
@@ -42,7 +43,14 @@ let loadError = false;
 
 let broadcastVideos: BroadcastVideo[] = [];
 let categoryVideos: Awaited<ReturnType<typeof getMediaVideosByCategory>> = [];
-let trackGuides: { circuitName: string; layoutName: string; url: string }[] = [];
+// Track Guide is two-level now that a layout can have any number of guides
+// (0053_track_guides.sql) — trackGuideLayouts is the "pick a layout" list
+// (one card per layout with >=1 guide); selectedLayout/trackGuidesForLayout
+// are populated instead, from the same query results, once `?layout=` names
+// one of them.
+let trackGuideLayouts: { layoutId: string; circuitName: string; layoutName: string; guideCount: number; firstUrl: string }[] = [];
+let selectedLayout: { circuitName: string; layoutName: string } | null = null;
+let trackGuidesForLayout: { title: string | null; url: string }[] = [];
 let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
 let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
 
@@ -51,15 +59,43 @@ try {
     if (filter === 'broadcasts') {
       broadcastVideos = await getAllBroadcastVideos(supabaseEnv);
     } else if (filter === 'trackguide') {
-      const [layouts, circuits] = await Promise.all([getAllCircuitLayouts(supabaseEnv), getCircuits(supabaseEnv)]);
+      const [layouts, circuits, allGuides] = await Promise.all([
+        getAllCircuitLayouts(supabaseEnv),
+        getCircuits(supabaseEnv),
+        getAllTrackGuides(supabaseEnv),
+      ]);
       const circuitNameById = new Map(circuits.map((c) => [c.id, c.name]));
-      trackGuides = layouts
-        .filter((l) => l.track_guide_url)
-        .map((l) => ({
-          circuitName: circuitNameById.get(l.circuit_id) ?? 'Unknown circuit',
-          layoutName: displayLayoutName(l.name),
-          url: l.track_guide_url!,
-        }));
+      const layoutById = new Map(layouts.map((l) => [l.id, l]));
+      const guidesByLayoutId = new Map<string, typeof allGuides>();
+      for (const guide of allGuides) {
+        if (!guidesByLayoutId.has(guide.layout_id)) guidesByLayoutId.set(guide.layout_id, []);
+        guidesByLayoutId.get(guide.layout_id)!.push(guide);
+      }
+
+      const layoutIdParam = Astro.url.searchParams.get('layout');
+      const requestedLayout = layoutIdParam ? layoutById.get(layoutIdParam) : undefined;
+      if (requestedLayout && guidesByLayoutId.has(requestedLayout.id)) {
+        selectedLayout = {
+          circuitName: circuitNameById.get(requestedLayout.circuit_id) ?? 'Unknown circuit',
+          layoutName: displayLayoutName(requestedLayout.name),
+        };
+        trackGuidesForLayout = guidesByLayoutId.get(requestedLayout.id)!.map((g) => ({ title: g.title, url: g.url }));
+      } else {
+        trackGuideLayouts = [...guidesByLayoutId.entries()]
+          .map(([layoutId, guides]) => {
+            const layout = layoutById.get(layoutId);
+            if (!layout) return null;
+            return {
+              layoutId,
+              circuitName: circuitNameById.get(layout.circuit_id) ?? 'Unknown circuit',
+              layoutName: displayLayoutName(layout.name),
+              guideCount: guides.length,
+              firstUrl: guides[0].url,
+            };
+          })
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+          .sort((a, b) => a.circuitName.localeCompare(b.circuitName) || a.layoutName.localeCompare(b.layoutName));
+      }
     } else {
       categoryVideos = await getMediaVideosByCategory(supabaseEnv, filter as MediaVideoCategory);
     }
@@ -141,15 +177,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           ))}
         </div>
 
+        <div class="reveal mb-6 max-w-sm" style="transition-delay: 70ms">
+          <input
+            type="search"
+            id="media-search-videos"
+            placeholder="Search…"
+            class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </div>
+
         {filter === 'broadcasts' && (
           broadcastVideos.length === 0 ? (
             <p class="reveal mt-8 text-white/60" style="transition-delay: 80ms">No broadcast links on file yet.</p>
           ) : (
-            <div class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
+            <div id="media-search-grid" class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
               {broadcastVideos.map((v) => {
                 const thumb = youtubeThumbnailUrl(v.broadcast_url);
                 return (
-                  <a href={v.broadcast_url} target="_blank" rel="noopener noreferrer" class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={v.broadcast_url} target="_blank" rel="noopener noreferrer" data-search={v.track_name.toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -170,15 +215,43 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           )
         )}
 
-        {filter === 'trackguide' && (
-          trackGuides.length === 0 ? (
-            <p class="reveal mt-8 text-white/60" style="transition-delay: 80ms">No track guides on file yet.</p>
-          ) : (
-            <div class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
-              {trackGuides.map((tg) => {
+        {filter === 'trackguide' && selectedLayout && (
+          <>
+            <a href="/media?tab=videos&filter=trackguide" class="reveal mb-4 inline-block text-sm text-brand-primary hover:underline" style="transition-delay: 70ms">
+              &larr; All Track Guides
+            </a>
+            <h2 class="reveal mb-4 font-display text-2xl" style="transition-delay: 70ms">
+              {selectedLayout.circuitName} — {selectedLayout.layoutName}
+            </h2>
+            <div id="media-search-grid" class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
+              {trackGuidesForLayout.map((tg) => {
                 const thumb = youtubeThumbnailUrl(tg.url);
                 return (
-                  <a href={tg.url} target="_blank" rel="noopener noreferrer" class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={tg.url} target="_blank" rel="noopener noreferrer" data-search={(tg.title ?? '').toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                    {thumb ? (
+                      <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
+                    ) : (
+                      <div class="aspect-video w-full bg-white/10"></div>
+                    )}
+                    <div class="p-3">
+                      <p class="font-semibold">{tg.title || 'Track Guide'}</p>
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {filter === 'trackguide' && !selectedLayout && (
+          trackGuideLayouts.length === 0 ? (
+            <p class="reveal mt-8 text-white/60" style="transition-delay: 80ms">No track guides on file yet.</p>
+          ) : (
+            <div id="media-search-grid" class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
+              {trackGuideLayouts.map((tg) => {
+                const thumb = youtubeThumbnailUrl(tg.firstUrl);
+                return (
+                  <a href={`/media?tab=videos&filter=trackguide&layout=${encodeURIComponent(tg.layoutId)}`} data-search={`${tg.circuitName} ${tg.layoutName}`.toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -186,7 +259,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     )}
                     <div class="p-3">
                       <p class="font-semibold">{tg.circuitName}</p>
-                      <p class="mt-0.5 text-xs text-white/50">{tg.layoutName}</p>
+                      <p class="mt-0.5 text-xs text-white/50">
+                        {tg.layoutName} · {tg.guideCount} guide{tg.guideCount === 1 ? '' : 's'}
+                      </p>
                     </div>
                   </a>
                 );
@@ -199,11 +274,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           categoryVideos.length === 0 ? (
             <p class="reveal mt-8 text-white/60" style="transition-delay: 80ms">No results.</p>
           ) : (
-            <div class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
+            <div id="media-search-grid" class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 80ms">
               {categoryVideos.map((v) => {
                 const thumb = youtubeThumbnailUrl(v.youtube_url);
                 return (
-                  <a href={v.youtube_url} target="_blank" rel="noopener noreferrer" class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={v.youtube_url} target="_blank" rel="noopener noreferrer" data-search={v.title.toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -218,6 +293,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
           )
         )}
+        <p id="media-search-empty-videos" class="reveal mt-8 hidden text-white/60">No matches.</p>
       </>
     )}
 
@@ -225,20 +301,32 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       graphics.length === 0 ? (
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No graphics on file yet.</p>
       ) : (
-        <div class="reveal grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" style="transition-delay: 60ms">
-          {graphics.map((g) => (
-            <button
-              type="button"
-              data-lightbox
-              data-lightbox-src={g.image_url}
-              data-lightbox-alt={g.title}
-              class="group overflow-hidden rounded-xl bg-white/5 text-left ring-1 ring-white/10 transition hover:ring-brand-primary/50"
-            >
-              <img src={g.image_url} alt={g.title} class="aspect-square w-full object-cover transition group-hover:brightness-110" />
-              <p class="truncate p-2 text-xs font-semibold text-white/80">{g.title}</p>
-            </button>
-          ))}
-        </div>
+        <>
+          <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
+            <input
+              type="search"
+              id="media-search-graphics"
+              placeholder="Search graphics…"
+              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            />
+          </div>
+          <div id="media-graphics-grid" class="reveal grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" style="transition-delay: 70ms">
+            {graphics.map((g) => (
+              <button
+                type="button"
+                data-lightbox
+                data-lightbox-src={g.image_url}
+                data-lightbox-alt={g.title}
+                data-search={g.title.toLowerCase()}
+                class="group overflow-hidden rounded-xl bg-white/5 text-left ring-1 ring-white/10 transition hover:ring-brand-primary/50"
+              >
+                <img src={g.image_url} alt={g.title} class="aspect-square w-full object-cover transition group-hover:brightness-110" />
+                <p class="truncate p-2 text-xs font-semibold text-white/80">{g.title}</p>
+              </button>
+            ))}
+          </div>
+          <p id="media-search-empty-graphics" class="reveal mt-8 hidden text-white/60">No matches.</p>
+        </>
       )
     )}
 
@@ -246,12 +334,57 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       meetupPins.length === 0 ? (
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No meetups on file yet.</p>
       ) : (
-        <div class="reveal overflow-hidden rounded-xl ring-1 ring-white/10" style="transition-delay: 60ms">
-          <div id="meetup-map" class="h-[520px] w-full bg-white/5"></div>
-        </div>
+        <>
+          <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
+            <input
+              type="search"
+              id="media-search-meetups"
+              placeholder="Search meetups…"
+              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            />
+          </div>
+          <div class="reveal overflow-hidden rounded-xl ring-1 ring-white/10" style="transition-delay: 70ms">
+            <div id="meetup-map" class="h-[520px] w-full bg-white/5"></div>
+          </div>
+        </>
       )
     )}
   </section>
+
+  <script>
+    // Shared client-side search for the Videos and Graphics tabs — both
+    // render a plain grid of already-server-rendered `[data-search]` cards
+    // (never more than one of the two search inputs below exists on a given
+    // page load, since `tab` is a real server-side query param, not a
+    // client-side toggle), so this is just show/hide filtering, same
+    // pattern as driver-stats.astro's own search box. Meetups gets its own
+    // handler (see the Leaflet script below) since map markers can't be
+    // hidden with a CSS class the way a grid item can.
+    function initGridSearch(inputId: string, gridId: string, emptyId: string | null) {
+      const input = document.getElementById(inputId) as HTMLInputElement | null;
+      const grid = document.getElementById(gridId);
+      if (!input || !grid) return;
+
+      const items = grid.querySelectorAll<HTMLElement>('[data-search]');
+      const empty = emptyId ? document.getElementById(emptyId) : null;
+
+      input.addEventListener('input', () => {
+        const term = input.value.trim().toLowerCase();
+        let visibleCount = 0;
+        items.forEach((item) => {
+          const matches = !term || (item.dataset.search ?? '').includes(term);
+          item.style.display = matches ? '' : 'none';
+          if (matches) visibleCount += 1;
+        });
+        if (empty) empty.classList.toggle('hidden', visibleCount > 0);
+      });
+    }
+
+    document.addEventListener('astro:page-load', () => {
+      initGridSearch('media-search-videos', 'media-search-grid', 'media-search-empty-videos');
+      initGridSearch('media-search-graphics', 'media-graphics-grid', 'media-search-empty-graphics');
+    });
+  </script>
 
   {tab === 'meetups' && meetupPins.length > 0 && (
     <>
@@ -276,6 +409,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             maxZoom: 18,
           }).addTo(map);
 
+          // Kept alongside each pin's own searchable text so the search box
+          // below can add/remove markers from the map on the fly — Leaflet
+          // markers have no built-in show/hide, so filtering means literally
+          // adding/removing them from the map rather than toggling a CSS
+          // class the way the plain-grid search (initGridSearch, further
+          // down this file) does for Videos/Graphics.
+          const markerEntries: { marker: any; searchText: string }[] = [];
           meetupPins.forEach((pin) => {
             const popupHtml = `
               <div style="min-width:160px">
@@ -285,8 +425,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </div>
             `;
             // @ts-ignore
-            L.marker([pin.lat, pin.lng]).addTo(map).bindPopup(popupHtml);
+            const marker = L.marker([pin.lat, pin.lng]).addTo(map).bindPopup(popupHtml);
+            markerEntries.push({ marker, searchText: `${pin.title} ${pin.locationLabel ?? ''}`.toLowerCase() });
           });
+
+          const searchInput = document.getElementById('media-search-meetups') as HTMLInputElement | null;
+          if (searchInput && !searchInput.dataset.meetupSearchBound) {
+            searchInput.dataset.meetupSearchBound = 'true';
+            searchInput.addEventListener('input', () => {
+              const term = searchInput.value.trim().toLowerCase();
+              markerEntries.forEach(({ marker, searchText }) => {
+                const matches = !term || searchText.includes(term);
+                const onMap = map.hasLayer(marker);
+                if (matches && !onMap) marker.addTo(map);
+                if (!matches && onMap) map.removeLayer(marker);
+              });
+            });
+          }
         }
 
         document.addEventListener('astro:page-load', initMeetupMap);

@@ -101,6 +101,7 @@ const calendarEvents = events.map((e) => ({
   logoUrl: eventImageUrl(e, e.circuits, layouts),
   layout: e.layout,
   format: e.format,
+  category: e.category,
 }));
 
 // Every upcoming event's VEVENT block, pre-joined into one bundle for the
@@ -258,6 +259,7 @@ const upcomingIcsBundle = upcoming
       logoUrl: string | null;
       layout: string | null;
       format: string;
+      category: string;
     }
 
     const FORMAT_LABELS: Record<string, string> = { endurance: 'Endurance', sprint: 'Sprint', special: 'Special' };
@@ -266,6 +268,10 @@ const upcomingIcsBundle = upcoming
       special: 'bg-brand-pink/15 text-brand-pink',
       sprint: 'bg-brand-gold/15 text-brand-gold',
     };
+    // Test Session events don't use the format field (see eventFormatting.ts
+    // — CATEGORY_BADGE_CLASSES.test/CATEGORY_LABELS.test server-side) — same
+    // neutral override applied here for the day-cell pill.
+    const TEST_SESSION_BADGE_CLASSES = 'bg-white/10 text-white/50';
 
     /** Same "N/A" -> "Full Course" display-only substitution as displayLayoutName() in src/lib/supabase.ts. */
     function displayLayoutName(name: string): string {
@@ -425,7 +431,8 @@ const upcomingIcsBundle = upcoming
 
           dayEvents.slice(0, 2).forEach((ev) => {
             const pill = document.createElement('span');
-            pill.className = `w-full truncate rounded px-1 py-0.5 text-[10px] font-semibold ${FORMAT_BADGE_CLASSES[ev.format] ?? 'bg-white/10 text-white/60'}`;
+            const badgeClasses = ev.category === 'test' ? TEST_SESSION_BADGE_CLASSES : (FORMAT_BADGE_CLASSES[ev.format] ?? 'bg-white/10 text-white/60');
+            pill.className = `w-full truncate rounded px-1 py-0.5 text-[10px] font-semibold ${badgeClasses}`;
             pill.textContent = ev.circuit;
             cell.appendChild(pill);
           });
