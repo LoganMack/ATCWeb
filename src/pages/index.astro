@@ -13,7 +13,7 @@ import {
   getPageBanners,
   getSeasons,
   getDriverClasses,
-  getExhibitionRoundIds,
+  getStandingsExcludedRoundIds,
   getSiteSettings,
   resolveSupabaseEnv,
   displayDriverName,
@@ -168,7 +168,7 @@ try {
   if (activeSeason) {
     const [driversBasic, exhibitionRoundIds, driverClasses, teamsBasic, seasonLogoRows] = await Promise.all([
       driversSelect(supabaseEnv),
-      getExhibitionRoundIds(supabaseEnv),
+      getStandingsExcludedRoundIds(supabaseEnv),
       getDriverClasses(supabaseEnv),
       getTeamsBasic(supabaseEnv),
       getAllTeamSeasonLogosSafe(supabaseEnv),

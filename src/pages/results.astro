@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, getPageBanners, formatDate } from '../lib/supabase';
-import { getRoundsForSeason, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
+import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -24,47 +24,62 @@ try {
 const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
 const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
 
-const requestedSeasonNumber = Astro.url.searchParams.get('season');
-const activeSeason =
-  seasons.find((s) => String(s.number) === requestedSeasonNumber) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+// Individually-flagged exhibition/test rounds (round_overrides) — as of
+// Logan's latest request these no longer show inline inside a real
+// championship season's own round list (they used to, with an opt-in "hide"
+// checkbox — see the git history for that older shape). They're hidden
+// there unconditionally now, and only reachable through these two pooled,
+// cross-season entries in the same season <select> below. Whole exhibition
+// SEASONS (the "Exhibitions" optgroup above) are unaffected by any of
+// this — selecting one of those already is its own filter, nothing of
+// its own to hide.
+const POOLED_FILTERS = ['exhibition-rounds', 'test-sessions'] as const;
+type PooledFilter = (typeof POOLED_FILTERS)[number];
+const requestedSeasonParam = Astro.url.searchParams.get('season');
+const activePooledFilter: PooledFilter | null = (POOLED_FILTERS as readonly string[]).includes(requestedSeasonParam ?? '')
+  ? (requestedSeasonParam as PooledFilter)
+  : null;
+
+const activeSeason = activePooledFilter
+  ? null
+  : seasons.find((s) => String(s.number) === requestedSeasonParam) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+
+// The exact `season` query value that reproduces whatever's currently
+// showing — threaded onto every round link below so the round detail
+// page's own "Back to Race Results" link (src/pages/results/[subsessionId].astro)
+// can return here to the same season/filter, not just whatever's current.
+const currentSeasonParam = activePooledFilter ?? (activeSeason ? String(activeSeason.number) : '');
 
 let rounds: Awaited<ReturnType<typeof getRoundsForSeason>> = [];
 let exhibitionRoundIds: Set<number> = new Set();
 let testRoundIds: Set<number> = new Set();
-if (!loadError && activeSeason) {
+// Only meaningful (and only computed) for a real season's own round list —
+// pooled cross-season filters below don't have a single season to number
+// rounds within, so they render each round's own season label instead.
+let displayRoundNumbers: Map<number, number | null> = new Map();
+
+if (!loadError && (activeSeason || activePooledFilter)) {
   try {
-    [rounds, exhibitionRoundIds, testRoundIds] = await Promise.all([
-      getRoundsForSeason(supabaseEnv, activeSeason.id),
-      getExhibitionRoundIds(supabaseEnv),
-      getTestRoundIds(supabaseEnv),
-    ]);
+    [exhibitionRoundIds, testRoundIds] = await Promise.all([getExhibitionRoundIds(supabaseEnv), getTestRoundIds(supabaseEnv)]);
+    if (activePooledFilter) {
+      const allRounds = await getAllRounds(supabaseEnv);
+      const pooledIds = activePooledFilter === 'exhibition-rounds' ? exhibitionRoundIds : testRoundIds;
+      rounds = allRounds.filter((r) => pooledIds.has(r.subsession_id));
+    } else if (activeSeason) {
+      const seasonRounds = await getRoundsForSeason(supabaseEnv, activeSeason.id);
+      // Numbered off the FULL season list (before the exhibition/test round
+      // filter below removes anything) so hiding those rounds doesn't shift
+      // every later championship round's own number.
+      displayRoundNumbers = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds);
+      rounds = isChampionshipSeason(activeSeason.name)
+        ? seasonRounds.filter((r) => !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id))
+        : seasonRounds; // a whole exhibition season: every round already belongs there, nothing to hide
+    }
   } catch (err) {
     console.error('Failed to load rounds:', err);
     loadError = true;
   }
 }
-
-// Displayed round numbers skip exhibitions entirely — see
-// computeDisplayRoundNumbers — so an exhibition round just shows the
-// "Exhibition" label instead of a "Round N" that would otherwise shift
-// every later round's number. Computed from the FULL round list, before
-// either filter below removes anything from what's actually rendered —
-// hiding exhibition/test rounds from view shouldn't renumber the
-// championship rounds still showing.
-const displayRoundNumbers = computeDisplayRoundNumbers(rounds, exhibitionRoundIds);
-
-// Opt-in hide filters — unchecked (i.e. show everything) is the default,
-// matching this page's existing behavior before either filter existed, so
-// nobody's view changes unless they actually check a box. Both checked
-// against the same round list computeDisplayRoundNumbers already used
-// above, not applied until after that numbering is settled.
-const hideExhibition = Astro.url.searchParams.get('hideExhibition') === '1';
-const hideTest = Astro.url.searchParams.get('hideTest') === '1';
-const visibleRounds = rounds.filter((r) => {
-  if (hideExhibition && exhibitionRoundIds.has(r.subsession_id)) return false;
-  if (hideTest && testRoundIds.has(r.subsession_id)) return false;
-  return true;
-});
 
 let bannerUrl: string | null = null;
 try {
@@ -109,36 +124,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   ))}
                 </optgroup>
               )}
+              <optgroup label="Other Rounds" class="bg-brand-ink text-white">
+                <option value="exhibition-rounds" selected={activePooledFilter === 'exhibition-rounds'} class="bg-brand-ink text-white">
+                  Exhibition Rounds
+                </option>
+                <option value="test-sessions" selected={activePooledFilter === 'test-sessions'} class="bg-brand-ink text-white">
+                  Test Sessions
+                </option>
+              </optgroup>
             </select>
             {activeSeason?.logo_url && (
               <img src={activeSeason.logo_url} alt="" class="h-9 w-9 flex-none rounded object-contain" />
             )}
           </div>
         </label>
-        <div class="mt-3 flex flex-wrap gap-x-5 gap-y-1.5">
-          <label class="flex items-center gap-2 text-sm text-white/60">
-            <input
-              type="checkbox"
-              name="hideExhibition"
-              value="1"
-              checked={hideExhibition}
-              onchange="this.form.submit()"
-              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
-            />
-            Hide exhibition rounds
-          </label>
-          <label class="flex items-center gap-2 text-sm text-white/60">
-            <input
-              type="checkbox"
-              name="hideTest"
-              value="1"
-              checked={hideTest}
-              onchange="this.form.submit()"
-              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
-            />
-            Hide test rounds
-          </label>
-        </div>
+        {activePooledFilter && (
+          <p class="mt-2 text-xs text-white/40">
+            {activePooledFilter === 'exhibition-rounds'
+              ? 'Every round flagged as a non-points exhibition, across every season — none of these count toward standings.'
+              : 'Every round flagged as a test session, across every season — none of these count toward standings.'}
+          </p>
+        )}
       </form>
     )}
 
@@ -146,24 +152,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <p class="mt-10 text-white/60">No results.</p>
     )}
 
-    {!loadError && rounds.length > 0 && visibleRounds.length === 0 && (
-      <p class="mt-10 text-white/60">No rounds match the current filters.</p>
-    )}
-
-    {!loadError && visibleRounds.length > 0 && (
+    {!loadError && rounds.length > 0 && (
       <div class="mt-8 divide-y divide-white/10 rounded-xl border border-white/10">
-        {visibleRounds.map((round) => {
+        {rounds.map((round) => {
           const displayNumber = displayRoundNumbers.get(round.subsession_id) ?? null;
-          const isExhibition = displayNumber === null;
+          const isExhibition = activePooledFilter ? exhibitionRoundIds.has(round.subsession_id) : displayNumber === null;
           const isTest = testRoundIds.has(round.subsession_id);
+          const titlePrefix = activePooledFilter
+            ? `${round.season_label ?? 'Exhibition'} — `
+            : isExhibition
+              ? 'Exhibition — '
+              : `Round ${displayNumber} — `;
           return (
           <a
-            href={`/results/${round.subsession_id}`}
+            href={`/results/${round.subsession_id}${currentSeasonParam ? `?season=${encodeURIComponent(currentSeasonParam)}` : ''}`}
             class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
           >
             <div>
               <p class="font-semibold">
-                {isExhibition ? 'Exhibition — ' : `Round ${displayNumber} — `}{round.track_name}
+                {titlePrefix}{round.track_name}
               </p>
               <p class="text-sm text-white/50">
                 {formatDate(round.start_time)}
@@ -171,6 +178,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </p>
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
+              {activePooledFilter === 'test-sessions' && isExhibition && (
+                <span class="rounded-lg bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink">
+                  Exhibition
+                </span>
+              )}
               {isTest && (
                 <span class="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white/60">
                   Test

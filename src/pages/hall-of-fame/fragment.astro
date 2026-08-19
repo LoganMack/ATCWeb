@@ -9,7 +9,7 @@ import {
   resolveSupabaseEnv,
   getDriverClasses,
   getSeasons,
-  getExhibitionRoundIds,
+  getStandingsExcludedRoundIds,
   getHallOfFameDrivers,
   getAllHallOfFamePhotos,
   displayDriverName,
@@ -41,7 +41,7 @@ try {
   const [classes, seasons, exhibitionRoundIds, hofDrivers] = await Promise.all([
     getDriverClasses(supabaseEnv),
     getSeasons(supabaseEnv),
-    getExhibitionRoundIds(supabaseEnv),
+    getStandingsExcludedRoundIds(supabaseEnv),
     getHallOfFameDrivers(supabaseEnv),
   ]);
   const bioById = new Map(hofDrivers.map((d) => [d.id, d.bio]));

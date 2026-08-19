@@ -3,7 +3,7 @@ export const prerender = false;
 
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getExhibitionRoundIds, displayDriverName } from '../../lib/supabase';
+import { resolveSupabaseEnv, getDriverClasses, getSeasons, getStandingsExcludedRoundIds, displayDriverName } from '../../lib/supabase';
 import { computeTeamCareerStats, type TeamCareerStats } from '../../lib/results';
 import { classBadgeClasses } from '../../lib/classColors';
 
@@ -28,7 +28,7 @@ try {
   const [classes, seasons, exhibitionRoundIds] = await Promise.all([
     getDriverClasses(supabaseEnv),
     getSeasons(supabaseEnv),
-    getExhibitionRoundIds(supabaseEnv),
+    getStandingsExcludedRoundIds(supabaseEnv),
   ]);
   careerStats = await computeTeamCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds);
 } catch (err) {

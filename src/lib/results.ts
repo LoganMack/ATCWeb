@@ -41,7 +41,7 @@
 import {
   restGet,
   restGetAll,
-  getExhibitionRoundIds,
+  getStandingsExcludedRoundIds,
   getCarLogos,
   getSeasons,
   getPenaltiesForSubsessions,
@@ -86,10 +86,15 @@ import {
  * rather than a schema flag — no existing column captures it, and the
  * naming convention already fully determines it.
  *
- * A round *inside* an otherwise-real championship season can also be a
- * non-points exhibition (e.g. a pre-season race) — that's handled
- * separately via the `round_overrides` table (see `getExhibitionRoundIds`
- * in src/lib/supabase.ts and 0005_round_overrides.sql).
+ * A round *inside* an otherwise-real championship season can also be
+ * individually flagged non-points — either a true exhibition or a test
+ * round, both stored independently on `round_overrides` (see
+ * `getExhibitionRoundIds`/`getTestRoundIds` in src/lib/supabase.ts and
+ * 0005_round_overrides.sql/0036_round_test_flag.sql). Test rounds follow
+ * the exact same "excluded from standings" rule exhibitions do — every
+ * function below that fetches its own default exclusion set uses
+ * `getStandingsExcludedRoundIds` (the union of both flags), not
+ * `getExhibitionRoundIds` alone.
  */
 export function isChampionshipSeason(seasonName: string): boolean {
   return /^ATC\d+$/i.test(seasonName.trim());
@@ -772,7 +777,7 @@ export async function computeSeasonStandings(
   const [scoresRaw, drivers, exhibitionIds, classes] = await Promise.all([
     precomputedScoresRaw ? Promise.resolve(precomputedScoresRaw) : getRaceScoresForSeasonClass(env, season.id, classId),
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
   ]);
   // Alpha's own scoring never includes the top-3-in-class Class Points
@@ -1043,7 +1048,7 @@ export async function computeOverallSeasonStandings(
 
   const [drivers, exhibitionIds] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
   ]);
 
   const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
@@ -1162,7 +1167,7 @@ export async function computeTeamSeasonStandings(
 
   const [drivers, exhibitionIds, teams, seasonLogoRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     teamsBasic ? Promise.resolve(teamsBasic) : getTeamsBasic(env),
     seasonLogoRowsParam ? Promise.resolve(seasonLogoRowsParam) : getAllTeamSeasonLogosSafe(env),
   ]);
@@ -1595,7 +1600,7 @@ export async function getSeasonDriverExtendedStats(
 
   const [drivers, exhibitionIds] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
   ]);
 
   const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
@@ -1796,7 +1801,7 @@ export async function getSeasonCarTeamStats(
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
     teamsBasic ? Promise.resolve(teamsBasic) : getTeamsBasic(env),
     carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     seasonLogoRowsParam ? Promise.resolve(seasonLogoRowsParam) : getAllTeamSeasonLogosSafe(env),
   ]);
 
@@ -1917,7 +1922,7 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
   // Champions page.
   const [drivers, exhibitionIds, classes, bulkScores, allRounds] = await Promise.all([
     driversSelect(env),
-    getExhibitionRoundIds(env),
+    getStandingsExcludedRoundIds(env),
     getDriverClasses(env),
     getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
     getAllRounds(env),
@@ -1996,7 +2001,7 @@ export async function getChampionsWithExtras(
 
   const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows] = await Promise.all([
     driversSelect(env),
-    getExhibitionRoundIds(env),
+    getStandingsExcludedRoundIds(env),
     getDriverClasses(env),
     getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
     getAllRounds(env),
@@ -2103,7 +2108,7 @@ export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], clas
 
   const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds] = await Promise.all([
     driversSelect(env),
-    getExhibitionRoundIds(env),
+    getStandingsExcludedRoundIds(env),
     getDriverClasses(env),
     getTeamsBasic(env),
     getAllTeamSeasonLogosSafe(env),
@@ -2312,7 +2317,7 @@ export async function computeDriverCareerStats(
   // season" at all — bulk-fetch across every season once, then filter.
   const [drivers, exhibitionIds, teams, carLogos, seasonLogoRows, circuits, layouts, bulkScores, allRounds] = await Promise.all([
     driversSelect(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getExhibitionRoundIds(env),
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     getTeamsBasic(env),
     getCarLogos(env),
     getAllTeamSeasonLogosSafe(env),
@@ -2874,16 +2879,20 @@ export async function getEventRound(env: SupabaseEnv, event: EventRecord): Promi
 
 /**
  * Recomputes each round's displayed "Round N" number, chronological within
- * the season, skipping any round that's an exhibition — either flagged
- * individually (`round_overrides`) or because the whole season isn't a
- * real championship (see `isChampionshipSeason`). Per Logan: flagging round
- * 1 as an exhibition should make round 2 become "Round 1", not leave a gap.
- * Returns null for an excluded round; the UI shows "Exhibition" instead of
- * "Round N" for those.
+ * the season, skipping any round that's an exhibition or a test session —
+ * either flagged individually (`round_overrides`) or, for exhibitions only,
+ * because the whole season isn't a real championship (see
+ * `isChampionshipSeason` — a test-flagged round is always inside an
+ * otherwise-real season, there's no such thing as a whole "test season").
+ * Per Logan: flagging round 1 as an exhibition (or a test) should make round
+ * 2 become "Round 1", not leave a gap — Test Sessions follow the exact same
+ * rule Exhibitions already did. Returns null for an excluded round; the UI
+ * shows "Exhibition"/"Test" instead of "Round N" for those.
  */
 export function computeDisplayRoundNumbers(
   rounds: RoundSummary[],
-  exhibitionRoundIds: Set<number>
+  exhibitionRoundIds: Set<number>,
+  testRoundIds: Set<number>
 ): Map<number, number | null> {
   const chronological = [...rounds].sort(
     (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
@@ -2891,9 +2900,11 @@ export function computeDisplayRoundNumbers(
   const out = new Map<number, number | null>();
   let counter = 0;
   for (const r of chronological) {
-    const exhibition =
-      exhibitionRoundIds.has(r.subsession_id) || (r.season_label ? !isChampionshipSeason(r.season_label) : false);
-    out.set(r.subsession_id, exhibition ? null : ++counter);
+    const excluded =
+      exhibitionRoundIds.has(r.subsession_id) ||
+      testRoundIds.has(r.subsession_id) ||
+      (r.season_label ? !isChampionshipSeason(r.season_label) : false);
+    out.set(r.subsession_id, excluded ? null : ++counter);
   }
   return out;
 }

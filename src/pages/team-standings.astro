@@ -9,7 +9,7 @@ import PageBanner from '../components/PageBanner.astro';
 import {
   resolveSupabaseEnv,
   getSeasons,
-  getExhibitionRoundIds,
+  getStandingsExcludedRoundIds,
   getDriverClasses,
   displayDriverName,
   getPageBanners,
@@ -75,7 +75,7 @@ if (!loadError && activeSeason && !deltaNotActiveForSeason) {
   try {
     const [driversBasic, exhibitionRoundIds, classes] = await Promise.all([
       driversSelect(supabaseEnv),
-      getExhibitionRoundIds(supabaseEnv),
+      getStandingsExcludedRoundIds(supabaseEnv),
       getDriverClasses(supabaseEnv),
     ]);
     const deltaClassId = view === 'delta' ? classes.find((c) => c.name === 'Delta')?.id : undefined;

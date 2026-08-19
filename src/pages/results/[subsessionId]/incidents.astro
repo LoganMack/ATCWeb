@@ -404,12 +404,20 @@ const DESCRIPTION_TRUNCATE_LENGTH = 30;
 const importedCount = Astro.url.searchParams.get('imported');
 const skippedCount = Astro.url.searchParams.get('skipped');
 
+// Whatever `season` the round detail page was showing (itself forwarded
+// from the Race Results list's season/filter dropdown — see
+// src/pages/results/[subsessionId].astro and results.astro) — carried back
+// through "Back to Results" so that page's own "Back to Race Results" link
+// still knows where to return to.
+const seasonParam = Astro.url.searchParams.get('season');
+const backToRoundHref = `/results/${subsessionId}${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
 <Layout title={round ? `Incident Report — ${round.track_name}` : 'Incident Report'} description="Every incident and penalty logged for this round.">
   <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
-    <a href={`/results/${subsessionId}`} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
+    <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
 
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">

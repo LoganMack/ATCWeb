@@ -164,14 +164,14 @@ const isExhibition = isRoundFlaggedExhibition || isSeasonExhibition;
 // is_exhibition) aren't mutually exclusive by design.
 const isTest = testRoundIds.has(subsessionId);
 
-// The displayed "Round N" skips exhibitions entirely (so flagging round 1
-// makes round 2 become "Round 1") — needs every round in this round's
-// season to compute, not just this one.
+// The displayed "Round N" skips exhibitions and test sessions entirely (so
+// flagging round 1 makes round 2 become "Round 1") — needs every round in
+// this round's season to compute, not just this one.
 let displayRoundNumber: number | null = null;
 if (!loadError && round) {
   try {
     const seasonRounds = await getRoundsForSeason(supabaseEnv, round.season_id);
-    displayRoundNumber = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds).get(subsessionId) ?? null;
+    displayRoundNumber = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds).get(subsessionId) ?? null;
   } catch (err) {
     console.error('Failed to compute round number:', err);
   }
@@ -182,6 +182,18 @@ if (!loadError && round) {
 // default — the per-class view is still available via ?view=class.
 const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
 const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
+
+// Whatever `season` value (a real season number, or one of results.astro's
+// pooled "exhibition-rounds"/"test-sessions" filter sentinels) the Race
+// Results list was showing when this round's link was clicked — carried
+// through every link below that returns to or stays within this round, so
+// "Back to Race Results" (and the Overall/Per Class/Incident Report tabs,
+// which shouldn't lose it either) land back on the same view instead of
+// always defaulting to the current season.
+const seasonParam = Astro.url.searchParams.get('season');
+const backHref = seasonParam ? `/results?season=${encodeURIComponent(seasonParam)}` : '/results';
+const seasonQuerySuffix = seasonParam ? `&season=${encodeURIComponent(seasonParam)}` : '';
+const incidentsHref = `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
 
 // How many points each driver actually contributed toward their team's
 // total for a given race — only the team's top 2 scorers that race count
@@ -211,7 +223,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 <Layout title={round ? round.track_name : 'Race Results'} description="Race-by-race results for this round.">
   <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
-    <a href="/results" class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
+    <a href={backHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -250,14 +262,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <span class="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white/60">
               Test
             </span>
-            <span class="text-white/40">Flagged as a test round — the Race Results list can filter these out.</span>
+            <span class="text-white/40">Flagged as a test round — find it via the Test Sessions filter on the Race Results list.</span>
           </p>
         )}
 
         <div class="mt-8 flex flex-wrap items-center justify-between gap-2">
           <div class="flex gap-2">
             <a
-              href={`/results/${subsessionId}?view=overall`}
+              href={`/results/${subsessionId}?view=overall${seasonQuerySuffix}`}
               class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
                 view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
               }`}
@@ -265,7 +277,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               Overall
             </a>
             <a
-              href={`/results/${subsessionId}?view=class`}
+              href={`/results/${subsessionId}?view=class${seasonQuerySuffix}`}
               class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
                 view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
               }`}
@@ -274,7 +286,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </a>
           </div>
           <a
-            href={`/results/${subsessionId}/incidents`}
+            href={incidentsHref}
             class="rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
           >
             Incident Report

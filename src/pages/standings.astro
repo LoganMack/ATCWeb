@@ -10,7 +10,7 @@ import {
   resolveSupabaseEnv,
   getDriverClasses,
   getSeasons,
-  getExhibitionRoundIds,
+  getStandingsExcludedRoundIds,
   displayDriverName,
   getPageBanners,
 } from '../lib/supabase';
@@ -81,7 +81,7 @@ let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
 if (!loadError && activeSeason) {
   try {
-    const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getExhibitionRoundIds(supabaseEnv)]);
+    const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
     // Built ONCE and shared across all three calls below instead of each
     // independently re-fetching its own copy (curated_race_results,
     // penalties, curated_rounds, lap stats) — this page used to rebuild

@@ -1048,10 +1048,29 @@ export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<numbe
   return new Set(rows.map((r) => r.subsession_id));
 }
 
-/** subsession_ids flagged as a test round (0036_round_test_flag.sql) — used by the results list page's Test filter, same shape as getExhibitionRoundIds. */
+/** subsession_ids flagged as a test round (0036_round_test_flag.sql) — used by the results list page's Test Sessions filter, same shape as getExhibitionRoundIds. */
 export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
   const rows = await restGet<{ subsession_id: number }[]>(env, 'round_overrides?select=subsession_id&is_test=eq.true');
   return new Set(rows.map((r) => r.subsession_id));
+}
+
+/**
+ * Union of exhibition- and test-flagged round ids — every round that should
+ * be excluded from season standings, champions, and career/team statistics.
+ * Per Logan: Test Sessions now follow the exact same "doesn't count toward
+ * the season" rule Exhibitions already did, even though the two flags stay
+ * independent (0036_round_test_flag.sql) for display purposes — the Race
+ * Results list still shows a separate "Exhibition" vs "Test" badge/filter
+ * for each. Everywhere in src/lib/results.ts that fetches
+ * `exhibitionRoundIds` to filter scores/standings uses this instead of
+ * `getExhibitionRoundIds` alone now; callers that need the true
+ * exhibition-only set for display (e.g. the round detail page's admin
+ * toggle buttons) keep calling `getExhibitionRoundIds`/`getTestRoundIds`
+ * separately.
+ */
+export async function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Set<number>> {
+  const [exhibition, test] = await Promise.all([getExhibitionRoundIds(env), getTestRoundIds(env)]);
+  return new Set([...exhibition, ...test]);
 }
 
 export async function getRoundOverride(env: SupabaseEnv, subsessionId: number) {
