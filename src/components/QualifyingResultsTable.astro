@@ -1,0 +1,70 @@
+---
+// One round's Qualifying results — unlike ResultsTable.astro (one instance
+// per real race number), there's only ever one of these per round, since
+// qualifying isn't split by race (see getQualifyingForSubsession in
+// src/lib/results.ts). Deliberately lean: no expand row, no penalty tag, no
+// points column at all — per Logan, qualifying/practice results replace the
+// Margin column with Best Lap and hide every points column outright, since
+// qualifying carries no points of its own.
+import type { QualifyingRow } from '../lib/results';
+import { displayDriverName } from '../lib/supabase';
+import { classBadgeClasses } from '../lib/classColors';
+import DriverFlag from './DriverFlag.astro';
+
+interface Props {
+  rows: QualifyingRow[];
+  showClass?: boolean;
+  classNameById?: Map<number, string>;
+}
+
+const { rows, showClass = false, classNameById } = Astro.props;
+---
+
+<div class="mt-6">
+  <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
+    <table class="w-full border-collapse">
+      <thead>
+        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+          <th class="py-3 pl-4 pr-2 font-medium">Pos</th>
+          <th class="py-3 pr-3 font-medium">Driver / Number</th>
+          {showClass && <th class="hidden py-3 pr-3 font-medium sm:table-cell">Class</th>}
+          <th class="py-3 pr-4 text-center font-medium">Best Lap</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr class={`border-b border-white/5 text-sm ${row.notInRoster ? 'opacity-50' : ''}`}>
+            <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
+              {row.qualPosition ?? '—'}
+            </td>
+            <td class="py-2.5 pr-3 font-semibold">
+              <div class="flex flex-wrap items-center gap-2">
+                <span>
+                  {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                </span>
+                <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                {row.notInRoster && (
+                  <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
+                    Driver not listed in roster
+                  </span>
+                )}
+              </div>
+            </td>
+            {showClass && (
+              <td class="hidden py-2.5 pr-3 sm:table-cell">
+                {row.classId !== null ? (
+                  <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById?.get(row.classId) ?? '')}`}>
+                    {classNameById?.get(row.classId) ?? '—'}
+                  </span>
+                ) : (
+                  <span class="text-white/30">—</span>
+                )}
+              </td>
+            )}
+            <td class="py-2.5 pr-4 text-center font-semibold">{row.bestLapFormatted}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>

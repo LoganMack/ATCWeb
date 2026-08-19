@@ -98,6 +98,7 @@ function readForm(form: FormData): Partial<DriverRecord> {
     on_probation: form.get('on_probation') === 'on',
     probation_started_at: String(form.get('probation_started_at') ?? '').trim() || null,
     is_hall_of_fame: form.get('is_hall_of_fame') === 'on',
+    is_ai: form.get('is_ai') === 'on',
     nationality_1: String(form.get('nationality_1') ?? '').trim() || null,
     // A second nationality only means anything once a first is set — clear
     // it too if the first was cleared, rather than leaving an orphaned
@@ -388,6 +389,7 @@ const d: Partial<DriverRecord> = driver ?? {
   class_id: classes[0]?.id,
   is_rookie: true,
   is_hall_of_fame: false,
+  is_ai: false,
   appearances: 0,
   starts: 0,
   seasons_count: 0,
@@ -651,6 +653,11 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" name="is_hall_of_fame" checked={d.is_hall_of_fame} />
           <span class="text-white/70">Hall of Fame member</span>
+        </label>
+
+        <label class="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="is_ai" checked={d.is_ai} />
+          <span class="text-white/70">AI driver (hidden from roster/standings/stats; visible only in the exhibition results they connect to)</span>
         </label>
 
         <div class="flex flex-col gap-1.5 text-sm sm:col-span-2">

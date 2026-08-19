@@ -153,14 +153,23 @@ export interface NewsPost {
  * relationship was found" error. Naming the FK constraint explicitly tells
  * it to use the direct one (a driver's current team), not the roster table.
  */
-export function getDrivers(env: SupabaseEnv) {
+/**
+ * `aiOnly` (default false) switches between the two mutually-exclusive
+ * views this ever needs: everyday drivers (`is_ai=eq.false` — every public
+ * page, and the admin Drivers list's default "All" tab) or exactly the
+ * AI-flagged rows (`is_ai=eq.true` — the admin Drivers list's "AI" tab
+ * only, see 0057_driver_ai_flag.sql). Never both at once — an AI row exists
+ * solely to satisfy an exhibition result's FK and is never meant to appear
+ * alongside real drivers anywhere this function is used.
+ */
+export function getDrivers(env: SupabaseEnv, { aiOnly = false }: { aiOnly?: boolean } = {}) {
   const select =
     'id,car_number,name,is_rookie,car,appearances,starts,seasons_count,' +
     'penalty_points,penalty_points_max,sign_up_date,on_probation,probation_started_at,nationality_1,nationality_2,' +
     'driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)';
   return restGet<Driver[]>(
     env,
-    `drivers?select=${encodeURIComponent(select)}&order=car_number.asc.nullslast`
+    `drivers?select=${encodeURIComponent(select)}&is_ai=eq.${aiOnly}&order=car_number.asc.nullslast`
   );
 }
 
@@ -502,6 +511,8 @@ export interface DriverRecord {
   probation_started_at: string | null; // 'YYYY-MM-DD'
   /** 0027_hall_of_fame.sql — toggled by an admin, powers the public /hall-of-fame page. See getHallOfFameDrivers(). */
   is_hall_of_fame: boolean;
+  /** 0057_driver_ai_flag.sql — marks this row as an AI-controlled entrant that exists only to satisfy an exhibition result's FK. Excluded by default everywhere (getDrivers/driversSelect) except getRoundResults()/getQualifyingForSubsession() and the admin Drivers list's "AI" filter tab. See src/lib/results.ts's driversSelect() for the full reasoning. */
+  is_ai: boolean;
   /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. */
   nationality_1: string | null;
   nationality_2: string | null;
@@ -516,7 +527,7 @@ export interface DriverRecord {
 
 const DRIVER_ADMIN_SELECT =
   'id,car_number,name,status_id,class_id,team_id,iracing_cust_id,is_rookie,car,appearances,starts,' +
-  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at,is_hall_of_fame,' +
+  'seasons_count,penalty_points,penalty_points_max,photo_url,bio,sign_up_date,on_probation,probation_started_at,is_hall_of_fame,is_ai,' +
   'nationality_1,nationality_2,starting_irating,created_at,updated_at,created_by,updated_by';
 
 export async function getDriverById(env: SupabaseEnv, id: string) {
@@ -836,7 +847,10 @@ export interface HallOfFameDriverInfo {
  * Stats row would.
  */
 export function getHallOfFameDrivers(env: SupabaseEnv) {
-  return restGet<HallOfFameDriverInfo[]>(env, 'drivers?select=id,bio&is_hall_of_fame=eq.true');
+  // &is_ai=eq.false is belt-and-suspenders (0057_driver_ai_flag.sql) — an AI
+  // row should never be HOF-flagged in the first place, but this keeps the
+  // public Hall of Fame page safe even if one ever is by mistake.
+  return restGet<HallOfFameDriverInfo[]>(env, 'drivers?select=id,bio&is_hall_of_fame=eq.true&is_ai=eq.false');
 }
 
 // --- News (admin) ------------------------------------------------------
@@ -1952,7 +1966,10 @@ export function deletePenaltyOffense(env: SupabaseEnv, accessToken: string, id: 
 export interface Penalty {
   id: string;
   subsession_id: number;
+  /** For session_type 'qualifying'/'practice' this is always the sentinel 0 — quali/practice aren't split by race, and race_number = 0 can never collide with a real race (curated_race_results.race_number is always 1-5). See session_type below and 0056_penalty_session_type.sql. */
   race_number: number;
+  /** 'race' (default) | 'qualifying' | 'practice' (0056_penalty_session_type.sql). Quali/practice incidents are informational-only — applyPenaltiesToRoundResults (src/lib/penalties.ts) never looks up race_number 0, so they can't affect any driver's position/points; the Incident Report page groups by this field instead of race_number alone so they get their own "Qualifying"/"Practice" sections. */
+  session_type: 'race' | 'qualifying' | 'practice';
   /** Null means "Racing Incident" — reviewed and judged nobody's fault, so no driver is attached (0020_penalty_racing_incident.sql). Shown as "RI" in the Incident Report's Driver column instead of a car number, and never affects anyone's position/points — the recalculation engine keys everything off driver_id, so a row with none can't touch any driver's result. */
   driver_id: string | null;
   incident_number: string | null;
@@ -1987,6 +2004,7 @@ interface PenaltyRow {
   id: string;
   subsession_id: number;
   race_number: number;
+  session_type: 'race' | 'qualifying' | 'practice';
   driver_id: string | null;
   incident_number: string | null;
   lap: number | null;
@@ -2006,7 +2024,7 @@ interface PenaltyRow {
 }
 
 const PENALTY_SELECT =
-  'id,subsession_id,race_number,driver_id,incident_number,lap,description,' +
+  'id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,' +
   'time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,' +
   'is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,' +
   'penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)';
@@ -2055,6 +2073,7 @@ export async function getPenaltiesForSubsessions(env: SupabaseEnv, subsessionIds
 export interface PenaltyInput {
   subsession_id: number;
   race_number: number;
+  session_type: 'race' | 'qualifying' | 'practice';
   /** Null for a Racing Incident (no driver at fault) — see Penalty.driver_id's own doc comment. */
   driver_id: string | null;
   incident_number: string | null;

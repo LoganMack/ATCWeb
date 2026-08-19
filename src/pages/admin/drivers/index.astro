@@ -132,10 +132,16 @@ try {
   console.error('Failed to sync rookie status:', err);
 }
 
+// All vs. AI — same plain query-string pill pattern as the Activity Log's
+// category filter (src/pages/admin/activity-log/index.astro). AI-flagged
+// drivers (0057_driver_ai_flag.sql) exist only to satisfy an exhibition
+// result's FK and are never mixed into the default "All" list.
+const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all';
+
 let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
 let loadError = false;
 try {
-  drivers = await getDrivers(supabaseEnv);
+  drivers = await getDrivers(supabaseEnv, { aiOnly: activeFilter === 'ai' });
 } catch (err) {
   console.error('Failed to load drivers for admin:', err);
   loadError = true;
@@ -269,7 +275,22 @@ try {
     </p>
   )}
 
-  <div class="reveal mt-8 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
+  <div class="reveal mt-8 flex flex-wrap gap-1.5" style="transition-delay: 60ms">
+    <a
+      href="/admin/drivers"
+      class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${activeFilter === 'all' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+    >
+      All
+    </a>
+    <a
+      href="/admin/drivers?filter=ai"
+      class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${activeFilter === 'ai' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+    >
+      AI
+    </a>
+  </div>
+
+  <div class="reveal mt-3 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
     <table class="w-full border-collapse" data-sortable>
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">

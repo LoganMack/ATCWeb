@@ -26,8 +26,8 @@
 // detail panel instead) — rows go back to a single fixed line each
 // (`h-8` is now only needed on Pos, for the post-penalty old/new position
 // stack).
-import { iracingResultsUrl, type RaceResultRow } from '../lib/results';
-import type { RaceLinks, Penalty } from '../lib/supabase';
+import type { RaceResultRow } from '../lib/results';
+import type { Penalty } from '../lib/supabase';
 import { displayDriverName } from '../lib/supabase';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
@@ -101,13 +101,10 @@ function positionChangeClass(row: RaceResultRow): string {
 }
 
 interface Props {
-  subsessionId: number;
   raceNumber: number;
   rows: RaceResultRow[];
   showClass?: boolean;
   classNameById?: Map<number, string>;
-  links?: RaceLinks | null;
-  isAdmin?: boolean;
   /** Every penalty logged anywhere in this round — filtered down to this race below. Passed unfiltered so callers don't need to slice it per race themselves. */
   penalties?: Penalty[];
   /** `${raceNumber}:${driverId}` -> points that driver actually contributed toward their team's total for that race (only the team's top 2 scorers each race count — see results.ts's topTeamScorers()) — computed once at the page level from the round's overall (cross-class) rows, since a driver's team contribution is the same fact whether this table is the Overall or Per Class view. Missing entry (not just 0) means either no team or not one of the top 2 that race. */
@@ -115,19 +112,19 @@ interface Props {
 }
 
 const {
-  subsessionId,
   raceNumber,
   rows,
   showClass = false,
   classNameById,
-  links,
-  isAdmin = false,
   penalties = [],
   teamPointsByRaceDriver,
 } = Astro.props;
 
-const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url || links.photo_album_url);
-const racePenalties = penalties.filter((p) => p.race_number === raceNumber);
+// racePenalties is filtered by session_type 'race' too — a stray
+// qualifying/practice penalty (race_number sentinel 0, never a real race
+// number) could never match raceNumber anyway, but the explicit check keeps
+// intent obvious here rather than relying on that coincidence.
+const racePenalties = penalties.filter((p) => p.session_type === 'race' && p.race_number === raceNumber);
 // A Racing Incident entry (driver_id null) can't be attached to any
 // driver's row here — it has no driver — so it's simply excluded from this
 // map; it still shows up on the Incident Report page.
@@ -142,110 +139,6 @@ for (const p of racePenalties) {
 <div class="mt-6">
   <div class="flex flex-wrap items-center justify-between gap-2">
     <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Race {raceNumber}</h3>
-
-    {(hasAnyLink || isAdmin) && (
-      <div class="flex flex-wrap items-center gap-2">
-        {links?.iracing_subsession_id && (
-          <a
-            href={iracingResultsUrl(links.iracing_subsession_id)}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-          >
-            iRacing Results
-          </a>
-        )}
-        {links?.replay_url && (
-          <a
-            href={links.replay_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-          >
-            Download Replay
-          </a>
-        )}
-        {links?.broadcast_url && (
-          <a
-            href={links.broadcast_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-          >
-            Watch Broadcast
-          </a>
-        )}
-        {links?.photo_album_url && (
-          <a
-            href={links.photo_album_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-          >
-            Photo Album
-          </a>
-        )}
-
-        {isAdmin && (
-          <details class="relative">
-            <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/50 ring-1 ring-white/10 transition hover:bg-white/10">
-              Edit links
-            </summary>
-            <form
-              method="POST"
-              data-astro-reload
-              class="absolute right-0 z-10 mt-2 flex w-64 flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-4 shadow-xl"
-            >
-              <input type="hidden" name="intent" value="save-race-links" />
-              <input type="hidden" name="subsession_id" value={subsessionId} />
-              <input type="hidden" name="race_number" value={raceNumber} />
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                iRacing subsession ID
-                <input
-                  type="number"
-                  name="iracing_subsession_id"
-                  value={links?.iracing_subsession_id ?? ''}
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                />
-              </label>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Replay download URL
-                <input
-                  type="url"
-                  name="replay_url"
-                  value={links?.replay_url ?? ''}
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                />
-              </label>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Broadcast video URL
-                <input
-                  type="url"
-                  name="broadcast_url"
-                  value={links?.broadcast_url ?? ''}
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                />
-              </label>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Photo album URL
-                <input
-                  type="url"
-                  name="photo_album_url"
-                  value={links?.photo_album_url ?? ''}
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                />
-              </label>
-              <button
-                type="submit"
-                class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
-              >
-                Save
-              </button>
-            </form>
-          </details>
-        )}
-      </div>
-    )}
   </div>
 
   <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">

@@ -168,11 +168,34 @@ export interface DriverBasic {
   /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. nationality_2 is only ever meaningful when nationality_1 is also set (dual nationality); a driver with just one nationality leaves nationality_2 null. */
   nationality_1: string | null;
   nationality_2: string | null;
+  /** 0057_driver_ai_flag.sql — an AI-controlled entrant that exists only to satisfy an exhibition result's FK. See driversSelect()'s own doc comment for how this is excluded/included. */
+  is_ai: boolean;
 }
 
-/** Exported so a caller needing MULTIPLE standings views for one season (e.g. the homepage's standings widget) can fetch this once and pass it as `driversBasic` to each call, same sharing reasoning as `getSeasonOverallContext`. */
-export function driversSelect(env: SupabaseEnv) {
-  return restGet<DriverBasic[]>(env, 'drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2');
+/**
+ * Exported so a caller needing MULTIPLE standings views for one season (e.g.
+ * the homepage's standings widget) can fetch this once and pass it as
+ * `driversBasic` to each call, same sharing reasoning as
+ * `getSeasonOverallContext`.
+ *
+ * `includeAi` (default false) excludes AI-flagged drivers (0057_driver_ai_flag.sql)
+ * from the returned driver map. That's correct for every standings/champions/
+ * career-stats/team-stats consumer of this function — an AI driver only ever
+ * appears in an exhibition round, which those computations already exclude
+ * from counted results, so leaving them out of the driver map costs nothing
+ * there. `getRoundResults()` and `getQualifyingForSubsession()` are the two
+ * exceptions: they pass `{ includeAi: true }` because a round-results page
+ * needs to resolve an AI driver's race_scores row to a REAL driver, not let
+ * it fall through to the synthetic "not in roster" path (see toUnrosteredRow) —
+ * the entire reason an AI driver's row exists is to appear correctly on the
+ * one exhibition round it raced in.
+ */
+export function driversSelect(env: SupabaseEnv, { includeAi = false }: { includeAi?: boolean } = {}) {
+  const aiFilter = includeAi ? '' : '&is_ai=eq.false';
+  return restGet<DriverBasic[]>(
+    env,
+    `drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai${aiFilter}`
+  );
 }
 
 function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId: number) {
@@ -3055,7 +3078,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames] = await Promise.all([
     restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
-    driversSelect(env),
+    driversSelect(env, { includeAi: true }),
     getTeamsBasic(env),
     getCarLogos(env),
     getRoundBySubsessionId(env, subsessionId),
@@ -3116,6 +3139,9 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     // score any points and are unclassified") — trusting that field here
     // instead of re-deriving the 50% threshold in app code.
     if (!score.classified) tags.push('Unclassified');
+    // 0057_driver_ai_flag.sql — flags this row as an AI-controlled entrant
+    // rather than letting it look like an unexplained/unfamiliar name.
+    if (driver.is_ai) tags.push('AI');
 
     return {
       raceNumber: score.race_number,
@@ -3191,6 +3217,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
         is_rookie: false,
         nationality_1: null,
         nationality_2: null,
+        is_ai: false,
       },
       finishPosition: raw.finish_position,
       startingPosition: raw.starting_position,
@@ -3318,6 +3345,108 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   }
 
   return { byClass, overall };
+}
+
+export interface QualifyingRow {
+  driver: DriverBasic;
+  /** From `race_scores.class_id` for this driver in this round — NOT `curated_qualifying.car_class_name` (an unverified text field never cross-checked against this app's class names). Null when this driver qualified but has no `race_scores` row anywhere in the round (e.g. DNS'd every race, or unrostered) — can't be placed in a per-class view, but still shown in Overall. */
+  classId: number | null;
+  qualPosition: number | null;
+  /** "1:42.512"-formatted best qualifying lap (see `formatLapTime`), from `curated_qualifying.best_lap_ten_thousandths`. "—" when the pipeline has no time for this driver. */
+  bestLapFormatted: string;
+  bestLapTenThousandths: number | null;
+  /** True for a cust_id in `curated_qualifying` with no matching `drivers` row — same concept as `RaceResultRow.notInRoster`, falls back to `curated_qualifying.display_name`. */
+  notInRoster: boolean;
+}
+
+interface CuratedQualifyingRow {
+  subsession_id: number;
+  cust_id: number;
+  display_name: string;
+  car_class_name: string | null;
+  qual_position: number | null;
+  best_lap_ten_thousandths: number | null;
+}
+
+/**
+ * One round's qualifying results — unlike race results, qualifying isn't
+ * split by race_number (curated_qualifying has no such column; it's one
+ * session per round), so there's no per-race grouping to do here, just
+ * Overall (every class combined, ranked by qual_position) and Per Class
+ * (the same rows filtered to one class and re-sorted by qual_position,
+ * mirroring how getRoundResults' per-class output re-derives from a raw
+ * position field rather than recomputing speed order from lap times).
+ */
+export async function getQualifyingForSubsession(
+  env: SupabaseEnv,
+  subsessionId: number
+): Promise<{ overall: QualifyingRow[]; byClass: Map<number, QualifyingRow[]> }> {
+  const [qualRows, drivers, classScores] = await Promise.all([
+    restGet<CuratedQualifyingRow[]>(
+      env,
+      `curated_qualifying?select=subsession_id,cust_id,display_name,car_class_name,qual_position,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`
+    ),
+    driversSelect(env, { includeAi: true }),
+    restGet<{ driver_id: string; class_id: number }[]>(
+      env,
+      `race_scores?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
+    ),
+  ]);
+
+  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  // First class_id seen per driver in this round — a driver's class doesn't
+  // change race-to-race within one round, so any race_scores row for them
+  // here is as good as another.
+  const classIdByDriverId = new Map<string, number>();
+  for (const s of classScores) {
+    if (!classIdByDriverId.has(s.driver_id)) classIdByDriverId.set(s.driver_id, s.class_id);
+  }
+
+  const rows: QualifyingRow[] = qualRows.map((q) => {
+    const driver = driverByCustId.get(q.cust_id);
+    const bestLapSeconds = q.best_lap_ten_thousandths !== null ? q.best_lap_ten_thousandths / 10000 : null;
+    if (!driver) {
+      return {
+        driver: {
+          id: `unrostered:${q.cust_id}`,
+          name: q.display_name,
+          car_number: null,
+          photo_url: null,
+          iracing_cust_id: q.cust_id,
+          is_rookie: false,
+          nationality_1: null,
+          nationality_2: null,
+          is_ai: false,
+        },
+        classId: null,
+        qualPosition: q.qual_position,
+        bestLapFormatted: formatLapTime(bestLapSeconds),
+        bestLapTenThousandths: q.best_lap_ten_thousandths,
+        notInRoster: true,
+      };
+    }
+    return {
+      driver,
+      classId: classIdByDriverId.get(driver.id) ?? null,
+      qualPosition: q.qual_position,
+      bestLapFormatted: formatLapTime(bestLapSeconds),
+      bestLapTenThousandths: q.best_lap_ten_thousandths,
+      notInRoster: false,
+    };
+  });
+
+  const byPos = (a: QualifyingRow, b: QualifyingRow) => (a.qualPosition ?? Infinity) - (b.qualPosition ?? Infinity);
+  const overall = [...rows].sort(byPos);
+
+  const byClass = new Map<number, QualifyingRow[]>();
+  for (const row of rows) {
+    if (row.classId === null) continue;
+    if (!byClass.has(row.classId)) byClass.set(row.classId, []);
+    byClass.get(row.classId)!.push(row);
+  }
+  for (const classRows of byClass.values()) classRows.sort(byPos);
+
+  return { overall, byClass };
 }
 
 // ---------------------------------------------------------------------------

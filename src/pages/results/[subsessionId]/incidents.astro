@@ -2,10 +2,11 @@
 export const prerender = false;
 
 // v0.16: the Incident Report — every penalty/incident logged for one round,
-// broken apart per race (same pattern as the results page's per-race
-// tables), replacing both the old external "Incident Report URL" link and
-// the old per-row expand-to-reveal panel on the results page. All penalty
-// add/edit/remove lives here instead of on the results page
+// broken apart per session (each real race, plus Qualifying/Practice as a
+// whole — see 0056_penalty_session_type.sql), same pattern as the results
+// page's per-race tables, replacing both the old external "Incident Report
+// URL" link and the old per-row expand-to-reveal panel on the results page.
+// All penalty add/edit/remove lives here instead of on the results page
 // (src/pages/results/[subsessionId].astro), which is read-only for
 // penalties as of this version.
 import Layout from '../../../layouts/Layout.astro';
@@ -66,7 +67,18 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   const roundLabel = roundForLog ? `${roundForLog.track_name} (${formatDate(roundForLog.start_time)})` : `Round ${subsessionId}`;
 
   if (intent === 'add-incident' || intent === 'update-incident') {
-    const raceNumber = Number(form.get('race_number'));
+    // The Session field's value encodes both what kind of session this
+    // incident happened in and (for a real race) which one — "race:2",
+    // "qualifying:0", "practice:0". Qualifying/practice always carry the
+    // race_number sentinel 0 (see 0056_penalty_session_type.sql) — it can
+    // never collide with a real race (curated_race_results.race_number is
+    // always 1-5), which is why applyPenaltiesToRoundResults naturally never
+    // applies these to anyone's position/points.
+    const [sessionTypeRaw, raceNumberRaw] = String(form.get('session') ?? '').split(':');
+    const sessionType: 'race' | 'qualifying' | 'practice' =
+      sessionTypeRaw === 'qualifying' || sessionTypeRaw === 'practice' ? sessionTypeRaw : 'race';
+    const raceNumber = sessionType === 'race' ? Number(raceNumberRaw) : 0;
+    const isRaceSession = sessionType === 'race';
     // The Driver field's default option is a disabled blank placeholder
     // (value="") so a driver must always be actively chosen — "racing_incident"
     // is the sentinel for the "Racing Incident (no driver at fault)" choice,
@@ -86,14 +98,19 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     const data: PenaltyInput = {
       subsession_id: subsessionId,
       race_number: raceNumber,
+      session_type: sessionType,
       driver_id: driverId,
       incident_number: strOrNullField(form, 'incident_number'),
       lap: numOrNullField(form, 'lap'),
       description: strOrNullField(form, 'description'),
-      time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
-      points_penalty: numOrZeroField(form, 'points_penalty'),
-      penalty_points: numOrZeroField(form, 'penalty_points'),
-      is_warning: driverId ? form.get('is_warning') === 'on' : false,
+      // Qualifying/practice incidents are informational only — no position
+      // or points to affect, so these are always zeroed server-side
+      // regardless of what the form submitted, same defense-in-depth
+      // pattern as the Racing-Incident offense/warning stripping above.
+      time_penalty_seconds: isRaceSession ? numOrNullField(form, 'time_penalty_seconds') : null,
+      points_penalty: isRaceSession ? numOrZeroField(form, 'points_penalty') : 0,
+      penalty_points: isRaceSession ? numOrZeroField(form, 'penalty_points') : 0,
+      is_warning: isRaceSession && driverId ? form.get('is_warning') === 'on' : false,
       is_appealed: form.get('is_appealed') === 'on',
       appeal_result: strOrNullField(form, 'appeal_result'),
       appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
@@ -114,10 +131,11 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
         }
       }
       if (driverId) await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
+      const sessionLabel = isRaceSession ? `Race ${raceNumber}` : sessionType === 'qualifying' ? 'Qualifying' : 'Practice';
       await logActivity(supabaseEnv, accessToken, actor, {
         action: intent === 'add-incident' ? 'add' : 'edit',
         entity_type: 'incident',
-        entity_label: `${roundLabel} — Race ${raceNumber}${data.incident_number ? ` #${data.incident_number}` : ''}`,
+        entity_label: `${roundLabel} — ${sessionLabel}${data.incident_number ? ` #${data.incident_number}` : ''}`,
         entity_id: savedPenaltyId,
       });
     } catch (err) {
@@ -215,6 +233,11 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
           const data: PenaltyInput = {
             subsession_id: subsessionId,
             race_number: raceNumber,
+            // The CSV importer only ever handles real-race incidents today
+            // (its columns are race_number/driver_car_number-based, with no
+            // session-type column) — Logan hasn't asked to extend it to
+            // qualifying/practice, so those stay a form-only path for now.
+            session_type: 'race',
             driver_id: driver.id,
             incident_number: get(row, 'incident_number') || null,
             lap: lapRaw ? Number(lapRaw) : null,
@@ -364,6 +387,21 @@ const roundDrivers = [...driverById.values()].sort((a, b) => (a.car_number ?? In
 const raceNumbers = [...originalResults.overall.keys()].sort((a, b) => a - b);
 const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
 
+// Every loggable session for this round's dialog/grouping — every real race,
+// plus Qualifying and Practice (session_type sentinel race_number 0, see
+// 0056_penalty_session_type.sql), independent of whether Qualifying/Practice
+// have any imported results data at all (Logan: incident logging shouldn't
+// depend on that).
+const sessionOptions: { value: string; label: string }[] = [
+  ...raceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
+  { value: 'qualifying:0', label: 'Qualifying' },
+  { value: 'practice:0', label: 'Practice' },
+];
+const sessionLabelByValue = new Map(sessionOptions.map((o) => [o.value, o.label]));
+function sessionKey(p: Penalty): string {
+  return `${p.session_type}:${p.race_number}`;
+}
+
 /** "#04, #12" — car numbers only, sorted by car number, for every car tagged as involved. */
 function involvedSummary(p: Penalty): string | null {
   if (p.involved_driver_ids.length === 0) return null;
@@ -379,7 +417,12 @@ function incidentNumberSortValue(p: Penalty): number {
   return Number.isFinite(n) ? n : Infinity;
 }
 
+// session_type sorts race < qualifying < practice (matches sessionOptions'
+// own order) before falling back to race_number, so grouping below stays in
+// that same order without a second sort pass.
+const SESSION_TYPE_SORT_ORDER: Record<Penalty['session_type'], number> = { race: 0, qualifying: 1, practice: 2 };
 const sortedPenalties = [...penalties].sort((a, b) => {
+  if (a.session_type !== b.session_type) return SESSION_TYPE_SORT_ORDER[a.session_type] - SESSION_TYPE_SORT_ORDER[b.session_type];
   if (a.race_number !== b.race_number) return a.race_number - b.race_number;
   const numA = incidentNumberSortValue(a);
   const numB = incidentNumberSortValue(b);
@@ -389,14 +432,16 @@ const sortedPenalties = [...penalties].sort((a, b) => {
   return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
 });
 
-// Broken apart per race, same pattern as the results page's per-race
-// tables — a race with no incidents logged just doesn't get a section.
-const penaltiesByRace = new Map<number, Penalty[]>();
+// Broken apart per session (race, or Qualifying/Practice as a whole), same
+// pattern as the results page's per-race tables — a session with no
+// incidents logged just doesn't get a section.
+const penaltiesBySession = new Map<string, Penalty[]>();
 for (const p of sortedPenalties) {
-  if (!penaltiesByRace.has(p.race_number)) penaltiesByRace.set(p.race_number, []);
-  penaltiesByRace.get(p.race_number)!.push(p);
+  const key = sessionKey(p);
+  if (!penaltiesBySession.has(key)) penaltiesBySession.set(key, []);
+  penaltiesBySession.get(key)!.push(p);
 }
-const raceNumbersWithIncidents = raceNumbers.filter((n) => penaltiesByRace.has(n));
+const sessionKeysWithIncidents = sessionOptions.map((o) => o.value).filter((key) => penaltiesBySession.has(key));
 
 /** Descriptions longer than this many characters are cut off with a trailing ellipsis behind a "Show more" toggle — a hard character limit rather than CSS truncation, so the cell can never stretch wider than this regardless of how long the underlying text is. */
 const DESCRIPTION_TRUNCATE_LENGTH = 30;
@@ -488,9 +533,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         {sortedPenalties.length === 0 && <p class="mt-10 text-white/60">No incidents logged for this round.</p>}
 
-        {raceNumbersWithIncidents.map((raceNumber) => (
+        {sessionKeysWithIncidents.map((key) => (
           <div class="mt-10">
-            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Race {raceNumber}</h3>
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{sessionLabelByValue.get(key)}</h3>
             <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
               <table class="w-full border-collapse">
                 <thead>
@@ -509,7 +554,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   </tr>
                 </thead>
                 <tbody>
-                  {penaltiesByRace.get(raceNumber)!.map((p) => {
+                  {penaltiesBySession.get(key)!.map((p) => {
                     const driver = p.driver_id ? driverById.get(p.driver_id) : undefined;
                     const { positionDelta, pointsDelta } = deltaFor(p);
                     const time = effectiveTimePenaltySeconds(p);
@@ -597,7 +642,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                   data-edit-incident
                                   data-incident={JSON.stringify({
                                     id: p.id,
-                                    race_number: p.race_number,
+                                    session: sessionKey(p),
                                     driver_id: p.driver_id,
                                     incident_number: p.incident_number,
                                     lap: p.lap,
@@ -656,17 +701,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
               <div class="grid grid-cols-2 gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Race
+                  Session
                   <select
-                    name="race_number"
-                    data-incident-race-field
-                    required={raceNumbers.length > 1}
+                    name="session"
+                    data-incident-session-field
+                    required
                     class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                   >
-                    {raceNumbers.length > 1 && (
-                      <option value="" selected disabled hidden class="bg-brand-ink text-white">Select race…</option>
-                    )}
-                    {raceNumbers.map((n) => <option value={n} class="bg-brand-ink text-white">Race {n}</option>)}
+                    <option value="" selected disabled hidden class="bg-brand-ink text-white">Select session…</option>
+                    {sessionOptions.map((o) => <option value={o.value} class="bg-brand-ink text-white">{o.label}</option>)}
                   </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
@@ -812,10 +855,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //     incident-dialog] / [data-edit-incident] / [data-appeal-checkbox] /
   //     [data-close-incident-dialog]) — same pattern as before, just no
   //     longer scoped to one race's row since this dialog picks its own
-  //     race/driver.
-  //   - [data-fault-only] — the offenses fieldset and warning checkbox,
-  //     hidden (and cleared) whenever the Driver field's "Racing Incident"
-  //     option is selected (empty value — see 0020_penalty_racing_incident.sql).
+  //     session/driver.
+  //   - [data-fault-only] — the offenses fieldset, warning checkbox, and PP/
+  //     time/points penalty inputs, hidden (and cleared) whenever the Driver
+  //     field's "Racing Incident" option is selected (see
+  //     0020_penalty_racing_incident.sql) OR the Session field isn't a real
+  //     race (Qualifying/Practice incidents are informational only — see
+  //     0056_penalty_session_type.sql).
   //   - [data-desc-toggle] — expands/collapses a long description.
   //   - [data-appeal-toggle] — reveals/hides that incident's appeal notes.
   function initIncidentPage() {
@@ -848,27 +894,36 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const form = dialog.querySelector('form')!;
     const intentField = dialog.querySelector<HTMLInputElement>('[data-incident-intent-field]')!;
     const idField = dialog.querySelector<HTMLInputElement>('[data-incident-id-field]')!;
-    const raceField = dialog.querySelector<HTMLSelectElement>('[data-incident-race-field]')!;
+    const sessionField = dialog.querySelector<HTMLSelectElement>('[data-incident-session-field]')!;
     const driverField = dialog.querySelector<HTMLSelectElement>('[data-incident-driver-field]')!;
     const heading = dialog.querySelector('[data-incident-heading]')!;
     const appealCheckbox = dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!;
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
     // Everything that only makes sense when a specific driver is actually
-    // at fault — offenses (rulebook section 5), the warning checkbox, and
-    // the penalty inputs (PP, time penalty, points penalty) — hidden once
-    // "Racing Incident" (the driver select's "racing_incident" sentinel
-    // option) is picked. See 0020_penalty_racing_incident.sql.
+    // at fault in a real race — offenses (rulebook section 5), the warning
+    // checkbox, and the penalty inputs (PP, time penalty, points penalty) —
+    // hidden once "Racing Incident" (the driver select's "racing_incident"
+    // sentinel option, see 0020_penalty_racing_incident.sql) is picked, OR
+    // once Qualifying/Practice is picked (informational only, see
+    // 0056_penalty_session_type.sql).
     const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
     // The blank placeholder option ("Select driver…") is disabled/unselectable
     // once the user has interacted with the field — only used as the default
     // so nothing is pre-selected. Treat it the same as "no driver chosen yet"
     // for fault-field visibility, same as "racing_incident" itself.
     const isDriverChosen = (value: string) => value !== '' && value !== 'racing_incident';
+    // Qualifying/practice incidents are informational only — no position or
+    // points to affect (see 0056_penalty_session_type.sql) — so the PP/time/
+    // points/warning inputs only make sense once a real race is selected,
+    // same reasoning as isDriverChosen above.
+    const isRaceSessionChosen = (value: string) => value.startsWith('race:');
+    function faultFieldsShouldBeVisible() {
+      return isDriverChosen(driverField.value) && isRaceSessionChosen(sessionField.value);
+    }
 
     // The four "core" fields that must be filled in before the rest of the
-    // form is even shown — Race is only required when the round has more
-    // than one race (server only renders `required` on the select in that
-    // case, so `raceField.required` reflects that at runtime).
+    // form is even shown — Session is always required now (a real race,
+    // Qualifying, or Practice must always be explicitly chosen).
     const numberField = dialog.querySelector<HTMLInputElement>('[data-incident-number-field]')!;
     const lapField = dialog.querySelector<HTMLInputElement>('[data-incident-lap-field]')!;
     const missingFieldsEl = dialog.querySelector<HTMLElement>('[data-incident-missing-fields]')!;
@@ -899,12 +954,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       }
     }
 
-    // Race, Driver, Incident #, and Lap are the "core" fields — until all
+    // Session, Driver, Incident #, and Lap are the "core" fields — until all
     // of them are filled in, the rest of the form stays hidden and Save
     // stays disabled, with a message telling the user what's still missing.
     function updateFormValidity() {
       const missing: string[] = [];
-      if (raceField.required && !raceField.value) missing.push('Race');
+      if (!sessionField.value) missing.push('Session');
       if (!isDriverChosen(driverField.value)) missing.push('Driver');
       if (!numberField.value.trim()) missing.push('Incident #');
       if (!lapField.value.trim()) missing.push('Lap');
@@ -917,8 +972,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     }
 
     appealCheckbox.addEventListener('change', () => setAppealFieldsVisible(appealCheckbox.checked));
-    driverField.addEventListener('change', () => setFaultFieldsVisible(isDriverChosen(driverField.value)));
-    raceField.addEventListener('change', updateFormValidity);
+    driverField.addEventListener('change', () => setFaultFieldsVisible(faultFieldsShouldBeVisible()));
+    sessionField.addEventListener('change', () => setFaultFieldsVisible(faultFieldsShouldBeVisible()));
+    sessionField.addEventListener('change', updateFormValidity);
     driverField.addEventListener('change', updateFormValidity);
     numberField.addEventListener('input', updateFormValidity);
     lapField.addEventListener('input', updateFormValidity);
@@ -931,10 +987,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         heading.textContent = 'Add Incident';
         setAppealFieldsVisible(false);
         // form.reset() restores the blank placeholder (its `selected`
-        // attribute) — Driver starts unselected on every new Add, per Logan.
-        setFaultFieldsVisible(isDriverChosen(driverField.value));
+        // attribute) — Driver and Session both start unselected on every new
+        // Add, per Logan.
+        setFaultFieldsVisible(faultFieldsShouldBeVisible());
         // Nothing is filled in yet on a fresh Add — form starts collapsed
-        // with Save disabled until Race/Driver/Incident #/Lap are set.
+        // with Save disabled until Session/Driver/Incident #/Lap are set.
         updateFormValidity();
         dialog.showModal();
       });
@@ -947,7 +1004,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         intentField.value = 'update-incident';
         idField.value = p.id;
         heading.textContent = 'Edit Incident';
-        raceField.value = String(p.race_number);
+        sessionField.value = p.session;
         driverField.value = p.driver_id ?? 'racing_incident';
 
         const set = (name: string, value: string) => {
@@ -978,7 +1035,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           cb.checked = (p.involved_driver_ids ?? []).includes(cb.value);
         });
 
-        setFaultFieldsVisible(isDriverChosen(driverField.value));
+        setFaultFieldsVisible(faultFieldsShouldBeVisible());
         // Existing incidents already have their core fields filled in, so
         // this should immediately expand the rest of the form and enable Save.
         updateFormValidity();
