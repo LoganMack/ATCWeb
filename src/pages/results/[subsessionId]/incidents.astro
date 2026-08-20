@@ -688,7 +688,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <dialog
             id="incident-dialog"
             data-incident-dialog
-            class="w-full max-w-lg rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+            class="w-full max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
           >
             <form method="POST" data-astro-reload class="flex max-h-[85vh] flex-col gap-3 overflow-y-auto p-5">
               <input type="hidden" name="intent" data-incident-intent-field value="add-incident" />
@@ -701,16 +701,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
               <div class="grid grid-cols-2 gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Session
-                  <select
-                    name="session"
-                    data-incident-session-field
-                    required
-                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                  >
-                    <option value="" selected disabled hidden class="bg-brand-ink text-white">Select session…</option>
-                    {sessionOptions.map((o) => <option value={o.value} class="bg-brand-ink text-white">{o.label}</option>)}
-                  </select>
+                  Incident #
+                  <input type="text" name="incident_number" data-incident-number-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Driver
@@ -734,8 +726,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
               <div class="grid grid-cols-2 gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Incident #
-                  <input type="text" name="incident_number" data-incident-number-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  Session
+                  <select
+                    name="session"
+                    data-incident-session-field
+                    required
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  >
+                    <option value="" selected disabled hidden class="bg-brand-ink text-white">Select session…</option>
+                    {sessionOptions.map((o) => <option value={o.value} class="bg-brand-ink text-white">{o.label}</option>)}
+                  </select>
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Lap
@@ -751,12 +751,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <textarea name="description" rows="2" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"></textarea>
                 </label>
 
-                <label data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Penalty points (PP)
-                  <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-                </label>
-
-                <div data-fault-only class="grid grid-cols-2 gap-3">
+                <div data-fault-only class="grid grid-cols-3 gap-3">
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Penalty points (PP)
+                    <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  </label>
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
                     Time penalty (seconds)
                     <input type="number" step="0.001" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
@@ -767,14 +766,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   </label>
                 </div>
 
-                <label data-fault-only class="flex items-center gap-2 text-xs text-white/70">
-                  <input type="checkbox" name="is_warning" />
-                  This is a warning (rulebook: 2 warnings escalates to +1 PP)
-                </label>
-
                 <label class="flex items-center gap-2 text-xs text-white/70">
                   <input type="checkbox" name="is_appealed" data-appeal-checkbox />
-                  This penalty was appealed
+                  Appealed
                 </label>
 
                 <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-white/5 p-3">
@@ -787,7 +781,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                     ></textarea>
                   </label>
-                  <div class="grid grid-cols-2 gap-3">
+                  <div class="grid grid-cols-3 gap-3">
+                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                      New penalty points (PP)
+                      <input type="number" name="appeal_penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    </label>
                     <label class="flex flex-col gap-1 text-[11px] text-white/50">
                       New time penalty (seconds)
                       <input type="number" step="0.001" name="appeal_time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
@@ -797,33 +795,32 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <input type="number" name="appeal_points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                     </label>
                   </div>
-                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    New penalty points (PP)
-                    <input type="number" name="appeal_penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-                  </label>
                   <p class="text-[11px] text-white/30">
-                    These replace the original time/points/PP everywhere (this race's results, season standings, season
-                    PP) once appealed — the original values above stay on record but stop being applied.
+                    These values replace the original values, which stay on record but stop being applied.
                   </p>
                 </div>
 
                 <fieldset data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
                   <legend class="mb-1">Offenses (rulebook section 5)</legend>
-                  <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-                    {offenses.length === 0 && <span class="text-white/30">No offenses configured — add some at /admin/site-properties.</span>}
+                  <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                    {offenses.length === 0 && <span class="col-span-2 text-white/30">No offenses configured — add some at /admin/site-properties.</span>}
                     {offenses.map((o) => (
                       <label class="flex items-center gap-2 text-xs text-white/70">
                         <input type="checkbox" name="offense_ids" value={o.id} />
                         {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
                       </label>
                     ))}
+                    <label class="col-span-2 flex items-center gap-2 border-t border-white/10 pt-1.5 text-xs text-white/70">
+                      <input type="checkbox" name="is_warning" />
+                      This is a warning (rulebook: 2 warnings escalates to +1 PP)
+                    </label>
                   </div>
                 </fieldset>
 
                 <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
                   <legend class="mb-1">Involved</legend>
-                  <div class="flex max-h-32 flex-col gap-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-                    {roundDrivers.length === 0 && <span class="text-white/30">No drivers in this round.</span>}
+                  <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                    {roundDrivers.length === 0 && <span class="col-span-2 text-white/30">No drivers in this round.</span>}
                     {roundDrivers.map((d) => (
                       <label class="flex items-center gap-2 text-xs text-white/70">
                         <input type="checkbox" name="involved_driver_ids" value={d.id} />
@@ -909,16 +906,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
     // The blank placeholder option ("Select driver…") is disabled/unselectable
     // once the user has interacted with the field — only used as the default
-    // so nothing is pre-selected. Treat it the same as "no driver chosen yet"
-    // for fault-field visibility, same as "racing_incident" itself.
-    const isDriverChosen = (value: string) => value !== '' && value !== 'racing_incident';
+    // so nothing is pre-selected. "racing_incident" (Racing Incident, no
+    // driver at fault, 0020_penalty_racing_incident.sql) is a fully valid,
+    // deliberate choice — it just isn't a FAULT driver. Two separate checks:
+    // isDriverSelected (anything but the blank placeholder — used for the
+    // core-fields validity check below, so picking Racing Incident correctly
+    // counts as "Driver" being filled in) and isFaultDriver (excludes
+    // "racing_incident" too — used only to decide whether the fault-only
+    // fields make sense to show).
+    const isDriverSelected = (value: string) => value !== '';
+    const isFaultDriver = (value: string) => value !== '' && value !== 'racing_incident';
     // Qualifying/practice incidents are informational only — no position or
     // points to affect (see 0056_penalty_session_type.sql) — so the PP/time/
     // points/warning inputs only make sense once a real race is selected,
-    // same reasoning as isDriverChosen above.
+    // same reasoning as isFaultDriver above.
     const isRaceSessionChosen = (value: string) => value.startsWith('race:');
     function faultFieldsShouldBeVisible() {
-      return isDriverChosen(driverField.value) && isRaceSessionChosen(sessionField.value);
+      return isFaultDriver(driverField.value) && isRaceSessionChosen(sessionField.value);
     }
 
     // The four "core" fields that must be filled in before the rest of the
@@ -960,7 +964,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     function updateFormValidity() {
       const missing: string[] = [];
       if (!sessionField.value) missing.push('Session');
-      if (!isDriverChosen(driverField.value)) missing.push('Driver');
+      if (!isDriverSelected(driverField.value)) missing.push('Driver');
       if (!numberField.value.trim()) missing.push('Incident #');
       if (!lapField.value.trim()) missing.push('Lap');
 
