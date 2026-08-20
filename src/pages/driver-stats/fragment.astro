@@ -163,7 +163,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           <tr class="border-b border-white/5">
                             <td class="py-2 pr-3 font-semibold text-white/90">
                               <span class="inline-flex items-center gap-1.5">
-                                {r.classPosition === 1 && <TrophyIcon title="Class champion" />}
+                                <span class="inline-flex w-3.5 shrink-0 justify-center">
+                                  {r.classPosition === 1 && <TrophyIcon title="Class champion" />}
+                                </span>
                                 {r.season.name}
                               </span>
                             </td>
