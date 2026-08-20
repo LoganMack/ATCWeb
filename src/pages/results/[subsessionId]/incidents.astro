@@ -94,6 +94,20 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     // "Racing Incident" is picked, but this is the authoritative guard).
     const offenseIds = driverId ? form.getAll('offense_ids').map(String) : [];
     const involvedDriverIds = form.getAll('involved_driver_ids').map(String);
+    // Penalty points and the warning flag now come from one dropdown
+    // (data-incident-pp-field) instead of a separate number input + "is a
+    // warning" checkbox — "warning" is the sentinel for the Warning entry
+    // (rulebook: 2 warnings escalates to +1 PP, hence no numeric PP value of
+    // its own — stored as penalty_points 0), a blank value is "no PP/warning
+    // assigned" (also stored as 0, matching the old field's blank-means-0
+    // default), and 1-7 is a literal PP award. The two are still stored as
+    // the same is_warning/penalty_points columns as before this change —
+    // see 0059_penalty_points_warning_dropdown.sql for the one-time cleanup
+    // that made every existing is_warning row's penalty_points exactly 0, so
+    // this mutually-exclusive reading is safe for every pre-existing row too.
+    const penaltyPointsChoice = String(form.get('penalty_points_choice') ?? '');
+    const isWarningChoice = penaltyPointsChoice === 'warning';
+    const penaltyPointsValue = isWarningChoice ? 0 : Number(penaltyPointsChoice) || 0;
 
     const data: PenaltyInput = {
       subsession_id: subsessionId,
@@ -109,8 +123,8 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
       // pattern as the Racing-Incident offense/warning stripping above.
       time_penalty_seconds: isRaceSession ? numOrNullField(form, 'time_penalty_seconds') : null,
       points_penalty: isRaceSession ? numOrZeroField(form, 'points_penalty') : 0,
-      penalty_points: isRaceSession ? numOrZeroField(form, 'penalty_points') : 0,
-      is_warning: isRaceSession && driverId ? form.get('is_warning') === 'on' : false,
+      penalty_points: isRaceSession ? penaltyPointsValue : 0,
+      is_warning: isRaceSession && driverId ? isWarningChoice : false,
       is_appealed: form.get('is_appealed') === 'on',
       appeal_result: strOrNullField(form, 'appeal_result'),
       appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
@@ -754,11 +768,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <div data-fault-only class="grid grid-cols-3 gap-3">
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
                     Penalty points (PP)
-                    <input type="number" name="penalty_points" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    <select
+                      name="penalty_points_choice"
+                      data-incident-pp-field
+                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                    >
+                      <option value="" class="bg-brand-ink text-white">0</option>
+                      <option value="warning" class="bg-brand-ink text-white">Warning</option>
+                      <option value="1" class="bg-brand-ink text-white">1</option>
+                      <option value="2" class="bg-brand-ink text-white">2</option>
+                      <option value="3" class="bg-brand-ink text-white">3</option>
+                      <option value="4" class="bg-brand-ink text-white">4</option>
+                      <option value="5" class="bg-brand-ink text-white">5</option>
+                      <option value="6" class="bg-brand-ink text-white">6</option>
+                      <option value="7" class="bg-brand-ink text-white">7</option>
+                    </select>
                   </label>
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
                     Time penalty (seconds)
-                    <input type="number" step="0.001" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    <input type="number" step="1" placeholder="0" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                   </label>
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
                     Points penalty
@@ -788,7 +816,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-white/50">
                       New time penalty (seconds)
-                      <input type="number" step="0.001" name="appeal_time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                      <input type="number" step="1" placeholder="0" name="appeal_time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                     </label>
                     <label class="flex flex-col gap-1 text-[11px] text-white/50">
                       New points penalty
@@ -810,17 +838,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
                       </label>
                     ))}
-                    <label class="col-span-2 flex items-center gap-2 border-t border-white/10 pt-1.5 text-xs text-white/70">
-                      <input type="checkbox" name="is_warning" />
-                      This is a warning (rulebook: 2 warnings escalates to +1 PP)
-                    </label>
                   </div>
                 </fieldset>
 
                 <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
                   <legend class="mb-1">Involved</legend>
-                  <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-                    {roundDrivers.length === 0 && <span class="col-span-2 text-white/30">No drivers in this round.</span>}
+                  <div class="grid max-h-40 grid-cols-3 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                    {roundDrivers.length === 0 && <span class="col-span-3 text-white/30">No drivers in this round.</span>}
                     {roundDrivers.map((d) => (
                       <label class="flex items-center gap-2 text-xs text-white/70">
                         <input type="checkbox" name="involved_driver_ids" value={d.id} />
@@ -853,8 +877,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //     [data-close-incident-dialog]) — same pattern as before, just no
   //     longer scoped to one race's row since this dialog picks its own
   //     session/driver.
-  //   - [data-fault-only] — the offenses fieldset, warning checkbox, and PP/
-  //     time/points penalty inputs, hidden (and cleared) whenever the Driver
+  //   - [data-fault-only] — the offenses fieldset and the PP(/Warning)/time/
+  //     points penalty inputs, hidden (and cleared) whenever the Driver
   //     field's "Racing Incident" option is selected (see
   //     0020_penalty_racing_incident.sql) OR the Session field isn't a real
   //     race (Qualifying/Practice incidents are informational only — see
@@ -897,8 +921,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const appealCheckbox = dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!;
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
     // Everything that only makes sense when a specific driver is actually
-    // at fault in a real race — offenses (rulebook section 5), the warning
-    // checkbox, and the penalty inputs (PP, time penalty, points penalty) —
+    // at fault in a real race — offenses (rulebook section 5) and the
+    // penalty inputs (PP/Warning, time penalty, points penalty) —
     // hidden once "Racing Incident" (the driver select's "racing_incident"
     // sentinel option, see 0020_penalty_racing_incident.sql) is picked, OR
     // once Qualifying/Practice is picked (informational only, see
@@ -943,16 +967,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       faultOnlyFields.forEach((el) => el.classList.toggle('hidden', !visible));
       if (!visible) {
         // Clear rather than just hide, so switching to Racing Incident
-        // never leaves a hidden offense/warning/penalty value silently in
-        // the submitted form data.
+        // never leaves a hidden offense/penalty value silently in the
+        // submitted form data.
         dialog.querySelectorAll<HTMLInputElement>('[name="offense_ids"]').forEach((cb) => (cb.checked = false));
-        const warningBox = dialog.querySelector<HTMLInputElement>('[name="is_warning"]');
-        if (warningBox) warningBox.checked = false;
         const clear = (name: string) => {
-          const el = dialog.querySelector<HTMLInputElement>(`[name="${name}"]`);
+          const el = dialog.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`);
           if (el) el.value = '';
         };
-        clear('penalty_points');
+        // penalty_points_choice's blank option ("0") is what this resets to —
+        // same "no PP/warning assigned" default as a fresh Add.
+        clear('penalty_points_choice');
         clear('time_penalty_seconds');
         clear('points_penalty');
       }
@@ -1020,14 +1044,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         set('description', p.description ?? '');
         set('time_penalty_seconds', p.time_penalty_seconds ?? '');
         set('points_penalty', p.points_penalty ?? '');
-        set('penalty_points', p.penalty_points ?? '');
         set('appeal_result', p.appeal_result ?? '');
         set('appeal_time_penalty_seconds', p.appeal_time_penalty_seconds ?? '');
         set('appeal_points_penalty', p.appeal_points_penalty ?? '');
         set('appeal_penalty_points', p.appeal_penalty_points ?? '');
 
-        const warningBox = dialog.querySelector<HTMLInputElement>('[name="is_warning"]');
-        if (warningBox) warningBox.checked = Boolean(p.is_warning);
+        // Derived from the same two underlying columns as before
+        // (is_warning/penalty_points) — is_warning wins outright if set,
+        // otherwise a 1-7 penalty_points maps straight to that option, and
+        // anything else (0, or an old warning+PP combo predating
+        // 0059_penalty_points_warning_dropdown.sql) falls back to the blank
+        // "0" option rather than guessing.
+        const ppField = dialog.querySelector<HTMLSelectElement>('[data-incident-pp-field]');
+        if (ppField) {
+          if (p.is_warning) {
+            ppField.value = 'warning';
+          } else if (Number(p.penalty_points) >= 1 && Number(p.penalty_points) <= 7) {
+            ppField.value = String(p.penalty_points);
+          } else {
+            ppField.value = '';
+          }
+        }
 
         appealCheckbox.checked = Boolean(p.is_appealed);
         setAppealFieldsVisible(Boolean(p.is_appealed));
