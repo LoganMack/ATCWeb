@@ -14,3 +14,14 @@ export const CLASS_BADGE_COLOR: Record<string, string> = {
 export function classBadgeClasses(className: string): string {
   return CLASS_BADGE_COLOR[className] ?? 'text-white/70 border-white/20';
 }
+
+/**
+ * Single-letter shorthand for a class badge ("Alpha" -> "A") — for tight
+ * inline spaces where the full class name competes with a name/flag/car
+ * number on one line (see the per-driver badges in team-stats/fragment.astro's
+ * expanded roster). Colors still come from classBadgeClasses; this only
+ * shortens the label.
+ */
+export function classBadgeLetter(className: string): string {
+  return className.charAt(0).toUpperCase();
+}

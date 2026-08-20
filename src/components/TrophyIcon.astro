@@ -1,0 +1,35 @@
+---
+// Plain inline SVG, no icon library dependency — same "no unnecessary
+// dependencies" approach as WeatherIcon.astro. Used to mark a champion
+// season in the Driver Stats / Team Stats expandable detail tables (see
+// driver-stats/fragment.astro and team-stats/fragment.astro).
+interface Props {
+  class?: string;
+  title?: string;
+}
+
+const { class: className = '', title = 'Champion' } = Astro.props;
+---
+
+<svg
+  role="img"
+  aria-label={title}
+  class={`inline-block shrink-0 text-brand-gold ${className}`}
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  width="1em"
+  height="1em"
+>
+  <title>{title}</title>
+  <path d="M7 4h10v5a5 5 0 0 1-10 0V4Z" />
+  <path d="M7 5H4a2 2 0 0 0 0 4h1.5" />
+  <path d="M17 5h3a2 2 0 0 1 0 4h-1.5" />
+  <path d="M12 14v3" />
+  <path d="M8 21h8" />
+  <path d="M10 21c0-1.7.9-2.6 2-3 1.1.4 2 1.3 2 3" />
+</svg>

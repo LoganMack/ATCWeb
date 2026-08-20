@@ -3,9 +3,10 @@ export const prerender = false;
 
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
+import TrophyIcon from '../../components/TrophyIcon.astro';
 import { resolveSupabaseEnv, getDriverClasses, getSeasons, getStandingsExcludedRoundIds, displayDriverName } from '../../lib/supabase';
 import { computeTeamCareerStats, type TeamCareerStats } from '../../lib/results';
-import { classBadgeClasses } from '../../lib/classColors';
+import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';
 
 /**
  * Same shell-then-spinner split as champions/fragment.astro and
@@ -22,6 +23,10 @@ import { classBadgeClasses } from '../../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
+// Same view=overall|delta convention team-standings.astro uses — see
+// computeTeamCareerStats' own doc comment for exactly what 'delta' scopes.
+const view = Astro.url.searchParams.get('view') === 'delta' ? 'delta' : 'overall';
+
 let loadError: string | null = null;
 let careerStats: TeamCareerStats[] = [];
 try {
@@ -30,7 +35,7 @@ try {
     getSeasons(supabaseEnv),
     getStandingsExcludedRoundIds(supabaseEnv),
   ]);
-  careerStats = await computeTeamCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds);
+  careerStats = await computeTeamCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds, undefined, undefined, undefined, view);
 } catch (err) {
   console.error('Failed to compute team career stats (fragment):', err);
   loadError = err instanceof Error ? err.message : String(err);
@@ -57,6 +62,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
           <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="name">Team</th>
           <th class="py-3 pr-3 text-center font-medium" data-sort-key="championships">Champs</th>
+          <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="driverchampionships">Driver Champs</th>
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="wins">Wins</th>
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="podiums">Podiums</th>
           <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5<span class="lowercase">s</span></th>
@@ -96,6 +102,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </div>
               </td>
               <td class="py-2.5 pr-3 text-center font-semibold" data-col="championships">{entry.championships}</td>
+              <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="driverchampionships">{entry.driverChampionships}</td>
               <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{entry.wins}</td>
               <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{entry.podiums}</td>
               <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{entry.top5s}</td>
@@ -110,7 +117,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{entry.appearances}</td>
             </tr>
             <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
-              <td colspan={12} class="px-4 py-4 sm:pl-11">
+              <td colspan={13} class="px-4 py-4 sm:pl-11">
                 <div class="overflow-x-auto">
                   <table class="w-full min-w-[920px] border-collapse">
                     <thead>
@@ -135,9 +142,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <tbody>
                       {entry.seasons.map((r) => {
                         const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
+                        // Which team-title position counts as "champion" here follows
+                        // the active view — see computeTeamCareerStats' own doc comment.
+                        const isChampionSeason = (view === 'delta' ? r.deltaTeamPosition : r.teamPosition) === 1;
                         return (
                           <tr class="border-b border-white/5">
-                            <td class="py-2 pr-3 font-semibold text-white/90">{r.season.name}</td>
+                            <td class="py-2 pr-3 font-semibold text-white/90">
+                              <span class="inline-flex items-center gap-1.5">
+                                {isChampionSeason && <TrophyIcon title="Team champion" />}
+                                {r.season.name}
+                              </span>
+                            </td>
                             <td class="py-2 pr-3">
                               <div class="flex items-center gap-1.5 whitespace-nowrap text-white/70">
                                 <TeamLogo name={r.teamName} logoUrl={r.logoUrl} size="h-4 w-4" title={r.teamName} />
@@ -151,8 +166,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                     <DriverFlag nationality1={d.nationality1} nationality2={d.nationality2} />
                                     {displayDriverName(d.name)}
                                     {d.carNumber !== null && <span class="text-white/40">#{d.carNumber}</span>}
-                                    <span class={`rounded border px-1 text-[9px] font-semibold uppercase tracking-wide ${classBadgeClasses(d.className)}`}>
-                                      {d.className}
+                                    <span
+                                      class={`rounded border px-1 text-[9px] font-semibold ${classBadgeClasses(d.className)}`}
+                                      title={d.className}
+                                    >
+                                      {classBadgeLetter(d.className)}
                                     </span>
                                   </span>
                                 ))}

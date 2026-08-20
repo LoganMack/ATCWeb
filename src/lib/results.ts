@@ -2532,14 +2532,14 @@ export interface TeamCareerSeasonDriver {
   nationality2: string | null;
 }
 
-/** One team's stat line for one season, rolled up from every driver whose PRIMARY team that season was this one. */
+/** One team's stat line for one season, rolled up from every driver whose PRIMARY team that season was this one (in the `'delta'` view — see `computeTeamCareerStats`'s own doc comment — only from drivers who raced Delta that season). */
 export interface TeamCareerSeasonRow {
   season: Season;
   /** The actual team that fielded drivers THIS season — for an org-linked row (see TeamCareerStats.teamName's own comment), this can differ season to season even though every row here is grouped under one organization name/logo (e.g. "Double Yellow" the org vs. "Yellow Tide Racing" the team that represented it in ATC13). For a team that's never been part of an organization this is just that team's own (single) name, same as the parent row's teamName. */
   teamName: string;
   /** This specific season's team logo — same per-season provenance as teamName above (0019_team_season_logos.sql's historical-logo override when set, else that team's current logo), NOT necessarily the same image as the parent row's logoUrl. */
   logoUrl: string | null;
-  /** This team's position in that season's cross-class Overall Team Standings — 1 means they won the team championship that season. Null if, unusually, they had a primary-team driver but never appear there (shouldn't normally happen). */
+  /** This team's position in that season's cross-class Overall Team Standings — 1 means they won the team championship that season. Null if, unusually, they had a primary-team driver but never appear there (shouldn't normally happen). Always the OVERALL position regardless of `view` — see deltaTeamPosition for the Delta-only equivalent. */
   teamPosition: number | null;
   /** Same idea, the Delta-only team competition's position — null if not applicable (see DriverCareerSeasonRow.deltaTeamPosition's own doc comment). */
   deltaTeamPosition: number | null;
@@ -2554,7 +2554,9 @@ export interface TeamCareerSeasonRow {
   lapsLed: number;
   incidents: number;
   totalCorners: number | null;
-  /** This team's roster that season (every driver whose primary team it was), most races first — a team can span multiple classes at once, so this carries each driver's own class rather than the row having one. */
+  /** Count of this season's roster (below) who won their own class's championship that season — e.g. a team fielding that season's Alpha AND Delta champion counts 2 here, not 1. */
+  driverChampionships: number;
+  /** This team's roster that season (every driver whose primary team it was), most races first — a team can span multiple classes at once, so this carries each driver's own class rather than the row having one. In the `'delta'` view this is already narrowed to just that season's Delta driver(s). */
   drivers: TeamCareerSeasonDriver[];
 }
 
@@ -2563,9 +2565,9 @@ export interface TeamCareerStats {
   teamId: string;
   /** The organization's name when linked; otherwise this team's own (single, current) name — unaffected either way for a team that's never been part of an organization. */
   teamName: string;
-  /** From the most recent season this team (or, for a linked organization, whichever team represented it that season) fielded a primary-team driver — teams don't have a single fixed logo (see 0019_team_season_logos.sql), so this is "their most current one on file," same reasoning DriverCareerStats uses the drivers table's own current name/photo for a driver spanning many seasons. */
+  /** From the most recent season this team (or, for a linked organization, whichever team represented it that season) fielded a primary-team driver — teams don't have a single fixed logo (see 0019_team_season_logos.sql), so this is "their most current one on file," same reasoning DriverCareerStats uses the drivers table's own current name/photo for a driver spanning many seasons. In the `'delta'` view, "most recent" means most recent season they fielded a Delta driver. */
   logoUrl: string | null;
-  /** Count of seasons this team finished 1st in the Overall Team Standings. */
+  /** Count of seasons this team finished 1st in the Overall Team Standings (view `'overall'`) or the Delta Team competition (view `'delta'`) — see `computeTeamCareerStats`'s `view` param. */
   championships: number;
   wins: number;
   podiums: number;
@@ -2577,6 +2579,8 @@ export interface TeamCareerStats {
   starts: number;
   appearances: number;
   cornersPerIncident: number | null;
+  /** Career sum of each season's driverChampionships — how many individual class titles this team's drivers have won while racing for it (view `'delta'` counts only Delta-class titles, since that view only rolls up Delta-class driver-seasons in the first place). */
+  driverChampionships: number;
   /** Newest season first. */
   seasons: TeamCareerSeasonRow[];
 }
@@ -2590,7 +2594,24 @@ export async function computeTeamCareerStats(
   precomputedDriverCareerStats?: DriverCareerStats[],
   /** Same sharing reasoning — skip the organizations/links fetch when a caller already has them. */
   precomputedOrganizations?: Organization[],
-  precomputedOrgTeamSeasons?: OrganizationTeamSeason[]
+  precomputedOrgTeamSeasons?: OrganizationTeamSeason[],
+  /**
+   * `'overall'` (default): every driver-season a team ever fielded, same as
+   * always — the cross-class competition, and its `championships` count
+   * comes from `teamPosition === 1`.
+   * `'delta'`: only driver-seasons where that driver raced Delta that
+   * season contribute at all (a team with no Delta driver in a given season
+   * simply has no row for it, and drops out of the whole list if it NEVER
+   * fielded one) — wins/podiums/etc. above are already per-driver-season
+   * totals scoped to that driver's own class (see DriverCareerSeasonRow's
+   * own doc comment), so restricting the input rows to Delta is sufficient
+   * to make every rolled-up number here reflect Delta-class performance
+   * only. `championships` switches to `deltaTeamPosition === 1` (the
+   * standalone Delta Team competition — see computeTeamSeasonStandings'
+   * own doc comment for how that differs from the Delta driver class
+   * existing at all).
+   */
+  view: 'overall' | 'delta' = 'overall'
 ): Promise<TeamCareerStats[]> {
   const [driverCareerStats, organizations, orgTeamSeasons] = await Promise.all([
     precomputedDriverCareerStats ? Promise.resolve(precomputedDriverCareerStats) : computeDriverCareerStats(env, seasons, classes, exhibitionRoundIds),
@@ -2627,6 +2648,7 @@ export async function computeTeamCareerStats(
     incidents: number;
     totalCorners: number;
     anyCornersResolved: boolean;
+    driverChampionships: number;
     drivers: TeamCareerSeasonDriver[];
   }
   // teamId -> seasonId -> that team's accumulated stats for that season
@@ -2634,6 +2656,8 @@ export async function computeTeamCareerStats(
 
   for (const driverStats of driverCareerStats) {
     for (const row of driverStats.seasons) {
+      if (view === 'delta' && row.className !== 'Delta') continue;
+
       const primaryTeam = row.teams[0];
       if (!primaryTeam) continue; // no team that season — doesn't contribute to any team's stats
 
@@ -2659,6 +2683,7 @@ export async function computeTeamCareerStats(
           incidents: 0,
           totalCorners: 0,
           anyCornersResolved: false,
+          driverChampionships: 0,
           drivers: [],
         };
         bySeasonId.set(row.season.id, accum);
@@ -2678,6 +2703,7 @@ export async function computeTeamCareerStats(
         accum.totalCorners += row.totalCorners;
         accum.anyCornersResolved = true;
       }
+      if (row.classPosition === 1) accum.driverChampionships += 1;
       accum.drivers.push({
         driverId: driverStats.driver.id,
         name: driverStats.driver.name,
@@ -2727,6 +2753,7 @@ export async function computeTeamCareerStats(
       lapsLed: a.lapsLed,
       incidents: a.incidents,
       totalCorners: a.anyCornersResolved ? a.totalCorners : null,
+      driverChampionships: a.driverChampionships,
       drivers: [...a.drivers].sort((x, y) => y.starts - x.starts),
     }));
 
@@ -2743,9 +2770,11 @@ export async function computeTeamCareerStats(
     let totalCorners = 0;
     let totalIncidents = 0;
     let anyCornersResolved = false;
+    let driverChampionships = 0;
 
     for (const r of seasonRows) {
-      if (r.teamPosition === 1) championships++;
+      const teamTitlePosition = view === 'delta' ? r.deltaTeamPosition : r.teamPosition;
+      if (teamTitlePosition === 1) championships++;
       wins += r.wins;
       podiums += r.podiums;
       poles += r.poles;
@@ -2756,6 +2785,7 @@ export async function computeTeamCareerStats(
       starts += r.starts;
       appearances += r.appearances;
       totalIncidents += r.incidents;
+      driverChampionships += r.driverChampionships;
       if (r.totalCorners !== null) {
         totalCorners += r.totalCorners;
         anyCornersResolved = true;
@@ -2786,6 +2816,7 @@ export async function computeTeamCareerStats(
       starts,
       appearances,
       cornersPerIncident: anyCornersResolved && totalIncidents > 0 ? totalCorners / totalIncidents : null,
+      driverChampionships,
       seasons: seasonRows,
     });
   }

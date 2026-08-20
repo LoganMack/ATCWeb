@@ -19,6 +19,14 @@ import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
+// Same view=overall|delta convention team-standings.astro uses for its own
+// Overall/Delta team-competition toggle — see computeTeamCareerStats' own
+// doc comment (src/lib/results.ts) for exactly what 'delta' scopes here.
+// A real query-param navigation (not client JS) so this shell re-renders
+// with the right fragment URL baked in from the start, same as every other
+// filter on this page's sibling history pages.
+const view = Astro.url.searchParams.get('view') === 'delta' ? 'delta' : 'overall';
+
 let bannerUrl: string | null = null;
 try {
   bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'team-stats');
@@ -36,16 +44,37 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     <HistoryTabs active="teamStats" />
 
-    <div class="mt-8 max-w-sm">
-      <input
-        type="search"
-        id="team-stats-search"
-        placeholder="Search teams…"
-        class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
+    <div class="mt-8 flex flex-wrap items-end justify-between gap-4">
+      <div class="max-w-sm flex-1">
+        <input
+          type="search"
+          id="team-stats-search"
+          placeholder="Search teams…"
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </div>
+
+      <div class="flex gap-2">
+        <a
+          href="/team-stats?view=overall"
+          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+          }`}
+        >
+          Overall
+        </a>
+        <a
+          href="/team-stats?view=delta"
+          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+            view === 'delta' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+          }`}
+        >
+          Delta
+        </a>
+      </div>
     </div>
 
-    <div data-team-stats-results data-fragment-url="/team-stats/fragment">
+    <div data-team-stats-results data-fragment-url={`/team-stats/fragment?view=${view}`}>
       <div class="mt-6 flex flex-col gap-2" aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading team stats…</span>
         <div class="h-10 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>

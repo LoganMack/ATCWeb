@@ -18,14 +18,36 @@
  * again after reloading."
  *
  * Fixed properly here by switching to ONE delegated listener on
- * `document`, bound exactly once ever (guarded via `document.body`'s own
- * dataset, the same de-dup convention `sortable-table.ts` and
- * `hard-form-submit.ts` already use). Delegation also means this never
+ * `document`, bound exactly once ever. Delegation also means this never
  * needs to re-run after a view transition at all — `closest()` resolves
  * fresh against whatever's in the DOM at the moment of each click, so it
  * doesn't matter whether a row existed yet when this script first ran or
  * got swapped in by a later navigation.
+ *
+ * The de-dup guard below is a plain module-scoped variable, NOT
+ * `document.body`'s dataset (an earlier version used that, matching the
+ * convention `sortable-table.ts` and `hard-form-submit.ts` use). That was
+ * itself a live bug: Astro's client router replaces `document.body` with a
+ * freshly-parsed element on every soft navigation, so a flag stored on it
+ * only ever survives until the next navigation — while the `click`/`keydown`
+ * listeners below are bound to `document` itself, which is never replaced.
+ * Every soft navigation therefore re-passed the (reset) guard and stacked
+ * another pair of listeners onto `document`, which never get removed. Two
+ * or three navigations deep, a single click fires the handler 2-3 times in
+ * the same synchronous dispatch — an even count nets back to the original
+ * state (looks like clicking does nothing at all, reproduced live on Team
+ * Stats after Home → Teams → History → Team Stats); an odd count still
+ * toggles, just via a different listener than you'd expect. Per-element
+ * dataset guards are still correct for sortable-table.ts/hard-form-submit.ts
+ * (they must re-run their setup against each newly-appeared table/form), but
+ * this listener is deliberately bound exactly once for the page's entire
+ * lifetime, so it needs a guard that isn't tied to an element Astro can swap
+ * out from under it — a module-scoped variable, scoped to this script's own
+ * single execution (bundled module scripts execute at most once per page
+ * load, soft navigations included), fits that exactly.
  */
+let expandRowsInitialized = false;
+
 function toggleExpandRow(row: HTMLElement) {
   const detail = row.nextElementSibling as HTMLElement | null;
   if (!detail || !detail.hasAttribute('data-detail-row')) return;
@@ -36,8 +58,8 @@ function toggleExpandRow(row: HTMLElement) {
 }
 
 function initExpandRows() {
-  if (document.body.dataset.expandRowsInit === 'true') return;
-  document.body.dataset.expandRowsInit = 'true';
+  if (expandRowsInitialized) return;
+  expandRowsInitialized = true;
 
   document.addEventListener('click', (e) => {
     // Hall of Fame nests a PhotoGrid's lightbox buttons inside its
