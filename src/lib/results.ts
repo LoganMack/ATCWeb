@@ -1509,13 +1509,63 @@ export interface LayoutRoundSummary {
   seasonLabel: string | null;
 }
 
-function resolveEventLayoutId(circuitId: string, eventLayoutName: string | null, layouts: CircuitLayout[]): string | null {
+/**
+ * A round or event's layout, for race-recap matching purposes only — either
+ * a real circuit_layouts row (when one can be pinned down) or, when a
+ * circuit has NO circuit_layouts rows at all, the circuit itself stands in
+ * for "the one implicit layout everyone races there." circuit_layouts is an
+ * OPTIONAL table (see the Circuits CSV import's own `writesTo` doc comment
+ * — it only gets a row when someone attaches layout-specific details, e.g.
+ * for a logo or to disambiguate a multi-layout track), so plenty of
+ * single-layout circuits never get one. `resolveLayout` (above), used for
+ * pulling a round's length_km/corners, treats that as "nothing to match" —
+ * correct for it (no circuit_layouts row means no length_km/corners to
+ * report either) — but the race-recap feature used to share that same
+ * "no row, no match" logic too, which made "Race Recaps at this
+ * Layout" silently come up empty for every event at a circuit missing that
+ * optional row, even when that circuit obviously has round history. This
+ * type/pair of functions exists so findRoundsForLayout can fall back to
+ * matching on the circuit alone in exactly that case, which is exactly as
+ * precise as the site can be anyway when there's no layout data on file to
+ * disambiguate.
+ */
+type LayoutMatchKey = { kind: 'layout'; id: string } | { kind: 'circuit'; id: string };
+
+function sameLayoutMatchKey(a: LayoutMatchKey, b: LayoutMatchKey): boolean {
+  return a.kind === b.kind && a.id === b.id;
+}
+
+function resolveEventLayoutKey(circuitId: string, eventLayoutName: string | null, layouts: CircuitLayout[]): LayoutMatchKey {
   const circuitLayouts = layouts.filter((l) => l.circuit_id === circuitId);
-  if (circuitLayouts.length === 0) return null;
-  if (circuitLayouts.length === 1) return circuitLayouts[0].id;
-  if (!eventLayoutName) return null;
+  if (circuitLayouts.length === 0) return { kind: 'circuit', id: circuitId };
+  if (circuitLayouts.length === 1) return { kind: 'layout', id: circuitLayouts[0].id };
+  if (!eventLayoutName) return { kind: 'circuit', id: circuitId };
   const targetLayout = normalizeTrackOrLayoutName(eventLayoutName);
-  return circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout)?.id ?? null;
+  const match = circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout);
+  // A named-but-unmatched layout on a circuit that DOES have layout data on
+  // file is a real ambiguity (which of the other layouts is this?) — stays
+  // unmatched rather than falling back to "any layout at this circuit,"
+  // unlike the two branches above where there's no layout data to be
+  // ambiguous WITH in the first place.
+  return match ? { kind: 'layout', id: match.id } : { kind: 'circuit', id: circuitId };
+}
+
+function resolveRoundLayoutKey(
+  trackName: string,
+  roundLayout: string | null,
+  circuits: Circuit[],
+  layouts: CircuitLayout[]
+): LayoutMatchKey | null {
+  const targetTrack = normalizeTrackOrLayoutName(trackName);
+  const circuit = circuits.find((c) => normalizeTrackOrLayoutName(c.name) === targetTrack);
+  if (!circuit) return null;
+  const circuitLayouts = layouts.filter((l) => l.circuit_id === circuit.id);
+  if (circuitLayouts.length === 0) return { kind: 'circuit', id: circuit.id };
+  if (circuitLayouts.length === 1) return { kind: 'layout', id: circuitLayouts[0].id };
+  if (!roundLayout) return null;
+  const targetLayout = normalizeTrackOrLayoutName(roundLayout);
+  const match = circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout);
+  return match ? { kind: 'layout', id: match.id } : null;
 }
 
 export function findRoundsForLayout(
@@ -1526,12 +1576,11 @@ export function findRoundsForLayout(
   circuitId: string,
   eventLayoutName: string | null
 ): LayoutRoundSummary[] {
-  const targetLayoutId = resolveEventLayoutId(circuitId, eventLayoutName, layouts);
-  if (!targetLayoutId) return [];
+  const targetKey = resolveEventLayoutKey(circuitId, eventLayoutName, layouts);
 
   const matches = allRounds.filter((r) => {
-    const resolved = resolveLayout(r.track_name, roundLayoutBySubsession.get(r.subsession_id) ?? null, circuits, layouts);
-    return resolved?.id === targetLayoutId;
+    const resolved = resolveRoundLayoutKey(r.track_name, roundLayoutBySubsession.get(r.subsession_id) ?? null, circuits, layouts);
+    return resolved !== null && sameLayoutMatchKey(resolved, targetKey);
   });
 
   return matches

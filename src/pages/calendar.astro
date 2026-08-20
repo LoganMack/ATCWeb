@@ -118,10 +118,38 @@ const upcomingIcsBundle = upcoming
   <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Calendar</h1>
-    <div class="reveal mt-3 flex flex-wrap items-center gap-3" style="transition-delay: 80ms">
-      <p class="text-white/60">
-        {upcoming.length} upcoming event{upcoming.length === 1 ? '' : 's'}.
-      </p>
+
+    <div class="reveal mt-6 flex flex-wrap items-center justify-between gap-3" style="transition-delay: 100ms">
+      <div class="flex flex-wrap items-center gap-2" data-view-toggle>
+        <button
+          type="button"
+          data-view-value="list"
+          data-active="true"
+          class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+        >
+          List
+        </button>
+        <button
+          type="button"
+          data-view-value="calendar"
+          data-active="false"
+          class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+        >
+          Calendar
+        </button>
+
+        {past.length > 0 && (
+          <label class="ml-2 flex items-center gap-2 text-sm text-white/60">
+            <input
+              type="checkbox"
+              id="hide-past-events"
+              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
+            />
+            Hide past events
+          </label>
+        )}
+      </div>
+
       {upcomingIcsBundle && (
         <button
           type="button"
@@ -140,36 +168,6 @@ const upcomingIcsBundle = upcoming
           </svg>
           Add All Upcoming to Calendar
         </button>
-      )}
-    </div>
-
-    <div class="reveal mt-6 flex flex-wrap gap-2" data-view-toggle style="transition-delay: 100ms">
-      <button
-        type="button"
-        data-view-value="list"
-        data-active="true"
-        class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-      >
-        List
-      </button>
-      <button
-        type="button"
-        data-view-value="calendar"
-        data-active="false"
-        class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-      >
-        Calendar
-      </button>
-
-      {past.length > 0 && (
-        <label class="ml-2 flex items-center gap-2 text-sm text-white/60">
-          <input
-            type="checkbox"
-            id="hide-past-events"
-            class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
-          />
-          Hide past events
-        </label>
       )}
     </div>
 

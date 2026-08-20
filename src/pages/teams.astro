@@ -74,9 +74,6 @@ try {
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
-const activeCount = teams.filter((t) => t.status === 'active').length;
-const inactiveCount = teams.length - activeCount;
-
 // Default order: active teams first, alphabetical within each group. Once
 // loaded, clicking a column header (src/scripts/sortable-table.ts) re-sorts
 // the whole table client-side.
@@ -90,9 +87,6 @@ const sortedTeams = [...teams].sort((a, b) => {
   <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Teams</h1>
-    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
-      {activeCount} active, {inactiveCount} inactive.
-    </p>
 
     {loadError && (
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">

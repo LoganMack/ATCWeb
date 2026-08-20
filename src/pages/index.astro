@@ -291,22 +291,21 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       just no longer duplicated here on top of the Discord/Sign-Up button
       that's always present in the top nav (see Nav.astro) and footer on
       every page, homepage included. No standalone page title here anymore
-      (the "Recent News" / "Upcoming Events" labels below are the visible
+      (the "Featured Story" / "Upcoming Events" labels below are the visible
       headings) — an earlier pass left one in as a small subtitle purely
       for an <h1>, but Logan flagged it as a stray leftover, so the
-      "Recent News" <h2> below now doubles as the page's real first
+      "Featured Story" <h1> below now doubles as the page's real first
       heading instead.
     -->
     <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
       <div>
-        <div class="mb-4 flex items-center justify-between">
-          <!-- The page's one real <h1> — visually just a small subtitle
-               (see the comment above), not a big headline, but still the
-               actual page heading for accessibility/SEO purposes. -->
-          <h1 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 40ms">
-            Recent News
-          </h1>
-        </div>
+        <!-- The page's one real <h1> — see the comment above for why this
+             (not a big "Alpha Touring Challenge" headline) is it. Styled to
+             match the "Standings" heading below rather than the old small
+             uppercase-tracked label. -->
+        <h1 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
+          Featured Story
+        </h1>
 
         {featuredNews ? (
           <NewsCard post={featuredNews} index={0} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
@@ -318,11 +317,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
 
       <div>
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="reveal font-display text-sm uppercase tracking-[0.3em] text-white/50" style="transition-delay: 40ms">
-            Upcoming Events
-          </h2>
-        </div>
+        <h2 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
+          Upcoming Events
+        </h2>
 
         {upcomingEvents.length === 0 && (
           <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">
@@ -359,6 +356,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   <section class="mx-auto max-w-6xl px-6 pb-24">
     <div class="grid gap-12 lg:grid-cols-2 lg:gap-16">
       <div>
+        <h2 class="mb-6 font-display text-3xl">More News</h2>
+
         {moreNews.length === 0 ? (
           <p class="text-sm text-white/50">No more news yet.</p>
         ) : (
@@ -382,10 +381,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
 
       <div>
-        <div class="mb-6 flex items-end justify-between gap-4">
-          <h2 class="font-display text-3xl">Standings</h2>
-          <a href="/standings" class="text-sm text-white/60 hover:text-white">Full standings &rarr;</a>
-        </div>
+        <h2 class="mb-6 font-display text-3xl">Standings</h2>
 
         {standingsTabs.length === 0 ? (
           <p class="text-sm text-white/50">No standings yet.</p>
@@ -464,6 +460,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
           </div>
         )}
+
+        <a href="/standings" class="mt-4 inline-block text-sm text-white/60 hover:text-white">Full standings &rarr;</a>
       </div>
     </div>
 
