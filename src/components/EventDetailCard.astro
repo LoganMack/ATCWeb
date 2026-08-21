@@ -107,30 +107,40 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
     </div>
   </div>
 
-  <div class="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-    {sessions.map((s) => (
-      <div class="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-        <div class="flex items-center justify-between">
-          <p class="text-xs font-semibold uppercase tracking-wide text-white/50">{s.label}</p>
-          <WeatherIcon condition={s.weather} class="text-lg" />
-        </div>
-        <p class="mt-1 text-sm font-semibold">
-          {s.startTime ? (
-            <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
-          ) : (
-            'TBD'
-          )}
-        </p>
-        {s.simTime && <p class="text-xs text-white/50">In-sim {formatSessionTime(s.simTime)}</p>}
-        {s.detail && <p class="text-xs text-white/50">{s.detail}</p>}
+  {(sessions.length > 0 || event.fuel_limit_pct !== null) && (
+    // Sessions (with their start times) and the fuel limit are the bulk of
+    // each card's height — with a full month of events in List view that
+    // adds up fast, so this is collapsed by default and only the summary
+    // line shows until a visitor opens it. Native <details>, same pattern
+    // as "Race Recaps at this Layout" below — no JS needed either place.
+    // The Add to Calendar / results links below stay OUTSIDE this collapse
+    // and always visible: that's the whole point of moving Add to Calendar
+    // up here in the first place (it used to be buried below Race Recaps).
+    <details class="mt-5">
+      <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
+        Sessions{event.fuel_limit_pct !== null ? ' & Fuel Limit' : ''}
+      </summary>
+      <div class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {sessions.map((s) => (
+          <div class="rounded-lg border border-white/10 bg-white/[0.02] p-3">
+            <div class="flex items-center justify-between">
+              <p class="text-xs font-semibold uppercase tracking-wide text-white/50">{s.label}</p>
+              <WeatherIcon condition={s.weather} class="text-lg" />
+            </div>
+            <p class="mt-1 text-sm font-semibold">
+              {s.startTime ? (
+                <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
+              ) : (
+                'TBD'
+              )}
+            </p>
+            {s.simTime && <p class="text-xs text-white/50">In-sim {formatSessionTime(s.simTime)}</p>}
+            {s.detail && <p class="text-xs text-white/50">{s.detail}</p>}
+          </div>
+        ))}
       </div>
-    ))}
-  </div>
-
-  {(event.fuel_limit_pct !== null || event.results_url || linkedRound || icsBlock) && (
-    <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/60">
       {event.fuel_limit_pct !== null && (
-        <span class="flex items-center gap-1">
+        <p class="mt-3 flex items-center gap-1 text-sm text-white/60">
           <svg
             role="img"
             aria-label="Fuel limit"
@@ -151,9 +161,14 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
             <path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18" />
             <path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2 2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5" />
           </svg>
-          {event.fuel_limit_pct}%
-        </span>
+          Fuel limit: {event.fuel_limit_pct}%
+        </p>
       )}
+    </details>
+  )}
+
+  {(event.results_url || linkedRound || icsBlock) && (
+    <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/60">
       {linkedRound && (
         <a href={`/results/${linkedRound.subsession_id}`} class="text-brand-primary hover:underline">
           View Results &rarr;

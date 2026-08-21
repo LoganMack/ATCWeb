@@ -54,6 +54,7 @@ import {
   getAllOrganizationTeamSeasons,
   getOrganizations,
   getAllBroadcastRaceLinks,
+  getAllPhotoAlbumRaceLinks,
   type SupabaseEnv,
 } from './supabase';
 import type {
@@ -2939,6 +2940,48 @@ export async function getAllBroadcastVideos(env: SupabaseEnv): Promise<Broadcast
       subsession_id: link.subsession_id,
       race_number: link.race_number,
       broadcast_url: link.broadcast_url,
+      track_name: round.track_name,
+      season_label: round.season_label,
+      start_time: round.start_time,
+    });
+  }
+  out.sort((a, b) => b.start_time.localeCompare(a.start_time));
+  return out;
+}
+
+/** One round's photographer photo album link, joined with its round's track/date/season for display — what the Media page's Graphics tab renders as its "Round Photo Albums" list. Same shape as BroadcastVideo above, one field renamed. */
+export interface PhotoAlbumLink {
+  subsession_id: number;
+  race_number: number;
+  photo_album_url: string;
+  track_name: string;
+  season_label: string | null;
+  start_time: string;
+}
+
+/**
+ * Every photo album link on file, newest round first — same join as
+ * getAllBroadcastVideos above (getAllPhotoAlbumRaceLinks + getAllRounds),
+ * just against photo_album_url instead of broadcast_url. The Media page
+ * doesn't try to derive a thumbnail from the URL itself the way
+ * youtubeThumbnailUrl does for broadcasts — album URLs are almost always
+ * Flickr, which has no predictable per-album image URL to construct
+ * without an API key. Thumbnails for these are fetched lazily client-side
+ * instead, one small request per album against /api/photo-album-thumbnail
+ * (see that route's own doc comment for why it's split out that way).
+ */
+export async function getAllPhotoAlbumLinks(env: SupabaseEnv): Promise<PhotoAlbumLink[]> {
+  const [links, rounds] = await Promise.all([getAllPhotoAlbumRaceLinks(env), getAllRounds(env)]);
+  const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
+  const out: PhotoAlbumLink[] = [];
+  for (const link of links) {
+    if (!link.photo_album_url) continue;
+    const round = roundBySubsession.get(link.subsession_id);
+    if (!round) continue;
+    out.push({
+      subsession_id: link.subsession_id,
+      race_number: link.race_number,
+      photo_album_url: link.photo_album_url,
       track_name: round.track_name,
       season_label: round.season_label,
       start_time: round.start_time,

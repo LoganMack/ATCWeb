@@ -1163,6 +1163,21 @@ export function getAllBroadcastRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]>
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&broadcast_url=not.is.null`);
 }
 
+/**
+ * Same idea as getAllBroadcastRaceLinks above, for photo_album_url instead
+ * — every race_links row that has one set, across every round. Admins set
+ * this field on the round's own results page (src/pages/results/
+ * [subsessionId].astro) alongside broadcast_url/replay_url/etc.; it was
+ * already there and already worked, it just had no public listing anywhere
+ * outside that one round's own page. src/lib/results.ts's
+ * getAllPhotoAlbumLinks() joins this with getAllRounds() for the Media
+ * page's Graphics tab, the same way getAllBroadcastVideos() does for
+ * Videos → Broadcasts.
+ */
+export function getAllPhotoAlbumRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
+  return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&photo_album_url=not.is.null`);
+}
+
 /** Upserts one race's links — replaces whatever was set for that (subsession_id, race_number) before. Any field left undefined stays whatever it already was; pass null explicitly to clear a field. */
 export async function upsertRaceLinks(
   env: SupabaseEnv,
@@ -1730,7 +1745,13 @@ export function eventImageUrl(
  * instead of a broken thumbnail/embed.
  */
 export function youtubeVideoId(url: string): string | null {
-  const match = /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/.exec(url);
+  // youtube.com/live/VIDEO_ID is the URL format YouTube's own "Share" button
+  // gives you for a livestream — both while it's live AND permanently
+  // afterward, once it's just a normal archived video at the same URL. It
+  // was missing from this list entirely, which is why broadcasts linked
+  // with that URL shape (Media > Videos > Broadcasts) never matched any
+  // branch here and silently got no thumbnail at all.
+  const match = /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/.exec(url);
   return match ? match[1] : null;
 }
 
