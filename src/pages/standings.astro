@@ -79,6 +79,18 @@ const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall
 let standings: DriverSeasonStanding[] = [];
 let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
+// The season-wide denominators for the Starts/Apps columns below ("x of y")
+// — y is the same for every driver regardless of view (Overall vs Per
+// Class) or how many rounds any one driver personally attended, so it's
+// derived once from overallContext.overallScores (every class's race_scores
+// rows for the season, already filtered to exclude exhibition/excluded
+// rounds — see getSeasonOverallContext) rather than per-driver. "Starts" =
+// one per (subsession_id, race_number) actually run — a sprint round with
+// two races contributes 2, an endurance round's single race contributes 1.
+// "Appearances" = one per distinct subsession_id (round) run, regardless of
+// how many races it had.
+let maxStarts = 0;
+let maxAppearances = 0;
 if (!loadError && activeSeason) {
   try {
     const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
@@ -104,6 +116,8 @@ if (!loadError && activeSeason) {
     standings = standingsResult;
     extrasByDriverId = extras;
     extendedStatsByDriverId = extendedStats;
+    maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
+    maxStarts = new Set(overallContext.overallScores.map((s) => `${s.subsession_id}:${s.race_number}`)).size;
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -276,8 +290,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{row.top5s}</td>
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{row.top10s}</td>
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{row.poles}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{row.starts}</td>
-                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts" data-sort-value={row.starts}>
+                    {row.starts} <span class="text-white/30">of {maxStarts}</span>
+                  </td>
+                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances" data-sort-value={row.appearances}>
+                    {row.appearances} <span class="text-white/30">of {maxAppearances}</span>
+                  </td>
                 </tr>
                 <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                   <td colspan={view === 'overall' ? 11 : 10} class="px-4 py-4 sm:pl-11">

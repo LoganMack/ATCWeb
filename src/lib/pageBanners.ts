@@ -36,6 +36,7 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats' },
   { key: 'team-stats', label: 'Team Stats', description: '/team-stats' },
   { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame' },
+  { key: 'awards', label: 'Awards', description: '/awards' },
   { key: 'media', label: 'Media', description: '/media' },
 ];
 

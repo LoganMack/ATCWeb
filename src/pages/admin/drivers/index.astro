@@ -42,7 +42,30 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'save-settings');
 
-  if (intent === 'sync-results-roster') {
+  if (intent === 'sync-statuses') {
+    try {
+      const [statusesChanged, rookiesChanged] = await Promise.all([
+        syncDriverStatuses(supabaseEnv, accessToken),
+        syncRookieStatus(supabaseEnv, accessToken),
+      ]);
+      if (statusesChanged > 0 || rookiesChanged > 0) {
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'driver',
+          entity_label: 'Sync Statuses',
+          details: `${statusesChanged} status${statusesChanged === 1 ? '' : 'es'} changed, ${rookiesChanged} driver${rookiesChanged === 1 ? '' : 's'} lost rookie status`,
+        });
+      }
+      const params = new URLSearchParams({
+        synced_statuses: String(statusesChanged),
+        synced_rookies: String(rookiesChanged),
+      });
+      return Astro.redirect(`/admin/drivers?${params.toString()}`, 302);
+    } catch (err) {
+      console.error('Failed to sync driver statuses:', err);
+      error = err instanceof Error ? err.message : 'Failed to sync driver statuses.';
+    }
+  } else if (intent === 'sync-results-roster') {
     try {
       const outcome = await syncResultsWithRoster(supabaseEnv, accessToken);
       const allNames = [...outcome.created, ...outcome.linked];
@@ -104,6 +127,8 @@ const syncedNames = Astro.url.searchParams.get('synced_names');
 const syncedMore = Astro.url.searchParams.get('synced_more');
 const syncedRounds = Astro.url.searchParams.get('synced_rounds');
 const syncedRecalcFailed = Astro.url.searchParams.get('synced_recalc_failed');
+const syncedStatuses = Astro.url.searchParams.get('synced_statuses');
+const syncedRookies = Astro.url.searchParams.get('synced_rookies');
 
 let probationDays = 45;
 let probationRounds = 4;
@@ -122,9 +147,13 @@ try {
 
 // No cron/scheduled-worker infrastructure in this app — status and rookie
 // automation both run opportunistically here, the one admin page every
-// admin visits before touching any individual driver. Best-effort: a sync
-// failure shouldn't block the page from showing the (possibly stale)
-// driver list.
+// admin visits before touching any individual driver, in addition to the
+// explicit "Sync Statuses" button below. Best-effort: a sync failure
+// shouldn't block the page from showing the (possibly stale) driver list —
+// errors here are only logged, never shown, which is exactly why the
+// button exists: a background failure here is invisible, but the same
+// failure via the button surfaces as a real error banner (see the
+// sync-statuses POST branch above).
 try {
   await syncDriverStatuses(supabaseEnv, accessToken);
 } catch (err) {
@@ -169,6 +198,16 @@ try {
     <h1 class="font-display text-4xl">Drivers</h1>
     <div class="flex flex-wrap items-center gap-2">
       <form method="POST" data-astro-reload>
+        <input type="hidden" name="intent" value="sync-statuses" />
+        <button
+          type="submit"
+          data-confirm="Re-derive every driver's status (New/Active/Inactive) and rookie flag from race activity and sign-up dates right now, instead of waiting for the next time this page happens to load it in the background. Continue?"
+          class="rounded-lg bg-white/5 px-5 py-2.5 font-semibold text-white/80 ring-1 ring-white/10 transition hover:bg-white/10"
+        >
+          Sync Statuses
+        </button>
+      </form>
+      <form method="POST" data-astro-reload>
         <input type="hidden" name="intent" value="sync-results-roster" />
         <button
           type="submit"
@@ -189,6 +228,12 @@ try {
   )}
   {saved && !error && (
     <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">Saved.</p>
+  )}
+  {(syncedStatuses !== null || syncedRookies !== null) && !error && (
+    <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
+      Sync complete — {syncedStatuses} status{Number(syncedStatuses) === 1 ? '' : 'es'} changed, {syncedRookies} driver
+      {Number(syncedRookies) === 1 ? '' : 's'} lost rookie status.
+    </p>
   )}
   {(syncedCreated !== null || syncedLinked !== null) && !error && (
     <div class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">

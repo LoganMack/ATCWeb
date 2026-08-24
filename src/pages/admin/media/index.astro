@@ -14,11 +14,16 @@ import {
   getAllMediaMeetups,
   createMediaMeetup,
   deleteMediaMeetup,
+  getAllPhotoAlbumRaceLinks,
+  upsertRaceLinks,
+  getTestRoundIds,
   formatDate,
   youtubeThumbnailUrl,
   type MediaVideo,
   type MediaVideoCategory,
+  type RaceLinks,
 } from '../../../lib/supabase';
+import { getAllRounds, type RoundSummary } from '../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -77,6 +82,30 @@ if (Astro.request.method === 'POST') {
       const id = String(form.get('id') ?? '');
       if (id) await deleteMediaGraphic(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/media', 302);
+    } else if (intent === 'save-race-photo') {
+      // Same upsertRaceLinks() call the per-round Results page's own
+      // "save-race-links" form makes (src/pages/results/[subsessionId].astro)
+      // — this is just a second, consolidated place to reach it so an admin
+      // doesn't have to open every round's own page one at a time to set its
+      // photo album link. Only touches photo_album_url for this
+      // (subsession_id, race_number) — every other race_links field
+      // (replay/broadcast/incident report URLs) is left exactly as it was,
+      // since those aren't included in the request body at all (see
+      // upsertRaceLinks' own doc comment on omitted-vs-null fields).
+      const subsessionId = Number(form.get('subsession_id'));
+      const raceNumberRaw = Number(form.get('race_number'));
+      const raceNumber = Number.isFinite(raceNumberRaw) && raceNumberRaw > 0 ? Math.round(raceNumberRaw) : 1;
+      const url = String(form.get('photo_album_url') ?? '').trim();
+      if (!Number.isFinite(subsessionId)) {
+        error = 'Invalid round.';
+      } else {
+        await upsertRaceLinks(supabaseEnv, accessToken, {
+          subsession_id: subsessionId,
+          race_number: raceNumber,
+          photo_album_url: url.length > 0 ? url : null,
+        });
+        return Astro.redirect('/admin/media', 302);
+      }
     } else if (intent === 'add-meetup') {
       const title = String(form.get('title') ?? '').trim();
       const latitudeRaw = String(form.get('latitude') ?? '').trim();
@@ -119,20 +148,60 @@ if (Astro.request.method === 'POST') {
 let videos: MediaVideo[] = [];
 let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
 let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
+let rounds: RoundSummary[] = [];
+let photoLinks: RaceLinks[] = [];
+let testRoundIds: Set<number> = new Set();
 let loadError = false;
 try {
-  [videos, graphics, meetups] = await Promise.all([getAllMediaVideos(supabaseEnv), getAllMediaGraphics(supabaseEnv), getAllMediaMeetups(supabaseEnv)]);
+  [videos, graphics, meetups, rounds, photoLinks, testRoundIds] = await Promise.all([
+    getAllMediaVideos(supabaseEnv),
+    getAllMediaGraphics(supabaseEnv),
+    getAllMediaMeetups(supabaseEnv),
+    getAllRounds(supabaseEnv),
+    getAllPhotoAlbumRaceLinks(supabaseEnv),
+    getTestRoundIds(supabaseEnv),
+  ]);
 } catch (err) {
   console.error('Failed to load media page content for admin:', err);
   loadError = true;
 }
+
+// One row per real (non-test) round for the Race Photos consolidated
+// editor below — each prefilled with whichever race_links row already has
+// a photo_album_url set for it, if any (lowest race_number wins when a
+// round has more than one, since that's the common "one album for the
+// whole round" case; a round with a second race's album set separately can
+// still be reached from that round's own Results page). A round with
+// nothing set yet just gets an empty field defaulted to Race 1.
+const photoLinksBySubsession = new Map<number, RaceLinks>();
+for (const link of photoLinks) {
+  if (!link.photo_album_url) continue;
+  const existing = photoLinksBySubsession.get(link.subsession_id);
+  if (!existing || link.race_number < existing.race_number) {
+    photoLinksBySubsession.set(link.subsession_id, link);
+  }
+}
+const racePhotoRows = rounds
+  .filter((r) => !testRoundIds.has(r.subsession_id))
+  .map((r) => {
+    const link = photoLinksBySubsession.get(r.subsession_id);
+    return {
+      subsession_id: r.subsession_id,
+      track_name: r.track_name,
+      season_label: r.season_label,
+      start_time: r.start_time,
+      race_number: link?.race_number ?? 1,
+      photo_album_url: link?.photo_album_url ?? '',
+    };
+  });
 ---
 
 <AdminLayout title="Media">
   <h1 class="reveal font-display text-4xl">Media</h1>
   <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
     Manages the public Media page's Videos (Cinematics/Educational/Other — Broadcasts comes from Race Results links,
-    and Track Guide comes from each circuit layout's own field on the Circuits admin page), Graphics, and Meetups tabs.
+    and Track Guide comes from each circuit layout's own field on the Circuits admin page), Race Photos, Team
+    Graphics, and Meetups tabs.
   </p>
 
   {loadError && (
@@ -217,49 +286,119 @@ try {
       </section>
 
       <section class="reveal mt-10 border-t border-white/10 pt-8" style="transition-delay: 80ms">
-        <h2 class="text-lg font-semibold">Graphics</h2>
-        <p class="mt-1 text-sm text-white/50">Uploaded images shown in a gallery on the public Media page.</p>
+        <h2 class="text-lg font-semibold">Photo Management</h2>
+        <p class="mt-1 text-sm text-white/50">
+          Powers the public Media page's Race Photos and Team Graphics tabs (split out of one combined "Graphics" tab).
+        </p>
 
-        <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {graphics.length === 0 && <p class="col-span-full text-sm text-white/40">No results.</p>}
-          {graphics.map((g) => (
-            <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-2 text-sm ring-1 ring-white/10">
-              <img src={g.image_url} alt="" class="h-24 w-full rounded object-cover" />
-              <p class="truncate text-xs font-semibold" title={g.title}>{g.title}</p>
-              <form method="POST" data-astro-reload>
-                <input type="hidden" name="intent" value="delete-graphic" />
-                <input type="hidden" name="id" value={g.id} />
-                <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+        <div class="mt-6">
+          <h3 class="text-sm font-semibold text-white/80">Race Photos</h3>
+          <p class="mt-1 text-sm text-white/50">
+            One photographer album link per round (Flickr, etc.) — the same field as the "Photo Album" link on that
+            round's own <a href="/results" class="text-brand-primary hover:underline">Results</a> page, just
+            consolidated here so every round can be set without opening each one individually. Race # defaults to 1
+            (the whole-round album); bump it only if this round posts a separate album for a second race — a round
+            that already has both set can only show/edit one here, open its own Results page for the other.
+          </p>
+
+          <div class="mt-4 max-w-sm">
+            <input
+              type="search"
+              id="admin-race-photos-search"
+              placeholder="Search rounds…"
+              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            />
+          </div>
+
+          <div id="admin-race-photos-list" class="mt-4 flex max-h-[32rem] flex-col gap-2 overflow-y-auto">
+            {racePhotoRows.length === 0 && <p class="text-sm text-white/40">No rounds on file yet.</p>}
+            {racePhotoRows.map((r) => (
+              <form
+                method="POST"
+                data-astro-reload
+                data-search={`${r.track_name} ${r.season_label ?? ''}`.toLowerCase()}
+                class="flex flex-wrap items-center gap-2 rounded-lg bg-white/5 p-2.5 text-sm ring-1 ring-white/10"
+              >
+                <input type="hidden" name="intent" value="save-race-photo" />
+                <input type="hidden" name="subsession_id" value={r.subsession_id} />
+                <div class="min-w-0 flex-1 basis-48">
+                  <p class="truncate font-semibold">{r.track_name}</p>
+                  <p class="truncate text-xs text-white/50">
+                    {r.season_label && `${r.season_label} · `}
+                    {formatDate(r.start_time)}
+                  </p>
+                </div>
+                <label class="flex items-center gap-1.5 text-xs text-white/50">
+                  Race #
+                  <input
+                    type="number"
+                    name="race_number"
+                    min="1"
+                    value={r.race_number}
+                    class="w-14 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-white outline-none focus:border-brand-primary"
+                  />
+                </label>
+                <input
+                  type="url"
+                  name="photo_album_url"
+                  placeholder="https://flickr.com/…"
+                  value={r.photo_album_url}
+                  class="min-w-0 flex-[2] basis-64 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-white outline-none focus:border-brand-primary"
+                />
+                <button type="submit" class="rounded-md bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20">
+                  Save
+                </button>
               </form>
-            </div>
-          ))}
+            ))}
+          </div>
+          <p id="admin-race-photos-search-empty" class="mt-3 hidden text-sm text-white/60">No matches.</p>
         </div>
 
-        <details class="relative mt-4">
-          <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
-            Add a graphic
-          </summary>
-          <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
-            <input type="hidden" name="intent" value="add-graphic" />
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Title</span>
-              <input type="text" name="title" required class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
-            </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Image</span>
-              <input
-                type="file"
-                name="image"
-                required
-                accept="image/png,image/jpeg,image/webp"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
-              />
-            </label>
-            <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
-              Add Graphic
-            </button>
-          </form>
-        </details>
+        <div class="mt-10 border-t border-white/10 pt-8">
+          <h3 class="text-sm font-semibold text-white/80">Team Graphics</h3>
+          <p class="mt-1 text-sm text-white/50">Uploaded images shown in a gallery on the public Media page's Team Graphics tab.</p>
+
+          <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {graphics.length === 0 && <p class="col-span-full text-sm text-white/40">No results.</p>}
+            {graphics.map((g) => (
+              <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-2 text-sm ring-1 ring-white/10">
+                <img src={g.image_url} alt="" class="h-24 w-full rounded object-cover" />
+                <p class="truncate text-xs font-semibold" title={g.title}>{g.title}</p>
+                <form method="POST" data-astro-reload>
+                  <input type="hidden" name="intent" value="delete-graphic" />
+                  <input type="hidden" name="id" value={g.id} />
+                  <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                </form>
+              </div>
+            ))}
+          </div>
+
+          <details class="relative mt-4">
+            <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
+              Add a graphic
+            </summary>
+            <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+              <input type="hidden" name="intent" value="add-graphic" />
+              <label class="flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Title</span>
+                <input type="text" name="title" required class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary" />
+              </label>
+              <label class="flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Image</span>
+                <input
+                  type="file"
+                  name="image"
+                  required
+                  accept="image/png,image/jpeg,image/webp"
+                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+                />
+              </label>
+              <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
+                Add Graphic
+              </button>
+            </form>
+          </details>
+        </div>
       </section>
 
       <section class="reveal mt-10 border-t border-white/10 pt-8" style="transition-delay: 100ms">
@@ -343,3 +482,29 @@ try {
     </>
   )}
 </AdminLayout>
+
+<script>
+  // Client-side filter for the Race Photos list above — same show/hide-by-
+  // [data-search] pattern the public Media page's own search boxes use
+  // (see initGridSearch in src/pages/media.astro), just scoped to this one
+  // admin list instead of a shared script file since nothing else on this
+  // page needs it.
+  document.addEventListener('astro:page-load', () => {
+    const input = document.getElementById('admin-race-photos-search') as HTMLInputElement | null;
+    const list = document.getElementById('admin-race-photos-list');
+    const empty = document.getElementById('admin-race-photos-search-empty');
+    if (!input || !list) return;
+
+    const rows = list.querySelectorAll<HTMLElement>('[data-search]');
+    input.addEventListener('input', () => {
+      const term = input.value.trim().toLowerCase();
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const matches = !term || (row.dataset.search ?? '').includes(term);
+        row.style.display = matches ? '' : 'none';
+        if (matches) visibleCount += 1;
+      });
+      empty?.classList.toggle('hidden', visibleCount > 0);
+    });
+  });
+</script>

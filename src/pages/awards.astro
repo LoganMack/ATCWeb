@@ -1,0 +1,78 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import PageBanner from '../components/PageBanner.astro';
+import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import { bannerUrlFor } from '../lib/pageBanners';
+
+// Same shell-then-spinner split as hall-of-fame.astro/champions.astro (see
+// hall-of-fame.astro's own top-of-file comment for the full explanation) —
+// computing all twelve awards across every season on file
+// (computeSeasonAwardsHistory in src/lib/results.ts) is exactly the kind of
+// expensive, many-season computation that pattern exists for, so it lives in
+// awards/fragment.astro instead of blocking this shell.
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'awards');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Awards" description="Alpha Touring Challenge's season-scoped awards, season by season.">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
+    <h1 class="reveal font-display text-5xl">Awards</h1>
+    <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+      Twelve honors awarded every championship season, comparing the whole field as one pool rather than splitting by
+      class.
+    </p>
+
+    <HistoryTabs active="awards" />
+
+    <div data-awards-results data-fragment-url="/awards/fragment">
+      <div class="mt-8 flex flex-col gap-5" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading Awards…</span>
+        <div class="h-16 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-16 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-16 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-16 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // Same fetch-fragment-then-drop-in pattern as hall-of-fame.astro/
+    // champions.astro — see hall-of-fame.astro's own <script> comment for
+    // the full reasoning (reveal.ts re-dispatch included).
+    function initAwardsResults() {
+      const container = document.querySelector<HTMLElement>('[data-awards-results]');
+      const url = container?.dataset.fragmentUrl;
+      if (!container || !url) return;
+      delete container.dataset.fragmentUrl;
+
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Awards fragment request failed (${res.status})`);
+          return res.text();
+        })
+        .then((html) => {
+          container.innerHTML = html;
+          document.dispatchEvent(new Event('astro:page-load'));
+        })
+        .catch((err) => {
+          console.error('Failed to load Awards:', err);
+          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load Awards right now — try refreshing the page.</p>';
+        });
+    }
+
+    document.addEventListener('astro:page-load', initAwardsResults);
+  </script>
+</Layout>

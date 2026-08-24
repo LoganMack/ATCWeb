@@ -3697,3 +3697,436 @@ export function formatMargin(
 export function iracingResultsUrl(iracingSubsessionId: number): string {
   return `https://members-ng.iracing.com/web/racing/results-stats/results?subsessionid=${iracingSubsessionId}`;
 }
+
+// ---------------------------------------------------------------------------
+// Season awards (History > Awards tab) — twelve season-scoped honors, one
+// winner per season. Confirmed with Logan:
+//
+// - Every award compares the WHOLE FIELD as one pool, not split by class —
+//   "the class moniker is totally based on skill, the drivers all actually
+//   are on a level playing field car-wise." Points-based awards therefore
+//   reuse the same class-blind points formula `computeOverallSeasonStandings`
+//   already uses for the site's own "Overall" competition (finish_points +
+//   finesse_bonus + pole_bonus + points_deduction, class_points excluded —
+//   that field is Gamma/Delta's own per-race bonus, not something every
+//   driver can earn). Dominator/Defender are the one deliberate exception —
+//   a "class winning margin" is inherently about winning your OWN class, so
+//   those two alone still rank within each class, per race.
+// - Rookie of the Season eligibility is reconstructed the same way
+//   `sync_rookie_status()` (0041_driver_settings.sql) itself works, rather
+//   than reading the live (present-day) `is_rookie` flag: a driver counts as
+//   a rookie for season S if they had NOT yet had a season with 3+
+//   appearances in any season strictly before S. That mirrors the real
+//   rule's own "flips true -> false, permanently, the season you hit 3+
+//   appearances" logic — a driver can be a rookie candidate across more than
+//   one early low-participation season, and stops being one for good the
+//   season they finally cross the threshold.
+// - Ironman's "max distance possible that season" is: for each race the
+//   season actually ran, whoever (any driver, any class) completed the most
+//   laps in THAT race, times that round's own layout length — summed across
+//   every race of the season. Not the class-winner's or race-winner's own
+//   laps specifically, just the single furthest any entrant actually got.
+// - Speed Demon's "fastest lap" is one race-wide bragging right per race
+//   (not one per class) — ties (to the ten-thousandth of a second) credit
+//   every driver who shares it, though that's vanishingly rare in practice.
+// ---------------------------------------------------------------------------
+
+export interface SeasonAwardWinner {
+  driver: DriverBasic;
+  value: number;
+}
+
+/** Dominator/Defender — tied to the single race the margin actually happened in, not a season total. */
+export interface SeasonMarginAwardWinner extends SeasonAwardWinner {
+  subsessionId: number;
+  raceNumber: number;
+  trackName: string;
+}
+
+/** Ironman — carries the season-wide distance ceiling alongside the winner's own total. */
+export interface SeasonIronmanWinner extends SeasonAwardWinner {
+  maxPossibleKm: number;
+}
+
+export interface SeasonAwards {
+  season: Season;
+  rookieOfTheSeason: SeasonAwardWinner | null;
+  sublimeFinesse: SeasonAwardWinner | null;
+  leader: SeasonAwardWinner | null;
+  ironman: SeasonIronmanWinner | null;
+  consistency: SeasonAwardWinner | null;
+  bonusFeature: SeasonAwardWinner | null;
+  nakedAggression: SeasonAwardWinner | null;
+  speedDemon: SeasonAwardWinner | null;
+  dominator: SeasonMarginAwardWinner | null;
+  defender: SeasonMarginAwardWinner | null;
+  enduranceSpecialist: SeasonAwardWinner | null;
+  sprintSpecialist: SeasonAwardWinner | null;
+}
+
+/** Shared "highest value wins, alphabetical-name tiebreak" comparison every award below uses — same tiebreak philosophy as `finalizeStandings`. */
+function isBetterAwardValue(
+  value: number,
+  bestValue: number,
+  driverId: string,
+  bestDriverId: string,
+  driverById: Map<string, DriverBasic>,
+  direction: 'max' | 'min'
+): boolean {
+  if (direction === 'max' ? value > bestValue : value < bestValue) return true;
+  if (value !== bestValue) return false;
+  return (
+    displayDriverName(driverById.get(driverId)!.name).localeCompare(displayDriverName(driverById.get(bestDriverId)!.name)) < 0
+  );
+}
+
+/** Picks the best driver straight off `DriverSeasonExtendedStats` — covers Sublime Finesse, Leader, Ironman's own total, Bonus Feature, and Naked Aggression, all of which are already computed there per driver per season. */
+function pickBestFromExtendedStats(
+  extendedStats: Map<string, DriverSeasonExtendedStats>,
+  driverById: Map<string, DriverBasic>,
+  valueOf: (s: DriverSeasonExtendedStats) => number | null,
+  filter?: (driverId: string, s: DriverSeasonExtendedStats) => boolean
+): SeasonAwardWinner | null {
+  let best: { driverId: string; value: number } | null = null;
+  for (const [driverId, stats] of extendedStats) {
+    if (!driverById.has(driverId)) continue;
+    if (filter && !filter(driverId, stats)) continue;
+    const value = valueOf(stats);
+    if (value === null) continue;
+    if (best === null || isBetterAwardValue(value, best.value, driverId, best.driverId, driverById, 'max')) {
+      best = { driverId, value };
+    }
+  }
+  return best ? { driver: driverById.get(best.driverId)!, value: best.value } : null;
+}
+
+/** Picks the best driver out of a plain driverId -> total-value map — covers Speed Demon's fastest-lap tally and Endurance/Sprint Specialist's round-restricted point totals. */
+function pickBestFromValueMap(
+  values: Map<string, number>,
+  driverById: Map<string, DriverBasic>,
+  direction: 'max' | 'min' = 'max'
+): SeasonAwardWinner | null {
+  let best: { driverId: string; value: number } | null = null;
+  for (const [driverId, value] of values) {
+    if (!driverById.has(driverId)) continue;
+    if (best === null || isBetterAwardValue(value, best.value, driverId, best.driverId, driverById, direction)) {
+      best = { driverId, value };
+    }
+  }
+  return best ? { driver: driverById.get(best.driverId)!, value: best.value } : null;
+}
+
+/**
+ * For each race the season actually ran, the most laps ANY entrant (any
+ * class) completed times that round's own resolved layout length — summed
+ * across the whole season. See this section's own doc comment for why this,
+ * not the class/race winner's own laps specifically, is "max distance
+ * possible."
+ */
+function computeMaxPossibleDistanceKm(
+  overallContext: SeasonOverallContext,
+  circuits: Circuit[],
+  layouts: CircuitLayout[],
+  roundLayouts: Map<number, string | null>
+): number {
+  const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+  const maxLapsByRace = new Map<string, number>();
+  for (const s of overallContext.overallScores) {
+    const custId = overallContext.custIdByDriverId.get(s.driver_id);
+    const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const laps = raw?.laps_complete ?? 0;
+    const key = `${s.subsession_id}:${s.race_number}`;
+    if (laps > (maxLapsByRace.get(key) ?? 0)) maxLapsByRace.set(key, laps);
+  }
+  let total = 0;
+  for (const [key, maxLaps] of maxLapsByRace) {
+    const subsessionId = Number(key.split(':')[0]);
+    const trackName = trackNameBySubsession.get(subsessionId);
+    if (!trackName) continue;
+    const layout = resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
+    if (layout?.length_km) total += maxLaps * layout.length_km;
+  }
+  return total;
+}
+
+/** This season's class-blind (finish + finesse + pole + deduction) points for one (subsession,race,driver) row — same formula `computeOverallSeasonStandings` uses. */
+function overallPointsOfRow(s: RaceScoreOverallRow, overallContext: SeasonOverallContext): number {
+  const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+  const adjustment = overallContext.adjustments.get(key);
+  return adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+}
+
+/**
+ * A round's Endurance/Sprint Specialist classification — its own
+ * `curated_rounds.format` when set, otherwise (a "special event" round,
+ * e.g. 0048_race_number_points_overrides.sql's per-race-table events) by
+ * race count: more than one race in the round counts as a sprint round for
+ * this, exactly one race counts as endurance (Logan's own rule).
+ */
+function classifyRoundForSpecialistAwards(subsessionId: number, overallContext: SeasonOverallContext, raceNumbersBySubsession: Map<number, Set<number>>): 'endurance' | 'sprint' {
+  const explicit = overallContext.formatBySubsession.get(subsessionId);
+  if (explicit === 'endurance' || explicit === 'sprint') return explicit;
+  const raceCount = raceNumbersBySubsession.get(subsessionId)?.size ?? 1;
+  return raceCount > 1 ? 'sprint' : 'endurance';
+}
+
+/**
+ * Full history of all twelve season awards, newest season first (matching
+ * `seasons`' own order — see `getSeasons`). Skips any season with no
+ * race_scores data at all, same as `getChampions`. Bulk-fetches everything
+ * once across every championship season (same "fetch once, slice in memory
+ * per season" shape `getChampions`/`computeDriverCareerStats` already use)
+ * rather than issuing each season's own round of queries — a from-scratch
+ * per-season fetch here would multiply by every season on file and risk the
+ * exact Cloudflare Workers subrequest-limit problem those functions' own
+ * doc comments describe hitting before this same fix.
+ */
+export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Season[]): Promise<SeasonAwards[]> {
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  if (championshipSeasons.length === 0) return [];
+  const championshipSeasonIds = championshipSeasons.map((s) => s.id);
+
+  const [drivers, exhibitionIds, bulkScores, allRounds, rulesets, circuits, layouts] = await Promise.all([
+    driversSelect(env),
+    getStandingsExcludedRoundIds(env),
+    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+    getAllRounds(env),
+    getScoringRulesets(env),
+    getCircuits(env).catch((err) => {
+      console.error('Failed to fetch circuits for season awards — Ironman distance will be omitted:', err);
+      return [] as Circuit[];
+    }),
+    getAllCircuitLayouts(env).catch((err) => {
+      console.error('Failed to fetch circuit_layouts for season awards — Ironman distance will be omitted:', err);
+      return [] as CircuitLayout[];
+    }),
+  ]);
+  const driverById = new Map(drivers.map((d) => [d.id, d]));
+
+  const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
+  const [{ rawResults, lapStats }, penalties, roundLayouts] = await Promise.all([
+    getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
+    getPenaltiesForSubsessions(env, allSubsessionIds),
+    getRoundLayoutsForSubsessions(env, allSubsessionIds),
+  ]);
+
+  // --- Rookie-of-the-Season eligibility pre-pass, oldest season first ---
+  // (independent of the main per-season loop below, which stays in
+  // `seasons`' own newest-first order for the returned history).
+  const championshipSeasonsAsc = [...championshipSeasons].sort((a, b) => a.number - b.number);
+  const crossedThresholdSoFar = new Set<string>();
+  const rookieCandidatesBySeasonId = new Map<string, Set<string>>();
+  for (const season of championshipSeasonsAsc) {
+    const seasonScores = bulkScores.filter((s) => s.season_id === season.id && !exhibitionIds.has(s.subsession_id));
+    const appearancesByDriver = new Map<string, Set<number>>();
+    for (const s of seasonScores) {
+      if (!appearancesByDriver.has(s.driver_id)) appearancesByDriver.set(s.driver_id, new Set());
+      appearancesByDriver.get(s.driver_id)!.add(s.subsession_id);
+    }
+    const candidates = new Set<string>();
+    for (const driverId of appearancesByDriver.keys()) {
+      if (!crossedThresholdSoFar.has(driverId)) candidates.add(driverId);
+    }
+    rookieCandidatesBySeasonId.set(season.id, candidates);
+    for (const [driverId, subsessionIds] of appearancesByDriver) {
+      if (subsessionIds.size >= 3) crossedThresholdSoFar.add(driverId);
+    }
+  }
+
+  // --- Main per-season pass, `seasons`' own (newest-first) order ---
+  const perSeason = await Promise.all(
+    championshipSeasons.map(async (season) => {
+      const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
+      if (seasonScores.length === 0) return null;
+      const seasonSubsessionIds = new Set(seasonScores.map((s) => s.subsession_id));
+      const seasonRawResults = rawResults.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+      const seasonPenalties = penalties.filter((p) => seasonSubsessionIds.has(p.subsession_id));
+      const seasonLapStats = lapStats.filter((r) => seasonSubsessionIds.has(r.subsession_id));
+      const seasonRoundsList = allRounds.filter((r) => r.season_id === season.id);
+
+      const overallContext = buildSeasonOverallContext(
+        exhibitionIds,
+        drivers,
+        seasonScores,
+        seasonRawResults,
+        seasonPenalties,
+        seasonRoundsList,
+        seasonLapStats
+      );
+      if (overallContext.overallScores.length === 0) return null;
+
+      const [overallStandings, extendedStats] = await Promise.all([
+        computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
+        getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts, roundLayouts),
+      ]);
+
+      // Rookie of the Season — highest season points (with drops, matching
+      // the real standings) among drivers still rookie-eligible entering
+      // this season (see the pre-pass above).
+      const rookieCandidates = rookieCandidatesBySeasonId.get(season.id) ?? new Set<string>();
+      let rookieOfTheSeason: SeasonAwardWinner | null = null;
+      for (const standing of overallStandings) {
+        if (!rookieCandidates.has(standing.driver.id)) continue;
+        if (
+          rookieOfTheSeason === null ||
+          isBetterAwardValue(standing.totalPoints, rookieOfTheSeason.value, standing.driver.id, rookieOfTheSeason.driver.id, driverById, 'max')
+        ) {
+          rookieOfTheSeason = { driver: standing.driver, value: standing.totalPoints };
+        }
+      }
+
+      // Sublime Finesse — corners per incident, minimum 50% of the season's
+      // rounds attended (by appearances).
+      const maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
+      const appearancesByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.appearances]));
+      const sublimeFinesse = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.cornersPerIncident, (driverId) => {
+        const appearances = appearancesByDriverId.get(driverId) ?? 0;
+        return maxAppearances > 0 && appearances * 2 >= maxAppearances;
+      });
+
+      const leader = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.lapsLed);
+      const bonusFeature = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.bonusPoints);
+      const nakedAggression = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.netPositionsChange);
+
+      const ironmanBest = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.distanceKm);
+      const ironman: SeasonIronmanWinner | null = ironmanBest
+        ? { ...ironmanBest, maxPossibleKm: computeMaxPossibleDistanceKm(overallContext, circuits, layouts, roundLayouts) }
+        : null;
+
+      // Consistency — best (lowest) average overall finish position per race.
+      const consistencyAccum = new Map<string, { sum: number; count: number }>();
+      for (const s of overallContext.overallScores) {
+        if (s.dsq) continue;
+        const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
+        const adjustment = overallContext.adjustments.get(key);
+        const position = adjustment ? adjustment.newPosition : s.scored_position;
+        if (position === null) continue;
+        const a = consistencyAccum.get(s.driver_id) ?? { sum: 0, count: 0 };
+        a.sum += position;
+        a.count += 1;
+        consistencyAccum.set(s.driver_id, a);
+      }
+      const consistencyAverages = new Map<string, number>();
+      for (const [driverId, a] of consistencyAccum) {
+        if (a.count > 0) consistencyAverages.set(driverId, a.sum / a.count);
+      }
+      const consistency = pickBestFromValueMap(consistencyAverages, driverById, 'min');
+
+      // Speed Demon — most races with the single fastest lap of the whole
+      // field (every class together — see this section's doc comment).
+      const raceGroupsAll = new Map<string, RaceScoreOverallRow[]>();
+      for (const s of overallContext.overallScores) {
+        const key = `${s.subsession_id}:${s.race_number}`;
+        if (!raceGroupsAll.has(key)) raceGroupsAll.set(key, []);
+        raceGroupsAll.get(key)!.push(s);
+      }
+      const fastestLapCounts = new Map<string, number>();
+      for (const group of raceGroupsAll.values()) {
+        let bestTime: number | null = null;
+        let bestDriverIds: string[] = [];
+        for (const s of group) {
+          if (s.dsq) continue;
+          const custId = overallContext.custIdByDriverId.get(s.driver_id);
+          const lapStatsRow = custId != null ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+          const t = lapStatsRow?.best_lap_ten_thousandths ?? null;
+          if (t === null) continue;
+          if (bestTime === null || t < bestTime) {
+            bestTime = t;
+            bestDriverIds = [s.driver_id];
+          } else if (t === bestTime) {
+            bestDriverIds.push(s.driver_id);
+          }
+        }
+        for (const driverId of bestDriverIds) {
+          fastestLapCounts.set(driverId, (fastestLapCounts.get(driverId) ?? 0) + 1);
+        }
+      }
+      const speedDemon = pickBestFromValueMap(fastestLapCounts, driverById, 'max');
+
+      // Dominator/Defender — biggest/smallest class-winning margin of any
+      // single race this season (not a season total — see doc comment).
+      const classRaceGroups = new Map<string, RaceScoreOverallRow[]>();
+      for (const s of overallContext.overallScores) {
+        const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
+        if (!classRaceGroups.has(key)) classRaceGroups.set(key, []);
+        classRaceGroups.get(key)!.push(s);
+      }
+      const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+      let dominator: SeasonMarginAwardWinner | null = null;
+      let defender: SeasonMarginAwardWinner | null = null;
+      for (const [key, group] of classRaceGroups) {
+        const ranked = group
+          .filter((s) => !s.dsq)
+          .map((s) => {
+            const custId = overallContext.custIdByDriverId.get(s.driver_id);
+            const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+            return {
+              driverId: s.driver_id,
+              position: raw?.adjusted_position ?? raw?.finish_position ?? null,
+              interval: raw?.interval_ten_thousandths ?? null,
+            };
+          })
+          .filter((r) => r.position !== null)
+          .sort((a, b) => (a.position as number) - (b.position as number));
+        if (ranked.length < 2) continue;
+        const [p1, p2] = ranked;
+        // Only a real, usable time gap for both (a negative interval means
+        // "a lap or more down," not a real gap — see `formatMargin`) counts
+        // as a margin here; anything else is skipped rather than guessed at.
+        if (p1.interval === null || p2.interval === null || p1.interval < 0 || p2.interval < 0) continue;
+        const margin = p2.interval - p1.interval;
+        if (margin < 0 || !driverById.has(p1.driverId)) continue;
+        const [subsessionIdStr, raceNumberStr] = key.split(':');
+        const entry: SeasonMarginAwardWinner = {
+          driver: driverById.get(p1.driverId)!,
+          value: margin,
+          subsessionId: Number(subsessionIdStr),
+          raceNumber: Number(raceNumberStr),
+          trackName: trackNameBySubsession.get(Number(subsessionIdStr)) ?? 'Unknown',
+        };
+        if (dominator === null || margin > dominator.value) dominator = entry;
+        if (defender === null || margin < defender.value) defender = entry;
+      }
+
+      // Endurance/Sprint Specialist — class-blind points, restricted to one
+      // round type, no drop weeks at all (unlike every other points-based
+      // figure on this page).
+      const raceNumbersBySubsession = new Map<number, Set<number>>();
+      for (const s of overallContext.overallScores) {
+        if (!raceNumbersBySubsession.has(s.subsession_id)) raceNumbersBySubsession.set(s.subsession_id, new Set());
+        raceNumbersBySubsession.get(s.subsession_id)!.add(s.race_number);
+      }
+      const endurancePoints = new Map<string, number>();
+      const sprintPoints = new Map<string, number>();
+      for (const s of overallContext.overallScores) {
+        const points = overallPointsOfRow(s, overallContext);
+        const bucket =
+          classifyRoundForSpecialistAwards(s.subsession_id, overallContext, raceNumbersBySubsession) === 'endurance'
+            ? endurancePoints
+            : sprintPoints;
+        bucket.set(s.driver_id, (bucket.get(s.driver_id) ?? 0) + points);
+      }
+      const enduranceSpecialist = pickBestFromValueMap(endurancePoints, driverById, 'max');
+      const sprintSpecialist = pickBestFromValueMap(sprintPoints, driverById, 'max');
+
+      const awards: SeasonAwards = {
+        season,
+        rookieOfTheSeason,
+        sublimeFinesse,
+        leader,
+        ironman,
+        consistency,
+        bonusFeature,
+        nakedAggression,
+        speedDemon,
+        dominator,
+        defender,
+        enduranceSpecialist,
+        sprintSpecialist,
+      };
+      return awards;
+    })
+  );
+
+  return perSeason.filter((r): r is SeasonAwards => r !== null);
+}
