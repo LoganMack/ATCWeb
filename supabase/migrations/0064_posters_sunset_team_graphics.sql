@@ -1,0 +1,24 @@
+-- Alpha Touring Challenge — sunset "Team Graphics", repurpose as "Posters"
+--
+-- Logan decided to retire the Team Graphics content on the public Media
+-- page (0049_media_page.sql's media_graphics table/gallery) and reuse the
+-- exact same gallery for event posters instead — same mechanic (an admin
+-- uploads a title + image, shown in a public gallery), just a different
+-- purpose and a fresh start content-wise. The app-side rename (public
+-- /media tab, Admin > Media's "Photo Management" section) ships alongside
+-- this migration; this migration is the "sunset the data" half of that —
+-- Logan asked for the old rows actually deleted, not just hidden.
+--
+-- Deliberately keeps the table/policies/index exactly as they were
+-- (media_graphics, unrenamed — see media.astro's own doc comment for why)
+-- since Posters is mechanically identical, just wiped clean of its
+-- Team-Graphics-era content.
+--
+-- NOTE: this only deletes the media_graphics rows, not the underlying
+-- uploaded image files in the 'photos' Storage bucket — a SQL migration
+-- has no way to call the Storage API, and the app's own delete-a-graphic
+-- flow (deleteMediaGraphic in src/lib/supabase.ts) has never cleaned up
+-- Storage either. Any now-orphaned image files can be cleared out by hand
+-- from the Supabase dashboard's Storage browser if desired; leaving them
+-- behind costs nothing but a little unused storage.
+delete from media_graphics;

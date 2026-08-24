@@ -25,14 +25,24 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // 'graphics' used to be one combined tab (Round Photo Albums + the
 // media_graphics gallery) — split into two, the same "top-level tabs" shape
 // Videos already used for its own sub-filters, per Logan: race photos and
-// team graphics are different enough things that they deserve their own
-// tabs rather than being two sections stacked inside one.
-const TABS = ['videos', 'race-photos', 'team-graphics', 'meetups'] as const;
+// [originally "team graphics", since renamed to Posters — see below] are
+// different enough things that they deserve their own tabs rather than
+// being two sections stacked inside one.
+//
+// 'posters' was originally shipped as "Team Graphics" — Logan then decided
+// to sunset that content and repurpose the same tab/gallery for event
+// posters instead (see 0064_posters_sunset_team_graphics.sql, which wipes
+// the old team-graphics-era rows). Deliberately still backed by the same
+// `media_graphics` table/`MediaGraphic` type/`getAllMediaGraphics` etc. —
+// mechanically it's the exact same "title + uploaded image, shown in a
+// gallery" feature, just relabeled and given a fresh start content-wise, so
+// there was no reason to rename the underlying schema too.
+const TABS = ['videos', 'race-photos', 'posters', 'meetups'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   videos: 'Videos',
   'race-photos': 'Race Photos',
-  'team-graphics': 'Team Graphics',
+  posters: 'Posters',
   meetups: 'Meetups',
 };
 const tabParam = Astro.url.searchParams.get('tab');
@@ -113,7 +123,7 @@ try {
     }
   } else if (tab === 'race-photos') {
     photoAlbums = await getAllPhotoAlbumLinks(supabaseEnv);
-  } else if (tab === 'team-graphics') {
+  } else if (tab === 'posters') {
     graphics = await getAllMediaGraphics(supabaseEnv);
   } else if (tab === 'meetups') {
     meetups = await getAllMediaMeetups(supabaseEnv);
@@ -152,7 +162,7 @@ const meetupPins = meetups
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title="Media" description="Broadcasts, cinematics, educational videos, track guides, race photos, team graphics, and meetups from Alpha Touring Challenge.">
+<Layout title="Media" description="Broadcasts, cinematics, educational videos, track guides, race photos, posters, and meetups from Alpha Touring Challenge.">
   <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-5xl">Media</h1>
@@ -344,20 +354,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       )
     )}
 
-    {!loadError && tab === 'team-graphics' && (
+    {!loadError && tab === 'posters' && (
       graphics.length === 0 ? (
-        <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No team graphics on file yet.</p>
+        <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No posters on file yet.</p>
       ) : (
         <>
           <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
             <input
               type="search"
-              id="media-search-team-graphics"
-              placeholder="Search team graphics…"
+              id="media-search-posters"
+              placeholder="Search posters…"
               class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
             />
           </div>
-          <div id="media-team-graphics-grid" class="reveal grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" style="transition-delay: 70ms">
+          <div id="media-posters-grid" class="reveal grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" style="transition-delay: 70ms">
             {graphics.map((g) => (
               <button
                 type="button"
@@ -372,7 +382,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </button>
             ))}
           </div>
-          <p id="media-search-empty-team-graphics" class="reveal mt-8 hidden text-white/60">No matches.</p>
+          <p id="media-search-empty-posters" class="reveal mt-8 hidden text-white/60">No matches.</p>
         </>
       )
     )}
@@ -459,7 +469,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     document.addEventListener('astro:page-load', () => {
       initGridSearch('media-search-videos', 'media-search-grid', 'media-search-empty-videos');
-      initGridSearch('media-search-team-graphics', 'media-team-graphics-grid', 'media-search-empty-team-graphics');
+      initGridSearch('media-search-posters', 'media-posters-grid', 'media-search-empty-posters');
       initAlbumThumbnails();
     });
   </script>

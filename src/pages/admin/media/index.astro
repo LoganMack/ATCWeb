@@ -200,8 +200,8 @@ const racePhotoRows = rounds
   <h1 class="reveal font-display text-4xl">Media</h1>
   <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
     Manages the public Media page's Videos (Cinematics/Educational/Other — Broadcasts comes from Race Results links,
-    and Track Guide comes from each circuit layout's own field on the Circuits admin page), Race Photos, Team
-    Graphics, and Meetups tabs.
+    and Track Guide comes from each circuit layout's own field on the Circuits admin page), Race Photos, Posters,
+    and Meetups tabs.
   </p>
 
   {loadError && (
@@ -288,7 +288,8 @@ const racePhotoRows = rounds
       <section class="reveal mt-10 border-t border-white/10 pt-8" style="transition-delay: 80ms">
         <h2 class="text-lg font-semibold">Photo Management</h2>
         <p class="mt-1 text-sm text-white/50">
-          Powers the public Media page's Race Photos and Team Graphics tabs (split out of one combined "Graphics" tab).
+          Powers the public Media page's Race Photos and Posters tabs (originally split out of one combined
+          "Graphics" tab; Posters was itself relabeled from "Team Graphics" once that content was sunset).
         </p>
 
         <div class="mt-6">
@@ -355,8 +356,13 @@ const racePhotoRows = rounds
         </div>
 
         <div class="mt-10 border-t border-white/10 pt-8">
-          <h3 class="text-sm font-semibold text-white/80">Team Graphics</h3>
-          <p class="mt-1 text-sm text-white/50">Uploaded images shown in a gallery on the public Media page's Team Graphics tab.</p>
+          <h3 class="text-sm font-semibold text-white/80">Posters</h3>
+          <p class="mt-1 text-sm text-white/50">
+            Uploaded images shown in a gallery on the public Media page's Posters tab. This used to be "Team
+            Graphics" — Logan sunset that content (0064_posters_sunset_team_graphics.sql wiped the old rows) and
+            repurposed the same gallery for event posters instead; still the exact same mechanic (title + image),
+            still backed by the same `media_graphics` table, just relabeled.
+          </p>
 
           <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {graphics.length === 0 && <p class="col-span-full text-sm text-white/40">No results.</p>}
@@ -375,7 +381,7 @@ const racePhotoRows = rounds
 
           <details class="relative mt-4">
             <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
-              Add a graphic
+              Add a poster
             </summary>
             <form method="POST" data-astro-reload enctype="multipart/form-data" class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
               <input type="hidden" name="intent" value="add-graphic" />
@@ -394,7 +400,7 @@ const racePhotoRows = rounds
                 />
               </label>
               <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
-                Add Graphic
+                Add Poster
               </button>
             </form>
           </details>
