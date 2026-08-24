@@ -55,6 +55,8 @@ import {
   getOrganizations,
   getAllBroadcastRaceLinks,
   getAllPhotoAlbumRaceLinks,
+  getScoringRulesets,
+  resolveSeasonRuleset,
   type SupabaseEnv,
 } from './supabase';
 import type {
@@ -67,6 +69,7 @@ import type {
   Organization,
   OrganizationTeamSeason,
   EventRecord,
+  ScoringRuleset,
 } from './supabase';
 import {
   computeSeasonOverallAdjustments,
@@ -657,6 +660,26 @@ export interface DriverSeasonStanding {
 
 const BASELINE_DROP_WEEKS = 2;
 
+/**
+ * The chronologically last non-excluded (exhibition/test) round of a
+ * season, if it's raced yet — what "the final round" means for
+ * ScoringRuleset.can_drop_final_round (see finalizeStandings below). Ties
+ * on start_time (shouldn't normally happen) fall back to the higher
+ * round_number; otherwise picking either would be equally arbitrary.
+ * Returns null for a season with no eligible rounds at all yet.
+ */
+function findFinalRoundSubsessionId(seasonRounds: RoundSummary[], excludedRoundIds: Set<number>): number | null {
+  const eligible = seasonRounds.filter((r) => !excludedRoundIds.has(r.subsession_id));
+  if (eligible.length === 0) return null;
+  let final = eligible[0];
+  for (const r of eligible) {
+    if (r.start_time > final.start_time || (r.start_time === final.start_time && (r.round_number ?? -1) > (final.round_number ?? -1))) {
+      final = r;
+    }
+  }
+  return final.subsession_id;
+}
+
 interface StandingsAccum {
   starts: number;
   subsessionIds: Set<number>;
@@ -712,24 +735,57 @@ function newStandingsAccum(): StandingsAccum {
  * that class's own class-relative stats (and, for Gamma/Delta, `poles` is
  * already that class's own Class Pole count), so this one comparator serves
  * every view without needing to know which one it's sorting.
+ *
+ * `finalRoundSubsessionId`/`canDropFinalRound` implement
+ * ScoringRuleset.can_drop_final_round: when a ruleset has it set to `false`
+ * (the default), the season's own final round is never eligible to be one
+ * of the dropped worst-rounds, even if its points happen to be low enough
+ * to otherwise qualify — it's forced into the counted set, and the normal
+ * drop count instead comes entirely out of the remaining rounds. The total
+ * NUMBER of rounds counted doesn't change either way (see the two branches
+ * below) — only which specific round is guaranteed to be one of them.
  */
 function finalizeStandings(
   accum: Map<string, StandingsAccum>,
   driverById: Map<string, DriverBasic>,
   season: Season,
-  allSubsessionIds: Set<number>
+  allSubsessionIds: Set<number>,
+  finalRoundSubsessionId: number | null = null,
+  canDropFinalRound: boolean = true
 ): DriverSeasonStanding[] {
   const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
+  // Only actually a constraint when the final round is both present in this
+  // pool (this class/view may not have raced it at all) and the ruleset
+  // wants it protected — otherwise this is exactly the old unconstrained
+  // behavior.
+  const protectFinalRound = !canDropFinalRound && finalRoundSubsessionId !== null && allSubsessionIds.has(finalRoundSubsessionId);
 
   const standings: Omit<DriverSeasonStanding, 'position'>[] = [];
   for (const [driverId, a] of accum) {
     const driver = driverById.get(driverId);
     if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
 
-    const roundTotals = [...allSubsessionIds].map((id) => a.roundPoints.get(id) ?? 0).sort((x, y) => y - x);
-    const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
-    const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
-    const totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+    let totalPoints: number;
+    if (protectFinalRound) {
+      const finalRoundPoints = a.roundPoints.get(finalRoundSubsessionId as number) ?? 0;
+      const restTotals = [...allSubsessionIds]
+        .filter((id) => id !== finalRoundSubsessionId)
+        .map((id) => a.roundPoints.get(id) ?? 0)
+        .sort((x, y) => y - x);
+      // Same overall drop count as the unprotected branch below (see this
+      // function's own doc comment) — it's just drawn entirely from the
+      // non-final rounds instead of the full pool, since the final round no
+      // longer competes for a drop slot at all.
+      const dropCount = Math.min(totalDrops, Math.max(0, allSubsessionIds.size - 1));
+      const keepFromRest = Math.max(0, restTotals.length - dropCount);
+      const countedRest = restTotals.slice(0, keepFromRest);
+      totalPoints = finalRoundPoints + countedRest.reduce((sum, p) => sum + p, 0);
+    } else {
+      const roundTotals = [...allSubsessionIds].map((id) => a.roundPoints.get(id) ?? 0).sort((x, y) => y - x);
+      const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
+      const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
+      totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+    }
 
     standings.push({
       driver,
@@ -794,16 +850,22 @@ export async function computeSeasonStandings(
    */
   precomputedOverallContext?: SeasonOverallContext,
   /** Same sharing reasoning as `precomputedOverallContext` — lets a caller that already fetched this class's own race_scores rows (e.g. computeTeamSeasonStandings' per-class team competition, which needs the identical rows) pass them in instead of querying twice. */
-  precomputedScoresRaw?: RaceScoreRow[]
+  precomputedScoresRaw?: RaceScoreRow[],
+  /** Same sharing reasoning as `driversBasic` above — pass every ruleset on file when computing many seasons back to back (see `getChampions`/`computeDriverCareerStats`) so this doesn't refetch the same small table once per season. Resolved against this `season` via `resolveSeasonRuleset` either way. */
+  rulesets?: ScoringRuleset[]
 ): Promise<DriverSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
-  const [scoresRaw, drivers, exhibitionIds, classes] = await Promise.all([
+  const [scoresRaw, drivers, exhibitionIds, classes, allRulesets] = await Promise.all([
     precomputedScoresRaw ? Promise.resolve(precomputedScoresRaw) : getRaceScoresForSeasonClass(env, season.id, classId),
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
+    rulesets ? Promise.resolve(rulesets) : getScoringRulesets(env),
   ]);
+  // Defaults to protected (canDropFinalRound=false) when no ruleset resolves
+  // at all — see ScoringRuleset.can_drop_final_round's own doc comment.
+  const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
   // Alpha's own scoring never includes the top-3-in-class Class Points
   // bonus (that's Gamma/Delta's own per-race class-position bonus, see
   // README) — used below so a penalty-driven class-position change can
@@ -1006,7 +1068,8 @@ export async function computeSeasonStandings(
   // exhibition-filtered, same as `scores`) — see finalizeStandings' own doc
   // comment on why a driver's missed rounds need to be in this pool too.
   const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
-  return finalizeStandings(accum, driverById, season, allSubsessionIds);
+  const finalRoundSubsessionId = findFinalRoundSubsessionId(overallContext.seasonRounds, exhibitionIds);
+  return finalizeStandings(accum, driverById, season, allSubsessionIds, finalRoundSubsessionId, canDropFinalRound);
 }
 
 /**
@@ -1066,14 +1129,18 @@ export async function computeOverallSeasonStandings(
   driversBasic?: DriverBasic[],
   exhibitionRoundIds?: Set<number>,
   /** See `computeSeasonStandings`' identical param — shares one season-wide penalty context across every view instead of each fetching its own. */
-  precomputedOverallContext?: SeasonOverallContext
+  precomputedOverallContext?: SeasonOverallContext,
+  /** See `computeSeasonStandings`' identical param. */
+  rulesets?: ScoringRuleset[]
 ): Promise<DriverSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
-  const [drivers, exhibitionIds] = await Promise.all([
+  const [drivers, exhibitionIds, allRulesets] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
+    rulesets ? Promise.resolve(rulesets) : getScoringRulesets(env),
   ]);
+  const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
 
   const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
   const scores = overallContext.overallScores;
@@ -1122,7 +1189,8 @@ export async function computeOverallSeasonStandings(
   // exhibition-filtered, same as `scores`) — see finalizeStandings' own doc
   // comment on why a driver's missed rounds need to be in this pool too.
   const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
-  return finalizeStandings(accum, driverById, season, allSubsessionIds);
+  const finalRoundSubsessionId = findFinalRoundSubsessionId(overallContext.seasonRounds, exhibitionIds);
+  return finalizeStandings(accum, driverById, season, allSubsessionIds, finalRoundSubsessionId, canDropFinalRound);
 }
 
 export interface TeamSeasonStanding {
@@ -1993,12 +2061,13 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
   // subrequests by single Worker invocation") once there were more than a
   // handful of seasons — exactly what broke Admin > Champions and the public
   // Champions page.
-  const [drivers, exhibitionIds, classes, bulkScores, allRounds] = await Promise.all([
+  const [drivers, exhibitionIds, classes, bulkScores, allRounds, rulesets] = await Promise.all([
     driversSelect(env),
     getStandingsExcludedRoundIds(env),
     getDriverClasses(env),
     getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
     getAllRounds(env),
+    getScoringRulesets(env),
   ]);
 
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
@@ -2038,7 +2107,8 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
         exhibitionIds,
         classes,
         overallContext,
-        classScores
+        classScores,
+        rulesets
       );
       return standings.length > 0 ? { season, standing: standings[0] } : null;
     })
@@ -2072,7 +2142,7 @@ export async function getChampionsWithExtras(
   const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
-  const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows] = await Promise.all([
+  const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows, rulesets] = await Promise.all([
     driversSelect(env),
     getStandingsExcludedRoundIds(env),
     getDriverClasses(env),
@@ -2081,6 +2151,7 @@ export async function getChampionsWithExtras(
     getTeamsBasic(env),
     getCarLogos(env),
     getAllTeamSeasonLogosSafe(env),
+    getScoringRulesets(env),
   ]);
 
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
@@ -2125,7 +2196,8 @@ export async function getChampionsWithExtras(
         exhibitionIds,
         classes,
         overallContext,
-        classScores
+        classScores,
+        rulesets
       );
       if (standings.length === 0) return null;
 
@@ -2388,7 +2460,7 @@ export async function computeDriverCareerStats(
   // handful of seasons on file. The only fix that stays flat no matter how
   // many seasons get added in the future is to never issue a query "per
   // season" at all — bulk-fetch across every season once, then filter.
-  const [drivers, exhibitionIds, teams, carLogos, seasonLogoRows, circuits, layouts, bulkScores, allRounds] = await Promise.all([
+  const [drivers, exhibitionIds, teams, carLogos, seasonLogoRows, circuits, layouts, bulkScores, allRounds, rulesets] = await Promise.all([
     driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     getTeamsBasic(env),
@@ -2404,6 +2476,7 @@ export async function computeDriverCareerStats(
     }),
     getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
     getAllRounds(env),
+    getScoringRulesets(env),
   ]);
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   // Delta runs its own separate team competition (see computeTeamSeasonStandings'
@@ -2467,11 +2540,12 @@ export async function computeDriverCareerStats(
               exhibitionIds,
               classes,
               overallContext,
-              scoresByClassId.get(c.id) ?? []
+              scoresByClassId.get(c.id) ?? [],
+              rulesets
             )
           )
         ),
-        computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext),
+        computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
         getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts, roundLayouts),
         computeTeamSeasonStandings(env, season, exhibitionIds, undefined, drivers, teams, seasonLogoRows, classes, overallContext),
         // Gated on delta_team_enabled, not just deltaClass existing — the

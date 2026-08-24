@@ -20,32 +20,10 @@ const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.loca
 let error: string | null = null;
 
 /**
- * Pretty-prints a ruleset's `rules` for the edit textarea. This is a parsed
- * JSON value (an object) straight from Supabase, not a string — jsonb
- * columns always come back as native JSON on read (see ScoringRuleset.rules'
- * own doc comment for why). Running that object through JSON.parse (the old
- * bug here) throws, since JSON.parse needs a string; the catch block then
- * returned the object itself, and the textarea rendered its default
- * `[object Object]` stringification instead of the JSON.
- *
- * Still handles a value that genuinely arrives as a string (e.g. a row
- * poked in by hand outside this UI) by parsing-then-re-stringifying it for
- * consistent indentation, falling back to the raw string if that fails.
- */
-function prettyJson(value: unknown): string {
-  if (typeof value === 'string') {
-    try {
-      return JSON.stringify(JSON.parse(value), null, 2);
-    } catch {
-      return value;
-    }
-  }
-  return JSON.stringify(value, null, 2);
-}
-
-/**
  * Every field a `rules` value can carry, for Admin > Rulesets' "copy as a
- * starting point" block. Built from what's actually live in the 5 real
+ * starting point" reference block AND as the default content of the
+ * Advanced rules textarea when adding a brand-new ruleset (see
+ * `advancedTemplate` below). Built from what's actually live in the 5 real
  * rulesets on file as of 2026-08 (ATC12/13/15/16, "ATC 18.3") — drops,
  * teams, probation, pp_penalties, classification, incident_limits, and
  * season_pp_limit are IDENTICAL, verbatim, across every one of them, so
@@ -72,6 +50,12 @@ function prettyJson(value: unknown): string {
  * classification.min_distance_pct: the actual 50%-of-leader's-laps
  * classification rule is HARDCODED in recalculate_race_scores() (§2.25),
  * not read from here. Editing this field does nothing.
+ *
+ * `can_drop_final_round` is NOT part of this object — it's a real column
+ * on scoring_rulesets (see 0062_scoring_ruleset_can_drop_final_round.sql),
+ * not a `rules` jsonb field, because it's consulted directly by
+ * src/lib/results.ts's standings computation rather than by
+ * recalculate_race_scores().
  */
 const descendingPlaceholder = (length: number) => Array.from({ length }, (_, i) => length - i);
 const rulesTemplate = {
@@ -130,6 +114,66 @@ const rulesTemplate = {
 };
 const rulesTemplateJson = JSON.stringify(rulesTemplate, null, 2);
 
+// The popup editor below gives base_points, class_podium, classified_minimum,
+// and season_pp_limit their own structured fields (the values that actually
+// differ from season to season) and leaves everything else — drops, teams,
+// bonuses, probation, race_overrides, pp_penalties, classification,
+// incident_limits — in a single "Advanced rules (JSON)" textarea, since
+// those are (per the doc comment above) either identical across every
+// ruleset on file today or too rarely touched to earn dedicated fields.
+// This is what a brand-new ruleset's Advanced textarea starts prefilled
+// with. On save, the structured fields always win over anything with the
+// same key left behind in that textarea — see the save handler below.
+const {
+  base_points: _templateBasePoints,
+  class_podium: _templateClassPodium,
+  classified_minimum: _templateClassifiedMinimum,
+  season_pp_limit: _templateSeasonPpLimit,
+  ...advancedTemplate
+} = rulesTemplate;
+const advancedTemplateJson = JSON.stringify(advancedTemplate, null, 2);
+
+/** A parsed `rules` value's fields split the same way as advancedTemplate above — used to prefill the Edit dialog for an existing ruleset. Guards against a corrupted (non-object) `rules` value, e.g. the jsonb-string-scalar bug documented on ScoringRuleset.rules — editing and re-saving through this form always writes back a proper object. */
+function splitRulesForForm(rules: unknown): { basePoints: any; classPodium: any; classifiedMinimum: any; seasonPpLimit: number | null; advanced: Record<string, unknown> } {
+  const obj: Record<string, unknown> = typeof rules === 'object' && rules !== null && !Array.isArray(rules) ? (rules as Record<string, unknown>) : {};
+  const { base_points, class_podium, classified_minimum, season_pp_limit, ...advanced } = obj as any;
+  return {
+    basePoints: base_points ?? {},
+    classPodium: class_podium ?? {},
+    classifiedMinimum: classified_minimum ?? {},
+    seasonPpLimit: typeof season_pp_limit === 'number' ? season_pp_limit : null,
+    advanced,
+  };
+}
+
+/** Renders a number array as the comma-separated text the structured point-table fields use, e.g. [100, 95, 90] -> "100, 95, 90". */
+function numsToList(arr: unknown): string {
+  return Array.isArray(arr) ? arr.join(', ') : '';
+}
+
+/** Inverse of numsToList — throws (with a field-specific message) on any token that isn't a plain number, rather than silently dropping it, same "fail loudly on this form" philosophy as the old raw-JSON textarea's JSON.parse validation. */
+function parseNumberList(raw: string, label: string): number[] {
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+  return trimmed
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((token) => {
+      const n = Number(token);
+      if (!Number.isFinite(n)) throw new Error(`${label}: "${token}" isn't a number.`);
+      return n;
+    });
+}
+
+/** Comma-separated class names, e.g. "Gamma, Delta" -> ["Gamma", "Delta"]. */
+function parseClassList(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'save');
@@ -175,60 +219,106 @@ if (Astro.request.method === 'POST') {
     const name = String(form.get('name') ?? '').trim();
     const rulebook = String(form.get('rulebook') ?? '').trim() || null;
     const notes = String(form.get('notes') ?? '').trim() || null;
-    const rulesRaw = String(form.get('rules') ?? '').trim();
+    // Checked = final round CAN be dropped like any other round; unchecked
+    // (a checkbox that's missing entirely from the submitted form data,
+    // which is how an unchecked HTML checkbox always behaves) = final round
+    // is PROTECTED. See ScoringRuleset.can_drop_final_round's own doc
+    // comment in src/lib/supabase.ts for the full polarity explanation.
+    const canDropFinalRound = form.get('can_drop_final_round') === 'on';
+    const advancedRaw = String(form.get('rules_advanced') ?? '').trim();
 
     if (!name) {
       error = 'Name is required.';
-    } else if (!rulesRaw) {
-      error = 'Rules JSON is required.';
+    } else if (!advancedRaw) {
+      error = 'Advanced rules (JSON) is required — see the reference template above if starting fresh.';
     } else {
-      // Parse and keep the PARSED OBJECT — not a re-stringified JSON
-      // string — to validate it's real JSON before it ever reaches the
-      // database (recalculate_race_scores() reads this column directly, so
-      // a typo here — a trailing comma, an unquoted key — should fail
-      // loudly on THIS form, not silently break scoring the next time a
-      // round gets recalculated) AND because sending the object itself,
-      // not a string, is what makes PostgREST write it into the jsonb
-      // column as an actual object. Sending a JSON string here (the
-      // previous version of this code, via JSON.stringify) does NOT get
-      // re-parsed on the way in — it silently corrupts the column into a
-      // jsonb STRING SCALAR that only reads back valid on the surface;
-      // every rules->'...' lookup in recalculate_race_scores() then
-      // evaluates to NULL, which doesn't fail until the next recalculation
-      // hits a NOT NULL constraint. See ScoringRuleset.rules' own doc
-      // comment in src/lib/supabase.ts for the full story — this exact bug
-      // corrupted the live "ATC 18.3" ruleset in production.
-      let rules: unknown;
       try {
-        rules = JSON.parse(rulesRaw);
-      } catch (err) {
-        error = `Rules must be valid JSON: ${err instanceof Error ? err.message : String(err)}`;
-        rules = null;
-      }
-      if (!error) {
-        try {
-          if (id) {
-            await updateScoringRuleset(supabaseEnv, accessToken, id, { name, rulebook, notes, rules });
-            await logActivity(supabaseEnv, accessToken, actor, {
-              action: 'edit',
-              entity_type: 'ruleset',
-              entity_label: name,
-              entity_id: id,
-            });
-          } else {
-            const created = await createScoringRuleset(supabaseEnv, accessToken, { name, rulebook, notes, rules });
-            await logActivity(supabaseEnv, accessToken, actor, {
-              action: 'add',
-              entity_type: 'ruleset',
-              entity_label: name,
-              entity_id: created?.id,
-            });
-          }
-          return Astro.redirect('/admin/rulesets', 302);
-        } catch (err) {
-          console.error('Failed to save scoring ruleset:', err);
-          error = err instanceof Error ? err.message : 'Failed to save this ruleset.';
+        // Parse and keep the PARSED OBJECT — not a re-stringified JSON
+        // string — same reasoning as this file used to document for the
+        // whole raw `rules` textarea: sending a JSON *string* into a jsonb
+        // column silently corrupts it into a jsonb STRING SCALAR that reads
+        // back looking fine but makes every `rules->'...'` lookup in
+        // recalculate_race_scores() evaluate to NULL. See
+        // ScoringRuleset.rules' own doc comment in src/lib/supabase.ts —
+        // this exact bug corrupted the live "ATC 18.3" ruleset in
+        // production. Always send the parsed object.
+        const advancedRules = JSON.parse(advancedRaw);
+        if (typeof advancedRules !== 'object' || advancedRules === null || Array.isArray(advancedRules)) {
+          throw new Error('Advanced rules (JSON) must be a JSON object, not a string, array, or number.');
         }
+
+        const basePoints: Record<string, number[]> = {
+          sprint: parseNumberList(String(form.get('base_points_sprint') ?? ''), 'Base points — Sprint'),
+          endurance: parseNumberList(String(form.get('base_points_endurance') ?? ''), 'Base points — Endurance'),
+        };
+        if (basePoints.sprint.length === 0) throw new Error('Base points — Sprint is required.');
+        if (basePoints.endurance.length === 0) throw new Error('Base points — Endurance is required.');
+        const sprintRace2Points = parseNumberList(String(form.get('base_points_sprint_race2') ?? ''), 'Base points — Sprint Race 2');
+        if (sprintRace2Points.length > 0) basePoints.sprint_race2 = sprintRace2Points;
+
+        const classPodiumSprint = parseNumberList(String(form.get('class_podium_sprint') ?? ''), 'Class podium — Sprint');
+        const classPodiumEndurance = parseNumberList(String(form.get('class_podium_endurance') ?? ''), 'Class podium — Endurance');
+        if (classPodiumSprint.length === 0) throw new Error('Class podium — Sprint is required.');
+        if (classPodiumEndurance.length === 0) throw new Error('Class podium — Endurance is required.');
+        const classPodium: Record<string, unknown> = {
+          per: String(form.get('class_podium_per') ?? 'race'),
+          applies_to: parseClassList(String(form.get('class_podium_applies_to') ?? '')),
+          sprint: classPodiumSprint,
+          endurance: classPodiumEndurance,
+        };
+        const classPodiumSprintRace2 = parseNumberList(String(form.get('class_podium_sprint_race2') ?? ''), 'Class podium — Sprint Race 2');
+        if (classPodiumSprintRace2.length > 0) classPodium.sprint_race2 = classPodiumSprintRace2;
+
+        const classifiedMinimumSprintRaw = String(form.get('classified_minimum_sprint') ?? '').trim();
+        const classifiedMinimumEnduranceRaw = String(form.get('classified_minimum_endurance') ?? '').trim();
+        const classifiedMinimum = {
+          sprint: classifiedMinimumSprintRaw ? Number(classifiedMinimumSprintRaw) : 0,
+          endurance: classifiedMinimumEnduranceRaw ? Number(classifiedMinimumEnduranceRaw) : 0,
+        };
+        if (!Number.isFinite(classifiedMinimum.sprint)) throw new Error('Classified minimum — Sprint must be a number.');
+        if (!Number.isFinite(classifiedMinimum.endurance)) throw new Error('Classified minimum — Endurance must be a number.');
+
+        const seasonPpLimitRaw = String(form.get('season_pp_limit') ?? '').trim();
+        let seasonPpLimit: number | undefined;
+        if (seasonPpLimitRaw) {
+          seasonPpLimit = Number(seasonPpLimitRaw);
+          if (!Number.isFinite(seasonPpLimit)) throw new Error('Season PP limit must be a number.');
+        }
+
+        // Structured fields always win over anything left behind under the
+        // same key in the Advanced textarea — an admin who pastes a stale
+        // base_points/class_podium/classified_minimum/season_pp_limit into
+        // Advanced shouldn't have it silently override what they just typed
+        // into the dedicated fields above.
+        const rules: Record<string, unknown> = {
+          ...(advancedRules as Record<string, unknown>),
+          base_points: basePoints,
+          class_podium: classPodium,
+          classified_minimum: classifiedMinimum,
+        };
+        if (seasonPpLimit !== undefined) rules.season_pp_limit = seasonPpLimit;
+
+        if (id) {
+          await updateScoringRuleset(supabaseEnv, accessToken, id, { name, rulebook, notes, rules, can_drop_final_round: canDropFinalRound });
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'ruleset',
+            entity_label: name,
+            entity_id: id,
+          });
+        } else {
+          const created = await createScoringRuleset(supabaseEnv, accessToken, { name, rulebook, notes, rules, can_drop_final_round: canDropFinalRound });
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'add',
+            entity_type: 'ruleset',
+            entity_label: name,
+            entity_id: created?.id,
+          });
+        }
+        return Astro.redirect('/admin/rulesets', 302);
+      } catch (err) {
+        console.error('Failed to save scoring ruleset:', err);
+        error = err instanceof Error ? err.message : 'Failed to save this ruleset.';
       }
     }
   }
@@ -240,6 +330,48 @@ try {
 } catch (err) {
   console.error('Failed to load scoring rulesets:', err);
 }
+
+// Precompute each ruleset's dialog payload once, server-side, instead of
+// re-deriving it in client JS from raw `rules` — same shape as
+// incidents.astro's [data-edit-incident] buttons (data-incident="{...}"),
+// just with the split-out structured fields already extracted.
+const rulesetDialogData = rulesets.map((r) => {
+  const { basePoints, classPodium, classifiedMinimum, seasonPpLimit, advanced } = splitRulesForForm(r.rules);
+  return {
+    id: r.id,
+    name: r.name,
+    rulebook: r.rulebook ?? '',
+    notes: r.notes ?? '',
+    can_drop_final_round: r.can_drop_final_round,
+    base_points_sprint: numsToList(basePoints.sprint),
+    base_points_endurance: numsToList(basePoints.endurance),
+    base_points_sprint_race2: numsToList(basePoints.sprint_race2),
+    class_podium_per: classPodium.per ?? 'race',
+    class_podium_applies_to: Array.isArray(classPodium.applies_to) ? classPodium.applies_to.join(', ') : '',
+    class_podium_sprint: numsToList(classPodium.sprint),
+    class_podium_endurance: numsToList(classPodium.endurance),
+    class_podium_sprint_race2: numsToList(classPodium.sprint_race2),
+    classified_minimum_sprint: typeof classifiedMinimum.sprint === 'number' ? classifiedMinimum.sprint : 0,
+    classified_minimum_endurance: typeof classifiedMinimum.endurance === 'number' ? classifiedMinimum.endurance : 0,
+    season_pp_limit: seasonPpLimit ?? '',
+    rules_advanced: JSON.stringify(advanced, null, 2),
+  };
+});
+
+const newRulesetTemplateData = {
+  base_points_sprint: descendingPlaceholder(40).join(', '),
+  base_points_endurance: descendingPlaceholder(40).join(', '),
+  base_points_sprint_race2: '',
+  class_podium_per: 'race',
+  class_podium_applies_to: 'Gamma, Delta',
+  class_podium_sprint: descendingPlaceholder(3).join(', '),
+  class_podium_endurance: descendingPlaceholder(3).join(', '),
+  class_podium_sprint_race2: '',
+  classified_minimum_sprint: 0,
+  classified_minimum_endurance: 0,
+  season_pp_limit: 11,
+  rules_advanced: advancedTemplateJson,
+};
 ---
 
 <AdminLayout title="Rulesets">
@@ -247,10 +379,11 @@ try {
   <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
     Each season on <a href="/admin/seasons" class="underline decoration-white/30 hover:text-white">Admin &gt; Seasons</a>
     can be assigned one of these. A season left unassigned uses whichever ruleset is marked
-    <span class="font-semibold text-brand-primary">Default</span> below. The <code>rules</code> JSON is what the
-    scoring engine reads when (re)computing a round's points — base points per finish position, class-podium
-    bonuses, Sublime Finesse, Class Pole, penalty-point deductions, and drop-week count. Editing it here only
-    changes what a <em>future</em> recalculation produces; it doesn't retroactively touch points already scored.
+    <span class="font-semibold text-brand-primary">Default</span> below. Add or edit a ruleset with the popup editor —
+    the fields that actually vary season to season (points tables, class-podium bonuses, classified minimums, PP limit,
+    and whether the final round can be dropped) get their own inputs; everything else lives in the Advanced JSON block.
+    The scoring engine reads this when (re)computing a round's points — editing it here only changes what a
+    <em>future</em> recalculation produces; it doesn't retroactively touch points already scored.
   </p>
 
   {error && (
@@ -259,7 +392,7 @@ try {
 
   <details class="reveal mt-6 rounded-lg border border-white/10 bg-white/[0.03] p-4" style="transition-delay: 50ms">
     <summary class="cursor-pointer list-none text-sm font-semibold text-white/80">
-      Full <code>rules</code> template (every field) — copy as a starting point
+      Full <code>rules</code> reference (every field)
     </summary>
     <div class="mt-3 flex flex-col gap-3 text-sm text-white/60">
       <p>
@@ -278,7 +411,10 @@ try {
         effect for a round whose <code>subsession_id</code> is listed in <code>race_overrides.subsession_ids</code> —
         leave that array empty (as in this template) and the whole block is inert, so it's safe to paste into a
         ruleset other seasons already share. Its <code>qualifying_points</code> field is reserved for a future
-        qualifying-based bonus and isn't read by anything yet.
+        qualifying-based bonus and isn't read by anything yet. <code>base_points</code>, <code>class_podium</code>,{' '}
+        <code>classified_minimum</code>, and <code>season_pp_limit</code> below have their own dedicated fields in the
+        popup editor — this block is here purely as a full reference, including for what belongs in the editor's
+        Advanced JSON textarea.
       </p>
       <p>
         Every array below is a placeholder shape (descending N..1) standing in for a real points table — replace with
@@ -297,72 +433,44 @@ try {
     </div>
   </details>
 
-  <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 60ms">
+  <div class="reveal mt-8 flex items-center justify-between" style="transition-delay: 60ms">
+    <h2 class="text-sm font-semibold uppercase tracking-wide text-white/50">Rulesets</h2>
+    <button
+      type="button"
+      data-open-ruleset-dialog
+      data-template={JSON.stringify(newRulesetTemplateData)}
+      class="rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110"
+    >
+      + Add Ruleset
+    </button>
+  </div>
+
+  <div class="reveal mt-3 flex flex-col gap-3" style="transition-delay: 70ms">
     {rulesets.length === 0 && <p class="text-sm text-white/40">No rulesets yet.</p>}
-    {rulesets.map((r) => (
-      <details class="rounded-lg bg-white/5 p-4 ring-1 ring-white/10">
-        <summary class="flex cursor-pointer list-none flex-wrap items-center gap-3">
-          <span class="font-semibold">{r.name}</span>
-          {r.is_default && (
-            <span class="rounded-lg bg-brand-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
-              Default
-            </span>
-          )}
-          {r.rulebook && <span class="text-xs text-white/40">{r.rulebook}</span>}
-        </summary>
+    {rulesets.map((r, i) => (
+      <div class="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-4 ring-1 ring-white/10">
+        <span class="font-semibold">{r.name}</span>
+        {r.is_default && (
+          <span class="rounded-lg bg-brand-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
+            Default
+          </span>
+        )}
+        {r.can_drop_final_round && (
+          <span class="rounded-lg bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
+            Final round droppable
+          </span>
+        )}
+        {r.rulebook && <span class="text-xs text-white/40">{r.rulebook}</span>}
 
-        <form method="POST" data-astro-reload class="mt-4 flex flex-col gap-3">
-          <input type="hidden" name="intent" value="save" />
-          <input type="hidden" name="id" value={r.id} />
-          <div class="grid gap-3 sm:grid-cols-2">
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Name</span>
-              <input
-                type="text"
-                name="name"
-                required
-                value={r.name}
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-              />
-            </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Rulebook reference (optional)</span>
-              <input
-                type="text"
-                name="rulebook"
-                value={r.rulebook ?? ''}
-                placeholder="e.g. ATC Rulebook 18.3"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-              />
-            </label>
-          </div>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Notes (optional)</span>
-            <input
-              type="text"
-              name="notes"
-              value={r.notes ?? ''}
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Rules (JSON)</span>
-            <textarea
-              name="rules"
-              required
-              rows="16"
-              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 font-mono text-xs text-white outline-none focus:border-brand-primary"
-              set:text={prettyJson(r.rules)}
-            />
-          </label>
-          <div class="flex flex-wrap gap-2">
-            <button type="submit" class="rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110">
-              Save
-            </button>
-          </div>
-        </form>
-
-        <div class="mt-3 flex flex-wrap gap-4 border-t border-white/10 pt-3">
+        <div class="ml-auto flex flex-wrap items-center gap-4">
+          <button
+            type="button"
+            data-open-ruleset-dialog
+            data-ruleset={JSON.stringify(rulesetDialogData[i])}
+            class="text-xs font-semibold text-white/70 transition hover:text-brand-primary"
+          >
+            Edit
+          </button>
           {!r.is_default && (
             <form method="POST" data-astro-reload>
               <input type="hidden" name="intent" value="set-default" />
@@ -378,59 +486,139 @@ try {
             <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Delete</button>
           </form>
         </div>
-      </details>
+      </div>
     ))}
   </div>
 
-  <details class="reveal relative mt-8" style="transition-delay: 80ms">
-    <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10">
-      Add a ruleset
-    </summary>
-    <form method="POST" data-astro-reload class="mt-3 flex max-w-2xl flex-col gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+  <dialog
+    id="ruleset-dialog"
+    data-ruleset-dialog
+    class="w-full max-w-3xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+  >
+    <form method="POST" data-astro-reload class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
       <input type="hidden" name="intent" value="save" />
+      <input type="hidden" name="id" data-ruleset-id-field value="" />
+
+      <div class="flex items-center justify-between">
+        <h4 class="font-display text-xl" data-ruleset-heading>Add Ruleset</h4>
+        <button type="button" data-close-ruleset-dialog class="text-white/40 hover:text-white">✕</button>
+      </div>
+
       <div class="grid gap-3 sm:grid-cols-2">
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Name</span>
-          <input
-            type="text"
-            name="name"
-            required
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Name
+          <input type="text" name="name" required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
         </label>
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Rulebook reference (optional)</span>
-          <input
-            type="text"
-            name="rulebook"
-            placeholder="e.g. ATC Rulebook 18.3"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Rulebook reference (optional)
+          <input type="text" name="rulebook" placeholder="e.g. ATC Rulebook 18.3" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
         </label>
       </div>
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/60">Notes (optional)</span>
-        <input
-          type="text"
-          name="notes"
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
+
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Notes (optional)
+        <input type="text" name="notes" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
       </label>
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/60">Rules (JSON) — copy an existing ruleset above as a starting point</span>
-        <textarea
-          name="rules"
-          required
-          rows="10"
-          placeholder={`{"base_points": {"sprint": [100, 95, ...]}, ...}`}
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 font-mono text-xs text-white outline-none focus:border-brand-primary"
-        ></textarea>
+
+      <label class="flex items-start gap-2 rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+        <input type="checkbox" name="can_drop_final_round" value="on" class="mt-0.5" />
+        <span>
+          <span class="font-semibold text-white">Can Drop Final Round?</span><br />
+          Checked: the season's final round can be dropped like any other round if it's among a driver's worst scores.
+          Unchecked (default): the final round is always protected — it's never dropped, even if it's a driver's worst
+          round of the season.
+        </span>
       </label>
+
+      <div class="rounded-md border border-white/10 p-3">
+        <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Base points (finish position)</p>
+        <div class="grid gap-3 sm:grid-cols-3">
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint
+            <textarea name="base_points_sprint" rows="2" required placeholder="100, 95, 90, ..." class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary"></textarea>
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Endurance
+            <textarea name="base_points_endurance" rows="2" required placeholder="100, 95, 90, ..." class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary"></textarea>
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint Race 2 (optional)
+            <textarea name="base_points_sprint_race2" rows="2" placeholder="leave blank if unused" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary"></textarea>
+          </label>
+        </div>
+        <p class="mt-1.5 text-[10px] text-white/30">Comma-separated, highest finish first — e.g. "100, 95, 90".</p>
+      </div>
+
+      <div class="rounded-md border border-white/10 p-3">
+        <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Class podium bonus</p>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Per
+            <select name="class_podium_per" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary">
+              <option value="race" class="bg-brand-ink text-white">Race</option>
+              <option value="round" class="bg-brand-ink text-white">Round</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Applies to classes
+            <input type="text" name="class_podium_applies_to" placeholder="Gamma, Delta" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+        </div>
+        <div class="mt-3 grid gap-3 sm:grid-cols-3">
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint
+            <input type="text" name="class_podium_sprint" required placeholder="3, 2, 1" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary" />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Endurance
+            <input type="text" name="class_podium_endurance" required placeholder="3, 2, 1" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary" />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint Race 2 (optional)
+            <input type="text" name="class_podium_sprint_race2" placeholder="leave blank if unused" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary" />
+          </label>
+        </div>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-3">
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Classified minimum — Sprint
+          <input type="number" name="classified_minimum_sprint" value="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+        </label>
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Classified minimum — Endurance
+          <input type="number" name="classified_minimum_endurance" value="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+        </label>
+        <label class="flex flex-col gap-1 text-[11px] text-white/50">
+          Season PP limit
+          <input type="number" name="season_pp_limit" placeholder="11" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+        </label>
+      </div>
+
+      <details class="rounded-md border border-white/10">
+        <summary class="cursor-pointer list-none px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-white/50">
+          Advanced rules (JSON) — drops, teams, bonuses, probation, race overrides, PP penalties, classification, incident limits
+        </summary>
+        <div class="border-t border-white/10 p-3">
+          <p class="mb-2 text-[10px] text-white/30">
+            Most of these are identical across every ruleset on file and rarely need to change — see the full reference
+            above. Some of these (bonuses, race_overrides) ARE read by the scoring engine even though drops/teams/
+            probation/pp_penalties/classification/incident_limits are reference-only for stewards.
+          </p>
+          <textarea
+            name="rules_advanced"
+            required
+            rows="14"
+            class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 font-mono text-xs text-white outline-none focus:border-brand-primary"
+          ></textarea>
+        </div>
+      </details>
+
       <button type="submit" class="mt-1 self-start rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
-        Add Ruleset
+        Save Ruleset
       </button>
     </form>
-  </details>
+  </dialog>
 </AdminLayout>
 
 <script>
@@ -451,5 +639,59 @@ try {
         }
       });
     });
+
+    // Wires up the single shared add/edit <dialog> for this page, same
+    // pattern as incidents.astro's [data-open-incident-dialog]/
+    // [data-edit-incident]: a trigger button carries the row's data as a
+    // JSON string in a data-* attribute, and opening the dialog just
+    // populates its fields from that JSON before calling showModal().
+    const dialog = document.querySelector<HTMLDialogElement>('[data-ruleset-dialog]');
+    if (!dialog) return;
+    const form = dialog.querySelector('form')!;
+    const idField = dialog.querySelector<HTMLInputElement>('[data-ruleset-id-field]')!;
+    const heading = dialog.querySelector('[data-ruleset-heading]')!;
+    const canDropCheckbox = dialog.querySelector<HTMLInputElement>('[name="can_drop_final_round"]')!;
+
+    function fill(name: string, value: string | number) {
+      const el = dialog!.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`);
+      if (el) el.value = String(value);
+    }
+
+    function openDialog(data: Record<string, any>, id: string, headingText: string) {
+      form.reset();
+      idField.value = id;
+      heading.textContent = headingText;
+      canDropCheckbox.checked = !!data.can_drop_final_round;
+      fill('name', data.name ?? '');
+      fill('rulebook', data.rulebook ?? '');
+      fill('notes', data.notes ?? '');
+      fill('base_points_sprint', data.base_points_sprint ?? '');
+      fill('base_points_endurance', data.base_points_endurance ?? '');
+      fill('base_points_sprint_race2', data.base_points_sprint_race2 ?? '');
+      fill('class_podium_per', data.class_podium_per ?? 'race');
+      fill('class_podium_applies_to', data.class_podium_applies_to ?? '');
+      fill('class_podium_sprint', data.class_podium_sprint ?? '');
+      fill('class_podium_endurance', data.class_podium_endurance ?? '');
+      fill('class_podium_sprint_race2', data.class_podium_sprint_race2 ?? '');
+      fill('classified_minimum_sprint', data.classified_minimum_sprint ?? 0);
+      fill('classified_minimum_endurance', data.classified_minimum_endurance ?? 0);
+      fill('season_pp_limit', data.season_pp_limit ?? '');
+      fill('rules_advanced', data.rules_advanced ?? '');
+      dialog!.showModal();
+    }
+
+    document.querySelectorAll<HTMLButtonElement>('[data-open-ruleset-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.ruleset) {
+          const r = JSON.parse(btn.dataset.ruleset);
+          openDialog(r, r.id, 'Edit Ruleset');
+        } else if (btn.dataset.template) {
+          const t = JSON.parse(btn.dataset.template);
+          openDialog(t, '', 'Add Ruleset');
+        }
+      });
+    });
+
+    dialog.querySelector('[data-close-ruleset-dialog]')?.addEventListener('click', () => dialog.close());
   });
 </script>

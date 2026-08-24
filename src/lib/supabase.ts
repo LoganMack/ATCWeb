@@ -1543,7 +1543,9 @@ export interface ScoringRuleset {
    * Treating this field as a string (it used to be typed that way) fed an
    * already-parsed object into `JSON.parse`, which fails and falls through
    * to displaying the object's default `[object Object]` stringification —
-   * see prettyJson() in src/pages/admin/rulesets/index.astro for that fix.
+   * see splitRulesForForm() in src/pages/admin/rulesets/index.astro, which
+   * guards against a non-object `rules` value (e.g. a row corrupted by the
+   * exact bug described below) when prefilling the ruleset editor dialog.
    *
    * createScoringRuleset/updateScoringRuleset's own `rules` param below is
    * ALSO typed `unknown` (a parsed object), not a JSON string — a previous
@@ -1569,11 +1571,21 @@ export interface ScoringRuleset {
   notes: string | null;
   /** At most one ruleset can have this true at a time (partial unique index) — the ruleset a season falls back to when its own scoring_ruleset_id is null. See resolveSeasonRuleset. */
   is_default: boolean;
+  /**
+   * Whether the drop-week mechanic (src/lib/results.ts's finalizeStandings)
+   * is allowed to drop the season's final round for driver standings.
+   * `false` (the default) PROTECTS the final round — it's always counted,
+   * never one of the worst-N dropped rounds. `true` treats it like any
+   * other round, eligible to be dropped along with the rest. Read via
+   * resolveSeasonRuleset() in computeSeasonStandings/
+   * computeOverallSeasonStandings — see 0062_scoring_ruleset_can_drop_final_round.sql.
+   */
+  can_drop_final_round: boolean;
   created_at: string;
   updated_at: string;
 }
 
-const SCORING_RULESET_SELECT = 'id,name,rulebook,rules,notes,is_default,created_at,updated_at';
+const SCORING_RULESET_SELECT = 'id,name,rulebook,rules,notes,is_default,can_drop_final_round,created_at,updated_at';
 
 /** All scoring rulesets, alphabetical. */
 export function getScoringRulesets(env: SupabaseEnv) {
@@ -1591,7 +1603,7 @@ export async function getScoringRulesetById(env: SupabaseEnv, id: string) {
 export function createScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
-  data: { name: string; rulebook: string | null; rules: unknown; notes: string | null }
+  data: { name: string; rulebook: string | null; rules: unknown; notes: string | null; can_drop_final_round?: boolean }
 ) {
   return restPost<ScoringRuleset>(env, accessToken, 'scoring_rulesets', data);
 }
@@ -1600,7 +1612,7 @@ export function updateScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  data: Partial<{ name: string; rulebook: string | null; rules: unknown; notes: string | null }>
+  data: Partial<{ name: string; rulebook: string | null; rules: unknown; notes: string | null; can_drop_final_round: boolean }>
 ) {
   return restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(id)}`, data);
 }
@@ -1633,15 +1645,23 @@ export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: st
  *
  * IMPORTANT SCOPE NOTE: this app's own standings/career-stats/news-recap
  * computations (src/lib/results.ts) read already-computed `race_scores`
- * rows — they don't re-derive points from a ruleset's `rules` jsonb
+ * rows — they don't re-derive POINTS from a ruleset's `rules` jsonb
  * themselves (that derivation lives entirely in the DB-side
- * recalculate_race_scores() function). So "resolving" a season's ruleset
- * today is a season-metadata/admin-display concern (showing which ruleset
- * is in effect, and which season rows still need one before scores can be
- * (re)computed for them) — it does not change what any standings page
- * shows. Wiring the resolved ruleset id back into an actual recompute is a
- * separate, larger change (see this repo's chat history for the
- * recalculate_race_scores() schema-drift issue found alongside this).
+ * recalculate_race_scores() function). So for point values, "resolving" a
+ * season's ruleset is a season-metadata/admin-display concern (showing
+ * which ruleset is in effect, and which season rows still need one before
+ * scores can be (re)computed for them) — it does not change the point
+ * totals any standings page shows. Wiring the resolved ruleset id back into
+ * an actual points recompute is a separate, larger change (see this repo's
+ * chat history for the recalculate_race_scores() schema-drift issue found
+ * alongside this).
+ *
+ * The one field that IS consulted directly by the standings computation
+ * itself (not just the DB-side scoring function) is
+ * `can_drop_final_round` — computeSeasonStandings/computeOverallSeasonStandings
+ * call this same resolveSeasonRuleset() to decide whether a season's final
+ * round is protected from the drop-week mechanic. See that field's own doc
+ * comment on ScoringRuleset.
  */
 export function resolveSeasonRuleset(season: Pick<Season, 'scoring_ruleset_id'>, rulesets: ScoringRuleset[]): ScoringRuleset | null {
   if (season.scoring_ruleset_id) {
