@@ -51,7 +51,7 @@ if (Astro.request.method === 'POST') {
           action: outcome.created.length > 0 ? 'add' : 'edit',
           entity_type: 'driver',
           entity_label: 'Sync Results with Roster',
-          details: `${outcome.created.length} created, ${outcome.linked.length} linked: ${allNames.slice(0, SYNC_NAMES_SHOWN).join(', ')}${allNames.length > SYNC_NAMES_SHOWN ? ` (+${allNames.length - SYNC_NAMES_SHOWN} more)` : ''}`,
+          details: `${outcome.created.length} created, ${outcome.linked.length} linked, ${outcome.roundsRecalculated} round(s) recalculated: ${allNames.slice(0, SYNC_NAMES_SHOWN).join(', ')}${allNames.length > SYNC_NAMES_SHOWN ? ` (+${allNames.length - SYNC_NAMES_SHOWN} more)` : ''}${outcome.recalcFailed.length > 0 ? ` — recalc failed for: ${outcome.recalcFailed.join('; ')}` : ''}`,
         });
       }
       const params = new URLSearchParams({
@@ -59,6 +59,8 @@ if (Astro.request.method === 'POST') {
         synced_linked: String(outcome.linked.length),
         synced_names: allNames.slice(0, SYNC_NAMES_SHOWN).join(', '),
         synced_more: String(Math.max(0, allNames.length - SYNC_NAMES_SHOWN)),
+        synced_rounds: String(outcome.roundsRecalculated),
+        synced_recalc_failed: String(outcome.recalcFailed.length),
       });
       return Astro.redirect(`/admin/drivers?${params.toString()}`, 302);
     } catch (err) {
@@ -100,6 +102,8 @@ const syncedCreated = Astro.url.searchParams.get('synced_created');
 const syncedLinked = Astro.url.searchParams.get('synced_linked');
 const syncedNames = Astro.url.searchParams.get('synced_names');
 const syncedMore = Astro.url.searchParams.get('synced_more');
+const syncedRounds = Astro.url.searchParams.get('synced_rounds');
+const syncedRecalcFailed = Astro.url.searchParams.get('synced_recalc_failed');
 
 let probationDays = 45;
 let probationRounds = 4;
@@ -190,12 +194,22 @@ try {
     <div class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
       <p>
         Sync complete — {syncedCreated} new roster {Number(syncedCreated) === 1 ? 'entry' : 'entries'} created,{' '}
-        {syncedLinked} existing {Number(syncedLinked) === 1 ? 'driver' : 'drivers'} linked to their results.
+        {syncedLinked} existing {Number(syncedLinked) === 1 ? 'driver' : 'drivers'} linked to their results
+        {Number(syncedRounds) > 0 && (
+          <>, {syncedRounds} historical {Number(syncedRounds) === 1 ? 'round' : 'rounds'} recalculated for them</>
+        )}.
       </p>
       {syncedNames && (
         <p class="mt-1 text-white/50">
           {syncedNames}
           {Number(syncedMore) > 0 && ` (+${syncedMore} more)`}
+        </p>
+      )}
+      {Number(syncedRecalcFailed) > 0 && (
+        <p class="mt-2 text-brand-pink">
+          {syncedRecalcFailed} round{Number(syncedRecalcFailed) === 1 ? '' : 's'} couldn't be recalculated (no
+          ruleset assigned yet, standings locked, etc.) — see the Activity Log entry for this sync for exactly which
+          ones, then recalculate them by hand once resolved.
         </p>
       )}
       {Number(syncedCreated) > 0 && (
