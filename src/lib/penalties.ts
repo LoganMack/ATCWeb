@@ -362,6 +362,11 @@ interface ScoreLike {
   poleBonus: number;
   /** Like finesseBonus/poleBonus — a penalty never touches this (recalculate_race_scores() computes it off the officially-adjusted position, upstream of any of this file's own display-time recompute), so it only ever needs to be read here, never written. */
   aggressionBonus: number;
+  /** Like aggressionBonus above — untouched by any penalty, only ever read here (0067_ruleset_overhaul_and_bonuses.sql). */
+  lapLedBonus: number;
+  fewestIncidentsBonus: number;
+  fastestLapBonus: number;
+  sprintSweepBonus: number;
   pointsDeduction: number;
   dsq: boolean;
   classified: boolean;
@@ -412,7 +417,17 @@ function recomputeScorePoints(
   // that keeps an untouched (or class-only-affected) driver's finish points
   // byte-for-byte what the pipeline actually scored, only ever consulting
   // our own FINISH_POINTS table for a driver whose position genuinely moved.
-  const originalFinishPoints = s.totalPoints - s.classPoints - s.finesseBonus - s.poleBonus - s.aggressionBonus - s.pointsDeduction;
+  const originalFinishPoints =
+    s.totalPoints -
+    s.classPoints -
+    s.finesseBonus -
+    s.poleBonus -
+    s.aggressionBonus -
+    s.lapLedBonus -
+    s.fewestIncidentsBonus -
+    s.fastestLapBonus -
+    s.sprintSweepBonus -
+    s.pointsDeduction;
   const finishPoints =
     canReposition && positionChanged && newPosition !== null
       ? finishPointsForPosition(format as Format, newPosition)
@@ -430,7 +445,17 @@ function recomputeScorePoints(
       : s.classPoints;
 
   const pointsDeduction = s.pointsDeduction - (pen?.points ?? 0);
-  const totalPoints = finishPoints + classPoints + s.finesseBonus + s.poleBonus + s.aggressionBonus + pointsDeduction;
+  const totalPoints =
+    finishPoints +
+    classPoints +
+    s.finesseBonus +
+    s.poleBonus +
+    s.aggressionBonus +
+    s.lapLedBonus +
+    s.fewestIncidentsBonus +
+    s.fastestLapBonus +
+    s.sprintSweepBonus +
+    pointsDeduction;
 
   return { totalPoints, classPoints, pointsDeduction };
 }
@@ -555,6 +580,10 @@ function recomputeRow(
       finesseBonus: row.finesseBonus,
       poleBonus: row.poleBonus,
       aggressionBonus: row.aggressionBonus,
+      lapLedBonus: row.lapLedBonus,
+      fewestIncidentsBonus: row.fewestIncidentsBonus,
+      fastestLapBonus: row.fastestLapBonus,
+      sprintSweepBonus: row.sprintSweepBonus,
       pointsDeduction: row.pointsDeduction,
       dsq: row.dsq,
       classified,
@@ -575,7 +604,16 @@ function recomputeRow(
     position: effectivePosition,
     classPoints: recomputed.classPoints,
     pointsDeduction: recomputed.pointsDeduction,
-    bonusPoints: recomputed.classPoints + row.finesseBonus + row.poleBonus + row.aggressionBonus + recomputed.pointsDeduction,
+    bonusPoints:
+      recomputed.classPoints +
+      row.finesseBonus +
+      row.poleBonus +
+      row.aggressionBonus +
+      row.lapLedBonus +
+      row.fewestIncidentsBonus +
+      row.fastestLapBonus +
+      row.sprintSweepBonus +
+      recomputed.pointsDeduction,
     totalPoints: recomputed.totalPoints,
     wasAdjusted: row.wasAdjusted || (canReposition && positionChanged),
     penaltyOldPosition: canReposition && positionChanged ? row.position : row.penaltyOldPosition,
@@ -867,6 +905,11 @@ export interface SeasonClassScoreRow {
   finesseBonus: number;
   poleBonus: number;
   aggressionBonus: number;
+  /** Like aggressionBonus above — untouched by any penalty (0067_ruleset_overhaul_and_bonuses.sql), only ever read here to back out/reconstruct totalPoints. */
+  lapLedBonus: number;
+  fewestIncidentsBonus: number;
+  fastestLapBonus: number;
+  sprintSweepBonus: number;
   pointsDeduction: number;
   /** This driver's own completed laps this race — see Positionable's own doc comment. */
   lapsComplete: number | null;
@@ -964,13 +1007,34 @@ export function computeSeasonClassAdjustments(
 
       const canReposition = !r.dsq && r.classified && format !== null;
       const overall = overallAdjustments.get(rowKey(r.subsessionId, r.raceNumber, r.driverId));
-      const finishPoints = overall ? overall.finishPoints : r.totalPoints - r.classPoints - r.finesseBonus - r.poleBonus - r.aggressionBonus - r.pointsDeduction;
+      const finishPoints = overall
+        ? overall.finishPoints
+        : r.totalPoints -
+          r.classPoints -
+          r.finesseBonus -
+          r.poleBonus -
+          r.aggressionBonus -
+          r.lapLedBonus -
+          r.fewestIncidentsBonus -
+          r.fastestLapBonus -
+          r.sprintSweepBonus -
+          r.pointsDeduction;
       const pointsDeduction = overall ? overall.pointsDeduction : r.pointsDeduction - (pen?.points ?? 0);
       const classPoints =
         canReposition && classPositionChanged
           ? classPointsForPosition(format as Format, newClassPosition, awardsClassPoints)
           : r.classPoints;
-      const totalPoints = finishPoints + classPoints + r.finesseBonus + r.poleBonus + r.aggressionBonus + pointsDeduction;
+      const totalPoints =
+        finishPoints +
+        classPoints +
+        r.finesseBonus +
+        r.poleBonus +
+        r.aggressionBonus +
+        r.lapLedBonus +
+        r.fewestIncidentsBonus +
+        r.fastestLapBonus +
+        r.sprintSweepBonus +
+        pointsDeduction;
 
       out.set(rowKey(r.subsessionId, r.raceNumber, r.driverId), {
         newClassPosition: canReposition ? newClassPosition : r.classPosition,

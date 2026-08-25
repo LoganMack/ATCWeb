@@ -1535,7 +1535,6 @@ export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, se
 export interface ScoringRuleset {
   id: string;
   name: string;
-  rulebook: string | null;
   /**
    * Parsed JSON (an object), NOT a string — PostgREST returns jsonb columns
    * as native JSON on every read (GET, and the `return=representation` body
@@ -1568,24 +1567,25 @@ export interface ScoringRuleset {
    * field is what makes PostgREST forward it as an actual JSON object value.
    */
   rules: unknown;
-  notes: string | null;
   /** At most one ruleset can have this true at a time (partial unique index) — the ruleset a season falls back to when its own scoring_ruleset_id is null. See resolveSeasonRuleset. */
   is_default: boolean;
   /**
    * Whether the drop-week mechanic (src/lib/results.ts's finalizeStandings)
    * is allowed to drop the season's final round for driver standings.
-   * `false` (the default) PROTECTS the final round — it's always counted,
-   * never one of the worst-N dropped rounds. `true` treats it like any
-   * other round, eligible to be dropped along with the rest. Read via
-   * resolveSeasonRuleset() in computeSeasonStandings/
-   * computeOverallSeasonStandings — see 0062_scoring_ruleset_can_drop_final_round.sql.
+   * `false` PROTECTS the final round — it's always counted, never one of
+   * the worst-N dropped rounds. `true` (the DB column default as of
+   * 0067_ruleset_overhaul_and_bonuses.sql — existing rulesets keep whatever
+   * value they already had) treats it like any other round, eligible to be
+   * dropped along with the rest. Read via resolveSeasonRuleset() in
+   * computeSeasonStandings/computeOverallSeasonStandings — see
+   * 0062_scoring_ruleset_can_drop_final_round.sql.
    */
   can_drop_final_round: boolean;
   created_at: string;
   updated_at: string;
 }
 
-const SCORING_RULESET_SELECT = 'id,name,rulebook,rules,notes,is_default,can_drop_final_round,created_at,updated_at';
+const SCORING_RULESET_SELECT = 'id,name,rules,is_default,can_drop_final_round,created_at,updated_at';
 
 /** All scoring rulesets, alphabetical. */
 export function getScoringRulesets(env: SupabaseEnv) {
@@ -1603,7 +1603,7 @@ export async function getScoringRulesetById(env: SupabaseEnv, id: string) {
 export function createScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
-  data: { name: string; rulebook: string | null; rules: unknown; notes: string | null; can_drop_final_round?: boolean }
+  data: { name: string; rules: unknown; can_drop_final_round?: boolean }
 ) {
   return restPost<ScoringRuleset>(env, accessToken, 'scoring_rulesets', data);
 }
@@ -1612,7 +1612,7 @@ export function updateScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  data: Partial<{ name: string; rulebook: string | null; rules: unknown; notes: string | null; can_drop_final_round: boolean }>
+  data: Partial<{ name: string; rules: unknown; can_drop_final_round: boolean }>
 ) {
   return restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(id)}`, data);
 }

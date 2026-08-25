@@ -15,6 +15,9 @@ import {
   upsertRaceLinks,
   formatDate,
   getPenaltiesForSubsession,
+  getSeasonById,
+  getScoringRulesets,
+  resolveSeasonRuleset,
   type RaceLinks,
   type Penalty,
 } from '../../lib/supabase';
@@ -184,6 +187,57 @@ if (!loadError && round) {
     console.error('Failed to compute round number:', err);
   }
 }
+
+// Round incident limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) —
+// informational only, no scoring effect: an ordinary sprint/endurance round
+// uses the season's ruleset round_incident_limit.sprint/.endurance; a
+// special-event round instead uses race_overrides.incident_limit, when this
+// subsession_id is listed in that ruleset's race_overrides.subsession_ids
+// (the same "special event" override mechanism base_points/
+// classified_minimum already use — see admin/rulesets). Read straight off
+// `rules` (jsonb, typed `unknown` — see ScoringRuleset's own doc comment)
+// with defensive optional-chaining since nothing guarantees its shape.
+let incidentLimit: number | null = null;
+const incidentTotalByDriverId = new Map<string, number>();
+if (!loadError && round) {
+  try {
+    const [incidentLimitSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
+    const ruleset = incidentLimitSeason ? resolveSeasonRuleset(incidentLimitSeason, rulesets) : null;
+    const rules = (ruleset?.rules ?? null) as
+      | {
+          round_incident_limit?: { sprint?: number; endurance?: number };
+          race_overrides?: { subsession_ids?: number[]; incident_limit?: number };
+        }
+      | null;
+    const override = rules?.race_overrides;
+    if (override?.subsession_ids?.includes(subsessionId) && typeof override.incident_limit === 'number') {
+      incidentLimit = override.incident_limit;
+    } else if (round.format === 'sprint' && typeof rules?.round_incident_limit?.sprint === 'number') {
+      incidentLimit = rules.round_incident_limit.sprint;
+    } else if (round.format === 'endurance' && typeof rules?.round_incident_limit?.endurance === 'number') {
+      incidentLimit = rules.round_incident_limit.endurance;
+    }
+  } catch (err) {
+    console.error('Failed to resolve round incident limit:', err);
+  }
+
+  // This driver's total incidents across every race this round — summed
+  // from the overall (cross-class) rows, which cover every scored driver
+  // regardless of which view (Overall/Per Class) is actually rendered, so
+  // the flag is consistent between the two.
+  for (const rows of roundResults.overall.values()) {
+    for (const row of rows) {
+      incidentTotalByDriverId.set(row.driver.id, (incidentTotalByDriverId.get(row.driver.id) ?? 0) + (row.incidents ?? 0));
+    }
+  }
+}
+// Drivers whose round-total incidents exceed (not just meet) the limit —
+// ResultsTable flags every one of their race rows this round, in red.
+const incidentLimitExceededDriverIds = new Set(
+  incidentLimit !== null
+    ? [...incidentTotalByDriverId.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId)
+    : []
+);
 
 // Race vs. Qualifying — two independent result categories, each with its
 // own Overall/Per Class view (see `view` below). Practice isn't one of
@@ -454,6 +508,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     classNameById={classNameById}
                     penalties={penalties}
                     teamPointsByRaceDriver={teamPointsByRaceDriver}
+                    incidentLimit={incidentLimit}
+                    incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
                   />
                 ))}
               </>
@@ -471,6 +527,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       rows={byRace.get(raceNumber)!}
                       penalties={penalties}
                       teamPointsByRaceDriver={teamPointsByRaceDriver}
+                      incidentLimit={incidentLimit}
+                      incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
                     />
                   ))}
                 </div>

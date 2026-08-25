@@ -23,38 +23,41 @@ let error: string | null = null;
  * Every field a `rules` value can carry, for Admin > Rulesets' "copy as a
  * starting point" reference block AND as the default content of the
  * Advanced rules textarea when adding a brand-new ruleset (see
- * `advancedTemplate` below). Built from what's actually live in the 5 real
- * rulesets on file as of 2026-08 (ATC12/13/15/16, "ATC 18.3") — drops,
- * teams, probation, pp_penalties, classification, incident_limits, and
- * season_pp_limit are IDENTICAL, verbatim, across every one of them, so
- * this template uses those real values rather than placeholders. Only
- * base_points/class_podium/classified_minimum/race_overrides actually vary
- * per season and are LEFT AS PLACEHOLDER SHAPES (descending N..1 arrays)
- * for whoever's building a new ruleset to overwrite with real numbers.
+ * `advancedTemplate` below). Built from what's actually live in the real
+ * rulesets on file as of 2026-08-25 — drops, teams, probation,
+ * pp_penalties, classification, incident_limits, and season_pp_limit are
+ * IDENTICAL, verbatim, across every one of them, so this template uses
+ * those real values rather than placeholders. base_points/class_podium/
+ * classified_minimum/round_incident_limit/bonuses/race_overrides get their
+ * own dedicated fields in the popup editor now (see the split below) — only
+ * base_points/class_podium's per-position arrays are left as PLACEHOLDER
+ * SHAPES (descending N..1) for whoever's building a new ruleset to
+ * overwrite with real numbers.
  *
  * Split into two groups so the shape itself documents which half
- * `recalculate_race_scores()` (see supabase/migrations/0046 and 0048)
+ * `recalculate_race_scores()` (see supabase/migrations/0046, 0048, 0067)
  * actually reads:
  *
- * READ BY THE SCORING ENGINE: base_points (+ sprint_race2), race_overrides
- * (0048_race_number_points_overrides.sql — base_points/classified_minimum
- * only; race_overrides.qualifying_points is RESERVED, not read by
- * anything yet — see that migration's own header comment for why),
- * class_podium, classified_minimum, bonuses.sublime_finesse/class_pole/
- * naked_aggression's sprint/endurance/max_incidents values.
+ * READ BY THE SCORING ENGINE: base_points (+ sprint_race2/sprint_race3),
+ * race_overrides (0048/0067 — base_points/classified_minimum/incident_limit
+ * only; race_overrides.qualifying_points is RESERVED, not read by anything
+ * yet), class_podium, classified_minimum, bonuses (every bonus now needs an
+ * explicit `enabled: true` — see 0067_ruleset_overhaul_and_bonuses.sql).
  *
- * REFERENCE ONLY, transcribed from the rulebook for admins/stewards but
- * NOT read by any code: drops (except .base, which only an unused legacy
- * DB view reads — see 0033_naked_aggression_bonus.sql), teams, probation,
- * pp_penalties, incident_limits, season_pp_limit, and — easy to miss —
- * classification.min_distance_pct: the actual 50%-of-leader's-laps
- * classification rule is HARDCODED in recalculate_race_scores() (§2.25),
- * not read from here. Editing this field does nothing.
+ * REFERENCE ONLY, transcribed from the rulebook for admins/stewards but NOT
+ * read by any code: drops (except .base, which only an unused legacy DB
+ * view reads), teams, probation, pp_penalties, classification,
+ * season_pp_limit, and — easy to miss — classification.min_distance_pct:
+ * the actual 50%-of-leader's-laps classification rule is HARDCODED in
+ * recalculate_race_scores() (§2.25), not read from here. Editing this field
+ * does nothing. round_incident_limit and race_overrides.incident_limit are
+ * ALSO reference-only in the sense that the scoring engine never reads them
+ * (no points effect) — they're read by the results page instead, purely to
+ * flag a driver's Incidents column in red when they've gone over.
  *
- * `can_drop_final_round` is NOT part of this object — it's a real column
- * on scoring_rulesets (see 0062_scoring_ruleset_can_drop_final_round.sql),
- * not a `rules` jsonb field, because it's consulted directly by
- * src/lib/results.ts's standings computation rather than by
+ * `can_drop_final_round` is NOT part of this object — it's a real column on
+ * scoring_rulesets, not a `rules` jsonb field, because it's consulted
+ * directly by src/lib/results.ts's standings computation rather than by
  * recalculate_race_scores().
  */
 const descendingPlaceholder = (length: number) => Array.from({ length }, (_, i) => length - i);
@@ -70,23 +73,32 @@ const rulesTemplate = {
     negative_points_count: false,
   },
   bonuses: {
-    sublime_finesse: { per: 'race', sprint: 2, endurance: 4, max_incidents: 3, requires_classified: true },
-    class_pole: { per: 'round', source: 'qualifying', sprint: 4, endurance: 4 },
-    naked_aggression: { per: 'race', sprint: 2, endurance: 4 },
+    sublime_finesse: { enabled: true, per: 'race', sprint: 2, endurance: 4, max_incidents: 3, requires_classified: true },
+    class_pole: { enabled: true, per: 'round', source: 'qualifying', sprint: 4, endurance: 4 },
+    naked_aggression: { enabled: true, per: 'race', sprint: 2, endurance: 4 },
+    lap_led: { enabled: false, sprint: 1, endurance: 2 },
+    fewest_incidents: { enabled: false, per: 'race', top_x: 10, sprint: 1, endurance: 2 },
+    fastest_lap: { enabled: false, per: 'race', top_x: 10, sprint: 1, endurance: 2 },
+    sprint_sweep: { enabled: false, points: 5 },
   },
   probation: { days: 45, rounds: 4, doubling: 'manual' },
   base_points: {
     sprint: descendingPlaceholder(40),
     endurance: descendingPlaceholder(40),
     sprint_race2: descendingPlaceholder(40),
+    sprint_race3: descendingPlaceholder(40),
   },
   // See 0048_race_number_points_overrides.sql — only takes effect for a
   // round whose subsession_id is listed in subsession_ids; leave that
-  // array empty (as here) to keep this whole block inert.
+  // array empty (as here) to keep this whole block inert. incident_limit
+  // (0067) is this same special-event mechanism's answer to "what's the
+  // round incident limit for a special event" — round_incident_limit below
+  // covers ordinary sprint/endurance rounds.
   race_overrides: {
     subsession_ids: [],
     base_points: { '1': descendingPlaceholder(30), '2': descendingPlaceholder(30), '3': descendingPlaceholder(30) },
     classified_minimum: { '1': 0, '2': 0, '3': 0 },
+    incident_limit: 15,
     // RESERVED — not read anywhere yet. See the migration's header comment.
     qualifying_points: { '1': descendingPlaceholder(30) },
   },
@@ -96,6 +108,7 @@ const rulesTemplate = {
     sprint: descendingPlaceholder(3),
     endurance: descendingPlaceholder(3),
     sprint_race2: descendingPlaceholder(3),
+    sprint_race3: descendingPlaceholder(3),
   },
   pp_penalties: {
     '1': { seconds: 5 },
@@ -109,15 +122,17 @@ const rulesTemplate = {
   },
   classification: { min_distance_pct: 50 },
   incident_limits: { dsq: 30, warning: 15 },
+  round_incident_limit: { sprint: 15, endurance: 25 },
   season_pp_limit: 11,
   classified_minimum: { sprint: 0, endurance: 0 },
 };
 const rulesTemplateJson = JSON.stringify(rulesTemplate, null, 2);
 
 // The popup editor below gives base_points, class_podium, classified_minimum,
-// and season_pp_limit their own structured fields (the values that actually
-// differ from season to season) and leaves everything else — drops, teams,
-// bonuses, probation, race_overrides, pp_penalties, classification,
+// round_incident_limit, bonuses, and season_pp_limit their own structured
+// fields (the values that actually differ from season to season, or that
+// need a checkbox rather than raw JSON per Logan) and leaves everything else
+// — drops, teams, probation, race_overrides, pp_penalties, classification,
 // incident_limits — in a single "Advanced rules (JSON)" textarea, since
 // those are (per the doc comment above) either identical across every
 // ruleset on file today or too rarely touched to earn dedicated fields.
@@ -128,19 +143,42 @@ const {
   base_points: _templateBasePoints,
   class_podium: _templateClassPodium,
   classified_minimum: _templateClassifiedMinimum,
+  round_incident_limit: _templateRoundIncidentLimit,
+  bonuses: _templateBonuses,
   season_pp_limit: _templateSeasonPpLimit,
   ...advancedTemplate
 } = rulesTemplate;
 const advancedTemplateJson = JSON.stringify(advancedTemplate, null, 2);
 
+/** Every bonus's config shape, keyed exactly as it appears in rules.bonuses. `perOptions` is null for a bonus whose scope isn't admin-configurable (sublime_finesse/class_pole/naked_aggression keep their existing hardcoded per/source), and an array of race/round options for the two new top_x bonuses that Logan asked to support both scopes. */
+const BONUS_DEFS = [
+  { key: 'sublime_finesse', label: 'Sublime Finesse', hasTopX: false, hasPer: false, hasPoints: false, help: '3-or-fewer-incidents bonus, awarded per race.' },
+  { key: 'class_pole', label: 'Class Pole', hasTopX: false, hasPer: false, hasPoints: false, help: "Fastest qualifier in each class, awarded once per round." },
+  { key: 'naked_aggression', label: 'Naked Aggression', hasTopX: false, hasPer: false, hasPoints: false, help: 'Most net positions gained, awarded per race.' },
+  { key: 'lap_led', label: 'Lap Led', hasTopX: false, hasPer: false, hasPoints: false, help: 'Awarded to any driver who led at least one lap that race.' },
+  { key: 'fewest_incidents', label: 'Fewest Incidents', hasTopX: true, hasPer: true, hasPoints: false, help: 'Fewest incidents among drivers finishing in the top X.' },
+  { key: 'fastest_lap', label: 'Fastest Lap', hasTopX: true, hasPer: true, hasPoints: false, help: 'Fastest single lap among drivers finishing in the top X.' },
+  { key: 'sprint_sweep', label: 'Sprint Sweep', hasTopX: false, hasPer: false, hasPoints: true, help: 'Awarded once when a driver wins every race of a multi-race sprint round.' },
+] as const;
+
 /** A parsed `rules` value's fields split the same way as advancedTemplate above — used to prefill the Edit dialog for an existing ruleset. Guards against a corrupted (non-object) `rules` value, e.g. the jsonb-string-scalar bug documented on ScoringRuleset.rules — editing and re-saving through this form always writes back a proper object. */
-function splitRulesForForm(rules: unknown): { basePoints: any; classPodium: any; classifiedMinimum: any; seasonPpLimit: number | null; advanced: Record<string, unknown> } {
+function splitRulesForForm(rules: unknown): {
+  basePoints: any;
+  classPodium: any;
+  classifiedMinimum: any;
+  roundIncidentLimit: any;
+  bonuses: any;
+  seasonPpLimit: number | null;
+  advanced: Record<string, unknown>;
+} {
   const obj: Record<string, unknown> = typeof rules === 'object' && rules !== null && !Array.isArray(rules) ? (rules as Record<string, unknown>) : {};
-  const { base_points, class_podium, classified_minimum, season_pp_limit, ...advanced } = obj as any;
+  const { base_points, class_podium, classified_minimum, round_incident_limit, bonuses, season_pp_limit, ...advanced } = obj as any;
   return {
     basePoints: base_points ?? {},
     classPodium: class_podium ?? {},
     classifiedMinimum: classified_minimum ?? {},
+    roundIncidentLimit: round_incident_limit ?? {},
+    bonuses: bonuses ?? {},
     seasonPpLimit: typeof season_pp_limit === 'number' ? season_pp_limit : null,
     advanced,
   };
@@ -172,6 +210,20 @@ function parseClassList(raw: string): string[] {
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/** A single number field that's allowed to be blank — returns undefined (not 0) so the caller can omit the key entirely rather than writing a misleading 0. Throws on anything present but non-numeric. */
+function parseOptionalInt(raw: FormDataEntryValue | null, label: string): number | undefined {
+  const s = String(raw ?? '').trim();
+  if (!s) return undefined;
+  const n = Number(s);
+  if (!Number.isFinite(n)) throw new Error(`${label} must be a number.`);
+  return n;
+}
+
+/** Same as parseOptionalInt but defaults to 0 when blank — for bonus point values, where a disabled or zero-value bonus is meaningfully "0", not "unset". */
+function parseIntOrZero(raw: FormDataEntryValue | null, label: string): number {
+  return parseOptionalInt(raw, label) ?? 0;
 }
 
 if (Astro.request.method === 'POST') {
@@ -217,8 +269,6 @@ if (Astro.request.method === 'POST') {
     if (!error) return Astro.redirect('/admin/rulesets', 302);
   } else {
     const name = String(form.get('name') ?? '').trim();
-    const rulebook = String(form.get('rulebook') ?? '').trim() || null;
-    const notes = String(form.get('notes') ?? '').trim() || null;
     // Checked = final round CAN be dropped like any other round; unchecked
     // (a checkbox that's missing entirely from the submitted form data,
     // which is how an unchecked HTML checkbox always behaves) = final round
@@ -234,14 +284,9 @@ if (Astro.request.method === 'POST') {
     } else {
       try {
         // Parse and keep the PARSED OBJECT — not a re-stringified JSON
-        // string — same reasoning as this file used to document for the
-        // whole raw `rules` textarea: sending a JSON *string* into a jsonb
-        // column silently corrupts it into a jsonb STRING SCALAR that reads
-        // back looking fine but makes every `rules->'...'` lookup in
-        // recalculate_race_scores() evaluate to NULL. See
-        // ScoringRuleset.rules' own doc comment in src/lib/supabase.ts —
-        // this exact bug corrupted the live "ATC 18.3" ruleset in
-        // production. Always send the parsed object.
+        // string — see ScoringRuleset.rules' own doc comment in
+        // src/lib/supabase.ts for why (this exact mistake corrupted the
+        // live "ATC 18.3" ruleset in production once already).
         const advancedRules = JSON.parse(advancedRaw);
         if (typeof advancedRules !== 'object' || advancedRules === null || Array.isArray(advancedRules)) {
           throw new Error('Advanced rules (JSON) must be a JSON object, not a string, array, or number.');
@@ -255,6 +300,8 @@ if (Astro.request.method === 'POST') {
         if (basePoints.endurance.length === 0) throw new Error('Base points — Endurance is required.');
         const sprintRace2Points = parseNumberList(String(form.get('base_points_sprint_race2') ?? ''), 'Base points — Sprint Race 2');
         if (sprintRace2Points.length > 0) basePoints.sprint_race2 = sprintRace2Points;
+        const sprintRace3Points = parseNumberList(String(form.get('base_points_sprint_race3') ?? ''), 'Base points — Sprint Race 3');
+        if (sprintRace3Points.length > 0) basePoints.sprint_race3 = sprintRace3Points;
 
         const classPodiumSprint = parseNumberList(String(form.get('class_podium_sprint') ?? ''), 'Class podium — Sprint');
         const classPodiumEndurance = parseNumberList(String(form.get('class_podium_endurance') ?? ''), 'Class podium — Endurance');
@@ -268,6 +315,8 @@ if (Astro.request.method === 'POST') {
         };
         const classPodiumSprintRace2 = parseNumberList(String(form.get('class_podium_sprint_race2') ?? ''), 'Class podium — Sprint Race 2');
         if (classPodiumSprintRace2.length > 0) classPodium.sprint_race2 = classPodiumSprintRace2;
+        const classPodiumSprintRace3 = parseNumberList(String(form.get('class_podium_sprint_race3') ?? ''), 'Class podium — Sprint Race 3');
+        if (classPodiumSprintRace3.length > 0) classPodium.sprint_race3 = classPodiumSprintRace3;
 
         const classifiedMinimumSprintRaw = String(form.get('classified_minimum_sprint') ?? '').trim();
         const classifiedMinimumEnduranceRaw = String(form.get('classified_minimum_endurance') ?? '').trim();
@@ -278,6 +327,68 @@ if (Astro.request.method === 'POST') {
         if (!Number.isFinite(classifiedMinimum.sprint)) throw new Error('Classified minimum — Sprint must be a number.');
         if (!Number.isFinite(classifiedMinimum.endurance)) throw new Error('Classified minimum — Endurance must be a number.');
 
+        // Round incident limit (informational only — read by the results
+        // page, not the scoring engine) — both sides optional, omitted
+        // entirely if left blank rather than written as 0 (0 would read as
+        // "flag everyone with any incidents at all", which is never what a
+        // blank field means).
+        const roundIncidentLimit: Record<string, number> = {};
+        const roundIncidentLimitSprint = parseOptionalInt(form.get('round_incident_limit_sprint'), 'Incident limit — Sprint');
+        if (roundIncidentLimitSprint !== undefined) roundIncidentLimit.sprint = roundIncidentLimitSprint;
+        const roundIncidentLimitEndurance = parseOptionalInt(form.get('round_incident_limit_endurance'), 'Incident limit — Endurance');
+        if (roundIncidentLimitEndurance !== undefined) roundIncidentLimit.endurance = roundIncidentLimitEndurance;
+
+        // Bonuses — every one of them gets an explicit enabled flag now
+        // (0067_ruleset_overhaul_and_bonuses.sql requires it; a bonus with
+        // no `enabled: true` scores zero regardless of what point values
+        // are configured here).
+        const bonuses: Record<string, unknown> = {
+          sublime_finesse: {
+            enabled: form.get('bonus_sublime_finesse_enabled') === 'on',
+            per: 'race',
+            requires_classified: true,
+            max_incidents: parseIntOrZero(form.get('bonus_sublime_finesse_max_incidents'), 'Sublime Finesse — Max incidents'),
+            sprint: parseIntOrZero(form.get('bonus_sublime_finesse_sprint'), 'Sublime Finesse — Sprint'),
+            endurance: parseIntOrZero(form.get('bonus_sublime_finesse_endurance'), 'Sublime Finesse — Endurance'),
+          },
+          class_pole: {
+            enabled: form.get('bonus_class_pole_enabled') === 'on',
+            per: 'round',
+            source: 'qualifying',
+            sprint: parseIntOrZero(form.get('bonus_class_pole_sprint'), 'Class Pole — Sprint'),
+            endurance: parseIntOrZero(form.get('bonus_class_pole_endurance'), 'Class Pole — Endurance'),
+          },
+          naked_aggression: {
+            enabled: form.get('bonus_naked_aggression_enabled') === 'on',
+            per: 'race',
+            sprint: parseIntOrZero(form.get('bonus_naked_aggression_sprint'), 'Naked Aggression — Sprint'),
+            endurance: parseIntOrZero(form.get('bonus_naked_aggression_endurance'), 'Naked Aggression — Endurance'),
+          },
+          lap_led: {
+            enabled: form.get('bonus_lap_led_enabled') === 'on',
+            sprint: parseIntOrZero(form.get('bonus_lap_led_sprint'), 'Lap Led — Sprint'),
+            endurance: parseIntOrZero(form.get('bonus_lap_led_endurance'), 'Lap Led — Endurance'),
+          },
+          fewest_incidents: {
+            enabled: form.get('bonus_fewest_incidents_enabled') === 'on',
+            per: String(form.get('bonus_fewest_incidents_per') ?? 'race') === 'round' ? 'round' : 'race',
+            top_x: parseIntOrZero(form.get('bonus_fewest_incidents_top_x'), 'Fewest Incidents — Top X'),
+            sprint: parseIntOrZero(form.get('bonus_fewest_incidents_sprint'), 'Fewest Incidents — Sprint'),
+            endurance: parseIntOrZero(form.get('bonus_fewest_incidents_endurance'), 'Fewest Incidents — Endurance'),
+          },
+          fastest_lap: {
+            enabled: form.get('bonus_fastest_lap_enabled') === 'on',
+            per: String(form.get('bonus_fastest_lap_per') ?? 'race') === 'round' ? 'round' : 'race',
+            top_x: parseIntOrZero(form.get('bonus_fastest_lap_top_x'), 'Fastest Lap — Top X'),
+            sprint: parseIntOrZero(form.get('bonus_fastest_lap_sprint'), 'Fastest Lap — Sprint'),
+            endurance: parseIntOrZero(form.get('bonus_fastest_lap_endurance'), 'Fastest Lap — Endurance'),
+          },
+          sprint_sweep: {
+            enabled: form.get('bonus_sprint_sweep_enabled') === 'on',
+            points: parseIntOrZero(form.get('bonus_sprint_sweep_points'), 'Sprint Sweep — Points'),
+          },
+        };
+
         const seasonPpLimitRaw = String(form.get('season_pp_limit') ?? '').trim();
         let seasonPpLimit: number | undefined;
         if (seasonPpLimitRaw) {
@@ -287,19 +398,21 @@ if (Astro.request.method === 'POST') {
 
         // Structured fields always win over anything left behind under the
         // same key in the Advanced textarea — an admin who pastes a stale
-        // base_points/class_podium/classified_minimum/season_pp_limit into
-        // Advanced shouldn't have it silently override what they just typed
-        // into the dedicated fields above.
+        // base_points/class_podium/classified_minimum/round_incident_limit/
+        // bonuses/season_pp_limit into Advanced shouldn't have it silently
+        // override what they just set via the dedicated fields above.
         const rules: Record<string, unknown> = {
           ...(advancedRules as Record<string, unknown>),
           base_points: basePoints,
           class_podium: classPodium,
           classified_minimum: classifiedMinimum,
+          bonuses,
         };
+        if (Object.keys(roundIncidentLimit).length > 0) rules.round_incident_limit = roundIncidentLimit;
         if (seasonPpLimit !== undefined) rules.season_pp_limit = seasonPpLimit;
 
         if (id) {
-          await updateScoringRuleset(supabaseEnv, accessToken, id, { name, rulebook, notes, rules, can_drop_final_round: canDropFinalRound });
+          await updateScoringRuleset(supabaseEnv, accessToken, id, { name, rules, can_drop_final_round: canDropFinalRound });
           await logActivity(supabaseEnv, accessToken, actor, {
             action: 'edit',
             entity_type: 'ruleset',
@@ -307,7 +420,7 @@ if (Astro.request.method === 'POST') {
             entity_id: id,
           });
         } else {
-          const created = await createScoringRuleset(supabaseEnv, accessToken, { name, rulebook, notes, rules, can_drop_final_round: canDropFinalRound });
+          const created = await createScoringRuleset(supabaseEnv, accessToken, { name, rules, can_drop_final_round: canDropFinalRound });
           await logActivity(supabaseEnv, accessToken, actor, {
             action: 'add',
             entity_type: 'ruleset',
@@ -336,25 +449,53 @@ try {
 // incidents.astro's [data-edit-incident] buttons (data-incident="{...}"),
 // just with the split-out structured fields already extracted.
 const rulesetDialogData = rulesets.map((r) => {
-  const { basePoints, classPodium, classifiedMinimum, seasonPpLimit, advanced } = splitRulesForForm(r.rules);
+  const { basePoints, classPodium, classifiedMinimum, roundIncidentLimit, bonuses, seasonPpLimit, advanced } = splitRulesForForm(r.rules);
+  const b = (key: string) => (bonuses as any)?.[key] ?? {};
   return {
     id: r.id,
     name: r.name,
-    rulebook: r.rulebook ?? '',
-    notes: r.notes ?? '',
     can_drop_final_round: r.can_drop_final_round,
     base_points_sprint: numsToList(basePoints.sprint),
     base_points_endurance: numsToList(basePoints.endurance),
     base_points_sprint_race2: numsToList(basePoints.sprint_race2),
+    base_points_sprint_race3: numsToList(basePoints.sprint_race3),
     class_podium_per: classPodium.per ?? 'race',
     class_podium_applies_to: Array.isArray(classPodium.applies_to) ? classPodium.applies_to.join(', ') : '',
     class_podium_sprint: numsToList(classPodium.sprint),
     class_podium_endurance: numsToList(classPodium.endurance),
     class_podium_sprint_race2: numsToList(classPodium.sprint_race2),
+    class_podium_sprint_race3: numsToList(classPodium.sprint_race3),
     classified_minimum_sprint: typeof classifiedMinimum.sprint === 'number' ? classifiedMinimum.sprint : 0,
     classified_minimum_endurance: typeof classifiedMinimum.endurance === 'number' ? classifiedMinimum.endurance : 0,
+    round_incident_limit_sprint: typeof roundIncidentLimit.sprint === 'number' ? roundIncidentLimit.sprint : '',
+    round_incident_limit_endurance: typeof roundIncidentLimit.endurance === 'number' ? roundIncidentLimit.endurance : '',
     season_pp_limit: seasonPpLimit ?? '',
     rules_advanced: JSON.stringify(advanced, null, 2),
+    bonus_sublime_finesse_enabled: !!b('sublime_finesse').enabled,
+    bonus_sublime_finesse_sprint: b('sublime_finesse').sprint ?? 2,
+    bonus_sublime_finesse_endurance: b('sublime_finesse').endurance ?? 4,
+    bonus_sublime_finesse_max_incidents: b('sublime_finesse').max_incidents ?? 3,
+    bonus_class_pole_enabled: !!b('class_pole').enabled,
+    bonus_class_pole_sprint: b('class_pole').sprint ?? 4,
+    bonus_class_pole_endurance: b('class_pole').endurance ?? 4,
+    bonus_naked_aggression_enabled: !!b('naked_aggression').enabled,
+    bonus_naked_aggression_sprint: b('naked_aggression').sprint ?? 2,
+    bonus_naked_aggression_endurance: b('naked_aggression').endurance ?? 4,
+    bonus_lap_led_enabled: !!b('lap_led').enabled,
+    bonus_lap_led_sprint: b('lap_led').sprint ?? 1,
+    bonus_lap_led_endurance: b('lap_led').endurance ?? 2,
+    bonus_fewest_incidents_enabled: !!b('fewest_incidents').enabled,
+    bonus_fewest_incidents_per: b('fewest_incidents').per === 'round' ? 'round' : 'race',
+    bonus_fewest_incidents_top_x: b('fewest_incidents').top_x ?? 10,
+    bonus_fewest_incidents_sprint: b('fewest_incidents').sprint ?? 1,
+    bonus_fewest_incidents_endurance: b('fewest_incidents').endurance ?? 2,
+    bonus_fastest_lap_enabled: !!b('fastest_lap').enabled,
+    bonus_fastest_lap_per: b('fastest_lap').per === 'round' ? 'round' : 'race',
+    bonus_fastest_lap_top_x: b('fastest_lap').top_x ?? 10,
+    bonus_fastest_lap_sprint: b('fastest_lap').sprint ?? 1,
+    bonus_fastest_lap_endurance: b('fastest_lap').endurance ?? 2,
+    bonus_sprint_sweep_enabled: !!b('sprint_sweep').enabled,
+    bonus_sprint_sweep_points: b('sprint_sweep').points ?? 5,
   };
 });
 
@@ -362,15 +503,47 @@ const newRulesetTemplateData = {
   base_points_sprint: descendingPlaceholder(40).join(', '),
   base_points_endurance: descendingPlaceholder(40).join(', '),
   base_points_sprint_race2: '',
+  base_points_sprint_race3: '',
   class_podium_per: 'race',
   class_podium_applies_to: 'Gamma, Delta',
   class_podium_sprint: descendingPlaceholder(3).join(', '),
   class_podium_endurance: descendingPlaceholder(3).join(', '),
   class_podium_sprint_race2: '',
+  class_podium_sprint_race3: '',
   classified_minimum_sprint: 0,
   classified_minimum_endurance: 0,
+  round_incident_limit_sprint: '',
+  round_incident_limit_endurance: '',
   season_pp_limit: 11,
   rules_advanced: advancedTemplateJson,
+  // Every bonus starts disabled for a brand-new ruleset — Logan builds it
+  // up from nothing rather than inheriting the reference template's values
+  // silently enabled.
+  bonus_sublime_finesse_enabled: false,
+  bonus_sublime_finesse_sprint: 2,
+  bonus_sublime_finesse_endurance: 4,
+  bonus_sublime_finesse_max_incidents: 3,
+  bonus_class_pole_enabled: false,
+  bonus_class_pole_sprint: 4,
+  bonus_class_pole_endurance: 4,
+  bonus_naked_aggression_enabled: false,
+  bonus_naked_aggression_sprint: 2,
+  bonus_naked_aggression_endurance: 4,
+  bonus_lap_led_enabled: false,
+  bonus_lap_led_sprint: 1,
+  bonus_lap_led_endurance: 2,
+  bonus_fewest_incidents_enabled: false,
+  bonus_fewest_incidents_per: 'race',
+  bonus_fewest_incidents_top_x: 10,
+  bonus_fewest_incidents_sprint: 1,
+  bonus_fewest_incidents_endurance: 2,
+  bonus_fastest_lap_enabled: false,
+  bonus_fastest_lap_per: 'race',
+  bonus_fastest_lap_top_x: 10,
+  bonus_fastest_lap_sprint: 1,
+  bonus_fastest_lap_endurance: 2,
+  bonus_sprint_sweep_enabled: false,
+  bonus_sprint_sweep_points: 5,
 };
 ---
 
@@ -380,10 +553,10 @@ const newRulesetTemplateData = {
     Each season on <a href="/admin/seasons" class="underline decoration-white/30 hover:text-white">Admin &gt; Seasons</a>
     can be assigned one of these. A season left unassigned uses whichever ruleset is marked
     <span class="font-semibold text-brand-primary">Default</span> below. Add or edit a ruleset with the popup editor —
-    the fields that actually vary season to season (points tables, class-podium bonuses, classified minimums, PP limit,
-    and whether the final round can be dropped) get their own inputs; everything else lives in the Advanced JSON block.
-    The scoring engine reads this when (re)computing a round's points — editing it here only changes what a
-    <em>future</em> recalculation produces; it doesn't retroactively touch points already scored.
+    the fields that actually vary season to season (points tables, bonuses, class-podium bonuses, classified minimums,
+    incident limits, PP limit, and whether the final round can be dropped) get their own inputs; everything else lives
+    in the Advanced JSON block. The scoring engine reads this when (re)computing a round's points — editing it here
+    only changes what a <em>future</em> recalculation produces; it doesn't retroactively touch points already scored.
   </p>
 
   {error && (
@@ -396,25 +569,27 @@ const newRulesetTemplateData = {
     </summary>
     <div class="mt-3 flex flex-col gap-3 text-sm text-white/60">
       <p>
-        Fields the scoring engine actually reads: <code>base_points</code> (and <code>sprint_race2</code>),{' '}
-        <code>race_overrides</code>, <code>class_podium</code>, <code>classified_minimum</code>, and{' '}
-        <code>bonuses.sublime_finesse</code>/<code>class_pole</code>/<code>naked_aggression</code>. Everything else
-        (<code>drops</code>, <code>teams</code>, <code>probation</code>, <code>pp_penalties</code>,{' '}
-        <code>classification</code>, <code>incident_limits</code>, <code>season_pp_limit</code>) is reference-only —
-        transcribed from the rulebook for stewards to read here, not enforced by any code.{' '}
-        <span class="text-white/80">Easy one to miss: <code>classification.min_distance_pct</code> does nothing —</span>{' '}
-        the real 50%-of-leader's-laps rule is hardcoded in the scoring function, not read from this JSON.
+        Fields the scoring engine actually reads: <code>base_points</code> (and <code>sprint_race2</code>/
+        <code>sprint_race3</code>), <code>race_overrides</code>, <code>class_podium</code>,{' '}
+        <code>classified_minimum</code>, and every entry under <code>bonuses</code> — each bonus now needs its own{' '}
+        <code>enabled: true</code> or it scores zero regardless of its point values. Everything else (
+        <code>drops</code>, <code>teams</code>, <code>probation</code>, <code>pp_penalties</code>,{' '}
+        <code>classification</code>, <code>incident_limits</code>, <code>round_incident_limit</code>,{' '}
+        <code>season_pp_limit</code>) is reference/informational only, not read for points —{' '}
+        <code>round_incident_limit</code> and <code>race_overrides.incident_limit</code> ARE read by the results
+        page (to flag a driver's Incidents column in red once they've gone over for the round), just never for
+        scoring. <span class="text-white/80">Easy one to miss: <code>classification.min_distance_pct</code> does
+        nothing —</span> the real 50%-of-leader's-laps rule is hardcoded in the scoring function, not read from this
+        JSON.
       </p>
       <p>
-        <code>race_overrides</code> lets one specific round score races 1/2/3 off entirely different points tables —
-        built for a special event where, say, race 1 pays one table, race 2 another, race 3 a third. It only takes
-        effect for a round whose <code>subsession_id</code> is listed in <code>race_overrides.subsession_ids</code> —
-        leave that array empty (as in this template) and the whole block is inert, so it's safe to paste into a
-        ruleset other seasons already share. Its <code>qualifying_points</code> field is reserved for a future
-        qualifying-based bonus and isn't read by anything yet. <code>base_points</code>, <code>class_podium</code>,{' '}
-        <code>classified_minimum</code>, and <code>season_pp_limit</code> below have their own dedicated fields in the
-        popup editor — this block is here purely as a full reference, including for what belongs in the editor's
-        Advanced JSON textarea.
+        <code>race_overrides</code> lets one specific round score races 1/2/3 off entirely different points tables
+        (and its own incident limit) — built for a special event where, say, race 1 pays one table, race 2 another,
+        race 3 a third. It only takes effect for a round whose <code>subsession_id</code> is listed in{' '}
+        <code>race_overrides.subsession_ids</code> — leave that array empty (as in this template) and the whole
+        block is inert, so it's safe to paste into a ruleset other seasons already share. Its{' '}
+        <code>qualifying_points</code> field is reserved for a future qualifying-based bonus and isn't read by
+        anything yet.
       </p>
       <p>
         Every array below is a placeholder shape (descending N..1) standing in for a real points table — replace with
@@ -455,12 +630,6 @@ const newRulesetTemplateData = {
             Default
           </span>
         )}
-        {r.can_drop_final_round && (
-          <span class="rounded-lg bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
-            Final round droppable
-          </span>
-        )}
-        {r.rulebook && <span class="text-xs text-white/40">{r.rulebook}</span>}
 
         <div class="ml-auto flex flex-wrap items-center gap-4">
           <button
@@ -504,35 +673,19 @@ const newRulesetTemplateData = {
         <button type="button" data-close-ruleset-dialog class="text-white/40 hover:text-white">✕</button>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label class="flex flex-col gap-1 text-[11px] text-white/50">
-          Name
-          <input type="text" name="name" required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-white/50">
-          Rulebook reference (optional)
-          <input type="text" name="rulebook" placeholder="e.g. ATC Rulebook 18.3" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-        </label>
-      </div>
-
       <label class="flex flex-col gap-1 text-[11px] text-white/50">
-        Notes (optional)
-        <input type="text" name="notes" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+        Name
+        <input type="text" name="name" required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
       </label>
 
       <label class="flex items-start gap-2 rounded-md border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-        <input type="checkbox" name="can_drop_final_round" value="on" class="mt-0.5" />
-        <span>
-          <span class="font-semibold text-white">Can Drop Final Round?</span><br />
-          Checked: the season's final round can be dropped like any other round if it's among a driver's worst scores.
-          Unchecked (default): the final round is always protected — it's never dropped, even if it's a driver's worst
-          round of the season.
-        </span>
+        <input type="checkbox" name="can_drop_final_round" value="on" class="mt-0.5" checked />
+        <span class="font-semibold text-white">Can Drop Final Round?</span>
       </label>
 
       <div class="rounded-md border border-white/10 p-3">
         <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Base points (finish position)</p>
-        <div class="grid gap-3 sm:grid-cols-3">
+        <div class="grid gap-3 sm:grid-cols-2">
           <label class="flex flex-col gap-1 text-[11px] text-white/50">
             Sprint
             <textarea name="base_points_sprint" rows="2" required placeholder="100, 95, 90, ..." class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary"></textarea>
@@ -545,8 +698,15 @@ const newRulesetTemplateData = {
             Sprint Race 2 (optional)
             <textarea name="base_points_sprint_race2" rows="2" placeholder="leave blank if unused" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary"></textarea>
           </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint Race 3 (optional)
+            <textarea name="base_points_sprint_race3" rows="2" placeholder="leave blank if unused" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary"></textarea>
+          </label>
         </div>
-        <p class="mt-1.5 text-[10px] text-white/30">Comma-separated, highest finish first — e.g. "100, 95, 90".</p>
+        <p class="mt-1.5 text-[10px] text-white/30">
+          Comma-separated, highest finish first — e.g. "100, 95, 90". A round's 3rd sprint race uses Sprint Race 3 if
+          set, otherwise falls back to Sprint Race 2, otherwise the plain Sprint table.
+        </p>
       </div>
 
       <div class="rounded-md border border-white/10 p-3">
@@ -564,7 +724,7 @@ const newRulesetTemplateData = {
             <input type="text" name="class_podium_applies_to" placeholder="Gamma, Delta" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
           </label>
         </div>
-        <div class="mt-3 grid gap-3 sm:grid-cols-3">
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
           <label class="flex flex-col gap-1 text-[11px] text-white/50">
             Sprint
             <input type="text" name="class_podium_sprint" required placeholder="3, 2, 1" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary" />
@@ -577,10 +737,14 @@ const newRulesetTemplateData = {
             Sprint Race 2 (optional)
             <input type="text" name="class_podium_sprint_race2" placeholder="leave blank if unused" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary" />
           </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint Race 3 (optional)
+            <input type="text" name="class_podium_sprint_race3" placeholder="leave blank if unused" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 font-mono text-xs text-white outline-none focus:border-brand-primary" />
+          </label>
         </div>
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-3">
+      <div class="grid gap-3 sm:grid-cols-2">
         <label class="flex flex-col gap-1 text-[11px] text-white/50">
           Classified minimum — Sprint
           <input type="number" name="classified_minimum_sprint" value="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
@@ -589,21 +753,103 @@ const newRulesetTemplateData = {
           Classified minimum — Endurance
           <input type="number" name="classified_minimum_endurance" value="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
         </label>
-        <label class="flex flex-col gap-1 text-[11px] text-white/50">
-          Season PP limit
-          <input type="number" name="season_pp_limit" placeholder="11" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-        </label>
       </div>
+
+      <div class="rounded-md border border-white/10 p-3">
+        <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Incident limit (per round, informational)</p>
+        <p class="mb-2 text-[10px] text-white/30">
+          When a driver's total incidents for the round go over this, their Incidents column on the results page gets
+          a red marker — no points effect. Leave blank for no limit. A special event using
+          <code class="mx-1">race_overrides</code> uses its own <code>incident_limit</code> from the Advanced JSON
+          instead of these.
+        </p>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Sprint
+            <input type="number" name="round_incident_limit_sprint" placeholder="e.g. 15" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-white/50">
+            Endurance
+            <input type="number" name="round_incident_limit_endurance" placeholder="e.g. 25" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+          </label>
+        </div>
+      </div>
+
+      <div class="rounded-md border border-white/10 p-3">
+        <p class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Bonus points</p>
+        <p class="mb-3 text-[10px] text-white/30">
+          Each bonus below is independently enabled/disabled. A disabled bonus scores zero even if the point values
+          are filled in.
+        </p>
+        <div class="flex flex-col gap-3">
+          {BONUS_DEFS.map((def) => (
+            <div class="rounded-md border border-white/10 bg-white/[0.02] p-3">
+              <label class="flex items-start gap-2 text-xs text-white/70">
+                <input type="checkbox" name={`bonus_${def.key}_enabled`} value="on" class="mt-0.5" data-bonus-enabled={def.key} />
+                <span>
+                  <span class="font-semibold text-white">{def.label}</span>
+                  <span class="ml-2 text-white/40">{def.help}</span>
+                </span>
+              </label>
+              <div class="mt-2 grid gap-2 sm:grid-cols-4">
+                {def.hasPer && (
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Per
+                    <select name={`bonus_${def.key}_per`} class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary">
+                      <option value="race" class="bg-brand-ink text-white">Race</option>
+                      <option value="round" class="bg-brand-ink text-white">Round</option>
+                    </select>
+                  </label>
+                )}
+                {def.hasTopX && (
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Top X finishers
+                    <input type="number" name={`bonus_${def.key}_top_x`} min="1" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  </label>
+                )}
+                {def.key === 'sublime_finesse' && (
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Max incidents
+                    <input type="number" name="bonus_sublime_finesse_max_incidents" min="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  </label>
+                )}
+                {def.hasPoints ? (
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Points
+                    <input type="number" name={`bonus_${def.key}_points`} class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                  </label>
+                ) : (
+                  <>
+                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                      Sprint pts
+                      <input type="number" name={`bonus_${def.key}_sprint`} class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    </label>
+                    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                      Endurance pts
+                      <input type="number" name={`bonus_${def.key}_endurance`} class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                    </label>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Season PP limit
+        <input type="number" name="season_pp_limit" placeholder="11" class="max-w-[10rem] rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+      </label>
 
       <details class="rounded-md border border-white/10">
         <summary class="cursor-pointer list-none px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-white/50">
-          Advanced rules (JSON) — drops, teams, bonuses, probation, race overrides, PP penalties, classification, incident limits
+          Advanced rules (JSON) — drops, teams, probation, race overrides, PP penalties, classification
         </summary>
         <div class="border-t border-white/10 p-3">
           <p class="mb-2 text-[10px] text-white/30">
-            Most of these are identical across every ruleset on file and rarely need to change — see the full reference
-            above. Some of these (bonuses, race_overrides) ARE read by the scoring engine even though drops/teams/
-            probation/pp_penalties/classification/incident_limits are reference-only for stewards.
+            Most of these are identical across every ruleset on file and rarely need to change — see the full
+            reference above. <code>race_overrides</code> IS read by the scoring engine even though drops/teams/
+            probation/pp_penalties/classification are reference-only for stewards.
           </p>
           <textarea
             name="rules_advanced"
@@ -652,9 +898,28 @@ const newRulesetTemplateData = {
     const heading = dialog.querySelector('[data-ruleset-heading]')!;
     const canDropCheckbox = dialog.querySelector<HTMLInputElement>('[name="can_drop_final_round"]')!;
 
+    // Every bonus's non-checkbox field name, keyed the same way the server
+    // payload is — kept in one place so openDialog doesn't need a hardcoded
+    // list of 20+ field names.
+    const BONUS_KEYS = ['sublime_finesse', 'class_pole', 'naked_aggression', 'lap_led', 'fewest_incidents', 'fastest_lap', 'sprint_sweep'];
+    const BONUS_SUBFIELDS: Record<string, string[]> = {
+      sublime_finesse: ['sprint', 'endurance', 'max_incidents'],
+      class_pole: ['sprint', 'endurance'],
+      naked_aggression: ['sprint', 'endurance'],
+      lap_led: ['sprint', 'endurance'],
+      fewest_incidents: ['per', 'top_x', 'sprint', 'endurance'],
+      fastest_lap: ['per', 'top_x', 'sprint', 'endurance'],
+      sprint_sweep: ['points'],
+    };
+
     function fill(name: string, value: string | number) {
       const el = dialog!.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`);
       if (el) el.value = String(value);
+    }
+
+    function fillCheckbox(name: string, checked: boolean) {
+      const el = dialog!.querySelector<HTMLInputElement>(`[name="${name}"]`);
+      if (el) el.checked = checked;
     }
 
     function openDialog(data: Record<string, any>, id: string, headingText: string) {
@@ -663,20 +928,30 @@ const newRulesetTemplateData = {
       heading.textContent = headingText;
       canDropCheckbox.checked = !!data.can_drop_final_round;
       fill('name', data.name ?? '');
-      fill('rulebook', data.rulebook ?? '');
-      fill('notes', data.notes ?? '');
       fill('base_points_sprint', data.base_points_sprint ?? '');
       fill('base_points_endurance', data.base_points_endurance ?? '');
       fill('base_points_sprint_race2', data.base_points_sprint_race2 ?? '');
+      fill('base_points_sprint_race3', data.base_points_sprint_race3 ?? '');
       fill('class_podium_per', data.class_podium_per ?? 'race');
       fill('class_podium_applies_to', data.class_podium_applies_to ?? '');
       fill('class_podium_sprint', data.class_podium_sprint ?? '');
       fill('class_podium_endurance', data.class_podium_endurance ?? '');
       fill('class_podium_sprint_race2', data.class_podium_sprint_race2 ?? '');
+      fill('class_podium_sprint_race3', data.class_podium_sprint_race3 ?? '');
       fill('classified_minimum_sprint', data.classified_minimum_sprint ?? 0);
       fill('classified_minimum_endurance', data.classified_minimum_endurance ?? 0);
+      fill('round_incident_limit_sprint', data.round_incident_limit_sprint ?? '');
+      fill('round_incident_limit_endurance', data.round_incident_limit_endurance ?? '');
       fill('season_pp_limit', data.season_pp_limit ?? '');
       fill('rules_advanced', data.rules_advanced ?? '');
+
+      for (const key of BONUS_KEYS) {
+        fillCheckbox(`bonus_${key}_enabled`, !!data[`bonus_${key}_enabled`]);
+        for (const sub of BONUS_SUBFIELDS[key]) {
+          fill(`bonus_${key}_${sub}`, data[`bonus_${key}_${sub}`] ?? '');
+        }
+      }
+
       dialog!.showModal();
     }
 
