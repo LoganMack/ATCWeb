@@ -17,6 +17,7 @@ import {
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,
+  computeSeasonStandingsRoundColumns,
   getSeasonCarTeamStats,
   getSeasonDriverExtendedStats,
   getSeasonOverallContext,
@@ -25,6 +26,7 @@ import {
   type DriverSeasonStanding,
   type DriverSeasonExtras,
   type DriverSeasonExtendedStats,
+  type SeasonStandingsRoundColumn,
 } from '../lib/results';
 import { classBadgeClasses } from '../lib/classColors';
 import { bannerUrlFor } from '../lib/pageBanners';
@@ -76,9 +78,16 @@ const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 // computeOverallSeasonStandings).
 const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
 
+// New "List" (existing table, default) vs "Matrix" (drivers down the left,
+// one column per round across the top, penalty/drop flags on each cell —
+// see DriverSeasonStanding.roundCells) toggle, same URL-param pattern as
+// `view` above.
+const mode = Astro.url.searchParams.get('mode') === 'matrix' ? 'matrix' : 'list';
+
 let standings: DriverSeasonStanding[] = [];
 let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
+let matrixColumns: SeasonStandingsRoundColumn[] = [];
 // The season-wide denominators for the Starts/Apps columns below ("x of y")
 // — y is the same for every driver regardless of view (Overall vs Per
 // Class) or how many rounds any one driver personally attended, so it's
@@ -118,6 +127,18 @@ if (!loadError && activeSeason) {
     extendedStatsByDriverId = extendedStats;
     maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
     maxStarts = new Set(overallContext.overallScores.map((s) => `${s.subsession_id}:${s.race_number}`)).size;
+
+    // Matrix view's column headers — every round the view being shown
+    // actually raced (Per Class narrows this to that class's own rounds,
+    // same pool computeSeasonStandings itself used to build that view's
+    // standings), chronologically ordered.
+    const matrixSubsessionIds = new Set(
+      (view === 'class' && activeClass
+        ? overallContext.overallScores.filter((s) => s.class_id === activeClass.id)
+        : overallContext.overallScores
+      ).map((s) => s.subsession_id)
+    );
+    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds);
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -191,23 +212,43 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           )}
         </form>
 
-        <div class="flex gap-2">
-          <a
-            href={`/standings?view=overall${activeSeason ? `&season=${activeSeason.number}` : ''}`}
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
-          >
-            Overall
-          </a>
-          <a
-            href={`/standings?view=class${activeSeason ? `&season=${activeSeason.number}` : ''}${activeClass ? `&class=${activeClass.name}` : ''}`}
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
-          >
-            Per Class
-          </a>
+        <div class="flex flex-wrap gap-2">
+          <div class="flex gap-2">
+            <a
+              href={`/standings?view=overall&mode=${mode}${activeSeason ? `&season=${activeSeason.number}` : ''}`}
+              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+                view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              Overall
+            </a>
+            <a
+              href={`/standings?view=class&mode=${mode}${activeSeason ? `&season=${activeSeason.number}` : ''}${activeClass ? `&class=${activeClass.name}` : ''}`}
+              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+                view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              Per Class
+            </a>
+          </div>
+          <div class="flex gap-2">
+            <a
+              href={`/standings?view=${view}&mode=list${activeSeason ? `&season=${activeSeason.number}` : ''}${view === 'class' && activeClass ? `&class=${activeClass.name}` : ''}`}
+              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+                mode === 'list' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              List
+            </a>
+            <a
+              href={`/standings?view=${view}&mode=matrix${activeSeason ? `&season=${activeSeason.number}` : ''}${view === 'class' && activeClass ? `&class=${activeClass.name}` : ''}`}
+              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+                mode === 'matrix' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+              }`}
+            >
+              Matrix
+            </a>
+          </div>
         </div>
       </div>
     )}
@@ -216,7 +257,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <p class="mt-10 text-white/60">No results.</p>
     )}
 
-    {!loadError && standings.length > 0 && (
+    {!loadError && mode === 'list' && standings.length > 0 && (
       <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
         <table class="w-full border-collapse" data-sortable>
           <thead>
@@ -349,6 +390,62 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             })}
           </tbody>
         </table>
+      </div>
+    )}
+
+    {!loadError && mode === 'matrix' && standings.length > 0 && (
+      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
+              <th class="py-3 pr-4 font-medium">Driver</th>
+              {matrixColumns.map((col) => (
+                <th class="whitespace-nowrap px-3 py-3 text-center font-medium" title={col.trackName}>
+                  <span class="block max-w-[8rem] truncate">{col.trackName}</span>
+                </th>
+              ))}
+              <th class="px-3 py-3 text-center font-medium">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map((row) => (
+              <tr class="border-b border-white/5">
+                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70">{row.position}</td>
+                <td class="py-2.5 pr-4 font-semibold">
+                  <span class="flex items-center gap-1.5 whitespace-nowrap">
+                    <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                    {displayDriverName(row.driver.name)}
+                    {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  </span>
+                </td>
+                {matrixColumns.map((col) => {
+                  const cell = row.roundCells.get(col.subsessionId);
+                  return (
+                    <td class="px-3 py-2.5 text-center">
+                      {cell ? (
+                        <span
+                          class={`inline-flex items-center gap-1 ${cell.dropped ? 'text-white/35 line-through decoration-white/25' : 'text-white/80'}`}
+                          title={`${cell.dropped ? 'Dropped round — ' : ''}${cell.points} pts${cell.hasPenalty ? ' — penalty logged this round' : ''}`}
+                        >
+                          {cell.points}
+                          {cell.hasPenalty && <span class="text-[10px] leading-none text-brand-pink" aria-hidden="true">●</span>}
+                        </span>
+                      ) : (
+                        <span class="text-white/20">—</span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td class="px-3 py-2.5 text-center font-semibold text-white/90">{row.totalPoints}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p class="border-t border-white/10 px-4 py-3 text-xs text-white/40">
+          <span class="text-white/35 line-through decoration-white/25">Struck-through</span> rounds didn't count toward the season total (dropped).
+          <span class="text-brand-pink">●</span> marks a round with a penalty logged against that driver.
+        </p>
       </div>
     )}
   </section>

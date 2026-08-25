@@ -656,6 +656,64 @@ export interface DriverSeasonStanding {
   laps: number;
   /** Only set by `computeOverallSeasonStandings` — which class this driver actually raced, so the overall (every class combined) table can still show it. */
   classId?: number;
+  /** Standings page's "Matrix" view — one entry per round this driver actually attended (never a zero-filled entry for a round they skipped — see StandingsRoundCell). Keyed by subsession_id; pair with getSeasonStandingsRoundColumns for the full ordered list of column headers, including rounds this driver missed entirely. */
+  roundCells: Map<number, StandingsRoundCell>;
+}
+
+/** One column of the standings page's "Matrix" view — one per round the season actually had (see getSeasonStandingsRoundColumns), chronologically ordered by start_time. */
+export interface SeasonStandingsRoundColumn {
+  subsessionId: number;
+  trackName: string;
+  startTime: string;
+}
+
+/** One cell of the standings page's "Matrix" view — a single driver's or team's result for a single round column (DriverSeasonStanding.roundCells / TeamSeasonStanding.roundCells). A round with no entry in that map means the driver/team didn't attend it at all — never rendered as a zero. */
+export interface StandingsRoundCell {
+  points: number;
+  /** True when this round's points did NOT count toward the season total — one of the driver's worst-N dropped rounds (see finalizeStandings/BASELINE_DROP_WEEKS). Teams never drop rounds at all (see computeTeamSeasonStandings' own doc comment on why), so this is always false on a TeamSeasonStanding's cells. */
+  dropped: boolean;
+  /** True when at least one penalty was logged this round against this driver (or, on a team's cell, against any driver who scored for that team this season) — informational only, doesn't imply the penalty actually moved points (a Racing-Incident-only or quali/practice-only penalty still sets this). */
+  hasPenalty: boolean;
+}
+
+/**
+ * driver_id -> every subsession_id that driver had at least one penalty
+ * logged against them in, this season — the source for each Matrix cell's
+ * `hasPenalty` flag. Built once from the season's full penalty list
+ * (SeasonOverallContext.penalties, already fetched by every standings
+ * caller) and reused by every view that needs it, rather than each
+ * re-scanning the penalty list itself.
+ */
+function buildPenaltyRoundsByDriverId(penalties: Penalty[]): Map<string, Set<number>> {
+  const map = new Map<string, Set<number>>();
+  for (const p of penalties) {
+    if (!p.driver_id) continue; // Racing Incident — no driver attached, nothing to flag
+    let set = map.get(p.driver_id);
+    if (!set) {
+      set = new Set();
+      map.set(p.driver_id, set);
+    }
+    set.add(p.subsession_id);
+  }
+  return map;
+}
+
+/**
+ * The standings Matrix view's shared column list — every round a season
+ * actually had (already exhibition-filtered), sorted chronologically. Same
+ * `seasonRounds` a SeasonOverallContext already carries, just narrowed to
+ * the rounds a given view's `allSubsessionIds` pool actually contains (a
+ * class-scoped view may not have raced every round the season had overall,
+ * e.g. a class that skipped an exhibition-adjacent round).
+ */
+export function computeSeasonStandingsRoundColumns(
+  seasonRounds: RoundSummary[],
+  allSubsessionIds: Set<number>
+): SeasonStandingsRoundColumn[] {
+  return seasonRounds
+    .filter((r) => allSubsessionIds.has(r.subsession_id))
+    .map((r) => ({ subsessionId: r.subsession_id, trackName: r.track_name, startTime: r.start_time }))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.subsessionId - b.subsessionId);
 }
 
 const BASELINE_DROP_WEEKS = 2;
@@ -751,7 +809,9 @@ function finalizeStandings(
   season: Season,
   allSubsessionIds: Set<number>,
   finalRoundSubsessionId: number | null = null,
-  canDropFinalRound: boolean = true
+  canDropFinalRound: boolean = true,
+  /** Standings Matrix view's penalty flags (StandingsRoundCell.hasPenalty) — see buildPenaltyRoundsByDriverId. Omitted entirely leaves every cell's hasPenalty false, harmless for any caller that doesn't need the Matrix view. */
+  penaltyRoundsByDriverId?: Map<string, Set<number>>
 ): DriverSeasonStanding[] {
   const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
   // Only actually a constraint when the final round is both present in this
@@ -765,26 +825,55 @@ function finalizeStandings(
     const driver = driverById.get(driverId);
     if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
 
+    // Which specific rounds got dropped (Matrix view's `dropped` flag) is
+    // tracked alongside the point totals below — only meaningful for rounds
+    // this driver actually attended (see roundCells' own doc comment); a
+    // round they skipped entirely defaults to 0 points same as before and
+    // may "rank" into the dropped tail too, but never gets a cell rendered
+    // either way, so it's harmless. Ties in points between two rounds are
+    // broken by subsession_id purely for a deterministic (arbitrary)
+    // "which one is dropped" pick — the TOTAL is identical either way.
     let totalPoints: number;
+    const droppedSubsessionIds = new Set<number>();
     if (protectFinalRound) {
       const finalRoundPoints = a.roundPoints.get(finalRoundSubsessionId as number) ?? 0;
-      const restTotals = [...allSubsessionIds]
+      const restRanked = [...allSubsessionIds]
         .filter((id) => id !== finalRoundSubsessionId)
-        .map((id) => a.roundPoints.get(id) ?? 0)
-        .sort((x, y) => y - x);
+        .map((id) => ({ id, points: a.roundPoints.get(id) ?? 0 }))
+        .sort((x, y) => y.points - x.points || x.id - y.id);
       // Same overall drop count as the unprotected branch below (see this
       // function's own doc comment) — it's just drawn entirely from the
       // non-final rounds instead of the full pool, since the final round no
       // longer competes for a drop slot at all.
       const dropCount = Math.min(totalDrops, Math.max(0, allSubsessionIds.size - 1));
-      const keepFromRest = Math.max(0, restTotals.length - dropCount);
-      const countedRest = restTotals.slice(0, keepFromRest);
-      totalPoints = finalRoundPoints + countedRest.reduce((sum, p) => sum + p, 0);
+      const keepFromRest = Math.max(0, restRanked.length - dropCount);
+      const countedRest = restRanked.slice(0, keepFromRest);
+      const droppedRest = restRanked.slice(keepFromRest);
+      totalPoints = finalRoundPoints + countedRest.reduce((sum, r) => sum + r.points, 0);
+      for (const r of droppedRest) droppedSubsessionIds.add(r.id);
     } else {
-      const roundTotals = [...allSubsessionIds].map((id) => a.roundPoints.get(id) ?? 0).sort((x, y) => y - x);
-      const dropCount = Math.min(totalDrops, Math.max(0, roundTotals.length - 1));
-      const countedRounds = roundTotals.slice(0, roundTotals.length - dropCount);
-      totalPoints = countedRounds.reduce((sum, p) => sum + p, 0);
+      const ranked = [...allSubsessionIds]
+        .map((id) => ({ id, points: a.roundPoints.get(id) ?? 0 }))
+        .sort((x, y) => y.points - x.points || x.id - y.id);
+      const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
+      const counted = ranked.slice(0, ranked.length - dropCount);
+      const dropped = ranked.slice(ranked.length - dropCount);
+      totalPoints = counted.reduce((sum, r) => sum + r.points, 0);
+      for (const r of dropped) droppedSubsessionIds.add(r.id);
+    }
+
+    // Matrix view's per-round cells — only for rounds this driver actually
+    // attended (a.roundPoints only ever has an entry for a round this
+    // driver started at all, see newStandingsAccum's own doc comment); a
+    // round they skipped entirely gets no cell rather than a misleading
+    // dropped/0 one.
+    const roundCells = new Map<number, StandingsRoundCell>();
+    for (const [subsessionId, points] of a.roundPoints) {
+      roundCells.set(subsessionId, {
+        points,
+        dropped: droppedSubsessionIds.has(subsessionId),
+        hasPenalty: penaltyRoundsByDriverId?.get(driverId)?.has(subsessionId) ?? false,
+      });
     }
 
     standings.push({
@@ -800,6 +889,7 @@ function finalizeStandings(
       lapsLed: a.lapsLed,
       laps: a.laps,
       classId: a.classId,
+      roundCells,
     });
   }
 
@@ -1069,7 +1159,15 @@ export async function computeSeasonStandings(
   // comment on why a driver's missed rounds need to be in this pool too.
   const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
   const finalRoundSubsessionId = findFinalRoundSubsessionId(overallContext.seasonRounds, exhibitionIds);
-  return finalizeStandings(accum, driverById, season, allSubsessionIds, finalRoundSubsessionId, canDropFinalRound);
+  return finalizeStandings(
+    accum,
+    driverById,
+    season,
+    allSubsessionIds,
+    finalRoundSubsessionId,
+    canDropFinalRound,
+    buildPenaltyRoundsByDriverId(overallContext.penalties)
+  );
 }
 
 /**
@@ -1190,7 +1288,15 @@ export async function computeOverallSeasonStandings(
   // comment on why a driver's missed rounds need to be in this pool too.
   const allSubsessionIds = new Set(scores.map((s) => s.subsession_id));
   const finalRoundSubsessionId = findFinalRoundSubsessionId(overallContext.seasonRounds, exhibitionIds);
-  return finalizeStandings(accum, driverById, season, allSubsessionIds, finalRoundSubsessionId, canDropFinalRound);
+  return finalizeStandings(
+    accum,
+    driverById,
+    season,
+    allSubsessionIds,
+    finalRoundSubsessionId,
+    canDropFinalRound,
+    buildPenaltyRoundsByDriverId(overallContext.penalties)
+  );
 }
 
 export interface TeamSeasonStanding {
@@ -1205,6 +1311,8 @@ export interface TeamSeasonStanding {
   appearances: number;
   /** Every driver who raced for this team this season, at least once — used to build the team-standings page's expandable roster detail (overall championship position/points/starts come from `computeOverallSeasonStandings`, joined in at the page level). */
   driverIds: string[];
+  /** Standings page's "Matrix" view — see DriverSeasonStanding.roundCells' own doc comment. `dropped` is always false here — teams never drop rounds (see this function's own doc comment on why). `hasPenalty` flags a round where any driver who ever raced for this team this season had a penalty logged, which can very occasionally over-flag a round for a team a penalized driver had already left by then (driverIds isn't tracked per-round) — acceptable slop for a purely informational flag. */
+  roundCells: Map<number, StandingsRoundCell>;
 }
 
 /**
@@ -1266,6 +1374,13 @@ export async function computeTeamSeasonStandings(
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
+  // Hoisted above the classId branch below (both branches used to fetch
+  // this identically, one per branch) so the Matrix view's penalty flags —
+  // built from `overallContext.penalties` once, after the branch — can see
+  // it too, and so it's fetched at most once regardless of which branch
+  // runs.
+  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
+  const penaltyRoundsByDriverId = buildPenaltyRoundsByDriverId(overallContext.penalties);
 
   interface TeamAccum {
     starts: number;
@@ -1285,7 +1400,6 @@ export async function computeTeamSeasonStandings(
 
   if (classId === undefined) {
     // ---- Overall (cross-class) team competition ----
-    const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
     const scores = overallContext.overallScores;
     if (scores.length === 0) return [];
 
@@ -1336,7 +1450,6 @@ export async function computeTeamSeasonStandings(
     // so it doubles as this class's curated_race_results lookup too — no
     // separate fetch needed for that anymore (see computeSeasonStandings'
     // identical optimization).
-    const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
     const rawByKey = overallContext.rawByKey;
 
     // Re-derive this class's own class-relative rank per race, and its
@@ -1462,6 +1575,17 @@ export async function computeTeamSeasonStandings(
 
     const totalPoints = [...a.roundPoints.values()].reduce((sum, p) => sum + p, 0);
 
+    // Matrix view's per-round cells — same "only rounds actually scored"
+    // shape as a driver's own roundCells, but `dropped` is always false (no
+    // drop-week rule for teams) and `hasPenalty` is team-roster-wide rather
+    // than one specific driver (see this interface's own doc comment on the
+    // roster-not-tracked-per-round tradeoff that implies).
+    const roundCells = new Map<number, StandingsRoundCell>();
+    for (const [subsessionId, points] of a.roundPoints) {
+      const hasPenalty = [...a.driverIds].some((driverId) => penaltyRoundsByDriverId.get(driverId)?.has(subsessionId));
+      roundCells.set(subsessionId, { points, dropped: false, hasPenalty });
+    }
+
     standings.push({
       teamId,
       teamName: team.name,
@@ -1470,6 +1594,7 @@ export async function computeTeamSeasonStandings(
       starts: a.starts,
       appearances: a.subsessionIds.size,
       driverIds: [...a.driverIds],
+      roundCells,
     });
   }
 
@@ -3729,23 +3854,36 @@ export function iracingResultsUrl(iracingSubsessionId: number): string {
 // - Speed Demon's "fastest lap" is one race-wide bragging right per race
 //   (not one per class) — ties (to the ten-thousandth of a second) credit
 //   every driver who shares it, though that's vanishingly rare in practice.
+// - Any award is SHARED on a tie — every award below picks the single best
+//   VALUE, then collects every driver (Dominator/Defender: every race) that
+//   actually hit it, rather than arbitrarily crowning one. Genuinely rare
+//   for the points/stat-total awards, but a real possibility for something
+//   like Speed Demon (an exact tie to the ten-thousandth) or a Dominator/
+//   Defender margin.
 // ---------------------------------------------------------------------------
 
+/** One or more drivers, tied for this award's value — see this section's own doc comment on why ties are shared rather than arbitrarily broken. */
 export interface SeasonAwardWinner {
-  driver: DriverBasic;
+  drivers: DriverBasic[];
   value: number;
 }
 
-/** Dominator/Defender — tied to the single race the margin actually happened in, not a season total. */
-export interface SeasonMarginAwardWinner extends SeasonAwardWinner {
+/** Ironman — carries the season-wide distance ceiling alongside the winner(s)' own total. */
+export interface SeasonIronmanWinner extends SeasonAwardWinner {
+  maxPossibleKm: number;
+}
+
+/** Dominator/Defender — each tied instance is its own (driver, race) pair, since a tie there can span different races (even different drivers) that happened to produce the exact same margin — there's no single shared "the race" once more than one entry ties. */
+export interface SeasonMarginAwardEntry {
+  driver: DriverBasic;
   subsessionId: number;
   raceNumber: number;
   trackName: string;
 }
 
-/** Ironman — carries the season-wide distance ceiling alongside the winner's own total. */
-export interface SeasonIronmanWinner extends SeasonAwardWinner {
-  maxPossibleKm: number;
+export interface SeasonMarginAwardWinner {
+  value: number;
+  entries: SeasonMarginAwardEntry[];
 }
 
 export interface SeasonAwards {
@@ -3764,56 +3902,55 @@ export interface SeasonAwards {
   sprintSpecialist: SeasonAwardWinner | null;
 }
 
-/** Shared "highest value wins, alphabetical-name tiebreak" comparison every award below uses — same tiebreak philosophy as `finalizeStandings`. */
-function isBetterAwardValue(
-  value: number,
-  bestValue: number,
-  driverId: string,
-  bestDriverId: string,
-  driverById: Map<string, DriverBasic>,
-  direction: 'max' | 'min'
-): boolean {
-  if (direction === 'max' ? value > bestValue : value < bestValue) return true;
-  if (value !== bestValue) return false;
-  return (
-    displayDriverName(driverById.get(driverId)!.name).localeCompare(displayDriverName(driverById.get(bestDriverId)!.name)) < 0
-  );
+/** Alphabetical-by-display-name, for presenting a tied group of winners in a stable order. */
+function sortDriversByName(driverIds: string[], driverById: Map<string, DriverBasic>): DriverBasic[] {
+  return driverIds
+    .map((id) => driverById.get(id)!)
+    .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
 }
 
-/** Picks the best driver straight off `DriverSeasonExtendedStats` — covers Sublime Finesse, Leader, Ironman's own total, Bonus Feature, and Naked Aggression, all of which are already computed there per driver per season. */
+/** Picks the single best VALUE straight off `DriverSeasonExtendedStats` and returns every driver tied at it (see this section's own doc comment on shared ties) — covers Sublime Finesse, Leader, Ironman's own total, Bonus Feature, and Naked Aggression, all of which are already computed there per driver per season. */
 function pickBestFromExtendedStats(
   extendedStats: Map<string, DriverSeasonExtendedStats>,
   driverById: Map<string, DriverBasic>,
   valueOf: (s: DriverSeasonExtendedStats) => number | null,
   filter?: (driverId: string, s: DriverSeasonExtendedStats) => boolean
 ): SeasonAwardWinner | null {
-  let best: { driverId: string; value: number } | null = null;
+  let bestValue: number | null = null;
+  let bestDriverIds: string[] = [];
   for (const [driverId, stats] of extendedStats) {
     if (!driverById.has(driverId)) continue;
     if (filter && !filter(driverId, stats)) continue;
     const value = valueOf(stats);
     if (value === null) continue;
-    if (best === null || isBetterAwardValue(value, best.value, driverId, best.driverId, driverById, 'max')) {
-      best = { driverId, value };
+    if (bestValue === null || value > bestValue) {
+      bestValue = value;
+      bestDriverIds = [driverId];
+    } else if (value === bestValue) {
+      bestDriverIds.push(driverId);
     }
   }
-  return best ? { driver: driverById.get(best.driverId)!, value: best.value } : null;
+  return bestValue === null ? null : { drivers: sortDriversByName(bestDriverIds, driverById), value: bestValue };
 }
 
-/** Picks the best driver out of a plain driverId -> total-value map — covers Speed Demon's fastest-lap tally and Endurance/Sprint Specialist's round-restricted point totals. */
+/** Picks the single best VALUE out of a plain driverId -> total-value map and returns every driver tied at it — covers Speed Demon's fastest-lap tally, Consistency's average finish, and Endurance/Sprint Specialist's round-restricted point totals. */
 function pickBestFromValueMap(
   values: Map<string, number>,
   driverById: Map<string, DriverBasic>,
   direction: 'max' | 'min' = 'max'
 ): SeasonAwardWinner | null {
-  let best: { driverId: string; value: number } | null = null;
+  let bestValue: number | null = null;
+  let bestDriverIds: string[] = [];
   for (const [driverId, value] of values) {
     if (!driverById.has(driverId)) continue;
-    if (best === null || isBetterAwardValue(value, best.value, driverId, best.driverId, driverById, direction)) {
-      best = { driverId, value };
+    if (bestValue === null || (direction === 'max' ? value > bestValue : value < bestValue)) {
+      bestValue = value;
+      bestDriverIds = [driverId];
+    } else if (value === bestValue) {
+      bestDriverIds.push(driverId);
     }
   }
-  return best ? { driver: driverById.get(best.driverId)!, value: best.value } : null;
+  return bestValue === null ? null : { drivers: sortDriversByName(bestDriverIds, driverById), value: bestValue };
 }
 
 /**
@@ -3964,16 +4101,19 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
       // the real standings) among drivers still rookie-eligible entering
       // this season (see the pre-pass above).
       const rookieCandidates = rookieCandidatesBySeasonId.get(season.id) ?? new Set<string>();
-      let rookieOfTheSeason: SeasonAwardWinner | null = null;
+      let rookieBestPoints: number | null = null;
+      let rookieBestDriverIds: string[] = [];
       for (const standing of overallStandings) {
         if (!rookieCandidates.has(standing.driver.id)) continue;
-        if (
-          rookieOfTheSeason === null ||
-          isBetterAwardValue(standing.totalPoints, rookieOfTheSeason.value, standing.driver.id, rookieOfTheSeason.driver.id, driverById, 'max')
-        ) {
-          rookieOfTheSeason = { driver: standing.driver, value: standing.totalPoints };
+        if (rookieBestPoints === null || standing.totalPoints > rookieBestPoints) {
+          rookieBestPoints = standing.totalPoints;
+          rookieBestDriverIds = [standing.driver.id];
+        } else if (standing.totalPoints === rookieBestPoints) {
+          rookieBestDriverIds.push(standing.driver.id);
         }
       }
+      const rookieOfTheSeason: SeasonAwardWinner | null =
+        rookieBestPoints === null ? null : { drivers: sortDriversByName(rookieBestDriverIds, driverById), value: rookieBestPoints };
 
       // Sublime Finesse — corners per incident, minimum 50% of the season's
       // rounds attended (by appearances).
@@ -3993,7 +4133,10 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         ? { ...ironmanBest, maxPossibleKm: computeMaxPossibleDistanceKm(overallContext, circuits, layouts, roundLayouts) }
         : null;
 
-      // Consistency — best (lowest) average overall finish position per race.
+      // Consistency — best (lowest) average overall finish position per
+      // race, same minimum-50%-of-the-season's-rounds-attended (by
+      // appearances) gate as Sublime Finesse — otherwise a driver who
+      // showed up once and had a great day could win this outright.
       const consistencyAccum = new Map<string, { sum: number; count: number }>();
       for (const s of overallContext.overallScores) {
         if (s.dsq) continue;
@@ -4008,7 +4151,11 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
       }
       const consistencyAverages = new Map<string, number>();
       for (const [driverId, a] of consistencyAccum) {
-        if (a.count > 0) consistencyAverages.set(driverId, a.sum / a.count);
+        if (a.count === 0) continue;
+        const appearances = appearancesByDriverId.get(driverId) ?? 0;
+        if (maxAppearances > 0 && appearances * 2 >= maxAppearances) {
+          consistencyAverages.set(driverId, a.sum / a.count);
+        }
       }
       const consistency = pickBestFromValueMap(consistencyAverages, driverById, 'min');
 
@@ -4052,8 +4199,14 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         classRaceGroups.get(key)!.push(s);
       }
       const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
-      let dominator: SeasonMarginAwardWinner | null = null;
-      let defender: SeasonMarginAwardWinner | null = null;
+      interface MarginObservation {
+        driverId: string;
+        margin: number;
+        subsessionId: number;
+        raceNumber: number;
+        trackName: string;
+      }
+      const marginObservations: MarginObservation[] = [];
       for (const [key, group] of classRaceGroups) {
         const ranked = group
           .filter((s) => !s.dsq)
@@ -4077,15 +4230,37 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         const margin = p2.interval - p1.interval;
         if (margin < 0 || !driverById.has(p1.driverId)) continue;
         const [subsessionIdStr, raceNumberStr] = key.split(':');
-        const entry: SeasonMarginAwardWinner = {
-          driver: driverById.get(p1.driverId)!,
-          value: margin,
-          subsessionId: Number(subsessionIdStr),
+        const subsessionId = Number(subsessionIdStr);
+        marginObservations.push({
+          driverId: p1.driverId,
+          margin,
+          subsessionId,
           raceNumber: Number(raceNumberStr),
-          trackName: trackNameBySubsession.get(Number(subsessionIdStr)) ?? 'Unknown',
-        };
-        if (dominator === null || margin > dominator.value) dominator = entry;
-        if (defender === null || margin < defender.value) defender = entry;
+          trackName: trackNameBySubsession.get(subsessionId) ?? 'Unknown',
+        });
+      }
+      // Shared ties: collect every (driver, race) observation whose margin
+      // exactly matches the season's biggest/smallest, not just the first
+      // one encountered — a tie here can span different races (even
+      // different drivers), so there's no single "the" race once more than
+      // one observation ties (see SeasonMarginAwardWinner's own comment).
+      let dominator: SeasonMarginAwardWinner | null = null;
+      let defender: SeasonMarginAwardWinner | null = null;
+      if (marginObservations.length > 0) {
+        const maxMargin = Math.max(...marginObservations.map((o) => o.margin));
+        const minMargin = Math.min(...marginObservations.map((o) => o.margin));
+        const entriesAt = (margin: number): SeasonMarginAwardEntry[] =>
+          marginObservations
+            .filter((o) => o.margin === margin)
+            .map((o) => ({
+              driver: driverById.get(o.driverId)!,
+              subsessionId: o.subsessionId,
+              raceNumber: o.raceNumber,
+              trackName: o.trackName,
+            }))
+            .sort((a, b) => displayDriverName(a.driver.name).localeCompare(displayDriverName(b.driver.name)));
+        dominator = { value: maxMargin, entries: entriesAt(maxMargin) };
+        defender = { value: minMargin, entries: entriesAt(minMargin) };
       }
 
       // Endurance/Sprint Specialist — class-blind points, restricted to one

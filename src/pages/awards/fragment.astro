@@ -3,7 +3,12 @@ export const prerender = false;
 
 import DriverFlag from '../../components/DriverFlag.astro';
 import { resolveSupabaseEnv, getSeasons, displayDriverName, type Season } from '../../lib/supabase';
-import { computeSeasonAwardsHistory, type SeasonAwardWinner } from '../../lib/results';
+import {
+  computeSeasonAwardsHistory,
+  type SeasonAwardWinner,
+  type SeasonMarginAwardWinner,
+  type DriverBasic,
+} from '../../lib/results';
 
 /**
  * Pilot for the sitewide "shell renders instantly, data fills in after"
@@ -31,15 +36,20 @@ function signed(n: number): string {
   return rounded > 0 ? `+${rounded}` : `${rounded}`;
 }
 
-interface AwardRow {
-  seasonName: string;
-  seasonLogoUrl: string | null;
-  driverName: string | null;
+/** One tied-for-the-award driver's display data, alongside that driver's own link (only ever more than one entry apart from another when the section is a Dominator/Defender-style margin award — a margin tie can span different races/drivers, so each entry carries its own link rather than the row sharing one). */
+interface WinnerDisplay {
+  driverName: string;
   carNumber: number | null;
   nationality1: string | null;
   nationality2: string | null;
-  valueText: string | null;
   link?: { href: string; label: string };
+}
+
+interface AwardRow {
+  seasonName: string;
+  seasonLogoUrl: string | null;
+  winners: WinnerDisplay[];
+  valueText: string | null;
 }
 
 interface AwardSection {
@@ -50,22 +60,44 @@ interface AwardSection {
   rows: AwardRow[];
 }
 
-function row(
-  season: Season,
-  winner: SeasonAwardWinner | null,
-  valueText: string | null,
-  link?: { href: string; label: string }
-): AwardRow {
+function winnerDisplay(driver: DriverBasic, link?: { href: string; label: string }): WinnerDisplay {
+  return {
+    driverName: displayDriverName(driver.name),
+    carNumber: driver.car_number,
+    nationality1: driver.nationality_1,
+    nationality2: driver.nationality_2,
+    link,
+  };
+}
+
+function row(season: Season, winners: WinnerDisplay[], valueText: string | null): AwardRow {
   return {
     seasonName: season.name,
     seasonLogoUrl: season.logo_url,
-    driverName: winner ? displayDriverName(winner.driver.name) : null,
-    carNumber: winner?.driver.car_number ?? null,
-    nationality1: winner?.driver.nationality_1 ?? null,
-    nationality2: winner?.driver.nationality_2 ?? null,
+    winners,
     valueText,
-    link,
   };
+}
+
+/** Builds a row for a plain (non-margin) award, whose ties are simply "multiple drivers, same one value" — every award except Dominator/Defender. */
+function simpleRow(season: Season, winner: SeasonAwardWinner | null, valueText: string | null): AwardRow {
+  return row(season, winner ? winner.drivers.map((d) => winnerDisplay(d)) : [], valueText);
+}
+
+/** Builds a row for a margin award (Dominator/Defender), whose tied entries are each their own (driver, race) pair — see SeasonMarginAwardEntry's doc comment in results.ts. */
+function marginRow(season: Season, winner: SeasonMarginAwardWinner | null, valueText: string | null): AwardRow {
+  return row(
+    season,
+    winner
+      ? winner.entries.map((e) =>
+          winnerDisplay(e.driver, {
+            href: `/results/${e.subsessionId}`,
+            label: `${e.trackName}${e.raceNumber > 1 ? ` — Race ${e.raceNumber}` : ''}`,
+          })
+        )
+      : [],
+    valueText
+  );
 }
 
 let sections: AwardSection[] = [];
@@ -81,7 +113,7 @@ try {
       description: 'Highest-scoring rookie.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.rookieOfTheSeason, sa.rookieOfTheSeason ? `${trimNum(sa.rookieOfTheSeason.value, 1)} pts` : null)
+        simpleRow(sa.season, sa.rookieOfTheSeason, sa.rookieOfTheSeason ? `${trimNum(sa.rookieOfTheSeason.value, 1)} pts` : null)
       ),
     },
     {
@@ -90,7 +122,7 @@ try {
       description: "Most corners per incident — minimum 50% of the season's rounds attended, by appearances.",
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.sublimeFinesse, sa.sublimeFinesse ? `${trimNum(sa.sublimeFinesse.value, 1)} corners/incident` : null)
+        simpleRow(sa.season, sa.sublimeFinesse, sa.sublimeFinesse ? `${trimNum(sa.sublimeFinesse.value, 1)} corners/incident` : null)
       ),
     },
     {
@@ -98,7 +130,7 @@ try {
       label: 'Leader',
       description: 'Most laps led.',
       hasLinks: false,
-      rows: seasonAwardsList.map((sa) => row(sa.season, sa.leader, sa.leader ? `${trimNum(sa.leader.value, 0)} laps led` : null)),
+      rows: seasonAwardsList.map((sa) => simpleRow(sa.season, sa.leader, sa.leader ? `${trimNum(sa.leader.value, 0)} laps led` : null)),
     },
     {
       key: 'ironman',
@@ -106,20 +138,20 @@ try {
       description: 'Most distance covered, using circuit lengths.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(
+        simpleRow(
           sa.season,
           sa.ironman,
-          sa.ironman ? `${trimNum(sa.ironman.value, 1)} km of ${trimNum(sa.ironman.maxPossibleKm, 1)} km possible` : null
+          sa.ironman ? `${trimNum(sa.ironman.value, 1)} km of ${trimNum(sa.ironman.maxPossibleKm, 1)} km` : null
         )
       ),
     },
     {
       key: 'consistency',
       label: 'Consistency',
-      description: 'Best average finish per race.',
+      description: "Best average finish per race — minimum 50% of the season's rounds attended, by appearances.",
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.consistency, sa.consistency ? `${trimNum(sa.consistency.value, 2)} avg finish` : null)
+        simpleRow(sa.season, sa.consistency, sa.consistency ? `${trimNum(sa.consistency.value, 2)} avg finish` : null)
       ),
     },
     {
@@ -128,7 +160,7 @@ try {
       description: 'Most bonus points.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.bonusFeature, sa.bonusFeature ? `${trimNum(sa.bonusFeature.value, 1)} bonus pts` : null)
+        simpleRow(sa.season, sa.bonusFeature, sa.bonusFeature ? `${trimNum(sa.bonusFeature.value, 1)} bonus pts` : null)
       ),
     },
     {
@@ -137,7 +169,7 @@ try {
       description: 'Most net positions gained.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.nakedAggression, sa.nakedAggression ? `${signed(sa.nakedAggression.value)} net positions` : null)
+        simpleRow(sa.season, sa.nakedAggression, sa.nakedAggression ? `${signed(sa.nakedAggression.value)} net positions` : null)
       ),
     },
     {
@@ -146,7 +178,11 @@ try {
       description: 'Most fastest laps.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.speedDemon, sa.speedDemon ? `${sa.speedDemon.value} fastest lap${sa.speedDemon.value === 1 ? '' : 's'}` : null)
+        simpleRow(
+          sa.season,
+          sa.speedDemon,
+          sa.speedDemon ? `${sa.speedDemon.value} fastest lap${sa.speedDemon.value === 1 ? '' : 's'}` : null
+        )
       ),
     },
     {
@@ -154,38 +190,14 @@ try {
       label: 'Dominator',
       description: 'Biggest class-winning margin of the season, in any single race.',
       hasLinks: true,
-      rows: seasonAwardsList.map((sa) =>
-        row(
-          sa.season,
-          sa.dominator,
-          sa.dominator ? `${(sa.dominator.value / 10000).toFixed(3)}s margin` : null,
-          sa.dominator
-            ? {
-                href: `/results/${sa.dominator.subsessionId}`,
-                label: `${sa.dominator.trackName}${sa.dominator.raceNumber > 1 ? ` — Race ${sa.dominator.raceNumber}` : ''}`,
-              }
-            : undefined
-        )
-      ),
+      rows: seasonAwardsList.map((sa) => marginRow(sa.season, sa.dominator, sa.dominator ? `${(sa.dominator.value / 10000).toFixed(3)}s margin` : null)),
     },
     {
       key: 'defender',
       label: 'Defender',
       description: 'Smallest class-winning margin of the season, in any single race.',
       hasLinks: true,
-      rows: seasonAwardsList.map((sa) =>
-        row(
-          sa.season,
-          sa.defender,
-          sa.defender ? `${(sa.defender.value / 10000).toFixed(3)}s margin` : null,
-          sa.defender
-            ? {
-                href: `/results/${sa.defender.subsessionId}`,
-                label: `${sa.defender.trackName}${sa.defender.raceNumber > 1 ? ` — Race ${sa.defender.raceNumber}` : ''}`,
-              }
-            : undefined
-        )
-      ),
+      rows: seasonAwardsList.map((sa) => marginRow(sa.season, sa.defender, sa.defender ? `${(sa.defender.value / 10000).toFixed(3)}s margin` : null)),
     },
     {
       key: 'enduranceSpecialist',
@@ -193,7 +205,7 @@ try {
       description: 'Most points scored counting only endurance rounds, no dropped weeks.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(
+        simpleRow(
           sa.season,
           sa.enduranceSpecialist,
           sa.enduranceSpecialist ? `${trimNum(sa.enduranceSpecialist.value, 1)} pts (no drops)` : null
@@ -206,7 +218,7 @@ try {
       description: 'Most points scored counting only sprint rounds, no dropped weeks.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        row(sa.season, sa.sprintSpecialist, sa.sprintSpecialist ? `${trimNum(sa.sprintSpecialist.value, 1)} pts (no drops)` : null)
+        simpleRow(sa.season, sa.sprintSpecialist, sa.sprintSpecialist ? `${trimNum(sa.sprintSpecialist.value, 1)} pts (no drops)` : null)
       ),
     },
   ];
@@ -262,11 +274,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         </span>
                       </td>
                       <td class="py-2 pr-3 text-white/80">
-                        {r.driverName ? (
-                          <span class="flex items-center gap-1.5">
-                            <DriverFlag nationality1={r.nationality1} nationality2={r.nationality2} size="h-3.5 w-5" />
-                            {r.driverName}
-                            {r.carNumber !== null && <span class="text-white/40">#{r.carNumber}</span>}
+                        {r.winners.length > 0 ? (
+                          <span class="flex flex-col gap-1">
+                            {r.winners.map((w) => (
+                              <span class="flex items-center gap-1.5">
+                                <DriverFlag nationality1={w.nationality1} nationality2={w.nationality2} size="h-3.5 w-5" />
+                                {w.driverName}
+                                {w.carNumber !== null && <span class="text-white/40">#{w.carNumber}</span>}
+                              </span>
+                            ))}
                           </span>
                         ) : (
                           <span class="text-white/30">—</span>
@@ -275,10 +291,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <td class="py-2 pr-3 text-white/70">{r.valueText ?? <span class="text-white/30">—</span>}</td>
                       {section.hasLinks && (
                         <td class="py-2 pr-3 text-white/70">
-                          {r.link ? (
-                            <a href={r.link.href} class="text-brand-primary hover:underline">
-                              {r.link.label}
-                            </a>
+                          {r.winners.length > 0 ? (
+                            <span class="flex flex-col gap-1">
+                              {r.winners.map((w) =>
+                                w.link ? (
+                                  <a href={w.link.href} class="text-brand-primary hover:underline">
+                                    {w.link.label}
+                                  </a>
+                                ) : (
+                                  <span class="text-white/30">—</span>
+                                )
+                              )}
+                            </span>
                           ) : (
                             <span class="text-white/30">—</span>
                           )}
