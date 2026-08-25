@@ -2,9 +2,10 @@
 export const prerender = false;
 
 import DriverFlag from '../../components/DriverFlag.astro';
-import { resolveSupabaseEnv, getSeasons, displayDriverName, type Season } from '../../lib/supabase';
+import { resolveSupabaseEnv, getSeasons, getManualAwards, displayDriverName, type Season, type ManualAward } from '../../lib/supabase';
 import {
   computeSeasonAwardsHistory,
+  driversSelect,
   type SeasonAwardWinner,
   type SeasonMarginAwardWinner,
   type DriverBasic,
@@ -100,11 +101,29 @@ function marginRow(season: Season, winner: SeasonMarginAwardWinner | null, value
   );
 }
 
+/** Builds a row for Best Racecraft/Most Improved — steward-picked, not computed (see 0069_manual_awards.sql), so there's no numeric value to show, just the winner(s). Ties are just more than one row on file for the same (season, award), same "shared, never arbitrarily broken" convention every computed award above already follows. */
+function manualAwardRow(season: Season, entries: ManualAward[], driverById: Map<string, DriverBasic>): AwardRow {
+  const winners = entries
+    .map((e) => driverById.get(e.driver_id))
+    .filter((d): d is DriverBasic => d !== undefined)
+    .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)))
+    .map((d) => winnerDisplay(d));
+  return row(season, winners, null);
+}
+
 let sections: AwardSection[] = [];
 let loadError: string | null = null;
 try {
-  const seasons = await getSeasons(supabaseEnv);
+  const [seasons, manualAwards, drivers] = await Promise.all([getSeasons(supabaseEnv), getManualAwards(supabaseEnv), driversSelect(supabaseEnv)]);
   const seasonAwardsList = await computeSeasonAwardsHistory(supabaseEnv, seasons);
+
+  const driverById = new Map(drivers.map((d) => [d.id, d]));
+  const manualAwardsByKeySeason = new Map<string, ManualAward[]>();
+  for (const a of manualAwards) {
+    const key = `${a.award_key}:${a.season_id}`;
+    if (!manualAwardsByKeySeason.has(key)) manualAwardsByKeySeason.set(key, []);
+    manualAwardsByKeySeason.get(key)!.push(a);
+  }
 
   sections = [
     {
@@ -205,11 +224,7 @@ try {
       description: 'Most points scored counting only endurance rounds, no dropped weeks.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        simpleRow(
-          sa.season,
-          sa.enduranceSpecialist,
-          sa.enduranceSpecialist ? `${trimNum(sa.enduranceSpecialist.value, 1)} pts (no drops)` : null
-        )
+        simpleRow(sa.season, sa.enduranceSpecialist, sa.enduranceSpecialist ? `${trimNum(sa.enduranceSpecialist.value, 1)} pts` : null)
       ),
     },
     {
@@ -218,7 +233,25 @@ try {
       description: 'Most points scored counting only sprint rounds, no dropped weeks.',
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
-        simpleRow(sa.season, sa.sprintSpecialist, sa.sprintSpecialist ? `${trimNum(sa.sprintSpecialist.value, 1)} pts (no drops)` : null)
+        simpleRow(sa.season, sa.sprintSpecialist, sa.sprintSpecialist ? `${trimNum(sa.sprintSpecialist.value, 1)} pts` : null)
+      ),
+    },
+    {
+      key: 'bestRacecraft',
+      label: 'Best Racecraft',
+      description: 'Cleanest, most respectful wheel-to-wheel racing this season — picked by the stewards.',
+      hasLinks: false,
+      rows: seasonAwardsList.map((sa) =>
+        manualAwardRow(sa.season, manualAwardsByKeySeason.get(`best_racecraft:${sa.season.id}`) ?? [], driverById)
+      ),
+    },
+    {
+      key: 'mostImproved',
+      label: 'Most Improved',
+      description: 'Biggest step forward from last season — picked by the stewards.',
+      hasLinks: false,
+      rows: seasonAwardsList.map((sa) =>
+        manualAwardRow(sa.season, manualAwardsByKeySeason.get(`most_improved:${sa.season.id}`) ?? [], driverById)
       ),
     },
   ];
