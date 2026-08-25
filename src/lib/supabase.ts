@@ -1237,6 +1237,11 @@ export function getAllPhotoAlbumRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&photo_album_url=not.is.null`);
 }
 
+/** Same idea as getAllBroadcastRaceLinks above, for replay_url instead — every race_links row that has one set. src/lib/results.ts's getAllReplayLinks() joins this with getAllRounds() for the Media page's Replays tab. */
+export function getAllReplayRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
+  return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&replay_url=not.is.null`);
+}
+
 /** Upserts one race's links — replaces whatever was set for that (subsession_id, race_number) before. Any field left undefined stays whatever it already was; pass null explicitly to clear a field. */
 export async function upsertRaceLinks(
   env: SupabaseEnv,

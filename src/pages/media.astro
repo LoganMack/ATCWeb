@@ -15,9 +15,17 @@ import {
   formatDate,
   displayLayoutName,
   youtubeThumbnailUrl,
+  resizedImageUrl,
   type MediaVideoCategory,
 } from '../lib/supabase';
-import { getAllBroadcastVideos, getAllPhotoAlbumLinks, type BroadcastVideo, type PhotoAlbumLink } from '../lib/results';
+import {
+  getAllBroadcastVideos,
+  getAllPhotoAlbumLinks,
+  getAllReplayLinks,
+  type BroadcastVideo,
+  type PhotoAlbumLink,
+  type ReplayLink,
+} from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -37,12 +45,13 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // mechanically it's the exact same "title + uploaded image, shown in a
 // gallery" feature, just relabeled and given a fresh start content-wise, so
 // there was no reason to rename the underlying schema too.
-const TABS = ['videos', 'race-photos', 'posters', 'meetups'] as const;
+const TABS = ['videos', 'race-photos', 'posters', 'replays', 'meetups'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   videos: 'Videos',
   'race-photos': 'Race Photos',
   posters: 'Posters',
+  replays: 'Replays',
   meetups: 'Meetups',
 };
 const tabParam = Astro.url.searchParams.get('tab');
@@ -74,6 +83,7 @@ let selectedLayout: { circuitName: string; layoutName: string } | null = null;
 let trackGuidesForLayout: { title: string | null; url: string }[] = [];
 let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
 let photoAlbums: PhotoAlbumLink[] = [];
+let replays: ReplayLink[] = [];
 let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
 
 try {
@@ -125,6 +135,8 @@ try {
     photoAlbums = await getAllPhotoAlbumLinks(supabaseEnv);
   } else if (tab === 'posters') {
     graphics = await getAllMediaGraphics(supabaseEnv);
+  } else if (tab === 'replays') {
+    replays = await getAllReplayLinks(supabaseEnv);
   } else if (tab === 'meetups') {
     meetups = await getAllMediaMeetups(supabaseEnv);
   }
@@ -377,12 +389,56 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 data-search={g.title.toLowerCase()}
                 class="group overflow-hidden rounded-xl bg-white/5 text-left ring-1 ring-white/10 transition hover:ring-brand-primary/50"
               >
-                <img src={g.image_url} alt={g.title} class="aspect-square w-full object-cover transition group-hover:brightness-110" />
+                <img
+                  src={resizedImageUrl(g.image_url, { width: 400 })}
+                  alt={g.title}
+                  loading="lazy"
+                  class="aspect-square w-full object-cover transition group-hover:brightness-110"
+                />
                 <p class="truncate p-2 text-xs font-semibold text-white/80">{g.title}</p>
               </button>
             ))}
           </div>
           <p id="media-search-empty-posters" class="reveal mt-8 hidden text-white/60">No matches.</p>
+        </>
+      )
+    )}
+
+    {!loadError && tab === 'replays' && (
+      replays.length === 0 ? (
+        <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No replays on file yet.</p>
+      ) : (
+        <>
+          <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
+            <input
+              type="search"
+              id="media-search-replays"
+              placeholder="Search replays…"
+              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            />
+          </div>
+          <div id="media-replays-list" class="reveal flex flex-col divide-y divide-white/10 rounded-xl border border-white/10" style="transition-delay: 70ms">
+            {replays.map((r) => (
+              <a
+                href={r.replay_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-search={r.track_name.toLowerCase()}
+                class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 transition hover:bg-white/[0.03]"
+              >
+                <span>
+                  <span class="font-semibold">{r.track_name}</span>
+                  <span class="ml-2 text-xs text-white/50">
+                    {r.season_label && `${r.season_label} · `}
+                    {formatDate(r.start_time)}
+                    {r.race_number > 1 && ` · Race ${r.race_number}`}
+                  </span>
+                </span>
+                <span class="text-xs font-semibold text-brand-primary">Download Replay</span>
+              </a>
+            ))}
+          </div>
+          <p id="media-search-empty-replays" class="reveal mt-8 hidden text-white/60">No matches.</p>
         </>
       )
     )}
@@ -409,14 +465,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Shared client-side search for the Videos and Graphics tabs — both
-    // render a plain grid of already-server-rendered `[data-search]` cards
-    // (never more than one of the two search inputs below exists on a given
-    // page load, since `tab` is a real server-side query param, not a
-    // client-side toggle), so this is just show/hide filtering, same
-    // pattern as driver-stats.astro's own search box. Meetups gets its own
-    // handler (see the Leaflet script below) since map markers can't be
-    // hidden with a CSS class the way a grid item can.
+    // Shared client-side search for the Videos, Posters, and Replays tabs —
+    // each renders a plain grid or list of already-server-rendered
+    // `[data-search]` items (never more than one of these search inputs
+    // exists on a given page load, since `tab` is a real server-side query
+    // param, not a client-side toggle), so this is just show/hide filtering,
+    // same pattern as driver-stats.astro's own search box. Meetups gets its
+    // own handler (see the Leaflet script below) since map markers can't be
+    // hidden with a CSS class the way a grid/list item can.
     function initGridSearch(inputId: string, gridId: string, emptyId: string | null) {
       const input = document.getElementById(inputId) as HTMLInputElement | null;
       const grid = document.getElementById(gridId);
@@ -470,12 +526,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     document.addEventListener('astro:page-load', () => {
       initGridSearch('media-search-videos', 'media-search-grid', 'media-search-empty-videos');
       initGridSearch('media-search-posters', 'media-posters-grid', 'media-search-empty-posters');
+      initGridSearch('media-search-replays', 'media-replays-list', 'media-search-empty-replays');
       initAlbumThumbnails();
     });
   </script>
 
   {tab === 'meetups' && meetupPins.length > 0 && (
     <script define:vars={{ meetupPins }}>
+      // PLAIN JAVASCRIPT ONLY BELOW — no type annotations, no `as Foo`
+      // casts, no other TypeScript-only syntax. `define:vars` scripts are
+      // inlined verbatim (that's how `meetupPins` gets into the browser at
+      // all) rather than run through Astro/Vite's TS-stripping step the way
+      // a normal <script> tag is, so any TS syntax here ships raw to the
+      // browser and throws a SyntaxError on load — which was the actual
+      // cause of "the Meetups map never loads" (found via a real page
+      // load's console: `SyntaxError: Missing initializer in const
+      // declaration`, from `const markerEntries: {...}[] = []` and
+      // `... as HTMLInputElement | null` below, both fixed to plain JS). A
+      // parse error here means the WHOLE script never runs — including the
+      // astro:page-load listener at the bottom — so the map silently just
+      // never initializes; there's no console error visible to a normal
+      // visitor, only in devtools.
+      //
       // Leaflet is loaded dynamically from here, NOT via a static
       // <link>/<script src> pair sitting in the page markup — this tab's
       // whole block (including those tags) only ever exists in the DOM
@@ -553,7 +625,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             // than toggling a CSS class the way the plain-grid search
             // (initGridSearch, further down this file) does for
             // Videos/Graphics.
-            const markerEntries: { marker: any; searchText: string }[] = [];
+            const markerEntries = [];
             meetupPins.forEach((pin) => {
               const popupHtml = `
                 <div style="min-width:160px">
@@ -567,7 +639,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               markerEntries.push({ marker, searchText: `${pin.title} ${pin.locationLabel ?? ''}`.toLowerCase() });
             });
 
-            const searchInput = document.getElementById('media-search-meetups') as HTMLInputElement | null;
+            const searchInput = document.getElementById('media-search-meetups');
             if (searchInput && !searchInput.dataset.meetupSearchBound) {
               searchInput.dataset.meetupSearchBound = 'true';
               searchInput.addEventListener('input', () => {

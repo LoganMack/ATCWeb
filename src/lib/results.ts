@@ -55,6 +55,7 @@ import {
   getOrganizations,
   getAllBroadcastRaceLinks,
   getAllPhotoAlbumRaceLinks,
+  getAllReplayRaceLinks,
   getScoringRulesets,
   resolveSeasonRuleset,
   type SupabaseEnv,
@@ -3228,6 +3229,44 @@ export async function getAllPhotoAlbumLinks(env: SupabaseEnv): Promise<PhotoAlbu
       subsession_id: link.subsession_id,
       race_number: link.race_number,
       photo_album_url: link.photo_album_url,
+      track_name: round.track_name,
+      season_label: round.season_label,
+      start_time: round.start_time,
+    });
+  }
+  out.sort((a, b) => b.start_time.localeCompare(a.start_time));
+  return out;
+}
+
+/** One race's replay download link, joined with its round's track/date/season for display — what the Media page's Replays tab renders. Same shape as BroadcastVideo/PhotoAlbumLink above, one field renamed. */
+export interface ReplayLink {
+  subsession_id: number;
+  race_number: number;
+  replay_url: string;
+  track_name: string;
+  season_label: string | null;
+  start_time: string;
+}
+
+/**
+ * Every replay link on file, newest round first — same join as
+ * getAllBroadcastVideos/getAllPhotoAlbumLinks above (getAllReplayRaceLinks +
+ * getAllRounds), just against replay_url instead. Admins set this field on
+ * the round's own results page (src/pages/results/[subsessionId].astro)
+ * alongside broadcast_url/photo_album_url/etc.
+ */
+export async function getAllReplayLinks(env: SupabaseEnv): Promise<ReplayLink[]> {
+  const [links, rounds] = await Promise.all([getAllReplayRaceLinks(env), getAllRounds(env)]);
+  const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
+  const out: ReplayLink[] = [];
+  for (const link of links) {
+    if (!link.replay_url) continue;
+    const round = roundBySubsession.get(link.subsession_id);
+    if (!round) continue;
+    out.push({
+      subsession_id: link.subsession_id,
+      race_number: link.race_number,
+      replay_url: link.replay_url,
       track_name: round.track_name,
       season_label: round.season_label,
       start_time: round.start_time,
