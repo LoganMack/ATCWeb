@@ -475,65 +475,122 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </script>
 
   {tab === 'meetups' && meetupPins.length > 0 && (
-    <>
-      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
-      <script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-      <script define:vars={{ meetupPins }}>
-        // Pure client-side rendering of server-provided pin data — no
-        // network call of its own once Leaflet's assets have loaded, so
-        // (per pageProgress.ts's own convention) this doesn't drive the
-        // global loading bar; the page navigation that got here already did.
-        function initMeetupMap() {
-          const el = document.getElementById('meetup-map');
-          // @ts-ignore - global from the Leaflet CDN script above
-          if (!el || typeof L === 'undefined' || el.dataset.mapInit === 'true') return;
-          el.dataset.mapInit = 'true';
-
-          // @ts-ignore
-          const map = L.map(el).setView([39.8283, -98.5795], 4); // continental-US center
-          // @ts-ignore
-          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors',
-            maxZoom: 18,
-          }).addTo(map);
-
-          // Kept alongside each pin's own searchable text so the search box
-          // below can add/remove markers from the map on the fly — Leaflet
-          // markers have no built-in show/hide, so filtering means literally
-          // adding/removing them from the map rather than toggling a CSS
-          // class the way the plain-grid search (initGridSearch, further
-          // down this file) does for Videos/Graphics.
-          const markerEntries: { marker: any; searchText: string }[] = [];
-          meetupPins.forEach((pin) => {
-            const popupHtml = `
-              <div style="min-width:160px">
-                ${pin.photoUrl ? `<img src="${pin.photoUrl}" alt="" style="width:100%;height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px" />` : ''}
-                <strong>${pin.title}</strong>
-                ${pin.locationLabel || pin.date ? `<div style="font-size:12px;opacity:0.7;margin-top:2px">${[pin.locationLabel, pin.date].filter(Boolean).join(' · ')}</div>` : ''}
-              </div>
-            `;
-            // @ts-ignore
-            const marker = L.marker([pin.lat, pin.lng]).addTo(map).bindPopup(popupHtml);
-            markerEntries.push({ marker, searchText: `${pin.title} ${pin.locationLabel ?? ''}`.toLowerCase() });
-          });
-
-          const searchInput = document.getElementById('media-search-meetups') as HTMLInputElement | null;
-          if (searchInput && !searchInput.dataset.meetupSearchBound) {
-            searchInput.dataset.meetupSearchBound = 'true';
-            searchInput.addEventListener('input', () => {
-              const term = searchInput.value.trim().toLowerCase();
-              markerEntries.forEach(({ marker, searchText }) => {
-                const matches = !term || searchText.includes(term);
-                const onMap = map.hasLayer(marker);
-                if (matches && !onMap) marker.addTo(map);
-                if (!matches && onMap) map.removeLayer(marker);
-              });
-            });
+    <script define:vars={{ meetupPins }}>
+      // Leaflet is loaded dynamically from here, NOT via a static
+      // <link>/<script src> pair sitting in the page markup — this tab's
+      // whole block (including those tags) only ever exists in the DOM
+      // while `tab=meetups`, and the site navigates between tabs through
+      // Astro's client router (ViewTransitions) rather than a hard page
+      // load. A router-driven swap inserts new content via the DOM rather
+      // than the browser's native HTML parser, and a DYNAMICALLY inserted
+      // <script src> always loads asynchronously with no guaranteed
+      // ordering relative to a plain inline script right after it — so the
+      // old static <script src="leaflet.min.js"> next to this inline
+      // script had no guarantee of having finished (or even started) by
+      // the time this ran, `typeof L` could easily still be 'undefined',
+      // and initMeetupMap silently bailed with nothing to retry it — the
+      // exact "endlessly loading, never loads" bug this replaced. Loading
+      // it explicitly here and awaiting its real `load` event removes that
+      // race entirely; the browser still caches/dedupes the request itself,
+      // so this is a no-op over the network on every visit after the
+      // first.
+      let leafletLoadPromise;
+      function loadLeaflet() {
+        // @ts-ignore - global the Leaflet script defines once loaded
+        if (typeof L !== 'undefined') return Promise.resolve();
+        if (leafletLoadPromise) return leafletLoadPromise;
+        leafletLoadPromise = new Promise((resolve, reject) => {
+          if (!document.querySelector('link[data-leaflet-css]')) {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+            link.dataset.leafletCss = 'true';
+            document.head.appendChild(link);
           }
-        }
+          const existing = document.querySelector('script[data-leaflet-js]');
+          if (existing) {
+            // Already requested by an earlier visit to this tab — if it's
+            // still mid-flight, ride its own load/error events; if it
+            // already finished, `L` is set and the check above would have
+            // returned already, so reaching here means it's still pending.
+            existing.addEventListener('load', () => resolve(undefined));
+            existing.addEventListener('error', () => reject(new Error('Failed to load Leaflet')));
+            return;
+          }
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+          script.dataset.leafletJs = 'true';
+          script.onload = () => resolve(undefined);
+          script.onerror = () => reject(new Error('Failed to load Leaflet'));
+          document.head.appendChild(script);
+        });
+        return leafletLoadPromise;
+      }
 
-        document.addEventListener('astro:page-load', initMeetupMap);
-      </script>
-    </>
+      // Pure client-side rendering of server-provided pin data once Leaflet
+      // is ready — no network call of its own beyond that, so (per
+      // pageProgress.ts's own convention) this doesn't drive the global
+      // loading bar; the page navigation that got here already did.
+      function initMeetupMap() {
+        const el = document.getElementById('meetup-map');
+        if (!el || el.dataset.mapInit === 'true') return;
+        el.dataset.mapInit = 'true';
+
+        loadLeaflet()
+          .then(() => {
+            // @ts-ignore
+            const map = L.map(el).setView([39.8283, -98.5795], 4); // continental-US center
+            // @ts-ignore
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+              attribution: '&copy; OpenStreetMap contributors',
+              maxZoom: 18,
+            }).addTo(map);
+
+            // Kept alongside each pin's own searchable text so the search
+            // box below can add/remove markers from the map on the fly —
+            // Leaflet markers have no built-in show/hide, so filtering
+            // means literally adding/removing them from the map rather
+            // than toggling a CSS class the way the plain-grid search
+            // (initGridSearch, further down this file) does for
+            // Videos/Graphics.
+            const markerEntries: { marker: any; searchText: string }[] = [];
+            meetupPins.forEach((pin) => {
+              const popupHtml = `
+                <div style="min-width:160px">
+                  ${pin.photoUrl ? `<img src="${pin.photoUrl}" alt="" style="width:100%;height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px" />` : ''}
+                  <strong>${pin.title}</strong>
+                  ${pin.locationLabel || pin.date ? `<div style="font-size:12px;opacity:0.7;margin-top:2px">${[pin.locationLabel, pin.date].filter(Boolean).join(' · ')}</div>` : ''}
+                </div>
+              `;
+              // @ts-ignore
+              const marker = L.marker([pin.lat, pin.lng]).addTo(map).bindPopup(popupHtml);
+              markerEntries.push({ marker, searchText: `${pin.title} ${pin.locationLabel ?? ''}`.toLowerCase() });
+            });
+
+            const searchInput = document.getElementById('media-search-meetups') as HTMLInputElement | null;
+            if (searchInput && !searchInput.dataset.meetupSearchBound) {
+              searchInput.dataset.meetupSearchBound = 'true';
+              searchInput.addEventListener('input', () => {
+                const term = searchInput.value.trim().toLowerCase();
+                markerEntries.forEach(({ marker, searchText }) => {
+                  const matches = !term || searchText.includes(term);
+                  const onMap = map.hasLayer(marker);
+                  if (matches && !onMap) marker.addTo(map);
+                  if (!matches && onMap) map.removeLayer(marker);
+                });
+              });
+            }
+          })
+          .catch((err) => {
+            // Allow a later retry (e.g. the next time this tab loads) rather
+            // than permanently latching the "already initialized" guard on
+            // a failed attempt.
+            el.dataset.mapInit = 'false';
+            console.error('Failed to load meetup map:', err);
+          });
+      }
+
+      document.addEventListener('astro:page-load', initMeetupMap);
+    </script>
   )}
 </Layout>

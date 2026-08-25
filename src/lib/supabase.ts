@@ -1812,6 +1812,26 @@ export function displayDriverName(name: string): string {
 }
 
 /**
+ * "J. Smith" from "John Smith" — or from "John Michael Smith"/"John M.
+ * Smith"/any other number of middle names or initials in between, since
+ * this only ever keeps the FIRST token's initial and the LAST token
+ * verbatim, dropping everything in between rather than risking a middle
+ * name/initial getting mistaken for the surname. Built on
+ * `displayDriverName` so the trailing disambiguator digit (see that
+ * function's own doc comment) is already gone before splitting on
+ * whitespace. Standings page's Matrix view — its Driver column has far
+ * less room once the round columns take over most of the table's width;
+ * everywhere else on the site still shows the full name via
+ * `displayDriverName`.
+ */
+export function shortDriverName(name: string): string {
+  const parts = displayDriverName(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return parts[0];
+  return `${parts[0].charAt(0)}. ${parts[parts.length - 1]}`;
+}
+
+/**
  * "August 5, 2026" — the one date format used everywhere across the site,
  * from a 'YYYY-MM-DD' date-only string or a full ISO timestamp.
  * Date-only strings are parsed as local calendar-date components rather

@@ -18,6 +18,7 @@ import {
   computeTeamSeasonStandings,
   computeOverallSeasonStandings,
   computeSeasonStandingsRoundColumns,
+  computeDisplayRoundNumbers,
   getSeasonOverallContext,
   driversSelect,
   isChampionshipSeason,
@@ -102,18 +103,28 @@ if (!loadError && activeSeason && !deltaNotActiveForSeason) {
 
     // Matrix view's column headers — same derivation as the driver
     // Standings page's identical block: every round the view being shown
-    // actually raced, chronologically ordered.
+    // actually raced, chronologically ordered, headed by just the round
+    // number (see that page's own comment on exhibitionRoundIds already
+    // being the exhibition+test union).
     const matrixSubsessionIds = new Set(
       (view === 'delta' && deltaClassId !== undefined
         ? overallContext.overallScores.filter((s) => s.class_id === deltaClassId)
         : overallContext.overallScores
       ).map((s) => s.subsession_id)
     );
-    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds);
+    const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
+    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
   } catch (err) {
     console.error('Failed to compute team standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
   }
+}
+
+// Matrix column header's hover tooltip — same as the driver Standings
+// page's identical helper.
+function matrixColumnTitle(trackName: string, format: 'endurance' | 'sprint' | null): string {
+  if (!format) return trackName;
+  return `${trackName} — ${format.charAt(0).toUpperCase()}${format.slice(1)}`;
 }
 
 let bannerUrl: string | null = null;
@@ -165,7 +176,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </label>
         </form>
 
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-4">
           <div class="flex gap-2">
             <a
               href={`/team-standings?view=overall&mode=${mode}${activeSeason ? `&season=${activeSeason.number}` : ''}`}
@@ -299,8 +310,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
               <th class="py-3 pr-4 font-medium">Team</th>
               {matrixColumns.map((col) => (
-                <th class="whitespace-nowrap px-3 py-3 text-center font-medium" title={col.trackName}>
-                  <span class="block max-w-[8rem] truncate">{col.trackName}</span>
+                <th class="px-2 py-3 text-center font-medium" title={matrixColumnTitle(col.trackName, col.format)}>
+                  {col.roundNumber ?? '?'}
                 </th>
               ))}
               <th class="px-3 py-3 text-center font-medium">Total</th>
@@ -319,17 +330,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 {matrixColumns.map((col) => {
                   const cell = row.roundCells.get(col.subsessionId);
                   return (
-                    <td class="px-3 py-2.5 text-center">
+                    <td class="relative px-2 py-2.5 text-center">
                       {cell ? (
-                        <span
-                          class="inline-flex items-center gap-1 text-white/80"
-                          title={`${cell.points} pts${cell.hasPenalty ? ' — penalty logged this round' : ''}`}
-                        >
+                        <span class="text-white/80" title={`${cell.points} pts`}>
                           {cell.points}
-                          {cell.hasPenalty && <span class="text-[10px] leading-none text-brand-pink" aria-hidden="true">●</span>}
                         </span>
                       ) : (
                         <span class="text-white/20">—</span>
+                      )}
+                      {cell && cell.penalties.length > 0 && (
+                        <span
+                          class="absolute right-1 top-1 text-[8px] leading-none text-brand-pink"
+                          aria-hidden="false"
+                          role="img"
+                          title={cell.penalties.join('\n')}
+                        >
+                          ●
+                        </span>
                       )}
                     </td>
                   );
@@ -340,8 +357,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </tbody>
         </table>
         <p class="border-t border-white/10 px-4 py-3 text-xs text-white/40">
-          Teams don't drop rounds — every round scored counts toward the total.
-          <span class="text-brand-pink">●</span> marks a round with a penalty logged against a driver who raced for that team this season.
+          Hover a round number for the circuit and format. Teams don't drop rounds — every round scored counts toward the total.
+          <span class="text-brand-pink">●</span> marks a round with a penalty logged against a driver who raced for that team this season — hover it
+          for details.
         </p>
       </div>
     )}

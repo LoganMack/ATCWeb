@@ -12,12 +12,14 @@ import {
   getSeasons,
   getStandingsExcludedRoundIds,
   displayDriverName,
+  shortDriverName,
   getPageBanners,
 } from '../lib/supabase';
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,
   computeSeasonStandingsRoundColumns,
+  computeDisplayRoundNumbers,
   getSeasonCarTeamStats,
   getSeasonDriverExtendedStats,
   getSeasonOverallContext,
@@ -131,14 +133,20 @@ if (!loadError && activeSeason) {
     // Matrix view's column headers — every round the view being shown
     // actually raced (Per Class narrows this to that class's own rounds,
     // same pool computeSeasonStandings itself used to build that view's
-    // standings), chronologically ordered.
+    // standings), chronologically ordered. Column headers are just the
+    // round number (Logan: keep them narrow) — computeDisplayRoundNumbers
+    // needs the season's full round list plus the site-wide exhibition/test
+    // exclusion set (exhibitionRoundIds here is actually already that
+    // union — see getStandingsExcludedRoundIds — so the second arg is left
+    // empty rather than fetching test round ids separately).
     const matrixSubsessionIds = new Set(
       (view === 'class' && activeClass
         ? overallContext.overallScores.filter((s) => s.class_id === activeClass.id)
         : overallContext.overallScores
       ).map((s) => s.subsession_id)
     );
-    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds);
+    const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
+    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -147,6 +155,14 @@ if (!loadError && activeSeason) {
 
 function raceWord(n: number): string {
   return `${n} race${n === 1 ? '' : 's'}`;
+}
+
+// Matrix column header's hover tooltip — "Track Name — Sprint"/"Track Name
+// — Endurance", or just the track name when the round has no format on
+// file yet.
+function matrixColumnTitle(trackName: string, format: 'endurance' | 'sprint' | null): string {
+  if (!format) return trackName;
+  return `${trackName} — ${format.charAt(0).toUpperCase()}${format.slice(1)}`;
 }
 
 let bannerUrl: string | null = null;
@@ -212,7 +228,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           )}
         </form>
 
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-4">
           <div class="flex gap-2">
             <a
               href={`/standings?view=overall&mode=${mode}${activeSeason ? `&season=${activeSeason.number}` : ''}`}
@@ -401,8 +417,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
               <th class="py-3 pr-4 font-medium">Driver</th>
               {matrixColumns.map((col) => (
-                <th class="whitespace-nowrap px-3 py-3 text-center font-medium" title={col.trackName}>
-                  <span class="block max-w-[8rem] truncate">{col.trackName}</span>
+                <th class="px-2 py-3 text-center font-medium" title={matrixColumnTitle(col.trackName, col.format)}>
+                  {col.roundNumber ?? '?'}
                 </th>
               ))}
               <th class="px-3 py-3 text-center font-medium">Total</th>
@@ -415,24 +431,33 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <td class="py-2.5 pr-4 font-semibold">
                   <span class="flex items-center gap-1.5 whitespace-nowrap">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                    {displayDriverName(row.driver.name)}
+                    {shortDriverName(row.driver.name)}
                     {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                   </span>
                 </td>
                 {matrixColumns.map((col) => {
                   const cell = row.roundCells.get(col.subsessionId);
                   return (
-                    <td class="px-3 py-2.5 text-center">
+                    <td class="relative px-2 py-2.5 text-center">
                       {cell ? (
                         <span
-                          class={`inline-flex items-center gap-1 ${cell.dropped ? 'text-white/35 line-through decoration-white/25' : 'text-white/80'}`}
-                          title={`${cell.dropped ? 'Dropped round — ' : ''}${cell.points} pts${cell.hasPenalty ? ' — penalty logged this round' : ''}`}
+                          class={cell.dropped ? 'text-white/35 line-through decoration-white/25' : 'text-white/80'}
+                          title={`${cell.dropped ? 'Dropped round — ' : ''}${cell.points} pts`}
                         >
                           {cell.points}
-                          {cell.hasPenalty && <span class="text-[10px] leading-none text-brand-pink" aria-hidden="true">●</span>}
                         </span>
                       ) : (
                         <span class="text-white/20">—</span>
+                      )}
+                      {cell && cell.penalties.length > 0 && (
+                        <span
+                          class="absolute right-1 top-1 text-[8px] leading-none text-brand-pink"
+                          aria-hidden="false"
+                          role="img"
+                          title={cell.penalties.join('\n')}
+                        >
+                          ●
+                        </span>
                       )}
                     </td>
                   );
@@ -443,8 +468,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </tbody>
         </table>
         <p class="border-t border-white/10 px-4 py-3 text-xs text-white/40">
-          <span class="text-white/35 line-through decoration-white/25">Struck-through</span> rounds didn't count toward the season total (dropped).
-          <span class="text-brand-pink">●</span> marks a round with a penalty logged against that driver.
+          Hover a round number for the circuit and format. <span class="text-white/35 line-through decoration-white/25">Struck-through</span> points
+          didn't count toward the season total (dropped). <span class="text-brand-pink">●</span> marks a round with a penalty logged against that
+          driver — hover it for details.
         </p>
       </div>
     )}

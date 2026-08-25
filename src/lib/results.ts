@@ -75,6 +75,8 @@ import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
   effectivePenaltyPoints,
+  effectiveTimePenaltySeconds,
+  effectivePointsPenalty,
   type SeasonScoreRow,
   type SeasonClassScoreRow,
   type SeasonOverallAdjustment,
@@ -660,11 +662,14 @@ export interface DriverSeasonStanding {
   roundCells: Map<number, StandingsRoundCell>;
 }
 
-/** One column of the standings page's "Matrix" view — one per round the season actually had (see getSeasonStandingsRoundColumns), chronologically ordered by start_time. */
+/** One column of the standings page's "Matrix" view — one per round the season actually had (see computeSeasonStandingsRoundColumns), chronologically ordered by start_time. The column header itself is just `roundNumber` (Logan: keep the columns narrow) — `trackName`/`format` are there for the header's hover tooltip. */
 export interface SeasonStandingsRoundColumn {
   subsessionId: number;
   trackName: string;
   startTime: string;
+  /** This round's site-wide "Round N" display number — same numbering `computeDisplayRoundNumbers` produces everywhere else on the site (the results page's own "Round N" heading, etc.), passed in rather than recomputed here since it needs the site's full exhibition/test-round context, not just this one season. Null in the (normally unreachable) case that context didn't have an entry for this round — a column's own subsessionId only ever comes from an already exhibition/test-filtered pool, so this is just defensive. */
+  roundNumber: number | null;
+  format: 'endurance' | 'sprint' | null;
 }
 
 /** One cell of the standings page's "Matrix" view — a single driver's or team's result for a single round column (DriverSeasonStanding.roundCells / TeamSeasonStanding.roundCells). A round with no entry in that map means the driver/team didn't attend it at all — never rendered as a zero. */
@@ -672,28 +677,44 @@ export interface StandingsRoundCell {
   points: number;
   /** True when this round's points did NOT count toward the season total — one of the driver's worst-N dropped rounds (see finalizeStandings/BASELINE_DROP_WEEKS). Teams never drop rounds at all (see computeTeamSeasonStandings' own doc comment on why), so this is always false on a TeamSeasonStanding's cells. */
   dropped: boolean;
-  /** True when at least one penalty was logged this round against this driver (or, on a team's cell, against any driver who scored for that team this season) — informational only, doesn't imply the penalty actually moved points (a Racing-Incident-only or quali/practice-only penalty still sets this). */
-  hasPenalty: boolean;
+  /** One short human-readable line per penalty logged this round against this driver (or, on a team's cell, against any driver who scored for that team this season this season) — the Matrix cell's hover summary. Empty means no penalty; doesn't imply an entry here actually moved points (a Racing-Incident-only or quali/practice-only penalty still gets a line). See summarizePenalty. */
+  penalties: string[];
+}
+
+/** One penalty, formatted for the Matrix cell hover tooltip — appeal-aware (mirrors whatever's actually in effect, same as everywhere else penalties are applied/displayed — see src/lib/penalties.ts's effective* helpers), e.g. "Contact — avoidable (12s, -3 pts, 2 PP)" or "Off track (warning)" for a bare warning with no other consequence. */
+function summarizePenalty(p: Penalty): string {
+  const consequences: string[] = [];
+  const time = effectiveTimePenaltySeconds(p);
+  if (time) consequences.push(`${time}s`);
+  const points = effectivePointsPenalty(p);
+  if (points) consequences.push(`-${points} pts`);
+  const pp = effectivePenaltyPoints(p);
+  if (pp) consequences.push(`${pp} PP`);
+  if (p.is_warning) consequences.push('warning');
+  const label = p.description?.trim() || 'Racing incident';
+  return consequences.length > 0 ? `${label} (${consequences.join(', ')})` : label;
 }
 
 /**
- * driver_id -> every subsession_id that driver had at least one penalty
- * logged against them in, this season — the source for each Matrix cell's
- * `hasPenalty` flag. Built once from the season's full penalty list
+ * driver_id -> subsession_id -> every penalty logged against that driver in
+ * that round, this season — the source for each Matrix cell's `penalties`
+ * summary. Built once from the season's full penalty list
  * (SeasonOverallContext.penalties, already fetched by every standings
  * caller) and reused by every view that needs it, rather than each
  * re-scanning the penalty list itself.
  */
-function buildPenaltyRoundsByDriverId(penalties: Penalty[]): Map<string, Set<number>> {
-  const map = new Map<string, Set<number>>();
+function buildPenaltiesByDriverAndRound(penalties: Penalty[]): Map<string, Map<number, Penalty[]>> {
+  const map = new Map<string, Map<number, Penalty[]>>();
   for (const p of penalties) {
     if (!p.driver_id) continue; // Racing Incident — no driver attached, nothing to flag
-    let set = map.get(p.driver_id);
-    if (!set) {
-      set = new Set();
-      map.set(p.driver_id, set);
+    let bySubsession = map.get(p.driver_id);
+    if (!bySubsession) {
+      bySubsession = new Map();
+      map.set(p.driver_id, bySubsession);
     }
-    set.add(p.subsession_id);
+    const list = bySubsession.get(p.subsession_id);
+    if (list) list.push(p);
+    else bySubsession.set(p.subsession_id, [p]);
   }
   return map;
 }
@@ -704,15 +725,25 @@ function buildPenaltyRoundsByDriverId(penalties: Penalty[]): Map<string, Set<num
  * `seasonRounds` a SeasonOverallContext already carries, just narrowed to
  * the rounds a given view's `allSubsessionIds` pool actually contains (a
  * class-scoped view may not have raced every round the season had overall,
- * e.g. a class that skipped an exhibition-adjacent round).
+ * e.g. a class that skipped an exhibition-adjacent round). `displayRoundNumbers`
+ * is `computeDisplayRoundNumbers`'s own output — the caller's to compute
+ * since it needs the site's full exhibition/test-round sets, not just this
+ * function's narrower `allSubsessionIds` pool.
  */
 export function computeSeasonStandingsRoundColumns(
   seasonRounds: RoundSummary[],
-  allSubsessionIds: Set<number>
+  allSubsessionIds: Set<number>,
+  displayRoundNumbers: Map<number, number | null>
 ): SeasonStandingsRoundColumn[] {
   return seasonRounds
     .filter((r) => allSubsessionIds.has(r.subsession_id))
-    .map((r) => ({ subsessionId: r.subsession_id, trackName: r.track_name, startTime: r.start_time }))
+    .map((r) => ({
+      subsessionId: r.subsession_id,
+      trackName: r.track_name,
+      startTime: r.start_time,
+      roundNumber: displayRoundNumbers.get(r.subsession_id) ?? null,
+      format: r.format,
+    }))
     .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.subsessionId - b.subsessionId);
 }
 
@@ -810,8 +841,8 @@ function finalizeStandings(
   allSubsessionIds: Set<number>,
   finalRoundSubsessionId: number | null = null,
   canDropFinalRound: boolean = true,
-  /** Standings Matrix view's penalty flags (StandingsRoundCell.hasPenalty) — see buildPenaltyRoundsByDriverId. Omitted entirely leaves every cell's hasPenalty false, harmless for any caller that doesn't need the Matrix view. */
-  penaltyRoundsByDriverId?: Map<string, Set<number>>
+  /** Standings Matrix view's penalty summaries (StandingsRoundCell.penalties) — see buildPenaltiesByDriverAndRound. Omitted entirely leaves every cell's penalties empty, harmless for any caller that doesn't need the Matrix view. */
+  penaltiesByDriverAndRound?: Map<string, Map<number, Penalty[]>>
 ): DriverSeasonStanding[] {
   const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
   // Only actually a constraint when the final round is both present in this
@@ -872,7 +903,7 @@ function finalizeStandings(
       roundCells.set(subsessionId, {
         points,
         dropped: droppedSubsessionIds.has(subsessionId),
-        hasPenalty: penaltyRoundsByDriverId?.get(driverId)?.has(subsessionId) ?? false,
+        penalties: (penaltiesByDriverAndRound?.get(driverId)?.get(subsessionId) ?? []).map(summarizePenalty),
       });
     }
 
@@ -1166,7 +1197,7 @@ export async function computeSeasonStandings(
     allSubsessionIds,
     finalRoundSubsessionId,
     canDropFinalRound,
-    buildPenaltyRoundsByDriverId(overallContext.penalties)
+    buildPenaltiesByDriverAndRound(overallContext.penalties)
   );
 }
 
@@ -1295,7 +1326,7 @@ export async function computeOverallSeasonStandings(
     allSubsessionIds,
     finalRoundSubsessionId,
     canDropFinalRound,
-    buildPenaltyRoundsByDriverId(overallContext.penalties)
+    buildPenaltiesByDriverAndRound(overallContext.penalties)
   );
 }
 
@@ -1311,7 +1342,7 @@ export interface TeamSeasonStanding {
   appearances: number;
   /** Every driver who raced for this team this season, at least once — used to build the team-standings page's expandable roster detail (overall championship position/points/starts come from `computeOverallSeasonStandings`, joined in at the page level). */
   driverIds: string[];
-  /** Standings page's "Matrix" view — see DriverSeasonStanding.roundCells' own doc comment. `dropped` is always false here — teams never drop rounds (see this function's own doc comment on why). `hasPenalty` flags a round where any driver who ever raced for this team this season had a penalty logged, which can very occasionally over-flag a round for a team a penalized driver had already left by then (driverIds isn't tracked per-round) — acceptable slop for a purely informational flag. */
+  /** Standings page's "Matrix" view — see DriverSeasonStanding.roundCells' own doc comment. `dropped` is always false here — teams never drop rounds (see this function's own doc comment on why). `penalties` pools every penalty logged against any driver who ever raced for this team this season, which can very occasionally over-flag a round for a team a penalized driver had already left by then (driverIds isn't tracked per-round) — acceptable slop for a purely informational summary. */
   roundCells: Map<number, StandingsRoundCell>;
 }
 
@@ -1375,12 +1406,12 @@ export async function computeTeamSeasonStandings(
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
   // Hoisted above the classId branch below (both branches used to fetch
-  // this identically, one per branch) so the Matrix view's penalty flags —
-  // built from `overallContext.penalties` once, after the branch — can see
-  // it too, and so it's fetched at most once regardless of which branch
-  // runs.
+  // this identically, one per branch) so the Matrix view's penalty
+  // summaries — built from `overallContext.penalties` once, after the
+  // branch — can see it too, and so it's fetched at most once regardless of
+  // which branch runs.
   const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
-  const penaltyRoundsByDriverId = buildPenaltyRoundsByDriverId(overallContext.penalties);
+  const penaltiesByDriverAndRound = buildPenaltiesByDriverAndRound(overallContext.penalties);
 
   interface TeamAccum {
     starts: number;
@@ -1577,13 +1608,16 @@ export async function computeTeamSeasonStandings(
 
     // Matrix view's per-round cells — same "only rounds actually scored"
     // shape as a driver's own roundCells, but `dropped` is always false (no
-    // drop-week rule for teams) and `hasPenalty` is team-roster-wide rather
-    // than one specific driver (see this interface's own doc comment on the
+    // drop-week rule for teams) and `penalties` pools every roster driver's
+    // own penalties for that round together rather than one specific
+    // driver's (see this interface's own doc comment on the
     // roster-not-tracked-per-round tradeoff that implies).
     const roundCells = new Map<number, StandingsRoundCell>();
     for (const [subsessionId, points] of a.roundPoints) {
-      const hasPenalty = [...a.driverIds].some((driverId) => penaltyRoundsByDriverId.get(driverId)?.has(subsessionId));
-      roundCells.set(subsessionId, { points, dropped: false, hasPenalty });
+      const penalties = [...a.driverIds].flatMap((driverId) =>
+        (penaltiesByDriverAndRound.get(driverId)?.get(subsessionId) ?? []).map(summarizePenalty)
+      );
+      roundCells.set(subsessionId, { points, dropped: false, penalties });
     }
 
     standings.push({
