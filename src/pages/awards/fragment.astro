@@ -140,7 +140,7 @@ try {
     {
       key: 'sublimeFinesse',
       label: 'Sublime Finesse',
-      description: "Most corners per incident — minimum 50% of the season's rounds attended, by appearances.",
+      description: "Most corners per incident (minimum 50% of the season's rounds attended, by appearances).",
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
         simpleRow(sa.season, sa.sublimeFinesse, sa.sublimeFinesse ? `${trimNum(sa.sublimeFinesse.value, 1)} corners/incident` : null)
@@ -169,7 +169,7 @@ try {
     {
       key: 'consistency',
       label: 'Consistency',
-      description: "Best average finish per race — minimum 50% of the season's rounds attended, by appearances.",
+      description: "Best average finish per race (minimum 50% of the season's rounds attended, by appearances).",
       hasLinks: false,
       rows: seasonAwardsList.map((sa) =>
         simpleRow(sa.season, sa.consistency, sa.consistency ? `${trimNum(sa.consistency.value, 2)} avg finish` : null)

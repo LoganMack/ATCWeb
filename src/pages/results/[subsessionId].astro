@@ -18,6 +18,8 @@ import {
   getSeasonById,
   getScoringRulesets,
   resolveSeasonRuleset,
+  getCircuits,
+  getAllCircuitLayouts,
   type RaceLinks,
   type Penalty,
 } from '../../lib/supabase';
@@ -30,6 +32,8 @@ import {
   isChampionshipSeason,
   topTeamScorers,
   iracingResultsUrl,
+  getRoundLayoutsForSubsessions,
+  resolveLayout,
   type RoundResults,
   type QualifyingRow,
 } from '../../lib/results';
@@ -238,6 +242,27 @@ const incidentLimitExceededDriverIds = new Set(
     ? [...incidentTotalByDriverId.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId)
     : []
 );
+
+// This round's resolved layout's corner count — powers ResultsTable's
+// Incidents-column corners-per-incident tooltip (same resolveLayout()
+// match-by-track-name-then-layout-name results.ts's season-long Sublime
+// Finesse stat uses, just for this one round). Null (no tooltip anywhere in
+// this round's tables) whenever the round's track/layout doesn't resolve —
+// same "nothing to compute from" cases as that season stat.
+let layoutCorners: number | null = null;
+if (!loadError && round) {
+  try {
+    const [circuits, layouts, roundLayouts] = await Promise.all([
+      getCircuits(supabaseEnv),
+      getAllCircuitLayouts(supabaseEnv),
+      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
+    ]);
+    const layout = resolveLayout(round.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
+    layoutCorners = layout?.corners ?? null;
+  } catch (err) {
+    console.error("Failed to resolve this round's layout for corners-per-incident:", err);
+  }
+}
 
 // Race vs. Qualifying — two independent result categories, each with its
 // own Overall/Per Class view (see `view` below). Practice isn't one of
@@ -510,6 +535,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     teamPointsByRaceDriver={teamPointsByRaceDriver}
                     incidentLimit={incidentLimit}
                     incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
+                    layoutCorners={layoutCorners}
                   />
                 ))}
               </>
@@ -529,6 +555,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       teamPointsByRaceDriver={teamPointsByRaceDriver}
                       incidentLimit={incidentLimit}
                       incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
+                      layoutCorners={layoutCorners}
                     />
                   ))}
                 </div>

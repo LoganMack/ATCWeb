@@ -51,6 +51,12 @@ function optCategory(form: FormData, name: string): EventCategory {
   const v = str(form, name);
   return v === 'test' || v === 'exhibition' ? v : 'championship';
 }
+// Same checkbox-parsing convention the Drivers admin form uses for its own
+// boolean toggles (on_probation/is_hall_of_fame/is_ai) — an unchecked box
+// sends nothing at all, so anything other than the literal 'on' means false.
+function checkbox(form: FormData, name: string): boolean {
+  return form.get(name) === 'on';
+}
 
 function readForm(form: FormData): Partial<EventRecord> {
   const category = optCategory(form, 'category');
@@ -92,16 +98,19 @@ function readForm(form: FormData): Partial<EventRecord> {
     race1_sim_time: optStr(form, 'race1_sim_time'),
     race1_laps: optInt(form, 'race1_laps'),
     race1_weather: optWeather(form, 'race1_weather'),
+    race1_wet_affected: checkbox(form, 'race1_wet_affected'),
 
     race2_start_time: optStr(form, 'race2_start_time'),
     race2_sim_time: optStr(form, 'race2_sim_time'),
     race2_laps: optInt(form, 'race2_laps'),
     race2_weather: optWeather(form, 'race2_weather'),
+    race2_wet_affected: checkbox(form, 'race2_wet_affected'),
 
     race3_start_time: optStr(form, 'race3_start_time'),
     race3_sim_time: optStr(form, 'race3_sim_time'),
     race3_laps: optInt(form, 'race3_laps'),
     race3_weather: optWeather(form, 'race3_weather'),
+    race3_wet_affected: checkbox(form, 'race3_wet_affected'),
   };
 }
 
@@ -201,14 +210,17 @@ const d: Partial<EventRecord> = event ?? {
   race1_sim_time: null,
   race1_laps: null,
   race1_weather: null,
+  race1_wet_affected: false,
   race2_start_time: null,
   race2_sim_time: null,
   race2_laps: null,
   race2_weather: null,
+  race2_wet_affected: false,
   race3_start_time: null,
   race3_sim_time: null,
   race3_laps: null,
   race3_weather: null,
+  race3_wet_affected: false,
 };
 
 ---
@@ -406,6 +418,8 @@ const d: Partial<EventRecord> = event ?? {
         simTime={d.race1_sim_time ?? null}
         laps={d.race1_laps ?? null}
         weather={d.race1_weather ?? null}
+        showWetAffected
+        wetAffected={d.race1_wet_affected ?? false}
       />
       <EventSessionFields
         prefix="race2"
@@ -415,6 +429,8 @@ const d: Partial<EventRecord> = event ?? {
         simTime={d.race2_sim_time ?? null}
         laps={d.race2_laps ?? null}
         weather={d.race2_weather ?? null}
+        showWetAffected
+        wetAffected={d.race2_wet_affected ?? false}
       />
       <EventSessionFields
         prefix="race3"
@@ -424,6 +440,8 @@ const d: Partial<EventRecord> = event ?? {
         simTime={d.race3_sim_time ?? null}
         laps={d.race3_laps ?? null}
         weather={d.race3_weather ?? null}
+        showWetAffected
+        wetAffected={d.race3_wet_affected ?? false}
       />
     </div>
 

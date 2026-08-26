@@ -1704,8 +1704,13 @@ function normalizeTrackOrLayoutName(s: string): string {
  * (length_km for distance driven, corners for corners-per-incident) — kept
  * as one shared resolution rather than two separate functions since it's
  * the exact same matching logic either way.
+ *
+ * Exported so /results/[subsessionId].astro can also resolve just this one
+ * round's layout (for ResultsTable's per-race corners-per-incident tooltip)
+ * without pulling in the season-wide extended-stats machinery this file's
+ * other callers use it from.
  */
-function resolveLayout(
+export function resolveLayout(
   trackName: string,
   roundLayout: string | null,
   circuits: Circuit[],

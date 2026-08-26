@@ -15,6 +15,9 @@ interface Props {
   minutes?: number | null;
   laps?: number | null;
   weather: string | null;
+  /** Race sessions only (0071_race_wet_affected.sql) — practice/qualifying don't pass this. Admin-marked after the fact, independent of `weather` (the pre-scheduled forecast). */
+  showWetAffected?: boolean;
+  wetAffected?: boolean;
 }
 
 const {
@@ -28,6 +31,8 @@ const {
   minutes = null,
   laps = null,
   weather,
+  showWetAffected = false,
+  wetAffected = false,
 } = Astro.props;
 ---
 
@@ -102,6 +107,20 @@ const {
         <option value="mixed" selected={weather === 'mixed'} class="bg-brand-ink text-white">Mixed</option>
       </select>
     </label>
+
+    {showWetAffected && (
+      <label class="flex flex-col justify-end gap-1.5 text-sm">
+        <span class="flex items-center gap-2 text-white/60">
+          <input
+            type="checkbox"
+            name={`${prefix}_wet_affected`}
+            checked={wetAffected}
+            class="h-4 w-4 rounded border-white/15 bg-white/5 text-brand-primary outline-none focus:border-brand-primary"
+          />
+          Wet affected
+        </span>
+      </label>
+    )}
   </div>
 </fieldset>
 

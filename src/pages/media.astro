@@ -8,12 +8,14 @@ import {
   getAllMediaGraphics,
   getMediaVideosByCategory,
   getAllMediaMeetups,
+  getAllMeetupDriverLinks,
   getAllCircuitLayouts,
   getAllTrackGuides,
   getCircuits,
   getPageBanners,
   formatDate,
   displayLayoutName,
+  displayDriverName,
   youtubeThumbnailUrl,
   resizedImageUrl,
   type MediaVideoCategory,
@@ -85,6 +87,7 @@ let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
 let photoAlbums: PhotoAlbumLink[] = [];
 let replays: ReplayLink[] = [];
 let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
+let meetupDriverLinks: Awaited<ReturnType<typeof getAllMeetupDriverLinks>> = [];
 
 try {
   if (tab === 'videos') {
@@ -138,7 +141,7 @@ try {
   } else if (tab === 'replays') {
     replays = await getAllReplayLinks(supabaseEnv);
   } else if (tab === 'meetups') {
-    meetups = await getAllMediaMeetups(supabaseEnv);
+    [meetups, meetupDriverLinks] = await Promise.all([getAllMediaMeetups(supabaseEnv), getAllMeetupDriverLinks(supabaseEnv)]);
   }
 } catch (err) {
   console.error('Failed to load media page content:', err);
@@ -160,6 +163,20 @@ const FILTER_LABELS: Record<VideoFilter, string> = {
   other: 'Other',
 };
 
+// Display names of every driver attached to each meetup (see
+// 0070_meetup_drivers.sql), sorted alphabetically — grouped here from the
+// flat link list rather than queried per-meetup, same "front-load once,
+// group in memory" reasoning as photoLinksBySubsession elsewhere on this
+// page.
+const driverNamesByMeetupId = new Map<string, string[]>();
+for (const link of meetupDriverLinks) {
+  if (!link.drivers) continue;
+  if (!driverNamesByMeetupId.has(link.meetup_id)) driverNamesByMeetupId.set(link.meetup_id, []);
+  const label = displayDriverName(link.drivers.name) + (link.drivers.car_number !== null ? ` #${link.drivers.car_number}` : '');
+  driverNamesByMeetupId.get(link.meetup_id)!.push(label);
+}
+for (const names of driverNamesByMeetupId.values()) names.sort((a, b) => a.localeCompare(b));
+
 const meetupPins = meetups
   .filter((m) => Number.isFinite(m.latitude) && Number.isFinite(m.longitude))
   .map((m) => ({
@@ -169,6 +186,7 @@ const meetupPins = meetups
     photoUrl: m.photo_url,
     locationLabel: m.location_label,
     date: m.meetup_date ? formatDate(m.meetup_date) : null,
+    drivers: driverNamesByMeetupId.get(m.id) ?? [],
   }));
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
@@ -627,11 +645,22 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             // Videos/Graphics.
             const markerEntries = [];
             meetupPins.forEach((pin) => {
+              // The image is a lightbox trigger (see src/scripts/
+              // lightbox.ts) rather than a plain <img> — that script's
+              // click listener is delegated to <body>, so it picks up this
+              // popup's markup fine even though Leaflet injects it into the
+              // DOM long after astro:page-load already fired.
               const popupHtml = `
                 <div style="min-width:160px">
-                  ${pin.photoUrl ? `<img src="${pin.photoUrl}" alt="" style="width:100%;height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px" />` : ''}
+                  ${pin.photoUrl ? `<img src="${pin.photoUrl}" alt="${pin.title}" data-lightbox data-lightbox-src="${pin.photoUrl}" data-lightbox-alt="${pin.title}" style="width:100%;height:100px;object-fit:cover;border-radius:6px;margin-bottom:6px;cursor:zoom-in" />` : ''}
                   <strong>${pin.title}</strong>
                   ${pin.locationLabel || pin.date ? `<div style="font-size:12px;opacity:0.7;margin-top:2px">${[pin.locationLabel, pin.date].filter(Boolean).join(' · ')}</div>` : ''}
+                  ${pin.drivers.length > 0 ? `
+                    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin-top:8px">Attended</div>
+                    <ul style="margin:2px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.5">
+                      ${pin.drivers.map((name) => `<li>${name}</li>`).join('')}
+                    </ul>
+                  ` : ''}
                 </div>
               `;
               // @ts-ignore

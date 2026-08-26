@@ -1994,16 +1994,20 @@ export interface EventRecord {
   race1_sim_time: string | null;
   race1_laps: number | null;
   race1_weather: Weather | null;
+  /** 0071_race_wet_affected.sql — admin-marked after the fact: did this race actually run wet? Independent of race1_weather (the pre-scheduled forecast). Defaults false, never null. */
+  race1_wet_affected: boolean;
 
   race2_start_time: string | null;
   race2_sim_time: string | null;
   race2_laps: number | null;
   race2_weather: Weather | null;
+  race2_wet_affected: boolean;
 
   race3_start_time: string | null;
   race3_sim_time: string | null;
   race3_laps: number | null;
   race3_weather: Weather | null;
+  race3_wet_affected: boolean;
 }
 
 export interface EventWithCircuit extends EventRecord {
@@ -2016,9 +2020,9 @@ const EVENT_SELECT =
   'id,circuit_id,layout,event_date,format,fuel_limit_pct,results_url,category,season_id,round_number,subsession_id,' +
   'practice_start_time,practice_sim_time,practice_minutes,practice_weather,' +
   'qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
-  'race1_start_time,race1_sim_time,race1_laps,race1_weather,' +
-  'race2_start_time,race2_sim_time,race2_laps,race2_weather,' +
-  'race3_start_time,race3_sim_time,race3_laps,race3_weather';
+  'race1_start_time,race1_sim_time,race1_laps,race1_weather,race1_wet_affected,' +
+  'race2_start_time,race2_sim_time,race2_laps,race2_weather,race2_wet_affected,' +
+  'race3_start_time,race3_sim_time,race3_laps,race3_weather,race3_wet_affected';
 
 /** All events (with circuit name/logo and season name/number embedded), soonest first. Powers the public calendar page. */
 export function getEvents(env: SupabaseEnv) {
@@ -2393,4 +2397,34 @@ export function updateMediaMeetup(env: SupabaseEnv, accessToken: string, id: str
 
 export function deleteMediaMeetup(env: SupabaseEnv, accessToken: string, id: string) {
   return restDelete(env, accessToken, `media_meetups?id=eq.${encodeURIComponent(id)}`);
+}
+
+// --- Meetup attendees (0070_meetup_drivers.sql) -----------------------------
+// Which roster drivers showed up to a given meetup — a plain many-to-many
+// join, managed as its own add/remove mini-list on the Meetups section of
+// Admin -> Media, independent of a meetup's own title/photo/location form.
+// Same "own table, own mini-list" pattern as TrackGuide above.
+
+export interface MeetupDriverLink {
+  meetup_id: string;
+  driver_id: string;
+  /** Embedded via PostgREST FK join — null would mean an orphaned link (driver deleted without cascading, which the FK's `on delete cascade` should prevent in practice). */
+  drivers: { name: string; car_number: number | null } | null;
+}
+
+/** Every meetup/driver link on file in one query — powers the public Media page's Meetups popup (grouped by meetup_id in memory) the same way getAllTrackGuides front-loads every layout's guides instead of querying per-meetup. */
+export function getAllMeetupDriverLinks(env: SupabaseEnv) {
+  return restGet<MeetupDriverLink[]>(env, `media_meetup_drivers?select=meetup_id,driver_id,drivers(name,car_number)`);
+}
+
+export function addMeetupDriver(env: SupabaseEnv, accessToken: string, meetupId: string, driverId: string) {
+  return restPost(env, accessToken, 'media_meetup_drivers', { meetup_id: meetupId, driver_id: driverId });
+}
+
+export function removeMeetupDriver(env: SupabaseEnv, accessToken: string, meetupId: string, driverId: string) {
+  return restDelete(
+    env,
+    accessToken,
+    `media_meetup_drivers?meetup_id=eq.${encodeURIComponent(meetupId)}&driver_id=eq.${encodeURIComponent(driverId)}`
+  );
 }

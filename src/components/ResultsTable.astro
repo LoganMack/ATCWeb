@@ -2,11 +2,11 @@
 // One race's results table — shared by both the overall (cross-class) and
 // per-class views on /results/[subsessionId]. Column order is fixed:
 // Pos, Driver / Number, (Class, overall view only), Margin, Start,
-// Incidents, Laps, Class Points. There's deliberately no separate "badges"
-// column anymore — pole and the post-penalty adjustment flag are shown as
-// small inline markers on Start/Pos instead, and result tags (e.g.
-// "Unclassified") are shown next to the driver's name, so the table stays
-// to exactly these columns.
+// Incidents, Laps, Laps Led, Best Lap, Class Points. There's deliberately no
+// separate "badges" column anymore — pole and the post-penalty adjustment
+// flag are shown as small inline markers on Start/Pos instead, and result
+// tags (e.g. "Unclassified") are shown next to the driver's name, so the
+// table stays to exactly these columns.
 //
 // v0.16: this table is READ-ONLY as far as penalties go — the tag next
 // to a driver's name is just a static badge (no add/edit/remove). All of
@@ -21,11 +21,17 @@
 // a script in this component) — clicking a
 // driver's row reveals a detail panel with their average/best lap, overall
 // race time (rule 18.3.2 — see src/lib/penalties.ts), and an itemized
-// points breakdown. That's also why the old Laps-led and combined
-// bonus-points subtext lines are gone from the default row (moved into the
-// detail panel instead) — rows go back to a single fixed line each
-// (`h-8` is now only needed on Pos, for the post-penalty old/new position
-// stack).
+// points breakdown.
+//
+// v0.27: Laps Led and Best Lap came back out of the detail panel as their
+// own columns (`lg:table-cell` — hidden below that breakpoint alongside
+// Margin/Start/Incidents/Laps, same progressive-disclosure pattern), per
+// Logan. Left in the detail panel too rather than removed from there, since
+// that's still the only place a touch-screen visitor (no hover) can see
+// Best Lap's paired Average Lap, or a driver's overall race time. Best Lap's
+// `title` attribute shows that same average-lap figure on hover; the
+// Incidents column got the same treatment for this race's corners-per-
+// incident (see `cornersPerIncident` below).
 import type { RaceResultRow } from '../lib/results';
 import type { Penalty } from '../lib/supabase';
 import { displayDriverName } from '../lib/supabase';
@@ -117,6 +123,8 @@ interface Props {
   incidentLimit?: number | null;
   /** Driver ids whose total incidents across every race THIS ROUND exceed incidentLimit — computed once at the page level (same round-wide sum regardless of which race/view this particular table renders), so every one of that driver's race rows this round shows the marker, not just the race that tipped them over. */
   incidentLimitExceededDriverIds?: Set<string>;
+  /** This round's resolved layout's corner count (circuit_layouts.corners, via results.ts's resolveLayout()) — computed once at the page level since it's the same figure for every race/view of this round. Null when the round's track/layout doesn't resolve to a circuit_layouts row with a corner count on file (see 0022_circuit_layout_corners.sql). Powers the Incidents column's hover tooltip below; same "corners navigated ÷ incidents" formula as the Sublime Finesse season stat (getSeasonDriverExtendedStats), just for this one race instead of a whole season. */
+  layoutCorners?: number | null;
 }
 
 const {
@@ -128,6 +136,7 @@ const {
   teamPointsByRaceDriver,
   incidentLimit = null,
   incidentLimitExceededDriverIds = new Set(),
+  layoutCorners = null,
 } = Astro.props;
 
 // racePenalties is filtered by session_type 'race' too — a stray
@@ -162,6 +171,8 @@ for (const p of racePenalties) {
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
           <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Laps</th>
+          <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Laps Led</th>
+          <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Best Lap</th>
           <th class="py-3 pr-4 text-center font-medium">Class Points</th>
         </tr>
       </thead>
@@ -171,6 +182,16 @@ for (const p of racePenalties) {
           const tagLabel = penaltyTagLabel(rowPenalties);
           const isRealPenalty = tagLabel.startsWith('Penalty');
           const breakdownLines = pointsBreakdownLines(row);
+          // Same "corners navigated ÷ incidents" formula as the season-long
+          // Sublime Finesse stat (getSeasonDriverExtendedStats in
+          // results.ts), scoped to just this one race's laps/incidents —
+          // null (no tooltip) whenever the layout has no corner count on
+          // file, this driver has no lap count, or they had 0 incidents
+          // (an undefined/infinite ratio, not a real number to show).
+          const cornersPerIncident =
+            layoutCorners !== null && row.laps !== null && row.incidents !== null && row.incidents > 0
+              ? (row.laps * layoutCorners) / row.incidents
+              : null;
           return (
           <>
           <tr
@@ -254,7 +275,10 @@ for (const p of racePenalties) {
                 <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Pole position">P</sup>
               )}
             </td>
-            <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">
+            <td
+              class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell"
+              title={cornersPerIncident !== null ? `${cornersPerIncident.toFixed(1)} corners per incident` : undefined}
+            >
               {row.incidents ?? '—'}
               {row.incidentsBonus && (
                 <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="3 incidents or less bonus">I</sup>
@@ -271,11 +295,18 @@ for (const p of racePenalties) {
                 </sup>
               )}
             </td>
-            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">
-              {row.laps ?? '—'}
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.laps ?? '—'}</td>
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">
+              {row.lapsLed ?? 0}
               {row.lapLedWon && (
                 <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Lap Led bonus — led at least one lap">LL</sup>
               )}
+            </td>
+            <td
+              class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell"
+              title={`Avg lap: ${row.averageLapFormatted}`}
+            >
+              {row.bestLapFormatted}
               {row.fastestLapWon && (
                 <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Fastest Lap bonus">FL</sup>
               )}
@@ -283,7 +314,7 @@ for (const p of racePenalties) {
             <td class="py-2.5 pr-4 text-center font-semibold">{row.notInRoster ? '—' : row.totalPoints}</td>
           </tr>
           <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
-            <td colspan={showClass ? 8 : 7} class="px-4 py-4 sm:pl-11">
+            <td colspan={showClass ? 10 : 9} class="px-4 py-4 sm:pl-11">
               <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                 <div>
                   <div class="text-[10px] uppercase tracking-wide text-white/30">Average Lap</div>

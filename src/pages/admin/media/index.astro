@@ -14,6 +14,11 @@ import {
   getAllMediaMeetups,
   createMediaMeetup,
   deleteMediaMeetup,
+  getAllMeetupDriverLinks,
+  addMeetupDriver,
+  removeMeetupDriver,
+  driversSelect,
+  displayDriverName,
   getAllPhotoAlbumRaceLinks,
   upsertRaceLinks,
   getTestRoundIds,
@@ -138,6 +143,16 @@ if (Astro.request.method === 'POST') {
       const id = String(form.get('id') ?? '');
       if (id) await deleteMediaMeetup(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/media', 302);
+    } else if (intent === 'add-meetup-driver') {
+      const meetupId = String(form.get('meetup_id') ?? '');
+      const driverId = String(form.get('driver_id') ?? '');
+      if (meetupId && driverId) await addMeetupDriver(supabaseEnv, accessToken, meetupId, driverId);
+      return Astro.redirect('/admin/media', 302);
+    } else if (intent === 'remove-meetup-driver') {
+      const meetupId = String(form.get('meetup_id') ?? '');
+      const driverId = String(form.get('driver_id') ?? '');
+      if (meetupId && driverId) await removeMeetupDriver(supabaseEnv, accessToken, meetupId, driverId);
+      return Astro.redirect('/admin/media', 302);
     }
   } catch (err) {
     console.error('Failed to save media page content:', err);
@@ -148,15 +163,19 @@ if (Astro.request.method === 'POST') {
 let videos: MediaVideo[] = [];
 let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
 let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
+let meetupDriverLinks: Awaited<ReturnType<typeof getAllMeetupDriverLinks>> = [];
+let rosterDrivers: Awaited<ReturnType<typeof driversSelect>> = [];
 let rounds: RoundSummary[] = [];
 let photoLinks: RaceLinks[] = [];
 let testRoundIds: Set<number> = new Set();
 let loadError = false;
 try {
-  [videos, graphics, meetups, rounds, photoLinks, testRoundIds] = await Promise.all([
+  [videos, graphics, meetups, meetupDriverLinks, rosterDrivers, rounds, photoLinks, testRoundIds] = await Promise.all([
     getAllMediaVideos(supabaseEnv),
     getAllMediaGraphics(supabaseEnv),
     getAllMediaMeetups(supabaseEnv),
+    getAllMeetupDriverLinks(supabaseEnv),
+    driversSelect(supabaseEnv),
     getAllRounds(supabaseEnv),
     getAllPhotoAlbumRaceLinks(supabaseEnv),
     getTestRoundIds(supabaseEnv),
@@ -165,6 +184,16 @@ try {
   console.error('Failed to load media page content for admin:', err);
   loadError = true;
 }
+
+// Attached-driver ids per meetup, plus the roster sorted for the "attach a
+// driver" dropdown — same grouping approach as photoLinksBySubsession below.
+const driverIdsByMeetup = new Map<string, Set<string>>();
+for (const link of meetupDriverLinks) {
+  if (!driverIdsByMeetup.has(link.meetup_id)) driverIdsByMeetup.set(link.meetup_id, new Set());
+  driverIdsByMeetup.get(link.meetup_id)!.add(link.driver_id);
+}
+const driverById = new Map(rosterDrivers.map((d) => [d.id, d]));
+const sortedRoster = [...rosterDrivers].sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
 
 // One row per real (non-test) round for the Race Photos consolidated
 // editor below — each prefilled with whichever race_links row already has
@@ -416,30 +445,80 @@ const racePhotoRows = rounds
 
         <ul class="mt-4 flex flex-col gap-2">
           {meetups.length === 0 && <li class="text-sm text-white/40">No results.</li>}
-          {meetups.map((m) => (
-            <li class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
-              <div class="flex items-center gap-3">
-                {m.photo_url ? (
-                  <img src={m.photo_url} alt="" class="h-10 w-10 flex-none rounded object-cover" />
-                ) : (
-                  <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
-                )}
-                <div>
-                  <p class="font-semibold">{m.title}</p>
-                  <p class="mt-0.5 text-xs text-white/50">
-                    {m.location_label && `${m.location_label} · `}
-                    {m.latitude.toFixed(4)}, {m.longitude.toFixed(4)}
-                    {m.meetup_date && ` · ${formatDate(m.meetup_date)}`}
-                  </p>
+          {meetups.map((m) => {
+            const attendeeIds = driverIdsByMeetup.get(m.id) ?? new Set<string>();
+            const attendees = [...attendeeIds]
+              .map((id) => driverById.get(id))
+              .filter((d): d is NonNullable<typeof d> => d !== undefined)
+              .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
+            const availableToAttach = sortedRoster.filter((d) => !attendeeIds.has(d.id));
+            return (
+              <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                  <div class="flex items-center gap-3">
+                    {m.photo_url ? (
+                      <img src={m.photo_url} alt="" class="h-10 w-10 flex-none rounded object-cover" />
+                    ) : (
+                      <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+                    )}
+                    <div>
+                      <p class="font-semibold">{m.title}</p>
+                      <p class="mt-0.5 text-xs text-white/50">
+                        {m.location_label && `${m.location_label} · `}
+                        {m.latitude.toFixed(4)}, {m.longitude.toFixed(4)}
+                        {m.meetup_date && ` · ${formatDate(m.meetup_date)}`}
+                      </p>
+                    </div>
+                  </div>
+                  <form method="POST" data-astro-reload>
+                    <input type="hidden" name="intent" value="delete-meetup" />
+                    <input type="hidden" name="id" value={m.id} />
+                    <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+                  </form>
                 </div>
-              </div>
-              <form method="POST" data-astro-reload>
-                <input type="hidden" name="intent" value="delete-meetup" />
-                <input type="hidden" name="id" value={m.id} />
-                <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
-              </form>
-            </li>
-          ))}
+
+                <div class="border-t border-white/10 pt-3">
+                  <p class="text-[10px] font-semibold uppercase tracking-wide text-white/30">Attended (shown in the map popup)</p>
+                  <div class="mt-2 flex flex-wrap gap-1.5">
+                    {attendees.length === 0 && <span class="text-xs text-white/30">No drivers attached yet.</span>}
+                    {attendees.map((d) => (
+                      <form method="POST" data-astro-reload class="inline-flex">
+                        <input type="hidden" name="intent" value="remove-meetup-driver" />
+                        <input type="hidden" name="meetup_id" value={m.id} />
+                        <input type="hidden" name="driver_id" value={d.id} />
+                        <button
+                          type="submit"
+                          class="inline-flex items-center gap-1 rounded bg-white/10 px-2 py-1 text-xs text-white/70 transition hover:bg-brand-pink/20 hover:text-brand-pink"
+                          title="Remove"
+                        >
+                          {displayDriverName(d.name)}
+                          <span aria-hidden="true">&times;</span>
+                        </button>
+                      </form>
+                    ))}
+                  </div>
+                  {availableToAttach.length > 0 && (
+                    <form method="POST" data-astro-reload class="mt-2 flex flex-wrap items-center gap-2">
+                      <input type="hidden" name="intent" value="add-meetup-driver" />
+                      <input type="hidden" name="meetup_id" value={m.id} />
+                      <select
+                        name="driver_id"
+                        required
+                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                      >
+                        {availableToAttach.map((d) => (
+                          <option value={d.id} class="bg-brand-ink text-white">{displayDriverName(d.name)}</option>
+                        ))}
+                      </select>
+                      <button type="submit" class="rounded-md bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20">
+                        Attach driver
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
 
         <details class="relative mt-4">
