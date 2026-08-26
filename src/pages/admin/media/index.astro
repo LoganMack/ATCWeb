@@ -17,7 +17,6 @@ import {
   getAllMeetupDriverLinks,
   addMeetupDriver,
   removeMeetupDriver,
-  driversSelect,
   displayDriverName,
   getAllPhotoAlbumRaceLinks,
   upsertRaceLinks,
@@ -28,7 +27,7 @@ import {
   type MediaVideoCategory,
   type RaceLinks,
 } from '../../../lib/supabase';
-import { getAllRounds, type RoundSummary } from '../../../lib/results';
+import { getAllRounds, driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -194,6 +193,27 @@ for (const link of meetupDriverLinks) {
 }
 const driverById = new Map(rosterDrivers.map((d) => [d.id, d]));
 const sortedRoster = [...rosterDrivers].sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
+
+// Precomputed per-meetup (rather than inline in the template below) for two
+// reasons: it keeps the type-narrowing filter() out of a JSX callback body
+// (Astro's template expressions parse `<` ambiguously against JSX there,
+// which broke this exact "(d): d is X =>" predicate when it lived inline),
+// and it matches this file's own racePhotoRows just below — heavier
+// per-row derivation belongs up here, not in the markup.
+interface MeetupAttendeeInfo {
+  attendees: DriverBasic[];
+  availableToAttach: DriverBasic[];
+}
+const meetupAttendeeInfo = new Map<string, MeetupAttendeeInfo>();
+for (const m of meetups) {
+  const attendeeIds = driverIdsByMeetup.get(m.id) ?? new Set<string>();
+  const attendees = [...attendeeIds]
+    .map((id) => driverById.get(id))
+    .filter((d): d is DriverBasic => d !== undefined)
+    .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
+  const availableToAttach = sortedRoster.filter((d) => !attendeeIds.has(d.id));
+  meetupAttendeeInfo.set(m.id, { attendees, availableToAttach });
+}
 
 // One row per real (non-test) round for the Race Photos consolidated
 // editor below — each prefilled with whichever race_links row already has
@@ -446,12 +466,7 @@ const racePhotoRows = rounds
         <ul class="mt-4 flex flex-col gap-2">
           {meetups.length === 0 && <li class="text-sm text-white/40">No results.</li>}
           {meetups.map((m) => {
-            const attendeeIds = driverIdsByMeetup.get(m.id) ?? new Set<string>();
-            const attendees = [...attendeeIds]
-              .map((id) => driverById.get(id))
-              .filter((d): d is NonNullable<typeof d> => d !== undefined)
-              .sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
-            const availableToAttach = sortedRoster.filter((d) => !attendeeIds.has(d.id));
+            const { attendees, availableToAttach } = meetupAttendeeInfo.get(m.id) ?? { attendees: [], availableToAttach: [] };
             return (
               <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
                 <div class="flex flex-wrap items-center justify-between gap-3">
