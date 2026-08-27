@@ -22,12 +22,14 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let teams: Awaited<ReturnType<typeof getTeams>> = [];
 let loadError = false;
-try {
-  teams = await getTeams(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load teams:', err);
-  loadError = true;
-}
+const loadTeams = async () => {
+  try {
+    teams = await getTeams(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load teams:', err);
+    loadError = true;
+  }
+};
 
 // Team -> organization name, for the small subtitle under a renamed team's
 // name (see 0043_organizations.sql). organization_team_seasons links a team
@@ -38,17 +40,19 @@ try {
 // way computeTeamCareerStats does. A team with no link at all (the common
 // case — most teams have never been renamed) just has no entry.
 let orgNameByTeamId = new Map<string, string>();
-try {
-  const [organizations, orgTeamSeasons] = await Promise.all([getOrganizations(supabaseEnv), getAllOrganizationTeamSeasons(supabaseEnv)]);
-  const orgNameById = new Map(organizations.map((o) => [o.id, o.name]));
-  for (const link of orgTeamSeasons) {
-    if (orgNameByTeamId.has(link.team_id)) continue;
-    const orgName = orgNameById.get(link.organization_id);
-    if (orgName) orgNameByTeamId.set(link.team_id, orgName);
+const loadOrgNames = async () => {
+  try {
+    const [organizations, orgTeamSeasons] = await Promise.all([getOrganizations(supabaseEnv), getAllOrganizationTeamSeasons(supabaseEnv)]);
+    const orgNameById = new Map(organizations.map((o) => [o.id, o.name]));
+    for (const link of orgTeamSeasons) {
+      if (orgNameByTeamId.has(link.team_id)) continue;
+      const orgName = orgNameById.get(link.organization_id);
+      if (orgName) orgNameByTeamId.set(link.team_id, orgName);
+    }
+  } catch (err) {
+    console.error('Failed to load organizations for team subtitles:', err);
   }
-} catch (err) {
-  console.error('Failed to load organizations for team subtitles:', err);
-}
+};
 
 // Current roster (drivers.team_id — the same "current team" every driver's
 // profile shows, not the season-scoped team_rosters table) grouped by team
@@ -56,16 +60,18 @@ try {
 // its own doc comment), so the search box below can match on a team's
 // current member names too.
 let memberNamesByTeamName = new Map<string, string[]>();
-try {
-  const drivers = await getDrivers(supabaseEnv);
-  for (const d of drivers) {
-    if (!d.teams?.name) continue;
-    if (!memberNamesByTeamName.has(d.teams.name)) memberNamesByTeamName.set(d.teams.name, []);
-    memberNamesByTeamName.get(d.teams.name)!.push(displayDriverName(d.name));
+const loadMemberNames = async () => {
+  try {
+    const drivers = await getDrivers(supabaseEnv);
+    for (const d of drivers) {
+      if (!d.teams?.name) continue;
+      if (!memberNamesByTeamName.has(d.teams.name)) memberNamesByTeamName.set(d.teams.name, []);
+      memberNamesByTeamName.get(d.teams.name)!.push(displayDriverName(d.name));
+    }
+  } catch (err) {
+    console.error('Failed to load drivers for team search:', err);
   }
-} catch (err) {
-  console.error('Failed to load drivers for team search:', err);
-}
+};
 
 // The 3-driver-columns roster, sourced from the season-scoped team_rosters
 // table (rulebook: max 3 drivers/team) for whichever season is marked
@@ -74,34 +80,44 @@ try {
 // which season roster they were actually locked into (team_rosters is the
 // source of truth the scoring engine itself uses for team eligibility).
 let rosterByTeamId = new Map<string, DriverBasic[]>();
-try {
-  const [seasons, driversBasic] = await Promise.all([getSeasons(supabaseEnv), driversSelect(supabaseEnv)]);
-  const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
-  if (currentSeason) {
-    const rosterEntries = await getTeamRosterForSeason(supabaseEnv, currentSeason.id);
-    const driverById = new Map(driversBasic.map((d) => [d.id, d]));
-    for (const entry of rosterEntries) {
-      const driver = driverById.get(entry.driver_id);
-      if (!driver) continue;
-      if (!rosterByTeamId.has(entry.team_id)) rosterByTeamId.set(entry.team_id, []);
-      rosterByTeamId.get(entry.team_id)!.push(driver);
+const loadRoster = async () => {
+  try {
+    const [seasons, driversBasic] = await Promise.all([getSeasons(supabaseEnv), driversSelect(supabaseEnv)]);
+    const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
+    if (currentSeason) {
+      const rosterEntries = await getTeamRosterForSeason(supabaseEnv, currentSeason.id);
+      const driverById = new Map(driversBasic.map((d) => [d.id, d]));
+      for (const entry of rosterEntries) {
+        const driver = driverById.get(entry.driver_id);
+        if (!driver) continue;
+        if (!rosterByTeamId.has(entry.team_id)) rosterByTeamId.set(entry.team_id, []);
+        rosterByTeamId.get(entry.team_id)!.push(driver);
+      }
+      for (const list of rosterByTeamId.values()) {
+        list.sort((a, b) => (a.car_number ?? Number.MAX_SAFE_INTEGER) - (b.car_number ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
+      }
     }
-    for (const list of rosterByTeamId.values()) {
-      list.sort((a, b) => (a.car_number ?? Number.MAX_SAFE_INTEGER) - (b.car_number ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
-    }
+  } catch (err) {
+    console.error('Failed to load current-season team rosters:', err);
   }
-} catch (err) {
-  console.error('Failed to load current-season team rosters:', err);
-}
+};
 
 // Banner fetch failing shouldn't take down the whole page — worst case, no
 // banner shows, same as if none were ever configured.
 let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'teams');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
-}
+const loadBanner = async () => {
+  try {
+    bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'teams');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+  }
+};
+
+// These five blocks (loadRoster's own internal seasons+currentSeason step is
+// the only genuine dependency chain here) don't read each other's results,
+// so they run concurrently rather than as 5 sequential round-trips — each
+// keeps its own try/catch exactly as before, isolated from the others.
+await Promise.all([loadTeams(), loadOrgNames(), loadMemberNames(), loadRoster(), loadBanner()]);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 

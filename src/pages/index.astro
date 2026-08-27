@@ -51,17 +51,99 @@ let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
 // file) takes priority over the circuit's generic logo on the "Next Up"
 // card, same as everywhere else an event shows a circuit image.
 let eventLayouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
-try {
-  [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
-    getNewsPosts(supabaseEnv, 8),
-    getUpcomingEvents(supabaseEnv, 3),
-    getAllCircuitLayouts(supabaseEnv),
-  ]);
-} catch (err) {
-  // Supabase not configured yet / unreachable at build time — render the
-  // page gracefully instead of failing the whole request.
-  console.error('Failed to load homepage data:', err);
-}
+const loadTopSection = async () => {
+  try {
+    [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
+      getNewsPosts(supabaseEnv, 8),
+      getUpcomingEvents(supabaseEnv, 3),
+      getAllCircuitLayouts(supabaseEnv),
+    ]);
+  } catch (err) {
+    // Supabase not configured yet / unreachable at build time — render the
+    // page gracefully instead of failing the whole request.
+    console.error('Failed to load homepage data:', err);
+  }
+};
+
+// season_label on a post is freeform text (see NewsPost's own doc comment),
+// not an FK to `seasons` — this is a best-effort name match so NewsCard can
+// show that season's logo next to its tag, same as the champion cards do.
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let logoBySeasonLabel = new Map<string, string>();
+const loadSeasonLogos = async () => {
+  try {
+    seasons = await getSeasons(supabaseEnv);
+    logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
+  } catch (err) {
+    console.error('Failed to load seasons for news card logos:', err);
+  }
+};
+
+// Same bulk "fetch once, map by id" approach as logoBySeasonLabel just
+// above — only the featured post below actually renders tags (the "more
+// news" list is plain text links), but this stays consistent with how
+// news/index.astro/news/[slug].astro fetch the same data.
+let tagsByPostId = new Map<string, NewsTag[]>();
+const loadNewsTags = async () => {
+  try {
+    const links = await getAllNewsPostTags(supabaseEnv);
+    for (const link of links) {
+      if (!link.news_tags) continue;
+      if (!tagsByPostId.has(link.post_id)) tagsByPostId.set(link.post_id, []);
+      tagsByPostId.get(link.post_id)!.push(link.news_tags);
+    }
+  } catch (err) {
+    console.error('Failed to load news tags for the featured news card:', err);
+  }
+};
+
+// --- Featured broadcast + hero banner (admin-managed) ----------------------
+//
+// Grouped into the same Promise.all as everything else above (news, events,
+// circuit layouts, season logos, news tags) rather than awaited on its own
+// afterward — but the group as a whole still fully resolves BEFORE the
+// standings widget below starts firing its own (much pricier) fetches, same
+// guarantee this used to get from being sequenced after the others one at a
+// time. That distinction matters: see the standings widget's own doc
+// comment below for the full incident this guards against — once upon a
+// time the widget alone could burn through nearly this whole page's
+// Cloudflare Workers subrequest budget, which silently starved whatever ran
+// after it on the same request — this used to be that code's neighbor, and
+// paid for it (that's why "the YouTube embed disappeared" and "no
+// standings" were ever reported as one bug, not two). Running it and its
+// neighbors concurrently with each other, before the widget, is strictly
+// safer than the old one-at-a-time ordering: it finishes sooner, not later.
+let broadcastEmbedUrl: string | null = null;
+const loadBroadcastSetting = async () => {
+  try {
+    const settings = await getSiteSettings(supabaseEnv);
+    const rawBroadcastUrl = siteSettingValue(settings, FEATURED_BROADCAST_URL_KEY);
+    broadcastEmbedUrl = rawBroadcastUrl ? youtubeEmbedUrl(rawBroadcastUrl) : null;
+  } catch (err) {
+    console.error('Failed to load featured broadcast setting:', err);
+  }
+};
+
+// No image configured just means no image: the section renders plain black
+// (this site's bg-brand-ink), same as the body behind it, rather than the
+// placeholder blue radial gradient this used to always show.
+let heroImageUrl: string | null = null;
+const loadHeroBanner = async () => {
+  try {
+    heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
+  } catch (err) {
+    console.error('Failed to load homepage banner:', err);
+  }
+};
+
+// All 5 of the above are mutually independent — none reads another's
+// result — so they run concurrently as one round-trip's worth of latency
+// instead of 4 (the first was already batched into its own Promise.all;
+// now it's batched with the rest too). Awaiting this before moving on to
+// the standings widget below is what preserves the ordering guarantee the
+// broadcast/banner comment above depends on.
+await Promise.all([loadTopSection(), loadSeasonLogos(), loadNewsTags(), loadBroadcastSetting(), loadHeroBanner()]);
+
 const featuredNews = latestNews[0] ?? null;
 const moreNews = latestNews.slice(1, 8);
 
@@ -72,65 +154,6 @@ const upcomingIcsBundle = upcomingEvents
   .map((e) => buildEventIcsBlock(e, eventLayouts))
   .filter((b): b is string => b !== null)
   .join('\r\n');
-
-// season_label on a post is freeform text (see NewsPost's own doc comment),
-// not an FK to `seasons` — this is a best-effort name match so NewsCard can
-// show that season's logo next to its tag, same as the champion cards do.
-let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
-let logoBySeasonLabel = new Map<string, string>();
-try {
-  seasons = await getSeasons(supabaseEnv);
-  logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
-} catch (err) {
-  console.error('Failed to load seasons for news card logos:', err);
-}
-
-// Same bulk "fetch once, map by id" approach as logoBySeasonLabel just
-// above — only the featured post below actually renders tags (the "more
-// news" list is plain text links), but this stays consistent with how
-// news/index.astro/news/[slug].astro fetch the same data.
-let tagsByPostId = new Map<string, NewsTag[]>();
-try {
-  const links = await getAllNewsPostTags(supabaseEnv);
-  for (const link of links) {
-    if (!link.news_tags) continue;
-    if (!tagsByPostId.has(link.post_id)) tagsByPostId.set(link.post_id, []);
-    tagsByPostId.get(link.post_id)!.push(link.news_tags);
-  }
-} catch (err) {
-  console.error('Failed to load news tags for the featured news card:', err);
-}
-
-// --- Featured broadcast + hero banner (admin-managed) ----------------------
-//
-// Deliberately fetched BEFORE the standings widget below, not after — these
-// two are cheap (1 query each) and completely independent of it, so there's
-// no reason their success should depend on the widget's own (much pricier)
-// fetches having budget left over. See the standings widget's own doc
-// comment below for the full incident this ordering guards against: once
-// upon a time the widget alone could burn through nearly this whole page's
-// Cloudflare Workers subrequest budget, which silently starved whatever
-// ran after it on the same request — this used to be that code's neighbor,
-// and paid for it (that's why "the YouTube embed disappeared" and "no
-// standings" were ever reported as one bug, not two).
-let broadcastEmbedUrl: string | null = null;
-try {
-  const settings = await getSiteSettings(supabaseEnv);
-  const rawBroadcastUrl = siteSettingValue(settings, FEATURED_BROADCAST_URL_KEY);
-  broadcastEmbedUrl = rawBroadcastUrl ? youtubeEmbedUrl(rawBroadcastUrl) : null;
-} catch (err) {
-  console.error('Failed to load featured broadcast setting:', err);
-}
-
-// No image configured just means no image: the section renders plain black
-// (this site's bg-brand-ink), same as the body behind it, rather than the
-// placeholder blue radial gradient this used to always show.
-let heroImageUrl: string | null = null;
-try {
-  heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
-} catch (err) {
-  console.error('Failed to load homepage banner:', err);
-}
 
 // --- Top 5 standings widget ------------------------------------------------
 //

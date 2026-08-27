@@ -21,38 +21,41 @@ let probationDays = 45;
 let probationRounds = 4;
 let inactivityDays = 90;
 let inactivityRounds = 12;
-try {
-  const settings = await getSiteSettings(supabaseEnv);
-  probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
-  probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
-  inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
-  inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
-} catch (err) {
-  console.error('Failed to load driver settings for probation/inactivity thresholds:', err);
-}
+const loadDriverSettings = async () => {
+  try {
+    const settings = await getSiteSettings(supabaseEnv);
+    probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
+    probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
+    inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
+    inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
+  } catch (err) {
+    console.error('Failed to load driver settings for probation/inactivity thresholds:', err);
+  }
+};
 
 let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
 let loadError: string | null = null;
-try {
-  drivers = await getDrivers(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load drivers:', err);
-  loadError = err instanceof Error ? err.message : String(err);
-}
+const loadDrivers = async () => {
+  try {
+    drivers = await getDrivers(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load drivers:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+};
 
 // isOnProbationNow() needs the calendar to know how many rounds have passed
 // since a driver's probation started (rule 61) — a separate, best-effort
 // fetch so a hiccup loading events doesn't take down the whole roster (every
 // driver would just fall back to "not on probation" instead).
 let events: Awaited<ReturnType<typeof getEvents>> = [];
-try {
-  events = await getEvents(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load events for probation status:', err);
-}
-const onProbationNowByDriverId = new Map(
-  drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
-);
+const loadEvents = async () => {
+  try {
+    events = await getEvents(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load events for probation status:', err);
+  }
+};
 
 // Status hover tooltip — the same buildInactivityNote() breakdown the admin
 // Drivers list shows next to each driver's status pill, reused verbatim
@@ -61,19 +64,36 @@ const onProbationNowByDriverId = new Map(
 // each status. Best-effort like the events fetch above — a hiccup here just
 // means no tooltip, not a broken roster.
 let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
-try {
-  const lastRaces = await getAllDriverLastRaces(supabaseEnv);
-  lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
-} catch (err) {
-  console.error('Failed to load driver last-race data for status tooltips:', err);
-}
+const loadLastRaces = async () => {
+  try {
+    const lastRaces = await getAllDriverLastRaces(supabaseEnv);
+    lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
+  } catch (err) {
+    console.error('Failed to load driver last-race data for status tooltips:', err);
+  }
+};
 
 let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'roster');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
-}
+const loadBanner = async () => {
+  try {
+    bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'roster');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+  }
+};
+
+// These five Supabase reads are all independent of each other — the only
+// real dependency in this file is the synchronous derivation right below
+// (onProbationNowByDriverId needs `drivers`, `events`, and the probation
+// settings, all fully resolved), so there's no reason to pay for 5
+// sequential round-trips one after another when running them together costs
+// about as much as the single slowest one. Each keeps its own try/catch
+// exactly as before, so one failing still doesn't take the others down.
+await Promise.all([loadDriverSettings(), loadDrivers(), loadEvents(), loadLastRaces(), loadBanner()]);
+
+const onProbationNowByDriverId = new Map(
+  drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
+);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 

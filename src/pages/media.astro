@@ -65,11 +65,13 @@ const filterParam = Astro.url.searchParams.get('filter');
 const filter: VideoFilter = (VIDEO_FILTERS as readonly string[]).includes(filterParam ?? '') ? (filterParam as VideoFilter) : 'broadcasts';
 
 let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'media');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
-}
+const loadBanner = async () => {
+  try {
+    bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'media');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+  }
+};
 
 let loadError = false;
 
@@ -89,64 +91,70 @@ let replays: ReplayLink[] = [];
 let meetups: Awaited<ReturnType<typeof getAllMediaMeetups>> = [];
 let meetupDriverLinks: Awaited<ReturnType<typeof getAllMeetupDriverLinks>> = [];
 
-try {
-  if (tab === 'videos') {
-    if (filter === 'broadcasts') {
-      broadcastVideos = await getAllBroadcastVideos(supabaseEnv);
-    } else if (filter === 'trackguide') {
-      const [layouts, circuits, allGuides] = await Promise.all([
-        getAllCircuitLayouts(supabaseEnv),
-        getCircuits(supabaseEnv),
-        getAllTrackGuides(supabaseEnv),
-      ]);
-      const circuitNameById = new Map(circuits.map((c) => [c.id, c.name]));
-      const layoutById = new Map(layouts.map((l) => [l.id, l]));
-      const guidesByLayoutId = new Map<string, typeof allGuides>();
-      for (const guide of allGuides) {
-        if (!guidesByLayoutId.has(guide.layout_id)) guidesByLayoutId.set(guide.layout_id, []);
-        guidesByLayoutId.get(guide.layout_id)!.push(guide);
-      }
+const loadTabContent = async () => {
+  try {
+    if (tab === 'videos') {
+      if (filter === 'broadcasts') {
+        broadcastVideos = await getAllBroadcastVideos(supabaseEnv);
+      } else if (filter === 'trackguide') {
+        const [layouts, circuits, allGuides] = await Promise.all([
+          getAllCircuitLayouts(supabaseEnv),
+          getCircuits(supabaseEnv),
+          getAllTrackGuides(supabaseEnv),
+        ]);
+        const circuitNameById = new Map(circuits.map((c) => [c.id, c.name]));
+        const layoutById = new Map(layouts.map((l) => [l.id, l]));
+        const guidesByLayoutId = new Map<string, typeof allGuides>();
+        for (const guide of allGuides) {
+          if (!guidesByLayoutId.has(guide.layout_id)) guidesByLayoutId.set(guide.layout_id, []);
+          guidesByLayoutId.get(guide.layout_id)!.push(guide);
+        }
 
-      const layoutIdParam = Astro.url.searchParams.get('layout');
-      const requestedLayout = layoutIdParam ? layoutById.get(layoutIdParam) : undefined;
-      if (requestedLayout && guidesByLayoutId.has(requestedLayout.id)) {
-        selectedLayout = {
-          circuitName: circuitNameById.get(requestedLayout.circuit_id) ?? 'Unknown circuit',
-          layoutName: displayLayoutName(requestedLayout.name),
-        };
-        trackGuidesForLayout = guidesByLayoutId.get(requestedLayout.id)!.map((g) => ({ title: g.title, url: g.url }));
+        const layoutIdParam = Astro.url.searchParams.get('layout');
+        const requestedLayout = layoutIdParam ? layoutById.get(layoutIdParam) : undefined;
+        if (requestedLayout && guidesByLayoutId.has(requestedLayout.id)) {
+          selectedLayout = {
+            circuitName: circuitNameById.get(requestedLayout.circuit_id) ?? 'Unknown circuit',
+            layoutName: displayLayoutName(requestedLayout.name),
+          };
+          trackGuidesForLayout = guidesByLayoutId.get(requestedLayout.id)!.map((g) => ({ title: g.title, url: g.url }));
+        } else {
+          trackGuideLayouts = [...guidesByLayoutId.entries()]
+            .map(([layoutId, guides]) => {
+              const layout = layoutById.get(layoutId);
+              if (!layout) return null;
+              return {
+                layoutId,
+                circuitName: circuitNameById.get(layout.circuit_id) ?? 'Unknown circuit',
+                layoutName: displayLayoutName(layout.name),
+                guideCount: guides.length,
+                firstUrl: guides[0].url,
+              };
+            })
+            .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+            .sort((a, b) => a.circuitName.localeCompare(b.circuitName) || a.layoutName.localeCompare(b.layoutName));
+        }
       } else {
-        trackGuideLayouts = [...guidesByLayoutId.entries()]
-          .map(([layoutId, guides]) => {
-            const layout = layoutById.get(layoutId);
-            if (!layout) return null;
-            return {
-              layoutId,
-              circuitName: circuitNameById.get(layout.circuit_id) ?? 'Unknown circuit',
-              layoutName: displayLayoutName(layout.name),
-              guideCount: guides.length,
-              firstUrl: guides[0].url,
-            };
-          })
-          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
-          .sort((a, b) => a.circuitName.localeCompare(b.circuitName) || a.layoutName.localeCompare(b.layoutName));
+        categoryVideos = await getMediaVideosByCategory(supabaseEnv, filter as MediaVideoCategory);
       }
-    } else {
-      categoryVideos = await getMediaVideosByCategory(supabaseEnv, filter as MediaVideoCategory);
+    } else if (tab === 'race-photos') {
+      photoAlbums = await getAllPhotoAlbumLinks(supabaseEnv);
+    } else if (tab === 'posters') {
+      graphics = await getAllMediaGraphics(supabaseEnv);
+    } else if (tab === 'replays') {
+      replays = await getAllReplayLinks(supabaseEnv);
+    } else if (tab === 'meetups') {
+      [meetups, meetupDriverLinks] = await Promise.all([getAllMediaMeetups(supabaseEnv), getAllMeetupDriverLinks(supabaseEnv)]);
     }
-  } else if (tab === 'race-photos') {
-    photoAlbums = await getAllPhotoAlbumLinks(supabaseEnv);
-  } else if (tab === 'posters') {
-    graphics = await getAllMediaGraphics(supabaseEnv);
-  } else if (tab === 'replays') {
-    replays = await getAllReplayLinks(supabaseEnv);
-  } else if (tab === 'meetups') {
-    [meetups, meetupDriverLinks] = await Promise.all([getAllMediaMeetups(supabaseEnv), getAllMeetupDriverLinks(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to load media page content:', err);
+    loadError = true;
   }
-} catch (err) {
-  console.error('Failed to load media page content:', err);
-  loadError = true;
-}
+};
+
+// The banner and the tab's own content never read each other's results, so
+// they run together instead of one after the other.
+await Promise.all([loadBanner(), loadTabContent()]);
 
 function tabHref(t: Tab): string {
   return t === 'videos' ? `/media?tab=videos&filter=${filter}` : `/media?tab=${t}`;
