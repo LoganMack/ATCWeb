@@ -1686,8 +1686,26 @@ export interface DriverSeasonExtendedStats {
   totalCorners: number | null;
 }
 
+// iRacing tags a track's older, superseded configuration with a leading
+// "[Retired] " on track_name (e.g. "[Retired] Barber Motorsports Park") once
+// it ships an updated version under the plain name. Unlike "[Legacy] ..."
+// tracks (which get their OWN circuits row here, since those really are a
+// materially different old layout with its own corner count — e.g.
+// "[Legacy] Phoenix Raceway - 2008"), nobody has ever added a separate
+// circuits row for the "[Retired]" tracks — there's just the one row under
+// the plain name. Left un-stripped, every "[Retired] X" round silently
+// failed to resolve to any circuit at all: not just this round's own
+// corners-per-incident tooltip, but every season/career stat that sums
+// corners across rounds (see DriverSeasonExtendedStats.totalCorners) still
+// counted that round's incidents in the denominator while contributing
+// nothing to the numerator, quietly dragging down CPI for anyone who raced
+// one of these rounds. Stripping the tag before normalizing resolves them
+// to the same circuit the plain name already matches — confirmed against
+// this repo's own circuits data that no "[Retired]"-tagged name has ever
+// been entered as its own distinct row, so this can't collide with one.
 function normalizeTrackOrLayoutName(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const withoutRetiredTag = s.replace(/^\[retired\]\s*/i, '');
+  return withoutRetiredTag.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 /**

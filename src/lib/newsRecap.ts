@@ -181,8 +181,18 @@ export interface RoundRecap {
   trackRecordMatchIssue: string | null;
 }
 
+// Kept in sync with results.ts's own normalizeTrackOrLayoutName (this file
+// can't import that one — see this repo's matchCircuitLayout doc comment
+// for the import-cycle reason they're duplicated). Strips iRacing's
+// "[Retired] " tag on a track's superseded configuration (e.g. "[Retired]
+// Barber Motorsports Park") before matching, since no distinct circuits row
+// has ever been entered for these — they resolve to the same circuit the
+// plain name already matches. "[Legacy] ..." tracks are untouched by this:
+// those DO get their own circuits row (a materially different old layout),
+// so stripping a tag there would wrongly merge two distinct configurations.
 function normalize(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const withoutRetiredTag = s.replace(/^\[retired\]\s*/i, '');
+  return withoutRetiredTag.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 interface LayoutMatchResult {

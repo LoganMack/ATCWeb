@@ -289,7 +289,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
               <th class="py-3 pr-3 text-center font-medium" data-sort-key="appearances">Apps</th>
-              <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty">Penalty Pts</th>
+              <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty" title="Penalty Points">PP</th>
             </tr>
           </thead>
           <tbody>
@@ -354,7 +354,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <td class="py-2.5 pr-3 text-center text-white/60" data-col="appearances" data-sort-value={row.appearances}>
                     {row.appearances} <span class="text-white/30">of {maxAppearances}</span>
                   </td>
-                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="penalty" data-sort-value={ext?.penaltyPoints ?? 0}>
+                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="penalty" data-sort-value={ext?.penaltyPoints ?? 0} title="Penalty Points">
                     {ext?.penaltyPoints ?? 0}
                   </td>
                 </tr>
