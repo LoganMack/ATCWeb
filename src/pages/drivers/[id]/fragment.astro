@@ -1,0 +1,460 @@
+---
+export const prerender = false;
+
+import TeamLogo from '../../../components/TeamLogo.astro';
+import {
+  resolveSupabaseEnv,
+  getDriverClasses,
+  getSeasons,
+  getStandingsExcludedRoundIds,
+  getManualAwards,
+  formatDateShort,
+} from '../../../lib/supabase';
+import {
+  computeDriverCareerStats,
+  getDriverRaceHistory,
+  computeSeasonAwardsHistory,
+  type DriverCareerStats,
+  type DriverRaceHistoryRow,
+} from '../../../lib/results';
+import { classBadgeClasses, classBadgeLetter } from '../../../lib/classColors';
+
+/**
+ * The expensive part of the driver profile page — see drivers/[id].astro's
+ * own doc comment for the full shell/fragment split explanation.
+ * computeDriverCareerStats() in particular recomputes standings for every
+ * driver across every season/class just to pick one driver's rows back out
+ * (the same cost hall-of-fame/driver-stats already pay), which is what was
+ * making this page slow.
+ *
+ * Returns a bare HTML fragment — no <Layout>, no header — meant only to be
+ * dropped into drivers/[id].astro's results container via
+ * `container.innerHTML = await res.text()`. Never linked to directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const driverId = String(Astro.params.id ?? '');
+
+let loadError: string | null = null;
+let career: DriverCareerStats | null = null;
+let raceHistory: DriverRaceHistoryRow[] = [];
+
+interface CareerMove {
+  seasonName: string;
+  from: string;
+  to: string;
+  toLogoUrl: string | null;
+}
+const careerMoves: CareerMove[] = [];
+
+interface AwardEntry {
+  seasonNumber: number;
+  seasonName: string;
+  label: string;
+  detail: string | null;
+}
+const awardEntries: AwardEntry[] = [];
+
+function trimNum(n: number, maxDecimals: number): string {
+  const str = n.toFixed(maxDecimals);
+  return str.includes('.') ? str.replace(/\.?0+$/, '').replace(/\.$/, '') : str;
+}
+function signedNum(n: number): string {
+  const rounded = Math.round(n);
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+try {
+  const [classes, seasons, exhibitionRoundIds] = await Promise.all([
+    getDriverClasses(supabaseEnv),
+    getSeasons(supabaseEnv),
+    getStandingsExcludedRoundIds(supabaseEnv),
+  ]);
+
+  const [careerStatsAll, history, seasonAwardsList, manualAwards] = await Promise.all([
+    computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds),
+    getDriverRaceHistory(supabaseEnv, driverId),
+    computeSeasonAwardsHistory(supabaseEnv, seasons),
+    getManualAwards(supabaseEnv),
+  ]);
+
+  career = careerStatsAll.find((c) => c.driver.id === driverId) ?? null;
+  raceHistory = history;
+
+  // --- Career Moves: walk this driver's seasons oldest-first, recording
+  // every time their PRIMARY team (highest racesUnderTeam that season —
+  // getSeasonCarTeamStats already sorts teams[] descending by that, so
+  // teams[0] is it) changed from the season before. "Independent" stands
+  // in for no team on either side — an intra-season team switch can't be
+  // ordered from this data (DriverTeamStat has no date field), so this is
+  // season-granularity only, same limitation the season table itself has.
+  if (career) {
+    const chronological = [...career.seasons].sort((a, b) => a.season.number - b.season.number);
+    let prevTeamName: string | null = null;
+    for (const s of chronological) {
+      const primary = s.teams[0] ?? null;
+      const currentTeamName = primary?.teamName ?? null;
+      if (currentTeamName !== prevTeamName) {
+        careerMoves.push({
+          seasonName: s.season.name,
+          from: prevTeamName ?? 'Independent',
+          to: currentTeamName ?? 'Independent',
+          toLogoUrl: primary?.logoUrl ?? null,
+        });
+        prevTeamName = currentTeamName;
+      }
+    }
+    careerMoves.reverse(); // newest first, matching every other table on this page
+  }
+
+  // --- Awards: championships + team championships (straight off this
+  // driver's own season rows), the 12 auto-computed season awards
+  // (filtered down to seasons this driver actually won), and the 2
+  // steward-picked manual awards. Hall of Fame induction is shown
+  // separately as its own badge in the header (drivers/[id].astro) since
+  // it isn't season-scoped.
+  if (career) {
+    for (const s of career.seasons) {
+      if (s.classPosition === 1) {
+        awardEntries.push({ seasonNumber: s.season.number, seasonName: s.season.name, label: `${s.className} Champion`, detail: null });
+      }
+      if (s.teamPosition === 1) {
+        awardEntries.push({
+          seasonNumber: s.season.number,
+          seasonName: s.season.name,
+          label: 'Team Champion',
+          detail: s.teams[0]?.teamName ?? null,
+        });
+      }
+      if (s.deltaTeamPosition === 1) {
+        awardEntries.push({
+          seasonNumber: s.season.number,
+          seasonName: s.season.name,
+          label: 'Delta Team Champion',
+          detail: s.teams[0]?.teamName ?? null,
+        });
+      }
+    }
+  }
+
+  for (const sa of seasonAwardsList) {
+    const seasonNumber = sa.season.number;
+    const seasonName = sa.season.name;
+
+    if (sa.rookieOfTheSeason?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Rookie of the Season', detail: `${trimNum(sa.rookieOfTheSeason.value, 1)} pts` });
+    }
+    if (sa.sublimeFinesse?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Sublime Finesse', detail: `${trimNum(sa.sublimeFinesse.value, 1)} corners/incident` });
+    }
+    if (sa.leader?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Leader', detail: `${trimNum(sa.leader.value, 0)} laps led` });
+    }
+    if (sa.ironman?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Ironman', detail: `${trimNum(sa.ironman.value, 1)} km` });
+    }
+    if (sa.consistency?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Consistency', detail: `${trimNum(sa.consistency.value, 2)} avg finish` });
+    }
+    if (sa.bonusFeature?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Bonus Feature', detail: `${trimNum(sa.bonusFeature.value, 1)} bonus pts` });
+    }
+    if (sa.nakedAggression?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Naked Aggression', detail: `${signedNum(sa.nakedAggression.value)} net positions` });
+    }
+    if (sa.speedDemon?.drivers.some((d) => d.id === driverId)) {
+      const v = sa.speedDemon.value;
+      awardEntries.push({ seasonNumber, seasonName, label: 'Speed Demon', detail: `${v} fastest lap${v === 1 ? '' : 's'}` });
+    }
+    if (sa.enduranceSpecialist?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Endurance Specialist', detail: `${trimNum(sa.enduranceSpecialist.value, 1)} pts` });
+    }
+    if (sa.sprintSpecialist?.drivers.some((d) => d.id === driverId)) {
+      awardEntries.push({ seasonNumber, seasonName, label: 'Sprint Specialist', detail: `${trimNum(sa.sprintSpecialist.value, 1)} pts` });
+    }
+    for (const e of sa.dominator?.entries ?? []) {
+      if (e.driver.id === driverId) {
+        const marginText = `${(sa.dominator!.value / 10000).toFixed(3)}s`;
+        const raceText = `${e.trackName}${e.raceNumber > 1 ? ` (Race ${e.raceNumber})` : ''}`;
+        awardEntries.push({ seasonNumber, seasonName, label: 'Dominator', detail: `${marginText} — ${raceText}` });
+      }
+    }
+    for (const e of sa.defender?.entries ?? []) {
+      if (e.driver.id === driverId) {
+        const marginText = `${(sa.defender!.value / 10000).toFixed(3)}s`;
+        const raceText = `${e.trackName}${e.raceNumber > 1 ? ` (Race ${e.raceNumber})` : ''}`;
+        awardEntries.push({ seasonNumber, seasonName, label: 'Defender', detail: `${marginText} — ${raceText}` });
+      }
+    }
+  }
+
+  for (const ma of manualAwards) {
+    if (ma.driver_id !== driverId) continue;
+    const season = seasons.find((s) => s.id === ma.season_id);
+    awardEntries.push({
+      seasonNumber: season?.number ?? -1,
+      seasonName: season?.name ?? 'Unknown season',
+      label: ma.award_key === 'best_racecraft' ? 'Best Racecraft' : 'Most Improved',
+      detail: null,
+    });
+  }
+
+  awardEntries.sort((a, b) => (b.seasonNumber - a.seasonNumber) || a.label.localeCompare(b.label));
+} catch (err) {
+  console.error('Failed to load driver profile data:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+// How many of THIS driver's own races share a subsession_id — a round with
+// more than one counts as a multi-race (sprint) round for them, so every
+// race in it (including race 1) gets its own "(Race N)" suffix in the
+// Races table below; a round where they only have one row shows just the
+// round number, nothing to disambiguate.
+const raceCountBySubsession = new Map<number, number>();
+for (const r of raceHistory) {
+  raceCountBySubsession.set(r.subsessionId, (raceCountBySubsession.get(r.subsessionId) ?? 0) + 1);
+}
+---
+
+{loadError && (
+  <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    Couldn't load this driver's stats right now.
+    <br /><span class="mt-1 block text-white/50">{loadError}</span>
+  </p>
+)}
+
+{!loadError && (
+  <div class="mt-8 grid gap-8 lg:grid-cols-3">
+    <div class="flex flex-col gap-8 lg:col-span-2">
+      <!-- Season stats -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <h2 class="mb-3 font-display text-2xl">Seasons</h2>
+        {!career || career.seasons.length === 0 ? (
+          <p class="text-sm text-white/40">No season history yet.</p>
+        ) : (
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead>
+                <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium">Season</th>
+                  <th class="py-2 pr-2 font-medium">Class</th>
+                  <th class="py-2 pr-2 font-medium">Car(s)</th>
+                  <th class="py-2 pr-2 font-medium">Team(s)</th>
+                  <th class="py-2 pr-2 text-center font-medium">Wins</th>
+                  <th class="py-2 pr-2 text-center font-medium">Poles</th>
+                  <th class="py-2 pr-2 text-center font-medium">Podiums</th>
+                  <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
+                  <th class="py-2 pr-2 text-center font-medium">Laps</th>
+                  <th class="py-2 pr-2 text-center font-medium">Led</th>
+                  <th class="py-2 pr-2 text-center font-medium">CPI</th>
+                  <th class="py-2 pr-2 text-center font-medium">Starts</th>
+                  <th class="py-2 pr-2 text-center font-medium">Class Pos</th>
+                  <th class="py-2 pr-2 text-center font-medium">Overall Pos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {career.seasons.map((r) => {
+                  const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
+                  return (
+                    <tr class="border-b border-white/5">
+                      <td class="py-2 pr-2 font-semibold text-white/90">{r.season.name}</td>
+                      <td class="py-2 pr-2">
+                        <span
+                          class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}
+                          title={r.className}
+                        >
+                          {classBadgeLetter(r.className)}
+                        </span>
+                      </td>
+                      <td class="py-2 pr-2">
+                        <div class="flex flex-wrap items-center gap-1">
+                          {r.cars.map((c) => (
+                            <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${c.races} race${c.races === 1 ? '' : 's'}`} />
+                          ))}
+                          {r.cars.length === 0 && <span class="text-white/30">—</span>}
+                        </div>
+                      </td>
+                      <td class="py-2 pr-2">
+                        <div class="flex flex-wrap items-center gap-1">
+                          {r.teams.map((t) => (
+                            <TeamLogo
+                              name={t.teamName}
+                              logoUrl={t.logoUrl}
+                              size="h-5 w-5"
+                              title={`${t.teamName} — ${t.racesUnderTeam} race${t.racesUnderTeam === 1 ? '' : 's'} under this team`}
+                            />
+                          ))}
+                          {r.teams.length === 0 && <span class="text-white/30">—</span>}
+                        </div>
+                      </td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.wins}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.poles}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.podiums}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.top5s}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.laps}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.lapsLed}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{seasonCpi !== null ? seasonCpi.toFixed(1) : '—'}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.starts}</td>
+                      <td class="py-2 pr-2 text-center font-semibold text-white/90">{r.classPosition}</td>
+                      <td class="py-2 pr-2 text-center text-white/70">{r.overallPosition ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <!-- Race-by-race history -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <h2 class="mb-3 font-display text-2xl">Races</h2>
+        {raceHistory.length === 0 ? (
+          <p class="text-sm text-white/40">No races on file yet.</p>
+        ) : (
+          <div class="max-h-[36rem] overflow-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead>
+                <tr class="sticky top-0 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium">Season</th>
+                  <th class="py-2 pr-2 font-medium">Round</th>
+                  <th class="py-2 pr-2 font-medium">Class</th>
+                  <th class="py-2 pr-2 font-medium">Car</th>
+                  <th class="py-2 pr-2 font-medium">Team</th>
+                  <th class="py-2 pr-2 text-center font-medium">Start</th>
+                  <th class="py-2 pr-2 text-center font-medium">Finish</th>
+                  <th class="py-2 pr-2 text-center font-medium">Margin</th>
+                  <th class="py-2 pr-2 text-center font-medium">Inc</th>
+                  <th class="py-2 pr-2 text-center font-medium">Laps</th>
+                  <th class="py-2 pr-2 text-center font-medium">Led</th>
+                  <th class="py-2 pr-2 text-center font-medium">Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                {raceHistory.map((r) => (
+                  <tr class="border-b border-white/5">
+                    <td class="py-2 pr-2 text-white/70">{r.season?.name ?? '—'}</td>
+                    <td class="py-2 pr-2">
+                      <a href={`/results/${r.subsessionId}`} class="text-brand-primary hover:underline">
+                        {r.displayRoundNumber !== null ? `Round ${r.displayRoundNumber}` : r.trackName}
+                        {(raceCountBySubsession.get(r.subsessionId) ?? 1) > 1 && ` (Race ${r.raceNumber})`}
+                      </a>
+                      <div class="text-[10px] text-white/40">{formatDateShort(r.startTime.slice(0, 10))}</div>
+                    </td>
+                    <td class="py-2 pr-2">
+                      <span
+                        class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}
+                        title={r.className}
+                      >
+                        {classBadgeLetter(r.className)}
+                      </span>
+                    </td>
+                    <td class="py-2 pr-2">
+                      {r.car ? <TeamLogo name={r.car.name} logoUrl={r.car.logoUrl} size="h-5 w-5" /> : <span class="text-white/30">—</span>}
+                    </td>
+                    <td class="py-2 pr-2">
+                      {r.team ? <TeamLogo name={r.team.name} logoUrl={r.team.logoUrl} size="h-5 w-5" title={r.team.name} /> : <span class="text-white/30">N/A</span>}
+                    </td>
+                    <td class="py-2 pr-2 text-center text-white/70">{r.startingPosition ?? '—'}</td>
+                    <td class="py-2 pr-2 text-center text-white/90">
+                      <!--
+                        NC/Unclassified deliberately never shares a line with
+                        the finish number — see ResultsTable.astro's own
+                        header comment, which keeps that tag next to the
+                        driver's NAME for the exact same reason: appending
+                        text after a centered number shifts the number's own
+                        visual center every time the tag toggles on/off. This
+                        table has no name cell to park it in, so it gets its
+                        own centered line below instead.
+                      -->
+                      <div class="flex flex-col items-center leading-tight">
+                        <span>
+                          {r.dsq ? <span class="text-brand-pink">DSQ</span> : r.finishPosition}
+                          {r.wasAdjusted && (
+                            <sup class="ml-0.5 text-[10px] font-sans text-brand-pink" title="Adjusted by penalty">*</sup>
+                          )}
+                        </span>
+                        {!r.classified && !r.dsq && <span class="text-[9px] uppercase tracking-wide text-white/30">NC</span>}
+                      </div>
+                    </td>
+                    <td class="py-2 pr-2 text-center text-white/70">{r.margin}</td>
+                    <td class="py-2 pr-2 text-center text-white/70">{r.incidents ?? '—'}</td>
+                    <td class="py-2 pr-2 text-center text-white/70">{r.laps ?? '—'}</td>
+                    <td class="py-2 pr-2 text-center text-white/70">{r.lapsLed ?? '—'}</td>
+                    <td class="py-2 pr-2 text-center font-semibold text-white/90">{r.totalPoints}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div class="flex flex-col gap-8">
+      <!-- Career Moves -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <h2 class="mb-3 font-display text-2xl">Career Moves</h2>
+        {careerMoves.length === 0 ? (
+          <p class="text-sm text-white/40">No team history yet.</p>
+        ) : (
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead>
+                <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium">Season</th>
+                  <th class="py-2 pr-2 font-medium">From</th>
+                  <th class="py-2 pr-2 font-medium">To</th>
+                </tr>
+              </thead>
+              <tbody>
+                {careerMoves.map((m) => (
+                  <tr class="border-b border-white/5">
+                    <td class="py-2 pr-2 font-semibold text-white/90">{m.seasonName}</td>
+                    <td class="py-2 pr-2 text-white/60">{m.from}</td>
+                    <td class="py-2 pr-2 text-white/80">
+                      <span class="flex items-center gap-1.5">
+                        {m.toLogoUrl && <TeamLogo name={m.to} logoUrl={m.toLogoUrl} size="h-4 w-4" />}
+                        {m.to}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <!-- Awards -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <h2 class="mb-3 font-display text-2xl">Awards</h2>
+        {awardEntries.length === 0 ? (
+          <p class="text-sm text-white/40">No awards on file yet.</p>
+        ) : (
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead>
+                <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium">Season</th>
+                  <th class="py-2 pr-2 font-medium">Award</th>
+                </tr>
+              </thead>
+              <tbody>
+                {awardEntries.map((a) => (
+                  <tr class="border-b border-white/5">
+                    <td class="py-2 pr-2 font-semibold text-white/90">{a.seasonName}</td>
+                    <td class="py-2 pr-2 text-white/80">
+                      {a.label}
+                      {a.detail && <span class="block text-[10px] text-white/40">{a.detail}</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
