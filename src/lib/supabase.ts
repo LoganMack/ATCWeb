@@ -1894,6 +1894,16 @@ export function formatDate(dateInput: string | null): string {
   return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+/** Same date-parsing as formatDate, but an abbreviated month for tight columns (the roster's Signed Up column: "Sep 13, 2025" instead of "September 13, 2025"). Kept as its own function rather than a formatDate param so every existing formatDate call site is untouched. */
+export function formatDateShort(dateInput: string | null): string {
+  if (!dateInput) return '—';
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+  const date = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(dateInput);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
   return restGet<CircuitLayout[]>(
     env,

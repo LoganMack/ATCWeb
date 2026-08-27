@@ -288,7 +288,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10<span class="lowercase">s</span></th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
-              <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
+              <th class="py-3 pr-3 text-center font-medium" data-sort-key="appearances">Apps</th>
+              <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty">Penalty Pts</th>
             </tr>
           </thead>
           <tbody>
@@ -350,12 +351,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts" data-sort-value={row.starts}>
                     {row.starts} <span class="text-white/30">of {maxStarts}</span>
                   </td>
-                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances" data-sort-value={row.appearances}>
+                  <td class="py-2.5 pr-3 text-center text-white/60" data-col="appearances" data-sort-value={row.appearances}>
                     {row.appearances} <span class="text-white/30">of {maxAppearances}</span>
+                  </td>
+                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="penalty" data-sort-value={ext?.penaltyPoints ?? 0}>
+                    {ext?.penaltyPoints ?? 0}
                   </td>
                 </tr>
                 <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
-                  <td colspan={view === 'overall' ? 11 : 10} class="px-4 py-4 sm:pl-11">
+                  <td colspan={view === 'overall' ? 12 : 11} class="px-4 py-4 sm:pl-11">
                     <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Laps</div>

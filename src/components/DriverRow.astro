@@ -1,6 +1,6 @@
 ---
 import type { Driver } from '../lib/supabase';
-import { formatDate, displayDriverName } from '../lib/supabase';
+import { formatDateShort, displayDriverName } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
@@ -8,13 +8,13 @@ import DriverFlag from './DriverFlag.astro';
 interface Props {
   driver: Driver;
   index?: number;
-  /** Whether rulebook rules 57-62's probation window is currently active for this driver — computed once for the whole roster in roster.astro (see isOnProbationNow), not per-row, since it needs the full events calendar. */
+  /** Whether rulebook rules 57-62's probation window is currently active for this driver — computed once for the whole roster in roster.astro (see isOnProbationNow), not per-row, since it needs the full events calendar. Shown as a badge under the Status cell. */
   onProbation?: boolean;
-  /** This driver's CURRENT SEASON penalty-points tally (rule 57), live-computed once for the whole roster in roster.astro (see computeSeasonPPState) rather than trusting driver.penalty_points as-is — falls back to that stored column if the live computation failed. */
-  seasonPenaltyPoints?: number;
+  /** Hover text for the Status cell — the same buildInactivityNote() breakdown ("Last raced ...; N/M rounds absent; N/M days absent") the admin Drivers list shows, computed once for the whole roster in roster.astro. Undefined omits the title attribute entirely. */
+  statusTooltip?: string;
 }
 
-const { driver, index = 0, onProbation = false, seasonPenaltyPoints = driver.penalty_points } = Astro.props;
+const { driver, index = 0, onProbation = false, statusTooltip } = Astro.props;
 
 const className = driver.driver_classes?.name ?? '';
 const statusName = driver.driver_statuses?.name ?? '';
@@ -64,30 +64,27 @@ const searchText = [displayDriverName(driver.name), driver.car_number !== null ?
       {className}
     </span>
   </td>
-  <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="status">{statusName}</td>
+  <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="status" title={statusTooltip}>
+    <div class="flex flex-col">
+      <span>{statusName}</span>
+      {onProbation && <span class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Probation</span>}
+    </div>
+  </td>
   <td
     class="hidden py-2.5 pr-3 text-white/60 lg:table-cell"
     data-col="signup"
     data-sort-value={driver.sign_up_date ?? ''}
   >
-    {formatDate(driver.sign_up_date)}
+    {formatDateShort(driver.sign_up_date)}
   </td>
   <!--
-    driver.starts/seasons_count are the stored columns — only ever set by
-    generate_seed.py's one-time CSV upsert, never kept in sync as new races
-    get scored (see /api/driver-career-totals's own doc comment). They're
-    rendered here as the immediate paint so the table isn't empty while
-    that loads, then roster.astro's own script overwrites both cells (by
-    this row's data-driver-id) with the live, always-correct numbers once
-    the fetch resolves — same "stale-first, live-patch-after" pattern
-    round-recap uses.
+    driver.starts is the stored column — only ever set by generate_seed.py's
+    one-time CSV upsert, never kept in sync as new races get scored (see
+    /api/driver-career-totals's own doc comment). It's rendered here as the
+    immediate paint so the table isn't empty while that loads, then
+    roster.astro's own script overwrites this cell (by this row's
+    data-driver-id) with the live, always-correct number once the fetch
+    resolves — same "stale-first, live-patch-after" pattern round-recap uses.
   -->
-  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts">{driver.starts}</td>
-  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="seasons">{driver.seasons_count}</td>
-  <td class="py-2.5 pr-4 text-center font-semibold" data-col="penalty" data-sort-value={seasonPenaltyPoints}>
-    <div class="flex h-8 flex-col items-center justify-center">
-      <div>{seasonPenaltyPoints}/{driver.penalty_points_max}</div>
-      {onProbation && <div class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Probation</div>}
-    </div>
-  </td>
+  <td class="hidden py-2.5 pr-4 text-center text-white/60 lg:table-cell" data-col="starts">{driver.starts}</td>
 </tr>

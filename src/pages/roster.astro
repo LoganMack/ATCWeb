@@ -4,11 +4,10 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import DriverRow from '../components/DriverRow.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { getDrivers, getEvents, getPenaltiesForSubsessions, getPageBanners, getSiteSettings, resolveSupabaseEnv } from '../lib/supabase';
-import { isOnProbationNow, computeSeasonPPState } from '../lib/penalties';
-import { getCurrentSeasonRounds } from '../lib/results';
+import { getDrivers, getEvents, getPageBanners, getSiteSettings, resolveSupabaseEnv, getAllDriverLastRaces, buildInactivityNote } from '../lib/supabase';
+import { isOnProbationNow } from '../lib/penalties';
 import { bannerUrlFor } from '../lib/pageBanners';
-import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
+import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -16,15 +15,20 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // failed load just falls back to siteSettingInt's built-in defaults (the
 // rulebook's original 45 days / 4 rounds), same fallback isOnProbationNow's
 // own default params use, so a hiccup here never silently changes anyone's
-// probation status.
+// probation status. Inactivity thresholds ride along in the same fetch —
+// they back the Status column's hover tooltip below (see buildInactivityNote).
 let probationDays = 45;
 let probationRounds = 4;
+let inactivityDays = 90;
+let inactivityRounds = 12;
 try {
   const settings = await getSiteSettings(supabaseEnv);
   probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
   probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
+  inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
+  inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
 } catch (err) {
-  console.error('Failed to load driver settings for probation length:', err);
+  console.error('Failed to load driver settings for probation/inactivity thresholds:', err);
 }
 
 let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
@@ -50,39 +54,25 @@ const onProbationNowByDriverId = new Map(
   drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
 );
 
+// Status hover tooltip — the same buildInactivityNote() breakdown the admin
+// Drivers list shows next to each driver's status pill, reused verbatim
+// here so the public roster's tooltip never drifts out of sync with what
+// the admin page (and the DB's own sync_driver_statuses()) actually mean by
+// each status. Best-effort like the events fetch above — a hiccup here just
+// means no tooltip, not a broken roster.
+let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
+try {
+  const lastRaces = await getAllDriverLastRaces(supabaseEnv);
+  lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
+} catch (err) {
+  console.error('Failed to load driver last-race data for status tooltips:', err);
+}
+
 let bannerUrl: string | null = null;
 try {
   bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'roster');
 } catch (err) {
   console.error('Failed to load page banner:', err);
-}
-
-// The roster's Penalty Pts column shows each driver's CURRENT SEASON tally
-// (rule 57 — see computeSeasonPPState's doc comment for why this is a live
-// replay rather than trusting `driver.penalty_points` as-is: that stored
-// column only gets refreshed when a penalty is actually mutated, so it can
-// go stale the moment a new season starts with zero incidents for a driver
-// who still had leftover PP showing from the one before). Same best-effort
-// pattern as the events fetch above — a hiccup here just falls back to each
-// driver's stored penalty_points instead of taking the whole roster down.
-let seasonPPByDriverId = new Map<string, number>();
-try {
-  const currentSeason = await getCurrentSeasonRounds(supabaseEnv);
-  if (currentSeason.subsessionIds.length > 0) {
-    const seasonPenalties = await getPenaltiesForSubsessions(supabaseEnv, currentSeason.subsessionIds);
-    const penaltiesByDriver = new Map<string, typeof seasonPenalties>();
-    for (const p of seasonPenalties) {
-      // A Racing Incident entry (driver_id null) has no driver to tally PP against.
-      if (!p.driver_id) continue;
-      if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
-      penaltiesByDriver.get(p.driver_id)!.push(p);
-    }
-    seasonPPByDriverId = new Map(
-      drivers.map((d) => [d.id, computeSeasonPPState(d, penaltiesByDriver.get(d.id) ?? [], events).penalty_points])
-    );
-  }
-} catch (err) {
-  console.error('Failed to compute season PP tallies:', err);
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
@@ -155,7 +145,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
     <!--
       A dense table instead of a card grid — maximizes how many drivers are
       visible on screen at once. Less critical columns progressively drop
-      off on narrower viewports (signed-up/starts/seasons at lg, status at
+      off on narrower viewports (signed-up/starts at lg, status at
       md, team name at sm) rather than shrinking everything down to
       unreadable. No Car column here on purpose — a driver can swap cars
       once per season without penalty, so "current car" doesn't mean much
@@ -180,9 +170,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
             <th class="whitespace-nowrap py-3 pr-3 font-medium" data-sort-key="class">Class</th>
             <th class="hidden whitespace-nowrap py-3 pr-3 font-medium md:table-cell" data-sort-key="status">Status</th>
             <th class="hidden whitespace-nowrap py-3 pr-3 font-medium lg:table-cell" data-sort-key="signup">Signed Up</th>
-            <th class="hidden whitespace-nowrap py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
-            <th class="hidden whitespace-nowrap py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="seasons">Seasons</th>
-            <th class="whitespace-nowrap py-3 pr-4 text-center font-medium" data-sort-key="penalty">Penalty Pts</th>
+            <th class="hidden whitespace-nowrap py-3 pr-4 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
           </tr>
         </thead>
         <tbody id="roster-body">
@@ -191,7 +179,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
               driver={driver}
               index={i}
               onProbation={onProbationNowByDriverId.get(driver.id) ?? false}
-              seasonPenaltyPoints={seasonPPByDriverId.get(driver.id) ?? driver.penalty_points}
+              statusTooltip={buildInactivityNote(driver.driver_statuses?.name ?? null, lastRaceByDriverId.get(driver.id), inactivityDays, inactivityRounds) ?? undefined}
             />
           ))}
         </tbody>
@@ -201,22 +189,21 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
   </section>
 
   <script>
-    // Starts/Seasons start out showing whatever the stored drivers.starts /
-    // drivers.seasons_count columns say (rendered server-side in
-    // DriverRow.astro) — those are only ever set by a one-time spreadsheet
-    // import (see /api/driver-career-totals's own doc comment for the full
-    // story), so they're frequently stale or zero for anyone who's raced
-    // since. This fetches the live, always-correct numbers (the same
-    // computeDriverCareerStats() the Driver Stats page itself uses) and
-    // patches them in once that resolves — deliberately NOT computed inline
-    // in roster.astro's own frontmatter, since that's the single most
-    // expensive computation in the app and this page needs to stay fast.
-    // Cached in a module-scoped promise (not re-fetched per row, and safe
-    // to no-op-reuse even if this whole script somehow re-runs) rather than
-    // a `dataset` flag on an element Astro's client router can swap out
-    // from under it — see src/scripts/expandRows.ts's own doc comment for
-    // exactly why a DOM-attached guard is the wrong tool for something that
-    // only needs to happen once per page view.
+    // Starts starts out showing whatever the stored drivers.starts column
+    // says (rendered server-side in DriverRow.astro) — that's only ever set
+    // by a one-time spreadsheet import (see /api/driver-career-totals's own
+    // doc comment for the full story), so it's frequently stale or zero for
+    // anyone who's raced since. This fetches the live, always-correct number
+    // (the same computeDriverCareerStats() the Driver Stats page itself
+    // uses) and patches it in once that resolves — deliberately NOT
+    // computed inline in roster.astro's own frontmatter, since that's the
+    // single most expensive computation in the app and this page needs to
+    // stay fast. Cached in a module-scoped promise (not re-fetched per row,
+    // and safe to no-op-reuse even if this whole script somehow re-runs)
+    // rather than a `dataset` flag on an element Astro's client router can
+    // swap out from under it — see src/scripts/expandRows.ts's own doc
+    // comment for exactly why a DOM-attached guard is the wrong tool for
+    // something that only needs to happen once per page view.
     let careerTotalsPromise: Promise<Record<string, { starts: number; seasonsCount: number }>> | null = null;
 
     function fetchCareerTotals() {
@@ -224,7 +211,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
         careerTotalsPromise = fetch('/api/driver-career-totals')
           .then((res) => (res.ok ? res.json() : {}))
           .catch((err) => {
-            console.error('Failed to load live driver career totals — Starts/Seasons will show the last-imported figures:', err);
+            console.error('Failed to load live driver career totals — Starts will show the last-imported figure:', err);
             return {};
           });
       }
@@ -239,9 +226,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
           const entry = row.dataset.driverId ? totals[row.dataset.driverId] : undefined;
           if (!entry) return;
           const startsCell = row.querySelector<HTMLElement>('[data-col="starts"]');
-          const seasonsCell = row.querySelector<HTMLElement>('[data-col="seasons"]');
           if (startsCell) startsCell.textContent = String(entry.starts);
-          if (seasonsCell) seasonsCell.textContent = String(entry.seasonsCount);
         });
       });
     }
