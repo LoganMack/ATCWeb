@@ -173,6 +173,48 @@ export function getDrivers(env: SupabaseEnv, { aiOnly = false }: { aiOnly?: bool
   );
 }
 
+/**
+ * One driver's full public profile — the same embedded-names shape
+ * getDrivers() uses (see that function's own doc comment for why
+ * `teams!drivers_team_id_fkey`, not plain `teams(...)`, is required here)
+ * plus the handful of extra fields getDrivers() leaves out because the
+ * roster table doesn't show them: bio, photo_url, is_hall_of_fame. Powers
+ * the driver profile page (src/pages/drivers/[id].astro), reached by
+ * clicking a roster row. Excludes AI-flagged drivers (0057_driver_ai_flag.sql)
+ * — same default as getDrivers() — since an AI entrant has no real profile
+ * to show.
+ */
+export interface DriverProfile {
+  id: string;
+  car_number: number | null;
+  name: string;
+  is_rookie: boolean;
+  car: string | null;
+  bio: string | null;
+  photo_url: string | null;
+  is_hall_of_fame: boolean;
+  sign_up_date: string | null;
+  on_probation: boolean;
+  probation_started_at: string | null;
+  nationality_1: string | null;
+  nationality_2: string | null;
+  driver_statuses: { name: string } | null;
+  driver_classes: { name: string } | null;
+  teams: { id: string; name: string; primary_color_hex: string | null; logo_url: string | null } | null;
+}
+
+const DRIVER_PROFILE_SELECT =
+  'id,car_number,name,is_rookie,car,bio,photo_url,is_hall_of_fame,sign_up_date,on_probation,probation_started_at,' +
+  'nationality_1,nationality_2,driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(id,name,primary_color_hex,logo_url)';
+
+export async function getDriverProfileById(env: SupabaseEnv, id: string): Promise<DriverProfile | null> {
+  const drivers = await restGet<DriverProfile[]>(
+    env,
+    `drivers?select=${encodeURIComponent(DRIVER_PROFILE_SELECT)}&id=eq.${encodeURIComponent(id)}&is_ai=eq.false`
+  );
+  return drivers[0] ?? null;
+}
+
 const NEWS_PUBLIC_SELECT =
   'id,slug,title,excerpt,body,cover_image_url,author_name,published_at,round_subsession_id,season_label';
 

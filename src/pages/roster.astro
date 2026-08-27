@@ -257,6 +257,30 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
       applyFilters();
     }
 
+    // Clicking (or Enter/Space-ing, for keyboard users tabbing through the
+    // table — see DriverRow.astro's tabindex/role="link") anywhere on a
+    // roster row opens that driver's profile page. Event delegation on the
+    // whole table body rather than one listener per row, same reasoning
+    // sortable-table.ts's own header click handling uses.
+    function initRosterRowLinks() {
+      const body = document.getElementById('roster-body');
+      if (!body) return;
+
+      body.addEventListener('click', (e) => {
+        const row = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-link]');
+        if (row) window.location.href = row.dataset.driverLink!;
+      });
+
+      body.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const row = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-link]');
+        if (!row) return;
+        e.preventDefault(); // stop Space from also scrolling the page
+        window.location.href = row.dataset.driverLink!;
+      });
+    }
+
     document.addEventListener('astro:page-load', initRosterFilters);
+    document.addEventListener('astro:page-load', initRosterRowLinks);
   </script>
 </Layout>

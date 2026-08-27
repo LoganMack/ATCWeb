@@ -42,6 +42,8 @@ import {
   restGet,
   restGetAll,
   getStandingsExcludedRoundIds,
+  getExhibitionRoundIds,
+  getTestRoundIds,
   getCarLogos,
   getSeasons,
   getPenaltiesForSubsessions,
@@ -2820,6 +2822,185 @@ export async function computeDriverCareerStats(
   }
 
   out.sort((a, b) => displayDriverName(a.driver.name).localeCompare(displayDriverName(b.driver.name)));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Driver race history — every individual race (not season-aggregated) a
+// driver has ever run, powering the driver profile page's race-by-race
+// table (src/pages/drivers/[id].astro). Deliberately a much simpler
+// computation than computeDriverCareerStats above: that function re-derives
+// class-relative standings positions across every driver in a season
+// (needed for wins/podiums/etc.); this one only needs THIS ONE driver's own
+// race_scores + curated_race_results rows, so it never touches the
+// standings engine at all.
+// ---------------------------------------------------------------------------
+
+export interface DriverRaceHistoryRow {
+  subsessionId: number;
+  raceNumber: number;
+  /** Null only if this round's curated_rounds row is somehow missing despite having race_scores (shouldn't normally happen). */
+  season: Season | null;
+  trackName: string;
+  /** ISO timestamp — raw curated_rounds.start_time, for sorting/formatting by the caller. Empty string under the same "missing round row" condition as `season`. */
+  startTime: string;
+  /** This app's own "Round N" numbering (see computeDisplayRoundNumbers) — null for an exhibition/test round or a non-championship season. */
+  displayRoundNumber: number | null;
+  classId: number;
+  className: string;
+  car: { name: string; logoUrl: string | null } | null;
+  /** The team this driver raced for in this specific race (race_scores.team_id) — same historical-logo resolution as RaceResultRow.team. */
+  team: { name: string; logoUrl: string | null } | null;
+  startingPosition: number | null;
+  /** Post-penalty position when set (adjusted_position), falling back to the pre-penalty finish_position otherwise — same convention as RaceResultRow. */
+  finishPosition: number;
+  wasAdjusted: boolean;
+  margin: string;
+  intervalTenThousandths: number | null;
+  incidents: number | null;
+  laps: number | null;
+  lapsLed: number | null;
+  totalPoints: number;
+  dsq: boolean;
+  classified: boolean;
+}
+
+/**
+ * Every race this driver has ever run, most recent first. Exhibition and
+ * test rounds are excluded — same "excluded from all statistics" rule
+ * every other career/season stat in this file follows (see
+ * `isChampionshipSeason`'s own doc comment) — this is a driver's
+ * competitive race history, not a literal server log of every session
+ * their cust_id ever appeared in.
+ *
+ * Bulk-fetch-once throughout, same discipline as computeDriverCareerStats:
+ * one race_scores query filtered to this driver (however many seasons that
+ * spans), one curated_race_results query across the resulting
+ * subsession_ids (which also pulls in every OTHER driver's row for those
+ * same subsessions — needed to find each race's leader for formatMargin),
+ * and one getAllRounds() — never a per-season or per-round loop.
+ */
+export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): Promise<DriverRaceHistoryRow[]> {
+  const driverRows = await restGet<{ id: string; iracing_cust_id: number | null }[]>(
+    env,
+    `drivers?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`
+  );
+  const custId = driverRows[0]?.iracing_cust_id ?? null;
+  // No cust_id on file means this driver can never have a curated_race_results
+  // row to join against (that table only knows cust_id, not driver_id) —
+  // nothing to show rather than a crash.
+  if (custId === null) return [];
+
+  const scoreSelect = 'subsession_id,race_number,class_id,team_id,total_points,classified,dsq';
+  const scores = await restGetAll<{
+    subsession_id: number;
+    race_number: number;
+    class_id: number;
+    team_id: string | null;
+    total_points: number;
+    classified: boolean;
+    dsq: boolean;
+  }>(
+    env,
+    `race_scores?select=${scoreSelect}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`
+  );
+  if (scores.length === 0) return [];
+
+  const subsessionIds = [...new Set(scores.map((s) => s.subsession_id))];
+
+  const [rawResults, teams, carLogos, classes, seasons, allRounds, exhibitionRoundIds, testRoundIds, seasonLogoRows] =
+    await Promise.all([
+      getCuratedRaceResultsForSubsessions(env, subsessionIds),
+      getTeamsBasic(env),
+      getCarLogos(env),
+      getDriverClasses(env),
+      getSeasons(env),
+      getAllRounds(env),
+      getExhibitionRoundIds(env),
+      getTestRoundIds(env),
+      getAllTeamSeasonLogosSafe(env),
+    ]);
+
+  const excludedRoundIds = new Set([...exhibitionRoundIds, ...testRoundIds]);
+  const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const classNameById = new Map(classes.map((c) => [c.id, c.name]));
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
+  const seasonById = new Map(seasons.map((s) => [s.id, s]));
+  const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
+  const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
+
+  // Leader's laps_complete per (subsession, race) — same as getRoundResults'
+  // own leaderLapsByRace, just keyed across every round in scope at once
+  // (this spans the driver's whole career, not one round).
+  const leaderLapsByRace = new Map<string, number | null>();
+  for (const r of rawResults) {
+    if (r.finish_position === 1) {
+      leaderLapsByRace.set(`${r.subsession_id}:${r.race_number}`, r.laps_complete);
+    }
+  }
+
+  // Round numbering is scoped per season (see computeDisplayRoundNumbers'
+  // own doc comment and every existing caller) — group ALL rounds (not just
+  // this driver's own) by season once, then number each season's rounds off
+  // its own full round list, exactly like a single-season page would.
+  const roundsBySeason = new Map<string, RoundSummary[]>();
+  for (const r of allRounds) {
+    if (!roundsBySeason.has(r.season_id)) roundsBySeason.set(r.season_id, []);
+    roundsBySeason.get(r.season_id)!.push(r);
+  }
+  const displayNumberBySubsession = new Map<number, number | null>();
+  for (const seasonRounds of roundsBySeason.values()) {
+    for (const [subsessionId, num] of computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds)) {
+      displayNumberBySubsession.set(subsessionId, num);
+    }
+  }
+
+  const out: DriverRaceHistoryRow[] = [];
+  for (const score of scores) {
+    if (excludedRoundIds.has(score.subsession_id)) continue;
+    const raw = rawByKey.get(resultKey(score.subsession_id, score.race_number, custId));
+    if (!raw) continue; // shouldn't happen (a scored race always has a matching raw result) — skip rather than fabricate a row
+    const round = roundBySubsession.get(score.subsession_id) ?? null;
+    const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
+
+    out.push({
+      subsessionId: score.subsession_id,
+      raceNumber: score.race_number,
+      season: round ? seasonById.get(round.season_id) ?? null : null,
+      trackName: round?.track_name ?? '—',
+      startTime: round?.start_time ?? '',
+      displayRoundNumber: displayNumberBySubsession.get(score.subsession_id) ?? null,
+      classId: score.class_id,
+      className: classNameById.get(score.class_id) ?? '',
+      car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
+      team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, round?.season_id ?? null, seasonLogoMap) } : null,
+      startingPosition: raw.starting_position,
+      finishPosition: raw.adjusted_position ?? raw.finish_position,
+      wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
+      margin: formatMargin(
+        raw.interval_ten_thousandths,
+        raw.laps_complete,
+        leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null
+      ),
+      intervalTenThousandths: raw.interval_ten_thousandths,
+      incidents: raw.incidents,
+      laps: raw.laps_complete,
+      lapsLed: raw.laps_led,
+      totalPoints: score.total_points,
+      dsq: score.dsq,
+      classified: score.classified,
+    });
+  }
+
+  // Most recent race first — start_time, then race_number as a tiebreaker
+  // within the same round (so race1/race2/race3 stay in run order even
+  // though the whole list is newest-round-first).
+  out.sort((a, b) => {
+    const t = new Date(b.startTime).getTime() - new Date(a.startTime).getTime();
+    return t !== 0 ? t : b.raceNumber - a.raceNumber;
+  });
+
   return out;
 }
 

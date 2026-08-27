@@ -28,12 +28,16 @@ const searchText = [displayDriverName(driver.name), driver.car_number !== null ?
 ---
 
 <tr
-  class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
   data-class={className}
   data-status={statusName}
   data-unassigned={String(driver.car_number === null)}
   data-search={searchText}
   data-driver-id={driver.id}
+  data-driver-link={`/drivers/${driver.id}`}
+  tabindex="0"
+  role="link"
+  aria-label={`View ${displayDriverName(driver.name)}'s driver profile`}
 >
   <td
     class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70"
