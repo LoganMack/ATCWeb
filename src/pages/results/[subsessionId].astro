@@ -114,6 +114,22 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   // read-only for penalties (see v0.16's README section for why).
 }
 
+// Race vs. Qualifying — two independent result categories, each with its
+// own Overall/Per Class view (see `view` below). Practice isn't one of
+// these tabs: there's no imported practice-results table yet (Logan: "we
+// will create this table later") — Practice only exists as a loggable
+// session on the Incident Report (see that page). Computed here (rather
+// than down by the template, where this used to live) purely from URL
+// params + subsessionId — neither depends on `round` — so the qualifying
+// fetch below can start immediately alongside the initial bulk fetch
+// instead of waiting for `round` to resolve first.
+const category = Astro.url.searchParams.get('category') === 'qualifying' ? 'qualifying' : 'race';
+// The points system is based on overall finishing position, not
+// class-relative position, so the overall (cross-class) view is the
+// default — the per-class view is still available via ?view=class. Shared
+// by both categories.
+const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
+
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
 let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
@@ -122,6 +138,23 @@ let testRoundIds: Set<number> = new Set();
 let raceLinksByRace: Map<number, RaceLinks> = new Map();
 let penalties: Penalty[] = [];
 let loadError: string | null = null;
+
+// Fetched only when actually viewing Qualifying — qualifying isn't split by
+// race (curated_qualifying has no race_number column, it's one session per
+// round), so this is a single overall/byClass pair rather than a per-race
+// map. See getQualifyingForSubsession's own doc comment. Depends only on
+// `category`/`subsessionId` (not on `round`), so it's kicked off here,
+// concurrently with the round/roundResults/etc. bulk fetch just below,
+// rather than waiting until after that fetch resolves.
+const qualifyingPromise: Promise<{ overall: QualifyingRow[]; byClass: Map<number, QualifyingRow[]> }> = (async () => {
+  if (category !== 'qualifying' || !Number.isFinite(subsessionId)) return { overall: [], byClass: new Map() };
+  try {
+    return await getQualifyingForSubsession(supabaseEnv, subsessionId);
+  } catch (err) {
+    console.error('Failed to load qualifying results:', err);
+    return { overall: [], byClass: new Map() };
+  }
+})();
 
 if (Number.isFinite(subsessionId)) {
   try {
@@ -179,13 +212,33 @@ const isExhibition = isRoundFlaggedExhibition || isSeasonExhibition;
 // is_exhibition) aren't mutually exclusive by design.
 const isTest = testRoundIds.has(subsessionId);
 
+// This driver's total incidents across every race this round — summed from
+// the overall (cross-class) rows, which cover every scored driver regardless
+// of which view (Overall/Per Class) is actually rendered, so the flag is
+// consistent between the two. Pure in-memory work over the (post-penalty)
+// roundResults with no fetch of its own, so it runs synchronously here
+// rather than nested inside the async incident-limit block below.
+const incidentTotalByDriverId = new Map<string, number>();
+if (!loadError && round) {
+  for (const rows of roundResults.overall.values()) {
+    for (const row of rows) {
+      incidentTotalByDriverId.set(row.driver.id, (incidentTotalByDriverId.get(row.driver.id) ?? 0) + (row.incidents ?? 0));
+    }
+  }
+}
+
+// Three blocks that each depend only on `round` (not on each other) —
+// wrapped in named async functions and run concurrently via one Promise.all
+// right after `round` resolves, instead of one after another.
+
 // The displayed "Round N" skips exhibitions and test sessions entirely (so
 // flagging round 1 makes round 2 become "Round 1") — needs every round in
 // this round's season to compute, not just this one.
 let displayRoundNumber: number | null = null;
-if (!loadError && round) {
+async function loadDisplayRoundNumber() {
+  if (loadError || !round) return;
   try {
-    const seasonRounds = await getRoundsForSeason(supabaseEnv, round.season_id);
+    const seasonRounds = await getRoundsForSeason(supabaseEnv, round!.season_id);
     displayRoundNumber = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds).get(subsessionId) ?? null;
   } catch (err) {
     console.error('Failed to compute round number:', err);
@@ -202,10 +255,10 @@ if (!loadError && round) {
 // `rules` (jsonb, typed `unknown` — see ScoringRuleset's own doc comment)
 // with defensive optional-chaining since nothing guarantees its shape.
 let incidentLimit: number | null = null;
-const incidentTotalByDriverId = new Map<string, number>();
-if (!loadError && round) {
+async function loadIncidentLimit() {
+  if (loadError || !round) return;
   try {
-    const [incidentLimitSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
+    const [incidentLimitSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round!.season_id), getScoringRulesets(supabaseEnv)]);
     const ruleset = incidentLimitSeason ? resolveSeasonRuleset(incidentLimitSeason, rulesets) : null;
     const rules = (ruleset?.rules ?? null) as
       | {
@@ -216,32 +269,15 @@ if (!loadError && round) {
     const override = rules?.race_overrides;
     if (override?.subsession_ids?.includes(subsessionId) && typeof override.incident_limit === 'number') {
       incidentLimit = override.incident_limit;
-    } else if (round.format === 'sprint' && typeof rules?.round_incident_limit?.sprint === 'number') {
+    } else if (round!.format === 'sprint' && typeof rules?.round_incident_limit?.sprint === 'number') {
       incidentLimit = rules.round_incident_limit.sprint;
-    } else if (round.format === 'endurance' && typeof rules?.round_incident_limit?.endurance === 'number') {
+    } else if (round!.format === 'endurance' && typeof rules?.round_incident_limit?.endurance === 'number') {
       incidentLimit = rules.round_incident_limit.endurance;
     }
   } catch (err) {
     console.error('Failed to resolve round incident limit:', err);
   }
-
-  // This driver's total incidents across every race this round — summed
-  // from the overall (cross-class) rows, which cover every scored driver
-  // regardless of which view (Overall/Per Class) is actually rendered, so
-  // the flag is consistent between the two.
-  for (const rows of roundResults.overall.values()) {
-    for (const row of rows) {
-      incidentTotalByDriverId.set(row.driver.id, (incidentTotalByDriverId.get(row.driver.id) ?? 0) + (row.incidents ?? 0));
-    }
-  }
 }
-// Drivers whose round-total incidents exceed (not just meet) the limit —
-// ResultsTable flags every one of their race rows this round, in red.
-const incidentLimitExceededDriverIds = new Set(
-  incidentLimit !== null
-    ? [...incidentTotalByDriverId.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId)
-    : []
-);
 
 // This round's resolved layout's corner count — powers ResultsTable's
 // Incidents-column corners-per-incident tooltip (same resolveLayout()
@@ -250,45 +286,34 @@ const incidentLimitExceededDriverIds = new Set(
 // this round's tables) whenever the round's track/layout doesn't resolve —
 // same "nothing to compute from" cases as that season stat.
 let layoutCorners: number | null = null;
-if (!loadError && round) {
+async function loadLayoutCorners() {
+  if (loadError || !round) return;
   try {
     const [circuits, layouts, roundLayouts] = await Promise.all([
       getCircuits(supabaseEnv),
       getAllCircuitLayouts(supabaseEnv),
       getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
     ]);
-    const layout = resolveLayout(round.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
+    const layout = resolveLayout(round!.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
     layoutCorners = layout?.corners ?? null;
   } catch (err) {
     console.error("Failed to resolve this round's layout for corners-per-incident:", err);
   }
 }
 
-// Race vs. Qualifying — two independent result categories, each with its
-// own Overall/Per Class view (see `view` below). Practice isn't one of
-// these tabs: there's no imported practice-results table yet (Logan: "we
-// will create this table later") — Practice only exists as a loggable
-// session on the Incident Report (see that page).
-const category = Astro.url.searchParams.get('category') === 'qualifying' ? 'qualifying' : 'race';
-// The points system is based on overall finishing position, not
-// class-relative position, so the overall (cross-class) view is the
-// default — the per-class view is still available via ?view=class. Shared
-// by both categories.
-const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
+await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners()]);
+
+// Drivers whose round-total incidents exceed (not just meet) the limit —
+// ResultsTable flags every one of their race rows this round, in red.
+const incidentLimitExceededDriverIds = new Set(
+  incidentLimit !== null
+    ? [...incidentTotalByDriverId.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId)
+    : []
+);
+
 const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
-// Fetched only when actually viewing Qualifying — qualifying isn't split by
-// race (curated_qualifying has no race_number column, it's one session per
-// round), so this is a single overall/byClass pair rather than a per-race
-// map. See getQualifyingForSubsession's own doc comment.
-let qualifying: { overall: QualifyingRow[]; byClass: Map<number, QualifyingRow[]> } = { overall: [], byClass: new Map() };
-if (!loadError && category === 'qualifying' && Number.isFinite(subsessionId)) {
-  try {
-    qualifying = await getQualifyingForSubsession(supabaseEnv, subsessionId);
-  } catch (err) {
-    console.error('Failed to load qualifying results:', err);
-  }
-}
+const qualifying = await qualifyingPromise;
 const qualifyingOrderedClassIds = classes.map((c) => c.id).filter((id) => qualifying.byClass.has(id));
 
 // Whatever `season` value (a real season number, or one of results.astro's

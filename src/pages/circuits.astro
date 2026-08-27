@@ -20,6 +20,18 @@ import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
+// Independent of the circuits/layouts/guides fetch below — kicked off here
+// and awaited just before the template needs it, so it runs concurrently
+// with that block instead of after it.
+const bannerPromise = (async () => {
+  try {
+    return bannerUrlFor(await getPageBanners(supabaseEnv), 'circuits');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+    return null;
+  }
+})();
+
 let circuits: Awaited<ReturnType<typeof getCircuits>> = [];
 let layouts: CircuitLayout[] = [];
 // A layout's track guide(s) now live in their own table (0053_track_guides.sql,
@@ -44,12 +56,7 @@ try {
   loadError = true;
 }
 
-let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'circuits');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
-}
+const bannerUrl = await bannerPromise;
 
 const layoutsByCircuit = new Map<string, CircuitLayout[]>();
 for (const l of layouts) {

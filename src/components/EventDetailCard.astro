@@ -1,6 +1,6 @@
 ---
 import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
-import { displayLayoutName, formatDate, eventImageUrl, resizedImageUrl } from '../lib/supabase';
+import { displayLayoutName, eventImageUrl, resizedImageUrl } from '../lib/supabase';
 import {
   formatEventDate,
   formatSessionTime,
@@ -10,7 +10,7 @@ import {
   CATEGORY_LABELS,
   getEventSessions,
 } from '../lib/eventFormatting';
-import type { LayoutRoundSummary, RoundSummary } from '../lib/results';
+import type { RoundSummary } from '../lib/results';
 import { buildEventIcsBlock } from '../lib/ics';
 import { slugify } from '../lib/slug';
 import WeatherIcon from './WeatherIcon.astro';
@@ -19,15 +19,20 @@ interface Props {
   event: EventWithCircuit;
   index?: number;
   /**
-   * Every historical round ever run at this event's own circuit+layout,
-   * newest first — see src/lib/results.ts's findRoundsForLayout(). Computed
-   * ONCE per page (calendar.astro) and passed in per card rather than
-   * fetched here, since a page can show many cards that repeat the same
-   * circuit. Optional/omittable for any future caller that doesn't have
-   * this data on hand — the collapsible below simply doesn't render without
-   * it, same as any other optional section on this card.
+   * How many historical rounds have ever been run at this event's own
+   * circuit+layout — see src/lib/results.ts's findRoundsForLayout(). Just
+   * the count, computed ONCE per page (calendar.astro) and passed in per
+   * card rather than fetched here, since a page can show many cards that
+   * repeat the same circuit. The actual round LIST is fetched lazily,
+   * client-side, only when this card's "Race Recaps at this Layout"
+   * summary is first expanded — see /api/layout-rounds.ts and this file's
+   * `data-layout-rounds-summary`/`data-layout-rounds-body` below — so the
+   * page never has to ship rows nobody asked to see. Optional/omittable for
+   * any future caller that doesn't have this data on hand — the
+   * collapsible below simply doesn't render without it, same as any other
+   * optional section on this card.
    */
-  layoutRounds?: LayoutRoundSummary[];
+  layoutRoundsCount?: number;
   /**
    * Which curated_rounds row this specific event represents, if any — see
    * getEventRound()'s own doc comment in src/lib/results.ts for how this
@@ -49,7 +54,7 @@ interface Props {
   layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
 }
 
-const { event, index = 0, layoutRounds = [], linkedRound = null, layouts = [] } = Astro.props;
+const { event, index = 0, layoutRoundsCount = 0, linkedRound = null, layouts = [] } = Astro.props;
 const sessions = getEventSessions(event);
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 96 });
 
@@ -201,21 +206,12 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
     </div>
   )}
 
-  {layoutRounds.length > 0 && (
-    <details class="mt-4 border-t border-white/10 pt-4">
+  {layoutRoundsCount > 0 && (
+    <details class="mt-4 border-t border-white/10 pt-4" data-layout-rounds-summary data-circuit-id={event.circuit_id} data-layout={event.layout ?? ''}>
       <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
-        Race Recaps at this Layout ({layoutRounds.length})
+        Race Recaps at this Layout ({layoutRoundsCount})
       </summary>
-      <div class="mt-3 flex flex-col gap-2">
-        {layoutRounds.map((r) => (
-          <details data-round-recap={r.subsessionId} class="rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-            <summary class="cursor-pointer list-none text-xs font-semibold text-white/60 transition hover:text-white">
-              {formatDate(r.startTime)}{r.seasonLabel ? ` — ${r.seasonLabel}` : ''} — {r.trackName}
-            </summary>
-            <div class="mt-2" data-recap-body></div>
-          </details>
-        ))}
-      </div>
+      <div class="mt-3 flex flex-col gap-2" data-layout-rounds-body></div>
     </details>
   )}
 </article>

@@ -9,46 +9,60 @@ import { bannerUrlFor } from '../../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
+// Four independent fetches — none depends on another's result (the
+// seasonOptions/posts computations that use allPosts happen after all four
+// resolve) — so they're wrapped in named functions and run concurrently via
+// one Promise.all rather than one after another.
 let allPosts: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let loadError = false;
-try {
-  allPosts = await getNewsPosts(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load news posts:', err);
-  loadError = true;
+async function loadAllPosts() {
+  try {
+    allPosts = await getNewsPosts(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load news posts:', err);
+    loadError = true;
+  }
 }
 
 let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'news');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
+async function loadBanner() {
+  try {
+    bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'news');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+  }
 }
 
 // season_label on a post is freeform text, not an FK to `seasons` — best-
 // effort name match so NewsCard can show that season's logo next to its tag.
 let logoBySeasonLabel = new Map<string, string>();
-try {
-  const seasons = await getSeasons(supabaseEnv);
-  logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
-} catch (err) {
-  console.error('Failed to load seasons for news card logos:', err);
+async function loadSeasonLogos() {
+  try {
+    const seasons = await getSeasons(supabaseEnv);
+    logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
+  } catch (err) {
+    console.error('Failed to load seasons for news card logos:', err);
+  }
 }
 
 // Every post's assigned tags (0055_news_tags.sql), fetched once and grouped
 // by post_id — same "fetch once, map by id" convention as logoBySeasonLabel
 // just above.
 let tagsByPostId = new Map<string, NewsTag[]>();
-try {
-  const links = await getAllNewsPostTags(supabaseEnv);
-  for (const link of links) {
-    if (!link.news_tags) continue;
-    if (!tagsByPostId.has(link.post_id)) tagsByPostId.set(link.post_id, []);
-    tagsByPostId.get(link.post_id)!.push(link.news_tags);
+async function loadTags() {
+  try {
+    const links = await getAllNewsPostTags(supabaseEnv);
+    for (const link of links) {
+      if (!link.news_tags) continue;
+      if (!tagsByPostId.has(link.post_id)) tagsByPostId.set(link.post_id, []);
+      tagsByPostId.get(link.post_id)!.push(link.news_tags);
+    }
+  } catch (err) {
+    console.error('Failed to load news tags for news cards:', err);
   }
-} catch (err) {
-  console.error('Failed to load news tags for news cards:', err);
 }
+
+await Promise.all([loadAllPosts(), loadBanner(), loadSeasonLogos(), loadTags()]);
 
 // Every distinct season tag currently in use, for the filter dropdown —
 // derived straight from the posts themselves (already fetched in full, no

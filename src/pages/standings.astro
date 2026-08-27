@@ -35,6 +35,19 @@ import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
+// Independent of everything else on this page — kicked off immediately and
+// awaited just before the template needs it (right before the closing ---),
+// so it runs concurrently with the classes/seasons fetch and the standings
+// computation below instead of sequentially after them.
+const bannerPromise = (async () => {
+  try {
+    return bannerUrlFor(await getPageBanners(supabaseEnv), 'standings');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+    return null;
+  }
+})();
+
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 let loadError: string | null = null;
@@ -165,12 +178,7 @@ function matrixColumnTitle(trackName: string, format: 'endurance' | 'sprint' | n
   return `${trackName} — ${format.charAt(0).toUpperCase()}${format.slice(1)}`;
 }
 
-let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'standings');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
-}
+const bannerUrl = await bannerPromise;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---

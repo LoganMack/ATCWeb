@@ -9,7 +9,6 @@ import {
   getAllRounds,
   getRoundLayoutsForSubsessions,
   findRoundsForLayout,
-  type LayoutRoundSummary,
   type RoundSummary,
 } from '../lib/results';
 import { buildEventIcsBlock } from '../lib/ics';
@@ -17,28 +16,46 @@ import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-let events: Awaited<ReturnType<typeof getEvents>> = [];
+// bannerUrl is independent of everything else on this page — kicked off
+// immediately and awaited only right before the template needs it.
+const bannerPromise = (async () => {
+  try {
+    return bannerUrlFor(await getPageBanners(supabaseEnv), 'calendar');
+  } catch (err) {
+    console.error('Failed to load page banner:', err);
+    return null;
+  }
+})();
+
+// events and the circuits/layouts/allRounds bulk fetch don't depend on each
+// other — only the per-event loop below needs both — so both are kicked off
+// immediately and awaited together right before that loop runs, instead of
+// events being awaited first and the bulk fetch only starting afterward.
 let loadError = false;
-try {
-  events = await getEvents(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load events:', err);
-  loadError = true;
-}
+const eventsPromise: Promise<Awaited<ReturnType<typeof getEvents>>> = (async () => {
+  try {
+    return await getEvents(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load events:', err);
+    loadError = true;
+    return [];
+  }
+})();
 
 // Every event card's "Race Recaps at this Layout" collapsible (see
-// EventDetailCard.astro) needs to know which historical rounds match its
+// EventDetailCard.astro) needs to know how many historical rounds match its
 // own circuit+layout — computed here ONCE for the whole page (not per
 // card, several of which can repeat the same circuit) via a handful of
-// bulk fetches, then sliced in memory per event. The recap CONTENT itself
-// is intentionally NOT computed here at all — see findRoundsForLayout's own
-// doc comment and src/pages/api/round-recap/[subsessionId].ts for why that
-// part is deliberately deferred to a lazy, per-round client-side fetch.
-// Hoisted out of the try block below so it's also usable for the
-// client-side calendarEvents payload and the EventDetailCard layouts prop
-// (both need it after the try/catch, not just inside it).
+// bulk fetches, then sliced in memory per event. Only the COUNT is kept —
+// the round list itself is fetched lazily, client-side, via
+// /api/layout-rounds.ts, only once a visitor actually expands a given
+// event's collapsible (see that route's own doc comment for why: eagerly
+// materializing every matching round for every event on the page used to
+// add hundreds of unopened <details> to the response). The recap CONTENT
+// one level deeper is separately and already lazy — see
+// src/pages/api/round-recap/[subsessionId].ts.
 let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
-let layoutRoundsByEventId = new Map<string, LayoutRoundSummary[]>();
+let layoutRoundsCountByEventId = new Map<string, number>();
 // Which curated_rounds row (if any) each event represents — same
 // season_id+round_number / subsession_id-override resolution as
 // getEventRound() (src/lib/results.ts), just done in bulk against the
@@ -46,12 +63,19 @@ let layoutRoundsByEventId = new Map<string, LayoutRoundSummary[]>();
 // rather than issuing one more REST call per event on a page that can list
 // several dozen of them.
 let linkedRoundByEventId = new Map<string, RoundSummary | null>();
-try {
-  const [circuits, layoutsResult, allRounds] = await Promise.all([
-    getCircuits(supabaseEnv),
-    getAllCircuitLayouts(supabaseEnv),
-    getAllRounds(supabaseEnv),
-  ]);
+const bulkFetchPromise = (async () => {
+  try {
+    return await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getAllRounds(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to resolve layout race-recap history for the event list:', err);
+    return null;
+  }
+})();
+
+const [events, bulkResult] = await Promise.all([eventsPromise, bulkFetchPromise]);
+
+if (bulkResult) {
+  const [circuits, layoutsResult, allRounds] = bulkResult;
   layouts = layoutsResult;
   const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
     supabaseEnv,
@@ -60,9 +84,9 @@ try {
   const roundsBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const roundsBySeasonRound = new Map(allRounds.map((r) => [`${r.season_id}:${r.round_number}`, r]));
   for (const event of events) {
-    layoutRoundsByEventId.set(
+    layoutRoundsCountByEventId.set(
       event.id,
-      findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout)
+      findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout).length
     );
     const linked =
       event.subsession_id !== null
@@ -72,16 +96,9 @@ try {
           : null;
     linkedRoundByEventId.set(event.id, linked);
   }
-} catch (err) {
-  console.error('Failed to resolve layout race-recap history for the event list:', err);
 }
 
-let bannerUrl: string | null = null;
-try {
-  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'calendar');
-} catch (err) {
-  console.error('Failed to load page banner:', err);
-}
+const bannerUrl = await bannerPromise;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
@@ -183,7 +200,7 @@ const upcomingIcsBundle = upcoming
       <div data-view-panel="list">
         {upcoming.length > 0 && (
           <div class="mt-10 space-y-4">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
 
@@ -191,7 +208,7 @@ const upcomingIcsBundle = upcoming
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 space-y-4 opacity-70">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRounds={layoutRoundsByEventId.get(event.id)} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
+              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
             </div>
           </div>
         )}
@@ -371,12 +388,14 @@ const upcomingIcsBundle = upcoming
         detailPanel!.appendChild(list);
 
         // The clones' own "Race Recaps at this Layout" <details> (if any)
-        // are brand new nodes, never seen by initRoundRecaps() before — as
-        // opposed to attributes/classes, addEventListener bindings are
-        // never copied by cloneNode(), so this re-runs the same guarded
-        // initializer to bind just these new ones (already-bound elements
-        // elsewhere on the page are unaffected — see its own WeakSet guard).
+        // are brand new nodes, never seen by initRoundRecaps()/
+        // initLayoutRounds() before — as opposed to attributes/classes,
+        // addEventListener bindings are never copied by cloneNode(), so
+        // this re-runs both same guarded initializers to bind just these
+        // new ones (already-bound elements elsewhere on the page are
+        // unaffected — see each one's own WeakSet guard).
         initRoundRecaps();
+        initLayoutRounds();
       }
 
       function renderCalendar() {
@@ -588,6 +607,117 @@ const upcomingIcsBundle = upcoming
       });
     }
 
+    // --- "Race Recaps at this Layout" lazy loading (one level up from the
+    // recap content above) ---
+    //
+    // Each event card's outer collapsible (`[data-layout-rounds-summary]`,
+    // see EventDetailCard.astro) starts with an EMPTY body
+    // (`[data-layout-rounds-body]`) and a server-rendered count in its
+    // summary — the actual list of matching historical rounds is only
+    // fetched, via /api/layout-rounds.ts, the first time a visitor expands
+    // it. Same recapCache-style memoization (keyed by circuitId+layout
+    // rather than subsessionId) and the same WeakSet-not-dataset-flag
+    // reasoning as boundRecapDetails above — a cloned card (see
+    // showDayDetail()) must be treated as a distinct, not-yet-bound node.
+    interface LayoutRoundLite {
+      subsessionId: number;
+      trackName: string;
+      startTime: string;
+      seasonLabel: string | null;
+    }
+
+    const layoutRoundsCache = new Map<string, Promise<LayoutRoundLite[] | null>>();
+    const boundLayoutRoundsDetails = new WeakSet<HTMLDetailsElement>();
+
+    /** Same date-only-vs-timestamp parsing as formatDate() in src/lib/supabase.ts. */
+    function formatDate(dateInput: string | null): string {
+      if (!dateInput) return '—';
+      const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
+      const date = dateOnlyMatch
+        ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+        : new Date(dateInput);
+      return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+
+    function fetchLayoutRounds(circuitId: string, layout: string): Promise<LayoutRoundLite[] | null> {
+      const key = `${circuitId}:${layout}`;
+      if (!layoutRoundsCache.has(key)) {
+        const params = new URLSearchParams({ circuitId });
+        if (layout) params.set('layout', layout);
+        layoutRoundsCache.set(
+          key,
+          fetch(`/api/layout-rounds?${params.toString()}`)
+            .then((res) => (res.ok ? (res.json() as Promise<LayoutRoundLite[]>) : null))
+            .catch(() => null)
+        );
+      }
+      return layoutRoundsCache.get(key)!;
+    }
+
+    // Same "bypasses Astro's router, so drive the progress bar directly"
+    // reasoning as fetchRoundRecapWithProgress above.
+    function fetchLayoutRoundsWithProgress(circuitId: string, layout: string): Promise<LayoutRoundLite[] | null> {
+      const key = `${circuitId}:${layout}`;
+      const alreadyCached = layoutRoundsCache.has(key);
+      if (alreadyCached) return fetchLayoutRounds(circuitId, layout);
+      showProgress();
+      return fetchLayoutRounds(circuitId, layout).finally(() => hideProgress());
+    }
+
+    function renderLayoutRounds(container: HTMLElement, rounds: LayoutRoundLite[] | null) {
+      if (!rounds) {
+        container.innerHTML = '<p class="text-xs text-white/40">Couldn’t load race recaps for this layout.</p>';
+        return;
+      }
+      container.innerHTML = '';
+      if (rounds.length === 0) {
+        container.innerHTML = '<p class="text-xs text-white/40">No results on file for this layout.</p>';
+        return;
+      }
+
+      rounds.forEach((r) => {
+        const details = document.createElement('details');
+        details.dataset.roundRecap = String(r.subsessionId);
+        details.className = 'rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2';
+
+        const summary = document.createElement('summary');
+        summary.className = 'cursor-pointer list-none text-xs font-semibold text-white/60 transition hover:text-white';
+        summary.textContent = `${formatDate(r.startTime)}${r.seasonLabel ? ` — ${r.seasonLabel}` : ''} — ${r.trackName}`;
+        details.appendChild(summary);
+
+        const body = document.createElement('div');
+        body.className = 'mt-2';
+        body.dataset.recapBody = '';
+        details.appendChild(body);
+
+        container.appendChild(details);
+      });
+
+      // These <details data-round-recap> nodes are brand new — never seen by
+      // initRoundRecaps() before — so re-run that same guarded initializer
+      // to bind just these (already-bound ones elsewhere on the page are
+      // unaffected, same as showDayDetail()'s identical call).
+      initRoundRecaps();
+    }
+
+    function initLayoutRounds() {
+      document.querySelectorAll<HTMLDetailsElement>('[data-layout-rounds-summary]').forEach((details) => {
+        if (boundLayoutRoundsDetails.has(details)) return;
+        boundLayoutRoundsDetails.add(details);
+
+        details.addEventListener('toggle', () => {
+          if (!details.open) return;
+          const circuitId = details.dataset.circuitId;
+          const layout = details.dataset.layout ?? '';
+          const container = details.querySelector<HTMLElement>('[data-layout-rounds-body]');
+          if (!container || !circuitId || container.dataset.loaded === 'true') return;
+          container.dataset.loaded = 'true';
+          container.innerHTML = '<p class="text-xs text-white/40">Loading…</p>';
+          fetchLayoutRoundsWithProgress(circuitId, layout).then((rounds) => renderLayoutRounds(container, rounds));
+        });
+      });
+    }
+
     // Pure client-side show/hide, same as the search-box filters elsewhere
     // on the site — the Past Events block is already fully rendered in the
     // DOM (see the template above), so this never needs a server round
@@ -607,6 +737,7 @@ const upcomingIcsBundle = upcoming
       initCalendarGrid();
       initHidePastEventsToggle();
       initRoundRecaps();
+      initLayoutRounds();
     }
 
     document.addEventListener('astro:page-load', initCalendarPage);
