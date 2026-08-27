@@ -2,7 +2,7 @@
 // One race's results table — shared by both the overall (cross-class) and
 // per-class views on /results/[subsessionId]. Column order is fixed:
 // Pos, Driver / Number, (Class, overall view only), Margin, Start,
-// Incidents, Laps, Laps Led, Best Lap, Class Points. There's deliberately no
+// Incidents, Laps, Led, Best Lap, Class Points. There's deliberately no
 // separate "badges" column anymore — pole and the post-penalty adjustment
 // flag are shown as small inline markers on Start/Pos instead, and result
 // tags (e.g. "Unclassified") are shown next to the driver's name, so the
@@ -171,7 +171,7 @@ for (const p of racePenalties) {
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Start</th>
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
           <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Laps</th>
-          <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Laps Led</th>
+          <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Led</th>
           <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Best Lap</th>
           <th class="py-3 pr-4 text-center font-medium">Class Points</th>
         </tr>
@@ -329,7 +329,7 @@ for (const p of racePenalties) {
                   <div class="mt-0.5 font-display text-sm text-white/90">{row.overallRaceTimeFormatted}</div>
                 </div>
                 <div>
-                  <div class="text-[10px] uppercase tracking-wide text-white/30">Laps Led</div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Led</div>
                   <div class="mt-0.5 font-display text-sm text-white/90">{row.lapsLed ?? 0}</div>
                 </div>
                 {row.team && (
