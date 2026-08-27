@@ -71,20 +71,10 @@ const searchText = [displayDriverName(driver.name), driver.car_number !== null ?
     </div>
   </td>
   <td
-    class="hidden py-2.5 pr-3 text-white/60 lg:table-cell"
+    class="hidden py-2.5 pr-4 text-white/60 lg:table-cell"
     data-col="signup"
     data-sort-value={driver.sign_up_date ?? ''}
   >
     {formatDateShort(driver.sign_up_date)}
   </td>
-  <!--
-    driver.starts is the stored column — only ever set by generate_seed.py's
-    one-time CSV upsert, never kept in sync as new races get scored (see
-    /api/driver-career-totals's own doc comment). It's rendered here as the
-    immediate paint so the table isn't empty while that loads, then
-    roster.astro's own script overwrites this cell (by this row's
-    data-driver-id) with the live, always-correct number once the fetch
-    resolves — same "stale-first, live-patch-after" pattern round-recap uses.
-  -->
-  <td class="hidden py-2.5 pr-4 text-center text-white/60 lg:table-cell" data-col="starts">{driver.starts}</td>
 </tr>

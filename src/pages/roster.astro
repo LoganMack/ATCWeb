@@ -145,7 +145,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
     <!--
       A dense table instead of a card grid — maximizes how many drivers are
       visible on screen at once. Less critical columns progressively drop
-      off on narrower viewports (signed-up/starts at lg, status at
+      off on narrower viewports (signed-up at lg, status at
       md, team name at sm) rather than shrinking everything down to
       unreadable. No Car column here on purpose — a driver can swap cars
       once per season without penalty, so "current car" doesn't mean much
@@ -169,8 +169,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
             <th class="hidden whitespace-nowrap py-3 pr-3 font-medium sm:table-cell" data-sort-key="team">Team</th>
             <th class="whitespace-nowrap py-3 pr-3 font-medium" data-sort-key="class">Class</th>
             <th class="hidden whitespace-nowrap py-3 pr-3 font-medium md:table-cell" data-sort-key="status">Status</th>
-            <th class="hidden whitespace-nowrap py-3 pr-3 font-medium lg:table-cell" data-sort-key="signup">Signed Up</th>
-            <th class="hidden whitespace-nowrap py-3 pr-4 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
+            <th class="hidden whitespace-nowrap py-3 pr-4 font-medium lg:table-cell" data-sort-key="signup">Signed Up</th>
           </tr>
         </thead>
         <tbody id="roster-body">
@@ -189,50 +188,6 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
   </section>
 
   <script>
-    // Starts starts out showing whatever the stored drivers.starts column
-    // says (rendered server-side in DriverRow.astro) — that's only ever set
-    // by a one-time spreadsheet import (see /api/driver-career-totals's own
-    // doc comment for the full story), so it's frequently stale or zero for
-    // anyone who's raced since. This fetches the live, always-correct number
-    // (the same computeDriverCareerStats() the Driver Stats page itself
-    // uses) and patches it in once that resolves — deliberately NOT
-    // computed inline in roster.astro's own frontmatter, since that's the
-    // single most expensive computation in the app and this page needs to
-    // stay fast. Cached in a module-scoped promise (not re-fetched per row,
-    // and safe to no-op-reuse even if this whole script somehow re-runs)
-    // rather than a `dataset` flag on an element Astro's client router can
-    // swap out from under it — see src/scripts/expandRows.ts's own doc
-    // comment for exactly why a DOM-attached guard is the wrong tool for
-    // something that only needs to happen once per page view.
-    let careerTotalsPromise: Promise<Record<string, { starts: number; seasonsCount: number }>> | null = null;
-
-    function fetchCareerTotals() {
-      if (!careerTotalsPromise) {
-        careerTotalsPromise = fetch('/api/driver-career-totals')
-          .then((res) => (res.ok ? res.json() : {}))
-          .catch((err) => {
-            console.error('Failed to load live driver career totals — Starts will show the last-imported figure:', err);
-            return {};
-          });
-      }
-      return careerTotalsPromise;
-    }
-
-    function initLiveCareerTotals() {
-      const body = document.getElementById('roster-body');
-      if (!body) return;
-      fetchCareerTotals().then((totals) => {
-        body.querySelectorAll<HTMLElement>('[data-driver-id]').forEach((row) => {
-          const entry = row.dataset.driverId ? totals[row.dataset.driverId] : undefined;
-          if (!entry) return;
-          const startsCell = row.querySelector<HTMLElement>('[data-col="starts"]');
-          if (startsCell) startsCell.textContent = String(entry.starts);
-        });
-      });
-    }
-
-    document.addEventListener('astro:page-load', initLiveCareerTotals);
-
     // "Active" is a quick filter, not a literal driver_statuses.name match —
     // it covers Active, Veteran, and New (everyone who isn't Inactive).
     const ACTIVE_STATUSES = ['Active', 'Veteran', 'New'];

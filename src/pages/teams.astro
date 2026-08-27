@@ -2,7 +2,17 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import { getTeams, getDrivers, getSeasons, getTeamRosterForSeason, getPageBanners, displayDriverName, resolveSupabaseEnv } from '../lib/supabase';
+import {
+  getTeams,
+  getDrivers,
+  getSeasons,
+  getTeamRosterForSeason,
+  getPageBanners,
+  displayDriverName,
+  resolveSupabaseEnv,
+  getOrganizations,
+  getAllOrganizationTeamSeasons,
+} from '../lib/supabase';
 import { driversSelect, type DriverBasic } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 import TeamLogo from '../components/TeamLogo.astro';
@@ -17,6 +27,27 @@ try {
 } catch (err) {
   console.error('Failed to load teams:', err);
   loadError = true;
+}
+
+// Team -> organization name, for the small subtitle under a renamed team's
+// name (see 0043_organizations.sql). organization_team_seasons links a team
+// to an org per-season, but in practice a given team_id only ever
+// represents one era of one organization (a rename creates a brand-new
+// team_id, it doesn't re-link an existing one) — so any one link found for
+// a team_id is enough here; there's no need to pick a specific season the
+// way computeTeamCareerStats does. A team with no link at all (the common
+// case — most teams have never been renamed) just has no entry.
+let orgNameByTeamId = new Map<string, string>();
+try {
+  const [organizations, orgTeamSeasons] = await Promise.all([getOrganizations(supabaseEnv), getAllOrganizationTeamSeasons(supabaseEnv)]);
+  const orgNameById = new Map(organizations.map((o) => [o.id, o.name]));
+  for (const link of orgTeamSeasons) {
+    if (orgNameByTeamId.has(link.team_id)) continue;
+    const orgName = orgNameById.get(link.organization_id);
+    if (orgName) orgNameByTeamId.set(link.team_id, orgName);
+  }
+} catch (err) {
+  console.error('Failed to load organizations for team subtitles:', err);
 }
 
 // Current roster (drivers.team_id — the same "current team" every driver's
@@ -106,6 +137,21 @@ const sortedTeams = [...teams].sort((a, b) => {
     )}
 
     {!loadError && (
+      <div class="reveal mt-4 flex flex-wrap gap-2" style="transition-delay: 100ms" data-filter-group="status">
+        {['Active', 'Inactive', 'All'].map((s) => (
+          <button
+            type="button"
+            data-filter-value={s}
+            class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+            data-active={s === 'Active' ? 'true' : 'false'}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    )}
+
+    {!loadError && (
       <div class="mt-4 overflow-x-auto rounded-xl border border-white/10">
         <table class="w-full border-collapse" data-sortable>
           <thead>
@@ -121,16 +167,22 @@ const sortedTeams = [...teams].sort((a, b) => {
             {sortedTeams.map((team) => {
               const members = memberNamesByTeamName.get(team.name) ?? [];
               const roster = rosterByTeamId.get(team.id) ?? [];
+              const orgName = orgNameByTeamId.get(team.id);
               const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
               return (
                 <tr
                   class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}
                   data-search={searchText}
+                  data-status={team.status}
                 >
                   <td class="py-2.5 pl-4 pr-3" data-col="name">
                     <div class="flex items-center gap-3">
                       <TeamLogo name={team.name} logoUrl={team.logo_url} size="h-8 w-8" grayscale={team.status === 'inactive'} />
-                      <span class="font-semibold">{team.name}</span>
+                      <div class="flex flex-col justify-center">
+                        <span class="font-semibold leading-tight">{team.name}</span>
+                        {/* Always rendered (invisible when there's no org) so every row is exactly the same height regardless of whether that team has an organization — see this page's own org-name-by-team-id comment above. */}
+                        <span class={`text-[11px] leading-tight text-white/40 ${orgName ? '' : 'invisible'}`}>{orgName ?? ' '}</span>
+                      </div>
                     </div>
                   </td>
                   <td class="py-2.5 pr-4" data-col="status" data-sort-value={team.status}>
@@ -166,31 +218,63 @@ const sortedTeams = [...teams].sort((a, b) => {
   </section>
 
   <script>
-    // Plain substring search across each team's name + its current roster's
-    // driver names (data-search, lowercased server-side) — same
-    // show/hide-via-inline-style approach the roster/circuits filters use.
-    function initTeamSearch() {
+    // Combines the search box (substring match on data-search, lowercased
+    // server-side) with the Active/Inactive/All status filter — same
+    // state-object + show/hide-via-inline-style approach roster.astro's
+    // initRosterFilters uses for its class/status/search combo.
+    function initTeamFilters() {
       const input = document.getElementById('team-search') as HTMLInputElement | null;
       const list = document.getElementById('team-list');
       const empty = document.getElementById('team-search-empty');
-      if (!input || !list) return;
+      if (!list) return;
 
-      function applySearch() {
-        const q = input!.value.trim().toLowerCase();
+      // Matches whichever button starts data-active="true" in the markup —
+      // Active by default.
+      const state: Record<string, string> = { status: 'Active', search: '' };
+
+      function statusMatches(row: HTMLElement) {
+        if (state.status === 'All') return true;
+        return row.dataset.status === state.status.toLowerCase();
+      }
+
+      function searchMatches(row: HTMLElement) {
+        if (!state.search) return true;
+        return (row.dataset.search ?? '').includes(state.search);
+      }
+
+      function applyFilters() {
         const rows = list!.querySelectorAll<HTMLElement>('[data-search]');
         let visibleCount = 0;
         rows.forEach((row) => {
-          const matches = !q || (row.dataset.search ?? '').includes(q);
-          row.style.display = matches ? '' : 'none';
-          if (matches) visibleCount += 1;
+          const visible = statusMatches(row) && searchMatches(row);
+          row.style.display = visible ? '' : 'none';
+          if (visible) visibleCount += 1;
         });
         if (empty) empty.classList.toggle('hidden', visibleCount > 0);
       }
 
-      input.addEventListener('input', applySearch);
-      applySearch();
+      document.querySelectorAll<HTMLElement>('[data-filter-group="status"]').forEach((group) => {
+        group.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            state.status = btn.dataset.filterValue!;
+            group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+              b.dataset.active = String(b === btn);
+            });
+            applyFilters();
+          });
+        });
+      });
+
+      input?.addEventListener('input', () => {
+        state.search = input.value.trim().toLowerCase();
+        applyFilters();
+      });
+
+      // Apply the default filter state immediately — otherwise every row is
+      // visible (no inline style yet) until the visitor clicks a button.
+      applyFilters();
     }
 
-    document.addEventListener('astro:page-load', initTeamSearch);
+    document.addEventListener('astro:page-load', initTeamFilters);
   </script>
 </Layout>

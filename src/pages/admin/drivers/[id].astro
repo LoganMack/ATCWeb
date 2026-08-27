@@ -758,11 +758,6 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
   {!isNew && (
     <div class="reveal mt-10 max-w-2xl border-t border-white/10 pt-6" style="transition-delay: 95ms">
       <h2 class="text-lg font-semibold">Driver Number by Season</h2>
-      <p class="mt-1 text-xs text-white/40">
-        A season with no override falls back to this driver's current number above. Set one here for a season where
-        they raced under a different number — this is what the manual Race Results and Incident Report CSV importers
-        use to match a past round's rows to this driver, instead of relying on their current number.
-      </p>
 
       {seasonNumberError && (
         <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{seasonNumberError}</p>
