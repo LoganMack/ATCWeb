@@ -3,7 +3,7 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
-import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS } from '../../../lib/eventFormatting';
+import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -48,7 +48,7 @@ try {
       <table class="w-full border-collapse" data-sortable>
         <thead>
           <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-            <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="circuit">Circuit</th>
+            <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="circuit">Event</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="date">Date</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="format">Format</th>
             <th class="py-3 pr-6 font-medium"></th>
@@ -65,7 +65,7 @@ try {
                     <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" />
                   )}
                   <div>
-                    <span class="font-semibold">{event.circuits?.name ?? 'TBA'}</span>
+                    <span class="font-semibold">{event.title ?? event.circuits?.name ?? 'TBA'}</span>
                     {event.season_id && event.round_number !== null && (
                       <p class="text-xs text-white/40">
                         {event.seasons?.name ?? 'Season'} — Round {event.round_number}
@@ -79,19 +79,19 @@ try {
               </td>
               <td class="py-3 pr-3" data-col="format" data-sort-value={event.format}>
                 <div class="flex flex-wrap items-center gap-1.5">
-                  {event.category === 'test' ? (
-                    // Test Session events don't use the format field (see
-                    // eventFormatting.ts) — same override as
-                    // EventDetailCard.astro/UpcomingEventCard.astro.
-                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES.test}`}>
-                      {CATEGORY_LABELS.test}
-                    </span>
-                  ) : (
+                  {usesFormatBadge(event.category) ? (
                     <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
                       {FORMAT_LABELS[event.format]}
                     </span>
+                  ) : (
+                    // TEST/HOLIDAY/IRACING events don't use the format field
+                    // (see eventFormatting.ts) — same override as
+                    // EventDetailCard.astro/UpcomingEventCard.astro.
+                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+                      {CATEGORY_LABELS[event.category]}
+                    </span>
                   )}
-                  {event.category !== 'championship' && event.category !== 'test' && (
+                  {event.category !== 'championship' && usesFormatBadge(event.category) && (
                     <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
                       {CATEGORY_LABELS[event.category]}
                     </span>

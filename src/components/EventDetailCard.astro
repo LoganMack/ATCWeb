@@ -8,6 +8,7 @@ import {
   FORMAT_LABELS,
   CATEGORY_BADGE_CLASSES,
   CATEGORY_LABELS,
+  usesFormatBadge,
   getEventSessions,
 } from '../lib/eventFormatting';
 import type { RoundSummary } from '../lib/results';
@@ -64,7 +65,7 @@ const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), 
 const todayStr = new Date().toISOString().slice(0, 10);
 const isUpcoming = event.event_date >= todayStr;
 const icsBlock = isUpcoming ? buildEventIcsBlock(event, layouts) : null;
-const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.event_date}.ics`;
+const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event')}-${event.event_date}.ics`;
 ---
 
 <article
@@ -78,8 +79,14 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
         <img src={imageUrl} alt="" loading="lazy" class="h-12 w-12 flex-none rounded object-contain" />
       )}
       <div>
-        <h3 class="font-display text-2xl leading-none">{event.circuits?.name ?? 'TBA'}</h3>
-        {event.layout && <p class="mt-1 text-sm text-white/50">{displayLayoutName(event.layout)}</p>}
+        <h3 class="font-display text-2xl leading-none">{event.title ?? event.circuits?.name ?? 'TBA'}</h3>
+        {event.title ? (
+          // HOLIDAY/IRACING events show their own subtitle in place of the
+          // layout name — no circuit means no layout to display either way.
+          event.subtitle && <p class="mt-1 text-sm text-white/50">{event.subtitle}</p>
+        ) : (
+          event.layout && <p class="mt-1 text-sm text-white/50">{displayLayoutName(event.layout)}</p>
+        )}
         {event.season_id && event.round_number !== null && (
           <p class="mt-1 text-sm text-white/50">
             {event.seasons?.name ?? 'Season'} — Round {event.round_number}
@@ -89,20 +96,20 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
     </div>
     <div class="flex flex-col items-end gap-2">
       <div class="flex flex-wrap items-center justify-end gap-1.5">
-        {event.category === 'test' ? (
-          // Test Session events don't use the format field at all (see
-          // eventFormatting.ts) — the badge shows the category label with
-          // the same neutral styling the category badge would've used,
-          // rather than a second/duplicate "Test Session" pill below.
-          <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES.test}`}>
-            {CATEGORY_LABELS.test}
-          </span>
-        ) : (
+        {usesFormatBadge(event.category) ? (
           <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
             {FORMAT_LABELS[event.format]}
           </span>
+        ) : (
+          // TEST/HOLIDAY/IRACING events don't use the format field at all
+          // (see eventFormatting.ts) — the badge shows the category label
+          // with the same styling the category badge would've used, rather
+          // than a second/duplicate pill below.
+          <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+            {CATEGORY_LABELS[event.category]}
+          </span>
         )}
-        {event.category !== 'championship' && event.category !== 'test' && (
+        {event.category !== 'championship' && usesFormatBadge(event.category) && (
           <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
             {CATEGORY_LABELS[event.category]}
           </span>
@@ -118,9 +125,9 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
     // adds up fast, so this is collapsed by default and only the summary
     // line shows until a visitor opens it. Native <details>, same pattern
     // as "Race Recaps at this Layout" below — no JS needed either place.
-    // The Add to Calendar / results links below stay OUTSIDE this collapse
-    // and always visible: that's the whole point of moving Add to Calendar
-    // up here in the first place (it used to be buried below Race Recaps).
+    // The results links below stay OUTSIDE this collapse and always
+    // visible. Add to Calendar sits further down, sharing a line with the
+    // "Race Recaps at this Layout" summary — see that block below.
     <details class="mt-5">
       <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
         Sessions{event.fuel_limit_pct !== null ? ' & Fuel Limit' : ''}
@@ -172,7 +179,7 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
     </details>
   )}
 
-  {(event.results_url || linkedRound || icsBlock) && (
+  {(event.results_url || linkedRound) && (
     <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-white/60">
       {linkedRound && (
         <a href={`/results/${linkedRound.subsession_id}`} class="text-brand-primary hover:underline">
@@ -184,34 +191,40 @@ const icsFilename = `atc-${slugify(event.circuits?.name ?? 'event')}-${event.eve
           iRacing Results &rarr;
         </a>
       )}
-      {icsBlock && (
-        <button
-          type="button"
-          data-ics-download
-          data-ics-event={icsBlock}
-          data-ics-filename={icsFilename}
-          class="ml-auto flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1 text-xs font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-            <line x1="12" y1="14" x2="12" y2="18" />
-            <line x1="10" y1="16" x2="14" y2="16" />
-          </svg>
-          Add to Calendar
-        </button>
-      )}
     </div>
   )}
 
-  {layoutRoundsCount > 0 && (
-    <details class="mt-4 border-t border-white/10 pt-4" data-layout-rounds-summary data-circuit-id={event.circuit_id} data-layout={event.layout ?? ''}>
-      <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
-        Race Recaps at this Layout ({layoutRoundsCount})
-      </summary>
-      <div class="mt-3 flex flex-col gap-2" data-layout-rounds-body></div>
-    </details>
+  {(layoutRoundsCount > 0 || icsBlock) && (
+    <div class="mt-4 border-t border-white/10 pt-4">
+      <div class="flex flex-wrap items-start gap-x-6 gap-y-2">
+        {layoutRoundsCount > 0 && (
+          <details class="min-w-0 flex-1" data-layout-rounds-summary data-circuit-id={event.circuit_id} data-layout={event.layout ?? ''}>
+            <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
+              Race Recaps at this Layout ({layoutRoundsCount})
+            </summary>
+            <div class="mt-3 flex flex-col gap-2" data-layout-rounds-body></div>
+          </details>
+        )}
+        {icsBlock && (
+          <button
+            type="button"
+            data-ics-download
+            data-ics-event={icsBlock}
+            data-ics-filename={icsFilename}
+            class="ml-auto flex flex-none items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1 text-xs font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10 hover:text-white"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+              <line x1="12" y1="14" x2="12" y2="18" />
+              <line x1="10" y1="16" x2="14" y2="16" />
+            </svg>
+            Add to Calendar
+          </button>
+        )}
+      </div>
+    </div>
   )}
 </article>

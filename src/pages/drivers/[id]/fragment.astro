@@ -43,6 +43,7 @@ interface CareerMove {
   seasonName: string;
   from: string;
   to: string;
+  fromLogoUrl: string | null;
   toLogoUrl: string | null;
 }
 const careerMoves: CareerMove[] = [];
@@ -54,6 +55,11 @@ interface AwardEntry {
   detail: string | null;
 }
 const awardEntries: AwardEntry[] = [];
+interface AwardGroup {
+  seasonNumber: number;
+  seasonName: string;
+  awards: AwardEntry[];
+}
 
 function trimNum(n: number, maxDecimals: number): string {
   const str = n.toFixed(maxDecimals);
@@ -91,17 +97,21 @@ try {
   if (career) {
     const chronological = [...career.seasons].sort((a, b) => a.season.number - b.season.number);
     let prevTeamName: string | null = null;
+    let prevLogoUrl: string | null = null;
     for (const s of chronological) {
       const primary = s.teams[0] ?? null;
       const currentTeamName = primary?.teamName ?? null;
+      const currentLogoUrl = primary?.logoUrl ?? null;
       if (currentTeamName !== prevTeamName) {
         careerMoves.push({
           seasonName: s.season.name,
           from: prevTeamName ?? 'Independent',
           to: currentTeamName ?? 'Independent',
-          toLogoUrl: primary?.logoUrl ?? null,
+          fromLogoUrl: prevLogoUrl,
+          toLogoUrl: currentLogoUrl,
         });
         prevTeamName = currentTeamName;
+        prevLogoUrl = currentLogoUrl;
       }
     }
     careerMoves.reverse(); // newest first, matching every other table on this page
@@ -203,6 +213,20 @@ try {
 } catch (err) {
   console.error('Failed to load driver profile data:', err);
   loadError = err instanceof Error ? err.message : String(err);
+}
+
+// Awards are displayed grouped by season (one heading per season, its
+// awards listed underneath) rather than repeating the season name on every
+// row. awardEntries is already sorted newest-season-first, so grouping is
+// just a run-length pass over consecutive matching seasonNumber/seasonName.
+const awardGroups: AwardGroup[] = [];
+for (const a of awardEntries) {
+  const last = awardGroups[awardGroups.length - 1];
+  if (last && last.seasonNumber === a.seasonNumber && last.seasonName === a.seasonName) {
+    last.awards.push(a);
+  } else {
+    awardGroups.push({ seasonNumber: a.seasonNumber, seasonName: a.seasonName, awards: [a] });
+  }
 }
 
 // How many of THIS driver's own races share a subsession_id — a round with
@@ -411,7 +435,12 @@ for (const r of raceHistory) {
                 {careerMoves.map((m) => (
                   <tr class="border-b border-white/5">
                     <td class="py-2 pr-2 font-semibold text-white/90">{m.seasonName}</td>
-                    <td class="py-2 pr-2 text-white/60">{m.from}</td>
+                    <td class="py-2 pr-2 text-white/60">
+                      <span class="flex items-center gap-1.5">
+                        {m.fromLogoUrl && <TeamLogo name={m.from} logoUrl={m.fromLogoUrl} size="h-4 w-4" />}
+                        {m.from}
+                      </span>
+                    </td>
                     <td class="py-2 pr-2 text-white/80">
                       <span class="flex items-center gap-1.5">
                         {m.toLogoUrl && <TeamLogo name={m.to} logoUrl={m.toLogoUrl} size="h-4 w-4" />}
@@ -429,29 +458,23 @@ for (const r of raceHistory) {
       <!-- Awards -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <h2 class="mb-3 font-display text-2xl">Awards</h2>
-        {awardEntries.length === 0 ? (
+        {awardGroups.length === 0 ? (
           <p class="text-sm text-white/40">No awards on file yet.</p>
         ) : (
-          <div class="overflow-x-auto">
-            <table class="w-full border-collapse text-xs">
-              <thead>
-                <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
-                  <th class="py-2 pr-2 font-medium">Season</th>
-                  <th class="py-2 pr-2 font-medium">Award</th>
-                </tr>
-              </thead>
-              <tbody>
-                {awardEntries.map((a) => (
-                  <tr class="border-b border-white/5">
-                    <td class="py-2 pr-2 font-semibold text-white/90">{a.seasonName}</td>
-                    <td class="py-2 pr-2 text-white/80">
-                      {a.label}
-                      {a.detail && <span class="block text-[10px] text-white/40">{a.detail}</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div class="flex flex-col gap-4">
+            {awardGroups.map((g) => (
+              <div>
+                <h3 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">{g.seasonName}</h3>
+                <ul class="flex flex-col gap-1.5 text-xs">
+                  {g.awards.map((a) => (
+                    <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
+                      <span class="font-semibold text-white/90">{a.label}</span>
+                      {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         )}
       </div>

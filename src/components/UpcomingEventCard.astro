@@ -9,6 +9,7 @@ import {
   FORMAT_LABELS,
   CATEGORY_BADGE_CLASSES,
   CATEGORY_LABELS,
+  usesFormatBadge,
   getEventSessions,
 } from '../lib/eventFormatting';
 import { buildEventIcsBlock } from '../lib/ics';
@@ -24,7 +25,7 @@ interface Props {
 }
 
 const { event, featured = false, index = 0, layouts = [] } = Astro.props;
-const circuitName = event.circuits?.name ?? 'TBA';
+const circuitName = event.title ?? event.circuits?.name ?? 'TBA';
 const sessions = featured ? getEventSessions(event) : [];
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 80 });
 // Only the featured card gets its own "Add to Calendar" button — the
@@ -42,15 +43,15 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
   >
     <div class="flex items-center justify-between gap-3">
       <p class="font-display text-sm uppercase tracking-widest text-brand-primary">Next Up</p>
-      {event.category === 'test' ? (
-        // Test Session events don't use the format field (see
-        // eventFormatting.ts) — same override as EventDetailCard.astro.
-        <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES.test}`}>
-          {CATEGORY_LABELS.test}
-        </span>
-      ) : (
+      {usesFormatBadge(event.category) ? (
         <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
           {FORMAT_LABELS[event.format]}
+        </span>
+      ) : (
+        // TEST/HOLIDAY/IRACING events don't use the format field (see
+        // eventFormatting.ts) — same override as EventDetailCard.astro.
+        <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+          {CATEGORY_LABELS[event.category]}
         </span>
       )}
     </div>
@@ -61,7 +62,11 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{circuitName}</h3>
-        {event.layout && <p class="text-sm text-white/50">{displayLayoutName(event.layout)}</p>}
+        {event.title ? (
+          event.subtitle && <p class="text-sm text-white/50">{event.subtitle}</p>
+        ) : (
+          event.layout && <p class="text-sm text-white/50">{displayLayoutName(event.layout)}</p>
+        )}
       </div>
     </div>
 
@@ -120,13 +125,13 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
         <p class="text-xs text-white/50">{formatEventDateShort(event.event_date)}</p>
       </div>
     </div>
-    {event.category === 'test' ? (
-      <span class={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES.test}`}>
-        {CATEGORY_LABELS.test}
-      </span>
-    ) : (
+    {usesFormatBadge(event.category) ? (
       <span class={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
         {FORMAT_LABELS[event.format]}
+      </span>
+    ) : (
+      <span class={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+        {CATEGORY_LABELS[event.category]}
       </span>
     )}
   </a>

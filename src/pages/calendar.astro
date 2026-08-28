@@ -86,7 +86,13 @@ if (bulkResult) {
   for (const event of events) {
     layoutRoundsCountByEventId.set(
       event.id,
-      findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout).length
+      // HOLIDAY/IRACING events have no circuit_id at all (0073_holiday_iracing_events.sql)
+      // — nothing to find a layout's race-recap history for, so those just
+      // get 0 rather than passing null into a function typed to expect a
+      // real circuit id.
+      event.circuit_id
+        ? findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout).length
+        : 0
     );
     const linked =
       event.subsession_id !== null
@@ -114,7 +120,7 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
 // page uses for data-edit-incident) rather than fetched again client-side.
 const calendarEvents = events.map((e) => ({
   date: e.event_date,
-  circuit: e.circuits?.name ?? 'TBA',
+  circuit: e.title ?? e.circuits?.name ?? 'TBA',
   logoUrl: eventImageUrl(e, e.circuits, layouts),
   layout: e.layout,
   format: e.format,
@@ -283,10 +289,14 @@ const upcomingIcsBundle = upcoming
       special: 'bg-brand-pink/15 text-brand-pink',
       sprint: 'bg-brand-gold/15 text-brand-gold',
     };
-    // Test Session events don't use the format field (see eventFormatting.ts
-    // — CATEGORY_BADGE_CLASSES.test/CATEGORY_LABELS.test server-side) — same
-    // neutral override applied here for the day-cell pill.
-    const TEST_SESSION_BADGE_CLASSES = 'bg-white/10 text-white/50';
+    // Test/Holiday/iRacing events don't use the format field (see
+    // eventFormatting.ts's usesFormatBadge() server-side) — same neutral/
+    // brand-hue overrides applied here for the day-cell pill.
+    const CATEGORY_ONLY_BADGE_CLASSES: Record<string, string> = {
+      test: 'bg-white/10 text-white/50',
+      holiday: 'bg-brand-gold/15 text-brand-gold',
+      iracing: 'bg-brand-blue/15 text-brand-blue',
+    };
 
     /** Same "N/A" -> "Full Course" display-only substitution as displayLayoutName() in src/lib/supabase.ts. */
     function displayLayoutName(name: string): string {
@@ -448,7 +458,7 @@ const upcomingIcsBundle = upcoming
 
           dayEvents.slice(0, 2).forEach((ev) => {
             const pill = document.createElement('span');
-            const badgeClasses = ev.category === 'test' ? TEST_SESSION_BADGE_CLASSES : (FORMAT_BADGE_CLASSES[ev.format] ?? 'bg-white/10 text-white/60');
+            const badgeClasses = CATEGORY_ONLY_BADGE_CLASSES[ev.category] ?? FORMAT_BADGE_CLASSES[ev.format] ?? 'bg-white/10 text-white/60';
             pill.className = `w-full truncate rounded px-1 py-0.5 text-[10px] font-semibold ${badgeClasses}`;
             pill.textContent = ev.circuit;
             cell.appendChild(pill);

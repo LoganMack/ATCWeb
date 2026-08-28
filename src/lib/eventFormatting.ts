@@ -52,6 +52,8 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
   championship: 'Championship',
   test: 'Test Session',
   exhibition: 'Exhibition',
+  holiday: 'Holiday',
+  iracing: 'iRacing',
 };
 
 // Championship is the default/normal case and deliberately gets no special
@@ -61,12 +63,29 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
 // neutral grey (a private/practice session — nothing to celebrate visually);
 // Exhibition gets a blue/pink/gold gradient — all three brand colors at
 // once, since it doesn't belong to any one class/format the way a real
-// championship round does.
+// championship round does. Holiday/iRacing each get one solid brand hue
+// (gold/blue respectively) — same constrained brand palette as everything
+// else on this site, not a new arbitrary color.
 export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'bg-white/10 text-white/50',
   exhibition: 'bg-gradient-to-r from-brand-blue/25 via-brand-pink/25 to-brand-gold/25 text-white ring-1 ring-white/10',
+  holiday: 'bg-brand-gold/15 text-brand-gold',
+  iracing: 'bg-brand-blue/15 text-brand-blue',
 };
+
+/**
+ * Categories that represent an actual on-track race weekend with a
+ * Sprint/Endurance/Special format — the only two where a format badge makes
+ * sense to render at all. TEST (no format concept — see CATEGORY_LABELS.test
+ * above) and the season-agnostic, circuit-less HOLIDAY/IRACING categories all
+ * fall through to their own plain category badge instead. Shared here so
+ * every card that renders this format-vs-category badge choice (calendar,
+ * homepage, admin events list) makes the same call.
+ */
+export function usesFormatBadge(category: EventCategory): boolean {
+  return category === 'championship' || category === 'exhibition';
+}
 
 export const WEATHER_LABELS: Record<Weather, string> = {
   clear: 'Clear',

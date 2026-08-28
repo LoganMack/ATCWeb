@@ -1829,10 +1829,24 @@ function resolveRoundLayoutKey(
   const circuitLayouts = layouts.filter((l) => l.circuit_id === circuit.id);
   if (circuitLayouts.length === 0) return { kind: 'circuit', id: circuit.id };
   if (circuitLayouts.length === 1) return { kind: 'layout', id: circuitLayouts[0].id };
-  if (!roundLayout) return null;
+  // A round with no layout on file, or one that doesn't match any known
+  // layout name, used to return null here — dropping the round out of
+  // findRoundsForLayout's matches ENTIRELY, for every event at that
+  // circuit, rather than just failing to pin it to one specific layout.
+  // That silently hid "Race Recaps at this Layout" history any time a
+  // multi-layout circuit had a round with curated_rounds.layout left
+  // unset (exactly the class of gap the 0023 migration backfilled for 92
+  // rounds) — and would recur for any future round an admin forgets to
+  // fill in. Falling back to the circuit-level key instead mirrors
+  // resolveEventLayoutKey's own fallback just above: the round still
+  // won't claim to be a SPECIFIC layout it can't confirm, but it's no
+  // longer invisible outright — it'll surface under an event whose own
+  // layout is equally unset/ambiguous (the only case that resolves to a
+  // circuit-level key on the event side too).
+  if (!roundLayout) return { kind: 'circuit', id: circuit.id };
   const targetLayout = normalizeTrackOrLayoutName(roundLayout);
   const match = circuitLayouts.find((l) => normalizeTrackOrLayoutName(l.name) === targetLayout);
-  return match ? { kind: 'layout', id: match.id } : null;
+  return match ? { kind: 'layout', id: match.id } : { kind: 'circuit', id: circuit.id };
 }
 
 export function findRoundsForLayout(

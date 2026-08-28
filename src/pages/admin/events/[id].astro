@@ -49,7 +49,14 @@ function optWeather(form: FormData, name: string): Weather | null {
 }
 function optCategory(form: FormData, name: string): EventCategory {
   const v = str(form, name);
-  return v === 'test' || v === 'exhibition' ? v : 'championship';
+  return v === 'test' || v === 'exhibition' || v === 'holiday' || v === 'iracing' ? v : 'championship';
+}
+// HOLIDAY/IRACING are the season-agnostic, circuit-less categories added by
+// 0073_holiday_iracing_events.sql — no track, no sessions, so they share
+// TEST's "Race 1 isn't required" carve-out below and additionally skip
+// circuit_id/layout entirely in favor of title/subtitle.
+function isCircuitlessCategory(category: EventCategory): boolean {
+  return category === 'holiday' || category === 'iracing';
 }
 // Same checkbox-parsing convention the Drivers admin form uses for its own
 // boolean toggles (on_probation/is_hall_of_fame/is_ai) — an unchecked box
@@ -60,6 +67,7 @@ function checkbox(form: FormData, name: string): boolean {
 
 function readForm(form: FormData): Partial<EventRecord> {
   const category = optCategory(form, 'category');
+  const circuitless = isCircuitlessCategory(category);
   // TEST/EXHIBITION are season-agnostic (per Logan) — even if stale
   // season/round values are sitting in the submitted form (e.g. the admin
   // switched category after picking a season), don't persist them. A
@@ -69,48 +77,56 @@ function readForm(form: FormData): Partial<EventRecord> {
   const seasonId = category === 'championship' ? optStr(form, 'season_id') : null;
   const roundNumber = category === 'championship' ? optInt(form, 'round_number') : null;
   return {
-    circuit_id: str(form, 'circuit_id'),
-    layout: optStr(form, 'layout'),
+    // HOLIDAY/IRACING events have no circuit/layout at all
+    // (0073_holiday_iracing_events.sql) — title/subtitle stand in for them
+    // instead, and vice versa: circuit_id/layout stay blank whenever
+    // title/subtitle apply, same "don't persist stale fields left over from
+    // switching category in the form" reasoning as season/round above.
+    circuit_id: circuitless ? null : str(form, 'circuit_id'),
+    layout: circuitless ? null : optStr(form, 'layout'),
+    title: circuitless ? optStr(form, 'title') : null,
+    subtitle: circuitless ? optStr(form, 'subtitle') : null,
     event_date: str(form, 'event_date'),
     format: (str(form, 'format') || 'sprint') as EventFormat,
-    fuel_limit_pct: optInt(form, 'fuel_limit_pct'),
-    results_url: optStr(form, 'results_url'),
+    fuel_limit_pct: circuitless ? null : optInt(form, 'fuel_limit_pct'),
+    results_url: circuitless ? null : optStr(form, 'results_url'),
     category,
     season_id: seasonId,
     round_number: roundNumber,
-    subsession_id: optInt(form, 'subsession_id'),
+    subsession_id: circuitless ? null : optInt(form, 'subsession_id'),
 
-    practice_start_time: optStr(form, 'practice_start_time'),
-    practice_sim_time: optStr(form, 'practice_sim_time'),
-    practice_minutes: optInt(form, 'practice_minutes'),
-    practice_weather: optWeather(form, 'practice_weather'),
+    practice_start_time: circuitless ? null : optStr(form, 'practice_start_time'),
+    practice_sim_time: circuitless ? null : optStr(form, 'practice_sim_time'),
+    practice_minutes: circuitless ? null : optInt(form, 'practice_minutes'),
+    practice_weather: circuitless ? null : optWeather(form, 'practice_weather'),
 
-    qualifying_start_time: optStr(form, 'qualifying_start_time'),
-    qualifying_sim_time: optStr(form, 'qualifying_sim_time'),
-    qualifying_minutes: optInt(form, 'qualifying_minutes'),
-    qualifying_laps: optInt(form, 'qualifying_laps'),
-    qualifying_weather: optWeather(form, 'qualifying_weather'),
+    qualifying_start_time: circuitless ? null : optStr(form, 'qualifying_start_time'),
+    qualifying_sim_time: circuitless ? null : optStr(form, 'qualifying_sim_time'),
+    qualifying_minutes: circuitless ? null : optInt(form, 'qualifying_minutes'),
+    qualifying_laps: circuitless ? null : optInt(form, 'qualifying_laps'),
+    qualifying_weather: circuitless ? null : optWeather(form, 'qualifying_weather'),
 
-    // Test Session events don't require any races to be saved
-    // (0054_test_session_no_race_required.sql) — every other category still
-    // requires race1_start_time, enforced below in the validation check.
-    race1_start_time: category === 'test' ? optStr(form, 'race1_start_time') : str(form, 'race1_start_time'),
-    race1_sim_time: optStr(form, 'race1_sim_time'),
-    race1_laps: optInt(form, 'race1_laps'),
-    race1_weather: optWeather(form, 'race1_weather'),
-    race1_wet_affected: checkbox(form, 'race1_wet_affected'),
+    // Test Session (and, per above, Holiday/iRacing) events don't require
+    // any races to be saved (0054_test_session_no_race_required.sql) —
+    // every other category still requires race1_start_time, enforced below
+    // in the validation check.
+    race1_start_time: category === 'test' || circuitless ? optStr(form, 'race1_start_time') : str(form, 'race1_start_time'),
+    race1_sim_time: circuitless ? null : optStr(form, 'race1_sim_time'),
+    race1_laps: circuitless ? null : optInt(form, 'race1_laps'),
+    race1_weather: circuitless ? null : optWeather(form, 'race1_weather'),
+    race1_wet_affected: circuitless ? false : checkbox(form, 'race1_wet_affected'),
 
-    race2_start_time: optStr(form, 'race2_start_time'),
-    race2_sim_time: optStr(form, 'race2_sim_time'),
-    race2_laps: optInt(form, 'race2_laps'),
-    race2_weather: optWeather(form, 'race2_weather'),
-    race2_wet_affected: checkbox(form, 'race2_wet_affected'),
+    race2_start_time: circuitless ? null : optStr(form, 'race2_start_time'),
+    race2_sim_time: circuitless ? null : optStr(form, 'race2_sim_time'),
+    race2_laps: circuitless ? null : optInt(form, 'race2_laps'),
+    race2_weather: circuitless ? null : optWeather(form, 'race2_weather'),
+    race2_wet_affected: circuitless ? false : checkbox(form, 'race2_wet_affected'),
 
-    race3_start_time: optStr(form, 'race3_start_time'),
-    race3_sim_time: optStr(form, 'race3_sim_time'),
-    race3_laps: optInt(form, 'race3_laps'),
-    race3_weather: optWeather(form, 'race3_weather'),
-    race3_wet_affected: checkbox(form, 'race3_wet_affected'),
+    race3_start_time: circuitless ? null : optStr(form, 'race3_start_time'),
+    race3_sim_time: circuitless ? null : optStr(form, 'race3_sim_time'),
+    race3_laps: circuitless ? null : optInt(form, 'race3_laps'),
+    race3_weather: circuitless ? null : optWeather(form, 'race3_weather'),
+    race3_wet_affected: circuitless ? false : checkbox(form, 'race3_wet_affected'),
   };
 }
 
@@ -123,12 +139,12 @@ if (Astro.request.method === 'POST') {
       // event (below) isn't loaded yet at this point — fetch fresh for the
       // log entry's label.
       const deletedEvent = await getEventById(supabaseEnv, id);
-      const deletedCircuit = deletedEvent ? await getCircuitById(supabaseEnv, deletedEvent.circuit_id) : null;
+      const deletedCircuit = deletedEvent?.circuit_id ? await getCircuitById(supabaseEnv, deletedEvent.circuit_id) : null;
       await deleteEvent(supabaseEnv, accessToken, id);
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'delete',
         entity_type: 'event',
-        entity_label: deletedCircuit ? `${deletedCircuit.name} — ${deletedEvent?.event_date}` : deletedEvent?.event_date,
+        entity_label: (deletedCircuit?.name ?? deletedEvent?.title) ? `${deletedCircuit?.name ?? deletedEvent?.title} — ${deletedEvent?.event_date}` : deletedEvent?.event_date,
         entity_id: id,
       });
       return Astro.redirect('/admin/events', 302);
@@ -138,14 +154,22 @@ if (Astro.request.method === 'POST') {
     }
   } else {
     const data = readForm(form);
-    if (!data.circuit_id || !data.event_date || (data.category !== 'test' && !data.race1_start_time)) {
-      error = 'Circuit, event date, and Race 1 start time are required.';
+    const circuitless = data.category ? isCircuitlessCategory(data.category) : false;
+    const raceRequired = data.category !== 'test' && !circuitless;
+    if (!data.event_date) {
+      error = 'Event date is required.';
+    } else if (circuitless && !data.title) {
+      error = 'Title is required for Holiday/iRacing events.';
+    } else if (!circuitless && !data.circuit_id) {
+      error = 'Circuit is required.';
+    } else if (raceRequired && !data.race1_start_time) {
+      error = 'Race 1 start time is required.';
     } else if ((data.season_id === null) !== (data.round_number === null)) {
       error = 'Season and round number must be set together (or both left blank).';
     } else {
       try {
-        const circuitForLog = await getCircuitById(supabaseEnv, data.circuit_id);
-        const eventLabel = circuitForLog ? `${circuitForLog.name} — ${data.event_date}` : data.event_date;
+        const circuitForLog = data.circuit_id ? await getCircuitById(supabaseEnv, data.circuit_id) : null;
+        const eventLabel = (circuitForLog?.name ?? data.title) ? `${circuitForLog?.name ?? data.title} — ${data.event_date}` : data.event_date;
         if (isNew) {
           const created = await createEvent(supabaseEnv, accessToken, data);
           await logActivity(supabaseEnv, accessToken, actor, {
@@ -189,6 +213,8 @@ const linkedRound = event ? await getEventRound(supabaseEnv, event) : null;
 const d: Partial<EventRecord> = event ?? {
   circuit_id: circuits[0]?.id ?? '',
   layout: '',
+  title: '',
+  subtitle: '',
   event_date: '',
   format: 'sprint',
   fuel_limit_pct: null,
@@ -240,54 +266,78 @@ const d: Partial<EventRecord> = event ?? {
 
   <form method="POST" data-astro-reload class="reveal mt-8 flex max-w-3xl flex-col gap-6" style="transition-delay: 80ms">
     <div class="grid gap-4 sm:grid-cols-2">
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Circuit</span>
-        <select
-          id="circuit_id"
-          name="circuit_id"
-          required
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        >
-          {circuits.map((c) => (
-            <option value={c.id} selected={c.id === d.circuit_id} class="bg-brand-ink text-white">{c.name}</option>
-          ))}
-        </select>
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Layout</span>
-        <select
-          id="layout"
-          name="layout"
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        >
-          <option value="" selected={!d.layout} class="bg-brand-ink text-white">Not set</option>
-          {/*
-            selected is scoped by circuit_id too, not just name — layout
-            names are NOT unique across circuits ("Grand Prix" alone appears
-            on 23 different circuits, "Full Course" on 7). events.layout is
-            plain text (no FK to circuit_layouts), so matching by name only
-            meant EVERY same-named option across EVERY circuit got the
-            `selected` HTML attribute at once; the browser then picks
-            whichever one is last in DOM order as the actually-selected
-            option (almost never this event's own circuit), and
-            initLayoutFilter() below — seeing that "selected" option doesn't
-            belong to the current circuit — reset the whole dropdown back to
-            "Not set". This is what made assigning a layout look like it
-            silently failed on save.
-          */}
-          {layouts.map((l) => (
-            <option
-              value={l.name}
-              selected={l.name === d.layout && l.circuit_id === d.circuit_id}
-              data-circuit-id={l.circuit_id}
-              class="bg-brand-ink text-white"
-            >
-              {displayLayoutName(l.name)}
-            </option>
-          ))}
-        </select>
-        <span class="text-xs text-white/40">Only shows layouts on file for the selected circuit — add more in Admin &rarr; Circuits.</span>
-      </label>
+      <div id="circuit-layout-fields" class="contents">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Circuit</span>
+          <select
+            id="circuit_id"
+            name="circuit_id"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            {circuits.map((c) => (
+              <option value={c.id} selected={c.id === d.circuit_id} class="bg-brand-ink text-white">{c.name}</option>
+            ))}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Layout</span>
+          <select
+            id="layout"
+            name="layout"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          >
+            <option value="" selected={!d.layout} class="bg-brand-ink text-white">Not set</option>
+            {/*
+              selected is scoped by circuit_id too, not just name — layout
+              names are NOT unique across circuits ("Grand Prix" alone appears
+              on 23 different circuits, "Full Course" on 7). events.layout is
+              plain text (no FK to circuit_layouts), so matching by name only
+              meant EVERY same-named option across EVERY circuit got the
+              `selected` HTML attribute at once; the browser then picks
+              whichever one is last in DOM order as the actually-selected
+              option (almost never this event's own circuit), and
+              initLayoutFilter() below — seeing that "selected" option doesn't
+              belong to the current circuit — reset the whole dropdown back to
+              "Not set". This is what made assigning a layout look like it
+              silently failed on save.
+            */}
+            {layouts.map((l) => (
+              <option
+                value={l.name}
+                selected={l.name === d.layout && l.circuit_id === d.circuit_id}
+                data-circuit-id={l.circuit_id}
+                class="bg-brand-ink text-white"
+              >
+                {displayLayoutName(l.name)}
+              </option>
+            ))}
+          </select>
+          <span class="text-xs text-white/40">Only shows layouts on file for the selected circuit — add more in Admin &rarr; Circuits.</span>
+        </label>
+      </div>
+      <div id="title-subtitle-fields" class="contents">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Title</span>
+          <input
+            type="text"
+            id="title"
+            name="title"
+            value={d.title ?? ''}
+            placeholder="e.g. Christmas Break"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Subtitle</span>
+          <input
+            type="text"
+            name="subtitle"
+            value={d.subtitle ?? ''}
+            placeholder="Optional — e.g. No racing this week"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+      </div>
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Event date</span>
         <input
@@ -319,8 +369,12 @@ const d: Partial<EventRecord> = event ?? {
           <option value="championship" selected={d.category === 'championship'} class="bg-brand-ink text-white">Championship</option>
           <option value="test" selected={d.category === 'test'} class="bg-brand-ink text-white">Test Session</option>
           <option value="exhibition" selected={d.category === 'exhibition'} class="bg-brand-ink text-white">Exhibition</option>
+          <option value="holiday" selected={d.category === 'holiday'} class="bg-brand-ink text-white">Holiday</option>
+          <option value="iracing" selected={d.category === 'iracing'} class="bg-brand-ink text-white">iRacing</option>
         </select>
-        <span class="text-xs text-white/40">Test and Exhibition are season-agnostic — no season/round below.</span>
+        <span class="text-xs text-white/40">
+          Test and Exhibition are season-agnostic — no season/round below. Holiday and iRacing are also circuit-less — a Title (and optional Subtitle) replace Circuit/Layout for those, and no race sessions apply.
+        </span>
       </label>
       <div id="season-round-fields" class="contents">
         <label class="flex flex-col gap-1.5 text-sm">
@@ -348,47 +402,49 @@ const d: Partial<EventRecord> = event ?? {
           <span class="text-xs text-white/40">Must be set together with Season — this is what lets results uploaded later auto-link back to this event.</span>
         </label>
       </div>
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Round override (subsession id)</span>
-        <input
-          type="number"
-          name="subsession_id"
-          value={d.subsession_id ?? ''}
-          placeholder="Usually leave blank"
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
-        <span class="text-xs text-white/40">
-          Only needed to manually point a Test/Exhibition event at a round already on Race Results (Season/Round auto-matching doesn't apply to those) — leave blank otherwise.
-        </span>
-      </label>
-      {linkedRound && (
-        <p class="text-sm text-white/60 sm:col-span-2">
-          Linked round: <a href={`/results/${linkedRound.subsession_id}`} class="font-semibold text-brand-primary hover:underline">{linkedRound.track_name} — {formatDate(linkedRound.start_time)}</a>
-        </p>
-      )}
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Fuel limit (%)</span>
-        <input
-          type="number"
-          min="0"
-          name="fuel_limit_pct"
-          value={d.fuel_limit_pct ?? ''}
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
-      </label>
-      <label class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">iRacing results URL</span>
-        <input
-          type="text"
-          name="results_url"
-          value={d.results_url ?? ''}
-          placeholder="https://members.iracing.com/..."
-          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
-      </label>
+      <div id="race-only-fields" class="contents">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Round override (subsession id)</span>
+          <input
+            type="number"
+            name="subsession_id"
+            value={d.subsession_id ?? ''}
+            placeholder="Usually leave blank"
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+          <span class="text-xs text-white/40">
+            Only needed to manually point a Test/Exhibition event at a round already on Race Results (Season/Round auto-matching doesn't apply to those) — leave blank otherwise.
+          </span>
+        </label>
+        {linkedRound && (
+          <p class="text-sm text-white/60 sm:col-span-2">
+            Linked round: <a href={`/results/${linkedRound.subsession_id}`} class="font-semibold text-brand-primary hover:underline">{linkedRound.track_name} — {formatDate(linkedRound.start_time)}</a>
+          </p>
+        )}
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Fuel limit (%)</span>
+          <input
+            type="number"
+            min="0"
+            name="fuel_limit_pct"
+            value={d.fuel_limit_pct ?? ''}
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">iRacing results URL</span>
+          <input
+            type="text"
+            name="results_url"
+            value={d.results_url ?? ''}
+            placeholder="https://members.iracing.com/..."
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+      </div>
     </div>
 
-    <div class="flex flex-col gap-4">
+    <div id="session-fields" class="flex flex-col gap-4">
       <EventSessionFields
         prefix="practice"
         label="Practice"
@@ -518,24 +574,47 @@ const d: Partial<EventRecord> = event ?? {
   // (0054_test_session_no_race_required.sql) — mirrored here so the browser
   // doesn't block submission on a field the server no longer requires
   // either (see readForm()'s race1_start_time handling above).
+  //
+  // Holiday/iRacing (0073_holiday_iracing_events.sql) go a step further —
+  // they're circuit-less as well as season-agnostic, so Circuit/Layout swap
+  // for Title/Subtitle, and every race-only field (subsession override,
+  // fuel limit, results URL, every session block) hides outright, same
+  // "hide, don't remove — server ignores it either way" reasoning as
+  // Season/Round above.
   function initCategoryFields() {
     const categorySelect = document.getElementById('category') as HTMLSelectElement | null;
     const seasonRoundFields = document.getElementById('season-round-fields');
+    const circuitLayoutFields = document.getElementById('circuit-layout-fields');
+    const titleSubtitleFields = document.getElementById('title-subtitle-fields');
+    const raceOnlyFields = document.getElementById('race-only-fields');
+    const sessionFields = document.getElementById('session-fields');
     const formatField = document.getElementById('format-field');
+    const circuitSelect = document.getElementById('circuit_id') as HTMLSelectElement | null;
+    const titleInput = document.getElementById('title') as HTMLInputElement | null;
     const race1StartTime = document.querySelector<HTMLInputElement>('input[name="race1_start_time"]');
     if (!categorySelect || !seasonRoundFields) return;
 
     function applyVisibility() {
       // Toggling inline `display` directly rather than Tailwind's `hidden`
-      // class — this element already carries `contents` (so its two child
-      // labels lay out as direct grid items, not nested inside a block
-      // wrapper) and `display: none` needs to win outright when hiding, not
-      // fight `display: contents` over class-order specificity.
-      seasonRoundFields!.style.display = categorySelect!.value === 'championship' ? '' : 'none';
+      // class — several of these elements already carry `contents` (so
+      // their child labels lay out as direct grid items, not nested inside
+      // a block wrapper) and `display: none` needs to win outright when
+      // hiding, not fight `display: contents` over class-order specificity.
+      const category = categorySelect!.value;
+      const circuitless = category === 'holiday' || category === 'iracing';
 
-      const isTest = categorySelect!.value === 'test';
-      if (formatField) formatField.style.display = isTest ? 'none' : '';
-      if (race1StartTime) race1StartTime.required = !isTest;
+      seasonRoundFields!.style.display = category === 'championship' ? '' : 'none';
+
+      const isTest = category === 'test';
+      if (formatField) formatField.style.display = isTest || circuitless ? 'none' : '';
+      if (race1StartTime) race1StartTime.required = !isTest && !circuitless;
+
+      if (circuitLayoutFields) circuitLayoutFields.style.display = circuitless ? 'none' : '';
+      if (titleSubtitleFields) titleSubtitleFields.style.display = circuitless ? '' : 'none';
+      if (raceOnlyFields) raceOnlyFields.style.display = circuitless ? 'none' : '';
+      if (sessionFields) sessionFields.style.display = circuitless ? 'none' : '';
+      if (circuitSelect) circuitSelect.required = !circuitless;
+      if (titleInput) titleInput.required = circuitless;
     }
 
     categorySelect.addEventListener('change', applyVisibility);
