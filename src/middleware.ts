@@ -37,7 +37,7 @@
  */
 
 import { defineMiddleware } from 'astro:middleware';
-import { resolveSupabaseEnv } from './lib/supabase';
+import { resolveSupabaseEnv, logPageView } from './lib/supabase';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
@@ -55,6 +55,30 @@ const ADMIN_PREFIX = '/admin';
 // this exemption the gate below would redirect an unauthenticated visitor
 // away from it before it ever got the chance to redirect them itself.
 const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
+
+// A fixed, non-secret salt for the page-view visitor hash below — see
+// 0077_page_views.sql's own header comment for exactly why a hardcoded
+// value (rather than a real per-deploy secret, which this project has no
+// mechanism for) is an accepted tradeoff here: it keeps the raw IP out of
+// the database, which is the actual goal, not resisting a determined
+// attacker who already has source access.
+const PAGE_VIEW_SALT = 'atc-page-view-v1';
+
+/**
+ * sha256(ip + user-agent + salt + UTC calendar date), hex-truncated to 32
+ * chars — see 0077_page_views.sql for the full privacy reasoning (rotates
+ * daily on purpose, never stores the raw IP). `crypto.subtle` is a Web
+ * Crypto API global available both on the deployed Cloudflare Worker and in
+ * modern Node (local `astro dev`) — no extra dependency needed.
+ */
+async function hashVisitor(ip: string, userAgent: string, dateStr: string): Promise<string> {
+  const data = new TextEncoder().encode(`${ip}|${userAgent}|${PAGE_VIEW_SALT}|${dateStr}`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 32);
+}
 
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
@@ -197,6 +221,44 @@ export const onRequest = defineMiddleware(async (context, next) => {
     (response.headers.get('Cache-Control') ?? '').includes('public')
   ) {
     context.locals.runtime.ctx.waitUntil(cache.put(context.request, response.clone()));
+  }
+
+  // --- Site analytics (0077_page_views.sql) --------------------------------
+  //
+  // One row per real visit to an actual public page: GET only, never
+  // /admin or /api (nothing under either is "content" a visitor browsed),
+  // never a real admin's own traffic (`isRealAdmin` — otherwise Logan's own
+  // admin-panel work would skew "unique visitors" on the very dashboard
+  // showing them), and never a non-200 (a redirect/404/error isn't a page
+  // view). Only runs on the deployed Worker — same `context.locals.runtime`
+  // optional-chaining reasoning as the edge cache above: local `astro dev`
+  // has neither `runtime.cf` (for country) nor `runtime.ctx.waitUntil` (to
+  // fire this without delaying the response), and page views from a dev
+  // machine wouldn't mean anything on the real dashboard anyway. Fired via
+  // `waitUntil` so a slow/failed insert never adds latency to the actual
+  // response, same reasoning as the cache write just above.
+  if (
+    context.locals.runtime &&
+    context.request.method === 'GET' &&
+    !pathname.startsWith(ADMIN_PREFIX) &&
+    !pathname.startsWith('/api') &&
+    !context.locals.isRealAdmin &&
+    response.status === 200
+  ) {
+    context.locals.runtime.ctx.waitUntil(
+      (async () => {
+        try {
+          const ip = context.request.headers.get('CF-Connecting-IP') ?? 'unknown';
+          const userAgent = context.request.headers.get('User-Agent') ?? '';
+          const today = new Date().toISOString().slice(0, 10);
+          const visitorHash = await hashVisitor(ip, userAgent, today);
+          const country = (context.locals.runtime?.cf as { country?: string } | undefined)?.country ?? null;
+          await logPageView(env, { path: pathname, country, visitorHash });
+        } catch (err) {
+          console.error('Page view logging failed:', err);
+        }
+      })()
+    );
   }
 
   return response;

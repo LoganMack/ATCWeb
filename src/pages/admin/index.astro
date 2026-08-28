@@ -2,6 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import StatBlock from '../../components/StatBlock.astro';
 import {
   resolveSupabaseEnv,
   getDrivers,
@@ -10,6 +11,8 @@ import {
   getEvents,
   getCircuits,
   getSeasons,
+  getPageViewStats,
+  type PageViewStats,
 } from '../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -22,47 +25,107 @@ let upcomingEventCount = 0;
 let circuitCount = 0;
 let seasonCount = 0;
 let currentSeasonName: string | null = null;
-try {
-  const [drivers, teams, news, events, circuits, seasons] = await Promise.all([
-    getDrivers(supabaseEnv),
-    getTeams(supabaseEnv),
-    getAllNewsPosts(supabaseEnv, accessToken),
-    getEvents(supabaseEnv),
-    getCircuits(supabaseEnv),
-    getSeasons(supabaseEnv),
-  ]);
-  driverCount = drivers.length;
-  teamCount = teams.length;
-  draftCount = news.filter((p) => p.status === 'draft').length;
-  const todayStr = new Date().toISOString().slice(0, 10);
-  upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
-  circuitCount = circuits.length;
-  seasonCount = seasons.length;
-  currentSeasonName = seasons.find((s) => s.is_current)?.name ?? null;
-} catch (err) {
-  console.error('Failed to load admin dashboard counts:', err);
+let pageViewStats: PageViewStats | null = null;
+
+// Every independent fetch this page needs, run together — same
+// "named-function + Promise.all" pattern used across the rest of the site
+// (see roster.astro/standings.astro/etc.) rather than awaiting one after
+// another. getPageViewStats already catches its own errors and resolves to
+// null on failure (see src/lib/supabase.ts), so it doesn't need its own
+// try/catch here the way the counts below do.
+async function loadCounts() {
+  try {
+    const [drivers, teams, news, events, circuits, seasons] = await Promise.all([
+      getDrivers(supabaseEnv),
+      getTeams(supabaseEnv),
+      getAllNewsPosts(supabaseEnv, accessToken),
+      getEvents(supabaseEnv),
+      getCircuits(supabaseEnv),
+      getSeasons(supabaseEnv),
+    ]);
+    driverCount = drivers.length;
+    teamCount = teams.length;
+    draftCount = news.filter((p) => p.status === 'draft').length;
+    const todayStr = new Date().toISOString().slice(0, 10);
+    upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
+    circuitCount = circuits.length;
+    seasonCount = seasons.length;
+    currentSeasonName = seasons.find((s) => s.is_current)?.name ?? null;
+  } catch (err) {
+    console.error('Failed to load admin dashboard counts:', err);
+  }
 }
 
-// Every /admin/* section, so nothing is ever admin-only-reachable by typing
-// the URL directly — keep this in sync with AdminLayout's own sub-nav links.
-const cards = [
-  { href: '/admin/news', label: 'News', detail: `${draftCount} draft${draftCount === 1 ? '' : 's'}` },
+await Promise.all([loadCounts(), getPageViewStats(supabaseEnv, accessToken).then((stats) => (pageViewStats = stats))]);
+
+interface DashboardCard {
+  href: string;
+  label: string;
+  detail: string;
+}
+
+// --- "Admin Tools" — the day-to-day content/roster tables, ordered exactly
+// as Logan asked: Import + Activity Log first (2-col), then Drivers + Teams
+// (2-col), then Events / Organizations / News (3-col). ------------------
+
+const importAndLog: DashboardCard[] = [
+  { href: '/admin/import', label: 'Import', detail: 'Bulk CSV import for Events/Circuits/News/Race Results' },
+  { href: '/admin/activity-log', label: 'Activity Log', detail: 'Audit trail of admin changes' },
+];
+
+const driversAndTeams: DashboardCard[] = [
   { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} on the roster` },
   { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
-  { href: '/admin/organizations', label: 'Organizations', detail: 'Group renamed teams together' },
+];
+
+const eventsOrgsNews: DashboardCard[] = [
   { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming` },
+  { href: '/admin/organizations', label: 'Organizations', detail: 'Group renamed teams together' },
+  { href: '/admin/news', label: 'News', detail: `${draftCount} draft${draftCount === 1 ? '' : 's'}` },
+];
+
+// --- "Utilities" — everything else, alphabetized, 4-col. Every /admin/*
+// section not already placed above lands here, so nothing is ever
+// admin-only-reachable by typing the URL directly (keep in sync with
+// AdminLayout's own sub-nav links). ---------------------------------------
+
+const utilities: DashboardCard[] = [
+  { href: '/admin/awards', label: 'Awards', detail: 'Best Racecraft & Most Improved picks' },
   { href: '/admin/circuits', label: 'Circuits', detail: `${circuitCount} circuits` },
+  { href: '/admin/media', label: 'Media', detail: 'Videos, graphics & meetup photos' },
   { href: '/admin/champions', label: 'Photo Management', detail: 'Champion & Hall of Fame photos' },
-  { href: '/admin/import', label: 'Import', detail: 'Bulk CSV import for Events/Circuits/News/Race Results' },
+  { href: '/admin/rulesets', label: 'Rulesets', detail: 'Scoring rulesets' },
   {
     href: '/admin/seasons',
     label: 'Seasons',
     detail: currentSeasonName ? `Current: ${currentSeasonName}` : `${seasonCount} season${seasonCount === 1 ? '' : 's'}`,
   },
-  { href: '/admin/rulesets', label: 'Rulesets', detail: 'Scoring rulesets' },
   { href: '/admin/site-properties', label: 'Site Properties', detail: 'Banners, broadcast URL, car logos & penalty offenses' },
   { href: '/admin/users', label: 'Users', detail: 'Assign admin access' },
 ];
+
+// --- Site analytics display helpers --------------------------------------
+
+/** ISO 3166-1 alpha-2 -> readable name via the platform's own locale data (Intl.DisplayNames) — no hardcoded country-name table to maintain. Falls back to the raw code for anything it can't resolve (e.g. Cloudflare's "T1" for Tor exit traffic, or the "Unknown" bucket the RPC already labels itself). */
+function countryName(code: string): string {
+  if (!code || code === 'Unknown') return 'Unknown';
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+function formatHour(hour: number): string {
+  const period = hour < 12 ? 'AM' : 'PM';
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}${period}`;
+}
+
+const topCountries = pageViewStats?.topCountries ?? [];
+const maxCountryVisitors = Math.max(1, ...topCountries.map((c) => c.visitors));
+const hourly = pageViewStats?.hourly ?? [];
+const maxHourlyViews = Math.max(1, ...hourly.map((h) => h.views));
 ---
 
 <AdminLayout title="Dashboard">
@@ -72,15 +135,138 @@ const cards = [
       Current season: <span class="font-semibold text-brand-primary">{currentSeasonName}</span>
     </p>
   )}
-  <div class="reveal mt-8 grid gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
-    {cards.map((card) => (
-      <a
-        href={card.href}
-        class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-      >
-        <h2 class="font-display text-2xl">{card.label}</h2>
-        <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-      </a>
-    ))}
-  </div>
+
+  <section class="reveal mt-8" style="transition-delay: 60ms">
+    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Site Analytics</h2>
+
+    {pageViewStats ? (
+      <div class="mt-4 space-y-6">
+        <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <dl class="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-3">
+            <StatBlock
+              label="Visitors Today"
+              value={pageViewStats.visitorsToday}
+              sub={`${pageViewStats.viewsToday} page view${pageViewStats.viewsToday === 1 ? '' : 's'}`}
+            />
+            <StatBlock
+              label="Visitors (7 days)"
+              value={pageViewStats.visitors7d}
+              sub={`${pageViewStats.views7d} page views`}
+            />
+            <StatBlock
+              label="Visitors (30 days)"
+              value={pageViewStats.visitors30d}
+              sub={`${pageViewStats.views30d} page views`}
+            />
+          </dl>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+            <h3 class="text-xs uppercase tracking-wide text-white/40">Top Regions (30 days)</h3>
+            {topCountries.length > 0 ? (
+              <ul class="mt-3 space-y-2.5">
+                {topCountries.map((c) => (
+                  <li>
+                    <div class="flex items-center justify-between text-sm">
+                      <span class="text-white/80">{countryName(c.country)}</span>
+                      <span class="text-white/50">{c.visitors}</span>
+                    </div>
+                    <div class="mt-1 h-1.5 rounded-full bg-white/5">
+                      <div
+                        class="h-1.5 rounded-full bg-brand-primary"
+                        style={`width: ${Math.max(4, Math.round((c.visitors / maxCountryVisitors) * 100))}%`}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p class="mt-3 text-sm text-white/40">No visits recorded yet.</p>
+            )}
+          </div>
+
+          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+            <h3 class="text-xs uppercase tracking-wide text-white/40">Traffic by Hour (30 days, ET)</h3>
+            <div class="mt-4 flex h-24 items-stretch gap-1">
+              {hourly.map((h) => (
+                <div class="relative h-full flex-1 rounded-t bg-white/5">
+                  <div
+                    class="absolute bottom-0 w-full rounded-t bg-brand-primary/70 transition hover:bg-brand-primary"
+                    style={`height: ${Math.round((h.views / maxHourlyViews) * 100)}%`}
+                    title={`${formatHour(h.hour)} ET — ${h.views} view${h.views === 1 ? '' : 's'}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <div class="mt-1 flex justify-between text-[10px] text-white/30">
+              <span>12am</span>
+              <span>6am</span>
+              <span>12pm</span>
+              <span>6pm</span>
+              <span>12am</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : (
+      <p class="mt-4 text-sm text-white/50">Analytics aren't available right now.</p>
+    )}
+  </section>
+
+  <section class="reveal mt-12" style="transition-delay: 80ms">
+    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Admin Tools</h2>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      {importAndLog.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      {driversAndTeams.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {eventsOrgsNews.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="reveal mt-12" style="transition-delay: 100ms">
+    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Utilities</h2>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {utilities.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+  </section>
 </AdminLayout>

@@ -2514,3 +2514,64 @@ export function removeMeetupDriver(env: SupabaseEnv, accessToken: string, meetup
     `media_meetup_drivers?meetup_id=eq.${encodeURIComponent(meetupId)}&driver_id=eq.${encodeURIComponent(driverId)}`
   );
 }
+
+// --- Site analytics (0077_page_views.sql) -----------------------------------
+// Backs the admin dashboard's "site analytics" block. See that migration's
+// header comment for the full privacy design (no raw IP stored, daily-
+// rotating visitor hash, Cloudflare's own request.cf.country — no third
+// party involved anywhere). src/middleware.ts is the only caller of
+// logPageView — it has the Request/cf data this needs and decides which
+// requests actually count as a real page visit.
+
+/**
+ * Fire-and-forget insert into page_views. Uses the plain anon key (no user
+ * is ever signed in for a real visitor) — same public-insert-only shape as
+ * `page_views`' own RLS policy. Deliberately swallows every error rather
+ * than throwing: a hiccup logging analytics must never turn into a broken
+ * page for an actual visitor. Not built on restPost (which always attaches
+ * a user accessToken) since there's no accessToken here at all.
+ */
+export async function logPageView(
+  env: SupabaseEnv,
+  entry: { path: string; country: string | null; visitorHash: string }
+): Promise<void> {
+  try {
+    if (!env.url || !env.anonKey) return;
+    await fetch(`${env.url}/rest/v1/page_views`, {
+      method: 'POST',
+      headers: { ...restHeaders(env), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: entry.path, country: entry.country, visitor_hash: entry.visitorHash }),
+    });
+  } catch (err) {
+    console.error('Failed to log page view:', err);
+  }
+}
+
+export interface PageViewStats {
+  visitorsToday: number;
+  viewsToday: number;
+  visitors7d: number;
+  views7d: number;
+  visitors30d: number;
+  views30d: number;
+  /** Last 30 days, most-visited first — see get_page_view_stats() for the exact grouping/limit. */
+  topCountries: { country: string; visitors: number }[];
+  /** Always exactly 24 entries (hour 0-23, America/New_York), last 30 days — see get_page_view_stats() for why every hour is guaranteed present even with zero views. */
+  hourly: { hour: number; views: number }[];
+}
+
+/** Reads get_page_view_stats() (0077_page_views.sql) — the admin's own accessToken is what actually gets past that table's admin-only RLS read policy, same as every other admin-only RPC in this file. Returns null (rather than throwing) on any failure so the dashboard can just skip the analytics block instead of failing the whole page. */
+export async function getPageViewStats(env: SupabaseEnv, accessToken: string): Promise<PageViewStats | null> {
+  try {
+    const res = await fetch(`${env.url}/rest/v1/rpc/get_page_view_stats`, {
+      method: 'POST',
+      headers: writeHeaders(env, accessToken),
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return (await res.json()) as PageViewStats;
+  } catch (err) {
+    console.error('Failed to load page view stats:', err);
+    return null;
+  }
+}
