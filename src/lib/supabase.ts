@@ -2533,14 +2533,19 @@ export function removeMeetupDriver(env: SupabaseEnv, accessToken: string, meetup
  */
 export async function logPageView(
   env: SupabaseEnv,
-  entry: { path: string; country: string | null; visitorHash: string }
+  entry: { path: string; country: string | null; visitorHash: string; status: number }
 ): Promise<void> {
   try {
     if (!env.url || !env.anonKey) return;
     await fetch(`${env.url}/rest/v1/page_views`, {
       method: 'POST',
       headers: { ...restHeaders(env), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: entry.path, country: entry.country, visitor_hash: entry.visitorHash }),
+      body: JSON.stringify({
+        path: entry.path,
+        country: entry.country,
+        visitor_hash: entry.visitorHash,
+        status: entry.status,
+      }),
     });
   } catch (err) {
     console.error('Failed to log page view:', err);
@@ -2558,6 +2563,10 @@ export interface PageViewStats {
   topCountries: { country: string; visitors: number }[];
   /** Always exactly 24 entries (hour 0-23, America/New_York), last 30 days — see get_page_view_stats() for why every hour is guaranteed present even with zero views. */
   hourly: { hour: number; views: number }[];
+  /** Last 30 days, successful (200) views only, most-visited first — see get_page_view_stats() (0080_page_views_status_and_stats.sql). */
+  topPages: { path: string; views: number }[];
+  /** Last 30 days, status >= 400 only, grouped by path+status so a 404 and a 500 on the same path show separately. */
+  topErrors: { path: string; status: number; occurrences: number }[];
 }
 
 /** Reads get_page_view_stats() (0077_page_views.sql) — the admin's own accessToken is what actually gets past that table's admin-only RLS read policy, same as every other admin-only RPC in this file. Returns null (rather than throwing) on any failure so the dashboard can just skip the analytics block instead of failing the whole page. */
@@ -2574,4 +2583,37 @@ export async function getPageViewStats(env: SupabaseEnv, accessToken: string): P
     console.error('Failed to load page view stats:', err);
     return null;
   }
+}
+
+// --- Admin dashboard summary counts ----------------------------------------
+// Small, single-purpose count helpers backing the /admin dashboard card
+// subtitles — kept separate from each table's own CRUD functions above
+// since these exist purely to answer "how many," not to fetch real rows.
+
+/**
+ * Reads get_missing_race_results_count() (0078_curated_rounds_event_id_and_practice_results.sql)
+ * — a championship event counts as "missing" once it's in the past and has
+ * no curated_rounds row (linked via event_id) with a curated_race_results
+ * row under it. Not admin-gated at the DB level (see that migration's own
+ * comment — it exposes only a count over already-public tables), so this
+ * calls it with the anon key via GET, same as any other public read.
+ */
+export async function getMissingRaceResultsCount(env: SupabaseEnv): Promise<number> {
+  return restGet<number>(env, 'rpc/get_missing_race_results_count');
+}
+
+/**
+ * Count of activity_log rows created since `sinceIso` — backs the Activity
+ * Log dashboard card's "N in the last 24 hours" subtitle. Follows the same
+ * fetch-then-.length convention as admin/activity-log/index.astro's own
+ * query (activity_log has no dedicated count RPC — it's a small, admin-only
+ * table, so a plain filtered select is plenty cheap).
+ */
+export async function getActivityLogCountSince(env: SupabaseEnv, accessToken: string, sinceIso: string): Promise<number> {
+  const rows = await restGetAuthed<{ id: string }[]>(
+    env,
+    accessToken,
+    `activity_log?select=id&created_at=gte.${encodeURIComponent(sinceIso)}`
+  );
+  return rows.length;
 }

@@ -1,22 +1,25 @@
 /**
- * CSV template generation for the 4 admin importers on /admin/import
- * (Events, Circuits, News, Race Results). Templates used to be static files
- * under public/ — the risk with that (and the reason this file exists
- * instead) is that nothing forces a static file to stay in sync with the
- * columns an importer actually reads; it's easy to add/rename a column in
- * the parsing code and forget the template ever existed. Generating the
- * template from the SAME column list documented here, served on demand by
+ * CSV template generation for the 6 admin importers split across
+ * /admin/import-tools (Events, Circuits, News) and /admin/import (Race,
+ * Qualifying, Practice Results). Templates used to be static files under
+ * public/ — the risk with that (and the reason this file exists instead) is
+ * that nothing forces a static file to stay in sync with the columns an
+ * importer actually reads; it's easy to add/rename a column in the parsing
+ * code and forget the template ever existed. Generating the template from
+ * the SAME column list documented here, served on demand by
  * src/pages/api/import-templates/[kind].ts, means there's exactly one place
  * to update when an importer's columns change — do that here, and the
  * downloadable template updates itself on the next request, no separate
  * file to remember.
  *
- * Each importer's own parsing code (src/pages/admin/import/index.astro)
- * reads columns by name via `header.indexOf(name)`, not by position, so it
- * doesn't strictly depend on this file at runtime — but every column an
- * importer looks for should have a matching entry here, and this is the
- * canonical reference for "what this importer understands." Keep both
- * sides in sync by hand when either changes.
+ * Each importer's own parsing code (src/pages/admin/import-tools/index.astro
+ * for Events/Circuits/News; src/lib/raceResultsImport.ts for Race/
+ * Qualifying/Practice Results) reads columns by name via
+ * `header.indexOf(name)`, not by position, so it doesn't strictly depend on
+ * this file at runtime — but every column an importer looks for should have
+ * a matching entry here, and this is the canonical reference for "what this
+ * importer understands." Keep both sides in sync by hand when either
+ * changes.
  */
 
 interface CsvTemplate {
@@ -128,13 +131,58 @@ const RACE_RESULTS_TEMPLATE: CsvTemplate = {
   ],
 };
 
-export type ImportTemplateKind = 'events' | 'circuits' | 'news' | 'race-results';
+// Same round-level columns as the race results template (import_key,
+// circuit_name, layout, season_name, event_date, event_time, format, status,
+// strength_of_field, exhibition) — all three result importers share one
+// import_key namespace via manual_result_imports (see
+// raceResultsImport.ts's header comment), so uploading a race CSV and a
+// qualifying CSV under the same import_key ties both to the same round.
+const QUALIFYING_RESULTS_TEMPLATE: CsvTemplate = {
+  columns: [
+    'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format', 'status',
+    'strength_of_field', 'exhibition', 'driver_car_number', 'class_name', 'qual_position', 'best_lap_time',
+  ],
+  exampleRows: [
+    [
+      'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
+      'official', '1450', 'yes', '4', 'Alpha', '1', '1:41.204',
+    ],
+    [
+      'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
+      'official', '1450', 'yes', '12', 'Gamma', '2', '1:42.018',
+    ],
+  ],
+};
+
+// No finish/qualifying position — a practice session has no ranking, only
+// laps run and a best lap (see curated_practice_results's own migration
+// header comment, 0078_curated_rounds_event_id_and_practice_results.sql).
+const PRACTICE_RESULTS_TEMPLATE: CsvTemplate = {
+  columns: [
+    'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format', 'status',
+    'strength_of_field', 'exhibition', 'driver_car_number', 'class_name', 'laps', 'best_lap_time',
+  ],
+  exampleRows: [
+    [
+      'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
+      'official', '1450', 'yes', '4', 'Alpha', '18', '1:42.550',
+    ],
+    [
+      'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
+      'official', '1450', 'yes', '12', 'Gamma', '16', '1:43.117',
+    ],
+  ],
+};
+
+export type ImportTemplateKind = 'events' | 'circuits' | 'news' | 'race-results' | 'qualifying-results' | 'practice-results';
 
 const TEMPLATES: Record<ImportTemplateKind, CsvTemplate> = {
   events: EVENTS_TEMPLATE,
   circuits: CIRCUITS_TEMPLATE,
   news: NEWS_TEMPLATE,
   'race-results': RACE_RESULTS_TEMPLATE,
+  'qualifying-results': QUALIFYING_RESULTS_TEMPLATE,
+  'practice-results': PRACTICE_RESULTS_TEMPLATE,
 };
 
 export function getImportTemplateCsv(kind: string): string | null {

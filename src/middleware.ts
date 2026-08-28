@@ -223,14 +223,17 @@ export const onRequest = defineMiddleware(async (context, next) => {
     context.locals.runtime.ctx.waitUntil(cache.put(context.request, response.clone()));
   }
 
-  // --- Site analytics (0077_page_views.sql) --------------------------------
+  // --- Site analytics (0077_page_views.sql, 0080_page_views_status_and_stats.sql) ---
   //
-  // One row per real visit to an actual public page: GET only, never
-  // /admin or /api (nothing under either is "content" a visitor browsed),
-  // never a real admin's own traffic (`isRealAdmin` — otherwise Logan's own
-  // admin-panel work would skew "unique visitors" on the very dashboard
-  // showing them), and never a non-200 (a redirect/404/error isn't a page
-  // view). Only runs on the deployed Worker — same `context.locals.runtime`
+  // One row per real hit on an actual public page: GET only, never /admin or
+  // /api (nothing under either is "content" a visitor browsed), never a real
+  // admin's own traffic (`isRealAdmin` — otherwise Logan's own admin-panel
+  // work would skew "unique visitors" on the very dashboard showing them).
+  // Logs both a genuine page view (status 200) AND an error a visitor
+  // actually hit (status >= 400 — 404s, 500s) so the dashboard's "Most
+  // Common Errors" card has something to show; a 3xx redirect is neither (a
+  // bounce, not a page view or an error) and is deliberately excluded. Only
+  // runs on the deployed Worker — same `context.locals.runtime`
   // optional-chaining reasoning as the edge cache above: local `astro dev`
   // has neither `runtime.cf` (for country) nor `runtime.ctx.waitUntil` (to
   // fire this without delaying the response), and page views from a dev
@@ -243,7 +246,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     !pathname.startsWith(ADMIN_PREFIX) &&
     !pathname.startsWith('/api') &&
     !context.locals.isRealAdmin &&
-    response.status === 200
+    (response.status === 200 || response.status >= 400)
   ) {
     context.locals.runtime.ctx.waitUntil(
       (async () => {
@@ -253,7 +256,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
           const today = new Date().toISOString().slice(0, 10);
           const visitorHash = await hashVisitor(ip, userAgent, today);
           const country = (context.locals.runtime?.cf as { country?: string } | undefined)?.country ?? null;
-          await logPageView(env, { path: pathname, country, visitorHash });
+          await logPageView(env, { path: pathname, country, visitorHash, status: response.status });
         } catch (err) {
           console.error('Page view logging failed:', err);
         }

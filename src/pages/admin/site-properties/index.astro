@@ -1,15 +1,19 @@
 ---
 export const prerender = false;
 
-// Combines the former Site Settings, Page Banners, Car Logos, and Penalty
-// Offenses tabs — all were small, one-off, site-wide configuration screens
-// that didn't belong to any single content type, so splitting them across
-// separate nav entries just added clicks for no real organizational
-// benefit. All forms POST back to this same route now; a hidden
-// `form_section` field tells the previously-separate handlers below apart.
-// /admin/site-settings, /admin/page-banners, /admin/car-logos, and
-// /admin/penalty-offenses still exist as thin redirects here for anyone
-// with an old bookmark.
+// Combines the former Site Settings, Page Banners, Car Logos, Penalty
+// Offenses, and Photo Management (Champions/Hall of Fame) tabs — all were
+// small, one-off, site-wide configuration screens that didn't belong to any
+// single content type, so splitting them across separate nav entries just
+// added clicks for no real organizational benefit. All forms POST back to
+// this same route now; a hidden `form_section` field tells the previously-
+// separate handlers below apart. The Champions/Hall of Fame section below
+// has no form of its own — it's a display-only index linking out to the
+// existing per-season/per-driver photo-upload subpages, so it doesn't need
+// a `form_section` branch. /admin/site-settings, /admin/page-banners,
+// /admin/car-logos, and /admin/penalty-offenses still exist as thin
+// redirects here for anyone with an old bookmark; /admin/champions is now
+// one too (see that file).
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
@@ -28,11 +32,18 @@ import {
   updatePenaltyOffense,
   deletePenaltyOffense,
   uploadToStorage,
+  getDriverClasses,
+  getSeasons,
+  getChampionPhotosForClass,
+  getHallOfFameDrivers,
+  getAllHallOfFamePhotos,
+  displayDriverName,
   type PenaltyOffense,
 } from '../../../lib/supabase';
 import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../../../lib/siteSettings';
 import { BANNER_PAGES } from '../../../lib/pageBanners';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { getChampions, driversSelect } from '../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -280,6 +291,85 @@ try {
 } catch (err) {
   console.error('Failed to load penalty offenses:', err);
   if (!error) error = 'Failed to load penalty offenses.';
+}
+
+// --- Champions & Hall of Fame (formerly /admin/champions, "Photo Management") ---
+// Display-only index — the champion for each season/class is computed
+// automatically from race results; this section is just for finding the
+// per-season/per-driver subpage where the (up to 5) photos shown on the
+// public Champions and Hall of Fame pages get uploaded. Those subpages
+// themselves (src/pages/admin/champions/[seasonId]/[classId].astro and
+// hall-of-fame/[driverId].astro) are unchanged and stay at their existing
+// routes — only this index moved.
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let championsLoadError: string | null = null;
+try {
+  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load admin champions filters:', err);
+  championsLoadError = err instanceof Error ? err.message : String(err);
+}
+
+// Hall of Fame members section — separate from the season/class champion
+// photo management below (Hall of Fame photos are scoped per-driver, not
+// per-season/class; see hall_of_fame_photos vs champion_photos).
+let hofError: string | null = null;
+let hofMembers: { id: string; name: string; photoCount: number }[] = [];
+try {
+  const [hofDrivers, allDrivers, hofPhotos] = await Promise.all([
+    getHallOfFameDrivers(supabaseEnv),
+    driversSelect(supabaseEnv),
+    getAllHallOfFamePhotos(supabaseEnv),
+  ]);
+  const driverById = new Map(allDrivers.map((d) => [d.id, d]));
+  const photoCountByDriver = new Map<string, number>();
+  for (const photo of hofPhotos) {
+    photoCountByDriver.set(photo.driver_id, (photoCountByDriver.get(photo.driver_id) ?? 0) + 1);
+  }
+  hofMembers = hofDrivers
+    .map((h) => {
+      const driver = driverById.get(h.id);
+      return driver
+        ? { id: driver.id, name: displayDriverName(driver.name), photoCount: photoCountByDriver.get(driver.id) ?? 0 }
+        : null;
+    })
+    .filter((m): m is { id: string; name: string; photoCount: number } => m !== null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+} catch (err) {
+  console.error('Failed to load Hall of Fame members for admin:', err);
+  hofError = err instanceof Error ? err.message : String(err);
+}
+
+// Gamma/Delta didn't exist for every season (seasons.gamma_enabled/
+// delta_enabled, 0037_class_and_scoring_fixes.sql) — same gating champions.astro
+// / champions/fragment.astro already apply to the public Champions page.
+function classIsEnabledFor(className: string, season: Awaited<ReturnType<typeof getSeasons>>[number]): boolean {
+  if (className === 'Gamma') return season.gamma_enabled;
+  if (className === 'Delta') return season.delta_enabled;
+  return true;
+}
+
+const requestedClassName = Astro.url.searchParams.get('class');
+const activeClass = classes.find((c) => c.name === requestedClassName) ?? classes.find((c) => c.name === 'Alpha') ?? classes[0];
+
+let champions: Awaited<ReturnType<typeof getChampions>> = [];
+let photoCountBySeason = new Map<string, number>();
+if (!championsLoadError && activeClass) {
+  try {
+    const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
+    const [championsResult, photos] = await Promise.all([
+      getChampions(supabaseEnv, eligibleSeasons, activeClass.id),
+      getChampionPhotosForClass(supabaseEnv, activeClass.id),
+    ]);
+    champions = championsResult;
+    for (const photo of photos) {
+      photoCountBySeason.set(photo.season_id, (photoCountBySeason.get(photo.season_id) ?? 0) + 1);
+    }
+  } catch (err) {
+    console.error('Failed to compute champions for admin:', err);
+    championsLoadError = err instanceof Error ? err.message : String(err);
+  }
 }
 ---
 
@@ -569,5 +659,83 @@ try {
         </button>
       </form>
     </details>
+  </section>
+
+  <section id="champions" class="reveal mt-8" style="transition-delay: 140ms">
+    <h2 class="font-semibold">Champions &amp; Hall of Fame Photos</h2>
+    <p class="mt-1 max-w-2xl text-xs text-white/40">
+      The champion for each season/class is computed automatically from race results — this section is just for
+      finding where to upload the (up to 5) photos shown on the public Champions and Hall of Fame pages. Standings
+      look off? Fix it at the source data (race_scores / curated_race_results), not here. To add or remove Hall of
+      Fame members themselves, use the "Hall of Fame member" toggle on a driver's admin profile.
+    </p>
+
+    <h3 class="reveal mt-6 text-sm font-semibold text-white/70">Hall of Fame</h3>
+
+    {hofError && (
+      <p class="reveal mt-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load Hall of Fame members.
+        <br /><span class="mt-1 block text-white/50">{hofError}</span>
+      </p>
+    )}
+
+    {!hofError && hofMembers.length === 0 && <p class="reveal mt-3 text-sm text-white/60">No Hall of Fame members yet.</p>}
+
+    {!hofError && hofMembers.length > 0 && (
+      <div class="reveal mt-3 divide-y divide-white/10 rounded-xl border border-white/10">
+        {hofMembers.map((m) => (
+          <a
+            href={`/admin/champions/hall-of-fame/${m.id}`}
+            class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+          >
+            <p class="font-semibold">{m.name}</p>
+            <span class="text-sm text-white/50">{m.photoCount} / 5 photos</span>
+          </a>
+        ))}
+      </div>
+    )}
+
+    <h3 class="reveal mt-8 text-sm font-semibold text-white/70">Champions</h3>
+
+    {championsLoadError && (
+      <p class="reveal mt-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load champions.
+        <br /><span class="mt-1 block text-white/50">{championsLoadError}</span>
+      </p>
+    )}
+
+    {!championsLoadError && (
+      <div class="reveal mt-3 flex flex-wrap gap-2">
+        {classes.map((c) => (
+          <a
+            href={`/admin/site-properties?class=${encodeURIComponent(c.name)}#champions`}
+            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
+              c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
+            }`}
+          >
+            {c.name}
+          </a>
+        ))}
+      </div>
+    )}
+
+    {!championsLoadError && champions.length === 0 && <p class="reveal mt-4 text-sm text-white/60">No results.</p>}
+
+    {!championsLoadError && champions.length > 0 && (
+      <div class="reveal mt-3 divide-y divide-white/10 rounded-xl border border-white/10">
+        {champions.map((entry) => (
+          <a
+            href={`/admin/champions/${entry.season.id}/${activeClass!.id}`}
+            class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+          >
+            <div>
+              <p class="font-semibold">{entry.season.name}</p>
+              <p class="text-sm text-white/50">{displayDriverName(entry.standing.driver.name)} · {entry.standing.totalPoints} pts</p>
+            </div>
+            <span class="text-sm text-white/50">{photoCountBySeason.get(entry.season.id) ?? 0} / 5 photos</span>
+          </a>
+        ))}
+      </div>
+    )}
   </section>
 </AdminLayout>

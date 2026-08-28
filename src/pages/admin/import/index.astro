@@ -1,44 +1,27 @@
 ---
 export const prerender = false;
 
-// Every CSV importer on the site's admin section, consolidated onto one
-// page instead of scattered across the Events/Circuits/News admin list
-// pages and the public Race Results/Calendar pages — Logan: "the import
-// buttons scattered around are messy and unuseful." Each panel below still
-// uses the exact same matching/skip-on-bad-row conventions the original
-// per-page importers did; only the location (and each intent's name, to
-// keep 4 handlers on one page from colliding) changed. Every downloadable
-// template is generated on request from src/lib/importTemplates.ts rather
-// than a static file under public/ — see that file's header comment for
-// why (a static file can silently drift from what the importer actually
-// reads; a generated one can't).
+// Race/Qualifying/Practice Results CSV importers — the three importers that
+// all write into ONE round (curated_rounds), so they stay together on their
+// own page rather than living on /admin/import-tools with Events/Circuits/
+// News (which was this page's own former name/scope — see that page for
+// the split rationale). All three share one import_key namespace via
+// manual_result_imports (src/lib/raceResultsImport.ts) — uploading a race
+// CSV and a qualifying CSV under the same import_key ties both to the same
+// round instead of creating two. Every downloadable template is generated
+// on request from src/lib/importTemplates.ts rather than a static file
+// under public/ — see that file's header comment for why (a static file
+// can silently drift from what the importer actually reads; a generated
+// one can't).
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import {
-  resolveSupabaseEnv,
-  getEvents,
-  getCircuits,
-  createEvent,
-  updateEvent,
-  createCircuit,
-  updateCircuit,
-  getAllCircuitLayouts,
-  createCircuitLayout,
-  updateCircuitLayout,
-  getAllNewsPosts,
-  createNewsPost,
-  updateNewsPost,
-  uploadToStorage,
-  type EventFormat,
-  type Weather,
-} from '../../../lib/supabase';
+import { resolveSupabaseEnv, uploadToStorage } from '../../../lib/supabase';
 import { parseCsv } from '../../../lib/csv';
-import { slugify } from '../../../lib/slug';
-import { importRaceResultsCsv } from '../../../lib/raceResultsImport';
+import { importRaceResultsCsv, importQualifyingResultsCsv, importPracticeResultsCsv } from '../../../lib/raceResultsImport';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-type ImportKind = 'events' | 'circuits' | 'news' | 'race-results';
+type ImportKind = 'race-results' | 'qualifying-results' | 'practice-results';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -55,15 +38,10 @@ if (Astro.request.method === 'POST') {
   // what was uploaded. Best-effort — a failure here (or in logActivity
   // itself, which already swallows its own errors) never blocks the import
   // that already happened.
-  // Nouns mirror RESULT_LABELS further down this file (kept as a small
-  // local copy rather than shared — that const isn't declared until after
-  // this POST-handling block runs, so referencing it here directly would
-  // hit a temporal-dead-zone error).
   const IMPORT_KIND_NOUNS: Record<ImportKind, string> = {
-    events: 'event',
-    circuits: 'circuit',
-    news: 'post',
     'race-results': 'result',
+    'qualifying-results': 'qualifying result',
+    'practice-results': 'practice result',
   };
 
   async function logImport(kind: ImportKind, file: File, imported: number, skipped: number) {
@@ -83,297 +61,6 @@ if (Astro.request.method === 'POST') {
       file_url: fileUrl,
       file_name: file.name,
     });
-  }
-
-  if (intent === 'import-events') {
-    let imported = 0;
-    let skipped = 0;
-    let uploadedFile: File | null = null;
-    try {
-      const file = form.get('csv_file');
-      if (file instanceof File) {
-        uploadedFile = file;
-        const [circuits, existingEvents] = await Promise.all([getCircuits(supabaseEnv), getEvents(supabaseEnv)]);
-        const text = await file.text();
-        const rows = parseCsv(text);
-        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
-        const colIndex = (name: string) => header.indexOf(name);
-        const get = (row: string[], name: string) => {
-          const i = colIndex(name);
-          return i >= 0 ? (row[i] ?? '').trim() : '';
-        };
-        const FORMATS: EventFormat[] = ['sprint', 'endurance', 'special'];
-        const WEATHERS: Weather[] = ['clear', 'partly_cloudy', 'overcast', 'raining', 'mixed'];
-        const optWeather = (v: string): Weather | null => (WEATHERS.includes(v.toLowerCase() as Weather) ? (v.toLowerCase() as Weather) : null);
-
-        for (const row of rows.slice(1)) {
-          if (row.every((c) => c.trim() === '')) continue;
-
-          const circuitName = get(row, 'circuit_name');
-          const eventDate = get(row, 'event_date');
-          const race1StartTime = get(row, 'race1_start_time');
-          const circuit = circuits.find((c) => c.name.toLowerCase() === circuitName.toLowerCase());
-          const validDate = /^\d{4}-\d{2}-\d{2}$/.test(eventDate);
-
-          if (!circuit || !validDate || !race1StartTime) {
-            skipped++;
-            continue;
-          }
-
-          const existing = existingEvents.find((e) => e.circuit_id === circuit.id && e.event_date === eventDate);
-          const cell = (name: string) => {
-            const v = get(row, name);
-            return v === '' ? undefined : v;
-          };
-
-          if (existing) {
-            const patch: Record<string, unknown> = {};
-            const setIfPresent = (name: string, parse: (v: string) => unknown) => {
-              const v = cell(name);
-              if (v !== undefined) patch[name] = parse(v);
-            };
-            setIfPresent('layout', (v) => v);
-            setIfPresent('format', (v) => (FORMATS.includes(v.toLowerCase() as EventFormat) ? v.toLowerCase() : existing.format));
-            setIfPresent('fuel_limit_pct', (v) => Number(v));
-            setIfPresent('results_url', (v) => v);
-            for (const prefix of ['practice', 'qualifying', 'race1', 'race2', 'race3']) {
-              setIfPresent(`${prefix}_start_time`, (v) => v);
-              setIfPresent(`${prefix}_sim_time`, (v) => v);
-              if (prefix === 'practice' || prefix === 'qualifying') setIfPresent(`${prefix}_minutes`, (v) => Number(v));
-              if (prefix !== 'practice') setIfPresent(`${prefix}_laps`, (v) => Number(v));
-              setIfPresent(`${prefix}_weather`, (v) => optWeather(v));
-            }
-            try {
-              await updateEvent(supabaseEnv, accessToken, existing.id, patch);
-              imported++;
-            } catch (err) {
-              console.error('Failed to update an imported event row:', err);
-              skipped++;
-            }
-          } else {
-            const numOrNull = (v?: string) => (v ? Number(v) : null);
-            try {
-              await createEvent(supabaseEnv, accessToken, {
-                circuit_id: circuit.id,
-                layout: cell('layout') ?? null,
-                event_date: eventDate,
-                format: (FORMATS.includes(get(row, 'format').toLowerCase() as EventFormat) ? get(row, 'format').toLowerCase() : 'sprint') as EventFormat,
-                fuel_limit_pct: numOrNull(cell('fuel_limit_pct')),
-                results_url: cell('results_url') ?? null,
-                practice_start_time: cell('practice_start_time') ?? null,
-                practice_sim_time: cell('practice_sim_time') ?? null,
-                practice_minutes: numOrNull(cell('practice_minutes')),
-                practice_weather: optWeather(get(row, 'practice_weather')),
-                qualifying_start_time: cell('qualifying_start_time') ?? null,
-                qualifying_sim_time: cell('qualifying_sim_time') ?? null,
-                qualifying_minutes: numOrNull(cell('qualifying_minutes')),
-                qualifying_laps: numOrNull(cell('qualifying_laps')),
-                qualifying_weather: optWeather(get(row, 'qualifying_weather')),
-                race1_start_time: race1StartTime,
-                race1_sim_time: cell('race1_sim_time') ?? null,
-                race1_laps: numOrNull(cell('race1_laps')),
-                race1_weather: optWeather(get(row, 'race1_weather')),
-                race2_start_time: cell('race2_start_time') ?? null,
-                race2_sim_time: cell('race2_sim_time') ?? null,
-                race2_laps: numOrNull(cell('race2_laps')),
-                race2_weather: optWeather(get(row, 'race2_weather')),
-                race3_start_time: cell('race3_start_time') ?? null,
-                race3_sim_time: cell('race3_sim_time') ?? null,
-                race3_laps: numOrNull(cell('race3_laps')),
-                race3_weather: optWeather(get(row, 'race3_weather')),
-              });
-              imported++;
-            } catch (err) {
-              console.error('Failed to create an imported event row:', err);
-              skipped++;
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import events CSV:', err);
-    }
-    if (uploadedFile) await logImport('events', uploadedFile, imported, skipped);
-    return redirectWithCounts('events', imported, skipped);
-  }
-
-  if (intent === 'import-circuits') {
-    let imported = 0;
-    let skipped = 0;
-    let uploadedFile: File | null = null;
-    try {
-      const file = form.get('csv_file');
-      if (file instanceof File) {
-        uploadedFile = file;
-        const [existingCircuits, existingLayouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
-        const text = await file.text();
-        const rows = parseCsv(text);
-        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
-        const colIndex = (name: string) => header.indexOf(name);
-        const get = (row: string[], name: string) => {
-          const i = colIndex(name);
-          return i >= 0 ? (row[i] ?? '').trim() : '';
-        };
-
-        for (const row of rows.slice(1)) {
-          if (row.every((c) => c.trim() === '')) continue;
-
-          const name = get(row, 'name');
-          if (!name) {
-            skipped++;
-            continue;
-          }
-
-          try {
-            let circuit = existingCircuits.find((c) => c.name.toLowerCase() === name.toLowerCase());
-            const location = get(row, 'location');
-            const logoUrl = get(row, 'logo_url');
-
-            if (circuit) {
-              const patch: Record<string, unknown> = {};
-              if (location) patch.location = location;
-              if (logoUrl) patch.logo_url = logoUrl;
-              if (Object.keys(patch).length > 0) await updateCircuit(supabaseEnv, accessToken, circuit.id, patch);
-            } else {
-              circuit = await createCircuit(supabaseEnv, accessToken, {
-                name,
-                location: location || null,
-                logo_url: logoUrl || null,
-              });
-              existingCircuits.push(circuit);
-            }
-
-            const layoutName = get(row, 'layout_name');
-            if (layoutName) {
-              const existingLayout = existingLayouts.find(
-                (l) => l.circuit_id === circuit!.id && l.name.toLowerCase() === layoutName.toLowerCase()
-              );
-              const numOrUndef = (v: string) => (v ? Number(v) : undefined);
-              const lengthKm = numOrUndef(get(row, 'layout_length_km'));
-              const corners = numOrUndef(get(row, 'layout_corners'));
-              const lapRecordSeconds = numOrUndef(get(row, 'layout_lap_record_seconds'));
-              const lapRecordHolder = get(row, 'layout_lap_record_holder');
-              const lapRecordDate = get(row, 'layout_lap_record_date');
-
-              if (existingLayout) {
-                const patch: Record<string, unknown> = {};
-                if (lengthKm !== undefined) patch.length_km = lengthKm;
-                if (corners !== undefined) patch.corners = corners;
-                if (lapRecordSeconds !== undefined) patch.lap_record_seconds = lapRecordSeconds;
-                if (lapRecordHolder) patch.lap_record_holder = lapRecordHolder;
-                if (lapRecordDate) patch.lap_record_date = lapRecordDate;
-                if (Object.keys(patch).length > 0) await updateCircuitLayout(supabaseEnv, accessToken, existingLayout.id, patch);
-              } else {
-                const created = await createCircuitLayout(supabaseEnv, accessToken, {
-                  circuit_id: circuit.id,
-                  name: layoutName,
-                  length_km: lengthKm ?? null,
-                  corners: corners ?? null,
-                  lap_record_seconds: lapRecordSeconds ?? null,
-                  lap_record_holder: lapRecordHolder || null,
-                  lap_record_date: lapRecordDate || null,
-                });
-                existingLayouts.push(created);
-              }
-            }
-
-            imported++;
-          } catch (err) {
-            console.error('Failed to import a circuit row:', err);
-            skipped++;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import circuits CSV:', err);
-    }
-    if (uploadedFile) await logImport('circuits', uploadedFile, imported, skipped);
-    return redirectWithCounts('circuits', imported, skipped);
-  }
-
-  if (intent === 'import-news') {
-    let imported = 0;
-    let skipped = 0;
-    let uploadedFile: File | null = null;
-    try {
-      const file = form.get('csv_file');
-      const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
-      if (file instanceof File) {
-        uploadedFile = file;
-        const existingPosts = await getAllNewsPosts(supabaseEnv, accessToken);
-        const text = await file.text();
-        const rows = parseCsv(text);
-        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
-        const colIndex = (name: string) => header.indexOf(name);
-        const get = (row: string[], name: string) => {
-          const i = colIndex(name);
-          return i >= 0 ? (row[i] ?? '').trim() : '';
-        };
-
-        for (const row of rows.slice(1)) {
-          if (row.every((c) => c.trim() === '')) continue;
-
-          const title = get(row, 'title');
-          const body = get(row, 'body');
-          if (!title || !body) {
-            skipped++;
-            continue;
-          }
-          const slug = get(row, 'slug') || slugify(title);
-          if (!slug) {
-            skipped++;
-            continue;
-          }
-
-          const existing = existingPosts.find((p) => p.slug === slug);
-          const publishedDate = get(row, 'published_date');
-          const statusRaw = get(row, 'status').toLowerCase();
-
-          try {
-            if (existing) {
-              const patch: Record<string, unknown> = {};
-              patch.title = title;
-              patch.body = body;
-              const excerpt = get(row, 'excerpt');
-              if (excerpt) patch.excerpt = excerpt;
-              const authorName = get(row, 'author_name');
-              if (authorName) patch.author_name = authorName;
-              if (statusRaw === 'draft' || statusRaw === 'published') patch.status = statusRaw;
-              const seasonLabel = get(row, 'season_label');
-              if (seasonLabel) patch.season_label = seasonLabel;
-              const roundRaw = get(row, 'round_subsession_id');
-              if (roundRaw && Number.isFinite(Number(roundRaw))) patch.round_subsession_id = Number(roundRaw);
-              const coverImageUrl = get(row, 'cover_image_url');
-              if (coverImageUrl) patch.cover_image_url = coverImageUrl;
-              if (publishedDate) patch.published_at = `${publishedDate}T12:00:00.000Z`;
-              await updateNewsPost(supabaseEnv, accessToken, existing.id, patch);
-            } else {
-              const roundRaw = get(row, 'round_subsession_id');
-              await createNewsPost(supabaseEnv, accessToken, {
-                title,
-                slug,
-                excerpt: get(row, 'excerpt') || null,
-                body,
-                author_name: get(row, 'author_name') || displayName,
-                cover_image_url: get(row, 'cover_image_url') || null,
-                status: statusRaw === 'published' ? 'published' : 'draft',
-                season_label: get(row, 'season_label') || null,
-                round_subsession_id: roundRaw && Number.isFinite(Number(roundRaw)) ? Number(roundRaw) : null,
-                published_at: publishedDate ? `${publishedDate}T12:00:00.000Z` : new Date().toISOString(),
-              });
-            }
-            imported++;
-          } catch (err) {
-            console.error('Failed to import a news row:', err);
-            skipped++;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import news CSV:', err);
-    }
-    if (uploadedFile) await logImport('news', uploadedFile, imported, skipped);
-    return redirectWithCounts('news', imported, skipped);
   }
 
   if (intent === 'import-race-results') {
@@ -396,6 +83,48 @@ if (Astro.request.method === 'POST') {
     if (uploadedFile) await logImport('race-results', uploadedFile, imported, skipped);
     return redirectWithCounts('race-results', imported, skipped);
   }
+
+  if (intent === 'import-qualifying-results') {
+    let imported = 0;
+    let skipped = 0;
+    let uploadedFile: File | null = null;
+    try {
+      const file = form.get('csv_file');
+      if (file instanceof File) {
+        uploadedFile = file;
+        const text = await file.text();
+        const rows = parseCsv(text);
+        const outcome = await importQualifyingResultsCsv(supabaseEnv, accessToken, rows);
+        imported = outcome.imported;
+        skipped = outcome.skipped;
+      }
+    } catch (err) {
+      console.error('Failed to import qualifying results CSV:', err);
+    }
+    if (uploadedFile) await logImport('qualifying-results', uploadedFile, imported, skipped);
+    return redirectWithCounts('qualifying-results', imported, skipped);
+  }
+
+  if (intent === 'import-practice-results') {
+    let imported = 0;
+    let skipped = 0;
+    let uploadedFile: File | null = null;
+    try {
+      const file = form.get('csv_file');
+      if (file instanceof File) {
+        uploadedFile = file;
+        const text = await file.text();
+        const rows = parseCsv(text);
+        const outcome = await importPracticeResultsCsv(supabaseEnv, accessToken, rows);
+        imported = outcome.imported;
+        skipped = outcome.skipped;
+      }
+    } catch (err) {
+      console.error('Failed to import practice results CSV:', err);
+    }
+    if (uploadedFile) await logImport('practice-results', uploadedFile, imported, skipped);
+    return redirectWithCounts('practice-results', imported, skipped);
+  }
 }
 
 const resultKind = Astro.url.searchParams.get('kind');
@@ -403,10 +132,9 @@ const importedCount = Astro.url.searchParams.get('imported');
 const skippedCount = Astro.url.searchParams.get('skipped');
 
 const RESULT_LABELS: Record<string, { noun: string; skipReason: string }> = {
-  events: { noun: 'event', skipReason: 'unrecognized circuit, or missing date/Race 1 start time' },
-  circuits: { noun: 'circuit', skipReason: 'missing name' },
-  news: { noun: 'post', skipReason: 'missing title/body' },
   'race-results': { noun: 'result', skipReason: 'see server logs for details' },
+  'qualifying-results': { noun: 'qualifying result', skipReason: 'see server logs for details' },
+  'practice-results': { noun: 'practice result', skipReason: 'see server logs for details' },
 };
 
 interface ImportPanel {
@@ -418,47 +146,46 @@ interface ImportPanel {
   writesTo: string;
 }
 
+// Shared explanation of the round-identifying columns every one of these
+// three CSVs starts with — referenced by all three panels' help text below
+// instead of repeating the full explanation three times.
+const ROUND_COLS_NOTE =
+  'circuit_name, layout, season_name, event_date, event_time, format, status, strength_of_field, and exhibition together identify the round';
+
 const panels: ImportPanel[] = [
-  {
-    kind: 'events',
-    title: 'Events',
-    intent: 'import-events',
-    writesTo: 'events',
-    help:
-      'Times are entered as Eastern, same as the event form. Rows are matched by circuit + date — re-uploading updates those events in place (a blank cell leaves that field as-is) instead of duplicating them. An unrecognized circuit name, or a row missing its date/Race 1 start time, is skipped rather than failing the whole import.',
-  },
-  {
-    kind: 'circuits',
-    title: 'Circuits',
-    intent: 'import-circuits',
-    writesTo: 'circuits, circuit_layouts',
-    help:
-      "One row per circuit, optionally with one layout's details attached — repeat a circuit's name across rows to add more than one layout. Rows are matched by name — re-uploading updates in place (a blank cell leaves that field as-is) instead of duplicating. Logo is a direct image URL, not a file upload.",
-  },
-  {
-    kind: 'news',
-    title: 'News',
-    intent: 'import-news',
-    writesTo: 'news_posts',
-    help:
-      'Rows are matched by slug (auto-generated from the title when left blank) — re-uploading updates that post in place instead of duplicating it. Cover image is a direct image URL, not a file upload. A row missing its title or body is skipped rather than failing the whole import.',
-  },
   {
     kind: 'race-results',
     title: 'Race Results',
     intent: 'import-race-results',
     writesTo: 'curated_rounds, curated_race_results — NOT race_scores',
     help:
-      "For exhibition races or one-off events the real iRacing results pipeline will never see — writes RAW per-driver finish data only (finish position, laps, incidents, lap times), the same shape a real pipeline import produces. It does not compute or store points — that's the scoring engine's job (Admin > Rulesets), triggered separately once a season has a ruleset assigned. Every row needs an import_key (your own label for the round — reuse it to update that round instead of duplicating it) and enough to identify the driver — driver_name and/or driver_car_number, matching an existing driver who already has an iRacing Customer ID set on their Roster profile (if you give both, they must agree, or the row is skipped as a mismatch). reason_out is optional — set it to 'Disqualified' (or leave it blank for a normal finish) if a driver needs to be scored as a DSQ once you recalculate the round. Unrecognized rows are skipped rather than failing the whole upload.",
+      `For exhibition races or one-off events the real iRacing results pipeline will never see — writes RAW per-driver finish data only (finish position, laps, incidents, lap times), the same shape a real pipeline import produces. It does not compute or store points — that's the scoring engine's job (Admin > Rulesets), triggered separately once a season has a ruleset assigned. Every row needs an import_key (your own label for the round — reuse the SAME key across a race, qualifying, and practice upload for the same event to tie all three to one round) and a driver_car_number matching a driver who already has an iRacing Customer ID set on their Roster profile. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
+  },
+  {
+    kind: 'qualifying-results',
+    title: 'Qualifying Results',
+    intent: 'import-qualifying-results',
+    writesTo: 'curated_rounds, curated_qualifying',
+    help:
+      `Writes each driver's qualifying position and best lap. Uses the same import_key scheme as Race Results — reuse a round's key here to attach its qualifying results to that same round (creating the round first if this is the only CSV uploaded for it). ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
+  },
+  {
+    kind: 'practice-results',
+    title: 'Practice Results',
+    intent: 'import-practice-results',
+    writesTo: 'curated_rounds, curated_practice_results',
+    help:
+      `Writes each driver's practice laps and best lap — there's no finishing/qualifying position to record for a practice session. Uses the same import_key scheme as Race Results — reuse a round's key here to attach its practice results to that same round. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
   },
 ];
 ---
 
-<AdminLayout title="Import">
-  <h1 class="reveal font-display text-4xl">Import</h1>
+<AdminLayout title="Add Race Result">
+  <h1 class="reveal font-display text-4xl">Add Race Result</h1>
   <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Bulk-load data from a CSV file — one panel per screen. Download a template, fill it in, and upload it; a row
-    that already exists is updated in place instead of duplicated.
+    Bulk-load a round's results from a CSV file — one panel per screen. Download a template, fill it in, and upload
+    it; a round that already exists (same import_key) is updated in place instead of duplicated. Looking to import
+    Events, Circuits, or News instead? That's on <a href="/admin/import-tools" class="text-brand-primary hover:underline">Import Tools</a>.
   </p>
 
   {importedCount !== null && resultKind && RESULT_LABELS[resultKind] && (
