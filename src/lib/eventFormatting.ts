@@ -121,6 +121,36 @@ export function getEventCardClasses(event: { category: EventCategory; format: Ev
   return usesFormatBadge(event.category) ? FORMAT_CARD_CLASSES[event.format] : CATEGORY_CARD_CLASSES[event.category];
 }
 
+// Same accent as FORMAT_CARD_CLASSES/CATEGORY_CARD_CLASSES above, plus a
+// hover state — for card-shaped elements that are themselves a link/button
+// (e.g. the homepage's compact upcoming-event rows below the featured one),
+// as opposed to the plain getEventCardClasses() cards above which aren't
+// interactive and shouldn't imply clickability with a hover affordance.
+// Full literal class strings throughout (not composed at runtime) since
+// Tailwind's JIT only generates CSS for class names it can find verbatim in
+// source — same reasoning FORMAT_BADGE_CLASSES etc. already follow.
+export const FORMAT_CARD_HOVER_CLASSES: Record<EventFormat, string> = {
+  endurance: 'border-brand-blue/40 bg-brand-blue/10 hover:border-brand-blue/60 hover:bg-brand-blue/20',
+  special: 'border-brand-pink/40 bg-brand-pink/10 hover:border-brand-pink/60 hover:bg-brand-pink/20',
+  sprint: 'border-brand-gold/40 bg-brand-gold/10 hover:border-brand-gold/60 hover:bg-brand-gold/20',
+};
+
+export const CATEGORY_CARD_HOVER_CLASSES: Record<EventCategory, string> = {
+  championship: '',
+  test: 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]',
+  exhibition:
+    'border-white/10 bg-gradient-to-r from-brand-blue/10 via-brand-pink/10 to-brand-gold/10 hover:from-brand-blue/20 hover:via-brand-pink/20 hover:to-brand-gold/20',
+  holiday: 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]',
+  iracing: 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]',
+};
+
+/** Same format-vs-category branch as getEventCardClasses, using the hover-inclusive maps above. */
+export function getEventCardHoverClasses(event: { category: EventCategory; format: EventFormat }): string {
+  return usesFormatBadge(event.category)
+    ? FORMAT_CARD_HOVER_CLASSES[event.format]
+    : CATEGORY_CARD_HOVER_CLASSES[event.category];
+}
+
 export const WEATHER_LABELS: Record<Weather, string> = {
   clear: 'Clear',
   partly_cloudy: 'Partly Cloudy',
