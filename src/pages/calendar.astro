@@ -290,13 +290,46 @@ const upcomingIcsBundle = upcoming
       sprint: 'bg-brand-gold/15 text-brand-gold',
     };
     // Test/Holiday/iRacing events don't use the format field (see
-    // eventFormatting.ts's usesFormatBadge() server-side) — same neutral/
-    // brand-hue overrides applied here for the day-cell pill.
+    // eventFormatting.ts's usesFormatBadge() server-side) — same neutral
+    // grey override applied here for the day-cell pill (mirrors
+    // CATEGORY_BADGE_CLASSES in eventFormatting.ts — duplicated rather than
+    // imported per this script's own "no src/lib imports" convention above).
     const CATEGORY_ONLY_BADGE_CLASSES: Record<string, string> = {
       test: 'bg-white/10 text-white/50',
-      holiday: 'bg-brand-gold/15 text-brand-gold',
-      iracing: 'bg-brand-blue/15 text-brand-blue',
+      holiday: 'bg-white/10 text-white/50',
+      iracing: 'bg-white/10 text-white/50',
     };
+
+    // Same format-vs-category branch as usesFormatBadge() in
+    // eventFormatting.ts, duplicated here for the same "no src/lib imports"
+    // reason as the badge maps above.
+    function usesFormatBadge(category: string): boolean {
+      return category === 'championship' || category === 'exhibition';
+    }
+
+    // Card-background accent for a day cell that has events — mirrors
+    // FORMAT_CARD_CLASSES/CATEGORY_CARD_CLASSES in eventFormatting.ts (same
+    // border+bg-instead-of-text+bg shape as the badge maps above), so a day
+    // highlights in the same color its event's tag shows instead of always
+    // being blue. A day with 2+ events uses the first event's color — same
+    // "first event wins" simplification the pill loop below already applies
+    // by only rendering 2 pills max.
+    const FORMAT_CARD_CLASSES: Record<string, string> = {
+      endurance: 'border-brand-blue/40 bg-brand-blue/10 hover:bg-brand-blue/20',
+      special: 'border-brand-pink/40 bg-brand-pink/10 hover:bg-brand-pink/20',
+      sprint: 'border-brand-gold/40 bg-brand-gold/10 hover:bg-brand-gold/20',
+    };
+    const CATEGORY_ONLY_CARD_CLASSES: Record<string, string> = {
+      test: 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
+      holiday: 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
+      iracing: 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
+    };
+
+    function dayCardClasses(ev: CalendarEventLite): string {
+      return usesFormatBadge(ev.category)
+        ? (FORMAT_CARD_CLASSES[ev.format] ?? 'border-brand-primary/40 bg-brand-primary/10 hover:bg-brand-primary/20')
+        : (CATEGORY_ONLY_CARD_CLASSES[ev.category] ?? 'border-brand-primary/40 bg-brand-primary/10 hover:bg-brand-primary/20');
+    }
 
     /** Same "N/A" -> "Full Course" display-only substitution as displayLayoutName() in src/lib/supabase.ts. */
     function displayLayoutName(name: string): string {
@@ -444,9 +477,7 @@ const upcomingIcsBundle = upcoming
           cell.type = 'button';
           cell.className = [
             'flex min-h-[64px] flex-col items-start gap-1 rounded-lg border p-1.5 text-left transition',
-            hasEvents
-              ? 'border-brand-primary/40 bg-brand-primary/10 hover:bg-brand-primary/20 cursor-pointer'
-              : 'border-white/10 bg-white/[0.02] cursor-default',
+            hasEvents ? `${dayCardClasses(dayEvents[0])} cursor-pointer` : 'border-white/10 bg-white/[0.02] cursor-default',
             isToday ? 'ring-1 ring-brand-primary' : '',
           ].join(' ');
           if (!hasEvents) cell.disabled = true;

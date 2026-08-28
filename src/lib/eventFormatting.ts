@@ -59,19 +59,20 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
 // Championship is the default/normal case and deliberately gets no special
 // treatment here — callers only render a category badge when it's NOT
 // 'championship', same "only flag the anomalous state" convention as
-// round.status !== 'official' on the Race Results list. Test is a plain
-// neutral grey (a private/practice session — nothing to celebrate visually);
-// Exhibition gets a blue/pink/gold gradient — all three brand colors at
-// once, since it doesn't belong to any one class/format the way a real
-// championship round does. Holiday/iRacing each get one solid brand hue
-// (gold/blue respectively) — same constrained brand palette as everything
-// else on this site, not a new arbitrary color.
+// round.status !== 'official' on the Race Results list. Test/Holiday/iRacing
+// are all plain neutral grey — none of them belong to a Sprint/Endurance/
+// Special format or a driver class, so there's no brand hue that actually
+// represents them; grey reads as "informational" rather than implying a
+// class/format association that doesn't exist. Exhibition is the one
+// exception that still gets a blue/pink/gold gradient — all three brand
+// colors at once, since (unlike Test/Holiday/iRacing) it's still a real
+// on-track format-having round, just not part of the points championship.
 export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'bg-white/10 text-white/50',
   exhibition: 'bg-gradient-to-r from-brand-blue/25 via-brand-pink/25 to-brand-gold/25 text-white ring-1 ring-white/10',
-  holiday: 'bg-brand-gold/15 text-brand-gold',
-  iracing: 'bg-brand-blue/15 text-brand-blue',
+  holiday: 'bg-white/10 text-white/50',
+  iracing: 'bg-white/10 text-white/50',
 };
 
 /**
@@ -85,6 +86,39 @@ export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
  */
 export function usesFormatBadge(category: EventCategory): boolean {
   return category === 'championship' || category === 'exhibition';
+}
+
+// Card-level background/border accent that mirrors whichever badge color
+// getEventCardClasses() below would pick for this event — for the handful
+// of containers that already highlight themselves with a tinted background
+// (the homepage's featured "Next Up" card, the Calendar view's day cells),
+// not the small tag badge itself. Deliberately NOT applied to every event
+// card site-wide (e.g. the plain List-view rows on /calendar stay neutral)
+// — this is a targeted match for spots that already had a colored
+// background, not a general recolor.
+export const FORMAT_CARD_CLASSES: Record<EventFormat, string> = {
+  endurance: 'border-brand-blue/40 bg-brand-blue/10',
+  special: 'border-brand-pink/40 bg-brand-pink/10',
+  sprint: 'border-brand-gold/40 bg-brand-gold/10',
+};
+
+// Mirrors CATEGORY_BADGE_CLASSES' grey/gradient split, as border+background
+// instead of text+background. Exhibition's entry is unreachable through
+// getEventCardClasses() below (usesFormatBadge() routes exhibition to
+// FORMAT_CARD_CLASSES by format instead, same branch its badge takes) —
+// kept filled in for type-completeness and in case a future caller wants
+// the category-level gradient directly.
+export const CATEGORY_CARD_CLASSES: Record<EventCategory, string> = {
+  championship: '',
+  test: 'border-white/10 bg-white/[0.03]',
+  exhibition: 'border-white/10 bg-gradient-to-r from-brand-blue/10 via-brand-pink/10 to-brand-gold/10',
+  holiday: 'border-white/10 bg-white/[0.03]',
+  iracing: 'border-white/10 bg-white/[0.03]',
+};
+
+/** Same format-vs-category branch as usesFormatBadge, applied to the card-background accent above instead of the tag badge. */
+export function getEventCardClasses(event: { category: EventCategory; format: EventFormat }): string {
+  return usesFormatBadge(event.category) ? FORMAT_CARD_CLASSES[event.format] : CATEGORY_CARD_CLASSES[event.category];
 }
 
 export const WEATHER_LABELS: Record<Weather, string> = {
