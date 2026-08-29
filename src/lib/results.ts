@@ -1869,6 +1869,52 @@ export function findRoundsForLayout(
     .map((r) => ({ subsessionId: r.subsession_id, trackName: r.track_name, startTime: r.start_time, seasonLabel: r.season_label }));
 }
 
+/**
+ * Builds a fast `(circuitId, eventLayoutName) -> count` lookup for "how many
+ * historical rounds match this event's circuit+layout" — what calendar.astro
+ * needs for every event's "Race Recaps at this Layout (N)" badge (the round
+ * LIST itself stays a lazy, per-event fetch via /api/layout-rounds.ts; only
+ * the count is needed up front for every event on the page).
+ *
+ * Calling findRoundsForLayout(...).length once per event, as calendar.astro
+ * used to, re-resolves EVERY round's LayoutMatchKey from scratch for EVERY
+ * event — O(events * rounds * (circuits + layouts)) total. With a real
+ * season's worth of history (248 events × 237 rounds × ~157 circuits+layouts
+ * at the time this was found) that's on the order of 9 million redundant
+ * comparisons on every single calendar page load, for every visitor — enough
+ * synchronous CPU work to occasionally trip Cloudflare's per-request CPU
+ * limit outright (this is the Free plan; see wrangler.jsonc's own note on
+ * Error 1102). It also only gets worse as more rounds/events are added,
+ * which is exactly why this kept resurfacing without any code changing.
+ *
+ * This resolves each round's LayoutMatchKey exactly ONCE (O(rounds *
+ * (circuits + layouts))), tallies counts by key, and returns a closure that
+ * looks up an event's count in O(layouts) (to resolve that one event's own
+ * key) + O(1) map lookup — total cost across every event on the page is
+ * O(rounds * (circuits + layouts) + events * layouts), a few orders of
+ * magnitude cheaper, and one that scales linearly rather than
+ * multiplicatively as more history accumulates.
+ */
+export function buildLayoutRoundCounter(
+  allRounds: RoundSummary[],
+  roundLayoutBySubsession: Map<number, string | null>,
+  circuits: Circuit[],
+  layouts: CircuitLayout[]
+): (circuitId: string, eventLayoutName: string | null) => number {
+  const keyStr = (key: LayoutMatchKey) => `${key.kind}:${key.id}`;
+  const countByKey = new Map<string, number>();
+  for (const r of allRounds) {
+    const key = resolveRoundLayoutKey(r.track_name, roundLayoutBySubsession.get(r.subsession_id) ?? null, circuits, layouts);
+    if (!key) continue;
+    const k = keyStr(key);
+    countByKey.set(k, (countByKey.get(k) ?? 0) + 1);
+  }
+  return (circuitId, eventLayoutName) => {
+    const key = resolveEventLayoutKey(circuitId, eventLayoutName, layouts);
+    return countByKey.get(keyStr(key)) ?? 0;
+  };
+}
+
 /** Batched version of newsRecap.ts's fetchRoundLayout — one query for every round in the season instead of one per round. Same graceful-degradation-on-failure reasoning (this is a small admin-filled column that may not exist/be filled in for every round). */
 export async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<number, string | null>> {
   if (subsessionIds.length === 0) return new Map();

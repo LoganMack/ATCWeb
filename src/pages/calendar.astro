@@ -8,7 +8,7 @@ import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSu
 import {
   getAllRounds,
   getRoundLayoutsForSubsessions,
-  findRoundsForLayout,
+  buildLayoutRoundCounter,
   type RoundSummary,
 } from '../lib/results';
 import { buildEventIcsBlock } from '../lib/ics';
@@ -83,6 +83,13 @@ if (bulkResult) {
   );
   const roundsBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const roundsBySeasonRound = new Map(allRounds.map((r) => [`${r.season_id}:${r.round_number}`, r]));
+  // O(rounds * (circuits + layouts)) once, up front, instead of re-resolving
+  // every round's layout key for every event — see buildLayoutRoundCounter's
+  // own doc comment (src/lib/results.ts) for why the old
+  // findRoundsForLayout(...).length-per-event approach was expensive enough,
+  // at this site's real data volume, to occasionally trip Cloudflare's
+  // per-request CPU limit outright.
+  const countRoundsForLayout = buildLayoutRoundCounter(allRounds, roundLayoutBySubsession, circuits, layouts);
   for (const event of events) {
     layoutRoundsCountByEventId.set(
       event.id,
@@ -90,9 +97,7 @@ if (bulkResult) {
       // — nothing to find a layout's race-recap history for, so those just
       // get 0 rather than passing null into a function typed to expect a
       // real circuit id.
-      event.circuit_id
-        ? findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout).length
-        : 0
+      event.circuit_id ? countRoundsForLayout(event.circuit_id, event.layout) : 0
     );
     const linked =
       event.subsession_id !== null
