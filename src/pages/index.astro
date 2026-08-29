@@ -55,7 +55,7 @@ const loadTopSection = async () => {
   try {
     [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
       getNewsPosts(supabaseEnv, 8),
-      getUpcomingEvents(supabaseEnv, 6),
+      getUpcomingEvents(supabaseEnv, 4),
       getAllCircuitLayouts(supabaseEnv),
     ]);
   } catch (err) {
