@@ -8,25 +8,38 @@ export const prerender = false;
 // the split rationale). All three share one import_key namespace via
 // manual_result_imports (src/lib/raceResultsImport.ts) — uploading a race
 // CSV and a qualifying CSV under the same import_key ties both to the same
-// round instead of creating two. Every downloadable template is generated
-// on request from src/lib/importTemplates.ts rather than a static file
-// under public/ — see that file's header comment for why (a static file
-// can silently drift from what the importer actually reads; a generated
-// one can't).
+// round instead of creating two.
+//
+// Rather than three generic upload buttons, this page shows one row per
+// finished event still missing a race, qualifying, and/or practice result
+// (getEventsMissingResults()) — only the session type(s) an event is
+// actually missing get a button. Clicking one opens a shared upload dialog
+// (same pattern as admin/rulesets' add/edit dialog) scoped to that event +
+// kind; its "Download CSV template" link carries the event's id so the
+// downloaded template comes back pre-filled with whatever round-level
+// columns the event can supply (src/pages/api/import-templates/[kind].ts) —
+// see that file's own header comment for exactly what gets filled in and
+// why.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, uploadToStorage } from '../../../lib/supabase';
+import { resolveSupabaseEnv, uploadToStorage, formatDateShort } from '../../../lib/supabase';
 import { parseCsv } from '../../../lib/csv';
-import { importRaceResultsCsv, importQualifyingResultsCsv, importPracticeResultsCsv } from '../../../lib/raceResultsImport';
+import {
+  importRaceResultsCsv,
+  importQualifyingResultsCsv,
+  importPracticeResultsCsv,
+  getEventsMissingResults,
+  type EventResultCoverage,
+} from '../../../lib/raceResultsImport';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
 
 type ImportKind = 'race-results' | 'qualifying-results' | 'practice-results';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
-  const accessToken = Astro.locals.session!.accessToken;
   const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
   const redirectWithCounts = (kind: ImportKind, imported: number, skipped: number) =>
@@ -142,7 +155,7 @@ interface ImportPanel {
   title: string;
   intent: string;
   help: string;
-  /** Which table(s) this importer writes to — shown as a small note under the title so it's clear at a glance what each upload actually touches. */
+  /** Which table(s) this importer writes to — shown in the upload dialog so it's clear at a glance what each upload actually touches. */
   writesTo: string;
 }
 
@@ -150,7 +163,7 @@ interface ImportPanel {
 // three CSVs starts with — referenced by all three panels' help text below
 // instead of repeating the full explanation three times.
 const ROUND_COLS_NOTE =
-  'circuit_name, layout, season_name, event_date, event_time, format, status, strength_of_field, and exhibition together identify the round';
+  'circuit_name, layout, season_name, event_date, event_time, format, status, strength_of_field, and exhibition together identify the round (pre-filled on the downloaded template from the event you clicked)';
 
 const panels: ImportPanel[] = [
   {
@@ -159,7 +172,7 @@ const panels: ImportPanel[] = [
     intent: 'import-race-results',
     writesTo: 'curated_rounds, curated_race_results — NOT race_scores',
     help:
-      `For exhibition races or one-off events the real iRacing results pipeline will never see — writes RAW per-driver finish data only (finish position, laps, incidents, lap times), the same shape a real pipeline import produces. It does not compute or store points — that's the scoring engine's job (Admin > Rulesets), triggered separately once a season has a ruleset assigned. Every row needs an import_key (your own label for the round — reuse the SAME key across a race, qualifying, and practice upload for the same event to tie all three to one round) and a driver_car_number matching a driver who already has an iRacing Customer ID set on their Roster profile. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
+      `Writes RAW per-driver finish data only (finish position, laps, incidents, lap times) — the same shape a real pipeline import produces. It does not compute or store points — that's the scoring engine's job (Admin > Rulesets), triggered separately once a season has a ruleset assigned. Every row needs a driver_car_number matching a driver who already has an iRacing Customer ID set on their Roster profile. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
   },
   {
     kind: 'qualifying-results',
@@ -167,7 +180,7 @@ const panels: ImportPanel[] = [
     intent: 'import-qualifying-results',
     writesTo: 'curated_rounds, curated_qualifying',
     help:
-      `Writes each driver's qualifying position and best lap. Uses the same import_key scheme as Race Results — reuse a round's key here to attach its qualifying results to that same round (creating the round first if this is the only CSV uploaded for it). ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
+      `Writes each driver's qualifying position and best lap. Uses the same import_key scheme as Race Results — uploading this for an event that already has a race result attaches to that SAME round rather than creating a new one. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
   },
   {
     kind: 'practice-results',
@@ -175,17 +188,30 @@ const panels: ImportPanel[] = [
     intent: 'import-practice-results',
     writesTo: 'curated_rounds, curated_practice_results',
     help:
-      `Writes each driver's practice laps and best lap — there's no finishing/qualifying position to record for a practice session. Uses the same import_key scheme as Race Results — reuse a round's key here to attach its practice results to that same round. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
+      `Writes each driver's practice laps and best lap — there's no finishing/qualifying position to record for a practice session. Uses the same import_key scheme as Race Results — uploading this for an event that already has results attaches to that SAME round rather than creating a new one. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
   },
 ];
+
+let missingEvents: EventResultCoverage[] = [];
+try {
+  missingEvents = await getEventsMissingResults(supabaseEnv, accessToken);
+} catch (err) {
+  console.error('Failed to load events missing race results:', err);
+}
+
+function eventLabel(ev: EventResultCoverage): string {
+  const track = ev.layout ? `${ev.circuitName} — ${ev.layout}` : ev.circuitName;
+  return `${track} · ${formatDateShort(ev.eventDate)}`;
+}
 ---
 
 <AdminLayout title="Add Race Result">
   <h1 class="reveal font-display text-4xl">Add Race Result</h1>
   <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Bulk-load a round's results from a CSV file — one panel per screen. Download a template, fill it in, and upload
-    it; a round that already exists (same import_key) is updated in place instead of duplicated. Looking to import
-    Events, Circuits, or News instead? That's on <a href="/admin/import-tools" class="text-brand-primary hover:underline">Import Tools</a>.
+    Every finished event still missing a race, qualifying, or practice result is listed below — click a session to
+    upload its CSV. Downloading a template pre-fills what it can from that event; a round that already exists (same
+    import_key) is updated in place instead of duplicated. Looking to import Events, Circuits, or News instead?
+    That's on <a href="/admin/import-tools" class="text-brand-primary hover:underline">Import Tools</a>.
   </p>
 
   {importedCount !== null && resultKind && RESULT_LABELS[resultKind] && (
@@ -195,33 +221,148 @@ const panels: ImportPanel[] = [
     </p>
   )}
 
-  <div class="reveal mt-8 grid gap-4 sm:grid-cols-2" style="transition-delay: 80ms">
-    {panels.map((panel) => (
-      <div class="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-        <h2 class="font-display text-2xl">{panel.title}</h2>
-        <p class="mt-1 font-mono text-[11px] uppercase tracking-wide text-white/35">Writes to: {panel.writesTo}</p>
-        <a
-          href={`/api/import-templates/${panel.kind}.csv`}
-          download
-          class="mt-3 inline-block rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/20"
-        >
-          Download CSV template
-        </a>
-        <form method="POST" enctype="multipart/form-data" data-astro-reload class="mt-3 flex flex-col gap-2">
-          <input type="hidden" name="intent" value={panel.intent} />
-          <input
-            type="file"
-            name="csv_file"
-            accept=".csv"
-            required
-            class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
-          />
-          <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
-            Upload
-          </button>
-        </form>
-        <p class="mt-3 text-xs text-white/40">{panel.help}</p>
-      </div>
-    ))}
+  <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 80ms">
+    {missingEvents.length === 0 ? (
+      <p class="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/50">
+        Every finished event has race, qualifying, and practice results on file (that it's scheduled to have).
+      </p>
+    ) : (
+      missingEvents.map((ev) => (
+        <div class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <div class="min-w-0">
+            <h3 class="truncate font-display text-xl">
+              {ev.circuitName}
+              {ev.layout && <span class="text-white/50"> — {ev.layout}</span>}
+            </h3>
+            <p class="mt-1 text-xs text-white/50">
+              {formatDateShort(ev.eventDate)}
+              {ev.seasonName && ` · ${ev.seasonName}`}
+              {ev.format && ` · ${ev.format}`}
+            </p>
+          </div>
+          <div class="flex flex-none flex-wrap gap-2">
+            {ev.missingRace && (
+              <button
+                type="button"
+                data-open-upload-dialog
+                data-kind="race-results"
+                data-event-id={ev.eventId}
+                data-event-label={eventLabel(ev)}
+                class="rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+              >
+                Race
+              </button>
+            )}
+            {ev.missingQualifying && (
+              <button
+                type="button"
+                data-open-upload-dialog
+                data-kind="qualifying-results"
+                data-event-id={ev.eventId}
+                data-event-label={eventLabel(ev)}
+                class="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20"
+              >
+                Qualifying
+              </button>
+            )}
+            {ev.missingPractice && (
+              <button
+                type="button"
+                data-open-upload-dialog
+                data-kind="practice-results"
+                data-event-id={ev.eventId}
+                data-event-label={eventLabel(ev)}
+                class="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20"
+              >
+                Practice
+              </button>
+            )}
+          </div>
+        </div>
+      ))
+    )}
   </div>
+
+  <dialog
+    id="upload-dialog"
+    data-upload-dialog
+    class="w-full max-w-lg rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+  >
+    <div class="flex flex-col gap-3 p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h2 class="font-display text-2xl" data-dialog-title>Upload Results</h2>
+          <p class="mt-1 truncate text-sm text-white/60" data-dialog-event-label></p>
+        </div>
+        <button type="button" data-close-upload-dialog class="flex-none text-white/40 hover:text-white">✕</button>
+      </div>
+
+      <p class="font-mono text-[11px] uppercase tracking-wide text-white/35" data-dialog-writes-to></p>
+
+      <a
+        data-dialog-template-link
+        href="#"
+        download
+        class="inline-block self-start rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/20"
+      >
+        Download CSV template
+      </a>
+
+      <form method="POST" enctype="multipart/form-data" data-astro-reload class="mt-1 flex flex-col gap-2">
+        <input type="hidden" name="intent" data-dialog-intent-field value="" />
+        <input
+          type="file"
+          name="csv_file"
+          accept=".csv"
+          required
+          class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
+        />
+        <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+          Upload
+        </button>
+      </form>
+
+      <p class="text-xs text-white/40" data-dialog-help></p>
+    </div>
+  </dialog>
+
+  <script define:vars={{ panels }}>
+    // Single shared upload dialog for every event/session-type button above
+    // — same trigger-carries-its-own-data-then-populate-and-showModal
+    // pattern as admin/rulesets' add/edit dialog. `panels` (kind -> title/
+    // intent/help/writesTo) comes from the server via define:vars since it
+    // never changes per-click; only which event/kind was clicked does.
+    const dialog = document.querySelector('[data-upload-dialog]');
+    if (dialog) {
+      const titleEl = dialog.querySelector('[data-dialog-title]');
+      const eventLabelEl = dialog.querySelector('[data-dialog-event-label]');
+      const writesToEl = dialog.querySelector('[data-dialog-writes-to]');
+      const templateLink = dialog.querySelector('[data-dialog-template-link]');
+      const intentField = dialog.querySelector('[data-dialog-intent-field]');
+      const helpEl = dialog.querySelector('[data-dialog-help]');
+
+      document.querySelectorAll('[data-open-upload-dialog]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const kind = btn.dataset.kind;
+          const panel = panels.find((p) => p.kind === kind);
+          if (!panel) return;
+
+          titleEl.textContent = panel.title;
+          eventLabelEl.textContent = btn.dataset.eventLabel || '';
+          writesToEl.textContent = `Writes to: ${panel.writesTo}`;
+          helpEl.textContent = panel.help;
+          intentField.value = panel.intent;
+
+          const eventId = btn.dataset.eventId;
+          templateLink.href = eventId
+            ? `/api/import-templates/${kind}.csv?eventId=${encodeURIComponent(eventId)}`
+            : `/api/import-templates/${kind}.csv`;
+
+          dialog.showModal();
+        });
+      });
+
+      dialog.querySelector('[data-close-upload-dialog]')?.addEventListener('click', () => dialog.close());
+    }
+  </script>
 </AdminLayout>

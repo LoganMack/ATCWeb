@@ -175,6 +175,46 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
   )}
 
   <section class="reveal mt-8" style="transition-delay: 60ms">
+    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Admin Tools</h2>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      {importAndLog.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2">
+      {driversAndTeams.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {eventsOrgsNews.map((card) => (
+        <a
+          href={card.href}
+          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
+        >
+          <h3 class="font-display text-2xl">{card.label}</h3>
+          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  <section class="reveal mt-12" style="transition-delay: 80ms">
     <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Site Analytics</h2>
 
     {pageViewStats ? (
@@ -303,46 +343,6 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
     ) : (
       <p class="mt-4 text-sm text-white/50">Analytics aren't available right now.</p>
     )}
-  </section>
-
-  <section class="reveal mt-12" style="transition-delay: 80ms">
-    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Admin Tools</h2>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      {importAndLog.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
-    </div>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      {driversAndTeams.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
-    </div>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {eventsOrgsNews.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
-    </div>
   </section>
 
   <section class="reveal mt-12" style="transition-delay: 100ms">

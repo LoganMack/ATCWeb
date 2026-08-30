@@ -60,6 +60,7 @@
  */
 import {
   restGet,
+  restGetAll,
   restGetAuthed,
   restPost,
   restPatch,
@@ -690,4 +691,158 @@ export async function importPracticeResultsCsv(
   }
 
   return { imported, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// Read side — backs the reworked Admin > Add Race Result page, which shows
+// one row per finished event still missing a race/qualifying/practice
+// result instead of three generic upload buttons.
+// ---------------------------------------------------------------------------
+
+export interface EventResultCoverage {
+  eventId: string;
+  circuitName: string;
+  layout: string | null;
+  seasonName: string | null;
+  eventDate: string;
+  category: string;
+  format: string | null;
+  /** 'HH:MM:SS' or null — this event's own scheduled session times, carried through so a template download (src/pages/api/import-templates/[kind].ts) can prefill the right one for whichever kind was requested, without a second event fetch. */
+  raceStartTime: string | null;
+  qualifyingStartTime: string | null;
+  practiceStartTime: string | null;
+  missingRace: boolean;
+  missingQualifying: boolean;
+  missingPractice: boolean;
+  /**
+   * The import_key of the manual round already linked to this event, if
+   * any — reused when uploading another session type for the SAME event so
+   * it attaches to that round instead of creating a duplicate one (see
+   * writeRoundRow's alreadyImported branch above). Null when there's no
+   * round at all yet, or the linked round came from the real results
+   * pipeline (a positive subsession_id with no manual_result_imports row).
+   * In that second case a fresh manual upload here would still try to
+   * attach via this event's event_id and collide with
+   * curated_rounds_event_id_unique_idx — see suggestImportKey()'s own doc
+   * comment; that's a rare, out-of-scope case (this importer is meant for
+   * exhibition/one-off rounds the real pipeline never covers, per this
+   * file's header comment), not something this read-side helper tries to
+   * paper over.
+   */
+  importKey: string | null;
+}
+
+/**
+ * Only championship/test/exhibition events can ever have a race result —
+ * holiday/iracing events are circuit-less calendar entries with no track or
+ * sessions at all (see EventCategory's doc comment in supabase.ts). Kept as
+ * an explicit filter here even though those two categories would also fail
+ * every *_start_time check below (they have none) — this makes the intent
+ * readable without relying on that being true forever.
+ */
+const EVENTS_ELIGIBLE_FOR_RESULTS = new Set(['championship', 'test', 'exhibition']);
+
+/** Every distinct subsession_id present in one results table, restricted to a known set of subsession_ids (so this stays a cheap, bounded query no matter how much history the table holds). restGetAll (not restGet) since a table like curated_race_results has many rows per round — one per driver per race — and could exceed Supabase's default 1000-row response cap well before the round count itself does. */
+async function distinctSubsessionIds(env: SupabaseEnv, table: string, subsessionIds: number[]): Promise<Set<number>> {
+  if (subsessionIds.length === 0) return new Set();
+  const rows = await restGetAll<{ subsession_id: number }>(
+    env,
+    `${table}?select=subsession_id&subsession_id=in.(${subsessionIds.join(',')})`
+  );
+  return new Set(rows.map((r) => r.subsession_id));
+}
+
+/**
+ * Every finished event still missing a race, qualifying, and/or practice
+ * result it's actually scheduled to have — an event only "needs" a session
+ * type it has a scheduled start time for (events.race1_start_time/
+ * qualifying_start_time/practice_start_time), so e.g. a Test Session saved
+ * with no race (0054_test_session_no_race_required.sql) is never nagged for
+ * a missing "race" result. Generalizes get_missing_race_results_count()
+ * (0078_curated_rounds_event_id_and_practice_results.sql), which only ever
+ * tracked the race-results half of this for the admin dashboard's own
+ * subtitle — that RPC is untouched and still backs that count. This lives
+ * here instead of as a second RPC because it needs to return real rows (not
+ * just a count) for the checklist UI, and the manual_result_imports lookup
+ * it needs is admin-only anyway (see that table's own RLS), same as this
+ * importer's other admin-only reads.
+ */
+export async function getEventsMissingResults(env: SupabaseEnv, accessToken: string): Promise<EventResultCoverage[]> {
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const [events, rounds, existingImports] = await Promise.all([
+    getEvents(env),
+    restGetAll<{ subsession_id: number; event_id: string | null }>(
+      env,
+      'curated_rounds?select=subsession_id,event_id&event_id=not.is.null'
+    ),
+    getManualResultImports(env, accessToken),
+  ]);
+
+  const finished = events.filter((e) => EVENTS_ELIGIBLE_FOR_RESULTS.has(e.category) && e.event_date < todayStr);
+  if (finished.length === 0) return [];
+
+  const finishedEventIds = new Set(finished.map((e) => e.id));
+  const relevantRounds = rounds.filter((r) => r.event_id && finishedEventIds.has(r.event_id));
+  const relevantSubsessionIds = relevantRounds.map((r) => r.subsession_id);
+
+  const [raceSubsessions, qualifyingSubsessions, practiceSubsessions] = await Promise.all([
+    distinctSubsessionIds(env, 'curated_race_results', relevantSubsessionIds),
+    distinctSubsessionIds(env, 'curated_qualifying', relevantSubsessionIds),
+    distinctSubsessionIds(env, 'curated_practice_results', relevantSubsessionIds),
+  ]);
+
+  const roundByEventId = new Map(relevantRounds.map((r) => [r.event_id as string, r]));
+  const importKeyBySubsession = new Map(existingImports.map((r) => [r.subsession_id, r.import_key]));
+
+  const out: EventResultCoverage[] = [];
+  for (const e of finished) {
+    const round = roundByEventId.get(e.id);
+    const missingRace = Boolean(e.race1_start_time) && (!round || !raceSubsessions.has(round.subsession_id));
+    const missingQualifying =
+      Boolean(e.qualifying_start_time) && (!round || !qualifyingSubsessions.has(round.subsession_id));
+    const missingPractice =
+      Boolean(e.practice_start_time) && (!round || !practiceSubsessions.has(round.subsession_id));
+    if (!missingRace && !missingQualifying && !missingPractice) continue;
+
+    out.push({
+      eventId: e.id,
+      circuitName: e.circuits?.name ?? e.title ?? 'Unknown',
+      layout: e.layout,
+      seasonName: e.seasons?.name ?? null,
+      eventDate: e.event_date,
+      category: e.category,
+      format: e.format,
+      raceStartTime: e.race1_start_time,
+      qualifyingStartTime: e.qualifying_start_time,
+      practiceStartTime: e.practice_start_time,
+      missingRace,
+      missingQualifying,
+      missingPractice,
+      importKey: round ? (importKeyBySubsession.get(round.subsession_id) ?? null) : null,
+    });
+  }
+
+  // Most-recently-finished first — the freshest gaps are the ones an admin
+  // is most likely checking in for.
+  out.sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+  return out;
+}
+
+/** Slugifies text into the lowercase-no-punctuation style the existing manual import_key examples already use (e.g. "exh-2026-08-09-watkinsglen") — see RACE_RESULTS_TEMPLATE in importTemplates.ts. */
+function slugifyForImportKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * A reasonable starting import_key for an event that has no manual round
+ * linked yet — used only to pre-fill a downloaded CSV template (see
+ * src/pages/api/import-templates/[kind].ts); the admin can freely edit it
+ * before uploading, and it's never read back or relied on to already exist.
+ * Once a round does exist, getEventsMissingResults' own `importKey` field is
+ * used instead so every further upload for that event reuses the SAME key.
+ */
+export function suggestImportKey(ev: Pick<EventResultCoverage, 'category' | 'eventDate' | 'circuitName'>): string {
+  const prefix = ev.category === 'exhibition' ? 'exh' : ev.category === 'test' ? 'test' : 'evt';
+  return `${prefix}-${ev.eventDate}-${slugifyForImportKey(ev.circuitName)}`;
 }

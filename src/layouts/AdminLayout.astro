@@ -12,6 +12,13 @@ interface Props {
 const { title } = Astro.props;
 const session = Astro.locals.session;
 
+// Everything here that's ALSO one of the dashboard's own "Utilities" cards
+// (src/pages/admin/index.astro's `utilities` array) is deliberately left
+// off this list — Awards, Circuits, Import Tools, Media, Rulesets, Seasons,
+// Site Properties, Users. Those stay reachable by URL and from the
+// dashboard's Utilities section; keeping them here too just meant every one
+// of those pages' names appeared twice in the admin chrome. Keep this list
+// and that one in sync by hand when either changes.
 const links = [
   { href: '/admin', label: 'Dashboard' },
   { href: '/admin/news', label: 'News' },
@@ -19,15 +26,7 @@ const links = [
   { href: '/admin/teams', label: 'Teams' },
   { href: '/admin/organizations', label: 'Organizations' },
   { href: '/admin/events', label: 'Events' },
-  { href: '/admin/circuits', label: 'Circuits' },
-  { href: '/admin/media', label: 'Media' },
   { href: '/admin/import', label: 'Add Race Result' },
-  { href: '/admin/import-tools', label: 'Import Tools' },
-  { href: '/admin/seasons', label: 'Seasons' },
-  { href: '/admin/rulesets', label: 'Rulesets' },
-  { href: '/admin/awards', label: 'Awards' },
-  { href: '/admin/site-properties', label: 'Site Properties' },
-  { href: '/admin/users', label: 'Users' },
   { href: '/admin/activity-log', label: 'Activity Log' },
 ];
 ---

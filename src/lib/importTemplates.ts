@@ -185,7 +185,38 @@ const TEMPLATES: Record<ImportTemplateKind, CsvTemplate> = {
   'practice-results': PRACTICE_RESULTS_TEMPLATE,
 };
 
-export function getImportTemplateCsv(kind: string): string | null {
+/**
+ * Round-identifying columns shared by all three results templates (see
+ * ROUND_COLS_NOTE on the /admin/import page) — a real event supplies these
+ * for free once the download is tied to one (src/pages/api/import-templates/
+ * [kind].ts), so there's no need to fabricate an example round anymore.
+ * Every key here is a real column name so getImportTemplateCsv below can
+ * just look each template column up by name, with no per-kind mapping.
+ */
+export interface RoundColumnPrefill {
+  import_key?: string;
+  circuit_name?: string;
+  layout?: string;
+  season_name?: string;
+  event_date?: string;
+  event_time?: string;
+  format?: string;
+  status?: string;
+  strength_of_field?: string;
+  exhibition?: string;
+}
+
+export function getImportTemplateCsv(kind: string, prefill?: RoundColumnPrefill): string | null {
   const template = TEMPLATES[kind as ImportTemplateKind];
-  return template ? toCsv(template) : null;
+  if (!template) return null;
+  if (!prefill) return toCsv(template);
+
+  // One real starter row instead of the two made-up examples: the round-
+  // identifying columns come from whichever event this template was
+  // downloaded for, and every other (driver-level) column — the CSV's
+  // importer has no way to guess who raced — is left blank for the admin to
+  // fill in.
+  const prefillByColumn = prefill as Record<string, string | undefined>;
+  const row = template.columns.map((col) => prefillByColumn[col] ?? '');
+  return toCsv({ columns: template.columns, exampleRows: [row] });
 }
