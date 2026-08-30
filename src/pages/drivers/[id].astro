@@ -29,6 +29,8 @@ import {
   displayDriverName,
   resizedImageUrl,
   buildInactivityNote,
+  getSeasons,
+  getTeamRosterWithTeamsForSeason,
 } from '../../lib/supabase';
 import { isOnProbationNow } from '../../lib/penalties';
 import { classBadgeClasses } from '../../lib/classColors';
@@ -64,10 +66,11 @@ let statusTooltip: string | undefined;
 
 if (!loadError && driver) {
   try {
-    const [settings, events, lastRace] = await Promise.all([
+    const [settings, events, lastRace, seasons] = await Promise.all([
       getSiteSettings(supabaseEnv),
       getEvents(supabaseEnv),
       getDriverLastRace(supabaseEnv, driverId),
+      getSeasons(supabaseEnv),
     ]);
     const probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
     const probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
@@ -76,6 +79,18 @@ if (!loadError && driver) {
     onProbationNow = isOnProbationNow(driver, events, new Date(), probationDays, probationRounds);
     statusTooltip =
       buildInactivityNote(driver.driver_statuses?.name ?? null, lastRace, inactivityDays, inactivityRounds) ?? undefined;
+
+    // Same fix as roster.astro: show this driver's real CURRENT-season team
+    // (team_rosters), not the possibly-stale drivers.team_id getDriverProfileById
+    // embeds — see getTeamRosterWithTeamsForSeason's doc comment for why the
+    // two can drift. No team_rosters entry for the current season means
+    // Independent, not a fallback to the stale value.
+    const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
+    if (currentSeason) {
+      const entries = await getTeamRosterWithTeamsForSeason(supabaseEnv, currentSeason.id);
+      const mine = entries.find((e) => e.driver_id === driverId);
+      driver.teams = mine?.teams ?? null;
+    }
   } catch (err) {
     // Best-effort, same as roster.astro's identical fetch — a hiccup here
     // just means no probation badge/status breakdown text, not a broken page.

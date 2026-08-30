@@ -471,6 +471,32 @@ export function removeTeamRosterEntry(env: SupabaseEnv, accessToken: string, dat
   );
 }
 
+export interface TeamRosterWithTeam {
+  driver_id: string;
+  teams: { id: string; name: string; primary_color_hex: string | null; logo_url: string | null } | null;
+}
+
+/**
+ * Every driver's team for one season, sourced from team_rosters (embedding
+ * the matching teams row via PostgREST) rather than the driver's own
+ * drivers.team_id field. The two can drift: team_id is set once on the
+ * driver row and has to be remembered as a separate manual step, while
+ * team_rosters is the season-scoped table admins actually maintain via the
+ * team roster editor (src/pages/admin/teams/[id].astro) and the one the
+ * scoring engine itself trusts (0045_team_rosters_in_scoring.sql). Public
+ * pages that need to show "this driver's CURRENT team" — roster.astro,
+ * drivers/[id].astro — should look here for whichever season is
+ * `is_current`, not at driver.teams from getDrivers()/getDriverProfileById(),
+ * so a team change takes effect the moment the roster is updated instead of
+ * waiting on someone to separately edit every affected driver's team_id.
+ */
+export function getTeamRosterWithTeamsForSeason(env: SupabaseEnv, seasonId: string) {
+  return restGet<TeamRosterWithTeam[]>(
+    env,
+    `team_rosters?select=driver_id,teams(id,name,primary_color_hex,logo_url)&season_id=eq.${encodeURIComponent(seasonId)}`
+  );
+}
+
 // --- Manual awards (Best Racecraft / Most Improved — steward picks, not
 // computed from race data the way the other ten Awards-page entries are;
 // see computeSeasonAwardsHistory in results.ts, and 0069_manual_awards.sql) -

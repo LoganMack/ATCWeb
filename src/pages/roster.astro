@@ -4,7 +4,17 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import DriverRow from '../components/DriverRow.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { getDrivers, getEvents, getPageBanners, getSiteSettings, resolveSupabaseEnv, getAllDriverLastRaces, buildInactivityNote } from '../lib/supabase';
+import {
+  getDrivers,
+  getEvents,
+  getPageBanners,
+  getSiteSettings,
+  resolveSupabaseEnv,
+  getAllDriverLastRaces,
+  buildInactivityNote,
+  getSeasons,
+  getTeamRosterWithTeamsForSeason,
+} from '../lib/supabase';
 import { isOnProbationNow } from '../lib/penalties';
 import { bannerUrlFor } from '../lib/pageBanners';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
@@ -82,14 +92,42 @@ const loadBanner = async () => {
   }
 };
 
-// These five Supabase reads are all independent of each other — the only
+// The Team column has to reflect whoever's actually on a team's roster for
+// the CURRENT season (team_rosters), not each driver's own team_id field —
+// see getTeamRosterWithTeamsForSeason's doc comment in lib/supabase.ts for
+// why those two can drift. A driver with no team_rosters entry for the
+// current season shows as unassigned (teams: null) rather than falling back
+// to whatever stale team_id they still have on file — same call teams.astro
+// already makes for its own roster section.
+let currentTeamByDriverId = new Map<string, { name: string; primary_color_hex: string | null; logo_url: string | null }>();
+const loadCurrentTeams = async () => {
+  try {
+    const seasons = await getSeasons(supabaseEnv);
+    const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
+    if (!currentSeason) return;
+    const entries = await getTeamRosterWithTeamsForSeason(supabaseEnv, currentSeason.id);
+    for (const entry of entries) {
+      if (entry.teams) currentTeamByDriverId.set(entry.driver_id, entry.teams);
+    }
+  } catch (err) {
+    console.error('Failed to load current-season team rosters:', err);
+  }
+};
+
+// These six Supabase reads are all independent of each other — the only
 // real dependency in this file is the synchronous derivation right below
 // (onProbationNowByDriverId needs `drivers`, `events`, and the probation
-// settings, all fully resolved), so there's no reason to pay for 5
+// settings, all fully resolved), so there's no reason to pay for 6
 // sequential round-trips one after another when running them together costs
 // about as much as the single slowest one. Each keeps its own try/catch
 // exactly as before, so one failing still doesn't take the others down.
-await Promise.all([loadDriverSettings(), loadDrivers(), loadEvents(), loadLastRaces(), loadBanner()]);
+await Promise.all([loadDriverSettings(), loadDrivers(), loadEvents(), loadLastRaces(), loadBanner(), loadCurrentTeams()]);
+
+// Override each driver's embedded `teams` (drivers.team_id, via getDrivers)
+// with their real current-season team_rosters assignment computed above.
+for (const driver of drivers) {
+  driver.teams = currentTeamByDriverId.get(driver.id) ?? null;
+}
 
 const onProbationNowByDriverId = new Map(
   drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
