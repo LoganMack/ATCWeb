@@ -798,7 +798,23 @@ export async function getEventsMissingResults(env: SupabaseEnv, accessToken: str
   const out: EventResultCoverage[] = [];
   for (const e of finished) {
     const round = roundByEventId.get(e.id);
-    const missingRace = Boolean(e.race1_start_time) && (!round || !raceSubsessions.has(round.subsession_id));
+    // Race 1 is assumed to always happen for championship/exhibition events
+    // ("Race 1 is the only session that's always assumed to happen" —
+    // 0003_calendar.sql's own schema comment). A null race1_start_time on one
+    // of those isn't a sign the event has no race — it's almost always a
+    // historical event created by 0072_backfill_events_from_rounds.sql
+    // (which never set that column at all, per its own header comment) that
+    // nobody has re-saved through Admin -> Events since. Gating on
+    // Boolean(e.race1_start_time) for every category was silently
+    // suppressing every event caught by that gap — exactly the "16 missing"
+    // (dashboard's get_missing_race_results_count(), which never checks this
+    // field) vs. "0 missing" (this page) contradiction found while
+    // investigating a site health report. Test Sessions are the one category
+    // that can legitimately have no race at all
+    // (0054_test_session_no_race_required.sql), so they're the only ones
+    // still gated on the field actually being set.
+    const raceExpected = e.category === 'test' ? Boolean(e.race1_start_time) : true;
+    const missingRace = raceExpected && (!round || !raceSubsessions.has(round.subsession_id));
     const missingQualifying =
       Boolean(e.qualifying_start_time) && (!round || !qualifyingSubsessions.has(round.subsession_id));
     const missingPractice =
