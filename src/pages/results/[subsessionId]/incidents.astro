@@ -31,6 +31,7 @@ import {
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
+  scoringRaceNumber,
 } from '../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../lib/penaltyActions';
 import { resolveDriverByCarNumberForSeason } from '../../../lib/raceResultsImport';
@@ -72,8 +73,10 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
     // "qualifying:0", "practice:0". Qualifying/practice always carry the
     // race_number sentinel 0 (see 0056_penalty_session_type.sql) — it can
     // never collide with a real race (curated_race_results.race_number is
-    // always 1-5), which is why applyPenaltiesToRoundResults naturally never
-    // applies these to anyone's position/points.
+    // always 1-5); it's purely a display/grouping value. For SCORING, a
+    // qualifying/practice incident's penalty always applies to Race 1 (see
+    // scoringRaceNumber in src/lib/penalties.ts, which every recalculation
+    // pass reads instead of this raw field).
     const [sessionTypeRaw, raceNumberRaw] = String(form.get('session') ?? '').split(':');
     const sessionType: 'race' | 'qualifying' | 'practice' =
       sessionTypeRaw === 'qualifying' || sessionTypeRaw === 'practice' ? sessionTypeRaw : 'race';
@@ -117,14 +120,16 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
       incident_number: strOrNullField(form, 'incident_number'),
       lap: numOrNullField(form, 'lap'),
       description: strOrNullField(form, 'description'),
-      // Qualifying/practice incidents are informational only — no position
-      // or points to affect, so these are always zeroed server-side
-      // regardless of what the form submitted, same defense-in-depth
-      // pattern as the Racing-Incident offense/warning stripping above.
-      time_penalty_seconds: isRaceSession ? numOrNullField(form, 'time_penalty_seconds') : null,
-      points_penalty: isRaceSession ? numOrZeroField(form, 'points_penalty') : 0,
-      penalty_points: isRaceSession ? penaltyPointsValue : 0,
-      is_warning: isRaceSession && driverId ? isWarningChoice : false,
+      // Qualifying/practice incidents can carry a real penalty too — per
+      // Logan, it always applies to Race 1 (see scoringRaceNumber in
+      // src/lib/penalties.ts, which every recalculation pass reads instead
+      // of the raw race_number sentinel stored below). session_type no
+      // longer gates these fields — only whether a fault driver is actually
+      // selected does (a Racing Incident has nobody to penalize).
+      time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
+      points_penalty: numOrZeroField(form, 'points_penalty'),
+      penalty_points: penaltyPointsValue,
+      is_warning: driverId ? isWarningChoice : false,
       is_appealed: form.get('is_appealed') === 'on',
       appeal_result: strOrNullField(form, 'appeal_result'),
       appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
@@ -367,7 +372,10 @@ const originalByKey = buildLookup(originalResults);
 const recomputedByKey = buildLookup(recomputedResults);
 
 function deltaFor(p: Penalty): { positionDelta: number | null; pointsDelta: number | null } {
-  const key = `${p.race_number}:${p.driver_id}`;
+  // scoringRaceNumber (not the raw race_number) — a qualifying/practice
+  // incident's delta shows up against Race 1, where its penalty actually
+  // landed (see that helper's own doc comment in src/lib/penalties.ts).
+  const key = `${scoringRaceNumber(p)}:${p.driver_id}`;
   const before = originalByKey.get(key);
   const after = recomputedByKey.get(key);
   const positionDelta = before?.position != null && after?.position != null ? before.position - after.position : null;
@@ -880,9 +888,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //   - [data-fault-only] — the offenses fieldset and the PP(/Warning)/time/
   //     points penalty inputs, hidden (and cleared) whenever the Driver
   //     field's "Racing Incident" option is selected (see
-  //     0020_penalty_racing_incident.sql) OR the Session field isn't a real
-  //     race (Qualifying/Practice incidents are informational only — see
-  //     0056_penalty_session_type.sql).
+  //     0020_penalty_racing_incident.sql) — there's no one to penalize.
+  //     Available for every session type now: a qualifying/practice
+  //     incident's penalty always applies to Race 1 (see scoringRaceNumber
+  //     in src/lib/penalties.ts), it just isn't tied to a specific race
+  //     number the way a real race's incident is.
+  //   - Selecting a Driver also auto-checks that same car in the Involved
+  //     list (a driver at fault is, at minimum, involved in their own
+  //     incident) — see syncInvolvedWithDriver below. Only ever touches the
+  //     checkbox IT checked; anything the admin checked by hand is left
+  //     alone even if the Driver field changes again afterward.
   //   - [data-desc-toggle] — expands/collapses a long description.
   //   - [data-appeal-toggle] — reveals/hides that incident's appeal notes.
   function initIncidentPage() {
@@ -921,12 +936,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const appealCheckbox = dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!;
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
     // Everything that only makes sense when a specific driver is actually
-    // at fault in a real race — offenses (rulebook section 5) and the
-    // penalty inputs (PP/Warning, time penalty, points penalty) —
-    // hidden once "Racing Incident" (the driver select's "racing_incident"
-    // sentinel option, see 0020_penalty_racing_incident.sql) is picked, OR
-    // once Qualifying/Practice is picked (informational only, see
-    // 0056_penalty_session_type.sql).
+    // at fault — offenses (rulebook section 5) and the penalty inputs
+    // (PP/Warning, time penalty, points penalty) — hidden once "Racing
+    // Incident" (the driver select's "racing_incident" sentinel option, see
+    // 0020_penalty_racing_incident.sql) is picked. Available regardless of
+    // which session is chosen — a qualifying/practice incident's penalty is
+    // just as real as a race incident's, it always applies to Race 1 (see
+    // scoringRaceNumber in src/lib/penalties.ts).
     const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
     // The blank placeholder option ("Select driver…") is disabled/unselectable
     // once the user has interacted with the field — only used as the default
@@ -940,13 +956,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // fields make sense to show).
     const isDriverSelected = (value: string) => value !== '';
     const isFaultDriver = (value: string) => value !== '' && value !== 'racing_incident';
-    // Qualifying/practice incidents are informational only — no position or
-    // points to affect (see 0056_penalty_session_type.sql) — so the PP/time/
-    // points/warning inputs only make sense once a real race is selected,
-    // same reasoning as isFaultDriver above.
-    const isRaceSessionChosen = (value: string) => value.startsWith('race:');
     function faultFieldsShouldBeVisible() {
-      return isFaultDriver(driverField.value) && isRaceSessionChosen(sessionField.value);
+      return isFaultDriver(driverField.value);
     }
 
     // The four "core" fields that must be filled in before the rest of the
@@ -999,8 +1010,36 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       missingFieldsEl.textContent = isValid ? '' : `Still needed: ${missing.join(', ')}`;
     }
 
+    // Selecting a Driver also auto-checks that same car in the Involved
+    // list — per Logan, a driver at fault is, at minimum, involved in their
+    // own incident, so this saves re-ticking the box they just picked above.
+    // Only ever touches the ONE checkbox this function itself last checked
+    // (tracked via autoSelectedInvolvedId): switching the Driver field away
+    // unchecks that box again (unless the admin has since unchecked it
+    // themselves, in which case there's nothing to undo), but anything the
+    // admin checked by hand — including the same car, checked independently
+    // of this auto-behavior — is never touched.
+    let autoSelectedInvolvedId: string | null = null;
+    function syncInvolvedWithDriver() {
+      if (autoSelectedInvolvedId) {
+        const prevCheckbox = dialog.querySelector<HTMLInputElement>(
+          `[name="involved_driver_ids"][value="${autoSelectedInvolvedId}"]`
+        );
+        if (prevCheckbox && prevCheckbox.checked) prevCheckbox.checked = false;
+        autoSelectedInvolvedId = null;
+      }
+      const value = driverField.value;
+      if (!isFaultDriver(value)) return;
+      const checkbox = dialog.querySelector<HTMLInputElement>(`[name="involved_driver_ids"][value="${value}"]`);
+      if (checkbox && !checkbox.checked) {
+        checkbox.checked = true;
+        autoSelectedInvolvedId = value;
+      }
+    }
+
     appealCheckbox.addEventListener('change', () => setAppealFieldsVisible(appealCheckbox.checked));
     driverField.addEventListener('change', () => setFaultFieldsVisible(faultFieldsShouldBeVisible()));
+    driverField.addEventListener('change', syncInvolvedWithDriver);
     sessionField.addEventListener('change', () => setFaultFieldsVisible(faultFieldsShouldBeVisible()));
     sessionField.addEventListener('change', updateFormValidity);
     driverField.addEventListener('change', updateFormValidity);
@@ -1014,6 +1053,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         idField.value = '';
         heading.textContent = 'Add Incident';
         setAppealFieldsVisible(false);
+        // Fresh dialog, fresh tracking — nothing auto-selected yet.
+        autoSelectedInvolvedId = null;
         // form.reset() restores the blank placeholder (its `selected`
         // attribute) — Driver and Session both start unselected on every new
         // Add, per Logan.
@@ -1032,6 +1073,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         intentField.value = 'update-incident';
         idField.value = p.id;
         heading.textContent = 'Edit Incident';
+        // Fresh tracking for this edit — the checkboxes below are about to
+        // be set straight from this incident's own stored data, not via a
+        // simulated Driver-field change, so syncInvolvedWithDriver never
+        // fires for this initial load.
+        autoSelectedInvolvedId = null;
         sessionField.value = p.session;
         driverField.value = p.driver_id ?? 'racing_incident';
 

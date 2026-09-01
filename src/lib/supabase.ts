@@ -2209,7 +2209,7 @@ export interface Penalty {
   subsession_id: number;
   /** For session_type 'qualifying'/'practice' this is always the sentinel 0 — quali/practice aren't split by race, and race_number = 0 can never collide with a real race (curated_race_results.race_number is always 1-5). See session_type below and 0056_penalty_session_type.sql. */
   race_number: number;
-  /** 'race' (default) | 'qualifying' | 'practice' (0056_penalty_session_type.sql). Quali/practice incidents are informational-only — applyPenaltiesToRoundResults (src/lib/penalties.ts) never looks up race_number 0, so they can't affect any driver's position/points; the Incident Report page groups by this field instead of race_number alone so they get their own "Qualifying"/"Practice" sections. */
+  /** 'race' (default) | 'qualifying' | 'practice' (0056_penalty_session_type.sql). Purely a display/grouping concern — the Incident Report page groups by this field instead of race_number alone so Qualifying/Practice get their own sections. For SCORING, a qualifying/practice incident's own penalty (offenses, PP, time, points) always applies to Race 1, same as if it had been logged directly against it — see scoringRaceNumber in src/lib/penalties.ts, which every recalculation pass keys off instead of the raw race_number. */
   session_type: 'race' | 'qualifying' | 'practice';
   /** Null means "Racing Incident" — reviewed and judged nobody's fault, so no driver is attached (0020_penalty_racing_incident.sql). Shown as "RI" in the Incident Report's Driver column instead of a car number, and never affects anyone's position/points — the recalculation engine keys everything off driver_id, so a row with none can't touch any driver's result. */
   driver_id: string | null;

@@ -154,13 +154,28 @@ interface RaceDriverPenaltyTotal {
   points: number; // flat championship-points deduction
 }
 
-/** Sums every penalty logged against each (race_number, driver) pair in this round — a driver can accumulate more than one penalty for the same race, and their effects stack. Uses each penalty's effective (appeal-aware) time/points. A Racing Incident entry (driver_id null — see supabase.ts's Penalty.driver_id) collapses into one harmless `"${raceNumber}:null"` bucket that no real driver's id can ever match, so it's never looked up — a no-fault entry simply can't apply to anyone. */
+/**
+ * Which real race a penalty's time/points/PP actually lands on for scoring
+ * purposes. Qualifying/practice incidents are stored with race_number
+ * pinned to the sentinel 0 (0056_penalty_session_type.sql) purely so they
+ * group into their own "Qualifying"/"Practice" sections on the Incident
+ * Report — that's a display/grouping concern, not a scoring one. Per Logan,
+ * a qualifying/practice incident's own penalty (offenses, PP, time, points)
+ * always applies to Race 1, same as if it had been logged directly against
+ * it, so every place below that keys a penalty by race for scoring reads
+ * this instead of the raw race_number.
+ */
+export function scoringRaceNumber(p: { session_type: 'race' | 'qualifying' | 'practice'; race_number: number }): number {
+  return p.session_type === 'race' ? p.race_number : 1;
+}
+
+/** Sums every penalty logged against each (race, driver) pair in this round — a driver can accumulate more than one penalty for the same race, and their effects stack. Uses each penalty's effective (appeal-aware) time/points, keyed by scoringRaceNumber (above) rather than the raw race_number, so a qualifying/practice penalty's time/points correctly stack onto Race 1 alongside anything logged directly against Race 1. A Racing Incident entry (driver_id null — see supabase.ts's Penalty.driver_id) collapses into one harmless `"${raceNumber}:null"` bucket that no real driver's id can ever match, so it's never looked up — a no-fault entry simply can't apply to anyone. */
 export function sumPenaltiesByRaceDriver(
-  penalties: (PenaltyLike & { race_number: number; driver_id: string | null })[]
+  penalties: (PenaltyLike & { race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[]
 ): Map<string, RaceDriverPenaltyTotal> {
   const out = new Map<string, RaceDriverPenaltyTotal>();
   for (const p of penalties) {
-    const key = `${p.race_number}:${p.driver_id}`;
+    const key = `${scoringRaceNumber(p)}:${p.driver_id}`;
     const cur = out.get(key) ?? { time: 0, points: 0 };
     cur.time += effectiveTimePenaltySeconds(p) ?? 0;
     cur.points += effectivePointsPenalty(p);
@@ -638,7 +653,7 @@ function recomputeRow(
  */
 export function applyPenaltiesToRoundResults(
   results: RoundResults,
-  penalties: (PenaltyLike & { race_number: number; driver_id: string | null })[],
+  penalties: (PenaltyLike & { race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[],
   format: Format | null,
   /** classId -> whether that class awards the top-3-in-class Class Points bonus at all (false for Alpha) — see recomputeRow. A class missing from this map is treated as awarding it, matching every class besides Alpha. */
   classPointsEligibleByClassId: Map<number, boolean> = new Map()
@@ -800,7 +815,7 @@ export interface SeasonOverallAdjustment {
  */
 export function computeSeasonOverallAdjustments(
   rows: SeasonScoreRow[],
-  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[],
+  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[],
   formatBySubsession: Map<number, Format | null>
 ): Map<string, SeasonOverallAdjustment> {
   const out = new Map<string, SeasonOverallAdjustment>();
@@ -809,9 +824,13 @@ export function computeSeasonOverallAdjustments(
   const raceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
   const rowKey = (subsessionId: number, raceNumber: number, driverId: string) => `${subsessionId}:${raceNumber}:${driverId}`;
 
-  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[]>();
+  // Grouped by scoringRaceNumber (not the raw race_number) so a
+  // qualifying/practice penalty (stored with the race_number sentinel 0)
+  // lands in Race 1's bucket, same as a penalty logged directly against
+  // Race 1 — see scoringRaceNumber's own doc comment above.
+  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[]>();
   for (const p of penalties) {
-    const key = raceKey(p.subsession_id, p.race_number);
+    const key = raceKey(p.subsession_id, scoringRaceNumber(p));
     if (!penaltiesByRace.has(key)) penaltiesByRace.set(key, []);
     penaltiesByRace.get(key)!.push(p);
   }
@@ -934,7 +953,7 @@ export interface SeasonClassAdjustment {
  */
 export function computeSeasonClassAdjustments(
   rows: SeasonClassScoreRow[],
-  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[],
+  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[],
   formatBySubsession: Map<number, Format | null>,
   overallAdjustments: Map<string, SeasonOverallAdjustment>,
   /**
@@ -957,9 +976,12 @@ export function computeSeasonClassAdjustments(
   const raceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
   const rowKey = (subsessionId: number, raceNumber: number, driverId: string) => `${subsessionId}:${raceNumber}:${driverId}`;
 
-  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null })[]>();
+  // Same scoringRaceNumber grouping as computeSeasonOverallAdjustments above
+  // — a qualifying/practice penalty lands in Race 1's bucket for this class
+  // pass too.
+  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[]>();
   for (const p of penalties) {
-    const key = raceKey(p.subsession_id, p.race_number);
+    const key = raceKey(p.subsession_id, scoringRaceNumber(p));
     if (!penaltiesByRace.has(key)) penaltiesByRace.set(key, []);
     penaltiesByRace.get(key)!.push(p);
   }
