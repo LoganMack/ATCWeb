@@ -256,10 +256,10 @@ for (const r of raceHistory) {
         {!career || career.seasons.length === 0 ? (
           <p class="text-sm text-white/40">No season history yet.</p>
         ) : (
-          <div class="overflow-x-auto">
+          <div class="max-h-[23rem] overflow-auto">
             <table class="w-full border-collapse text-xs">
               <thead>
-                <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                <tr class="sticky top-0 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
                   <th class="py-2 pr-2 font-medium">Season</th>
                   <th class="py-2 pr-2 font-medium">Class</th>
                   <th class="py-2 pr-2 font-medium">Car(s)</th>
@@ -336,7 +336,7 @@ for (const r of raceHistory) {
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
-          <div class="max-h-[36rem] overflow-auto">
+          <div class="max-h-[23rem] overflow-auto">
             <table class="w-full border-collapse text-xs">
               <thead>
                 <tr class="sticky top-0 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">

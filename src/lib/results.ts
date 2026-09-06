@@ -297,6 +297,25 @@ function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
   );
 }
 
+/**
+ * Same shape as `getRaceScoresForSeasonOverall` (every class, every driver),
+ * but scoped by explicit subsession_ids instead of one season — for
+ * `getDriverRaceHistory`, which spans one driver's WHOLE CAREER (many
+ * seasons at once, not one at a time). computeSeasonOverallAdjustments'
+ * time-penalty reorder needs a race's WHOLE field (every driver, not just
+ * the one this page is about) to correctly cascade who moves where — see
+ * src/lib/penalties.ts's reorderByTimePenalty — so a single driver's own
+ * race_scores rows alone aren't enough to recompute their own position.
+ * restGetAll, not restGet — a career spanning many rounds times every OTHER
+ * driver in each one easily clears Supabase's default 1000-row cap.
+ */
+function getRaceScoresForSubsessionsOverall(env: SupabaseEnv, subsessionIds: number[]) {
+  if (subsessionIds.length === 0) return Promise.resolve([] as RaceScoreOverallRow[]);
+  const select =
+    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
+  return restGetAll<RaceScoreOverallRow>(env, `race_scores?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`);
+}
+
 function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
   // Deliberately does NOT select best_lap_ten_thousandths (fastest-lap data,
@@ -2912,7 +2931,7 @@ export interface DriverRaceHistoryRow {
   /** The team this driver raced for in this specific race (race_scores.team_id) — same historical-logo resolution as RaceResultRow.team. */
   team: { name: string; logoUrl: string | null } | null;
   startingPosition: number | null;
-  /** Post-penalty position when set (adjusted_position), falling back to the pre-penalty finish_position otherwise — same convention as RaceResultRow. */
+  /** Post-penalty position from the live penalty-adjustment engine (computeSeasonOverallAdjustments — the same one every other page uses, recomputed from the CURRENT penalties table) when it repositions this race, falling back to the legacy curated_race_results.adjusted_position manual override, then to the raw finish_position — same fallback chain as RaceResultRow. An unclassified (NC/DSQ) row is never repositioned by the engine (canReposition requires classified === true), so it naturally falls through to the legacy/raw value. */
   finishPosition: number;
   wasAdjusted: boolean;
   margin: string;
@@ -2968,18 +2987,39 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
 
   const subsessionIds = [...new Set(scores.map((s) => s.subsession_id))];
 
-  const [rawResults, teams, carLogos, classes, seasons, allRounds, exhibitionRoundIds, testRoundIds, seasonLogoRows] =
-    await Promise.all([
-      getCuratedRaceResultsForSubsessions(env, subsessionIds),
-      getTeamsBasic(env),
-      getCarLogos(env),
-      getDriverClasses(env),
-      getSeasons(env),
-      getAllRounds(env),
-      getExhibitionRoundIds(env),
-      getTestRoundIds(env),
-      getAllTeamSeasonLogosSafe(env),
-    ]);
+  const [
+    rawResults,
+    teams,
+    carLogos,
+    classes,
+    seasons,
+    allRounds,
+    exhibitionRoundIds,
+    testRoundIds,
+    seasonLogoRows,
+    overallScoresRaw,
+    penalties,
+    lapStats,
+    allDrivers,
+  ] = await Promise.all([
+    getCuratedRaceResultsForSubsessions(env, subsessionIds),
+    getTeamsBasic(env),
+    getCarLogos(env),
+    getDriverClasses(env),
+    getSeasons(env),
+    getAllRounds(env),
+    getExhibitionRoundIds(env),
+    getTestRoundIds(env),
+    getAllTeamSeasonLogosSafe(env),
+    // Whole-field (every driver, not just this one) race_scores across
+    // every subsession this driver has ever raced — see
+    // getRaceScoresForSubsessionsOverall's own doc comment for why the
+    // penalty engine's time-penalty reorder needs the full field.
+    getRaceScoresForSubsessionsOverall(env, subsessionIds),
+    getPenaltiesForSubsessions(env, subsessionIds),
+    getLapStatsForSubsessions(env, subsessionIds),
+    driversSelect(env, {}),
+  ]);
 
   const excludedRoundIds = new Set([...exhibitionRoundIds, ...testRoundIds]);
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
@@ -2989,6 +3029,44 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   const seasonById = new Map(seasons.map((s) => [s.id, s]));
   const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
+
+  // Live penalty-adjustment engine — same one every other page (results,
+  // standings, incidents, news recap) uses, recomputed from the CURRENT
+  // penalties table on every render rather than relying on a manually
+  // re-run DB function. Scoped by explicit subsession_ids (this driver's
+  // whole career, spanning many seasons) rather than one season at a time —
+  // the engine's own keying (`${subsessionId}:${raceNumber}:${driverId}`)
+  // is season-agnostic, so this works the same as the single-season
+  // buildSeasonOverallContext pattern used elsewhere in this file.
+  const custIdByDriverId = new Map(
+    allDrivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+  );
+  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const formatBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r.format]));
+
+  const seasonScoreRows: SeasonScoreRow[] = overallScoresRaw.map((s) => {
+    const rowCustId = custIdByDriverId.get(s.driver_id);
+    const rawForRow = rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+    const lapStatsRow =
+      rowCustId != null ? lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+    return {
+      subsessionId: s.subsession_id,
+      raceNumber: s.race_number,
+      driverId: s.driver_id,
+      dsq: s.dsq,
+      classified: s.classified,
+      scoredPosition: s.scored_position,
+      intervalTenThousandths: rawForRow?.interval_ten_thousandths ?? null,
+      finishPoints: s.finish_points,
+      finesseBonus: s.finesse_bonus,
+      poleBonus: s.pole_bonus,
+      aggressionBonus: s.aggression_bonus,
+      pointsDeduction: s.points_deduction,
+      lapsComplete: rawForRow?.laps_complete ?? null,
+      averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
+    };
+  });
+  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession);
 
   // Leader's laps_complete per (subsession, race) — same as getRoundResults'
   // own leaderLapsByRace, just keyed across every round in scope at once
@@ -3024,6 +3102,16 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     const round = roundBySubsession.get(score.subsession_id) ?? null;
     const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
 
+    // Live-engine position/points first, legacy manual override next, raw
+    // last — see DriverRaceHistoryRow.finishPosition's doc comment. An NC/DSQ
+    // row is never repositioned by the engine (canReposition requires
+    // classified === true), so it falls straight through to the legacy/raw
+    // value exactly as before.
+    const adjustment = adjustments.get(`${score.subsession_id}:${score.race_number}:${driverId}`);
+    const baselinePosition = raw.adjusted_position ?? raw.finish_position;
+    const finishPosition = adjustment?.newPosition ?? baselinePosition;
+    const totalPoints = adjustment?.overallTotalPoints ?? score.total_points;
+
     out.push({
       subsessionId: score.subsession_id,
       raceNumber: score.race_number,
@@ -3036,8 +3124,8 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
       team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, round?.season_id ?? null, seasonLogoMap) } : null,
       startingPosition: raw.starting_position,
-      finishPosition: raw.adjusted_position ?? raw.finish_position,
-      wasAdjusted: raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position,
+      finishPosition,
+      wasAdjusted: finishPosition !== raw.finish_position,
       margin: formatMargin(
         raw.interval_ten_thousandths,
         raw.laps_complete,
@@ -3047,7 +3135,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       incidents: raw.incidents,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
-      totalPoints: score.total_points,
+      totalPoints,
       dsq: score.dsq,
       classified: score.classified,
     });
