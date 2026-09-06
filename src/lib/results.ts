@@ -4249,14 +4249,6 @@ export async function getQualifyingForSubsession(
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-/** 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 11/12/13 -> "11th"/"12th"/"13th", etc. */
-export function ordinal(n: number): string {
-  const suffixes = ['th', 'st', 'nd', 'rd'];
-  const rem100 = n % 100;
-  const suffix = suffixes[(rem100 - 20) % 10] ?? suffixes[rem100] ?? suffixes[0];
-  return `${n}${suffix}`;
-}
-
 /** e.g. pctOf(4, 12) -> "33% of starts". Returns an em dash when the denominator is 0. */
 export function pctOf(count: number, denominator: number, ofWhat: string): string {
   if (denominator <= 0) return '—';

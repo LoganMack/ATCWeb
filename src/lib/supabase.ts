@@ -1178,8 +1178,6 @@ export interface RoundOverride {
   note: string | null;
 }
 
-const ROUND_OVERRIDE_SELECT = 'subsession_id,is_exhibition,is_test,note';
-
 /** subsession_ids flagged as a non-points exhibition — used to exclude those rounds from standings/champions even inside an otherwise-real championship season. */
 export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<number>> {
   const rows = await restGet<{ subsession_id: number }[]>(
@@ -1212,14 +1210,6 @@ export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
 export async function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Set<number>> {
   const [exhibition, test] = await Promise.all([getExhibitionRoundIds(env), getTestRoundIds(env)]);
   return new Set([...exhibition, ...test]);
-}
-
-export async function getRoundOverride(env: SupabaseEnv, subsessionId: number) {
-  const rows = await restGet<RoundOverride[]>(
-    env,
-    `round_overrides?select=${ROUND_OVERRIDE_SELECT}&subsession_id=eq.${subsessionId}`
-  );
-  return rows[0] ?? null;
 }
 
 /** Marks (or unmarks) one round as a non-points exhibition — upserts on subsession_id. Only ever writes is_exhibition; a prior is_test flag on the same row (if any) survives untouched — see 0036_round_test_flag.sql for why these are independent. */
@@ -1704,14 +1694,6 @@ const SCORING_RULESET_SELECT = 'id,name,rules,is_default,can_drop_final_round,cr
 /** All scoring rulesets, alphabetical. */
 export function getScoringRulesets(env: SupabaseEnv) {
   return restGet<ScoringRuleset[]>(env, `scoring_rulesets?select=${SCORING_RULESET_SELECT}&order=name.asc`);
-}
-
-export async function getScoringRulesetById(env: SupabaseEnv, id: string) {
-  const rulesets = await restGet<ScoringRuleset[]>(
-    env,
-    `scoring_rulesets?select=${SCORING_RULESET_SELECT}&id=eq.${encodeURIComponent(id)}`
-  );
-  return rulesets[0] ?? null;
 }
 
 export function createScoringRuleset(
