@@ -3,42 +3,40 @@
  * steward's decision into a recalculated race result, season standings, and
  * a driver's running season penalty-points (PP) tally.
  *
- * Two genuinely separate systems share the word "points" here, and it's
- * worth keeping them straight:
- *   - Championship/race points (finish_points, class_points, etc. — what
- *     the standings pages total up) — a penalty can flatly deduct from
- *     these (`points_penalty` on a Penalty row) and/or indirectly change
- *     them by moving the driver's finishing position (`time_penalty_seconds`).
+ * Two separate systems share the word "points" here:
+ *   - Championship/race points (finish_points, class_points, etc. — what the
+ *     standings pages total up). A penalty can flatly deduct from these
+ *     (`points_penalty` on a Penalty row) and/or indirectly change them by
+ *     moving the driver's finishing position (`time_penalty_seconds`).
  *   - Penalty points (PP) — a season-long behavioral tally, capped at
  *     `drivers.penalty_points_max` (11 per the rulebook), that drives bans
- *     and probation. Entirely separate from race points; a PP award never
- *     touches a driver's race/championship points, and vice versa. PP (and
- *     warning counts) are SEASON-scoped — see computeSeasonPPState below —
- *     while probation itself, once entered, runs on its own calendar clock
- *     independent of season boundaries (rule 61).
+ *     and probation. Entirely separate from race points in both directions.
+ *     PP (and warning counts) are SEASON-scoped — see computeSeasonPPState
+ *     below — while probation itself, once entered, runs on its own
+ *     calendar clock independent of season boundaries (rule 61).
  *
  * APPEALS: a penalty can be marked `is_appealed`, with `appeal_result` (a
  * free-text ruling) and appeal_time_penalty_seconds/appeal_points_penalty/
- * appeal_penalty_points holding the corrected values the appeal landed on.
- * Every place this file reads a penalty's time/points/PP goes through the
- * effective* helpers below, which swap in the appeal_* values once
- * is_appealed is set — the original fields stay put as a record of what was
- * first logged, but stop being what's actually applied.
+ * appeal_penalty_points holding the corrected values. Every place this file
+ * reads a penalty's time/points/PP goes through the effective* helpers
+ * below, which swap in the appeal_* values once is_appealed is set — the
+ * original fields stay as a record of what was first logged, but stop
+ * being what's actually applied.
  *
  * DOCUMENTED SIMPLIFICATIONS (deliberately out of scope for this pass):
  *   - Rule 58 (DSQ instead of reset if the PP limit is hit in the season's
  *     final round) and rule 62 (10-round ban for hitting the limit again
  *     while already on probation) aren't automated — both describe
- *     real-world consequences (sitting a driver out, DSQing a round) that
- *     this app doesn't have anywhere to track or enforce. The admin UI
- *     surfaces a note when either applies so the stewards handle it
- *     manually.
+ *     real-world consequences this app has nowhere to track or enforce.
+ *     The admin UI surfaces a note when either applies so stewards handle
+ *     it manually.
  *   - Rule 64's "a large enough time penalty pushes a driver a full lap
- *     down" conversion isn't modeled — this file re-sorts a time-penalized
- *     driver only within their existing lead-lap-or-laps-down group (see
- *     reorderByTimePenalty below), since the app doesn't have per-driver
- *     lap-time data to convert seconds into laps. A penalty large enough to
- *     plausibly cross that boundary should be double-checked manually.
+ *     down" conversion isn't modeled — this file only re-sorts a
+ *     time-penalized driver within their existing lead-lap-or-laps-down
+ *     group (see reorderByTimePenalty below), since the app has no
+ *     per-driver lap-time data to convert seconds into laps. A penalty
+ *     large enough to plausibly cross that boundary should be
+ *     double-checked manually.
  */
 
 import type { RaceResultRow, RoundResults } from './results';
@@ -1084,21 +1082,20 @@ export interface DriverPPState {
  * to right now). Rule 61: "Probation lasts for either N rounds or M days,
  * whichever is longer" — confirmed with Logan that "rounds" means every
  * scheduled calendar round, not just ones this driver actually starts, so
- * this counts events rather than race_scores appearances. Both conditions
- * must clear (probationDays elapsed AND probationRounds qualifying rounds
- * have passed) for probation to end, which is exactly equivalent to
- * "whichever threshold is later" — see this function's own logic for why.
+ * this counts events rather than race_scores appearances. Requiring both
+ * conditions to clear (probationDays elapsed AND probationRounds qualifying
+ * rounds passed) is equivalent to "whichever threshold is later."
  *
  * probationDays/probationRounds default to the rulebook's original 45/4
- * (rule 61) for any caller that doesn't pass them explicitly, but as of
- * 0041_driver_settings.sql these are admin-editable from the "Driver
- * Settings" panel above the admin Drivers list — src/pages/roster.astro (the
- * only real caller) loads them from site_settings and passes them through,
- * so a defaulted call here only happens if a future caller forgets to.
+ * (rule 61), but as of 0041_driver_settings.sql they're admin-editable from
+ * the "Driver Settings" panel above the admin Drivers list —
+ * src/pages/roster.astro (the only real caller) loads them from
+ * site_settings and passes them through, so the defaults here only apply if
+ * a future caller forgets to.
  *
- * Probation itself runs on this independent calendar clock regardless of
- * season boundaries — only the PP tally that triggers it (see
- * computeSeasonPPState) is season-scoped.
+ * Probation runs on this independent calendar clock regardless of season
+ * boundaries — only the PP tally that triggers it (computeSeasonPPState) is
+ * season-scoped.
  */
 export function isOnProbationNow(
   driver: { on_probation: boolean; probation_started_at: string | null },
@@ -1167,35 +1164,35 @@ export interface SeasonPPState {
 
 /**
  * Recomputes a driver's PP TALLY from scratch by replaying every penalty
- * logged against them THIS SEASON, in the order they were entered — rather
- * than incrementally mutating a stored counter on each new penalty (the
+ * logged against them THIS SEASON, in entry order — rather than
+ * incrementally mutating a stored counter on each new penalty (the
  * v0.13/v0.14 approach). Replaying means:
  *   - PP is season-scoped (confirmed with Logan: "penalty points... should
  *     be season-scoped, not career-scoped") — a penalty from a previous
- *     season simply isn't in `penalties`' input list, so it can't
- *     contribute here, however long ago the tally was last touched.
- *   - Editing or deleting a penalty now correctly ripples through: since
- *     this always starts the TALLY from 0 and replays the current set of
- *     season penalties, there's no separate "undo" step needed — the
- *     caller just re-runs this and persists the result after any mutation.
+ *     season isn't in `penalties`' input list, so it can't contribute here,
+ *     however long ago the tally was last touched.
+ *   - Editing or deleting a penalty correctly ripples through: since this
+ *     always starts the tally from 0 and replays the current set of season
+ *     penalties, there's no separate "undo" step — the caller just re-runs
+ *     this and persists the result after any mutation.
  *   - Doubling-during-probation (rule 60) still applies correctly even
  *     retroactively, since each step checks whether probation was active
- *     AS OF that specific penalty's own created_at.
+ *     AS OF that specific penalty's created_at.
  *
  * Probation itself is NOT reset to this function's season scope — it's
- * seeded from `driver`'s ACTUAL on_probation/probation_started_at (rule 61:
- * once triggered, probation runs its own 45-day/4-round calendar clock
- * independent of season boundaries, so a driver whose probation was
- * triggered by a penalty from a PREVIOUS season and is still active today
- * must stay on probation here — replaying only this season's penalties
- * must never silently clear that). If none of this season's penalties push
- * the tally to a fresh limit-hit, the returned on_probation/
- * probation_started_at simply pass the seed straight through unchanged.
+ * seeded from `driver`'s ACTUAL on_probation/probation_started_at, since
+ * rule 61 probation runs its own 45-day/4-round calendar clock independent
+ * of season boundaries. A driver whose probation was triggered by a penalty
+ * from a PREVIOUS season and is still active today must stay on probation
+ * here; replaying only this season's penalties must never silently clear
+ * that. If none of this season's penalties push the tally to a fresh
+ * limit-hit, the returned on_probation/probation_started_at just pass the
+ * seed through unchanged.
  *
  * `penalties` should be pre-filtered to this driver and the current season
- * by the caller (see getPenaltiesForSubsessions + getCurrentSeasonRounds in
- * src/lib/supabase.ts / src/lib/results.ts) — this function doesn't do that
- * filtering itself.
+ * by the caller (getPenaltiesForSubsessions + getCurrentSeasonRounds in
+ * src/lib/supabase.ts / src/lib/results.ts) — this function doesn't filter
+ * itself.
  */
 export function computeSeasonPPState(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },

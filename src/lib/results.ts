@@ -5,7 +5,7 @@
  * tables are created by this repo (see supabase/migrations/0004_champions.sql);
  * this file only reads them.
  *
- * TWO IMPORTANT, CONFIRMED-WITH-LOGAN ASSUMPTIONS BAKED IN HERE:
+ * Two assumptions (confirmed with Logan) are baked in throughout:
  *
  * 1. Class-relative finishing position is NOT the same as
  *    `race_scores.scored_position` — that column is an OVERALL field
@@ -14,23 +14,22 @@
  *    file re-ranks each race itself, using `curated_race_results` (the raw
  *    imported results) restricted to just the drivers `race_scores` says
  *    were in this class for that season (both `computeSeasonStandings` and
- *    `getRoundResults` below, for its per-class output, do this same
- *    re-ranking — its overall/cross-class output uses `scored_position`
- *    directly instead, since that field already is the overall position).
- *    Per race,
- *    the position used is `adjusted_position` (post-penalty) when set,
- *    falling back to `finish_position` (pre-penalty) otherwise; whenever a
- *    row actually has an `adjusted_position`, that's flagged so the UI can
- *    indicate a penalty affected the result.
+ *    `getRoundResults` below, for their per-class output, do this same
+ *    re-ranking — their overall/cross-class output uses `scored_position`
+ *    directly instead, since that field is already the overall position).
+ *    Per race, the position used is `adjusted_position` (post-penalty) when
+ *    set, falling back to `finish_position` (pre-penalty) otherwise;
+ *    whenever a row actually has an `adjusted_position`, that's flagged so
+ *    the UI can indicate a penalty affected the result.
  *
- * 2. Season point totals drop each driver's worst 2 rounds, PLUS whatever
- *    `seasons.extra_drop_weeks` adds on top for that season (Logan: "the
- *    baseline amount is 2 drop weeks"). A "round" here is one subsession_id
- *    — i.e. race1+race2+race3 (when present) are summed together as a
- *    single droppable unit, not dropped individually. If dropping that many
- *    rounds would leave zero counted, at least 1 round is always kept
- *    (protects very young seasons/classes — e.g. Gamma didn't exist before
- *    ATC16 and Delta before ATC5, so their early seasons have few rounds).
+ * 2. Season point totals drop each driver's worst 2 rounds, plus whatever
+ *    `seasons.extra_drop_weeks` adds for that season (Logan: "the baseline
+ *    amount is 2 drop weeks"). A "round" here is one subsession_id —
+ *    race1+race2+race3 (when present) are summed as a single droppable
+ *    unit, not dropped individually. If dropping that many rounds would
+ *    leave zero counted, at least 1 round is always kept, protecting very
+ *    young seasons/classes (Gamma didn't exist before ATC16, Delta before
+ *    ATC5, so their early seasons have few rounds).
  *
  * Poles are read from `race_scores.pole_bonus` (only ever nonzero on a
  * round's fresh-qualifying race — races 2/3 run an inverted grid off race 1
@@ -522,34 +521,31 @@ interface SeasonOverallContext {
 
 /**
  * Fetches everything needed to know how this season's penalties affect
- * OVERALL (cross-class) field position and finish points. Shared by both
+ * OVERALL (cross-class) field position and finish points. Shared by
  * computeSeasonStandings (which additionally layers its own class-relative
  * class_points recompute on top — a class's finish points still depend on
  * the OVERALL position, which a penalty against a driver in a *different*
  * class in the same race can also shift) and computeOverallSeasonStandings
  * (which uses this directly, since the overall view never awards
- * class_points at all) — kept as one function so the two views can never
- * derive a different overall position/finish-points number for the same
- * driver in the same race.
+ * class_points) — kept as one function so the two views can never derive a
+ * different overall position/finish-points number for the same driver in
+ * the same race.
  *
- * This is just a thin fetch-then-build wrapper around `buildSeasonOverallContext`
- * (below) — every single-season caller (Standings, Team Standings, Champions,
- * Race Results) goes through this one-season-at-a-time fetch exactly as
- * before. `computeDriverCareerStats`, which needs this same context for
- * MANY seasons at once, instead bulk-fetches the same 4 raw ingredients
- * ONCE across every season and calls `buildSeasonOverallContext` directly
- * per season on its own already-in-memory slice — no network calls in that
- * per-season loop at all. Splitting this function was what let that happen
- * without duplicating (and risking drifting from) the actual adjustment
- * math below.
+ * A thin fetch-then-build wrapper around `buildSeasonOverallContext` below —
+ * every single-season caller (Standings, Team Standings, Champions, Race
+ * Results) goes through this one-season-at-a-time fetch. `computeDriverCareerStats`,
+ * which needs this same context for MANY seasons at once, instead
+ * bulk-fetches the same 4 raw ingredients ONCE across every season and
+ * calls `buildSeasonOverallContext` directly per season on its own
+ * in-memory slice, with no network calls in that loop. Splitting this
+ * function is what lets that happen without duplicating the adjustment math
+ * below.
  *
- * Exported so any other caller that needs MULTIPLE standings views for the
- * same single season — e.g. the homepage's Overall/Alpha/Gamma/Delta/
- * Rookies standings widget — can build this once and pass it as
- * `precomputedOverallContext` to each of computeSeasonStandings /
- * computeOverallSeasonStandings, instead of each view re-fetching its own
- * copy. Same sharing story as computeDriverCareerStats, just for "many
- * views, one season" instead of "one view, many seasons."
+ * Exported so any caller that needs MULTIPLE standings views for the same
+ * season — e.g. the homepage's Overall/Alpha/Gamma/Delta/Rookies standings
+ * widget — can build this once and pass it as `precomputedOverallContext`
+ * to each of computeSeasonStandings/computeOverallSeasonStandings, instead
+ * of each view re-fetching its own copy.
  */
 export async function getSeasonOverallContext(
   env: SupabaseEnv,
@@ -826,40 +822,38 @@ function newStandingsAccum(): StandingsAccum {
 }
 
 /**
- * Shared by both `computeSeasonStandings` and `computeOverallSeasonStandings`
- * — turns the per-driver accumulators built by each into sorted, positioned
+ * Shared by `computeSeasonStandings` and `computeOverallSeasonStandings` —
+ * turns each one's per-driver accumulators into sorted, positioned
  * standings (worst-rounds-dropped point totals, then wins/podiums as
  * tiebreakers).
  *
- * `allSubsessionIds` is every round this season actually had (for the class
- * being computed, or every class for the overall view) — the drop-week pool
- * is padded out to that full set, not just the rounds a given driver has a
- * `roundPoints` entry for. A driver who scored 0 in a round they started
- * already gets a real (zero-valued) entry from the caller's own loop; a
- * round they didn't show up for at all never gets one, and without this
- * padding it would simply vanish from their pool instead of being an
- * available (and, being 0, likely-dropped) week — which meant the baseline
- * drop count kept eating into real scored rounds on top of whatever they'd
- * already missed, rather than the no-show weeks themselves being what's
- * dropped.
+ * `allSubsessionIds` is every round this season had (for the class being
+ * computed, or every class for the overall view). The drop-week pool is
+ * padded to that full set, not just the rounds a driver has a
+ * `roundPoints` entry for — a round they scored 0 in already has a real
+ * zero entry from the caller's loop, but a round they didn't show up for
+ * at all wouldn't get one without this padding, and would vanish from
+ * their pool instead of being an available (and likely-dropped) week.
+ * Without it, the baseline drop count ate into real scored rounds on top
+ * of whatever a driver had already missed, instead of the no-show weeks
+ * themselves absorbing the drop.
  *
- * Ties are broken by working through the standings columns in order, per
- * Logan: "wins, podiums, top 5s, top 10s, poles, laps led, laps, and
- * appearances. If they are still tied, alphabetical order." Whatever stats
- * `accum` was built with ARE already the right "variant" for the view being
- * computed — computeSeasonStandings' wins/podiums/top5s/top10s are already
- * that class's own class-relative stats (and, for Gamma/Delta, `poles` is
- * already that class's own Class Pole count), so this one comparator serves
- * every view without needing to know which one it's sorting.
+ * Ties are broken column by column, per Logan: "wins, podiums, top 5s,
+ * top 10s, poles, laps led, laps, and appearances. If they are still tied,
+ * alphabetical order." Whatever stats `accum` was built with are already
+ * the right variant for the view being computed — computeSeasonStandings'
+ * wins/podiums/top5s/top10s are already class-relative (and Gamma/Delta's
+ * `poles` is already that class's own Class Pole count) — so one
+ * comparator serves every view without needing to know which one it's
+ * sorting.
  *
  * `finalRoundSubsessionId`/`canDropFinalRound` implement
- * ScoringRuleset.can_drop_final_round: when a ruleset has it set to `false`
- * (the default), the season's own final round is never eligible to be one
- * of the dropped worst-rounds, even if its points happen to be low enough
- * to otherwise qualify — it's forced into the counted set, and the normal
- * drop count instead comes entirely out of the remaining rounds. The total
- * NUMBER of rounds counted doesn't change either way (see the two branches
- * below) — only which specific round is guaranteed to be one of them.
+ * ScoringRuleset.can_drop_final_round: when false (the default), the
+ * season's final round can never be one of the dropped worst rounds, even
+ * if its points would otherwise qualify — it's forced into the counted
+ * set, and the drop count comes entirely from the remaining rounds. Either
+ * way the total number of rounds counted is unchanged (see the two
+ * branches below) — only which round is guaranteed counted.
  */
 function finalizeStandings(
   accum: Map<string, StandingsAccum>,
@@ -1260,28 +1254,24 @@ function computeOverallPoleDriverBySubsession(context: SeasonOverallContext): Ma
 /**
  * Every class combined into one table, ranked by the same points formula
  * Alpha already effectively uses — `finish_points + finesse_bonus +
- * pole_bonus + points_deduction`, deliberately excluding `class_points`
+ * pole_bonus + points_deduction` — deliberately excluding `class_points`
  * (Logan: "class points for gammas and deltas are not counted... it should
- * essentially be the alpha standings with everyone included"), since
- * `class_points` is Delta/Gamma's own per-race class-position bonus and
- * Alpha never has one — leaving it in would make Alpha drivers structurally
- * unable to compete for the same "overall" total.
+ * essentially be the alpha standings with everyone included"). `class_points`
+ * is Delta/Gamma's own per-race class-position bonus; Alpha never has one,
+ * so counting it here would make Alpha drivers structurally unable to
+ * compete for the same overall total.
  *
- * Wins/podiums/top 5s/top 10s here come straight from
- * `race_scores.scored_position` (the overall field position across every
- * class, already computed by the pipeline) rather than the per-class
+ * Wins/podiums/top 5s/top 10s come straight from `race_scores.scored_position`
+ * (the overall field position across every class) rather than the per-class
  * re-derivation `computeSeasonStandings` does — same approach the race
  * results page's "Overall" view uses.
  *
- * Poles are the one stat that DOESN'T come from `race_scores.pole_bonus`
- * here, unlike every other view — that column is actually Gamma/Delta's own
- * "Class Pole" bonus (fastest qualifier within just that driver's class),
- * so using it in a cross-class table would credit a driver with a "pole"
- * for merely out-qualifying their own class, not the whole grid. This view
- * instead derives the real overall pole-sitter straight from
- * `curated_race_results.starting_position` on each round's race 1 (the only
- * race with real qualifying — 2/3 invert off it, per the same rule that
- * keeps them from ever earning `pole_bonus`).
+ * Poles are the exception: `race_scores.pole_bonus` is actually Gamma/Delta's
+ * "Class Pole" (fastest qualifier within just that driver's class), so using
+ * it here would credit a driver for merely out-qualifying their own class,
+ * not the whole grid. Instead this view derives the real overall pole-sitter
+ * from `curated_race_results.starting_position` on each round's race 1 — the
+ * only race with real qualifying, since 2/3 invert off it.
  */
 export async function computeOverallSeasonStandings(
   env: SupabaseEnv,
@@ -1382,13 +1372,12 @@ export interface TeamSeasonStanding {
  * drop weeks. Unlike driver standings (`finalizeStandings`' baseline-2 +
  * `season.extra_drop_weeks` rule), the team championship has no
  * worst-rounds-dropped rule at all — per Logan, drop weeks are specific to
- * the driver championships. (An earlier version of this function
- * mistakenly applied the same drop-week math here too; fixed.)
+ * the driver championships.
  *
  * A team's points for a given round are the sum of just its top 2 scoring
  * drivers that round (`topTeamScorers()` — same rule the news recap's Team
  * Scoring Breakdown and the results page's per-driver "Team Points" detail
- * both use).
+ * both use). Never a team's 3rd (or more) driver's points in any single race.
  *
  * `classId` picks which team competition this is, same distinction the news
  * recap's `topTeamOverall` vs `topTeamDelta` already draws:
@@ -1401,15 +1390,11 @@ export interface TeamSeasonStanding {
  * - Set to a class id (e.g. Delta's): that class's own SEPARATE team
  *   competition, scored by that class's full per-race total_points
  *   (class_points included — matching newsRecap.ts's `deltaPointsOf`) and
- *   scoped to only that class's own races/drivers. Requires re-deriving
- *   that class's own penalty-adjusted totals (`computeSeasonClassAdjustments`)
- *   — the same setup `computeSeasonStandings` builds for itself, duplicated
- *   here rather than shared since team points only need the adjusted TOTAL
- *   POINTS per (race, driver), not the full standings pipeline built on top
- *   of it.
- *
- * Either way, never a team's 3rd (or more) driver's points in any single
- * race.
+ *   scoped to only that class's own races/drivers. This needs that class's
+ *   own penalty-adjusted totals (`computeSeasonClassAdjustments`) — the same
+ *   setup `computeSeasonStandings` builds for itself, duplicated here since
+ *   team points only need the adjusted total points per (race, driver), not
+ *   the full standings pipeline built on top of it.
  */
 export async function computeTeamSeasonStandings(
   env: SupabaseEnv,
@@ -1733,18 +1718,17 @@ function normalizeTrackOrLayoutName(s: string): string {
  * Resolves a round's `track_name` + `curated_rounds.layout` column to one
  * `circuit_layouts` row — a minimal, standalone re-derivation of
  * newsRecap.ts's own `matchCircuitLayout` (same direct/normalized matching
- * rules; see that function's doc comment for the full reasoning), duplicated
- * here rather than imported since newsRecap.ts already imports FROM this
- * file (getRoundBySubsessionId, getRoundResults, topTeamScorers) —
- * importing back the other way would create a cycle. Only the resolved row
- * is needed here (not newsRecap's admin-facing "issue" text), so this
- * version just returns null on anything it can't resolve to exactly one
- * layout. Callers pull whichever field(s) they need off the result
- * (length_km for distance driven, corners for corners-per-incident) — kept
- * as one shared resolution rather than two separate functions since it's
- * the exact same matching logic either way.
+ * rules; see that function's doc comment for the full reasoning). Duplicated
+ * rather than imported because newsRecap.ts already imports FROM this file
+ * (getRoundBySubsessionId, getRoundResults, topTeamScorers) — importing back
+ * the other way would create a cycle. This version only needs the resolved
+ * row (not newsRecap's admin-facing "issue" text), so it just returns null
+ * on anything it can't resolve to exactly one layout. Callers pull whichever
+ * field they need off the result (length_km for distance driven, corners for
+ * corners-per-incident) — one shared resolution since the matching logic is
+ * identical either way.
  *
- * Exported so /results/[subsessionId].astro can also resolve just this one
+ * Exported so /results/[subsessionId].astro can resolve just this one
  * round's layout (for ResultsTable's per-race corners-per-incident tooltip)
  * without pulling in the season-wide extended-stats machinery this file's
  * other callers use it from.
@@ -1771,22 +1755,20 @@ export function resolveLayout(
  * newest first — powers the event list's "Race Recaps at this Layout"
  * collapsible (src/components/EventDetailCard.astro). Pure/no network calls
  * itself: `allRounds` and `roundLayoutBySubsession` are meant to be fetched
- * ONCE per page (getAllRounds() + getRoundLayoutsForSubsessions()) and
- * reused across every event card on that page, same "bulk fetch once, slice
- * in memory per card" reasoning as computeDriverCareerStats — a calendar
- * page can show many events, several of which may repeat the same circuit,
- * so resolving this per-card with its own fetches would multiply query
+ * ONCE per page (getAllRounds() + getRoundLayoutsForSubsessions()) and reused
+ * across every event card, same "bulk fetch once, slice in memory per card"
+ * reasoning as computeDriverCareerStats — a calendar can show many events
+ * that repeat the same circuit, so per-card fetches would multiply query
  * count by the number of cards shown.
  *
- * The actual recap CONTENT (top finishers, fastest lap, etc.) is
- * deliberately NOT computed here — that's the expensive part
- * (computeRoundRecap, ~8 queries per round), and eagerly running it for
- * every matching round of every event card could easily blow through
- * Cloudflare Workers' subrequest limit on a calendar with any history at
- * all (see README's homepage-widget incident for exactly this class of
- * bug). Callers fetch each round's recap lazily, client-side, only once a
- * visitor actually expands it — see src/pages/api/round-recap/[subsessionId].ts
- * and src/scripts/roundRecap.ts.
+ * The recap CONTENT (top finishers, fastest lap, etc.) is deliberately NOT
+ * computed here — that's the expensive part (computeRoundRecap, ~8 queries
+ * per round), and running it eagerly for every matching round on every card
+ * could blow through Cloudflare Workers' subrequest limit on a calendar with
+ * any history at all (see README's homepage-widget incident for this exact
+ * class of bug). Callers fetch each round's recap lazily, client-side, only
+ * once a visitor expands it — see
+ * src/pages/api/round-recap/[subsessionId].ts and src/scripts/roundRecap.ts.
  */
 export interface LayoutRoundSummary {
   subsessionId: number;
@@ -1802,18 +1784,15 @@ export interface LayoutRoundSummary {
  * for "the one implicit layout everyone races there." circuit_layouts is an
  * OPTIONAL table (see the Circuits CSV import's own `writesTo` doc comment
  * — it only gets a row when someone attaches layout-specific details, e.g.
- * for a logo or to disambiguate a multi-layout track), so plenty of
- * single-layout circuits never get one. `resolveLayout` (above), used for
- * pulling a round's length_km/corners, treats that as "nothing to match" —
- * correct for it (no circuit_layouts row means no length_km/corners to
- * report either) — but the race-recap feature used to share that same
- * "no row, no match" logic too, which made "Race Recaps at this
- * Layout" silently come up empty for every event at a circuit missing that
- * optional row, even when that circuit obviously has round history. This
- * type/pair of functions exists so findRoundsForLayout can fall back to
- * matching on the circuit alone in exactly that case, which is exactly as
- * precise as the site can be anyway when there's no layout data on file to
- * disambiguate.
+ * a logo or disambiguating a multi-layout track), so plenty of single-layout
+ * circuits never get one. `resolveLayout` (above), used for a round's
+ * length_km/corners, correctly treats a missing row as "nothing to match."
+ * The race-recap feature used to share that same logic, which made "Race
+ * Recaps at this Layout" silently come up empty for every event at a
+ * circuit missing that optional row, even with real round history. This
+ * type/pair of functions lets findRoundsForLayout fall back to matching on
+ * the circuit alone in that case — as precise as the site can be without
+ * layout data on file to disambiguate.
  */
 type LayoutMatchKey = { kind: 'layout'; id: string } | { kind: 'circuit'; id: string };
 
@@ -1891,28 +1870,27 @@ export function findRoundsForLayout(
 /**
  * Builds a fast `(circuitId, eventLayoutName) -> count` lookup for "how many
  * historical rounds match this event's circuit+layout" — what calendar.astro
- * needs for every event's "Race Recaps at this Layout (N)" badge (the round
+ * needs for every event's "Race Recaps at this Layout (N)" badge. (The round
  * LIST itself stays a lazy, per-event fetch via /api/layout-rounds.ts; only
- * the count is needed up front for every event on the page).
+ * the count is needed up front for every event on the page.)
  *
  * Calling findRoundsForLayout(...).length once per event, as calendar.astro
  * used to, re-resolves EVERY round's LayoutMatchKey from scratch for EVERY
  * event — O(events * rounds * (circuits + layouts)) total. With a real
  * season's worth of history (248 events × 237 rounds × ~157 circuits+layouts
- * at the time this was found) that's on the order of 9 million redundant
- * comparisons on every single calendar page load, for every visitor — enough
- * synchronous CPU work to occasionally trip Cloudflare's per-request CPU
- * limit outright (this is the Free plan; see wrangler.jsonc's own note on
- * Error 1102). It also only gets worse as more rounds/events are added,
- * which is exactly why this kept resurfacing without any code changing.
+ * at the time this was found) that's ~9 million redundant comparisons on
+ * every calendar page load, for every visitor — enough synchronous CPU work
+ * to occasionally trip Cloudflare's per-request CPU limit outright (Free
+ * plan; see wrangler.jsonc's note on Error 1102). It also only gets worse as
+ * more rounds/events are added, which is why this kept resurfacing without
+ * any code changing.
  *
  * This resolves each round's LayoutMatchKey exactly ONCE (O(rounds *
  * (circuits + layouts))), tallies counts by key, and returns a closure that
- * looks up an event's count in O(layouts) (to resolve that one event's own
- * key) + O(1) map lookup — total cost across every event on the page is
- * O(rounds * (circuits + layouts) + events * layouts), a few orders of
- * magnitude cheaper, and one that scales linearly rather than
- * multiplicatively as more history accumulates.
+ * looks up an event's count in O(layouts) + O(1) map lookup — total cost
+ * across the whole page is O(rounds * (circuits + layouts) + events *
+ * layouts): a few orders of magnitude cheaper, and scaling linearly rather
+ * than multiplicatively as more history accumulates.
  */
 export function buildLayoutRoundCounter(
   allRounds: RoundSummary[],
@@ -3630,23 +3608,22 @@ export async function getAllReplayLinks(env: SupabaseEnv): Promise<ReplayLink[]>
 
 /**
  * Resolves an admin-scheduled Event to whichever curated_rounds row (real or
- * manually-imported) represents it, if any exists yet — live, with no
- * stored link (see events.season_id/round_number/subsession_id's own
- * comments in 0035_events_rounds_categories.sql). Two resolution paths,
- * tried in the order the migration's column comments say to prefer:
+ * manually-imported) represents it, if any exists yet — live, with no stored
+ * link (see events.season_id/round_number/subsession_id's own comments in
+ * 0035_events_rounds_categories.sql). Two resolution paths, tried in the
+ * order the migration's column comments prefer:
  *
  * 1. season_id + round_number auto-matching — curated_rounds.round_number's
  *    OWN numbering (set by the real iRacing pipeline), not the site's
- *    computed-for-display "Round N" (see computeDisplayRoundNumbers below,
- *    a different number entirely). Only ever populated for real pipeline
+ *    computed-for-display "Round N" (see computeDisplayRoundNumbers below —
+ *    a different number entirely). Only populated for real pipeline
  *    imports; the manual CSV importer always leaves it null, which is fine
- *    — TEST/EXHIBITION events (the only things that importer's rounds tend
- *    to back) are season-agnostic and don't use this path anyway.
+ *    since TEST/EXHIBITION events (what that importer's rounds tend to back)
+ *    are season-agnostic and don't use this path anyway.
  * 2. subsession_id — the manual admin override/pin, used as a fallback when
- *    auto-matching isn't applicable (season-agnostic events, which have no
- *    round_number to match on) or found nothing (e.g. auto-matching applies
- *    in principle but no matching round has been imported yet under that
- *    exact round_number).
+ *    auto-matching isn't applicable (season-agnostic events, with no
+ *    round_number to match on) or found nothing (auto-matching applies in
+ *    principle but no matching round has been imported yet).
  */
 export async function getEventRound(env: SupabaseEnv, event: EventRecord): Promise<RoundSummary | null> {
   if (event.season_id && event.round_number != null) {

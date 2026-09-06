@@ -186,11 +186,10 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
 <AdminLayout title="Seasons">
   <h1 class="reveal font-display text-4xl">Seasons</h1>
   <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Each season can have its own logo — the branding gets a small refresh every season, and this is where that
-    shows up: next to the season picker on Standings/Team Standings/Race Results, and next to the season on each
-    Champions card. A season with no logo set just shows its name with no image, same as before this existed.
-    The season marked <span class="font-semibold text-brand-primary">Current</span> is also what every season
-    picker across the site defaults to — use "Set as Current" below to change it.
+    Each season can have its own logo, shown next to the season picker on Standings/Team Standings/Race Results
+    and next to the season on each Champions card. No logo set just means no image — the season name still shows
+    on its own. The season marked <span class="font-semibold text-brand-primary">Current</span> is also the
+    default every season picker on the site opens to — use "Set as Current" below to change it.
   </p>
 
   {error && (

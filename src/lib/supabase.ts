@@ -2,8 +2,8 @@
  * Minimal PostgREST client — deliberately not using @supabase/supabase-js.
  * For a read-mostly public site, a couple of typed `fetch` wrappers against
  * Supabase's auto-generated REST API cover everything we need with zero
- * extra dependencies. Reach for the full SDK later if you add auth,
- * realtime subscriptions, or file storage.
+ * extra dependencies. Reach for the full SDK later if auth, realtime
+ * subscriptions, or file storage get added.
  *
  * IMPORTANT — where the URL/key come from:
  * Every page that calls into this file has `export const prerender = false`,
@@ -12,12 +12,12 @@
  * on Cloudflare's build pipeline, `wrangler.jsonc`'s `vars` (and dashboard
  * variables bound to the Worker) are a *runtime* concept, only visible via
  * `Astro.locals.runtime.env` once the Worker is actually handling a
- * request. Reading `import.meta.env` here was silently building with
- * `undefined` every time — that was the real reason nothing ever loaded in
- * production, independent of the wrangler.jsonc vars-wiping bug fixed
- * earlier. `resolveSupabaseEnv` below prefers the runtime binding and only
- * falls back to `import.meta.env` for contexts where that's genuinely the
- * right source (local `astro dev`, or a page that's actually prerendered).
+ * request. Reading `import.meta.env` here silently built with `undefined`
+ * every time — the real reason nothing ever loaded in production,
+ * independent of the wrangler.jsonc vars-wiping bug fixed earlier.
+ * `resolveSupabaseEnv` below prefers the runtime binding and only falls
+ * back to `import.meta.env` where that's genuinely the right source (local
+ * `astro dev`, or a page that's actually prerendered).
  */
 
 export interface SupabaseEnv {
@@ -822,26 +822,24 @@ export interface SyncResultsWithRosterOutcome {
  * Admin > Drivers "Sync Results with Roster" button. Every cust_id that
  * raced in a real (non-exhibition) round but has no matching drivers row —
  * see results.ts's RaceResultRow.notInRoster for the front-end symptom this
- * fixes — either gets linked onto an existing same-named driver who has no
- * cust_id yet, or a new minimal drivers row is created for it. Also
+ * fixes — either gets linked onto an existing same-named driver with no
+ * cust_id yet, or gets a new minimal drivers row created for it. Also
  * recalculates every round that cust_id already has raw results in
  * (0060_sync_results_recalculates_history.sql) — otherwise those rounds'
- * race_scores rows for them stay permanently empty, invisible on the
- * results page with no "not in roster" tag to explain why (the exact bug
- * Jordyn Propst surfaced: an already-racing cust_id that hadn't been
- * synced in yet).
+ * race_scores rows stay permanently empty, invisible on the results page
+ * with no "not in roster" tag to explain why (the bug Jordyn Propst
+ * surfaced: an already-racing cust_id that hadn't been synced in yet).
  *
  * Deliberately a single RPC call (same opportunistic-automation pattern as
  * syncDriverStatuses/syncRookieStatus above) rather than doing the lookup
  * and per-driver creates/updates from the Worker: an earlier version did
  * exactly that and could burn through dozens to hundreds of subrequests in
  * one click (paging through all of curated_race_results, then one REST call
- * per driver touched), which is exactly what tripped Cloudflare's
- * per-invocation subrequest limit in production. See
- * sync_results_with_roster() (0047_sync_results_with_roster.sql) for the
- * actual logic — it also excludes exhibition rounds/seasons there (Logan:
- * "sometimes those include AI drivers"), which the original version never
- * did at all.
+ * per driver touched) — exactly what tripped Cloudflare's per-invocation
+ * subrequest limit in production. See sync_results_with_roster()
+ * (0047_sync_results_with_roster.sql) for the actual logic — it also
+ * excludes exhibition rounds/seasons (Logan: "sometimes those include AI
+ * drivers"), which the original version never did.
  */
 export async function syncResultsWithRoster(env: SupabaseEnv, accessToken: string): Promise<SyncResultsWithRosterOutcome> {
   const res = await fetch(`${env.url}/rest/v1/rpc/sync_results_with_roster`, {
@@ -1464,25 +1462,23 @@ export async function uploadToStorage(
  * Wraps a Supabase Storage image URL in a Cloudflare Transformations
  * request (`/cdn-cgi/image/...`) so it's resized/re-encoded on Cloudflare's
  * edge (`format=auto` picks WebP/AVIF per the visitor's Accept header)
- * instead of shipping every logo/photo at whatever resolution it was
- * originally uploaded at — see PERFORMANCE_AUDIT.md #4. Requires
- * Images > Transformations enabled on the zone AND this project's Supabase
- * Storage host allow-listed under Transformations > Sources (both
- * dashboard-only, done once — not something this code can turn on itself).
+ * instead of shipping every logo/photo at its original upload resolution —
+ * see PERFORMANCE_AUDIT.md #4. Requires Images > Transformations enabled on
+ * the zone AND this project's Supabase Storage host allow-listed under
+ * Transformations > Sources (both dashboard-only, done once).
  *
  * Root-relative on purpose (no origin baked in): `/cdn-cgi/image/...`
- * resolves against whatever origin the page itself is served from, so this
- * works unmodified on the production domain and any preview deployment
- * alike. Local `astro dev` doesn't have Transformations in front of it, so
- * these URLs would 404 there — acceptable, since local dev never needs the
- * optimization and every other Supabase-hosted `<img>` already just points
- * straight at the origin file today.
+ * resolves against whatever origin the page is served from, so this works
+ * unmodified on production and any preview deployment alike. Local
+ * `astro dev` has no Transformations in front of it, so these URLs would
+ * 404 there — acceptable, since local dev never needs the optimization and
+ * every other Supabase-hosted `<img>` already just points at the origin
+ * file today.
  *
  * Only rewrites actual Supabase Storage URLs — anything else (flagcdn.com,
  * a relative path, null/undefined) passes through unchanged, since only
- * this project's Storage bucket is allow-listed as a Transformations
- * source. Also passes through unchanged if no width/height was requested —
- * there'd be nothing to actually resize.
+ * this project's Storage bucket is allow-listed as a source. Also passes
+ * through unchanged if no width/height was requested — nothing to resize.
  */
 export function resizedImageUrl(url: string | null | undefined, options: { width?: number; height?: number }): string | null {
   if (!url) return null;
@@ -1645,30 +1641,30 @@ export interface ScoringRuleset {
    * of a create/update), same as any other jsonb column in this file.
    * Treating this field as a string (it used to be typed that way) fed an
    * already-parsed object into `JSON.parse`, which fails and falls through
-   * to displaying the object's default `[object Object]` stringification —
-   * see splitRulesForForm() in src/pages/admin/rulesets/index.astro, which
+   * to the object's default `[object Object]` stringification — see
+   * splitRulesForForm() in src/pages/admin/rulesets/index.astro, which
    * guards against a non-object `rules` value (e.g. a row corrupted by the
-   * exact bug described below) when prefilling the ruleset editor dialog.
+   * bug described below) when prefilling the ruleset editor dialog.
    *
-   * createScoringRuleset/updateScoringRuleset's own `rules` param below is
-   * ALSO typed `unknown` (a parsed object), not a JSON string — a previous
+   * createScoringRuleset/updateScoringRuleset's `rules` param below is ALSO
+   * typed `unknown` (a parsed object), not a JSON string — a previous
    * version of this comment claimed the write side should send a
-   * JSON-stringified string here because "Postgres's ::jsonb cast re-parses
-   * that string back into the real object on the way in." That's wrong, and
-   * it corrupted this exact column in production: PostgREST doesn't run the
+   * JSON-stringified string because "Postgres's ::jsonb cast re-parses that
+   * string back into the real object on the way in." That's wrong, and it
+   * corrupted this exact column in production: PostgREST doesn't run the
    * request body through Postgres's jsonb TEXT INPUT parser at all — it
    * extracts each field's value from the parsed JSON request body and hands
    * it to the target column already typed as JSON. A JSON *string* value
    * (e.g. `"rules": "{\"drops\":2,...}"`) lands in a jsonb column as a
-   * jsonb STRING SCALAR whose content happens to look like JSON — it is
-   * NOT re-parsed into an object. That's silent: no error, just a
+   * STRING SCALAR whose content happens to look like JSON — it is NOT
+   * re-parsed into an object. That's silent: no error, just a
    * `scoring_rulesets.rules` row that reads back as `jsonb_typeof = 'string'`
-   * instead of `'object'`, and every `v_rules->'base_points'->...` lookup
-   * in recalculate_race_scores() then evaluates to SQL NULL, which fails
-   * loudly only once — at the NOT NULL constraint on race_scores.finish_points
-   * when that round is next recalculated, by which point the mistake is
-   * long past. Sending the PARSED OBJECT (not a string) as the `rules`
-   * field is what makes PostgREST forward it as an actual JSON object value.
+   * instead of `'object'`, so every `v_rules->'base_points'->...` lookup in
+   * recalculate_race_scores() evaluates to SQL NULL — which fails loudly
+   * only once, at the NOT NULL constraint on race_scores.finish_points when
+   * that round is next recalculated, by which point the mistake is long
+   * past. Sending the PARSED OBJECT (not a string) as `rules` is what makes
+   * PostgREST forward it as an actual JSON object value.
    */
   rules: unknown;
   /** At most one ruleset can have this true at a time (partial unique index) — the ruleset a season falls back to when its own scoring_ruleset_id is null. See resolveSeasonRuleset. */
@@ -1747,10 +1743,7 @@ export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: st
  * season's ruleset is a season-metadata/admin-display concern (showing
  * which ruleset is in effect, and which season rows still need one before
  * scores can be (re)computed for them) — it does not change the point
- * totals any standings page shows. Wiring the resolved ruleset id back into
- * an actual points recompute is a separate, larger change (see this repo's
- * chat history for the recalculate_race_scores() schema-drift issue found
- * alongside this).
+ * totals any standings page shows.
  *
  * The one field that IS consulted directly by the standings computation
  * itself (not just the DB-side scoring function) is

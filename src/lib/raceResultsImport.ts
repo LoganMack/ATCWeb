@@ -3,35 +3,26 @@
  * DATA only, into curated_rounds (the round itself) plus one of
  * curated_race_results / curated_qualifying / curated_practice_results (each
  * driver's finish position or lap time — the same shape the real
- * iRacing-results pipeline populates). It deliberately does NOT write to
- * race_scores: that table holds computed POINTS, produced by the database's
- * own recalculate_race_scores() from a season's scoring ruleset (see Admin >
- * Rulesets) — this importer's job ends at getting the raw results into the
- * database, not at scoring them. A round imported here shows up on Race
- * Results immediately; it will show up in Standings/Career Stats/News
- * Recaps once its season has a scoring ruleset assigned and an admin
- * recalculates that round's scores (that recalculation isn't part of this
- * importer — see the note on Admin > Add Race Result for how the two
- * connect).
- *
- * (Earlier versions of this importer also wrote directly into race_scores,
- * requiring the admin to hand-supply every scoring field — finish_points,
- * class_points, etc. That was a mismatch: those are the scoring engine's
- * output, not raw data, and writing them here made manually-imported rows
- * indistinguishable from real computed ones. Raw-only is the correct scope.)
+ * iRacing-results pipeline populates). It never writes to race_scores: that
+ * table holds computed POINTS, produced by the database's own
+ * recalculate_race_scores() from a season's scoring ruleset (Admin >
+ * Rulesets). A round imported here shows up on Race Results immediately; it
+ * shows up in Standings/Career Stats/News Recaps once its season has a
+ * scoring ruleset assigned and an admin recalculates that round's scores
+ * (see the note on Admin > Add Race Result for how the two connect).
  *
  * This is still the one importer that writes directly into pipeline-owned
  * tables — see results.ts's own header comment, and 0004_champions.sql/
  * 0014_penalties.sql/0018_curated_rounds_layout.sql for the rule this
- * deliberately breaks. This is a one-off, Logan-approved exception — see
+ * deliberately breaks. It's a one-off, Logan-approved exception — see
  * 0028_manual_results_import.sql's header for the reasoning and the
  * negative-subsession_id collision-safety scheme that makes it safe.
  *
  * Meant for exhibition races or one-off events the real pipeline will never
  * see. If a round WILL eventually show up in a real pipeline import, don't
  * use this — a synthetic round and a real one for the same event would show
- * up as two separate rounds in every list on the site (the app has no way
- * to know they're "the same" race).
+ * up as two separate rounds everywhere on the site, since the app has no
+ * way to know they're the same race.
  *
  * All three importers (race/qualifying/practice) share ONE import_key
  * namespace via manual_result_imports — uploading a race CSV and a
@@ -41,22 +32,20 @@
  *
  * Every importer also resolves and stores curated_rounds.event_id
  * (0078_curated_rounds_event_id_and_practice_results.sql) by matching
- * circuit_id + event_date against the events table — the same identity
- * 0079_curated_rounds_event_id_backfill_by_date.sql used to backfill
- * existing history — so a manually-imported round is linked to its event
- * immediately, the same as a real pipeline import going forward. Left null
- * (never guessed) when zero or more than one event matches that circuit+date.
+ * circuit_id + event_date against the events table, same as the backfill
+ * in 0079_curated_rounds_event_id_backfill_by_date.sql — so a manually
+ * imported round links to its event immediately. Left null (never guessed)
+ * when zero or more than one event matches that circuit+date.
  *
- * ONE IMPORTANT LIMITATION, surfaced to the admin via skipped-row counts
- * rather than failing the whole upload: curated_race_results/curated_
- * qualifying/curated_practice_results all identify a driver by `cust_id`
- * (their iRacing customer id), never by this app's own driver_id — and every
- * reader in results.ts (see getRoundResults/getSeasonOverallContext) joins a
- * row to a driver via `drivers.iracing_cust_id`, not a real foreign key. A
- * driver with no iracing_cust_id set on their Roster profile literally
- * cannot be joined this way — any CSV row for such a driver is skipped. Set
- * the driver's iRacing Customer ID first (Admin > Roster) before importing
- * their results.
+ * ONE IMPORTANT LIMITATION, surfaced via skipped-row counts rather than
+ * failing the whole upload: curated_race_results/curated_qualifying/
+ * curated_practice_results identify a driver by `cust_id` (their iRacing
+ * customer id), never by this app's own driver_id — and every reader in
+ * results.ts (getRoundResults/getSeasonOverallContext) joins a row to a
+ * driver via `drivers.iracing_cust_id`, not a real foreign key. A driver
+ * with no iracing_cust_id set on their Roster profile can't be joined this
+ * way, so any CSV row for them is skipped. Set the driver's iRacing
+ * Customer ID first (Admin > Roster) before importing their results.
  */
 import {
   restGet,
