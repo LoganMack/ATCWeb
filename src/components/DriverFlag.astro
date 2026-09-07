@@ -19,16 +19,27 @@ interface Props {
   nationality2?: string | null;
   /** Tailwind size classes — defaults to a flag-shaped (not square) tile, unlike TeamLogo's default square. */
   size?: string;
+  /**
+   * When true, render each nationality as its own separate flag chip with
+   * the country name spelled out next to it (used by the driver profile
+   * header, where the flag needs to be legible/labeled rather than just a
+   * compact icon) instead of the default merged split-tile-with-title-only
+   * behavior every other call site on the site relies on. Defaults to
+   * false so every existing usage is unaffected.
+   */
+  showLabel?: boolean;
 }
 
-const { nationality1, nationality2, size = 'h-4 w-6' } = Astro.props;
+const { nationality1, nationality2, size = 'h-4 w-6', showLabel = false } = Astro.props;
 
 const code1 = nationality1?.toLowerCase() || null;
 const code2 = nationality2?.toLowerCase() || null;
 const label = code2 ? `${countryName(code1!)} / ${countryName(code2)}` : code1 ? countryName(code1) : '';
+const name1 = code1 ? countryName(code1) : '';
+const name2 = code2 ? countryName(code2) : '';
 ---
 
-{code1 && code2 && (
+{!showLabel && code1 && code2 && (
   <span class={`relative inline-block flex-none overflow-hidden rounded-sm ${size}`} title={label} aria-label={label}>
     <img
       src={`https://flagcdn.com/w80/${code1}.png`}
@@ -47,7 +58,7 @@ const label = code2 ? `${countryName(code1!)} / ${countryName(code2)}` : code1 ?
   </span>
 )}
 
-{code1 && !code2 && (
+{!showLabel && code1 && !code2 && (
   <img
     src={`https://flagcdn.com/w80/${code1}.png`}
     alt=""
@@ -55,4 +66,21 @@ const label = code2 ? `${countryName(code1!)} / ${countryName(code2)}` : code1 ?
     loading="lazy"
     class={`flex-none rounded-sm object-cover ${size}`}
   />
+)}
+
+{showLabel && (code1 || code2) && (
+  <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
+    {code1 && (
+      <span class="flex items-center gap-1.5">
+        <img src={`https://flagcdn.com/w80/${code1}.png`} alt="" loading="lazy" class={`flex-none rounded-sm object-cover ${size}`} />
+        <span class="text-sm text-white/70">{name1}</span>
+      </span>
+    )}
+    {code2 && (
+      <span class="flex items-center gap-1.5">
+        <img src={`https://flagcdn.com/w80/${code2}.png`} alt="" loading="lazy" class={`flex-none rounded-sm object-cover ${size}`} />
+        <span class="text-sm text-white/70">{name2}</span>
+      </span>
+    )}
+  </span>
 )}

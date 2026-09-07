@@ -2912,6 +2912,8 @@ export interface DriverRaceHistoryRow {
   /** Post-penalty position from the live penalty-adjustment engine (computeSeasonOverallAdjustments — the same one every other page uses, recomputed from the CURRENT penalties table) when it repositions this race, falling back to the legacy curated_race_results.adjusted_position manual override, then to the raw finish_position — same fallback chain as RaceResultRow. An unclassified (NC/DSQ) row is never repositioned by the engine (canReposition requires classified === true), so it naturally falls through to the legacy/raw value. */
   finishPosition: number;
   wasAdjusted: boolean;
+  /** True when the penalty/adjustment engine MOVED this driver UP the order (finishPosition < the raw, pre-adjustment finish_position) — false for a loss or an unadjusted row. Lets a caller color the "adjusted" marker by direction (gained vs. lost) instead of one flat color. */
+  gainedPositions: boolean;
   margin: string;
   intervalTenThousandths: number | null;
   incidents: number | null;
@@ -3104,6 +3106,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       startingPosition: raw.starting_position,
       finishPosition,
       wasAdjusted: finishPosition !== raw.finish_position,
+      gainedPositions: finishPosition < raw.finish_position,
       margin: formatMargin(
         raw.interval_ten_thousandths,
         raw.laps_complete,

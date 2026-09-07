@@ -34,6 +34,13 @@ import { classBadgeClasses, classBadgeLetter } from '../../../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
+// Hall of Fame status is threaded through from the shell (drivers/[id].astro)
+// as a query param rather than re-fetched here — this fragment has no
+// access to that page's in-memory `driver` row (see this file's own doc
+// comment above), and it's cheaper than a second profile lookup for one
+// boolean. Shown as its own pinned row atop the Awards card below instead
+// of a header badge.
+const isHallOfFame = Astro.url.searchParams.get('hof') === '1';
 
 let loadError: string | null = null;
 let career: DriverCareerStats | null = null;
@@ -47,6 +54,13 @@ interface CareerMove {
   toLogoUrl: string | null;
 }
 const careerMoves: CareerMove[] = [];
+
+interface ClassMove {
+  seasonName: string;
+  from: string;
+  to: string;
+}
+const classMoves: ClassMove[] = [];
 
 interface AwardEntry {
   seasonNumber: number;
@@ -117,12 +131,35 @@ try {
     careerMoves.reverse(); // newest first, matching every other table on this page
   }
 
+  // --- Class Moves: same walk as Career Moves above, but diffing each
+  // season's class instead of primary team. Unlike Career Moves, the
+  // driver's very first season on file does NOT get an entry here — that
+  // table intentionally documents "joined as Independent -> Team X" on
+  // debut, but a debut isn't a class *change*, so this list only starts
+  // recording once there's an actual prior season to compare against.
+  if (career) {
+    const chronological = [...career.seasons].sort((a, b) => a.season.number - b.season.number);
+    let prevClassName: string | null = null;
+    chronological.forEach((s, i) => {
+      if (i === 0) {
+        prevClassName = s.className;
+        return;
+      }
+      if (s.className !== prevClassName) {
+        classMoves.push({ seasonName: s.season.name, from: prevClassName ?? '—', to: s.className });
+        prevClassName = s.className;
+      }
+    });
+    classMoves.reverse(); // newest first, matching every other table on this page
+  }
+
   // --- Awards: championships + team championships (straight off this
   // driver's own season rows), the 12 auto-computed season awards
   // (filtered down to seasons this driver actually won), and the 2
-  // steward-picked manual awards. Hall of Fame induction is shown
-  // separately as its own badge in the header (drivers/[id].astro) since
-  // it isn't season-scoped.
+  // steward-picked manual awards. Hall of Fame induction (isHallOfFame,
+  // above) isn't season-scoped, so it's rendered as its own pinned row at
+  // the top of the Awards card in the template below rather than grouped
+  // into awardGroups here.
   if (career) {
     for (const s of career.seasons) {
       if (s.classPosition === 1) {
@@ -252,7 +289,13 @@ for (const r of raceHistory) {
     <div class="flex flex-col gap-8 lg:col-span-2">
       <!-- Season stats -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <h2 class="mb-3 font-display text-2xl">Seasons</h2>
+        <details class="group">
+          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
+            <h2 class="font-display text-2xl">Seasons</h2>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </summary>
         {!career || career.seasons.length === 0 ? (
           <p class="text-sm text-white/40">No season history yet.</p>
         ) : (
@@ -328,11 +371,18 @@ for (const r of raceHistory) {
             </table>
           </div>
         )}
+        </details>
       </div>
 
       <!-- Race-by-race history -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <h2 class="mb-3 font-display text-2xl">Races</h2>
+        <details class="group">
+          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
+            <h2 class="font-display text-2xl">Races</h2>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </summary>
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
@@ -382,24 +432,28 @@ for (const r of raceHistory) {
                     <td class="py-2 pr-2 text-center text-white/70">{r.startingPosition ?? '—'}</td>
                     <td class="py-2 pr-2 text-center text-white/90">
                       <!--
-                        NC/Unclassified deliberately never shares a line with
-                        the finish number — see ResultsTable.astro's own
-                        header comment, which keeps that tag next to the
-                        driver's NAME for the exact same reason: appending
-                        text after a centered number shifts the number's own
-                        visual center every time the tag toggles on/off. This
-                        table has no name cell to park it in, so it gets its
-                        own centered line below instead.
+                        The penalty asterisk is absolutely-positioned off the
+                        RIGHT edge of a relatively-positioned wrapper sized
+                        to the number alone, rather than sitting inline next
+                        to it — an inline asterisk widens the centered
+                        content every time it toggles on/off, shifting the
+                        number's own visual center (same class of bug the NC
+                        tag used to have here, and that ResultsTable.astro's
+                        header comment describes for the driver-name case).
+                        Taking the asterisk out of flow like this means
+                        Tailwind's centering only ever measures the number.
                       -->
-                      <div class="flex flex-col items-center leading-tight">
-                        <span>
-                          {r.dsq ? <span class="text-brand-pink">DSQ</span> : r.finishPosition}
-                          {r.wasAdjusted && (
-                            <sup class="ml-0.5 text-[10px] font-sans text-brand-pink" title="Adjusted by penalty">*</sup>
-                          )}
-                        </span>
-                        {!r.classified && !r.dsq && <span class="text-[9px] uppercase tracking-wide text-white/30">NC</span>}
-                      </div>
+                      <span class="relative inline-block">
+                        {r.dsq ? <span class="text-brand-pink">DSQ</span> : r.finishPosition}
+                        {r.wasAdjusted && (
+                          <sup
+                            class={`absolute left-full top-0 ml-0.5 text-[10px] font-sans ${r.gainedPositions ? 'text-brand-blue' : 'text-brand-pink'}`}
+                            title={r.gainedPositions ? 'Gained position(s) by penalty' : 'Adjusted by penalty'}
+                          >
+                            *
+                          </sup>
+                        )}
+                      </span>
                     </td>
                     <td class="py-2 pr-2 text-center text-white/70">{r.margin}</td>
                     <td class="py-2 pr-2 text-center text-white/70">{r.incidents ?? '—'}</td>
@@ -412,13 +466,56 @@ for (const r of raceHistory) {
             </table>
           </div>
         )}
+        </details>
       </div>
     </div>
 
     <div class="flex flex-col gap-8">
+      <!-- Awards (Hall of Fame pinned at the top, if applicable) -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <details class="group">
+          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
+            <h2 class="font-display text-2xl">Awards</h2>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </summary>
+        {isHallOfFame && (
+          <div class="mb-3 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-brand-gold">
+            Hall of Fame
+          </div>
+        )}
+        {awardGroups.length === 0 ? (
+          !isHallOfFame && <p class="text-sm text-white/40">No awards on file yet.</p>
+        ) : (
+          <div class="flex flex-col gap-4">
+            {awardGroups.map((g) => (
+              <div>
+                <h3 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">{g.seasonName}</h3>
+                <ul class="flex flex-col gap-1.5 text-xs">
+                  {g.awards.map((a) => (
+                    <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
+                      <span class="font-semibold text-white/90">{a.label}</span>
+                      {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        </details>
+      </div>
+
       <!-- Career Moves -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <h2 class="mb-3 font-display text-2xl">Career Moves</h2>
+        <details class="group">
+          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
+            <h2 class="font-display text-2xl">Career Moves</h2>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </summary>
         {careerMoves.length === 0 ? (
           <p class="text-sm text-white/40">No team history yet.</p>
         ) : (
@@ -453,30 +550,59 @@ for (const r of raceHistory) {
             </table>
           </div>
         )}
+        </details>
       </div>
 
-      <!-- Awards -->
+      <!-- Class Moves: same shape as Career Moves, but diffing each season's
+           class instead of primary team — see this file's frontmatter for
+           why the driver's debut season never gets an entry here. -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <h2 class="mb-3 font-display text-2xl">Awards</h2>
-        {awardGroups.length === 0 ? (
-          <p class="text-sm text-white/40">No awards on file yet.</p>
+        <details class="group">
+          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
+            <h2 class="font-display text-2xl">Class Moves</h2>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </summary>
+        {classMoves.length === 0 ? (
+          <p class="text-sm text-white/40">No class changes yet.</p>
         ) : (
-          <div class="flex flex-col gap-4">
-            {awardGroups.map((g) => (
-              <div>
-                <h3 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">{g.seasonName}</h3>
-                <ul class="flex flex-col gap-1.5 text-xs">
-                  {g.awards.map((a) => (
-                    <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
-                      <span class="font-semibold text-white/90">{a.label}</span>
-                      {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+          <div class="overflow-x-auto">
+            <table class="w-full border-collapse text-xs">
+              <thead>
+                <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium">Season</th>
+                  <th class="py-2 pr-2 font-medium">From</th>
+                  <th class="py-2 pr-2 font-medium">To</th>
+                </tr>
+              </thead>
+              <tbody>
+                {classMoves.map((m) => (
+                  <tr class="border-b border-white/5">
+                    <td class="py-2 pr-2 font-semibold text-white/90">{m.seasonName}</td>
+                    <td class="py-2 pr-2 text-white/60">
+                      <span class="flex items-center gap-1.5">
+                        <span class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(m.from)}`}>
+                          {classBadgeLetter(m.from)}
+                        </span>
+                        {m.from}
+                      </span>
+                    </td>
+                    <td class="py-2 pr-2 text-white/80">
+                      <span class="flex items-center gap-1.5">
+                        <span class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(m.to)}`}>
+                          {classBadgeLetter(m.to)}
+                        </span>
+                        {m.to}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
+        </details>
       </div>
     </div>
   </div>
