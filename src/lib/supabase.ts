@@ -20,6 +20,8 @@
  * `astro dev`, or a page that's actually prerendered).
  */
 
+import { LEAGUE_TIME_ZONE } from './timezone';
+
 export interface SupabaseEnv {
   url: string;
   anonKey: string;
@@ -2216,6 +2218,31 @@ export function getUpcomingEvents(env: SupabaseEnv, limit: number) {
     env,
     `events?select=${encodeURIComponent(select)}&event_date=gte.${today}&category=not.in.(holiday,iracing)&order=event_date.asc&limit=${limit}`
   );
+}
+
+/**
+ * Just the events whose event_date falls within a day of "today" — a
+ * narrow, cheap query powering the site-wide "Happening Now" nav banner
+ * (src/components/Nav.astro + src/lib/liveEvent.ts), which runs on every
+ * single page load and can't afford getEvents()'s full-table fetch just to
+ * find whichever 0-1 events might be live right now. The ±1 day pad (rather
+ * than exactly "today") covers a session that runs past midnight Eastern,
+ * or a request landing right at the UTC/Eastern calendar-date boundary —
+ * getEvents() and this both filter on event_date alone, so being a day too
+ * generous here just means liveEvent.ts checks one extra, almost-certainly-
+ * not-live event, not a correctness problem.
+ */
+export function getEventsForLiveBanner(env: SupabaseEnv) {
+  const select = `${EVENT_SELECT},circuits(name,logo_url),seasons(name,number)`;
+  const now = Date.now();
+  const dayFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LEAGUE_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const dates = [-1, 0, 1].map((offsetDays) => dayFormatter.format(new Date(now + offsetDays * 86_400_000)));
+  return restGet<EventWithCircuit[]>(env, `events?select=${encodeURIComponent(select)}&event_date=in.(${dates.join(',')})&order=event_date.asc`);
 }
 
 export async function getEventById(env: SupabaseEnv, id: string) {

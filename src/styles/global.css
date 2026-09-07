@@ -100,6 +100,14 @@ h1, h2, h3, h4 {
     transform: none;
     transition: none;
   }
+  /* "Happening Now" nav banner (src/components/Nav.astro) — a continuously
+     scrolling marquee is exactly the kind of motion this preference exists
+     to suppress. Freezing it still leaves the full text readable (the
+     content is duplicated for the loop, so the frozen frame reads twice in
+     a row, not truncated). */
+  .animate-marquee {
+    animation: none;
+  }
 }
 
 /* Instant, zero-JS tactile feedback for anything clickable. This fires the

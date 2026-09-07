@@ -1955,6 +1955,72 @@ export async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsession
 }
 
 /**
+ * Every curated_rounds subsession_id run at a given track (optionally
+ * narrowed to one specific layout name), for getLayoutBestLapSeconds below.
+ * Matches on curated_rounds.track_name/layout directly rather than the full
+ * resolveLayout/circuit_layouts disambiguation machinery elsewhere in this
+ * file (findRoundsForLayout, resolveEventLayoutKey, etc.) — that machinery
+ * needs the ENTIRE circuits + circuit_layouts + curated_rounds tables in
+ * memory, an acceptable once-per-page-load cost on /calendar but far too
+ * expensive to pay on every single page's nav render (see Nav.astro's
+ * "Happening Now" banner, the only caller of this). Falls back to matching
+ * the track alone if a specific layout name was given but doesn't match any
+ * round on file (same "circuit-level fallback" reasoning as
+ * resolveEventLayoutKey), then to a case-insensitive match on the track name
+ * as a last resort for minor punctuation/casing drift between
+ * events.circuits.name and curated_rounds.track_name.
+ */
+async function findSubsessionIdsForTrack(env: SupabaseEnv, trackName: string, layoutName: string | null): Promise<number[]> {
+  const encTrack = encodeURIComponent(trackName);
+  if (layoutName) {
+    const withLayout = await restGetAll<{ subsession_id: number }>(
+      env,
+      `curated_rounds?select=subsession_id&track_name=eq.${encTrack}&layout=eq.${encodeURIComponent(layoutName)}`
+    );
+    if (withLayout.length > 0) return withLayout.map((r) => r.subsession_id);
+  }
+  const anyLayout = await restGetAll<{ subsession_id: number }>(
+    env,
+    `curated_rounds?select=subsession_id&track_name=eq.${encTrack}`
+  );
+  if (anyLayout.length > 0) return anyLayout.map((r) => r.subsession_id);
+  const caseInsensitive = await restGetAll<{ subsession_id: number }>(
+    env,
+    `curated_rounds?select=subsession_id&track_name=ilike.${encTrack}`
+  );
+  return caseInsensitive.map((r) => r.subsession_id);
+}
+
+/**
+ * The fastest lap ever recorded at a track (optionally narrowed to one
+ * layout name), in seconds — powers the "Happening Now" nav banner's race
+ * duration ESTIMATE (see src/lib/liveEvent.ts): (this + a 5s buffer) × the
+ * race's scheduled lap count, used only for whichever race is the LAST
+ * scheduled session of a live event, since races are scored by lap count
+ * rather than a fixed duration (see EventRecord's own comment) and there's
+ * no later session to just count down to instead. Returns null (never
+ * throws) on any failure or when no historical lap data exists yet (a
+ * brand-new circuit/layout) — the caller falls back to a flat assumed
+ * duration in that case.
+ */
+export async function getLayoutBestLapSeconds(env: SupabaseEnv, trackName: string | null, layoutName: string | null): Promise<number | null> {
+  if (!trackName) return null;
+  try {
+    const subsessionIds = await findSubsessionIdsForTrack(env, trackName, layoutName);
+    if (subsessionIds.length === 0) return null;
+    const rows = await restGet<{ best_lap_ten_thousandths: number | null }[]>(
+      env,
+      `curated_race_results?select=best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&order=best_lap_ten_thousandths.asc&limit=1`
+    );
+    const best = rows[0]?.best_lap_ten_thousandths;
+    return best ? best / 10000 : null;
+  } catch (err) {
+    console.error('Failed to look up historical best lap time for the "Happening Now" nav banner\'s race-duration estimate:', err);
+    return null;
+  }
+}
+
+/**
  * Combines `getCuratedRaceResultsForSubsessions`' columns with
  * `getLapStatsForSubsessions`' two extra ones into ONE query — for
  * `computeDriverCareerStats`' bulk path only. Every other caller keeps

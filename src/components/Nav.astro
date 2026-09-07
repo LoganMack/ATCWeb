@@ -1,9 +1,20 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
+import { resolveSupabaseEnv } from '../lib/supabase';
+import { getLiveBannerInfo } from '../lib/liveEvent';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
 const RULEBOOK_URL = 'https://docs.google.com/document/d/1a05Enq9lvnon3qBNnxeHhCUFmlDlBXC0K3R9SXMKFoM/edit?usp=sharing';
+
+// "Happening Now" banner (attached to the bottom of this nav, below) — Nav
+// renders on every single page via Layout.astro, so this has to be
+// best-effort: a failure here degrades to "no banner," never a broken page.
+// See src/lib/liveEvent.ts for how "currently happening" is determined.
+const liveBanner = await getLiveBannerInfo(resolveSupabaseEnv(Astro.locals)).catch((err) => {
+  console.error('Failed to compute the "Happening Now" nav banner:', err);
+  return null;
+});
 
 const links: { href: string; label: string; external?: boolean }[] = [
   { href: '/news', label: 'News' },
@@ -72,6 +83,41 @@ const links: { href: string; label: string; external?: boolean }[] = [
     </div>
   </div>
 
+  {liveBanner && (
+    <div class="overflow-hidden border-t border-white/10 bg-brand-primary">
+      <a href="/calendar" class="group block py-1.5 transition hover:brightness-110">
+        <div class="flex w-max animate-marquee items-center whitespace-nowrap font-display text-sm uppercase tracking-widest text-white group-hover:[animation-play-state:paused]">
+          {/* Rendered twice for the seamless CSS-loop technique (see the
+              animate-marquee keyframes in tailwind.config.mjs) — the second
+              copy is purely visual filler for the scroll, so it's marked
+              aria-hidden to keep screen readers from reading this whole
+              banner twice. */}
+          {[0, 1].map((copyIndex) => (
+            <span class="flex items-center gap-3 pr-3" aria-hidden={copyIndex === 1 ? 'true' : undefined}>
+              <span class="flex items-center gap-1.5 pl-3 font-semibold">
+                <span class="h-1.5 w-1.5 rounded-full bg-white" aria-hidden="true"></span>
+                Happening Now
+              </span>
+              <span aria-hidden="true">•</span>
+              <span>{liveBanner.roundLabel}</span>
+              <span aria-hidden="true">•</span>
+              <span>
+                {liveBanner.sessionLabel} at {liveBanner.trackName}
+                {liveBanner.layoutName && `, ${liveBanner.layoutName}`}
+              </span>
+              <span aria-hidden="true">•</span>
+              <span data-live-remaining data-session-end={liveBanner.sessionEndUtcIso}>
+                {liveBanner.remainingMinutes} minute{liveBanner.remainingMinutes === 1 ? '' : 's'} remaining
+              </span>
+              <span aria-hidden="true">•</span>
+              <span>{liveBanner.nextSessionLabel ? `Next Session: ${liveBanner.nextSessionLabel}` : 'Final Session'}</span>
+            </span>
+          ))}
+        </div>
+      </a>
+    </div>
+  )}
+
   <nav
     id="mobile-nav"
     class="hidden flex-col border-t border-white/10 bg-brand-ink px-6 py-4 font-display text-lg uppercase tracking-widest sm:hidden"
@@ -120,4 +166,41 @@ const links: { href: string; label: string; external?: boolean }[] = [
   }
 
   document.addEventListener('astro:page-load', initMobileNav);
+
+  // "Happening Now" banner's live countdown — the server only computes
+  // "which session, how many minutes remaining" once per page render (see
+  // src/lib/liveEvent.ts), so without this the number would just freeze
+  // until the visitor's next navigation. Same data-attribute-driven
+  // pattern as src/scripts/localTime.ts: the server embeds an absolute UTC
+  // end-instant, and this just re-derives "remaining" from it on a timer.
+  // There are two copies of the banner text in the DOM at once (the
+  // marquee's seamless-loop duplication — see the animate-marquee keyframes
+  // in tailwind.config.mjs), so this updates ALL matching elements, not
+  // just the first.
+  let liveBannerInterval: ReturnType<typeof setInterval> | undefined;
+
+  function initLiveBanner() {
+    if (liveBannerInterval) clearInterval(liveBannerInterval);
+
+    const elements = document.querySelectorAll<HTMLElement>('[data-live-remaining]');
+    if (elements.length === 0) return;
+
+    function tick() {
+      elements.forEach((el) => {
+        const endIso = el.dataset.sessionEnd;
+        if (!endIso) return;
+        const endMs = new Date(endIso).getTime();
+        if (Number.isNaN(endMs)) return;
+        const minutes = Math.max(0, Math.round((endMs - Date.now()) / 60_000));
+        el.textContent = `${minutes} minute${minutes === 1 ? '' : 's'} remaining`;
+      });
+    }
+
+    tick();
+    // A minute-granularity countdown doesn't need per-second polling —
+    // 30s keeps the displayed number honest without any visible lag.
+    liveBannerInterval = setInterval(tick, 30_000);
+  }
+
+  document.addEventListener('astro:page-load', initLiveBanner);
 </script>

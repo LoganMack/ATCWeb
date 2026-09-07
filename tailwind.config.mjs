@@ -41,6 +41,22 @@ export default {
         // `body` is regular text — Roboto per your existing brand.
         body: ['Roboto', 'system-ui', 'sans-serif'],
       },
+      // Nav.astro's "Happening Now" banner: content is rendered twice back
+      // to back, then this scrolls the pair left by exactly half its own
+      // width — since both copies are identical, the moment the first one
+      // fully exits, the second is sitting exactly where the first started,
+      // so the loop is seamless regardless of how long the text is (a
+      // percentage, not a fixed pixel distance). Disabled entirely under
+      // prefers-reduced-motion — see src/styles/global.css.
+      keyframes: {
+        marquee: {
+          '0%': { transform: 'translateX(0%)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
+      },
+      animation: {
+        marquee: 'marquee 28s linear infinite',
+      },
     },
   },
   plugins: [],
