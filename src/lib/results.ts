@@ -2908,9 +2908,30 @@ export interface DriverRaceHistoryRow {
   car: { name: string; logoUrl: string | null } | null;
   /** The team this driver raced for in this specific race (race_scores.team_id) — same historical-logo resolution as RaceResultRow.team. */
   team: { name: string; logoUrl: string | null } | null;
+  /** Raw OVERALL grid position (every class combined) — see classStartingPosition for this driver's position within their own class that race. */
   startingPosition: number | null;
-  /** Post-penalty position from the live penalty-adjustment engine (computeSeasonOverallAdjustments — the same one every other page uses, recomputed from the CURRENT penalties table) when it repositions this race, falling back to the legacy curated_race_results.adjusted_position manual override, then to the raw finish_position — same fallback chain as RaceResultRow. An unclassified (NC/DSQ) row is never repositioned by the engine (canReposition requires classified === true), so it naturally falls through to the legacy/raw value. */
+  /** Post-penalty position from the live penalty-adjustment engine (computeSeasonOverallAdjustments — the same one every other page uses, recomputed from the CURRENT penalties table) when it repositions this race, falling back to the legacy curated_race_results.adjusted_position manual override, then to the raw finish_position — same fallback chain as RaceResultRow. An unclassified (NC/DSQ) row is never repositioned by the engine (canReposition requires classified === true), so it naturally falls through to the legacy/raw value. This is the OVERALL field position (every class combined) — see classPosition for this driver's position within their own class that race, which is what "wins"/"podiums"/etc. should always be judged against for a non-Alpha driver. */
   finishPosition: number;
+  /**
+   * This driver's position within their OWN class that race — re-derived
+   * from curated_race_results restricted to the other drivers race_scores
+   * says shared their class that race, exactly like computeSeasonStandings/
+   * getRoundResults already do for their own per-class views (see this
+   * file's header comment: "Class-relative finishing position is NOT the
+   * same as race_scores.scored_position"). Ranked off `adjusted_position ??
+   * finish_position` (DSQ'd drivers excluded from ranking, same as
+   * computeSeasonStandings) — unlike `finishPosition` above, this does NOT
+   * re-run the live per-class penalty cascade (computeSeasonClassAdjustments
+   * is season/class-scoped and not practical to replay for one driver's
+   * whole cross-season career here), so on the rare race where a penalty
+   * actually reordered this class, this can lag that cascade by one
+   * increment. Null only if this driver's own raw result is missing (should
+   * not normally happen — see the "skip rather than fabricate a row" guard
+   * below).
+   */
+  classPosition: number | null;
+  /** This driver's grid position within their own class that race (raw curated_race_results.starting_position, re-ranked the same way as classPosition) — null if starting_position itself is missing. */
+  classStartingPosition: number | null;
   wasAdjusted: boolean;
   /** True when the penalty/adjustment engine MOVED this driver UP the order (finishPosition < the raw, pre-adjustment finish_position) — false for a loss or an unadjusted row. Lets a caller color the "adjusted" marker by direction (gained vs. lost) instead of one flat color. */
   gainedPositions: boolean;
@@ -3074,6 +3095,49 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     }
   }
 
+  // Class-relative finish/start position — see DriverRaceHistoryRow.classPosition's
+  // own doc comment for why this can't just reuse `finishPosition`/
+  // `startingPosition` above (both OVERALL fields). Grouped by
+  // subsession+race+class across `overallScoresRaw` (every driver's row,
+  // every class, for every subsession this driver ever raced) so each
+  // group is exactly "who else raced this driver's own class in this
+  // specific race" — then ranked in memory, no extra fetch.
+  interface ClassFieldEntry {
+    driverId: string;
+    finishPos: number | null;
+    startPos: number | null;
+    dsq: boolean;
+  }
+  const classFieldByRace = new Map<string, ClassFieldEntry[]>();
+  for (const s of overallScoresRaw) {
+    const rowCustId = custIdByDriverId.get(s.driver_id);
+    const rawForRow = rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+    const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
+    if (!classFieldByRace.has(key)) classFieldByRace.set(key, []);
+    classFieldByRace.get(key)!.push({
+      driverId: s.driver_id,
+      finishPos: rawForRow ? rawForRow.adjusted_position ?? rawForRow.finish_position : null,
+      startPos: rawForRow?.starting_position ?? null,
+      dsq: s.dsq,
+    });
+  }
+  const classPositionByKey = new Map<string, number>();
+  const classStartingPositionByKey = new Map<string, number>();
+  for (const [key, field] of classFieldByRace) {
+    // key is "subsessionId:raceNumber:classId" — classId isn't needed past
+    // this point, only the subsession+race prefix the per-driver maps key on.
+    const [subsessionIdStr, raceNumberStr] = key.split(':');
+    const prefix = `${subsessionIdStr}:${raceNumberStr}`;
+    field
+      .filter((f) => !f.dsq && f.finishPos !== null)
+      .sort((a, b) => (a.finishPos as number) - (b.finishPos as number))
+      .forEach((f, i) => classPositionByKey.set(`${prefix}:${f.driverId}`, i + 1));
+    field
+      .filter((f) => f.startPos !== null)
+      .sort((a, b) => (a.startPos as number) - (b.startPos as number))
+      .forEach((f, i) => classStartingPositionByKey.set(`${prefix}:${f.driverId}`, i + 1));
+  }
+
   const out: DriverRaceHistoryRow[] = [];
   for (const score of scores) {
     if (excludedRoundIds.has(score.subsession_id)) continue;
@@ -3105,6 +3169,8 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, round?.season_id ?? null, seasonLogoMap) } : null,
       startingPosition: raw.starting_position,
       finishPosition,
+      classPosition: classPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
+      classStartingPosition: classStartingPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
       wasAdjusted: finishPosition !== raw.finish_position,
       gainedPositions: finishPosition < raw.finish_position,
       margin: formatMargin(

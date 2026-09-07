@@ -304,18 +304,40 @@ interface SplitGroup {
   rows: SplitRow[];
 }
 
-function buildSplitRows(groups: Map<string, DriverRaceHistoryRow[]>, order?: string[]): SplitRow[] {
+// The Splits card can rank Wins/Podiums/Top 5s/Avg Finish either OVERALL
+// (raw cross-class running order, r.finishPosition) or by CLASS (this
+// driver's own position within whichever class they ran that race,
+// r.classPosition — see its own doc comment in results.ts for why a
+// Gamma/Delta driver's overall running order is a poor stand-in for their
+// class result). The toggle in the template below switches between the two
+// full precomputed row sets rather than re-deriving anything client-side —
+// grouping (which month/round-bucket/car a race falls under) is identical
+// either way, only the position used for ranking changes, so a month where
+// this driver ran both Delta and Gamma still shows as ONE combined row in
+// both modes, just scored differently.
+function overallPos(r: DriverRaceHistoryRow): number {
+  return r.finishPosition;
+}
+function classPos(r: DriverRaceHistoryRow): number {
+  return r.classPosition ?? r.finishPosition;
+}
+
+function buildSplitRows(
+  groups: Map<string, DriverRaceHistoryRow[]>,
+  posFn: (r: DriverRaceHistoryRow) => number,
+  order?: string[]
+): SplitRow[] {
   const keys = order ? order.filter((k) => groups.has(k)) : [...groups.keys()];
   return keys.map((label) => {
     const rows = groups.get(label)!;
     const scored = rows.filter((r) => !r.dsq);
-    const finishSum = scored.reduce((sum, r) => sum + r.finishPosition, 0);
+    const finishSum = scored.reduce((sum, r) => sum + posFn(r), 0);
     return {
       label,
       starts: rows.length,
-      wins: scored.filter((r) => r.finishPosition === 1).length,
-      podiums: scored.filter((r) => r.finishPosition <= 3).length,
-      top5s: scored.filter((r) => r.finishPosition <= 5).length,
+      wins: scored.filter((r) => posFn(r) === 1).length,
+      podiums: scored.filter((r) => posFn(r) <= 3).length,
+      top5s: scored.filter((r) => posFn(r) <= 5).length,
       avgFinish: scored.length > 0 ? (finishSum / scored.length).toFixed(1) : '—',
       incidents: rows.reduce((sum, r) => sum + (r.incidents ?? 0), 0),
       lapsLed: rows.reduce((sum, r) => sum + (r.lapsLed ?? 0), 0),
@@ -361,15 +383,24 @@ for (const r of raceHistory) {
   if (!carGroups.has(label)) carGroups.set(label, []);
   carGroups.get(label)!.push(r);
 }
+
 // Most-raced car first — Month/Round# have a natural chronological/numeric
 // order (given explicitly via ROUND_BUCKETS/MONTH_NAMES), but cars don't,
-// so this falls back to start count instead of alphabetical.
-const carRows = buildSplitRows(carGroups).sort((a, b) => b.starts - a.starts);
+// so this falls back to start count instead of alphabetical. `starts`
+// doesn't depend on posFn, so the Car row order is identical in both modes.
+function buildCarRows(posFn: (r: DriverRaceHistoryRow) => number): SplitRow[] {
+  return buildSplitRows(carGroups, posFn).sort((a, b) => b.starts - a.starts);
+}
 
-const splitGroups: SplitGroup[] = [
-  { name: 'Month', rows: buildSplitRows(monthGroups, MONTH_NAMES) },
-  { name: 'Round #', rows: buildSplitRows(roundGroups, ROUND_BUCKETS) },
-  { name: 'Car', rows: carRows },
+const splitGroupsOverall: SplitGroup[] = [
+  { name: 'Month', rows: buildSplitRows(monthGroups, overallPos, MONTH_NAMES) },
+  { name: 'Round #', rows: buildSplitRows(roundGroups, overallPos, ROUND_BUCKETS) },
+  { name: 'Car', rows: buildCarRows(overallPos) },
+];
+const splitGroupsClass: SplitGroup[] = [
+  { name: 'Month', rows: buildSplitRows(monthGroups, classPos, MONTH_NAMES) },
+  { name: 'Round #', rows: buildSplitRows(roundGroups, classPos, ROUND_BUCKETS) },
+  { name: 'Car', rows: buildCarRows(classPos) },
 ];
 ---
 
@@ -389,7 +420,7 @@ const splitGroups: SplitGroup[] = [
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
               <h2 class="font-display text-2xl">Seasons</h2>
-              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{career?.seasons.length ?? 0}</span>
+              <span class="font-display text-2xl text-white/40">{career?.seasons.length ?? 0}</span>
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
@@ -479,7 +510,7 @@ const splitGroups: SplitGroup[] = [
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
               <h2 class="font-display text-2xl">Races</h2>
-              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{raceHistory.length}</span>
+              <span class="font-display text-2xl text-white/40">{raceHistory.length}</span>
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
@@ -531,7 +562,7 @@ const splitGroups: SplitGroup[] = [
                     <td class="py-2 pr-2">
                       {r.team ? <TeamLogo name={r.team.name} logoUrl={r.team.logoUrl} size="h-5 w-5" title={r.team.name} /> : <span class="text-white/30">N/A</span>}
                     </td>
-                    <td class="py-2 pr-2 text-center text-white/70">{r.startingPosition ?? '—'}</td>
+                    <td class="py-2 pr-2 text-center text-white/70">{r.classStartingPosition ?? r.startingPosition ?? '—'}</td>
                     <td class="py-2 pr-2 text-center text-white/90">
                       <!--
                         The penalty asterisk is absolutely-positioned off the
@@ -544,9 +575,14 @@ const splitGroups: SplitGroup[] = [
                         header comment describes for the driver-name case).
                         Taking the asterisk out of flow like this means
                         Tailwind's centering only ever measures the number.
+                        The number itself is this driver's CLASS-relative
+                        finish (classPosition), not the raw overall running
+                        order — see DriverRaceHistoryRow.classPosition's doc
+                        comment in results.ts for why those two differ for
+                        anyone not in Alpha.
                       -->
                       <span class="relative inline-block">
-                        {r.dsq ? <span class="text-brand-pink">DSQ</span> : r.finishPosition}
+                        {r.dsq ? <span class="text-brand-pink">DSQ</span> : (r.classPosition ?? r.finishPosition)}
                         {r.wasAdjusted && (
                           <sup
                             class={`absolute left-full top-0 ml-0.5 text-[10px] font-sans ${r.gainedPositions ? 'text-brand-blue' : 'text-brand-pink'}`}
@@ -573,13 +609,19 @@ const splitGroups: SplitGroup[] = [
 
       <!-- Splits: per-Month/Round#/Car aggregate stats. Each split group is
            its own nested collapsible (default collapsed), independent of
-           the other two and of the outer Splits card's own collapse. -->
+           the other two and of the outer Splits card's own collapse. The
+           Overall/Class toggle below is pure CSS (paired radio inputs +
+           Tailwind's peer-checked variant, same "no JS needed" approach as
+           the <details> collapses) — this fragment is injected via
+           `innerHTML` by drivers/[id].astro, and a <script> tag added that
+           way never executes, so both row sets are rendered once up front
+           and the toggle just switches which one is visible. -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
               <h2 class="font-display text-2xl">Splits</h2>
-              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{splitGroups.length}</span>
+              <span class="font-display text-2xl text-white/40">{splitGroupsOverall.length}</span>
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
@@ -588,58 +630,145 @@ const splitGroups: SplitGroup[] = [
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
-          <div class="flex flex-col gap-3">
-            {splitGroups.map((g) => (
-              <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]">
-                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
-                  <span class="flex items-center gap-2">
-                    {g.name}
-                    <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/50">{g.rows.length}</span>
-                  </span>
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open/split:rotate-90" aria-hidden="true">
-                    <polyline points="9 6 15 12 9 18" />
-                  </svg>
-                </summary>
-                <div class="overflow-x-auto border-t border-white/10 p-3">
-                  <table class="w-full border-collapse text-xs">
-                    <thead>
-                      <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
-                        <th class="py-2 pr-2 font-medium">{g.name}</th>
-                        <th class="py-2 pr-2 text-center font-medium">Starts</th>
-                        <th class="py-2 pr-2 text-center font-medium">Wins</th>
-                        <th class="py-2 pr-2 text-center font-medium">Podiums</th>
-                        <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
-                        <th class="py-2 pr-2 text-center font-medium">Avg Finish</th>
-                        <th class="py-2 pr-2 text-center font-medium">Inc</th>
-                        <th class="py-2 pr-2 text-center font-medium">Led</th>
-                        <th class="py-2 pr-2 text-center font-medium">Points</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {g.rows.map((row) => (
-                        <tr class="border-b border-white/5">
-                          <td class="py-2 pr-2 font-semibold text-white/90">{row.label}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.starts}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.wins}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.top5s}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.avgFinish}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.incidents}</td>
-                          <td class="py-2 pr-2 text-center text-white/70">{row.lapsLed}</td>
-                          <td class="py-2 pr-2 text-center font-semibold text-white/90">{row.points}</td>
+          <>
+            <!--
+              The radios, labels, hint text, and both row-set <div>s below
+              are all deliberately kept as DIRECT siblings of one another
+              (all children of this one flex-wrap container) — Tailwind's
+              peer-checked variant only ever matches a TRUE sibling of the
+              checked input via CSS's `~` combinator, not "a sibling of an
+              ancestor," so nesting the radios inside their own wrapper row
+              would silently break every peer-checked reference below.
+              `w-full` on the two content divs is what pushes them onto
+              their own line within this same flex-wrap row, giving a
+              normal-looking "toggle row, then content" layout without
+              actually nesting anything.
+            -->
+            <div class="mb-3 flex flex-wrap items-center gap-1 text-xs">
+              <input type="radio" name="splits-mode" id="splits-mode-overall" class="peer/overall sr-only" checked />
+              <input type="radio" name="splits-mode" id="splits-mode-class" class="peer/class sr-only" />
+              <label
+                for="splits-mode-overall"
+                class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/overall:bg-white/10 peer-checked/overall:text-white"
+              >
+                Overall
+              </label>
+              <label
+                for="splits-mode-class"
+                class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/class:bg-white/10 peer-checked/class:text-white"
+                title="This driver's own position within whichever class they raced, not their raw overall running order — a month split between two classes still shows as one combined row."
+              >
+                Class
+              </label>
+              <span class="ml-1 text-[10px] normal-case text-white/30">Wins/Podiums/Top 5s/Avg Finish only — Starts/Inc/Led/Points don't depend on this</span>
+
+              <div class="mt-3 flex w-full flex-col gap-3 peer-checked/class:hidden">
+              {splitGroupsOverall.map((g) => (
+                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]">
+                  <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
+                    <span class="flex items-center gap-2">
+                      {g.name}
+                      <span class="text-sm text-white/40">{g.rows.length}</span>
+                    </span>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open/split:rotate-90" aria-hidden="true">
+                      <polyline points="9 6 15 12 9 18" />
+                    </svg>
+                  </summary>
+                  <div class="overflow-x-auto border-t border-white/10 p-3">
+                    <table class="w-full border-collapse text-xs">
+                      <thead>
+                        <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                          <th class="py-2 pr-2 font-medium">{g.name}</th>
+                          <th class="py-2 pr-2 text-center font-medium">Starts</th>
+                          <th class="py-2 pr-2 text-center font-medium">Wins</th>
+                          <th class="py-2 pr-2 text-center font-medium">Podiums</th>
+                          <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
+                          <th class="py-2 pr-2 text-center font-medium">Avg Finish</th>
+                          <th class="py-2 pr-2 text-center font-medium">Inc</th>
+                          <th class="py-2 pr-2 text-center font-medium">Led</th>
+                          <th class="py-2 pr-2 text-center font-medium">Points</th>
                         </tr>
-                      ))}
-                      {g.rows.length === 0 && (
-                        <tr>
-                          <td colspan="9" class="py-2 pr-2 text-white/30">No data.</td>
+                      </thead>
+                      <tbody>
+                        {g.rows.map((row) => (
+                          <tr class="border-b border-white/5">
+                            <td class="py-2 pr-2 font-semibold text-white/90">{row.label}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.starts}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.wins}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.top5s}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.avgFinish}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.incidents}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.lapsLed}</td>
+                            <td class="py-2 pr-2 text-center font-semibold text-white/90">{row.points}</td>
+                          </tr>
+                        ))}
+                        {g.rows.length === 0 && (
+                          <tr>
+                            <td colspan="9" class="py-2 pr-2 text-white/30">No data.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ))}
+            </div>
+
+            <div class="mt-3 hidden w-full flex-col gap-3 peer-checked/class:flex">
+              {splitGroupsClass.map((g) => (
+                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]">
+                  <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
+                    <span class="flex items-center gap-2">
+                      {g.name}
+                      <span class="text-sm text-white/40">{g.rows.length}</span>
+                    </span>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open/split:rotate-90" aria-hidden="true">
+                      <polyline points="9 6 15 12 9 18" />
+                    </svg>
+                  </summary>
+                  <div class="overflow-x-auto border-t border-white/10 p-3">
+                    <table class="w-full border-collapse text-xs">
+                      <thead>
+                        <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                          <th class="py-2 pr-2 font-medium">{g.name}</th>
+                          <th class="py-2 pr-2 text-center font-medium">Starts</th>
+                          <th class="py-2 pr-2 text-center font-medium">Wins</th>
+                          <th class="py-2 pr-2 text-center font-medium">Podiums</th>
+                          <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
+                          <th class="py-2 pr-2 text-center font-medium">Avg Finish</th>
+                          <th class="py-2 pr-2 text-center font-medium">Inc</th>
+                          <th class="py-2 pr-2 text-center font-medium">Led</th>
+                          <th class="py-2 pr-2 text-center font-medium">Points</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </details>
-            ))}
-          </div>
+                      </thead>
+                      <tbody>
+                        {g.rows.map((row) => (
+                          <tr class="border-b border-white/5">
+                            <td class="py-2 pr-2 font-semibold text-white/90">{row.label}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.starts}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.wins}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.top5s}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.avgFinish}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.incidents}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.lapsLed}</td>
+                            <td class="py-2 pr-2 text-center font-semibold text-white/90">{row.points}</td>
+                          </tr>
+                        ))}
+                        {g.rows.length === 0 && (
+                          <tr>
+                            <td colspan="9" class="py-2 pr-2 text-white/30">No data.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ))}
+            </div>
+            </div>
+          </>
         )}
         </details>
       </div>
@@ -652,7 +781,7 @@ const splitGroups: SplitGroup[] = [
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
               <h2 class="font-display text-2xl">Awards</h2>
-              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{awardEntries.length + (isHallOfFame ? 1 : 0)}</span>
+              <span class="font-display text-2xl text-white/40">{awardEntries.length + (isHallOfFame ? 1 : 0)}</span>
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
@@ -691,7 +820,7 @@ const splitGroups: SplitGroup[] = [
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
               <h2 class="font-display text-2xl">Career Moves</h2>
-              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{careerMoves.length}</span>
+              <span class="font-display text-2xl text-white/40">{careerMoves.length}</span>
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
@@ -742,7 +871,7 @@ const splitGroups: SplitGroup[] = [
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
               <h2 class="font-display text-2xl">Class Moves</h2>
-              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{classMoves.length}</span>
+              <span class="font-display text-2xl text-white/40">{classMoves.length}</span>
             </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
