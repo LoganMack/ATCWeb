@@ -17,7 +17,7 @@ import {
   type Season,
   type Team,
 } from '../lib/supabase';
-import { driversSelect, type DriverBasic } from '../lib/results';
+import { driversSelect, getAllRounds, type DriverBasic } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 import TeamLogo from '../components/TeamLogo.astro';
 import PageBanner from '../components/PageBanner.astro';
@@ -178,38 +178,50 @@ const loadSeasonLogos = async () => {
   }
 };
 
-// "Founded" date (see the Active/Inactive-filter Founded column below): the
-// later of teams.created_at and the start_date of this team's EARLIEST
-// team_rosters season — see Team.created_at's doc comment in supabase.ts for
-// why the row-creation timestamp alone isn't a reliable founding date.
-let earliestSeasonIdByTeamId = new Map<string, string>();
-const loadFoundingSeasons = async () => {
+// "Founded" date (see the Active/Inactive-filter Founded column below):
+// this team's EARLIEST actually-raced round, resolved by cross-referencing
+// EVERY season this team ever had a team_rosters entry for (regardless of
+// which season is currently selected above — this is deliberately season
+// AGNOSTIC) against that season's own earliest curated_rounds.start_time.
+// Deliberately NOT seasons.start_date — every season row in this database
+// currently has start_date left null (an unpopulated column, not a data
+// error specific to any one season), which used to make this whole
+// computation silently no-op and fall back to teams.created_at for nearly
+// every team, showing a "Founded" date that was really just whenever that
+// team's DB row happened to be (re)created — often a recent bulk-import
+// timestamp with nothing to do with the team's actual history. Falls back
+// to teams.created_at only when a team has no roster history with any
+// resolvable round date at all (a brand-new team with no rounds on file
+// yet) — see Team.created_at's own doc comment in supabase.ts.
+let earliestRaceDateByTeamId = new Map<string, string>();
+const loadFoundingDates = async () => {
   try {
-    const allRosterEntries = await getAllTeamRosters(supabaseEnv);
-    const seasonById = new Map(seasons.map((s) => [s.id, s]));
+    const [allRosterEntries, allRounds] = await Promise.all([getAllTeamRosters(supabaseEnv), getAllRounds(supabaseEnv)]);
+    const earliestRoundStartBySeasonId = new Map<string, string>();
+    for (const round of allRounds) {
+      const existing = earliestRoundStartBySeasonId.get(round.season_id);
+      if (!existing || round.start_time < existing) earliestRoundStartBySeasonId.set(round.season_id, round.start_time);
+    }
     for (const entry of allRosterEntries) {
-      const season = seasonById.get(entry.season_id);
-      if (!season?.start_date) continue;
-      const existingId = earliestSeasonIdByTeamId.get(entry.team_id);
-      const existingStart = existingId ? seasonById.get(existingId)?.start_date : null;
-      if (!existingStart || season.start_date < existingStart) {
-        earliestSeasonIdByTeamId.set(entry.team_id, entry.season_id);
-      }
+      const seasonStart = earliestRoundStartBySeasonId.get(entry.season_id);
+      if (!seasonStart) continue;
+      const existing = earliestRaceDateByTeamId.get(entry.team_id);
+      if (!existing || seasonStart < existing) earliestRaceDateByTeamId.set(entry.team_id, seasonStart);
     }
   } catch (err) {
-    console.error('Failed to load team rosters for founding dates:', err);
+    console.error('Failed to load team rosters/rounds for founding dates:', err);
   }
 };
 
-// These three all depend on `selectedSeason`/`seasons` resolved just above,
-// but not on each other, so they still run concurrently rather than in
-// series.
-await Promise.all([loadSeasonRoster(), loadSeasonLogos(), loadFoundingSeasons()]);
+// These three all depend on `selectedSeason`/`seasons` resolved just above
+// (loadFoundingDates doesn't, strictly, but is kept alongside its two
+// siblings here for the same "independent, run together" reasoning), but
+// not on each other, so they still run concurrently rather than in series.
+await Promise.all([loadSeasonRoster(), loadSeasonLogos(), loadFoundingDates()]);
 
 function foundedDateFor(team: Team): string {
-  const earliestSeasonId = earliestSeasonIdByTeamId.get(team.id);
-  const earliestStart = earliestSeasonId ? seasons.find((s) => s.id === earliestSeasonId)?.start_date : null;
-  return earliestStart && earliestStart > team.created_at ? earliestStart : team.created_at;
+  const earliestRaceDate = earliestRaceDateByTeamId.get(team.id);
+  return earliestRaceDate && earliestRaceDate < team.created_at ? earliestRaceDate : team.created_at;
 }
 
 function ordinalSuffix(n: number): string {
@@ -221,23 +233,27 @@ function ordinalSuffix(n: number): string {
   return 'th';
 }
 
-/** "MMM, DDth, YYYY" — read off the UTC calendar date so a date stored as e.g. `2023-01-05` (midnight UTC) never shifts a day depending on the visitor's timezone. */
+/** "MMM DDth, YYYY" (e.g. "Jan 3rd, 2024") — read off the UTC calendar date so a date stored as e.g. `2023-01-05` (midnight UTC) never shifts a day depending on the visitor's timezone. */
 function formatFoundedDate(iso: string): string {
   const d = new Date(iso);
   const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
   const day = d.getUTCDate();
   const year = d.getUTCFullYear();
-  return `${month}, ${day}${ordinalSuffix(day)}, ${year}`;
+  return `${month} ${day}${ordinalSuffix(day)}, ${year}`;
 }
 
-// Only teams with drivers on the roster for the selected season are shown —
-// active teams first, alphabetical within each group. Once loaded, clicking
-// a column header (src/scripts/sortable-table.ts) re-sorts the whole table
-// client-side.
+// Only teams with drivers on the roster for the selected season are shown.
+// For the CURRENT season, active teams are grouped first (alphabetical
+// within each group) since Active/Inactive status is a live, present-tense
+// thing there. A PAST season's roster is a fixed historical fact — a team
+// that's since gone inactive was still a full participant that season, so
+// it isn't separated out or reordered, just alphabetical like everyone
+// else. Once loaded, clicking a column header (src/scripts/sortable-table.ts)
+// re-sorts the whole table client-side.
 const sortedTeams = teams
   .filter((team) => (rosterByTeamId.get(team.id)?.length ?? 0) > 0)
   .sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
+    if (!isPastSeason && a.status !== b.status) return a.status === 'active' ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
 
@@ -285,21 +301,21 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
             </label>
           </form>
         )}
-      </div>
-    )}
-
-    {!loadError && (
-      <div class="reveal mt-4 flex flex-wrap gap-2" style="transition-delay: 100ms" data-filter-group="status">
-        {['Active', 'Inactive', 'All'].map((s) => (
-          <button
-            type="button"
-            data-filter-value={s}
-            class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-            data-active={s === 'Active' ? 'true' : 'false'}
-          >
-            {s}
-          </button>
-        ))}
+        {/* Active/Inactive/All only makes sense for the current season's roster — a past season's roster is a fixed historical fact, so every team on it is shown as-is, with no filter and no inactive-team greying/reordering (see isPastSeason below). */}
+        {!isPastSeason && (
+          <div class="flex flex-wrap gap-2 sm:ml-auto" data-filter-group="status">
+            {['Active', 'Inactive', 'All'].map((s) => (
+              <button
+                type="button"
+                data-filter-value={s}
+                class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                data-active={s === 'Active' ? 'true' : 'false'}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )}
 
@@ -329,15 +345,16 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
               const logoUrl = logoOverrideByTeamId.get(team.id) ?? team.logo_url;
               const founded = foundedDateFor(team);
               const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
+              const greyedOut = !isPastSeason && team.status === 'inactive';
               return (
                 <tr
-                  class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${team.status === 'inactive' ? 'opacity-60' : ''}`}
+                  class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${greyedOut ? 'opacity-60' : ''}`}
                   data-search={searchText}
                   data-status={team.status}
                 >
                   <td class="py-2.5 pl-4 pr-3" data-col="name">
                     <div class="flex items-center gap-3">
-                      <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" grayscale={team.status === 'inactive'} />
+                      <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" grayscale={greyedOut} />
                       <div class="flex flex-col justify-center">
                         <span class="font-semibold leading-tight">{team.name}</span>
                         {/* Always rendered (invisible when there's no org) so every row is exactly the same height regardless of whether that team has an organization — see this page's own org-name-by-team-id comment above. */}
@@ -396,8 +413,12 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
       if (!list) return;
 
       // Matches whichever button starts data-active="true" in the markup —
-      // Active by default.
-      const state: Record<string, string> = { status: 'Active', search: '' };
+      // Active by default. When viewing a past season the filter buttons
+      // aren't rendered at all (see isPastSeason server-side), so there's
+      // nothing to default to besides "All" — every team on that season's
+      // roster shows, unfiltered by present-day status.
+      const filterGroup = document.querySelector('[data-filter-group="status"]');
+      const state: Record<string, string> = { status: filterGroup ? 'Active' : 'All', search: '' };
 
       function statusMatches(row: HTMLElement) {
         if (state.status === 'All') return true;
