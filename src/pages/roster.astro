@@ -18,6 +18,7 @@ import {
 import { isOnProbationNow } from '../lib/penalties';
 import { bannerUrlFor } from '../lib/pageBanners';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
+import { countryName } from '../lib/countries';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -133,6 +134,19 @@ const onProbationNowByDriverId = new Map(
   drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
 );
 
+// Nationality dropdown options — restricted to only codes that actually
+// appear on at least one current driver (nationality_1 OR nationality_2),
+// not the full COUNTRIES list, per Logan's request. Sorted by display name
+// so the dropdown reads alphabetically rather than by code.
+const nationalityCodes = new Set<string>();
+for (const driver of drivers) {
+  if (driver.nationality_1) nationalityCodes.add(driver.nationality_1.toLowerCase());
+  if (driver.nationality_2) nationalityCodes.add(driver.nationality_2.toLowerCase());
+}
+const nationalityOptions = Array.from(nationalityCodes)
+  .map((code) => ({ code, name: countryName(code) }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
 const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
@@ -176,25 +190,39 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
     )}
 
     <!--
-      Search + all three filter groups live together in one card: the
-      search box on its own line up top, then the three groups side by side
-      below it in one row, each one's OWN buttons arranged as a 2x2 grid
+      Search + nationality + all three filter groups live together in one
+      card: search (left) and the nationality dropdown (right) share a top
+      2-column line, then the three quick-filter groups sit side by side
+      below in one row, each one's OWN buttons arranged as a 2x2 grid
       (every group happens to have exactly 4 options, so this tiles evenly)
-      rather than a loose wrapped row. "Activity" here is the
-      Active/Inactive/Unassigned/All group (data-filter-group="status" in
-      the markup/script below — the attribute name predates this label and
-      isn't worth a churny rename) and "Status" is the New/Rookie/Veteran
-      group (data-filter-group="experience") — see that group's own
-      doc comment above for why "Rookie" belongs in it despite not being a
-      real driver_statuses value.
+      rather than a loose wrapped row — narrowed to w-3/4 of their grid cell
+      per Logan's request so they don't feel as heavy as a full-width tile.
+      "Activity" here is the Active/Inactive/Unassigned/All group
+      (data-filter-group="status" in the markup/script below — the
+      attribute name predates this label and isn't worth a churny rename)
+      and "Status" is the New/Rookie/Veteran group
+      (data-filter-group="experience") — see that group's own doc comment
+      above for why "Rookie" belongs in it despite not being a real
+      driver_statuses value.
     -->
     <div class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-4" style="transition-delay: 100ms">
-      <input
-        type="search"
-        id="roster-search"
-        placeholder="Search drivers, numbers, or teams…"
-        class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <input
+          type="search"
+          id="roster-search"
+          placeholder="Search drivers, numbers, or teams…"
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <select
+          id="roster-nationality"
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        >
+          <option value="All" class="bg-brand-ink text-white">All Nationalities</option>
+          {nationalityOptions.map((n) => (
+            <option value={n.code} class="bg-brand-ink text-white">{n.name}</option>
+          ))}
+        </select>
+      </div>
       <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
@@ -203,7 +231,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
               <button
                 type="button"
                 data-filter-value={c}
-                class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                class="w-3/4 rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
                 data-active={c === 'All' ? 'true' : 'false'}
               >
                 {c}
@@ -218,7 +246,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
               <button
                 type="button"
                 data-filter-value={s}
-                class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                class="w-3/4 rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
                 data-active={s === 'Active' ? 'true' : 'false'}
               >
                 {s}
@@ -233,7 +261,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
               <button
                 type="button"
                 data-filter-value={x}
-                class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                class="w-3/4 rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
                 data-active={x === 'All' ? 'true' : 'false'}
               >
                 {x}
@@ -297,13 +325,22 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
     function initRosterFilters() {
       const body = document.getElementById('roster-body');
       const searchInput = document.getElementById('roster-search') as HTMLInputElement | null;
+      const nationalitySelect = document.getElementById('roster-nationality') as HTMLSelectElement | null;
       const empty = document.getElementById('roster-search-empty');
       if (!body) return;
 
       // Defaults match what's marked data-active="true" in the markup:
-      // all classes, active-ish drivers only, any experience level, empty
-      // search.
-      const state: Record<string, string> = { class: 'All', status: 'Active', experience: 'All', search: '' };
+      // all classes, active-ish drivers only, any experience level, any
+      // nationality, empty search.
+      const state: Record<string, string> = { class: 'All', status: 'Active', experience: 'All', nationality: 'All', search: '' };
+
+      // A driver can hold up to two nationalities (data-nationalities is a
+      // comma-joined lowercase pair from DriverRow.astro) — the dropdown
+      // matches if either one equals the selected code.
+      function nationalityMatches(row: HTMLElement) {
+        if (state.nationality === 'All') return true;
+        return (row.dataset.nationalities ?? '').split(',').includes(state.nationality);
+      }
 
       function statusMatches(row: HTMLElement) {
         // Unassigned cuts across actual status entirely — it's asking "does
@@ -341,7 +378,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         let visibleCount = 0;
         rows.forEach((row) => {
           const classMatch = state.class === 'All' || row.dataset.class === state.class;
-          const visible = classMatch && statusMatches(row) && experienceMatches(row) && searchMatches(row);
+          const visible = classMatch && statusMatches(row) && experienceMatches(row) && nationalityMatches(row) && searchMatches(row);
           row.style.display = visible ? '' : 'none';
           if (visible) visibleCount += 1;
         });
@@ -363,6 +400,11 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
 
       searchInput?.addEventListener('input', () => {
         state.search = searchInput.value.trim().toLowerCase();
+        applyFilters();
+      });
+
+      nationalitySelect?.addEventListener('change', () => {
+        state.nationality = nationalitySelect.value;
         applyFilters();
       });
 
