@@ -10,6 +10,7 @@ import {
   displayDriverName,
   getTagsForPost,
   getDriversForPost,
+  MENTION_PATTERN,
   type NewsTag,
   type DriverOption,
 } from '../../lib/supabase';
@@ -66,8 +67,11 @@ async function loadTags() {
   }
 }
 
-// Tagged drivers (0082_news_post_drivers.sql) — shown as links to each
-// driver's own profile (see the template below).
+// Tagged drivers (0082_news_post_drivers.sql), derived from @-mentions
+// typed into the body in the admin editor (see extractMentionedDriverIds in
+// supabase.ts) — looked up here so the body can render each mention as an
+// actual link to that driver's profile (see parseMentions/the paragraph
+// template below), rather than showing a separate list of names.
 let taggedDrivers: DriverOption[] = [];
 async function loadTaggedDrivers() {
   try {
@@ -102,6 +106,30 @@ await Promise.all([loadSeasonLogo(), loadTags(), loadTaggedDrivers(), loadRoundA
 // Simple paragraph splitting — no Markdown dependency for MVP1. If you need
 // bold/links/lists in post bodies later, add `marked` and swap this out.
 const paragraphs = post.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+
+// Turns one paragraph's plain text into a list of plain-text/mention
+// segments, splitting on the same @[Name](driverId) token the admin
+// editor's mention autocomplete writes (see MENTION_PATTERN's own doc
+// comment in supabase.ts). Rendered inline below — a driver mention reads
+// as a normal link right in the sentence, Discord-style, rather than as a
+// separate "Featuring" list above the article.
+interface BodySegment {
+  text: string;
+  driverId: string | null;
+}
+function parseMentions(text: string): BodySegment[] {
+  const segments: BodySegment[] = [];
+  let lastIndex = 0;
+  for (const match of text.matchAll(MENTION_PATTERN)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) segments.push({ text: text.slice(lastIndex, index), driverId: null });
+    segments.push({ text: match[1], driverId: match[2] });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length || segments.length === 0) segments.push({ text: text.slice(lastIndex), driverId: null });
+  return segments;
+}
+const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
 ---
 
 <Layout title={post.title} description={post.excerpt ?? undefined}>
@@ -125,21 +153,6 @@ const paragraphs = post.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolea
       ))}
     </p>
 
-    {taggedDrivers.length > 0 && (
-      <p class="reveal mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-white/50" style="transition-delay: 90ms">
-        <span class="text-xs uppercase tracking-widest text-white/30">Featuring</span>
-        {taggedDrivers.map((d, i) => (
-          <>
-            <a href={`/drivers/${d.id}`} class="text-brand-primary hover:underline">
-              {displayDriverName(d.name)}
-              {d.car_number !== null && <span class="text-white/40"> #{d.car_number}</span>}
-            </a>
-            {i < taggedDrivers.length - 1 && <span class="text-white/20">·</span>}
-          </>
-        ))}
-      </p>
-    )}
-
     {post.round_subsession_id !== null && roundTrackName && (
       <a
         href={`/results/${post.round_subsession_id}`}
@@ -160,7 +173,24 @@ const paragraphs = post.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolea
     )}
 
     <div class="reveal mt-8 text-lg text-white/80" style="transition-delay: 160ms">
-      {paragraphs.map((p) => <p class="mb-4 leading-relaxed">{p}</p>)}
+      {paragraphs.map((p) => (
+        <p class="mb-4 leading-relaxed">
+          {parseMentions(p).map((seg) => {
+            if (seg.driverId === null) return seg.text;
+            const driver = driverById.get(seg.driverId);
+            // A driver deleted after being mentioned falls back to plain
+            // text (the name captured in the token) rather than a broken
+            // link — see driverById's own doc comment above.
+            return driver ? (
+              <a href={`/drivers/${driver.id}`} class="font-semibold text-brand-primary hover:underline">
+                {displayDriverName(driver.name)}
+              </a>
+            ) : (
+              seg.text
+            );
+          })}
+        </p>
+      ))}
     </div>
 
     {recap && (

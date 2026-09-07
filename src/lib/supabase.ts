@@ -1081,9 +1081,52 @@ export async function setPostTags(env: SupabaseEnv, accessToken: string, postId:
 // Same many-to-many join-table shape/sync convention as news_post_tags just
 // above, against `drivers` directly rather than a separate vocabulary
 // table — the tagged driver's own name/profile IS the "tag." Powers the
-// driver-name links shown on a published post (news/[slug].astro) and,
-// combined with a driver's own raced-rounds list, the "Related News"
-// section on a driver's profile page (drivers/[id]/fragment.astro).
+// inline @-mention driver links rendered on a published post
+// (news/[slug].astro) and, combined with a driver's own raced-rounds list,
+// the "Related News" section on a driver's profile page
+// (drivers/[id]/fragment.astro).
+//
+// There's no manual picker for this anymore (there used to be — a
+// <select multiple>) — a post's tagged-driver set is entirely DERIVED from
+// @-mentions typed straight into the body text via the admin editor's own
+// autocomplete (src/pages/admin/news/new.astro and .../[id]/edit.astro),
+// Discord-style. See extractMentionedDriverIds below for the token format
+// and how a body string turns into the id list setPostDrivers syncs.
+
+/**
+ * A driver mention inserted by the admin editor's @-autocomplete is stored
+ * right in the post's plain-text body as `@[Display Name](driverId)` — e.g.
+ * "...huge move by @[Jane Doe](3fa85f64-5717-4562-b3fc-2c963f66afa6) into
+ * turn 4..." This is deliberately NOT full Markdown (see the "no Markdown
+ * dependency for MVP1" comment on news/[slug].astro's own paragraph
+ * splitting) — it's a single special-cased token only ever produced by the
+ * mention autocomplete, kept human-legible in the raw textarea (an admin
+ * skimming the body still sees a real name, not an opaque id) while still
+ * being trivially machine-parseable both server-side (this pattern) and
+ * client-side (the same shape, matched ad hoc in the editor's own inline
+ * script when rendering isn't needed there).
+ */
+export const MENTION_PATTERN = /@\[([^\]]+)\]\(([0-9a-fA-F-]{36})\)/g;
+
+/**
+ * Every driver id mentioned in a post body, deduped, in first-appearance
+ * order — the sole source of truth for that post's news_post_drivers rows.
+ * Called on every save (see setPostDrivers below), so a mention removed
+ * from the text un-tags that driver on the next save, same as adding one
+ * tags it; there's nothing else to keep in sync.
+ */
+export function extractMentionedDriverIds(body: string): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const match of body.matchAll(MENTION_PATTERN)) {
+    const id = match[2];
+    if (!seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
+}
 
 export interface NewsPostDriverLink {
   post_id: string;
@@ -1095,7 +1138,7 @@ export function getAllNewsPostDrivers(env: SupabaseEnv) {
   return restGet<NewsPostDriverLink[]>(env, 'news_post_drivers?select=post_id,drivers(id,name,car_number)');
 }
 
-/** Driver ids currently tagged on one post — pre-checks the post editor's driver picker. Public read (RLS). */
+/** Driver ids currently tagged on one post. Public read (RLS). */
 export async function getDriverIdsForPost(env: SupabaseEnv, postId: string) {
   const rows = await restGet<{ driver_id: string }[]>(env, `news_post_drivers?select=driver_id&post_id=eq.${encodeURIComponent(postId)}`);
   return rows.map((r) => r.driver_id);
@@ -1110,7 +1153,7 @@ export async function getDriversForPost(env: SupabaseEnv, postId: string): Promi
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Delete-all-then-insert sync of a post's tagged-driver set from the editor's multi-select — same approach setPostTags() uses for news_post_tags. */
+/** Delete-all-then-insert sync of a post's tagged-driver set — same approach setPostTags() uses for news_post_tags. Callers pass extractMentionedDriverIds(body) rather than a manually-picked list (see this section's own header comment). */
 export async function setPostDrivers(env: SupabaseEnv, accessToken: string, postId: string, driverIds: string[]) {
   await restDelete(env, accessToken, `news_post_drivers?post_id=eq.${encodeURIComponent(postId)}`);
   if (driverIds.length === 0) return;

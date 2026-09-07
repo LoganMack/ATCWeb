@@ -12,6 +12,7 @@ import {
   setPostTags,
   getDriversBasic,
   setPostDrivers,
+  extractMentionedDriverIds,
 } from '../../../lib/supabase';
 import { getAllRounds } from '../../../lib/results';
 import { slugify } from '../../../lib/slug';
@@ -97,8 +98,10 @@ if (Astro.request.method === 'POST') {
       });
       const tagIds = form.getAll('tag_ids').map(String);
       if (tagIds.length > 0) await setPostTags(supabaseEnv, accessToken, post.id, tagIds);
-      const driverIds = form.getAll('driver_ids').map(String);
-      if (driverIds.length > 0) await setPostDrivers(supabaseEnv, accessToken, post.id, driverIds);
+      // Tagged drivers aren't picked separately anymore — they're derived
+      // straight from whatever @-mentions ended up in the body text (see
+      // extractMentionedDriverIds's own doc comment in supabase.ts).
+      await setPostDrivers(supabaseEnv, accessToken, post.id, extractMentionedDriverIds(body));
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'add',
         entity_type: 'news',
@@ -148,6 +151,14 @@ try {
 } catch (err) {
   console.error('Failed to load drivers for the news editor:', err);
 }
+// Dataset for the Body field's @-mention autocomplete (see the inline
+// <script> below) — id + a ready-to-display label, so the client script
+// doesn't need its own copy of displayDriverName's formatting logic.
+// `<` escaped so a driver name can never prematurely close the
+// `<script type="application/json">` tag it's embedded in below.
+const mentionDriversJson = JSON.stringify(
+  allDrivers.map((d) => ({ id: d.id, label: displayDriverName(d.name) + (d.car_number !== null ? ` #${d.car_number}` : '') }))
+).replace(/</g, '\\u003c');
 ---
 
 <AdminLayout title="New Post">
@@ -184,15 +195,24 @@ try {
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       ></textarea>
     </label>
-    <label class="flex flex-col gap-1.5 text-sm">
+    <div class="relative flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Body</span>
       <textarea
         name="body"
+        id="post-body"
         required
         rows="10"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       ></textarea>
-    </label>
+      <!-- Positioned by the wrapping div's `relative` — see the mention-autocomplete script below. -->
+      <div id="mention-menu" class="absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-56 overflow-auto rounded-md border border-white/15 bg-brand-ink shadow-lg"></div>
+      <span class="text-xs text-white/40">
+        Type <span class="font-mono text-white/60">@</span> followed by a driver's name to mention them, then pick a
+        match from the list. Mentioned drivers show as links to their profile on the published post, and this post
+        shows up in their profile's Related News section.
+      </span>
+    </div>
+    <script type="application/json" id="mention-drivers-data" set:html={mentionDriversJson} />
     <div class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Cover image</span>
       <input
@@ -284,25 +304,6 @@ try {
         Managed on the <a href="/admin/news/tags" class="text-brand-primary hover:underline">News Tags</a> page.
       </span>
     </fieldset>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Tagged drivers</span>
-      <select
-        name="driver_ids"
-        multiple
-        size="8"
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      >
-        {allDrivers.map((d) => (
-          <option value={d.id} class="bg-brand-ink text-white">
-            {displayDriverName(d.name)}{d.car_number !== null ? ` #${d.car_number}` : ''}
-          </option>
-        ))}
-      </select>
-      <span class="text-xs text-white/40">
-        Ctrl/Cmd-click (or Shift-click for a range) to select more than one. Tagged drivers show as links to their
-        profile on the published post, and this post shows up in their profile's Related News section.
-      </span>
-    </label>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Status</legend>
       <label class="flex items-center gap-2">
@@ -325,3 +326,143 @@ try {
     </div>
   </form>
 </AdminLayout>
+
+<script>
+  // Discord-style @-mention autocomplete for the Body textarea — typing "@"
+  // (at the start of the text or after whitespace, so a plain
+  // "someone@example.com" never triggers it) followed by driver-name
+  // characters opens a match list; picking one inserts
+  // `@[Display Name](driverId) ` right into the plain-text body. That token
+  // is both human-legible while editing (an admin skimming the textarea
+  // still sees a real name) and machine-parseable — see
+  // extractMentionedDriverIds/MENTION_PATTERN in src/lib/supabase.ts for the
+  // save-time parsing and news/[slug].astro for the render-time parsing that
+  // turns it into an actual link.
+  //
+  // The dropdown is a plain block anchored under the whole textarea (not
+  // floating at the caret's pixel position) — tracking a textarea's caret
+  // position on screen needs a mirror-element hack this app has no other use
+  // for; anchoring under the field is simpler, robust to window
+  // resizes/reflows, and still reads as "a list appeared because I typed @."
+  function initMentionAutocomplete() {
+    const textarea = document.getElementById('post-body') as HTMLTextAreaElement | null;
+    const menu = document.getElementById('mention-menu') as HTMLDivElement | null;
+    const dataEl = document.getElementById('mention-drivers-data');
+    if (!textarea || !menu || !dataEl) return;
+    if (textarea.dataset.mentionInit === 'true') return; // astro:page-load can fire more than once for the same DOM
+    textarea.dataset.mentionInit = 'true';
+
+    interface MentionDriver {
+      id: string;
+      label: string;
+    }
+    let drivers: MentionDriver[] = [];
+    try {
+      drivers = JSON.parse(dataEl.textContent || '[]');
+    } catch {
+      drivers = [];
+    }
+
+    let mentionStart = -1; // index of the '@' that opened the in-progress mention, or -1 when none is active
+    let highlighted = 0;
+    let matches: MentionDriver[] = [];
+
+    function closeMenu() {
+      menu!.classList.add('hidden');
+      menu!.innerHTML = '';
+      mentionStart = -1;
+      matches = [];
+    }
+
+    function renderMenu() {
+      menu!.innerHTML = '';
+      matches.forEach((d, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = d.label;
+        btn.dataset.index = String(i);
+        btn.className = `block w-full truncate px-3 py-1.5 text-left text-sm ${i === highlighted ? 'bg-brand-primary/20 text-white' : 'text-white/70 hover:bg-white/5'}`;
+        menu!.appendChild(btn);
+      });
+      menu!.classList.toggle('hidden', matches.length === 0);
+    }
+
+    function insertMention(driver: MentionDriver) {
+      if (mentionStart < 0) return;
+      const cursor = textarea!.selectionStart;
+      const text = textarea!.value;
+      const token = `@[${driver.label}](${driver.id}) `;
+      textarea!.value = text.slice(0, mentionStart) + token + text.slice(cursor);
+      const newCursor = mentionStart + token.length;
+      textarea!.setSelectionRange(newCursor, newCursor);
+      closeMenu();
+      textarea!.focus();
+    }
+
+    function updateMenu() {
+      const cursor = textarea!.selectionStart;
+      const upToCursor = textarea!.value.slice(0, cursor);
+      const at = upToCursor.lastIndexOf('@');
+      if (at === -1) return closeMenu();
+      const query = upToCursor.slice(at + 1);
+      // The query can't span whitespace (that means the '@' wasn't the
+      // start of the word under the cursor anymore), and the '@' itself
+      // must start a word — start of the text, or preceded by whitespace.
+      if (/\s/.test(query)) return closeMenu();
+      const prevChar = at > 0 ? upToCursor[at - 1] : '';
+      if (prevChar && !/\s/.test(prevChar)) return closeMenu();
+
+      const q = query.toLowerCase();
+      matches = drivers.filter((d) => d.label.toLowerCase().includes(q)).slice(0, 8);
+      if (matches.length === 0) return closeMenu();
+      mentionStart = at;
+      highlighted = 0;
+      renderMenu();
+    }
+
+    textarea.addEventListener('input', updateMenu);
+    textarea.addEventListener('click', updateMenu);
+    textarea.addEventListener('keydown', (e) => {
+      if (menu!.classList.contains('hidden')) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        highlighted = Math.min(highlighted + 1, matches.length - 1);
+        renderMenu();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        highlighted = Math.max(highlighted - 1, 0);
+        renderMenu();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (matches[highlighted]) {
+          e.preventDefault();
+          insertMention(matches[highlighted]);
+        }
+      } else if (e.key === 'Escape') {
+        closeMenu();
+      }
+    });
+    textarea.addEventListener('blur', () => {
+      // Short delay so a click on a menu item (which itself blocks the
+      // textarea from ever actually blurring — see the menu's own
+      // mousedown handler below) still has a chance to land first for a
+      // click that DOES take focus elsewhere (e.g. straight to another
+      // field).
+      setTimeout(closeMenu, 150);
+    });
+    menu.addEventListener('mousedown', (e) => {
+      // Keeps focus (and selectionStart) on the textarea instead of
+      // shifting it to the button on click — insertMention needs the
+      // cursor position from BEFORE the click, not wherever focus lands
+      // after.
+      e.preventDefault();
+    });
+    menu.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('button[data-index]') as HTMLButtonElement | null;
+      if (!btn) return;
+      const i = Number(btn.dataset.index);
+      if (matches[i]) insertMention(matches[i]);
+    });
+  }
+
+  document.addEventListener('astro:page-load', initMentionAutocomplete);
+</script>

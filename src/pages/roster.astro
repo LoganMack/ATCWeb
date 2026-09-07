@@ -146,7 +146,18 @@ const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
 // Per Logan: a numberless driver is fine to still show up under the Active
 // filter, but should never show under Inactive specifically — Unassigned
 // is meant to be its own catch-all, not something Inactive also duplicates.
-const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
+const statuses = ['All', 'Active', 'Inactive', 'Unassigned'];
+
+// Experience filter — a THIRD, independent quick-filter group, alongside
+// (not instead of) the Active/Inactive/Unassigned status group above. "New"
+// and "Veteran" are real driver_statuses.name values (the same two
+// ACTIVE_STATUSES already treats as "active-ish" — see below); "Rookie"
+// isn't a status at all, it's the separate is_rookie boolean DriverRow
+// already shows its own badge for (re-derived from career history — see
+// sync_rookie_status() in supabase.ts) — hence experienceMatches() in the
+// filter script below needing a special case for it, same shape as
+// Unassigned cutting across status in the group above.
+const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
 ---
 
 <Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
@@ -173,7 +184,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
       />
     </div>
 
-    <div class="reveal mt-4 flex flex-wrap gap-6" style="transition-delay: 120ms">
+    <div class="reveal mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3" style="transition-delay: 120ms">
       <div class="flex flex-wrap gap-2" data-filter-group="class">
         {classes.map((c) => (
           <button
@@ -195,6 +206,18 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
             data-active={s === 'Active' ? 'true' : 'false'}
           >
             {s}
+          </button>
+        ))}
+      </div>
+      <div class="flex flex-wrap gap-2" data-filter-group="experience">
+        {experienceLevels.map((x) => (
+          <button
+            type="button"
+            data-filter-value={x}
+            class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+            data-active={x === 'All' ? 'true' : 'false'}
+          >
+            {x}
           </button>
         ))}
       </div>
@@ -257,8 +280,9 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
       if (!body) return;
 
       // Defaults match what's marked data-active="true" in the markup:
-      // all classes, active-ish drivers only, empty search.
-      const state: Record<string, string> = { class: 'All', status: 'Active', search: '' };
+      // all classes, active-ish drivers only, any experience level, empty
+      // search.
+      const state: Record<string, string> = { class: 'All', status: 'Active', experience: 'All', search: '' };
 
       function statusMatches(row: HTMLElement) {
         // Unassigned cuts across actual status entirely — it's asking "does
@@ -275,6 +299,17 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
         return row.dataset.status === state.status;
       }
 
+      // A separate, independent quick-filter from status above — "New" and
+      // "Veteran" match driver_statuses.name same as the status group would,
+      // but "Rookie" isn't a status at all, it's the separate is_rookie
+      // boolean (data-rookie, see DriverRow.astro), so it needs its own
+      // branch rather than a plain data-status comparison.
+      function experienceMatches(row: HTMLElement) {
+        if (state.experience === 'All') return true;
+        if (state.experience === 'Rookie') return row.dataset.rookie === 'true';
+        return row.dataset.status === state.experience;
+      }
+
       function searchMatches(row: HTMLElement) {
         if (!state.search) return true;
         return (row.dataset.search ?? '').includes(state.search);
@@ -285,7 +320,7 @@ const statuses = ['Active', 'Inactive', 'Unassigned', 'All'];
         let visibleCount = 0;
         rows.forEach((row) => {
           const classMatch = state.class === 'All' || row.dataset.class === state.class;
-          const visible = classMatch && statusMatches(row) && searchMatches(row);
+          const visible = classMatch && statusMatches(row) && experienceMatches(row) && searchMatches(row);
           row.style.display = visible ? '' : 'none';
           if (visible) visibleCount += 1;
         });
