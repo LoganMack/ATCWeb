@@ -243,6 +243,36 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         });
     }
 
+    // Keeps the Splits card's Overall/Class row-sets' <details> open/closed
+    // state in sync with each other — see the fragment's own doc comment on
+    // the Splits card for why this can't be pure CSS. The two row-sets are
+    // fully separate DOM subtrees (one per data-splits-rows value), each
+    // with its own <details data-split-name="Month"|"Round"|"Car">; every
+    // time either one is toggled, its same-named counterpart in the OTHER
+    // row-set is set to match. Setting .open to a value it already has
+    // doesn't fire another 'toggle' event, so this doesn't ping-pong.
+    function initSplitsSync() {
+      const overallRows = document.querySelector<HTMLElement>('[data-splits-rows="overall"]');
+      const classRows = document.querySelector<HTMLElement>('[data-splits-rows="class"]');
+      if (!overallRows || !classRows) return;
+      if (overallRows.dataset.splitsSyncInit === 'true') return;
+      overallRows.dataset.splitsSyncInit = 'true';
+
+      overallRows.querySelectorAll<HTMLDetailsElement>('details[data-split-name]').forEach((el) => {
+        const name = el.dataset.splitName;
+        if (!name) return;
+        const counterpart = classRows.querySelector<HTMLDetailsElement>(`details[data-split-name="${CSS.escape(name)}"]`);
+        if (!counterpart) return;
+        el.addEventListener('toggle', () => {
+          counterpart.open = el.open;
+        });
+        counterpart.addEventListener('toggle', () => {
+          el.open = counterpart.open;
+        });
+      });
+    }
+
     document.addEventListener('astro:page-load', initDriverResults);
+    document.addEventListener('astro:page-load', initSplitsSync);
   </script>
 </Layout>

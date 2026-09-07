@@ -15,6 +15,11 @@ export function classBadgeClasses(className: string): string {
   return CLASS_BADGE_COLOR[className] ?? 'text-white/70 border-white/20';
 }
 
+/** Just the text-color portion of classBadgeClasses (no border) — for an element like a trophy icon that only needs the class's color via `currentColor`, not the badge's border/background treatment. */
+export function classTextColorClass(className: string): string {
+  return CLASS_BADGE_COLOR[className]?.split(' ')[0] ?? 'text-white/70';
+}
+
 /**
  * Single-letter shorthand for a class badge ("Alpha" -> "A") — for tight
  * inline spaces where the full class name competes with a name/flag/car

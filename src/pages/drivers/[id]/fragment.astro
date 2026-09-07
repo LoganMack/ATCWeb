@@ -17,7 +17,7 @@ import {
   type DriverCareerStats,
   type DriverRaceHistoryRow,
 } from '../../../lib/results';
-import { classBadgeClasses, classBadgeLetter } from '../../../lib/classColors';
+import { classBadgeClasses, classBadgeLetter, classTextColorClass } from '../../../lib/classColors';
 
 /**
  * The expensive part of the driver profile page — see drivers/[id].astro's
@@ -67,6 +67,8 @@ interface AwardEntry {
   seasonName: string;
   label: string;
   detail: string | null;
+  /** Set only on a "<Class> Champion" entry — drives the trophy icon shown next to it (see the Awards card template below), tinted via classTextColorClass. Every other award type leaves this null/undefined. */
+  className?: string | null;
 }
 const awardEntries: AwardEntry[] = [];
 interface AwardGroup {
@@ -163,7 +165,7 @@ try {
   if (career) {
     for (const s of career.seasons) {
       if (s.classPosition === 1) {
-        awardEntries.push({ seasonNumber: s.season.number, seasonName: s.season.name, label: `${s.className} Champion`, detail: null });
+        awardEntries.push({ seasonNumber: s.season.number, seasonName: s.season.name, label: `${s.className} Champion`, detail: null, className: s.className });
       }
       if (s.teamPosition === 1) {
         awardEntries.push({
@@ -276,7 +278,7 @@ for (const r of raceHistory) {
   raceCountBySubsession.set(r.subsessionId, (raceCountBySubsession.get(r.subsessionId) ?? 0) + 1);
 }
 
-// --- Splits: raceHistory regrouped by Month / Round # bucket / Car, each
+// --- Splits: raceHistory regrouped by Month / Round bucket / Car, each
 // producing the same handful of aggregate stat columns. Built straight off
 // raceHistory (no extra fetch) — every column here is something already on
 // DriverRaceHistoryRow, aggregated per group rather than per race. "Starts"
@@ -295,7 +297,10 @@ interface SplitRow {
   podiums: number;
   top5s: number;
   avgFinish: string;
-  incidents: number;
+  /** Average of qualPosition/classQualPosition (whichever this row's mode uses) across every race in the group that has one — races 2/3 of a round (no real qualifying, see DriverRaceHistoryRow.qualPosition's own doc comment) simply don't contribute a value, rather than dragging the average down with a fabricated one. "—" when nothing in the group qualified at all. */
+  avgQualify: string;
+  /** Corners-per-incident for the group — summed totalCorners across every race that resolved one, divided by summed incidents across ALL races in the group (same "sum first, divide once" approach aggregateDriverCareerStats uses for career CPI, rather than averaging each race's own ratio). "—" if no race in the group resolved a corner count, or there were 0 incidents to divide by. */
+  cpi: string;
   lapsLed: number;
   points: number;
 }
@@ -304,27 +309,34 @@ interface SplitGroup {
   rows: SplitRow[];
 }
 
-// The Splits card can rank Wins/Podiums/Top 5s/Avg Finish either OVERALL
-// (raw cross-class running order, r.finishPosition) or by CLASS (this
-// driver's own position within whichever class they ran that race,
-// r.classPosition — see its own doc comment in results.ts for why a
-// Gamma/Delta driver's overall running order is a poor stand-in for their
-// class result). The toggle in the template below switches between the two
-// full precomputed row sets rather than re-deriving anything client-side —
-// grouping (which month/round-bucket/car a race falls under) is identical
-// either way, only the position used for ranking changes, so a month where
-// this driver ran both Delta and Gamma still shows as ONE combined row in
-// both modes, just scored differently.
+// The Splits card can rank Wins/Podiums/Top 5s/Avg Finish/Avg Qualify either
+// OVERALL (raw cross-class running order, r.finishPosition/r.qualPosition) or
+// by CLASS (this driver's own position within whichever class they ran that
+// race, r.classPosition/r.classQualPosition — see their own doc comments in
+// results.ts for why a Gamma/Delta driver's overall running order is a poor
+// stand-in for their class result). The toggle in the template below
+// switches between the two full precomputed row sets rather than re-deriving
+// anything client-side — grouping (which month/round-bucket/car a race falls
+// under) is identical either way, only the position used for ranking
+// changes, so a month where this driver ran both Delta and Gamma still shows
+// as ONE combined row in both modes, just scored differently.
 function overallPos(r: DriverRaceHistoryRow): number {
   return r.finishPosition;
 }
 function classPos(r: DriverRaceHistoryRow): number {
   return r.classPosition ?? r.finishPosition;
 }
+function overallQualPos(r: DriverRaceHistoryRow): number | null {
+  return r.qualPosition;
+}
+function classQualPos(r: DriverRaceHistoryRow): number | null {
+  return r.classQualPosition ?? r.qualPosition;
+}
 
 function buildSplitRows(
   groups: Map<string, DriverRaceHistoryRow[]>,
   posFn: (r: DriverRaceHistoryRow) => number,
+  qualPosFn: (r: DriverRaceHistoryRow) => number | null,
   order?: string[]
 ): SplitRow[] {
   const keys = order ? order.filter((k) => groups.has(k)) : [...groups.keys()];
@@ -332,6 +344,20 @@ function buildSplitRows(
     const rows = groups.get(label)!;
     const scored = rows.filter((r) => !r.dsq);
     const finishSum = scored.reduce((sum, r) => sum + posFn(r), 0);
+
+    let totalIncidents = 0;
+    let totalCorners = 0;
+    let anyCornersResolved = false;
+    for (const r of rows) {
+      totalIncidents += r.incidents ?? 0;
+      if (r.totalCorners !== null) {
+        totalCorners += r.totalCorners;
+        anyCornersResolved = true;
+      }
+    }
+
+    const qualValues = rows.map(qualPosFn).filter((q): q is number => q !== null);
+
     return {
       label,
       starts: rows.length,
@@ -339,7 +365,8 @@ function buildSplitRows(
       podiums: scored.filter((r) => posFn(r) <= 3).length,
       top5s: scored.filter((r) => posFn(r) <= 5).length,
       avgFinish: scored.length > 0 ? (finishSum / scored.length).toFixed(1) : '—',
-      incidents: rows.reduce((sum, r) => sum + (r.incidents ?? 0), 0),
+      avgQualify: qualValues.length > 0 ? (qualValues.reduce((a, b) => a + b, 0) / qualValues.length).toFixed(1) : '—',
+      cpi: anyCornersResolved && totalIncidents > 0 ? (totalCorners / totalIncidents).toFixed(1) : '—',
       lapsLed: rows.reduce((sum, r) => sum + (r.lapsLed ?? 0), 0),
       points: rows.reduce((sum, r) => sum + r.totalPoints, 0),
     };
@@ -384,23 +411,24 @@ for (const r of raceHistory) {
   carGroups.get(label)!.push(r);
 }
 
-// Most-raced car first — Month/Round# have a natural chronological/numeric
+// Most-raced car first — Month/Round have a natural chronological/numeric
 // order (given explicitly via ROUND_BUCKETS/MONTH_NAMES), but cars don't,
 // so this falls back to start count instead of alphabetical. `starts`
-// doesn't depend on posFn, so the Car row order is identical in both modes.
-function buildCarRows(posFn: (r: DriverRaceHistoryRow) => number): SplitRow[] {
-  return buildSplitRows(carGroups, posFn).sort((a, b) => b.starts - a.starts);
+// doesn't depend on posFn/qualPosFn, so the Car row order is identical in
+// both modes.
+function buildCarRows(posFn: (r: DriverRaceHistoryRow) => number, qualPosFn: (r: DriverRaceHistoryRow) => number | null): SplitRow[] {
+  return buildSplitRows(carGroups, posFn, qualPosFn).sort((a, b) => b.starts - a.starts);
 }
 
 const splitGroupsOverall: SplitGroup[] = [
-  { name: 'Month', rows: buildSplitRows(monthGroups, overallPos, MONTH_NAMES) },
-  { name: 'Round #', rows: buildSplitRows(roundGroups, overallPos, ROUND_BUCKETS) },
-  { name: 'Car', rows: buildCarRows(overallPos) },
+  { name: 'Month', rows: buildSplitRows(monthGroups, overallPos, overallQualPos, MONTH_NAMES) },
+  { name: 'Round', rows: buildSplitRows(roundGroups, overallPos, overallQualPos, ROUND_BUCKETS) },
+  { name: 'Car', rows: buildCarRows(overallPos, overallQualPos) },
 ];
 const splitGroupsClass: SplitGroup[] = [
-  { name: 'Month', rows: buildSplitRows(monthGroups, classPos, MONTH_NAMES) },
-  { name: 'Round #', rows: buildSplitRows(roundGroups, classPos, ROUND_BUCKETS) },
-  { name: 'Car', rows: buildCarRows(classPos) },
+  { name: 'Month', rows: buildSplitRows(monthGroups, classPos, classQualPos, MONTH_NAMES) },
+  { name: 'Round', rows: buildSplitRows(roundGroups, classPos, classQualPos, ROUND_BUCKETS) },
+  { name: 'Car', rows: buildCarRows(classPos, classQualPos) },
 ];
 ---
 
@@ -454,7 +482,31 @@ const splitGroupsClass: SplitGroup[] = [
                   const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
                   return (
                     <tr class="border-b border-white/5">
-                      <td class="py-2 pr-2 font-semibold text-white/90">{r.season.name}</td>
+                      <td class="py-2 pr-2 font-semibold text-white/90">
+                        <span class="flex items-center gap-1">
+                          {r.classPosition === 1 && (
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              class={`h-3 w-3 flex-none ${classTextColorClass(r.className)}`}
+                              title={`${r.className} Champion`}
+                            >
+                              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+                              <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+                              <path d="M4 22h16" />
+                              <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+                              <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+                              <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+                            </svg>
+                          )}
+                          <span>{r.season.name}</span>
+                        </span>
+                      </td>
                       <td class="py-2 pr-2">
                         <span
                           class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}
@@ -607,7 +659,7 @@ const splitGroupsClass: SplitGroup[] = [
         </details>
       </div>
 
-      <!-- Splits: per-Month/Round#/Car aggregate stats. Each split group is
+      <!-- Splits: per-Month/Round/Car aggregate stats. Each split group is
            its own nested collapsible (default collapsed), independent of
            the other two and of the outer Splits card's own collapse. The
            Overall/Class toggle below is pure CSS (paired radio inputs +
@@ -615,7 +667,17 @@ const splitGroupsClass: SplitGroup[] = [
            the <details> collapses) — this fragment is injected via
            `innerHTML` by drivers/[id].astro, and a <script> tag added that
            way never executes, so both row sets are rendered once up front
-           and the toggle just switches which one is visible. -->
+           and the toggle just switches which one is visible.
+
+           Each mode's row-set is its own independent DOM subtree (below),
+           so a <details> a visitor opens under Overall isn't the same
+           element as its counterpart under Class — CSS alone can't keep
+           them showing the same open/closed state across a toggle. Each
+           <details> here carries data-split-name (matching by split group
+           name, e.g. "Month"), and drivers/[id].astro's shell script (the
+           one place a <script> in this page actually runs — see above)
+           mirrors open/closed state between the two same-named elements on
+           every toggle event, so opening either one opens both. -->
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
@@ -660,11 +722,10 @@ const splitGroupsClass: SplitGroup[] = [
               >
                 Class
               </label>
-              <span class="ml-1 text-[10px] normal-case text-white/30">Wins/Podiums/Top 5s/Avg Finish only — Starts/Inc/Led/Points don't depend on this</span>
 
-              <div class="mt-3 flex w-full flex-col gap-3 peer-checked/class:hidden">
+              <div class="mt-3 flex w-full flex-col gap-3 peer-checked/class:hidden" data-splits-rows="overall">
               {splitGroupsOverall.map((g) => (
-                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]">
+                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]" data-split-name={g.name}>
                   <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
                     <span class="flex items-center gap-2">
                       {g.name}
@@ -684,7 +745,8 @@ const splitGroupsClass: SplitGroup[] = [
                           <th class="py-2 pr-2 text-center font-medium">Podiums</th>
                           <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
                           <th class="py-2 pr-2 text-center font-medium">Avg Finish</th>
-                          <th class="py-2 pr-2 text-center font-medium">Inc</th>
+                          <th class="py-2 pr-2 text-center font-medium">Avg Qualify</th>
+                          <th class="py-2 pr-2 text-center font-medium">CPI</th>
                           <th class="py-2 pr-2 text-center font-medium">Led</th>
                           <th class="py-2 pr-2 text-center font-medium">Points</th>
                         </tr>
@@ -698,14 +760,15 @@ const splitGroupsClass: SplitGroup[] = [
                             <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.top5s}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.avgFinish}</td>
-                            <td class="py-2 pr-2 text-center text-white/70">{row.incidents}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.avgQualify}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.cpi}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.lapsLed}</td>
                             <td class="py-2 pr-2 text-center font-semibold text-white/90">{row.points}</td>
                           </tr>
                         ))}
                         {g.rows.length === 0 && (
                           <tr>
-                            <td colspan="9" class="py-2 pr-2 text-white/30">No data.</td>
+                            <td colspan="10" class="py-2 pr-2 text-white/30">No data.</td>
                           </tr>
                         )}
                       </tbody>
@@ -715,9 +778,9 @@ const splitGroupsClass: SplitGroup[] = [
               ))}
             </div>
 
-            <div class="mt-3 hidden w-full flex-col gap-3 peer-checked/class:flex">
+            <div class="mt-3 hidden w-full flex-col gap-3 peer-checked/class:flex" data-splits-rows="class">
               {splitGroupsClass.map((g) => (
-                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]">
+                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]" data-split-name={g.name}>
                   <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
                     <span class="flex items-center gap-2">
                       {g.name}
@@ -737,7 +800,8 @@ const splitGroupsClass: SplitGroup[] = [
                           <th class="py-2 pr-2 text-center font-medium">Podiums</th>
                           <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
                           <th class="py-2 pr-2 text-center font-medium">Avg Finish</th>
-                          <th class="py-2 pr-2 text-center font-medium">Inc</th>
+                          <th class="py-2 pr-2 text-center font-medium">Avg Qualify</th>
+                          <th class="py-2 pr-2 text-center font-medium">CPI</th>
                           <th class="py-2 pr-2 text-center font-medium">Led</th>
                           <th class="py-2 pr-2 text-center font-medium">Points</th>
                         </tr>
@@ -751,14 +815,15 @@ const splitGroupsClass: SplitGroup[] = [
                             <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.top5s}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.avgFinish}</td>
-                            <td class="py-2 pr-2 text-center text-white/70">{row.incidents}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.avgQualify}</td>
+                            <td class="py-2 pr-2 text-center text-white/70">{row.cpi}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.lapsLed}</td>
                             <td class="py-2 pr-2 text-center font-semibold text-white/90">{row.points}</td>
                           </tr>
                         ))}
                         {g.rows.length === 0 && (
                           <tr>
-                            <td colspan="9" class="py-2 pr-2 text-white/30">No data.</td>
+                            <td colspan="10" class="py-2 pr-2 text-white/30">No data.</td>
                           </tr>
                         )}
                       </tbody>
@@ -802,7 +867,29 @@ const splitGroupsClass: SplitGroup[] = [
                 <ul class="flex flex-col gap-1.5 text-xs">
                   {g.awards.map((a) => (
                     <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
-                      <span class="font-semibold text-white/90">{a.label}</span>
+                      <span class="inline-flex items-center gap-1">
+                        {a.className && (
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class={`h-3 w-3 flex-none ${classTextColorClass(a.className)}`}
+                            aria-hidden="true"
+                          >
+                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
+                            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
+                            <path d="M4 22h16" />
+                            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
+                            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
+                            <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+                          </svg>
+                        )}
+                        <span class="font-semibold text-white/90">{a.label}</span>
+                      </span>
                       {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
                     </li>
                   ))}

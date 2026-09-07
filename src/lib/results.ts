@@ -315,6 +315,29 @@ function getRaceScoresForSubsessionsOverall(env: SupabaseEnv, subsessionIds: num
   return restGetAll<RaceScoreOverallRow>(env, `race_scores?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`);
 }
 
+interface CuratedQualifyingBulkRow {
+  subsession_id: number;
+  cust_id: number;
+  qual_position: number | null;
+}
+
+/**
+ * Bulk qualifying positions across many subsessions — same restGetAll
+ * reasoning as getCuratedRaceResultsForSubsessions below. Backs
+ * getDriverRaceHistory's "Avg Qualify" split stat. Only race_number 1 of
+ * each round has REAL qualifying (race 2/3 invert off it — see
+ * computeOverallSeasonStandings' own "only race with real qualifying"
+ * comment), so callers should only attribute a subsession's row here to
+ * that round's race-1 DriverRaceHistoryRow, never to race 2/3.
+ */
+function getQualifyingForSubsessionsBulk(env: SupabaseEnv, subsessionIds: number[]) {
+  if (subsessionIds.length === 0) return Promise.resolve([] as CuratedQualifyingBulkRow[]);
+  return restGetAll<CuratedQualifyingBulkRow>(
+    env,
+    `curated_qualifying?select=subsession_id,cust_id,qual_position&subsession_id=in.(${subsessionIds.join(',')})`
+  );
+}
+
 function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
   // Deliberately does NOT select best_lap_ten_thousandths (fastest-lap data,
@@ -2940,6 +2963,12 @@ export interface DriverRaceHistoryRow {
   incidents: number | null;
   laps: number | null;
   lapsLed: number | null;
+  /** This race's lap count × its resolved circuit layout's corner count (see DriverSeasonExtendedStats.totalCorners for the same idea at season granularity) — null whenever this round didn't resolve to a layout with a corner count on file. Used to compute CPI (corners per incident) for a Splits group, by summing this and `incidents` across every race in the group rather than averaging each race's own ratio. */
+  totalCorners: number | null;
+  /** Raw OVERALL qualifying position (every class combined), from `curated_qualifying.qual_position` — attributed to race 1 of this round only, since race 2/3 grids invert off race 1 rather than running real qualifying (see computeOverallSeasonStandings' own "only race with real qualifying" comment). See classQualPosition for this driver's position within their own class. Null on race 2/3 of a multi-race round, or if this driver has no `curated_qualifying` row for this round. */
+  qualPosition: number | null;
+  /** This driver's qualifying position within their own class that round (race 1 only, re-ranked from `curated_qualifying.qual_position` restricted to the other drivers who shared their class that round — same class-relative approach as `classPosition`). Null under the same race-2/3 condition as `qualPosition`, or if this driver's class couldn't be determined for that round. */
+  classQualPosition: number | null;
   totalPoints: number;
   dsq: boolean;
   classified: boolean;
@@ -3002,6 +3031,10 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     penalties,
     lapStats,
     allDrivers,
+    circuits,
+    circuitLayouts,
+    roundLayouts,
+    qualifyingRowsBulk,
   ] = await Promise.all([
     getCuratedRaceResultsForSubsessions(env, subsessionIds),
     getTeamsBasic(env),
@@ -3020,6 +3053,26 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     getPenaltiesForSubsessions(env, subsessionIds),
     getLapStatsForSubsessions(env, subsessionIds),
     driversSelect(env, {}),
+    // circuits/circuitLayouts/roundLayouts back the Splits card's CPI stat
+    // (DriverRaceHistoryRow.totalCorners) — same "degrade the one feature,
+    // never the whole page" isolation getSeasonDriverExtendedStats uses for
+    // the identical lookup.
+    getCircuits(env).catch((err) => {
+      console.error('Failed to fetch circuits for driver race-history corners-per-incident stats — CPI will be omitted:', err);
+      return [] as Circuit[];
+    }),
+    getAllCircuitLayouts(env).catch((err) => {
+      console.error('Failed to fetch circuit_layouts for driver race-history corners-per-incident stats — CPI will be omitted:', err);
+      return [] as CircuitLayout[];
+    }),
+    getRoundLayoutsForSubsessions(env, subsessionIds).catch((err) => {
+      console.error('Failed to fetch round layouts for driver race-history corners-per-incident stats — CPI will be omitted:', err);
+      return new Map<number, string | null>();
+    }),
+    getQualifyingForSubsessionsBulk(env, subsessionIds).catch((err) => {
+      console.error('Failed to fetch qualifying results for driver race history — Avg Qualify will be omitted:', err);
+      return [] as CuratedQualifyingBulkRow[];
+    }),
   ]);
 
   const excludedRoundIds = new Set([...exhibitionRoundIds, ...testRoundIds]);
@@ -3138,6 +3191,56 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       .forEach((f, i) => classStartingPositionByKey.set(`${prefix}:${f.driverId}`, i + 1));
   }
 
+  // Corners-per-incident numerator (see DriverRaceHistoryRow.totalCorners'
+  // own doc comment) — same resolveLayout-based lookup
+  // getSeasonDriverExtendedStats uses, just keyed across this driver's whole
+  // career's subsessions instead of one season's.
+  const cornersBySubsession = new Map<number, number | null>();
+  for (const subsessionId of subsessionIds) {
+    const trackName = roundBySubsession.get(subsessionId)?.track_name;
+    const layout = trackName ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, circuitLayouts) : null;
+    cornersBySubsession.set(subsessionId, layout?.corners ?? null);
+  }
+
+  // Qualifying (see DriverRaceHistoryRow.qualPosition/classQualPosition's own
+  // doc comments) — overall position comes straight off curated_qualifying;
+  // class-relative position is re-derived the same way classPosition is
+  // above, grouping by (subsession, classId) rather than (subsession,
+  // raceNumber, classId) since qualifying is one session per ROUND, not per
+  // race. A driver's class for a round is read off any of their
+  // `overallScoresRaw` rows for that subsession (class doesn't change
+  // race-to-race within one round — see getQualifyingForSubsession's own
+  // comment for the same assumption).
+  const classIdBySubsessionDriver = new Map<string, number>();
+  for (const s of overallScoresRaw) {
+    const key = `${s.subsession_id}:${s.driver_id}`;
+    if (!classIdBySubsessionDriver.has(key)) classIdBySubsessionDriver.set(key, s.class_id);
+  }
+  const driverIdByCustId = new Map<number, string>();
+  for (const d of allDrivers) {
+    if (d.iracing_cust_id != null) driverIdByCustId.set(d.iracing_cust_id, d.id);
+  }
+  const qualPositionBySubsessionDriver = new Map<string, number | null>();
+  const qualFieldBySubsessionClass = new Map<string, { driverId: string; qualPos: number | null }[]>();
+  for (const q of qualifyingRowsBulk) {
+    const qDriverId = driverIdByCustId.get(q.cust_id);
+    if (!qDriverId) continue; // this cust_id has no matching drivers row (unrostered/AI) — not something this driver's history needs
+    qualPositionBySubsessionDriver.set(`${q.subsession_id}:${qDriverId}`, q.qual_position);
+    const classId = classIdBySubsessionDriver.get(`${q.subsession_id}:${qDriverId}`);
+    if (classId === undefined) continue; // qualified but never appears in race_scores for this round — can't place them in a class field
+    const key = `${q.subsession_id}:${classId}`;
+    if (!qualFieldBySubsessionClass.has(key)) qualFieldBySubsessionClass.set(key, []);
+    qualFieldBySubsessionClass.get(key)!.push({ driverId: qDriverId, qualPos: q.qual_position });
+  }
+  const classQualPositionBySubsessionDriver = new Map<string, number>();
+  for (const [key, field] of qualFieldBySubsessionClass) {
+    const subsessionIdStr = key.split(':')[0];
+    field
+      .filter((f) => f.qualPos !== null)
+      .sort((a, b) => (a.qualPos as number) - (b.qualPos as number))
+      .forEach((f, i) => classQualPositionBySubsessionDriver.set(`${subsessionIdStr}:${f.driverId}`, i + 1));
+  }
+
   const out: DriverRaceHistoryRow[] = [];
   for (const score of scores) {
     if (excludedRoundIds.has(score.subsession_id)) continue;
@@ -3155,6 +3258,18 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     const baselinePosition = raw.adjusted_position ?? raw.finish_position;
     const finishPosition = adjustment?.newPosition ?? baselinePosition;
     const totalPoints = adjustment?.overallTotalPoints ?? score.total_points;
+
+    const cornersForRound = cornersBySubsession.get(score.subsession_id) ?? null;
+    const totalCorners = cornersForRound !== null ? (raw.laps_complete ?? 0) * cornersForRound : null;
+    // Only race 1 of a round has real qualifying — see this field's own doc
+    // comment.
+    const isQualifyingRace = score.race_number === 1;
+    const qualPosition = isQualifyingRace
+      ? qualPositionBySubsessionDriver.get(`${score.subsession_id}:${driverId}`) ?? null
+      : null;
+    const classQualPosition = isQualifyingRace
+      ? classQualPositionBySubsessionDriver.get(`${score.subsession_id}:${driverId}`) ?? null
+      : null;
 
     out.push({
       subsessionId: score.subsession_id,
@@ -3182,6 +3297,9 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       incidents: raw.incidents,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
+      totalCorners,
+      qualPosition,
+      classQualPosition,
       totalPoints,
       dsq: score.dsq,
       classified: score.classified,

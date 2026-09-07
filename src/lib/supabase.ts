@@ -323,17 +323,19 @@ export interface Team {
   status: 'active' | 'inactive';
   primary_color_hex: string | null;
   logo_url: string | null;
+  /** Row-creation timestamp — NOT necessarily when the team was actually "founded" in league history (a team's row can be created well after their first season raced, e.g. on a data migration). See the public Teams page's "Founded" column, which takes the later of this and the team's earliest team_rosters season. */
+  created_at: string;
 }
 
 /** All teams (active + inactive) — the public Teams page splits them into two sections itself. */
 export function getTeams(env: SupabaseEnv) {
-  return restGet<Team[]>(env, 'teams?select=id,name,status,primary_color_hex,logo_url&order=name.asc');
+  return restGet<Team[]>(env, 'teams?select=id,name,status,primary_color_hex,logo_url,created_at&order=name.asc');
 }
 
 export async function getTeamById(env: SupabaseEnv, id: string) {
   const teams = await restGet<Team[]>(
     env,
-    `teams?select=id,name,status,primary_color_hex,logo_url&id=eq.${encodeURIComponent(id)}`
+    `teams?select=id,name,status,primary_color_hex,logo_url,created_at&id=eq.${encodeURIComponent(id)}`
   );
   return teams[0] ?? null;
 }
@@ -456,6 +458,11 @@ export function getTeamRosterForTeamSeason(env: SupabaseEnv, teamId: string, sea
     env,
     `team_rosters?select=${TEAM_ROSTER_SELECT}&team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`
   );
+}
+
+/** Every roster entry across every team AND every season — a small table, fetched whole. Used by the public Teams page to find each team's earliest season (for the "Founded" column) without a per-team round trip. */
+export function getAllTeamRosters(env: SupabaseEnv) {
+  return restGet<TeamRosterEntry[]>(env, `team_rosters?select=${TEAM_ROSTER_SELECT}`);
 }
 
 /** Adds one driver to a team's roster for a season. Throws (with the trigger's own message) if the team's already at 4, or the driver's already on another team that season. */

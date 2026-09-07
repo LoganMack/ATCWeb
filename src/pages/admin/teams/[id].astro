@@ -121,6 +121,62 @@ if (Astro.request.method === 'POST') {
     }
     // Falls through (no redirect) so the page re-renders with rosterError
     // shown and the season the admin was working in still selected.
+  } else if (intent === 'copy-roster') {
+    // "Copy Roster" button next to the season picker — same remove-then-add
+    // diff as save-roster above (transfer-clearing included), just sourced
+    // from another season's roster instead of the 4 posted <select>s. The
+    // source season's own roster is capped at 4 already (the same DB
+    // trigger every roster write goes through), so no extra size check is
+    // needed beyond that existing enforcement.
+    const targetSeasonId = String(form.get('season_id') ?? '');
+    const sourceSeasonId = String(form.get('source_season_id') ?? '');
+    rosterSeasonId = targetSeasonId || null;
+    if (!isNew && id && targetSeasonId && sourceSeasonId && sourceSeasonId !== targetSeasonId) {
+      try {
+        const [sourceRoster, currentRoster, seasonRosterAllTeams, allSeasons] = await Promise.all([
+          getTeamRosterForTeamSeason(supabaseEnv, id, sourceSeasonId),
+          getTeamRosterForTeamSeason(supabaseEnv, id, targetSeasonId),
+          getTeamRosterForSeason(supabaseEnv, targetSeasonId),
+          getSeasons(supabaseEnv),
+        ]);
+        const desiredIds = sourceRoster.map((r) => r.driver_id);
+        const currentIds = new Set(currentRoster.map((r) => r.driver_id));
+        const desiredIdSet = new Set(desiredIds);
+
+        for (const entry of currentRoster) {
+          if (!desiredIdSet.has(entry.driver_id)) {
+            await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: targetSeasonId, team_id: id, driver_id: entry.driver_id });
+          }
+        }
+        for (const driverId of desiredIds) {
+          if (currentIds.has(driverId)) continue; // unchanged, already on this team
+          const other = seasonRosterAllTeams.find((r) => r.driver_id === driverId && r.team_id !== id);
+          if (other) {
+            await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: targetSeasonId, team_id: other.team_id, driver_id: driverId });
+          }
+          await addTeamRosterEntry(supabaseEnv, accessToken, { season_id: targetSeasonId, team_id: id, driver_id: driverId });
+        }
+
+        const rosterChanged = currentRoster.some((r) => !desiredIdSet.has(r.driver_id)) || desiredIds.some((d) => !currentIds.has(d));
+        if (rosterChanged) {
+          const teamForLog = await getTeamById(supabaseEnv, id);
+          const sourceSeasonName = allSeasons.find((s) => s.id === sourceSeasonId)?.name ?? 'another season';
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'team',
+            entity_label: `${teamForLog?.name ?? 'Team'} — roster copied from ${sourceSeasonName}`,
+            entity_id: id,
+          });
+        }
+        return Astro.redirect(`/admin/teams/${id}?season=${targetSeasonId}`, 302);
+      } catch (err) {
+        console.error('Failed to copy team roster:', err);
+        rosterError = err instanceof Error ? err.message : 'Failed to copy the roster.';
+      }
+    }
+    // Falls through (no redirect) so the page re-renders with rosterError
+    // shown and the season the admin was working in still selected — same
+    // as save-roster above.
   } else if (intent === 'add-historical-logo') {
     const seasonId = String(form.get('logo_season_id') ?? '');
     const file = form.get('historical_logo');
@@ -374,8 +430,14 @@ const rosterDriversOnTeam = rosterDrivers
 
   {!isNew && (
     <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 85ms">
-      <h2 class="text-lg font-semibold">Logos by Season</h2>
-
+      <details class="group">
+        <summary class="flex cursor-pointer list-none items-center gap-2">
+          <h2 class="text-lg font-semibold">Logos by Season</h2>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+        </summary>
+        <div class="mt-4">
       {historicalLogoError && (
         <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{historicalLogoError}</p>
       )}
@@ -438,12 +500,21 @@ const rosterDriversOnTeam = rosterDrivers
           </button>
         </form>
       )}
+        </div>
+      </details>
     </div>
   )}
 
   {!isNew && (
     <div class="reveal mt-10 max-w-xl border-t border-white/10 pt-6" style="transition-delay: 90ms">
-      <h2 class="text-lg font-semibold">Roster by Season</h2>
+      <details class="group">
+        <summary class="flex cursor-pointer list-none items-center gap-2">
+          <h2 class="text-lg font-semibold">Roster by Season</h2>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+        </summary>
+        <div class="mt-4">
 
       {seasons.length === 0 ? (
         <p class="mt-4 text-sm text-white/40">No results.</p>
@@ -463,6 +534,33 @@ const rosterDriversOnTeam = rosterDrivers
               </select>
             </label>
           </form>
+
+          {seasons.filter((s) => s.id !== selectedSeasonId).length > 0 && (
+            <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
+              <input type="hidden" name="intent" value="copy-roster" />
+              <input type="hidden" name="season_id" value={selectedSeasonId} />
+              <label class="flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Copy roster from</span>
+                <select
+                  name="source_season_id"
+                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                >
+                  {seasons
+                    .filter((s) => s.id !== selectedSeasonId)
+                    .map((s) => (
+                      <option value={s.id} class="bg-brand-ink text-white">{s.name}</option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                data-confirm={`Copy that season's roster onto ${selectedSeasonName}? This overwrites the current roster for ${selectedSeasonName}.`}
+                class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+              >
+                Copy Roster
+              </button>
+            </form>
+          )}
 
           {rosterError && (
             <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{rosterError}</p>
@@ -530,6 +628,8 @@ const rosterDriversOnTeam = rosterDrivers
           })()}
         </>
       )}
+        </div>
+      </details>
     </div>
   )}
 
