@@ -84,32 +84,40 @@ const links: { href: string; label: string; external?: boolean }[] = [
   </div>
 
   {liveBanner && (
-    <div class="overflow-hidden border-t border-white/10 bg-brand-primary">
-      <a href="/calendar" class="group block py-1.5 transition hover:brightness-110">
-        <div class="flex w-max animate-marquee items-center whitespace-nowrap font-display text-sm uppercase tracking-widest text-white group-hover:[animation-play-state:paused]">
+    // overflow-x-hidden ONLY (not the overflow-hidden shorthand, which also
+    // clips the Y axis) — this bar only ever needs to clip horizontally for
+    // the scroll effect; clipping Y too risked cutting the text off
+    // vertically outright on any sub-pixel line-height/font-metric mismatch
+    // (e.g. before the Teko webfont swaps in), which is exactly the "text
+    // doesn't show up" symptom Logan reported.
+    <div class="overflow-x-hidden bg-white">
+      <a href="/calendar" class="group block py-2 transition hover:bg-black/5">
+        <div class="flex w-max shrink-0 animate-marquee items-center whitespace-nowrap font-display text-base uppercase tracking-widest text-black group-hover:[animation-play-state:paused]">
           {/* Rendered twice for the seamless CSS-loop technique (see the
               animate-marquee keyframes in tailwind.config.mjs) — the second
               copy is purely visual filler for the scroll, so it's marked
               aria-hidden to keep screen readers from reading this whole
-              banner twice. */}
+              banner twice. shrink-0 on both the track and each copy keeps
+              every copy at its full natural width no matter what — nothing
+              here should ever compress. */}
           {[0, 1].map((copyIndex) => (
-            <span class="flex items-center gap-3 pr-3" aria-hidden={copyIndex === 1 ? 'true' : undefined}>
+            <span class="flex shrink-0 items-center gap-3 pr-3" aria-hidden={copyIndex === 1 ? 'true' : undefined}>
               <span class="flex items-center gap-1.5 pl-3 font-semibold">
-                <span class="h-1.5 w-1.5 rounded-full bg-white" aria-hidden="true"></span>
+                <span class="h-1.5 w-1.5 rounded-full bg-brand-primary" aria-hidden="true"></span>
                 Happening Now
               </span>
-              <span aria-hidden="true">•</span>
+              <span aria-hidden="true">---</span>
               <span>{liveBanner.roundLabel}</span>
-              <span aria-hidden="true">•</span>
+              <span aria-hidden="true">---</span>
               <span>
                 {liveBanner.sessionLabel} at {liveBanner.trackName}
                 {liveBanner.layoutName && `, ${liveBanner.layoutName}`}
               </span>
-              <span aria-hidden="true">•</span>
+              <span aria-hidden="true">---</span>
               <span data-live-remaining data-session-end={liveBanner.sessionEndUtcIso}>
                 {liveBanner.remainingMinutes} minute{liveBanner.remainingMinutes === 1 ? '' : 's'} remaining
               </span>
-              <span aria-hidden="true">•</span>
+              <span aria-hidden="true">---</span>
               <span>{liveBanner.nextSessionLabel ? `Next Session: ${liveBanner.nextSessionLabel}` : 'Final Session'}</span>
             </span>
           ))}
