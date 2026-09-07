@@ -33,7 +33,7 @@ import {
   getTeamRosterWithTeamsForSeason,
 } from '../../lib/supabase';
 import { isOnProbationNow } from '../../lib/penalties';
-import { classBadgeClasses } from '../../lib/classColors';
+import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';
 import {
   PROBATION_DAYS_KEY,
   PROBATION_ROUNDS_KEY,
@@ -127,7 +127,22 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <span class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Probation</span>
               )}
             </div>
-            {statusTooltip && <p class="max-w-[12rem] text-xs text-white/40">{statusTooltip}</p>}
+            {statusTooltip && (
+              // buildInactivityNote() returns one semicolon-joined string
+              // shared verbatim with the admin driver edit page and the
+              // admin Drivers list tooltip (see its own doc comment in
+              // supabase.ts) — for the New/Active case that's "Last raced
+              // X; N/M rounds absent; N/M days absent", which this page
+              // (only this page) breaks onto its own line per segment
+              // rather than changing the shared string itself. Any other
+              // status message (Veteran/Inactive/etc.) has no semicolons,
+              // so it just renders as a single line same as before.
+              <div class="max-w-[12rem]">
+                {statusTooltip.split('; ').map((line) => (
+                  <p class="text-xs text-white/40">{line}</p>
+                ))}
+              </div>
+            )}
           </div>
 
           {photoUrl ? (
@@ -143,17 +158,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <h1 class="font-display text-4xl leading-none sm:text-5xl">
                 {displayName} {driver.car_number !== null && <span class="text-white/40">#{driver.car_number}</span>}
               </h1>
-              {className && (
-                <span class={`rounded-lg border px-2.5 py-1 text-sm font-semibold uppercase tracking-wide ${classBadgeClasses(className)}`}>
-                  {className}
-                </span>
-              )}
               {driver.is_rookie && (
                 <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">Rookie</span>
               )}
             </div>
 
             <div class="mt-3 flex flex-wrap items-center gap-4 text-sm text-white/70">
+              {className && (
+                <span
+                  class={`flex h-6 w-6 flex-none items-center justify-center rounded-lg border text-xs font-bold ${classBadgeClasses(className)}`}
+                  title={className}
+                >
+                  {classBadgeLetter(className)}
+                </span>
+              )}
               <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} showLabel />
               <span class="flex items-center gap-2">
                 {driver.teams && <TeamLogo name={driver.teams.name} logoUrl={driver.teams.logo_url} size="h-6 w-6" />}

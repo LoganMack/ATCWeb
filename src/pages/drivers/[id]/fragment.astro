@@ -275,6 +275,102 @@ const raceCountBySubsession = new Map<number, number>();
 for (const r of raceHistory) {
   raceCountBySubsession.set(r.subsessionId, (raceCountBySubsession.get(r.subsessionId) ?? 0) + 1);
 }
+
+// --- Splits: raceHistory regrouped by Month / Round # bucket / Car, each
+// producing the same handful of aggregate stat columns. Built straight off
+// raceHistory (no extra fetch) — every column here is something already on
+// DriverRaceHistoryRow, aggregated per group rather than per race. "Starts"
+// counts every race_scores row regardless of classified/DSQ status (same
+// convention computeSeasonStandings uses — see its own "Starts, appearances,
+// poles, and points come straight from race_scores" comment); Wins/Podiums/
+// Top 5s/Avg Finish all exclude DSQ rows (a DSQ'd finishPosition is a
+// fallback display value, not a real result — see the Races table's own
+// `r.dsq ? 'DSQ' : r.finishPosition` rendering) but do NOT additionally
+// exclude unclassified (NC) rows, since the Races table already shows an
+// NC row's raw finishPosition as its result.
+interface SplitRow {
+  label: string;
+  starts: number;
+  wins: number;
+  podiums: number;
+  top5s: number;
+  avgFinish: string;
+  incidents: number;
+  lapsLed: number;
+  points: number;
+}
+interface SplitGroup {
+  name: string;
+  rows: SplitRow[];
+}
+
+function buildSplitRows(groups: Map<string, DriverRaceHistoryRow[]>, order?: string[]): SplitRow[] {
+  const keys = order ? order.filter((k) => groups.has(k)) : [...groups.keys()];
+  return keys.map((label) => {
+    const rows = groups.get(label)!;
+    const scored = rows.filter((r) => !r.dsq);
+    const finishSum = scored.reduce((sum, r) => sum + r.finishPosition, 0);
+    return {
+      label,
+      starts: rows.length,
+      wins: scored.filter((r) => r.finishPosition === 1).length,
+      podiums: scored.filter((r) => r.finishPosition <= 3).length,
+      top5s: scored.filter((r) => r.finishPosition <= 5).length,
+      avgFinish: scored.length > 0 ? (finishSum / scored.length).toFixed(1) : '—',
+      incidents: rows.reduce((sum, r) => sum + (r.incidents ?? 0), 0),
+      lapsLed: rows.reduce((sum, r) => sum + (r.lapsLed ?? 0), 0),
+      points: rows.reduce((sum, r) => sum + r.totalPoints, 0),
+    };
+  });
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+const monthGroups = new Map<string, DriverRaceHistoryRow[]>();
+for (const r of raceHistory) {
+  if (!r.startTime) continue;
+  const label = MONTH_NAMES[new Date(r.startTime).getUTCMonth()];
+  if (!monthGroups.has(label)) monthGroups.set(label, []);
+  monthGroups.get(label)!.push(r);
+}
+
+// 1-3 / 4-6 / 7-9 / 10+ — a round with no display number (exhibition/test,
+// or a non-championship season) can't be bucketed and is left out of this
+// split entirely, same as it's left out of computeDisplayRoundNumbers'
+// numbering in the first place.
+const ROUND_BUCKETS = ['Rounds 1–3', 'Rounds 4–6', 'Rounds 7–9', 'Rounds 10+'];
+function roundBucketLabel(n: number): string {
+  if (n <= 3) return ROUND_BUCKETS[0];
+  if (n <= 6) return ROUND_BUCKETS[1];
+  if (n <= 9) return ROUND_BUCKETS[2];
+  return ROUND_BUCKETS[3];
+}
+const roundGroups = new Map<string, DriverRaceHistoryRow[]>();
+for (const r of raceHistory) {
+  if (r.displayRoundNumber === null) continue;
+  const label = roundBucketLabel(r.displayRoundNumber);
+  if (!roundGroups.has(label)) roundGroups.set(label, []);
+  roundGroups.get(label)!.push(r);
+}
+
+const carGroups = new Map<string, DriverRaceHistoryRow[]>();
+for (const r of raceHistory) {
+  const label = r.car?.name ?? 'Unknown';
+  if (!carGroups.has(label)) carGroups.set(label, []);
+  carGroups.get(label)!.push(r);
+}
+// Most-raced car first — Month/Round# have a natural chronological/numeric
+// order (given explicitly via ROUND_BUCKETS/MONTH_NAMES), but cars don't,
+// so this falls back to start count instead of alphabetical.
+const carRows = buildSplitRows(carGroups).sort((a, b) => b.starts - a.starts);
+
+const splitGroups: SplitGroup[] = [
+  { name: 'Month', rows: buildSplitRows(monthGroups, MONTH_NAMES) },
+  { name: 'Round #', rows: buildSplitRows(roundGroups, ROUND_BUCKETS) },
+  { name: 'Car', rows: carRows },
+];
 ---
 
 {loadError && (
@@ -291,7 +387,10 @@ for (const r of raceHistory) {
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <h2 class="font-display text-2xl">Seasons</h2>
+            <span class="flex items-center gap-2">
+              <h2 class="font-display text-2xl">Seasons</h2>
+              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{career?.seasons.length ?? 0}</span>
+            </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
             </svg>
@@ -378,7 +477,10 @@ for (const r of raceHistory) {
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <h2 class="font-display text-2xl">Races</h2>
+            <span class="flex items-center gap-2">
+              <h2 class="font-display text-2xl">Races</h2>
+              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{raceHistory.length}</span>
+            </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
             </svg>
@@ -468,6 +570,79 @@ for (const r of raceHistory) {
         )}
         </details>
       </div>
+
+      <!-- Splits: per-Month/Round#/Car aggregate stats. Each split group is
+           its own nested collapsible (default collapsed), independent of
+           the other two and of the outer Splits card's own collapse. -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <details class="group">
+          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
+            <span class="flex items-center gap-2">
+              <h2 class="font-display text-2xl">Splits</h2>
+              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{splitGroups.length}</span>
+            </span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+              <polyline points="9 6 15 12 9 18" />
+            </svg>
+          </summary>
+        {raceHistory.length === 0 ? (
+          <p class="text-sm text-white/40">No races on file yet.</p>
+        ) : (
+          <div class="flex flex-col gap-3">
+            {splitGroups.map((g) => (
+              <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]">
+                <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
+                  <span class="flex items-center gap-2">
+                    {g.name}
+                    <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/50">{g.rows.length}</span>
+                  </span>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open/split:rotate-90" aria-hidden="true">
+                    <polyline points="9 6 15 12 9 18" />
+                  </svg>
+                </summary>
+                <div class="overflow-x-auto border-t border-white/10 p-3">
+                  <table class="w-full border-collapse text-xs">
+                    <thead>
+                      <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                        <th class="py-2 pr-2 font-medium">{g.name}</th>
+                        <th class="py-2 pr-2 text-center font-medium">Starts</th>
+                        <th class="py-2 pr-2 text-center font-medium">Wins</th>
+                        <th class="py-2 pr-2 text-center font-medium">Podiums</th>
+                        <th class="py-2 pr-2 text-center font-medium">Top 5s</th>
+                        <th class="py-2 pr-2 text-center font-medium">Avg Finish</th>
+                        <th class="py-2 pr-2 text-center font-medium">Inc</th>
+                        <th class="py-2 pr-2 text-center font-medium">Led</th>
+                        <th class="py-2 pr-2 text-center font-medium">Points</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.rows.map((row) => (
+                        <tr class="border-b border-white/5">
+                          <td class="py-2 pr-2 font-semibold text-white/90">{row.label}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.starts}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.wins}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.top5s}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.avgFinish}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.incidents}</td>
+                          <td class="py-2 pr-2 text-center text-white/70">{row.lapsLed}</td>
+                          <td class="py-2 pr-2 text-center font-semibold text-white/90">{row.points}</td>
+                        </tr>
+                      ))}
+                      {g.rows.length === 0 && (
+                        <tr>
+                          <td colspan="9" class="py-2 pr-2 text-white/30">No data.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
+        </details>
+      </div>
     </div>
 
     <div class="flex flex-col gap-8">
@@ -475,7 +650,10 @@ for (const r of raceHistory) {
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <h2 class="font-display text-2xl">Awards</h2>
+            <span class="flex items-center gap-2">
+              <h2 class="font-display text-2xl">Awards</h2>
+              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{awardEntries.length + (isHallOfFame ? 1 : 0)}</span>
+            </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
             </svg>
@@ -511,7 +689,10 @@ for (const r of raceHistory) {
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <h2 class="font-display text-2xl">Career Moves</h2>
+            <span class="flex items-center gap-2">
+              <h2 class="font-display text-2xl">Career Moves</h2>
+              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{careerMoves.length}</span>
+            </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
             </svg>
@@ -559,7 +740,10 @@ for (const r of raceHistory) {
       <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <h2 class="font-display text-2xl">Class Moves</h2>
+            <span class="flex items-center gap-2">
+              <h2 class="font-display text-2xl">Class Moves</h2>
+              <span class="rounded-full bg-white/10 px-2 py-0.5 text-xs font-semibold text-white/50">{classMoves.length}</span>
+            </span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
               <polyline points="9 6 15 12 9 18" />
             </svg>
