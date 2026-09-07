@@ -197,6 +197,11 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       (every group happens to have exactly 4 options, so this tiles evenly)
       rather than a loose wrapped row — narrowed to w-3/4 of their grid cell
       per Logan's request so they don't feel as heavy as a full-width tile.
+      The freed-up 25% is pushed to the OUTER edges of each row (odd/left
+      button justify-self-end, even/right button justify-self-start) rather
+      than left in the middle, so the visual gap between the two buttons in
+      a row stays exactly gap-1.5, same as before the shrink — only the
+      row's overall width changed, not the spacing between its buttons.
       "Activity" here is the Active/Inactive/Unassigned/All group
       (data-filter-group="status" in the markup/script below — the
       attribute name predates this label and isn't worth a churny rename)
@@ -226,7 +231,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-          <div class="grid grid-cols-2 gap-1.5" data-filter-group="class">
+          <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="class">
             {classes.map((c) => (
               <button
                 type="button"
@@ -241,7 +246,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         </div>
         <div>
           <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
-          <div class="grid grid-cols-2 gap-1.5" data-filter-group="status">
+          <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="status">
             {statuses.map((s) => (
               <button
                 type="button"
@@ -256,7 +261,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         </div>
         <div>
           <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
-          <div class="grid grid-cols-2 gap-1.5" data-filter-group="experience">
+          <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="experience">
             {experienceLevels.map((x) => (
               <button
                 type="button"
