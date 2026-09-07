@@ -202,7 +202,13 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       than left in the middle, so the visual gap between the two buttons in
       a row stays exactly gap-1.5, same as before the shrink — only the
       row's overall width changed, not the spacing between its buttons.
-      "Activity" here is the Active/Inactive/Unassigned/All group
+      Each group's label is wrapped in its own (otherwise-unused)
+      grid-cols-2 div and given the SAME w-3/4 justify-self-end sizing as
+      the leftmost button, so its text box's left edge lands exactly where
+      that button's left edge does — both grids share the same parent
+      width and the same 1fr/1fr column split, so their column 1 tracks
+      always coincide regardless of viewport width, without hardcoding a
+      pixel/percent offset. "Activity" here is the Active/Inactive/Unassigned/All group
       (data-filter-group="status" in the markup/script below — the
       attribute name predates this label and isn't worth a churny rename)
       and "Status" is the New/Rookie/Veteran group
@@ -230,7 +236,9 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       </div>
       <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
-          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+          <div class="grid grid-cols-2 gap-1.5">
+            <span class="mb-1.5 block w-3/4 justify-self-end text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+          </div>
           <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="class">
             {classes.map((c) => (
               <button
@@ -245,7 +253,9 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
           </div>
         </div>
         <div>
-          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
+          <div class="grid grid-cols-2 gap-1.5">
+            <span class="mb-1.5 block w-3/4 justify-self-end text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
+          </div>
           <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="status">
             {statuses.map((s) => (
               <button
@@ -260,7 +270,9 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
           </div>
         </div>
         <div>
-          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
+          <div class="grid grid-cols-2 gap-1.5">
+            <span class="mb-1.5 block w-3/4 justify-self-end text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
+          </div>
           <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="experience">
             {experienceLevels.map((x) => (
               <button
