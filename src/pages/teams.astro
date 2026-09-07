@@ -178,7 +178,7 @@ const loadSeasonLogos = async () => {
   }
 };
 
-// "Founded" date (see the Active/Inactive-filter Founded column below):
+// "Founded" date (see the current-season table's Founded column below):
 // this team's EARLIEST actually-raced round, resolved by cross-referencing
 // EVERY season this team ever had a team_rosters entry for (regardless of
 // which season is currently selected above — this is deliberately season
@@ -243,19 +243,18 @@ function formatFoundedDate(iso: string): string {
 }
 
 // Only teams with drivers on the roster for the selected season are shown.
-// For the CURRENT season, active teams are grouped first (alphabetical
-// within each group) since Active/Inactive status is a live, present-tense
-// thing there. A PAST season's roster is a fixed historical fact — a team
-// that's since gone inactive was still a full participant that season, so
-// it isn't separated out or reordered, just alphabetical like everyone
+// For the CURRENT season, that's further narrowed to active teams only —
+// there's no filter to toggle this anymore (see the removed Active/
+// Inactive/All buttons), so an inactive team just doesn't appear in the
+// live current-season view at all. A PAST season's roster is a fixed
+// historical fact — a team that's since gone inactive was still a full
+// participant that season, so it's left in, alphabetical like everyone
 // else. Once loaded, clicking a column header (src/scripts/sortable-table.ts)
 // re-sorts the whole table client-side.
 const sortedTeams = teams
   .filter((team) => (rosterByTeamId.get(team.id)?.length ?? 0) > 0)
-  .sort((a, b) => {
-    if (!isPastSeason && a.status !== b.status) return a.status === 'active' ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
+  .filter((team) => isPastSeason || team.status === 'active')
+  .sort((a, b) => a.name.localeCompare(b.name));
 
 // Whether any team's roster for the selected season has a 4th driver
 // (rulebook cap of 3 loosened in some historical seasons — see the roster
@@ -301,21 +300,6 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
             </label>
           </form>
         )}
-        {/* Active/Inactive/All only makes sense for the current season's roster — a past season's roster is a fixed historical fact, so every team on it is shown as-is, with no filter and no inactive-team greying/reordering (see isPastSeason below). */}
-        {!isPastSeason && (
-          <div class="flex flex-wrap gap-2 sm:ml-auto" data-filter-group="status">
-            {['Active', 'Inactive', 'All'].map((s) => (
-              <button
-                type="button"
-                data-filter-value={s}
-                class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-                data-active={s === 'Active' ? 'true' : 'false'}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     )}
 
@@ -325,12 +309,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
-              {!isPastSeason && (
-                <>
-                  <th class="py-3 pr-4 font-medium" data-sort-key="status" data-col-th="status">Status</th>
-                  <th class="py-3 pr-4 font-medium hidden" data-sort-key="founded" data-col-th="founded">Founded</th>
-                </>
-              )}
+              {!isPastSeason && <th class="py-3 pr-4 font-medium" data-sort-key="founded">Founded</th>}
               <th class="py-3 pr-4 font-medium">Driver 1</th>
               <th class="py-3 pr-4 font-medium">Driver 2</th>
               <th class="py-3 pr-4 font-medium">Driver 3</th>
@@ -345,16 +324,11 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
               const logoUrl = logoOverrideByTeamId.get(team.id) ?? team.logo_url;
               const founded = foundedDateFor(team);
               const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
-              const greyedOut = !isPastSeason && team.status === 'inactive';
               return (
-                <tr
-                  class={`border-b border-white/5 text-sm transition hover:bg-white/[0.04] ${greyedOut ? 'opacity-60' : ''}`}
-                  data-search={searchText}
-                  data-status={team.status}
-                >
+                <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]" data-search={searchText}>
                   <td class="py-2.5 pl-4 pr-3" data-col="name">
                     <div class="flex items-center gap-3">
-                      <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" grayscale={greyedOut} />
+                      <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" />
                       <div class="flex flex-col justify-center">
                         <span class="font-semibold leading-tight">{team.name}</span>
                         {/* Always rendered (invisible when there's no org) so every row is exactly the same height regardless of whether that team has an organization — see this page's own org-name-by-team-id comment above. */}
@@ -363,20 +337,9 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                     </div>
                   </td>
                   {!isPastSeason && (
-                    <>
-                      <td class="py-2.5 pr-4" data-col="status" data-sort-value={team.status}>
-                        <span
-                          class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
-                            team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
-                          }`}
-                        >
-                          {team.status}
-                        </span>
-                      </td>
-                      <td class="py-2.5 pr-4 hidden text-white/70" data-col="founded" data-sort-value={founded}>
-                        {formatFoundedDate(founded)}
-                      </td>
-                    </>
+                    <td class="py-2.5 pr-4 text-white/70" data-col="founded" data-sort-value={founded}>
+                      {formatFoundedDate(founded)}
+                    </td>
                   )}
                   {Array.from({ length: driverColumnCount }, (_, i) => i).map((i) => (
                     <td class="py-2.5 pr-4 text-white/70">
@@ -402,78 +365,30 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
   </section>
 
   <script>
-    // Combines the search box (substring match on data-search, lowercased
-    // server-side) with the Active/Inactive/All status filter — same
-    // state-object + show/hide-via-inline-style approach roster.astro's
-    // initRosterFilters uses for its class/status/search combo.
+    // Search-only now — the Active/Inactive/All status filter (and the
+    // Status/Founded shared-column toggle it drove) is gone; the current
+    // season's team list is hard-filtered to active teams server-side (see
+    // sortedTeams in the frontmatter above), so there's nothing left to
+    // filter by on the client except the search box.
     function initTeamFilters() {
       const input = document.getElementById('team-search') as HTMLInputElement | null;
       const list = document.getElementById('team-list');
       const empty = document.getElementById('team-search-empty');
       if (!list) return;
 
-      // Matches whichever button starts data-active="true" in the markup —
-      // Active by default. When viewing a past season the filter buttons
-      // aren't rendered at all (see isPastSeason server-side), so there's
-      // nothing to default to besides "All" — every team on that season's
-      // roster shows, unfiltered by present-day status.
-      const filterGroup = document.querySelector('[data-filter-group="status"]');
-      const state: Record<string, string> = { status: filterGroup ? 'Active' : 'All', search: '' };
-
-      function statusMatches(row: HTMLElement) {
-        if (state.status === 'All') return true;
-        return row.dataset.status === state.status.toLowerCase();
-      }
-
-      function searchMatches(row: HTMLElement) {
-        if (!state.search) return true;
-        return (row.dataset.search ?? '').includes(state.search);
-      }
-
-      // Status and Founded share one column slot (see the table markup
-      // above) — "All" shows Status, either single-status filter swaps it
-      // for Founded. No-ops harmlessly when viewing a past season, where
-      // neither column is rendered at all.
-      function applyStatusColumnVisibility() {
-        const showFounded = state.status !== 'All';
-        document.querySelectorAll<HTMLElement>('[data-col-th="status"]').forEach((th) => th.classList.toggle('hidden', showFounded));
-        document.querySelectorAll<HTMLElement>('[data-col-th="founded"]').forEach((th) => th.classList.toggle('hidden', !showFounded));
-        list!.querySelectorAll<HTMLElement>('[data-col="status"]').forEach((td) => td.classList.toggle('hidden', showFounded));
-        list!.querySelectorAll<HTMLElement>('[data-col="founded"]').forEach((td) => td.classList.toggle('hidden', !showFounded));
-      }
-
       function applyFilters() {
+        const search = input?.value.trim().toLowerCase() ?? '';
         const rows = list!.querySelectorAll<HTMLElement>('[data-search]');
         let visibleCount = 0;
         rows.forEach((row) => {
-          const visible = statusMatches(row) && searchMatches(row);
+          const visible = !search || (row.dataset.search ?? '').includes(search);
           row.style.display = visible ? '' : 'none';
           if (visible) visibleCount += 1;
         });
         if (empty) empty.classList.toggle('hidden', visibleCount > 0);
-        applyStatusColumnVisibility();
       }
 
-      document.querySelectorAll<HTMLElement>('[data-filter-group="status"]').forEach((group) => {
-        group.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            state.status = btn.dataset.filterValue!;
-            group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
-              b.dataset.active = String(b === btn);
-            });
-            applyFilters();
-          });
-        });
-      });
-
-      input?.addEventListener('input', () => {
-        state.search = input.value.trim().toLowerCase();
-        applyFilters();
-      });
-
-      // Apply the default filter state immediately — otherwise every row is
-      // visible (no inline style yet) until the visitor clicks a button.
-      applyFilters();
+      input?.addEventListener('input', applyFilters);
     }
 
     document.addEventListener('astro:page-load', initTeamFilters);

@@ -175,51 +175,72 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       </p>
     )}
 
-    <div class="reveal mt-10 max-w-sm" style="transition-delay: 100ms">
+    <!--
+      Search + all three filter groups live together in one card: the
+      search box on its own line up top, then the three groups side by side
+      below it in one row, each one's OWN buttons arranged as a 2x2 grid
+      (every group happens to have exactly 4 options, so this tiles evenly)
+      rather than a loose wrapped row. "Activity" here is the
+      Active/Inactive/Unassigned/All group (data-filter-group="status" in
+      the markup/script below — the attribute name predates this label and
+      isn't worth a churny rename) and "Status" is the New/Rookie/Veteran
+      group (data-filter-group="experience") — see that group's own
+      doc comment above for why "Rookie" belongs in it despite not being a
+      real driver_statuses value.
+    -->
+    <div class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-4" style="transition-delay: 100ms">
       <input
         type="search"
         id="roster-search"
         placeholder="Search drivers, numbers, or teams…"
         class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
-    </div>
-
-    <div class="reveal mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-3" style="transition-delay: 120ms">
-      <div class="flex flex-wrap gap-2" data-filter-group="class">
-        {classes.map((c) => (
-          <button
-            type="button"
-            data-filter-value={c}
-            class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-            data-active={c === 'All' ? 'true' : 'false'}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-      <div class="flex flex-wrap gap-2" data-filter-group="status">
-        {statuses.map((s) => (
-          <button
-            type="button"
-            data-filter-value={s}
-            class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-            data-active={s === 'Active' ? 'true' : 'false'}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-      <div class="flex flex-wrap gap-2" data-filter-group="experience">
-        {experienceLevels.map((x) => (
-          <button
-            type="button"
-            data-filter-value={x}
-            class="rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-            data-active={x === 'All' ? 'true' : 'false'}
-          >
-            {x}
-          </button>
-        ))}
+      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div>
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+          <div class="grid grid-cols-2 gap-1.5" data-filter-group="class">
+            {classes.map((c) => (
+              <button
+                type="button"
+                data-filter-value={c}
+                class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                data-active={c === 'All' ? 'true' : 'false'}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
+          <div class="grid grid-cols-2 gap-1.5" data-filter-group="status">
+            {statuses.map((s) => (
+              <button
+                type="button"
+                data-filter-value={s}
+                class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                data-active={s === 'Active' ? 'true' : 'false'}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
+          <div class="grid grid-cols-2 gap-1.5" data-filter-group="experience">
+            {experienceLevels.map((x) => (
+              <button
+                type="button"
+                data-filter-value={x}
+                class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                data-active={x === 'All' ? 'true' : 'false'}
+              >
+                {x}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
 
