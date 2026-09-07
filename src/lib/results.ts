@@ -2922,6 +2922,8 @@ export interface DriverRaceHistoryRow {
   /** Null only if this round's curated_rounds row is somehow missing despite having race_scores (shouldn't normally happen). */
   season: Season | null;
   trackName: string;
+  /** trackName plus this round's specific circuit_layouts configuration (curated_rounds.layout — e.g. "Autodromo Nazionale Monza — Junior" vs plain "Autodromo Nazionale Monza" when a track has only one configuration or the round's layout column is unset). Distinct from trackName alone: many tracks run several materially different configurations (oval vs road course, "Grand Prix" vs "National", etc.) under the exact same track_name — see resolveLayout's own doc comment. Used by the Splits card's Layout split so those don't get lumped into one row. */
+  layoutLabel: string;
   /** ISO timestamp — raw curated_rounds.start_time, for sorting/formatting by the caller. Empty string under the same "missing round row" condition as `season`. */
   startTime: string;
   /** This app's own "Round N" numbering (see computeDisplayRoundNumbers) — null for an exhibition/test round or a non-championship season. */
@@ -3196,10 +3198,19 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   // getSeasonDriverExtendedStats uses, just keyed across this driver's whole
   // career's subsessions instead of one season's.
   const cornersBySubsession = new Map<number, number | null>();
+  // See DriverRaceHistoryRow.layoutLabel's own doc comment — this is just
+  // trackName plus curated_rounds.layout (the round's own raw configuration
+  // text, e.g. "Grand Prix"), NOT resolveLayout's resolved circuit_layouts
+  // row (that lookup can fail to match a row at all — see resolveLayout's
+  // doc comment — and this label should still distinguish configurations
+  // even then, straight off the source data).
+  const layoutLabelBySubsession = new Map<number, string>();
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
     const layout = trackName ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, circuitLayouts) : null;
     cornersBySubsession.set(subsessionId, layout?.corners ?? null);
+    const rawLayoutText = roundLayouts.get(subsessionId);
+    layoutLabelBySubsession.set(subsessionId, rawLayoutText ? `${trackName ?? '—'} — ${rawLayoutText}` : trackName ?? '—');
   }
 
   // Qualifying (see DriverRaceHistoryRow.qualPosition/classQualPosition's own
@@ -3276,6 +3287,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       raceNumber: score.race_number,
       season: round ? seasonById.get(round.season_id) ?? null : null,
       trackName: round?.track_name ?? '—',
+      layoutLabel: layoutLabelBySubsession.get(score.subsession_id) ?? round?.track_name ?? '—',
       startTime: round?.start_time ?? '',
       displayRoundNumber: displayNumberBySubsession.get(score.subsession_id) ?? null,
       classId: score.class_id,

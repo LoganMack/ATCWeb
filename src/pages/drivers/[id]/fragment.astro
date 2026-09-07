@@ -2,6 +2,7 @@
 export const prerender = false;
 
 import TeamLogo from '../../../components/TeamLogo.astro';
+import NewsCard from '../../../components/NewsCard.astro';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
@@ -9,6 +10,11 @@ import {
   getStandingsExcludedRoundIds,
   getManualAwards,
   formatDateShort,
+  getNewsPosts,
+  getAllNewsPostDrivers,
+  getAllNewsPostTags,
+  type NewsPost,
+  type NewsTag,
 } from '../../../lib/supabase';
 import {
   computeDriverCareerStats,
@@ -45,6 +51,14 @@ const isHallOfFame = Astro.url.searchParams.get('hof') === '1';
 let loadError: string | null = null;
 let career: DriverCareerStats | null = null;
 let raceHistory: DriverRaceHistoryRow[] = [];
+
+// Related News (see the isolated try/catch near the end of the main block
+// below, after raceHistory/seasons are both available) — every published
+// post that either explicitly tags this driver or links to a round this
+// driver actually raced.
+let relatedPosts: NewsPost[] = [];
+let relatedLogoBySeasonLabel = new Map<string, string>();
+let relatedTagsByPostId = new Map<string, NewsTag[]>();
 
 interface CareerMove {
   seasonName: string;
@@ -173,6 +187,10 @@ try {
           seasonName: s.season.name,
           label: 'Team Champion',
           detail: s.teams[0]?.teamName ?? null,
+          // Tinted by this driver's OWN class that season (there's no
+          // single "team class" to key off — a roster can mix classes) —
+          // same trophy treatment as the class-championship entry above.
+          className: s.className,
         });
       }
       if (s.deltaTeamPosition === 1) {
@@ -181,6 +199,7 @@ try {
           seasonName: s.season.name,
           label: 'Delta Team Champion',
           detail: s.teams[0]?.teamName ?? null,
+          className: s.className,
         });
       }
     }
@@ -249,6 +268,38 @@ try {
   }
 
   awardEntries.sort((a, b) => (b.seasonNumber - a.seasonNumber) || a.label.localeCompare(b.label));
+
+  // --- Related News: isolated in its own try/catch (rather than just
+  // living in this outer block) so a hiccup fetching news data can't take
+  // down Seasons/Races/Splits/Awards/etc., none of which depend on it.
+  // "Mentions this driver" covers two cases: the post explicitly tags them
+  // (news_post_drivers, 0082_news_post_drivers.sql), or the post links to a
+  // round (news_posts.round_subsession_id) that's one of THIS driver's own
+  // raceHistory rows — i.e. the recap is about a round they actually raced,
+  // rather than a literal text search of the live-computed recap's
+  // highlighted names (top-3/fastest-lap/etc.), which would mean
+  // recomputing every linked post's full recap (computeRoundRecap, ~8
+  // queries each) on every driver page view just to check membership.
+  try {
+    const [allPosts, driverLinks, tagLinks] = await Promise.all([
+      getNewsPosts(supabaseEnv),
+      getAllNewsPostDrivers(supabaseEnv),
+      getAllNewsPostTags(supabaseEnv),
+    ]);
+    const taggedPostIds = new Set(driverLinks.filter((l) => l.drivers?.id === driverId).map((l) => l.post_id));
+    const racedSubsessionIds = new Set(raceHistory.map((r) => r.subsessionId));
+    relatedPosts = allPosts
+      .filter((p) => taggedPostIds.has(p.id) || (p.round_subsession_id !== null && racedSubsessionIds.has(p.round_subsession_id)))
+      .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+    relatedLogoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
+    for (const link of tagLinks) {
+      if (!link.news_tags) continue;
+      if (!relatedTagsByPostId.has(link.post_id)) relatedTagsByPostId.set(link.post_id, []);
+      relatedTagsByPostId.get(link.post_id)!.push(link.news_tags);
+    }
+  } catch (err) {
+    console.error('Failed to load related news for driver profile:', err);
+  }
 } catch (err) {
   console.error('Failed to load driver profile data:', err);
   loadError = err instanceof Error ? err.message : String(err);
@@ -292,6 +343,8 @@ for (const r of raceHistory) {
 // NC row's raw finishPosition as its result.
 interface SplitRow {
   label: string;
+  /** Set only on Car-split rows (the car's own logo) — used to show a small logo to the left of the car name in that split's table specifically. Undefined/null for every other split (Month/Round/Team/Layout). */
+  logoUrl?: string | null;
   starts: number;
   wins: number;
   podiums: number;
@@ -411,24 +464,62 @@ for (const r of raceHistory) {
   carGroups.get(label)!.push(r);
 }
 
-// Most-raced car first — Month/Round have a natural chronological/numeric
-// order (given explicitly via ROUND_BUCKETS/MONTH_NAMES), but cars don't,
-// so this falls back to start count instead of alphabetical. `starts`
-// doesn't depend on posFn/qualPosFn, so the Car row order is identical in
-// both modes.
+// Team split — grouped by the team this driver raced FOR in each individual
+// race (race_scores.team_id, same per-race provenance DriverRaceHistoryRow.
+// team already carries), not by season-roster membership. A race with no
+// team assigned counts as "Independent" rather than being dropped, per the
+// request that time spent as an independent get its own row.
+const teamGroups = new Map<string, DriverRaceHistoryRow[]>();
+for (const r of raceHistory) {
+  const label = r.team?.name ?? 'Independent';
+  if (!teamGroups.has(label)) teamGroups.set(label, []);
+  teamGroups.get(label)!.push(r);
+}
+
+// Layout split — grouped by DriverRaceHistoryRow.layoutLabel (trackName plus
+// this round's specific circuit_layouts configuration when curated_rounds.
+// layout resolves one), so e.g. Monza's "Grand Prix" and "Junior" configs
+// don't get lumped into one Monza row the way a plain track-name split would.
+const layoutGroups = new Map<string, DriverRaceHistoryRow[]>();
+for (const r of raceHistory) {
+  const label = r.layoutLabel;
+  if (!layoutGroups.has(label)) layoutGroups.set(label, []);
+  layoutGroups.get(label)!.push(r);
+}
+
+// Most-raced-first order, for splits with no natural fixed ordering (unlike
+// Month/Round, which use MONTH_NAMES/ROUND_BUCKETS). `starts` doesn't depend
+// on posFn/qualPosFn, so row order is identical in both Overall/Class modes.
+function buildUnorderedRows(
+  groups: Map<string, DriverRaceHistoryRow[]>,
+  posFn: (r: DriverRaceHistoryRow) => number,
+  qualPosFn: (r: DriverRaceHistoryRow) => number | null
+): SplitRow[] {
+  return buildSplitRows(groups, posFn, qualPosFn).sort((a, b) => b.starts - a.starts);
+}
+
+// Car split rows additionally carry the car's own logo, for the small logo
+// shown to the left of the car name in that split specifically.
 function buildCarRows(posFn: (r: DriverRaceHistoryRow) => number, qualPosFn: (r: DriverRaceHistoryRow) => number | null): SplitRow[] {
-  return buildSplitRows(carGroups, posFn, qualPosFn).sort((a, b) => b.starts - a.starts);
+  return buildUnorderedRows(carGroups, posFn, qualPosFn).map((row) => ({
+    ...row,
+    logoUrl: carGroups.get(row.label)?.[0]?.car?.logoUrl ?? null,
+  }));
 }
 
 const splitGroupsOverall: SplitGroup[] = [
   { name: 'Month', rows: buildSplitRows(monthGroups, overallPos, overallQualPos, MONTH_NAMES) },
   { name: 'Round', rows: buildSplitRows(roundGroups, overallPos, overallQualPos, ROUND_BUCKETS) },
   { name: 'Car', rows: buildCarRows(overallPos, overallQualPos) },
+  { name: 'Team', rows: buildUnorderedRows(teamGroups, overallPos, overallQualPos) },
+  { name: 'Layout', rows: buildUnorderedRows(layoutGroups, overallPos, overallQualPos) },
 ];
 const splitGroupsClass: SplitGroup[] = [
   { name: 'Month', rows: buildSplitRows(monthGroups, classPos, classQualPos, MONTH_NAMES) },
   { name: 'Round', rows: buildSplitRows(roundGroups, classPos, classQualPos, ROUND_BUCKETS) },
   { name: 'Car', rows: buildCarRows(classPos, classQualPos) },
+  { name: 'Team', rows: buildUnorderedRows(teamGroups, classPos, classQualPos) },
+  { name: 'Layout', rows: buildUnorderedRows(layoutGroups, classPos, classQualPos) },
 ];
 ---
 
@@ -440,6 +531,7 @@ const splitGroupsClass: SplitGroup[] = [
 )}
 
 {!loadError && (
+  <>
   <div class="mt-8 grid gap-8 lg:grid-cols-3">
     <div class="flex flex-col gap-8 lg:col-span-2">
       <!-- Season stats -->
@@ -483,7 +575,19 @@ const splitGroupsClass: SplitGroup[] = [
                   return (
                     <tr class="border-b border-white/5">
                       <td class="py-2 pr-2 font-semibold text-white/90">
-                        <span class="flex items-center gap-1">
+                        <!--
+                          Trophy is absolutely positioned inside a
+                          permanently-reserved left gutter (pl-4 on this
+                          span), not a flex sibling of the season name — a
+                          flex layout would push the name itself further
+                          right on trophy rows only, misaligning every
+                          season name in the column depending on whether
+                          that particular row won a championship. Reserving
+                          the gutter unconditionally means the name always
+                          starts at the same x whether or not a trophy is
+                          drawn into it.
+                        -->
+                        <span class="relative inline-block pl-4">
                           {r.classPosition === 1 && (
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
@@ -493,7 +597,7 @@ const splitGroupsClass: SplitGroup[] = [
                               stroke-width="2"
                               stroke-linecap="round"
                               stroke-linejoin="round"
-                              class={`h-3 w-3 flex-none ${classTextColorClass(r.className)}`}
+                              class={`absolute left-0 top-1/2 h-3 w-3 flex-none -translate-y-1/2 ${classTextColorClass(r.className)}`}
                               title={`${r.className} Champion`}
                             >
                               <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
@@ -504,7 +608,7 @@ const splitGroupsClass: SplitGroup[] = [
                               <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
                             </svg>
                           )}
-                          <span>{r.season.name}</span>
+                          {r.season.name}
                         </span>
                       </td>
                       <td class="py-2 pr-2">
@@ -754,7 +858,12 @@ const splitGroupsClass: SplitGroup[] = [
                       <tbody>
                         {g.rows.map((row) => (
                           <tr class="border-b border-white/5">
-                            <td class="py-2 pr-2 font-semibold text-white/90">{row.label}</td>
+                            <td class="py-2 pr-2 font-semibold text-white/90">
+                              <span class="flex items-center gap-1.5">
+                                {row.logoUrl && <img src={row.logoUrl} alt="" class="h-4 w-4 flex-none rounded-sm object-contain" loading="lazy" />}
+                                {row.label}
+                              </span>
+                            </td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.starts}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.wins}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
@@ -809,7 +918,12 @@ const splitGroupsClass: SplitGroup[] = [
                       <tbody>
                         {g.rows.map((row) => (
                           <tr class="border-b border-white/5">
-                            <td class="py-2 pr-2 font-semibold text-white/90">{row.label}</td>
+                            <td class="py-2 pr-2 font-semibold text-white/90">
+                              <span class="flex items-center gap-1.5">
+                                {row.logoUrl && <img src={row.logoUrl} alt="" class="h-4 w-4 flex-none rounded-sm object-contain" loading="lazy" />}
+                                {row.label}
+                              </span>
+                            </td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.starts}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.wins}</td>
                             <td class="py-2 pr-2 text-center text-white/70">{row.podiums}</td>
@@ -867,7 +981,8 @@ const splitGroupsClass: SplitGroup[] = [
                 <ul class="flex flex-col gap-1.5 text-xs">
                   {g.awards.map((a) => (
                     <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
-                      <span class="inline-flex items-center gap-1">
+                      <!-- Same absolute-gutter trophy treatment as the Seasons table above — a reserved pl-4 gutter, not a flex sibling, so the label always starts at the same x whether or not this award gets a trophy. -->
+                      <span class="relative inline-block pl-4 font-semibold text-white/90">
                         {a.className && (
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -877,7 +992,7 @@ const splitGroupsClass: SplitGroup[] = [
                             stroke-width="2"
                             stroke-linecap="round"
                             stroke-linejoin="round"
-                            class={`h-3 w-3 flex-none ${classTextColorClass(a.className)}`}
+                            class={`absolute left-0 top-1/2 h-3 w-3 flex-none -translate-y-1/2 ${classTextColorClass(a.className)}`}
                             aria-hidden="true"
                           >
                             <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
@@ -888,7 +1003,7 @@ const splitGroupsClass: SplitGroup[] = [
                             <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
                           </svg>
                         )}
-                        <span class="font-semibold text-white/90">{a.label}</span>
+                        {a.label}
                       </span>
                       {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
                     </li>
@@ -1006,4 +1121,21 @@ const splitGroupsClass: SplitGroup[] = [
       </div>
     </div>
   </div>
+
+  <!-- Related News: every published post that tags this driver or links to
+       a round they raced (see the isolated try/catch above) — same
+       NewsCard component + 3-column grid the News page itself uses. -->
+  <div class="reveal mt-8 border-t border-white/10 pt-8">
+    <h2 class="font-display text-3xl">Related News</h2>
+    {relatedPosts.length === 0 ? (
+      <p class="mt-4 text-sm text-white/40">No related news yet.</p>
+    ) : (
+      <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        {relatedPosts.map((post, i) => (
+          <NewsCard post={post} index={i} logoBySeasonLabel={relatedLogoBySeasonLabel} tagsByPostId={relatedTagsByPostId} />
+        ))}
+      </div>
+    )}
+  </div>
+  </>
 )}

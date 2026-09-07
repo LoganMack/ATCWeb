@@ -1076,6 +1076,47 @@ export async function setPostTags(env: SupabaseEnv, accessToken: string, postId:
   await restPost(env, accessToken, 'news_post_tags', tagIds.map((tag_id) => ({ post_id: postId, tag_id })));
 }
 
+// --- News tagged drivers (0082_news_post_drivers.sql) -------------------
+//
+// Same many-to-many join-table shape/sync convention as news_post_tags just
+// above, against `drivers` directly rather than a separate vocabulary
+// table — the tagged driver's own name/profile IS the "tag." Powers the
+// driver-name links shown on a published post (news/[slug].astro) and,
+// combined with a driver's own raced-rounds list, the "Related News"
+// section on a driver's profile page (drivers/[id]/fragment.astro).
+
+export interface NewsPostDriverLink {
+  post_id: string;
+  drivers: DriverOption | null;
+}
+
+/** Every post<->driver tag link across every post, driver name/car number embedded via PostgREST resource embedding — the driver profile page's "Related News" section fetches this once and filters it down to links naming that one driver, same "fetch once, map/filter in memory" convention getAllNewsPostTags uses. Public read (RLS). */
+export function getAllNewsPostDrivers(env: SupabaseEnv) {
+  return restGet<NewsPostDriverLink[]>(env, 'news_post_drivers?select=post_id,drivers(id,name,car_number)');
+}
+
+/** Driver ids currently tagged on one post — pre-checks the post editor's driver picker. Public read (RLS). */
+export async function getDriverIdsForPost(env: SupabaseEnv, postId: string) {
+  const rows = await restGet<{ driver_id: string }[]>(env, `news_post_drivers?select=driver_id&post_id=eq.${encodeURIComponent(postId)}`);
+  return rows.map((r) => r.driver_id);
+}
+
+/** Full driver objects (id/name/car number) tagged on one post, alphabetical — for the single-post detail page (news/[slug].astro), which only ever needs one post's worth and shouldn't pull every post's driver links like getAllNewsPostDrivers() does. */
+export async function getDriversForPost(env: SupabaseEnv, postId: string): Promise<DriverOption[]> {
+  const rows = await restGet<NewsPostDriverLink[]>(env, `news_post_drivers?select=post_id,drivers(id,name,car_number)&post_id=eq.${encodeURIComponent(postId)}`);
+  return rows
+    .map((r) => r.drivers)
+    .filter((d): d is DriverOption => d !== null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Delete-all-then-insert sync of a post's tagged-driver set from the editor's multi-select — same approach setPostTags() uses for news_post_tags. */
+export async function setPostDrivers(env: SupabaseEnv, accessToken: string, postId: string, driverIds: string[]) {
+  await restDelete(env, accessToken, `news_post_drivers?post_id=eq.${encodeURIComponent(postId)}`);
+  if (driverIds.length === 0) return;
+  await restPost(env, accessToken, 'news_post_drivers', driverIds.map((driver_id) => ({ post_id: postId, driver_id })));
+}
+
 // --- Champion photos (up to 5 per season+class, see /admin/champions) ------
 
 export interface ChampionPhoto {

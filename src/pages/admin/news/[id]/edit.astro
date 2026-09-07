@@ -9,9 +9,13 @@ import {
   deleteNewsPost,
   uploadToStorage,
   formatDate,
+  displayDriverName,
   getAllNewsTags,
   getTagIdsForPost,
   setPostTags,
+  getDriversBasic,
+  getDriverIdsForPost,
+  setPostDrivers,
 } from '../../../../lib/supabase';
 import { getAllRounds } from '../../../../lib/results';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';
@@ -111,6 +115,7 @@ if (Astro.request.method === 'POST') {
           published_at,
         });
         await setPostTags(supabaseEnv, accessToken, id, form.getAll('tag_ids').map(String));
+        await setPostDrivers(supabaseEnv, accessToken, id, form.getAll('driver_ids').map(String));
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
           entity_type: 'news',
@@ -149,6 +154,14 @@ try {
   [allTags, selectedTagIds] = await Promise.all([getAllNewsTags(supabaseEnv), getTagIdsForPost(supabaseEnv, id)]);
 } catch (err) {
   console.error('Failed to load news tags for the news editor:', err);
+}
+
+let allDrivers: Awaited<ReturnType<typeof getDriversBasic>> = [];
+let selectedDriverIds: string[] = [];
+try {
+  [allDrivers, selectedDriverIds] = await Promise.all([getDriversBasic(supabaseEnv), getDriverIdsForPost(supabaseEnv, id)]);
+} catch (err) {
+  console.error('Failed to load drivers for the news editor:', err);
 }
 ---
 
@@ -302,6 +315,25 @@ try {
         Managed on the <a href="/admin/news/tags" class="text-brand-primary hover:underline">News Tags</a> page.
       </span>
     </fieldset>
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Tagged drivers</span>
+      <select
+        name="driver_ids"
+        multiple
+        size="8"
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        {allDrivers.map((d) => (
+          <option value={d.id} selected={selectedDriverIds.includes(d.id)} class="bg-brand-ink text-white">
+            {displayDriverName(d.name)}{d.car_number !== null ? ` #${d.car_number}` : ''}
+          </option>
+        ))}
+      </select>
+      <span class="text-xs text-white/40">
+        Ctrl/Cmd-click (or Shift-click for a range) to select more than one. Tagged drivers show as links to their
+        profile on the published post, and this post shows up in their profile's Related News section.
+      </span>
+    </label>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Status</legend>
       <label class="flex items-center gap-2">

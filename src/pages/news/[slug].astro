@@ -2,7 +2,17 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import { getNewsPostBySlug, getSeasons, resolveSupabaseEnv, formatDate, displayDriverName, getTagsForPost, type NewsTag } from '../../lib/supabase';
+import {
+  getNewsPostBySlug,
+  getSeasons,
+  resolveSupabaseEnv,
+  formatDate,
+  displayDriverName,
+  getTagsForPost,
+  getDriversForPost,
+  type NewsTag,
+  type DriverOption,
+} from '../../lib/supabase';
 import { getRoundBySubsessionId } from '../../lib/results';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classBadgeClasses } from '../../lib/classColors';
@@ -56,6 +66,17 @@ async function loadTags() {
   }
 }
 
+// Tagged drivers (0082_news_post_drivers.sql) — shown as links to each
+// driver's own profile (see the template below).
+let taggedDrivers: DriverOption[] = [];
+async function loadTaggedDrivers() {
+  try {
+    taggedDrivers = await getDriversForPost(supabaseEnv, post!.id);
+  } catch (err) {
+    console.error('Failed to load tagged drivers for news post:', err);
+  }
+}
+
 // Linked round (optional, see 0017_news_round_season.sql): a link to the
 // results at the top, and a live-computed recap at the bottom — neither is
 // stored, both are recomputed from the round's current data on every view
@@ -76,7 +97,7 @@ async function loadRoundAndRecap() {
   }
 }
 
-await Promise.all([loadSeasonLogo(), loadTags(), loadRoundAndRecap()]);
+await Promise.all([loadSeasonLogo(), loadTags(), loadTaggedDrivers(), loadRoundAndRecap()]);
 
 // Simple paragraph splitting — no Markdown dependency for MVP1. If you need
 // bold/links/lists in post bodies later, add `marked` and swap this out.
@@ -103,6 +124,21 @@ const paragraphs = post.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolea
         <span class="rounded bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/50">{tag.name}</span>
       ))}
     </p>
+
+    {taggedDrivers.length > 0 && (
+      <p class="reveal mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-white/50" style="transition-delay: 90ms">
+        <span class="text-xs uppercase tracking-widest text-white/30">Featuring</span>
+        {taggedDrivers.map((d, i) => (
+          <>
+            <a href={`/drivers/${d.id}`} class="text-brand-primary hover:underline">
+              {displayDriverName(d.name)}
+              {d.car_number !== null && <span class="text-white/40"> #{d.car_number}</span>}
+            </a>
+            {i < taggedDrivers.length - 1 && <span class="text-white/20">·</span>}
+          </>
+        ))}
+      </p>
+    )}
 
     {post.round_subsession_id !== null && roundTrackName && (
       <a
