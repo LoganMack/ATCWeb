@@ -100,24 +100,27 @@ const links: { href: string; label: string; external?: boolean }[] = [
               banner twice. shrink-0 on both the track and each copy keeps
               every copy at its full natural width no matter what — nothing
               here should ever compress. */}
+          {/* Segments are separated by 7 literal non-breaking spaces (not a
+              visible glyph, and not the flex `gap` utility) per Logan —
+              plain spaces would collapse under whitespace:nowrap same as
+              they would in normal text, so this uses   (a non-breaking,
+              non-collapsing space) repeated 7 times to get an exact, fixed
+              gap. */}
           {[0, 1].map((copyIndex) => (
-            <span class="flex shrink-0 items-center gap-3 pr-3" aria-hidden={copyIndex === 1 ? 'true' : undefined}>
-              <span class="flex items-center gap-1.5 pl-3 font-semibold">
-                <span class="h-1.5 w-1.5 rounded-full bg-brand-primary" aria-hidden="true"></span>
-                Happening Now
-              </span>
-              <span aria-hidden="true">---</span>
+            <span class="flex shrink-0 items-center pr-3" aria-hidden={copyIndex === 1 ? 'true' : undefined}>
+              <span class="pl-3 font-semibold">Happening Now</span>
+              <span>{' '.repeat(7)}</span>
               <span>{liveBanner.roundLabel}</span>
-              <span aria-hidden="true">---</span>
+              <span>{' '.repeat(7)}</span>
               <span>
                 {liveBanner.sessionLabel} at {liveBanner.trackName}
                 {liveBanner.layoutName && `, ${liveBanner.layoutName}`}
               </span>
-              <span aria-hidden="true">---</span>
+              <span>{' '.repeat(7)}</span>
               <span data-live-remaining data-session-end={liveBanner.sessionEndUtcIso}>
                 {liveBanner.remainingMinutes} minute{liveBanner.remainingMinutes === 1 ? '' : 's'} remaining
               </span>
-              <span aria-hidden="true">---</span>
+              <span>{' '.repeat(7)}</span>
               <span>{liveBanner.nextSessionLabel ? `Next Session: ${liveBanner.nextSessionLabel}` : 'Final Session'}</span>
             </span>
           ))}
