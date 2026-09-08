@@ -55,7 +55,8 @@ export default {
         },
       },
       animation: {
-        marquee: 'marquee 28s linear infinite',
+        // 112s = the original 28s at 1/4 speed (a 75% cut), per Logan.
+        marquee: 'marquee 112s linear infinite',
       },
     },
   },
