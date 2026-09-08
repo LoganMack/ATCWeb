@@ -90,16 +90,33 @@ const links: { href: string; label: string; external?: boolean }[] = [
     // vertically outright on any sub-pixel line-height/font-metric mismatch
     // (e.g. before the Teko webfont swaps in), which is exactly the "text
     // doesn't show up" symptom Logan reported.
-    <div class="overflow-x-hidden bg-white">
+    <div class="overflow-x-hidden bg-white" data-marquee-viewport>
       <a href="/calendar" class="group block py-2 transition hover:bg-black/5">
-        <div class="flex w-max shrink-0 animate-marquee items-center whitespace-nowrap font-display text-base uppercase tracking-widest text-black group-hover:[animation-play-state:paused]">
-          {/* Rendered twice for the seamless CSS-loop technique (see the
-              animate-marquee keyframes in tailwind.config.mjs) — the second
-              copy is purely visual filler for the scroll, so it's marked
-              aria-hidden to keep screen readers from reading this whole
-              banner twice. shrink-0 on both the track and each copy keeps
-              every copy at its full natural width no matter what — nothing
-              here should ever compress. */}
+        <div
+          class="flex w-max shrink-0 animate-marquee items-center whitespace-nowrap font-display text-base uppercase tracking-widest text-black group-hover:[animation-play-state:paused]"
+          data-marquee-track
+        >
+          {/* Server-rendered as two copies for the seamless CSS-loop
+              technique (see the animate-marquee keyframes in
+              tailwind.config.mjs: the track is translated left by exactly
+              -50% of its own width, and since both halves are identical,
+              the loop never visibly "jumps"). That only holds up when a
+              single copy is at least as wide as the visible strip — on a
+              wide monitor with short banner text, two copies can be
+              narrower than the window, so partway through the scroll
+              there's simply no content left to show until the loop wraps
+              back to the start (this is the "text doesn't scroll in, it
+              just pops in once there's room" bug Logan reported). The
+              client script below re-measures the real copy width against
+              the real viewport width on load (and on resize, and again
+              once webfonts finish swapping in) and clones this content as
+              many times as needed per half so the track always has enough
+              real content to fill the strip throughout the whole
+              animation — this SSR-rendered pair is just the no-JS/
+              first-paint fallback. Every copy beyond the first is marked
+              aria-hidden so screen readers only ever read the banner once;
+              shrink-0 on the track and each copy keeps every copy at its
+              full natural width no matter what. */}
           {/* Segments are separated by 7 literal non-breaking spaces (not a
               visible glyph, and not the flex `gap` utility) per Logan —
               plain spaces would collapse under whitespace:nowrap same as
@@ -178,39 +195,103 @@ const links: { href: string; label: string; external?: boolean }[] = [
 
   document.addEventListener('astro:page-load', initMobileNav);
 
-  // "Happening Now" banner's live countdown — the server only computes
-  // "which session, how many minutes remaining" once per page render (see
-  // src/lib/liveEvent.ts), so without this the number would just freeze
-  // until the visitor's next navigation. Same data-attribute-driven
-  // pattern as src/scripts/localTime.ts: the server embeds an absolute UTC
-  // end-instant, and this just re-derives "remaining" from it on a timer.
-  // There are two copies of the banner text in the DOM at once (the
-  // marquee's seamless-loop duplication — see the animate-marquee keyframes
-  // in tailwind.config.mjs), so this updates ALL matching elements, not
-  // just the first.
+  // "Happening Now" banner: fills the marquee track with enough real
+  // copies to cover any viewport width (see the long comment on the
+  // data-marquee-track element in the markup above for why two static
+  // copies alone aren't always enough), and drives the live countdown.
+  //
+  // The server only computes "which session, how many minutes remaining"
+  // once per page render (see src/lib/liveEvent.ts), so without the
+  // countdown timer below the number would just freeze until the
+  // visitor's next navigation. Same data-attribute-driven pattern as
+  // src/scripts/localTime.ts: the server embeds an absolute UTC
+  // end-instant, and this just re-derives "remaining" from it on a timer
+  // — re-queried fresh every tick (not a cached NodeList) since
+  // layoutMarquee() below can change how many copies of that element
+  // exist in the DOM at any moment.
   let liveBannerInterval: ReturnType<typeof setInterval> | undefined;
+  let marqueeResizeTimeout: ReturnType<typeof setTimeout> | undefined;
+  let marqueeResizeListenerAttached = false;
+
+  function tickLiveBanner() {
+    document.querySelectorAll<HTMLElement>('[data-live-remaining]').forEach((el) => {
+      const endIso = el.dataset.sessionEnd;
+      if (!endIso) return;
+      const endMs = new Date(endIso).getTime();
+      if (Number.isNaN(endMs)) return;
+      const minutes = Math.max(0, Math.round((endMs - Date.now()) / 60_000));
+      el.textContent = `${minutes} minute${minutes === 1 ? '' : 's'} remaining`;
+    });
+  }
+
+  // Rebuilds the marquee track from scratch every time it's called, so
+  // repeated calls (on resize, or once webfonts finish loading) stay
+  // correct instead of compounding a previous rebuild's clones. Always
+  // measures the CURRENT first child before touching the DOM — after the
+  // very first run that's one of this function's own clones rather than
+  // the server-rendered original, but it's an exact, still-attached,
+  // still-correctly-laid-out copy of the same content, so it's just as
+  // valid a template and measurement source as the original was.
+  function layoutMarquee() {
+    const track = document.querySelector<HTMLElement>('[data-marquee-track]');
+    const viewport = document.querySelector<HTMLElement>('[data-marquee-viewport]');
+    if (!track || !viewport || track.children.length === 0) return;
+
+    const firstCopy = track.children[0] as HTMLElement;
+    const copyWidth = firstCopy.getBoundingClientRect().width;
+    const viewportWidth = viewport.getBoundingClientRect().width;
+    if (!copyWidth || !viewportWidth) return;
+
+    const template = firstCopy.cloneNode(true) as HTMLElement;
+    template.removeAttribute('aria-hidden');
+
+    // Each HALF of the track (not the whole track) needs to be at least
+    // as wide as the visible strip — the CSS animation only ever
+    // translates by -50%, i.e. by exactly one half's width — so there's
+    // always real content on screen no matter where in the loop it is.
+    const copiesPerHalf = Math.max(1, Math.ceil(viewportWidth / copyWidth));
+
+    track.innerHTML = '';
+    for (let half = 0; half < 2; half++) {
+      for (let i = 0; i < copiesPerHalf; i++) {
+        const clone = template.cloneNode(true) as HTMLElement;
+        if (half !== 0 || i !== 0) clone.setAttribute('aria-hidden', 'true');
+        track.appendChild(clone);
+      }
+    }
+
+    tickLiveBanner();
+  }
 
   function initLiveBanner() {
     if (liveBannerInterval) clearInterval(liveBannerInterval);
+    if (!document.querySelector('[data-marquee-track]')) return;
 
-    const elements = document.querySelectorAll<HTMLElement>('[data-live-remaining]');
-    if (elements.length === 0) return;
-
-    function tick() {
-      elements.forEach((el) => {
-        const endIso = el.dataset.sessionEnd;
-        if (!endIso) return;
-        const endMs = new Date(endIso).getTime();
-        if (Number.isNaN(endMs)) return;
-        const minutes = Math.max(0, Math.round((endMs - Date.now()) / 60_000));
-        el.textContent = `${minutes} minute${minutes === 1 ? '' : 's'} remaining`;
-      });
-    }
-
-    tick();
+    layoutMarquee();
     // A minute-granularity countdown doesn't need per-second polling —
     // 30s keeps the displayed number honest without any visible lag.
-    liveBannerInterval = setInterval(tick, 30_000);
+    liveBannerInterval = setInterval(tickLiveBanner, 30_000);
+
+    // Google Fonts loads with display=swap (see Layout.astro), so the
+    // very first layoutMarquee() call above may measure the fallback
+    // font's (wider) metrics rather than Teko's real (narrower,
+    // condensed) ones — re-measuring once fonts are actually ready
+    // catches that instead of under-filling the track.
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => layoutMarquee());
+    }
+
+    // Attached once for the page's whole lifetime (not per navigation) —
+    // Astro's view-transition navigations reuse the same `window` without
+    // reloading it, so re-adding this on every astro:page-load would pile
+    // up a new listener per navigation instead of replacing the old one.
+    if (!marqueeResizeListenerAttached) {
+      marqueeResizeListenerAttached = true;
+      window.addEventListener('resize', () => {
+        clearTimeout(marqueeResizeTimeout);
+        marqueeResizeTimeout = setTimeout(layoutMarquee, 200);
+      });
+    }
   }
 
   document.addEventListener('astro:page-load', initLiveBanner);
