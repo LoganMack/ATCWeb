@@ -727,8 +727,8 @@ export interface StandingsRoundCell {
   penalties: string[];
 }
 
-/** One penalty, formatted for the Matrix cell hover tooltip — appeal-aware (mirrors whatever's actually in effect, same as everywhere else penalties are applied/displayed — see src/lib/penalties.ts's effective* helpers), e.g. "Contact — avoidable (12s, -3 pts, 2 PP)" or "Off track (warning)" for a bare warning with no other consequence. */
-function summarizePenalty(p: Penalty): string {
+/** One penalty, formatted for the Matrix cell hover tooltip — appeal-aware (mirrors whatever's actually in effect, same as everywhere else penalties are applied/displayed — see src/lib/penalties.ts's effective* helpers), e.g. "Contact — avoidable (12s, -3 pts, 2 PP)" or "Off track (warning)" for a bare warning with no other consequence. Exported so the Event Briefing page's "past incidents at this layout" list (src/pages/briefing/[eventId].astro) can reuse the exact same one-line formatting instead of re-deriving it. */
+export function summarizePenalty(p: Penalty): string {
   const consequences: string[] = [];
   const time = effectiveTimePenaltySeconds(p);
   if (time) consequences.push(`${time}s`);
@@ -1888,6 +1888,138 @@ export function findRoundsForLayout(
   return matches
     .sort((a, b) => b.start_time.localeCompare(a.start_time))
     .map((r) => ({ subsessionId: r.subsession_id, trackName: r.track_name, startTime: r.start_time, seasonLabel: r.season_label }));
+}
+
+export interface ClassHighlight {
+  round: LayoutRoundSummary;
+  driver: DriverBasic;
+}
+
+export interface LayoutHighlights {
+  /** classId -> that class's race-1 winners across every round in `rounds`, newest first. A round with no race_scores rows for a given class (it didn't run that class that weekend) simply contributes no entry for that class — never a placeholder gap. */
+  winnersByClass: Map<number, ClassHighlight[]>;
+  /** Same shape, for each class's pole-sitter. */
+  polesByClass: Map<number, ClassHighlight[]>;
+}
+
+interface RaceOneScoreRow {
+  subsession_id: number;
+  driver_id: string;
+  class_id: number;
+  scored_position: number | null;
+  classified: boolean;
+  dsq: boolean;
+}
+
+interface RaceOneCuratedRow {
+  subsession_id: number;
+  cust_id: number;
+  starting_position: number | null;
+}
+
+/**
+ * Per-class winner and pole-sitter for every round in `rounds` — powers the
+ * Event Briefing page's "past winners and polesitters for each class" list
+ * (src/pages/briefing/[eventId].astro). `rounds` is expected to be
+ * findRoundsForLayout()'s output for one circuit+layout, but this function
+ * itself is layout-agnostic — it just computes highlights for whichever
+ * rounds it's given, in two bulk queries total (not one pair per round),
+ * same "resolve everything for the whole set at once" approach as
+ * getCuratedRaceResultsWithLapStatsBulk/getPenaltiesForSubsessions.
+ *
+ * Both "winner" and "pole" are scoped to race 1 only — the only race with
+ * real qualifying (2/3 grids invert off it) and, per site convention, the
+ * one every other race-1-only stat in this file (e.g.
+ * computeOverallPoleDriverBySubsession) already anchors to.
+ *
+ * Winner = the classified, non-DSQ'd race_scores row with the lowest
+ * `scored_position` within that (subsession, class) — scored_position
+ * already reflects any post-race penalty reclassification, the same source
+ * of truth every other finishing-order figure on the site uses. Pole = the
+ * lowest `curated_race_results.starting_position` within that (subsession,
+ * class) — deliberately NOT `race_scores.pole_bonus` (that's Gamma/Delta's
+ * "Class Pole" BONUS; Alpha never earns it at all — see
+ * computeOverallPoleDriverBySubsession's own doc comment — so it can't stand
+ * in as a real pole-sitter for every class uniformly).
+ */
+export async function getLayoutClassHighlights(
+  env: SupabaseEnv,
+  rounds: LayoutRoundSummary[],
+  driversBasic?: DriverBasic[]
+): Promise<LayoutHighlights> {
+  const winnersByClass = new Map<number, ClassHighlight[]>();
+  const polesByClass = new Map<number, ClassHighlight[]>();
+  if (rounds.length === 0) return { winnersByClass, polesByClass };
+
+  const subsessionIds = rounds.map((r) => r.subsessionId);
+  const roundBySubsession = new Map(rounds.map((r) => [r.subsessionId, r]));
+
+  const [drivers, scoreRows, curatedRows] = await Promise.all([
+    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
+    restGetAll<RaceOneScoreRow>(
+      env,
+      `race_scores?select=subsession_id,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`
+    ),
+    restGetAll<RaceOneCuratedRow>(
+      env,
+      `curated_race_results?select=subsession_id,cust_id,starting_position&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`
+    ),
+  ]);
+
+  const driverById = new Map(drivers.map((d) => [d.id, d]));
+  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+
+  const winnerBySubClass = new Map<string, { driverId: string; position: number }>();
+  const classIdBySubDriver = new Map<string, number>();
+  for (const s of scoreRows) {
+    classIdBySubDriver.set(`${s.subsession_id}:${s.driver_id}`, s.class_id);
+    if (!s.classified || s.dsq || s.scored_position === null) continue;
+    const key = `${s.subsession_id}:${s.class_id}`;
+    const existing = winnerBySubClass.get(key);
+    if (!existing || s.scored_position < existing.position) {
+      winnerBySubClass.set(key, { driverId: s.driver_id, position: s.scored_position });
+    }
+  }
+
+  const poleBySubClass = new Map<string, { custId: number; position: number }>();
+  for (const c of curatedRows) {
+    if (c.starting_position === null) continue;
+    const driver = driverByCustId.get(c.cust_id);
+    if (!driver) continue;
+    const classId = classIdBySubDriver.get(`${c.subsession_id}:${driver.id}`);
+    if (classId === undefined) continue;
+    const key = `${c.subsession_id}:${classId}`;
+    const existing = poleBySubClass.get(key);
+    if (!existing || c.starting_position < existing.position) {
+      poleBySubClass.set(key, { custId: c.cust_id, position: c.starting_position });
+    }
+  }
+
+  for (const [key, { driverId }] of winnerBySubClass) {
+    const [subsessionIdStr, classIdStr] = key.split(':');
+    const round = roundBySubsession.get(Number(subsessionIdStr));
+    const driver = driverById.get(driverId);
+    if (!round || !driver) continue;
+    const classId = Number(classIdStr);
+    if (!winnersByClass.has(classId)) winnersByClass.set(classId, []);
+    winnersByClass.get(classId)!.push({ round, driver });
+  }
+
+  for (const [key, { custId }] of poleBySubClass) {
+    const [subsessionIdStr, classIdStr] = key.split(':');
+    const round = roundBySubsession.get(Number(subsessionIdStr));
+    const driver = driverByCustId.get(custId);
+    if (!round || !driver) continue;
+    const classId = Number(classIdStr);
+    if (!polesByClass.has(classId)) polesByClass.set(classId, []);
+    polesByClass.get(classId)!.push({ round, driver });
+  }
+
+  const byRoundDesc = (a: ClassHighlight, b: ClassHighlight) => b.round.startTime.localeCompare(a.round.startTime);
+  for (const list of winnersByClass.values()) list.sort(byRoundDesc);
+  for (const list of polesByClass.values()) list.sort(byRoundDesc);
+
+  return { winnersByClass, polesByClass };
 }
 
 /**
@@ -4483,6 +4615,124 @@ export async function getQualifyingForSubsession(
     byClass.get(row.classId)!.push(row);
   }
   for (const classRows of byClass.values()) classRows.sort(byPos);
+
+  return { overall, byClass };
+}
+
+export interface PracticeRow {
+  driver: DriverBasic;
+  /** Same "from race_scores.class_id, not the curated table's own text field" reasoning as QualifyingRow.classId. */
+  classId: number | null;
+  /** curated_practice_results has no stored position field at all (a practice session isn't a grid) — this is derived here purely by ranking best lap time ascending across the whole session, then reused unchanged in the per-class view rather than re-ranked to 1..N within a class filter, mirroring how QualifyingRow.qualPosition (a real stored field) is reused as-is in getQualifyingForSubsession's byClass. Null for a driver with no recorded best lap. */
+  position: number | null;
+  /** "1:42.512"-formatted best practice lap (see `formatLapTime`), from `curated_practice_results.best_lap_ten_thousandths`. "—" when the pipeline has no time for this driver. */
+  bestLapFormatted: string;
+  bestLapTenThousandths: number | null;
+  /** Total laps completed this practice session, from `curated_practice_results.laps` — practice has no finishing/qualifying position to show, so this is the one meaningful "how much running did they get" stat it does have. Null when the pipeline didn't record a lap count. */
+  laps: number | null;
+  notInRoster: boolean;
+}
+
+interface CuratedPracticeRow {
+  subsession_id: number;
+  cust_id: number;
+  display_name: string;
+  car_class_name: string | null;
+  best_lap_ten_thousandths: number | null;
+  laps: number | null;
+}
+
+/**
+ * One round's practice results — same shape and approach as
+ * getQualifyingForSubsession just above, backed by curated_practice_results
+ * (0078_curated_rounds_event_id_and_practice_results.sql) instead of
+ * curated_qualifying. See PracticeRow.position for how "position" is
+ * derived here despite the source table having no such column.
+ */
+export async function getPracticeForSubsession(
+  env: SupabaseEnv,
+  subsessionId: number
+): Promise<{ overall: PracticeRow[]; byClass: Map<number, PracticeRow[]> }> {
+  const [practiceRows, drivers, classScores] = await Promise.all([
+    restGet<CuratedPracticeRow[]>(
+      env,
+      `curated_practice_results?select=subsession_id,cust_id,display_name,car_class_name,best_lap_ten_thousandths,laps&subsession_id=eq.${subsessionId}`
+    ),
+    driversSelect(env, { includeAi: true }),
+    restGet<{ driver_id: string; class_id: number }[]>(
+      env,
+      `race_scores?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
+    ),
+  ]);
+
+  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  // First class_id seen per driver in this round — same reasoning as
+  // getQualifyingForSubsession's identical block.
+  const classIdByDriverId = new Map<string, number>();
+  for (const s of classScores) {
+    if (!classIdByDriverId.has(s.driver_id)) classIdByDriverId.set(s.driver_id, s.class_id);
+  }
+
+  // Rank by best lap ascending (fastest first; no-lap-time rows sort last)
+  // across the WHOLE session before building rows, so `position` reflects
+  // everyone regardless of iteration order — see PracticeRow.position.
+  const ranked = [...practiceRows].sort((a, b) => {
+    if (a.best_lap_ten_thousandths === null && b.best_lap_ten_thousandths === null) return 0;
+    if (a.best_lap_ten_thousandths === null) return 1;
+    if (b.best_lap_ten_thousandths === null) return -1;
+    return a.best_lap_ten_thousandths - b.best_lap_ten_thousandths;
+  });
+  const positionByCustId = new Map<number, number>();
+  ranked.forEach((r, i) => {
+    if (r.best_lap_ten_thousandths !== null) positionByCustId.set(r.cust_id, i + 1);
+  });
+
+  const rows: PracticeRow[] = practiceRows.map((p) => {
+    const driver = driverByCustId.get(p.cust_id);
+    const bestLapSeconds = p.best_lap_ten_thousandths !== null ? p.best_lap_ten_thousandths / 10000 : null;
+    const position = positionByCustId.get(p.cust_id) ?? null;
+    if (!driver) {
+      return {
+        driver: {
+          id: `unrostered:${p.cust_id}`,
+          name: p.display_name,
+          car_number: null,
+          photo_url: null,
+          iracing_cust_id: p.cust_id,
+          is_rookie: false,
+          nationality_1: null,
+          nationality_2: null,
+          is_ai: false,
+        },
+        classId: null,
+        position,
+        bestLapFormatted: formatLapTime(bestLapSeconds),
+        bestLapTenThousandths: p.best_lap_ten_thousandths,
+        laps: p.laps,
+        notInRoster: true,
+      };
+    }
+    return {
+      driver,
+      classId: classIdByDriverId.get(driver.id) ?? null,
+      position,
+      bestLapFormatted: formatLapTime(bestLapSeconds),
+      bestLapTenThousandths: p.best_lap_ten_thousandths,
+      laps: p.laps,
+      notInRoster: false,
+    };
+  });
+
+  const byPracticePos = (a: PracticeRow, b: PracticeRow) => (a.position ?? Infinity) - (b.position ?? Infinity);
+  const overall = [...rows].sort(byPracticePos);
+
+  const byClass = new Map<number, PracticeRow[]>();
+  for (const row of rows) {
+    if (row.classId === null) continue;
+    if (!byClass.has(row.classId)) byClass.set(row.classId, []);
+    byClass.get(row.classId)!.push(row);
+  }
+  for (const classRows of byClass.values()) classRows.sort(byPracticePos);
 
   return { overall, byClass };
 }

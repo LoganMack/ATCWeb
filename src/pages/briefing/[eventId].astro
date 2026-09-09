@@ -1,0 +1,298 @@
+---
+export const prerender = false;
+
+// The Event Briefing page — linked only from the homepage's next-upcoming-
+// event card (src/components/UpcomingEventCard.astro, left of "Add to
+// Calendar"), for whichever event is chronologically next. Not otherwise
+// restricted at this page's own level (reachable by URL for any real,
+// track-having event) — same "not linked everywhere, but not gated either"
+// approach as /results/[subsessionId].astro's own pages.
+import Layout from '../../layouts/Layout.astro';
+import {
+  resolveSupabaseEnv,
+  getEventById,
+  getCircuits,
+  getAllCircuitLayouts,
+  getDriverClasses,
+  getPenaltiesForSubsessions,
+  formatDate,
+  formatLapTime,
+  displayLayoutName,
+  displayDriverName,
+  layoutImageUrl,
+  type EventRecord,
+  type Circuit,
+  type CircuitLayout,
+} from '../../lib/supabase';
+import { getEventSessions, formatSessionTime, CATEGORY_LABELS } from '../../lib/eventFormatting';
+import {
+  resolveLayout,
+  findRoundsForLayout,
+  getAllRounds,
+  getRoundLayoutsForSubsessions,
+  getLayoutClassHighlights,
+  driversSelect,
+  summarizePenalty,
+  type LayoutRoundSummary,
+  type LayoutHighlights,
+} from '../../lib/results';
+import { classBadgeClasses } from '../../lib/classColors';
+import WeatherIcon from '../../components/WeatherIcon.astro';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const eventId = Astro.params.eventId ?? '';
+
+let event: EventRecord | null = null;
+let loadError: string | null = null;
+try {
+  event = await getEventById(supabaseEnv, eventId);
+} catch (err) {
+  console.error('Failed to load event for the Event Briefing page:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+// No event, or a HOLIDAY/IRACING event (no track at all — nothing to brief;
+// see EventRecord.circuit_id's own doc comment) — bounce home rather than
+// showing an empty page.
+if (!loadError && (!event || !event.circuit_id)) {
+  return Astro.redirect('/', 302);
+}
+
+const sessions = event ? getEventSessions(event) : [];
+
+let circuit: Circuit | null = null;
+let layoutRow: CircuitLayout | null = null;
+let imageUrl: string | null = null;
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let classNameById = new Map<number, string>();
+let historicalRounds: LayoutRoundSummary[] = [];
+let highlights: LayoutHighlights = { winnersByClass: new Map(), polesByClass: new Map() };
+let incidentSummaries: { round: LayoutRoundSummary; driverName: string | null; summary: string }[] = [];
+
+if (!loadError && event && event.circuit_id) {
+  try {
+    const [circuits, layouts, driverClasses, allRounds, drivers] = await Promise.all([
+      getCircuits(supabaseEnv),
+      getAllCircuitLayouts(supabaseEnv),
+      getDriverClasses(supabaseEnv),
+      getAllRounds(supabaseEnv),
+      driversSelect(supabaseEnv, { includeAi: true }),
+    ]);
+
+    circuit = circuits.find((c) => c.id === event!.circuit_id) ?? null;
+    layoutRow = circuit ? resolveLayout(circuit.name, event.layout, circuits, layouts) : null;
+    imageUrl = layoutRow ? layoutImageUrl(layoutRow, circuit) : (circuit?.logo_url ?? null);
+    classes = driverClasses;
+    classNameById = new Map(classes.map((c) => [c.id, c.name]));
+
+    const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
+      supabaseEnv,
+      allRounds.map((r) => r.subsession_id)
+    );
+    historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
+
+    const [layoutHighlights, penalties] = await Promise.all([
+      getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
+      getPenaltiesForSubsessions(
+        supabaseEnv,
+        historicalRounds.map((r) => r.subsessionId)
+      ),
+    ]);
+    highlights = layoutHighlights;
+
+    const driverById = new Map(drivers.map((d) => [d.id, d]));
+    const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
+    incidentSummaries = penalties
+      .map((p) => {
+        const round = roundBySubsession.get(p.subsession_id);
+        if (!round) return null;
+        const driver = p.driver_id ? driverById.get(p.driver_id) : null;
+        return { round, driverName: driver ? displayDriverName(driver.name) : null, summary: summarizePenalty(p) };
+      })
+      .filter((x): x is { round: LayoutRoundSummary; driverName: string | null; summary: string } => x !== null)
+      .sort((a, b) => b.round.startTime.localeCompare(a.round.startTime));
+  } catch (err) {
+    console.error('Failed to load Event Briefing historical data:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+const orderedClassIdsWithWinners = classes.map((c) => c.id).filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
+
+const circuitName = circuit?.name ?? event?.title ?? 'TBA';
+const layoutDisplayName = event?.layout ? displayLayoutName(event.layout) : event?.subtitle ?? null;
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title={event ? `Event Briefing — ${circuitName}` : 'Event Briefing'} description="Everything to know before the next race weekend.">
+  <section class="mx-auto max-w-4xl px-6 pb-24 pt-28 sm:pt-36">
+    <a href="/" class="text-sm text-white/50 hover:text-white">&larr; Back to Home</a>
+
+    {loadError && (
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load this event's briefing right now.
+        <br /><span class="mt-1 block text-white/50">{loadError}</span>
+      </p>
+    )}
+
+    {event && (
+      <>
+        <div class="reveal mt-4 flex items-center gap-4" style="transition-delay: 40ms">
+          {imageUrl && <img src={imageUrl} alt="" class="h-14 w-14 flex-none rounded object-contain" />}
+          <div>
+            <p class="font-display text-sm uppercase tracking-widest text-white/60">Event Briefing</p>
+            <h1 class="font-display text-4xl leading-none sm:text-5xl">{circuitName}</h1>
+            {layoutDisplayName && <p class="mt-1 text-white/50">{layoutDisplayName}</p>}
+          </div>
+        </div>
+
+        {/* 1. Schedule breakdown — same session list UI as the homepage's
+            featured event card (UpcomingEventCard.astro), just larger and
+            standalone here rather than inside a compact card. */}
+        <div class="reveal mt-8" style="transition-delay: 80ms">
+          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Schedule</h2>
+          <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
+            {sessions.length === 0 ? (
+              <p class="p-4 text-sm text-white/40">No sessions scheduled yet.</p>
+            ) : (
+              sessions.map((s, i) => (
+                <div class={`flex items-center justify-between gap-3 p-4 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                  <span class="flex items-center gap-2 font-semibold">
+                    <WeatherIcon condition={s.weather} class="text-base" />
+                    {s.label}
+                  </span>
+                  <span class="text-white/60">
+                    {s.startTime && <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>}
+                    {s.simTime && ` (in-sim ${formatSessionTime(s.simTime)})`}
+                    {s.detail && ` · ${s.detail}`}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* 2. Track record — the admin-curated circuit_layouts fields
+            (lap_record_seconds/holder/date), same source/format
+            circuits.astro already shows publicly; not re-derived from raw
+            lap data here since this field is the site's one deliberately
+            curated "official" record (may predate this league, or come
+            from a source broader than ATC's own imported results). */}
+        <div class="reveal mt-8" style="transition-delay: 100ms">
+          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Track Record</h2>
+          <div class="mt-3 rounded-xl border border-white/10 p-4 text-sm">
+            {layoutRow && layoutRow.lap_record_seconds !== null ? (
+              <p>
+                <span class="font-display text-2xl">{formatLapTime(layoutRow.lap_record_seconds)}</span>
+                {layoutRow.lap_record_holder && <span class="ml-2 text-white/70">{layoutRow.lap_record_holder}</span>}
+                {layoutRow.lap_record_date && <span class="ml-1 text-white/40">({formatDate(layoutRow.lap_record_date)})</span>}
+              </p>
+            ) : (
+              <p class="text-white/40">No lap record on file for this layout.</p>
+            )}
+          </div>
+        </div>
+
+        {/* 3. Past winners & pole-sitters, per class — see
+            getLayoutClassHighlights in src/lib/results.ts for how these are
+            derived (race 1 only, scored_position for winner,
+            starting_position for pole). */}
+        <div class="reveal mt-8" style="transition-delay: 120ms">
+          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Winners &amp; Pole-Sitters</h2>
+          {orderedClassIdsWithWinners.length === 0 ? (
+            <p class="mt-3 text-sm text-white/40">No history at this layout yet.</p>
+          ) : (
+            <div class="mt-3 grid gap-4 sm:grid-cols-3">
+              {orderedClassIdsWithWinners.map((classId) => {
+                const winners = highlights.winnersByClass.get(classId) ?? [];
+                const poles = highlights.polesByClass.get(classId) ?? [];
+                return (
+                  <div class="rounded-xl border border-white/10 p-4">
+                    <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(classId) ?? '')}`}>
+                      {classNameById.get(classId) ?? '—'}
+                    </span>
+                    <div class="mt-3">
+                      <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Winners</p>
+                      <ul class="mt-1 space-y-1 text-sm">
+                        {winners.slice(0, 5).map((w) => (
+                          <li class="flex items-center justify-between gap-2">
+                            <a href={`/results/${w.round.subsessionId}`} class="hover:text-brand-primary">
+                              {displayDriverName(w.driver.name)}
+                            </a>
+                            <span class="text-xs text-white/40">{formatDate(w.round.startTime)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div class="mt-3">
+                      <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Pole-Sitters</p>
+                      <ul class="mt-1 space-y-1 text-sm">
+                        {poles.slice(0, 5).map((p) => (
+                          <li class="flex items-center justify-between gap-2">
+                            <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="hover:text-brand-primary">
+                              {displayDriverName(p.driver.name)}
+                            </a>
+                            <span class="text-xs text-white/40">{formatDate(p.round.startTime)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* 4. Past results at this circuit layout — same round list
+            findRoundsForLayout() already powers for the calendar page's
+            "Race Recaps at this Layout," just rendered here as plain links
+            into the full results page rather than an expandable recap. */}
+        <div class="reveal mt-8" style="transition-delay: 140ms">
+          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Results at This Layout</h2>
+          {historicalRounds.length === 0 ? (
+            <p class="mt-3 text-sm text-white/40">No past rounds at this layout yet.</p>
+          ) : (
+            <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
+              {historicalRounds.map((r, i) => (
+                <a
+                  href={`/results/${r.subsessionId}`}
+                  class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
+                >
+                  <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
+                  <span class="text-white/50">{formatDate(r.startTime)}</span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 5. Past incidents at this circuit layout — every penalty logged
+            against any round found above, newest first. Same one-line
+            summarizePenalty() formatting the standings Matrix's cell hover
+            already uses. */}
+        <div class="reveal mt-8" style="transition-delay: 160ms">
+          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Incidents at This Layout</h2>
+          {incidentSummaries.length === 0 ? (
+            <p class="mt-3 text-sm text-white/40">No incidents logged at this layout yet.</p>
+          ) : (
+            <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
+              {incidentSummaries.map((inc, i) => (
+                <div class={`flex flex-wrap items-center justify-between gap-2 p-3 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                  <span>
+                    {inc.driverName ? <span class="font-semibold">{inc.driverName}</span> : <span class="text-white/40">Racing Incident</span>}
+                    <span class="ml-2 text-white/60">{inc.summary}</span>
+                  </span>
+                  <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-xs text-white/40 hover:text-white">
+                    {formatDate(inc.round.startTime)}
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </>
+    )}
+  </section>
+</Layout>

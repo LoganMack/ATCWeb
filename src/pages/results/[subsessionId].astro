@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../../layouts/Layout.astro';
 import ResultsTable from '../../components/ResultsTable.astro';
 import QualifyingResultsTable from '../../components/QualifyingResultsTable.astro';
+import PracticeResultsTable from '../../components/PracticeResultsTable.astro';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
@@ -27,6 +28,7 @@ import {
   getRoundBySubsessionId,
   getRoundResults,
   getQualifyingForSubsession,
+  getPracticeForSubsession,
   getRoundsForSeason,
   computeDisplayRoundNumbers,
   isChampionshipSeason,
@@ -36,6 +38,7 @@ import {
   resolveLayout,
   type RoundResults,
   type QualifyingRow,
+  type PracticeRow,
 } from '../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../lib/penalties';
 import { isAdminView } from '../../lib/auth';
@@ -114,16 +117,14 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   // read-only for penalties (see v0.16's README section for why).
 }
 
-// Race vs. Qualifying — two independent result categories, each with its
-// own Overall/Per Class view (see `view` below). Practice isn't one of
-// these tabs: there's no imported practice-results table yet (Logan: "we
-// will create this table later") — Practice only exists as a loggable
-// session on the Incident Report (see that page). Computed here (rather
-// than down by the template, where this used to live) purely from URL
-// params + subsessionId — neither depends on `round` — so the qualifying
-// fetch below can start immediately alongside the initial bulk fetch
-// instead of waiting for `round` to resolve first.
-const category = Astro.url.searchParams.get('category') === 'qualifying' ? 'qualifying' : 'race';
+// Race vs. Qualifying vs. Practice — three independent result categories,
+// each with its own Overall/Per Class view (see `view` below). Computed
+// here (rather than down by the template, where this used to live) purely
+// from URL params + subsessionId — neither depends on `round` — so the
+// qualifying/practice fetches below can start immediately alongside the
+// initial bulk fetch instead of waiting for `round` to resolve first.
+const categoryParam = Astro.url.searchParams.get('category');
+const category = categoryParam === 'qualifying' ? 'qualifying' : categoryParam === 'practice' ? 'practice' : 'race';
 // The points system is based on overall finishing position, not
 // class-relative position, so the overall (cross-class) view is the
 // default — the per-class view is still available via ?view=class. Shared
@@ -152,6 +153,19 @@ const qualifyingPromise: Promise<{ overall: QualifyingRow[]; byClass: Map<number
     return await getQualifyingForSubsession(supabaseEnv, subsessionId);
   } catch (err) {
     console.error('Failed to load qualifying results:', err);
+    return { overall: [], byClass: new Map() };
+  }
+})();
+
+// Same fetched-only-when-actually-viewing / kicked-off-alongside-the-bulk-
+// fetch approach as qualifyingPromise just above, backed by
+// getPracticeForSubsession (curated_practice_results) instead.
+const practicePromise: Promise<{ overall: PracticeRow[]; byClass: Map<number, PracticeRow[]> }> = (async () => {
+  if (category !== 'practice' || !Number.isFinite(subsessionId)) return { overall: [], byClass: new Map() };
+  try {
+    return await getPracticeForSubsession(supabaseEnv, subsessionId);
+  } catch (err) {
+    console.error('Failed to load practice results:', err);
     return { overall: [], byClass: new Map() };
   }
 })();
@@ -315,6 +329,9 @@ const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b
 
 const qualifying = await qualifyingPromise;
 const qualifyingOrderedClassIds = classes.map((c) => c.id).filter((id) => qualifying.byClass.has(id));
+
+const practice = await practicePromise;
+const practiceOrderedClassIds = classes.map((c) => c.id).filter((id) => practice.byClass.has(id));
 
 // Whatever `season` value (a real season number, or one of results.astro's
 // pooled "exhibition-rounds"/"test-sessions" filter sentinels) the Race
@@ -527,6 +544,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <a href={`/results/${subsessionId}?category=qualifying&view=${view}${seasonQuerySuffix}`} class={pillClass(category === 'qualifying')}>
               Qualifying
             </a>
+            <a href={`/results/${subsessionId}?category=practice&view=${view}${seasonQuerySuffix}`} class={pillClass(category === 'practice')}>
+              Practice
+            </a>
           </div>
           <div class="flex flex-wrap gap-2">
             <a href={`/results/${subsessionId}?category=${category}&view=overall${seasonQuerySuffix}`} class={pillClass(view === 'overall')}>
@@ -601,6 +621,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <div class="mt-12">
                 <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
                 <QualifyingResultsTable rows={qualifying.byClass.get(classId)!} />
+              </div>
+            ))}
+          </>
+        )}
+
+        {category === 'practice' && (
+          <>
+            {practice.overall.length === 0 && <p class="mt-10 text-white/60">No practice results.</p>}
+
+            {view === 'overall' && practice.overall.length > 0 && (
+              <PracticeResultsTable rows={practice.overall} showClass classNameById={classNameById} />
+            )}
+
+            {view === 'class' && practiceOrderedClassIds.map((classId) => (
+              <div class="mt-12">
+                <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
+                <PracticeResultsTable rows={practice.byClass.get(classId)!} />
               </div>
             ))}
           </>
