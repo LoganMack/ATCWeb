@@ -9,14 +9,18 @@ import {
   getCircuits,
   getAllCircuitLayouts,
   getAllTrackGuides,
+  getDriverClasses,
   formatLapTime,
   formatDate,
   displayLayoutName,
+  displayDriverName,
   layoutImageUrl,
   getPageBanners,
   type CircuitLayout,
 } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
+import { getAllRounds, getRoundLayoutsForSubsessions, buildLayoutClassBestLaps, type ClassBestLap } from '../lib/results';
+import { classBadgeClasses } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -39,18 +43,38 @@ let layouts: CircuitLayout[] = [];
 // needs the count per layout to decide whether/what to link, the actual
 // guide list lives on the Media page's Track Guide filter.
 let guideCountByLayoutId = new Map<string, number>();
+// Gamma's/Delta's own fastest-lap-ever per layout (per Logan) — derived from
+// ATC's own imported race results rather than the admin-curated
+// lap_record_seconds field (which has no per-class breakdown), same
+// class-at-time-of-lap reasoning as the Event Briefing page's identical
+// section (see buildLayoutClassBestLaps' own doc comment). Built ONCE for
+// every layout on this page rather than per-layout — see that function's
+// doc comment for why a per-layout version would be far too expensive here.
+let classBestLapsByLayout: (circuitId: string, eventLayoutName: string | null) => Map<number, ClassBestLap> = () => new Map();
+let gammaClass: { id: number; name: string } | null = null;
+let deltaClass: { id: number; name: string } | null = null;
 let loadError = false;
 try {
-  const [circuitsResult, layoutsResult, allGuides] = await Promise.all([
+  const [circuitsResult, layoutsResult, allGuides, driverClasses, allRounds] = await Promise.all([
     getCircuits(supabaseEnv),
     getAllCircuitLayouts(supabaseEnv),
     getAllTrackGuides(supabaseEnv),
+    getDriverClasses(supabaseEnv),
+    getAllRounds(supabaseEnv),
   ]);
   circuits = circuitsResult;
   layouts = layoutsResult;
   for (const guide of allGuides) {
     guideCountByLayoutId.set(guide.layout_id, (guideCountByLayoutId.get(guide.layout_id) ?? 0) + 1);
   }
+  gammaClass = driverClasses.find((c) => c.name === 'Gamma') ?? null;
+  deltaClass = driverClasses.find((c) => c.name === 'Delta') ?? null;
+
+  const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
+    supabaseEnv,
+    allRounds.map((r) => r.subsession_id)
+  );
+  classBestLapsByLayout = await buildLayoutClassBestLaps(supabaseEnv, allRounds, roundLayoutBySubsession, circuits, layouts);
 } catch (err) {
   console.error('Failed to load circuits:', err);
   loadError = true;
@@ -121,6 +145,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <div class="grid gap-3 sm:grid-cols-2">
                     {circuitLayouts.map((layout) => {
                       const imageUrl = layoutImageUrl(layout, circuit);
+                      const layoutClassBests = classBestLapsByLayout(circuit.id, layout.name);
+                      const gammaBestLap = gammaClass ? (layoutClassBests.get(gammaClass.id) ?? null) : null;
+                      const deltaBestLap = deltaClass ? (layoutClassBests.get(deltaClass.id) ?? null) : null;
                       return (
                         <div class="flex gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
                           {imageUrl ? (
@@ -136,6 +163,22 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               {layout.lap_record_holder && ` — ${layout.lap_record_holder}`}
                               {layout.lap_record_date && ` (${formatDate(layout.lap_record_date)})`}
                             </p>
+                            {gammaBestLap && gammaClass && (
+                              <p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-white/50">
+                                <span class={`rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${classBadgeClasses(gammaClass.name)}`}>
+                                  {gammaClass.name}
+                                </span>
+                                {formatLapTime(gammaBestLap.seconds)} — {displayDriverName(gammaBestLap.driver.name)} ({formatDate(gammaBestLap.date)})
+                              </p>
+                            )}
+                            {deltaBestLap && deltaClass && (
+                              <p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-white/50">
+                                <span class={`rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${classBadgeClasses(deltaClass.name)}`}>
+                                  {deltaClass.name}
+                                </span>
+                                {formatLapTime(deltaBestLap.seconds)} — {displayDriverName(deltaBestLap.driver.name)} ({formatDate(deltaBestLap.date)})
+                              </p>
+                            )}
                             {(guideCountByLayoutId.get(layout.id) ?? 0) > 0 && (
                               <a
                                 href={`/media?tab=videos&filter=trackguide&layout=${encodeURIComponent(layout.id)}`}

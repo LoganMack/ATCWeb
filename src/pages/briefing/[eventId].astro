@@ -31,10 +31,12 @@ import {
   getAllRounds,
   getRoundLayoutsForSubsessions,
   getLayoutClassHighlights,
+  getLayoutClassBestLaps,
   driversSelect,
-  summarizePenalty,
+  describePenaltyResolution,
   type LayoutRoundSummary,
   type LayoutHighlights,
+  type ClassBestLap,
 } from '../../lib/results';
 import { classBadgeClasses } from '../../lib/classColors';
 import WeatherIcon from '../../components/WeatherIcon.astro';
@@ -67,7 +69,16 @@ let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let classNameById = new Map<number, string>();
 let historicalRounds: LayoutRoundSummary[] = [];
 let highlights: LayoutHighlights = { winnersByClass: new Map(), polesByClass: new Map() };
-let incidentSummaries: { round: LayoutRoundSummary; driverName: string | null; summary: string }[] = [];
+let classBestLaps: Map<number, ClassBestLap> = new Map();
+interface IncidentEntry {
+  round: LayoutRoundSummary;
+  /** "#12", or the driver's display name as a fallback when they have no car_number on file, or "Racing Incident" when no driver is attached at all — see item 5/8 of Logan's briefing tweaks. */
+  identityLabel: string;
+  description: string;
+  /** From describePenaltyResolution() — null when this penalty carries no consequence at all. */
+  resolution: string | null;
+}
+let incidentEntries: IncidentEntry[] = [];
 
 if (!loadError && event && event.circuit_id) {
   try {
@@ -91,25 +102,37 @@ if (!loadError && event && event.circuit_id) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
 
-    const [layoutHighlights, penalties] = await Promise.all([
+    const [layoutHighlights, layoutClassBestLaps, penalties] = await Promise.all([
       getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
+      getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers),
       getPenaltiesForSubsessions(
         supabaseEnv,
         historicalRounds.map((r) => r.subsessionId)
       ),
     ]);
     highlights = layoutHighlights;
+    classBestLaps = layoutClassBestLaps;
 
     const driverById = new Map(drivers.map((d) => [d.id, d]));
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
-    incidentSummaries = penalties
-      .map((p) => {
+    incidentEntries = penalties
+      .map((p): IncidentEntry | null => {
         const round = roundBySubsession.get(p.subsession_id);
         if (!round) return null;
         const driver = p.driver_id ? driverById.get(p.driver_id) : null;
-        return { round, driverName: driver ? displayDriverName(driver.name) : null, summary: summarizePenalty(p) };
+        const identityLabel = driver
+          ? driver.car_number !== null
+            ? `#${driver.car_number}`
+            : displayDriverName(driver.name)
+          : 'Racing Incident';
+        return {
+          round,
+          identityLabel,
+          description: p.description?.trim() || 'No description provided.',
+          resolution: describePenaltyResolution(p),
+        };
       })
-      .filter((x): x is { round: LayoutRoundSummary; driverName: string | null; summary: string } => x !== null)
+      .filter((x): x is IncidentEntry => x !== null)
       .sort((a, b) => b.round.startTime.localeCompare(a.round.startTime));
   } catch (err) {
     console.error('Failed to load Event Briefing historical data:', err);
@@ -118,6 +141,15 @@ if (!loadError && event && event.circuit_id) {
 }
 
 const orderedClassIdsWithWinners = classes.map((c) => c.id).filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
+
+// Gamma/Delta only (per Logan) — Alpha's own class-best is typically
+// indistinguishable from the plain fastest-lap-ever figure already shown
+// above from circuit_layouts.lap_record_seconds, so a separate Alpha line
+// would mostly just repeat it.
+const gammaClass = classes.find((c) => c.name === 'Gamma') ?? null;
+const deltaClass = classes.find((c) => c.name === 'Delta') ?? null;
+const gammaBestLap = gammaClass ? (classBestLaps.get(gammaClass.id) ?? null) : null;
+const deltaBestLap = deltaClass ? (classBestLaps.get(deltaClass.id) ?? null) : null;
 
 const circuitName = circuit?.name ?? event?.title ?? 'TBA';
 const layoutDisplayName = event?.layout ? displayLayoutName(event.layout) : event?.subtitle ?? null;
@@ -147,28 +179,43 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </div>
         </div>
 
-        {/* 1. Schedule breakdown — same session list UI as the homepage's
-            featured event card (UpcomingEventCard.astro), just larger and
-            standalone here rather than inside a compact card. */}
+        {/* 1. Schedule breakdown — same session data as the homepage's
+            featured event card (UpcomingEventCard.astro), split into
+            separate IRL/In-Sim/Length columns here per Logan rather than
+            that card's single combined text blob. */}
         <div class="reveal mt-8" style="transition-delay: 80ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Schedule</h2>
-          <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
+          <div class="mt-3 overflow-x-auto rounded-xl border border-white/10">
             {sessions.length === 0 ? (
               <p class="p-4 text-sm text-white/40">No sessions scheduled yet.</p>
             ) : (
-              sessions.map((s, i) => (
-                <div class={`flex items-center justify-between gap-3 p-4 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
-                  <span class="flex items-center gap-2 font-semibold">
-                    <WeatherIcon condition={s.weather} class="text-base" />
-                    {s.label}
-                  </span>
-                  <span class="text-white/60">
-                    {s.startTime && <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>}
-                    {s.simTime && ` (in-sim ${formatSessionTime(s.simTime)})`}
-                    {s.detail && ` · ${s.detail}`}
-                  </span>
-                </div>
-              ))
+              <table class="w-full border-collapse text-sm">
+                <thead>
+                  <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                    <th class="py-3 pl-4 pr-2 font-medium">Session</th>
+                    <th class="py-3 pr-2 font-medium">IRL</th>
+                    <th class="py-3 pr-2 font-medium">In-Sim</th>
+                    <th class="py-3 pr-4 font-medium">Length</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessions.map((s, i) => (
+                    <tr class={i > 0 ? 'border-t border-white/5' : ''}>
+                      <td class="py-3 pl-4 pr-2 font-semibold">
+                        <span class="flex items-center gap-1.5">
+                          <WeatherIcon condition={s.weather} class="text-base" />
+                          {s.label}
+                        </span>
+                      </td>
+                      <td class="py-3 pr-2 text-white/70">
+                        {s.startTime ? <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span> : '—'}
+                      </td>
+                      <td class="py-3 pr-2 text-white/70">{s.simTime ? formatSessionTime(s.simTime) : '—'}</td>
+                      <td class="py-3 pr-4 text-white/70">{s.detail ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         </div>
@@ -178,7 +225,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             circuits.astro already shows publicly; not re-derived from raw
             lap data here since this field is the site's one deliberately
             curated "official" record (may predate this league, or come
-            from a source broader than ATC's own imported results). */}
+            from a source broader than ATC's own imported results). Below
+            it, Gamma's and Delta's own fastest-lap-ever AT this layout —
+            these ARE derived from ATC's own imported race results (see
+            getLayoutClassBestLaps), since there's no curated per-class
+            field for them to read from. Class is resolved per round from
+            that driver's race_scores.class_id at the time, never off their
+            current roster class. */}
         <div class="reveal mt-8" style="transition-delay: 100ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Track Record</h2>
           <div class="mt-3 rounded-xl border border-white/10 p-4 text-sm">
@@ -190,6 +243,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </p>
             ) : (
               <p class="text-white/40">No lap record on file for this layout.</p>
+            )}
+
+            {(gammaBestLap || deltaBestLap) && (
+              <div class="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+                {gammaBestLap && gammaClass && (
+                  <p class="flex flex-wrap items-center gap-2">
+                    <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(gammaClass.name)}`}>
+                      {gammaClass.name}
+                    </span>
+                    <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
+                    <span class="text-white/70">{displayDriverName(gammaBestLap.driver.name)}</span>
+                    <span class="text-white/40">({formatDate(gammaBestLap.date)})</span>
+                  </p>
+                )}
+                {deltaBestLap && deltaClass && (
+                  <p class="flex flex-wrap items-center gap-2">
+                    <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(deltaClass.name)}`}>
+                      {deltaClass.name}
+                    </span>
+                    <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
+                    <span class="text-white/70">{displayDriverName(deltaBestLap.driver.name)}</span>
+                    <span class="text-white/40">({formatDate(deltaBestLap.date)})</span>
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -215,7 +293,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <div class="mt-3">
                       <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Winners</p>
                       <ul class="mt-1 space-y-1 text-sm">
-                        {winners.slice(0, 5).map((w) => (
+                        {winners.map((w) => (
                           <li class="flex items-center justify-between gap-2">
                             <a href={`/results/${w.round.subsessionId}`} class="hover:text-brand-primary">
                               {displayDriverName(w.driver.name)}
@@ -228,7 +306,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <div class="mt-3">
                       <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Pole-Sitters</p>
                       <ul class="mt-1 space-y-1 text-sm">
-                        {poles.slice(0, 5).map((p) => (
+                        {poles.map((p) => (
                           <li class="flex items-center justify-between gap-2">
                             <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="hover:text-brand-primary">
                               {displayDriverName(p.driver.name)}
@@ -269,24 +347,37 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         </div>
 
         {/* 5. Past incidents at this circuit layout — every penalty logged
-            against any round found above, newest first. Same one-line
-            summarizePenalty() formatting the standings Matrix's cell hover
-            already uses. */}
+            against any round found above, newest first, uncapped. Shows car
+            numbers rather than driver names (falls back to name if a
+            driver has no car_number on file), and "Racing Incident" (no
+            driver attached) gets the exact same bold-white treatment as a
+            real number rather than being dimmed — both are the row's
+            "who" identity, just one of two kinds. The free-text description
+            starts collapsed (often long/narrative) with its own toggle; the
+            resolution (time/points/PP/warning, from describePenaltyResolution)
+            stays always visible on its own line below it. */}
         <div class="reveal mt-8" style="transition-delay: 160ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Incidents at This Layout</h2>
-          {incidentSummaries.length === 0 ? (
+          {incidentEntries.length === 0 ? (
             <p class="mt-3 text-sm text-white/40">No incidents logged at this layout yet.</p>
           ) : (
             <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {incidentSummaries.map((inc, i) => (
-                <div class={`flex flex-wrap items-center justify-between gap-2 p-3 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
-                  <span>
-                    {inc.driverName ? <span class="font-semibold">{inc.driverName}</span> : <span class="text-white/40">Racing Incident</span>}
-                    <span class="ml-2 text-white/60">{inc.summary}</span>
-                  </span>
-                  <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-xs text-white/40 hover:text-white">
-                    {formatDate(inc.round.startTime)}
-                  </a>
+              {incidentEntries.map((inc, i) => (
+                <div class={`p-3 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="font-semibold text-white">{inc.identityLabel}</span>
+                    <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-xs text-white/40 hover:text-white">
+                      {formatDate(inc.round.startTime)}
+                    </a>
+                  </div>
+                  <details class="group mt-1">
+                    <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-white/40 hover:text-white/60">
+                      Description
+                      <span class="text-white/30 transition group-open:rotate-180">▾</span>
+                    </summary>
+                    <p class="mt-1 text-white/70">{inc.description}</p>
+                  </details>
+                  {inc.resolution && <p class="mt-1 text-xs text-white/50">{inc.resolution}</p>}
                 </div>
               ))}
             </div>

@@ -742,6 +742,28 @@ export function summarizePenalty(p: Penalty): string {
 }
 
 /**
+ * Just the "resolution" half of summarizePenalty()'s formatting — e.g. "12s,
+ * -3 pts, 2 PP" or "Warning" — with no description text folded in and no
+ * wrapping parens. Null when this penalty carries no consequence at all (a
+ * bare log entry — rare, but possible for a purely informational note).
+ * Used by the Event Briefing page's "past incidents" list
+ * (src/pages/briefing/[eventId].astro), which shows this on its own line
+ * beneath the (collapsible) description rather than folded into one string
+ * the way the standings Matrix's compact hover tooltip needs it.
+ */
+export function describePenaltyResolution(p: Penalty): string | null {
+  const consequences: string[] = [];
+  const time = effectiveTimePenaltySeconds(p);
+  if (time) consequences.push(`${time}s`);
+  const points = effectivePointsPenalty(p);
+  if (points) consequences.push(`-${points} pts`);
+  const pp = effectivePenaltyPoints(p);
+  if (pp) consequences.push(`${pp} PP`);
+  if (p.is_warning) consequences.push('Warning');
+  return consequences.length > 0 ? consequences.join(', ') : null;
+}
+
+/**
  * driver_id -> subsession_id -> every penalty logged against that driver in
  * that round, this season — the source for each Matrix cell's `penalties`
  * summary. Built once from the season's full penalty list
@@ -2022,6 +2044,84 @@ export async function getLayoutClassHighlights(
   return { winnersByClass, polesByClass };
 }
 
+export interface ClassBestLap {
+  classId: number;
+  seconds: number;
+  driver: DriverBasic;
+  subsessionId: number;
+  /** The round's start_time this lap was set in — `curated_rounds.start_time`, same field LayoutRoundSummary.startTime carries. */
+  date: string;
+}
+
+/**
+ * Fastest lap ever recorded at one circuit+layout, broken down by class —
+ * powers the Event Briefing page's expanded "Track Record" section (Gamma
+ * and Delta bests, alongside the plain circuit_layouts.lap_record_seconds
+ * figure that section already showed). Scoped to a specific, already-
+ * resolved set of `rounds` (findRoundsForLayout()'s output for one layout)
+ * rather than the whole site — see buildLayoutClassBestLaps just below for
+ * the "every layout on one page" version circuits.astro needs instead, and
+ * why the two aren't the same function.
+ *
+ * Class is resolved PER ROUND (`race_scores.class_id` for that driver in
+ * that specific subsession) — never off a driver's current/latest roster
+ * class — so a driver who has since moved between classes doesn't
+ * misattribute an old lap to whichever class they race today. Considers
+ * every race (1/2/3), not just race 1 — unlike getLayoutClassHighlights'
+ * winner/pole (each tied to one specific race), "fastest lap ever" isn't
+ * scoped to any one race.
+ */
+export async function getLayoutClassBestLaps(
+  env: SupabaseEnv,
+  rounds: LayoutRoundSummary[],
+  driversBasic?: DriverBasic[]
+): Promise<Map<number, ClassBestLap>> {
+  const bestByClass = new Map<number, ClassBestLap>();
+  if (rounds.length === 0) return bestByClass;
+
+  const subsessionIds = rounds.map((r) => r.subsessionId);
+  const roundBySubsession = new Map(rounds.map((r) => [r.subsessionId, r]));
+
+  const [drivers, raceRows, scoreRows] = await Promise.all([
+    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
+    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null }>(
+      env,
+      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`
+    ),
+    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
+      env,
+      `race_scores?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`
+    ),
+  ]);
+
+  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  // First class_id seen per (subsession, driver) — same "class doesn't
+  // change race-to-race within one round" reasoning as every other
+  // per-round class lookup in this file.
+  const classIdBySubDriver = new Map<string, number>();
+  for (const s of scoreRows) {
+    const key = `${s.subsession_id}:${s.driver_id}`;
+    if (!classIdBySubDriver.has(key)) classIdBySubDriver.set(key, s.class_id);
+  }
+
+  for (const row of raceRows) {
+    if (row.best_lap_ten_thousandths === null) continue;
+    const round = roundBySubsession.get(row.subsession_id);
+    if (!round) continue;
+    const driver = driverByCustId.get(row.cust_id);
+    if (!driver) continue;
+    const classId = classIdBySubDriver.get(`${row.subsession_id}:${driver.id}`);
+    if (classId === undefined) continue;
+    const seconds = row.best_lap_ten_thousandths / 10000;
+    const existing = bestByClass.get(classId);
+    if (!existing || seconds < existing.seconds) {
+      bestByClass.set(classId, { classId, seconds, driver, subsessionId: row.subsession_id, date: round.startTime });
+    }
+  }
+
+  return bestByClass;
+}
+
 /**
  * Builds a fast `(circuitId, eventLayoutName) -> count` lookup for "how many
  * historical rounds match this event's circuit+layout" — what calendar.astro
@@ -2064,6 +2164,77 @@ export function buildLayoutRoundCounter(
   return (circuitId, eventLayoutName) => {
     const key = resolveEventLayoutKey(circuitId, eventLayoutName, layouts);
     return countByKey.get(keyStr(key)) ?? 0;
+  };
+}
+
+/**
+ * Site-wide version of getLayoutClassBestLaps (see that function's own doc
+ * comment for the by-class/class-at-time-of-lap reasoning both share) —
+ * built for circuits.astro, which shows EVERY layout on one page and so
+ * needs a per-layout answer for all of them at once, not just one. Same
+ * "resolve every round's LayoutMatchKey exactly ONCE, then O(1) lookup per
+ * layout" approach as buildLayoutRoundCounter just above (see its own doc
+ * comment for the O(events * rounds) blowup a naive per-layout loop would
+ * cause) — this is that same idea extended to bucket by class and track a
+ * MIN lap time (not just a count) per bucket, from two whole-table bulk
+ * fetches (every curated_race_results/race_scores row with a lap time, not
+ * scoped to any particular subsession_id list) rather than one pair of
+ * queries per layout.
+ */
+export async function buildLayoutClassBestLaps(
+  env: SupabaseEnv,
+  allRounds: RoundSummary[],
+  roundLayoutBySubsession: Map<number, string | null>,
+  circuits: Circuit[],
+  layouts: CircuitLayout[],
+  driversBasic?: DriverBasic[]
+): Promise<(circuitId: string, eventLayoutName: string | null) => Map<number, ClassBestLap>> {
+  const [drivers, raceRows, scoreRows] = await Promise.all([
+    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
+    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null }>(
+      env,
+      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths&best_lap_ten_thousandths=not.is.null`
+    ),
+    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(env, `race_scores?select=subsession_id,driver_id,class_id`),
+  ]);
+
+  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
+  const classIdBySubDriver = new Map<string, number>();
+  for (const s of scoreRows) {
+    const key = `${s.subsession_id}:${s.driver_id}`;
+    if (!classIdBySubDriver.has(key)) classIdBySubDriver.set(key, s.class_id);
+  }
+
+  const keyStr = (key: LayoutMatchKey) => `${key.kind}:${key.id}`;
+  const bestByLayoutKeyClass = new Map<string, Map<number, ClassBestLap>>();
+
+  for (const row of raceRows) {
+    if (row.best_lap_ten_thousandths === null) continue;
+    const round = roundBySubsession.get(row.subsession_id);
+    if (!round) continue;
+    const driver = driverByCustId.get(row.cust_id);
+    if (!driver) continue;
+    const classId = classIdBySubDriver.get(`${row.subsession_id}:${driver.id}`);
+    if (classId === undefined) continue;
+    const layoutKey = resolveRoundLayoutKey(round.track_name, roundLayoutBySubsession.get(row.subsession_id) ?? null, circuits, layouts);
+    if (!layoutKey) continue;
+    const lk = keyStr(layoutKey);
+    let byClass = bestByLayoutKeyClass.get(lk);
+    if (!byClass) {
+      byClass = new Map();
+      bestByLayoutKeyClass.set(lk, byClass);
+    }
+    const seconds = row.best_lap_ten_thousandths / 10000;
+    const existing = byClass.get(classId);
+    if (!existing || seconds < existing.seconds) {
+      byClass.set(classId, { classId, seconds, driver, subsessionId: row.subsession_id, date: round.start_time });
+    }
+  }
+
+  return (circuitId, eventLayoutName) => {
+    const key = resolveEventLayoutKey(circuitId, eventLayoutName, layouts);
+    return bestByLayoutKeyClass.get(keyStr(key)) ?? new Map();
   };
 }
 
