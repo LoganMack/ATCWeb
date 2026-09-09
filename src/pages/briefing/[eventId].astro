@@ -15,6 +15,8 @@ import {
   getAllCircuitLayouts,
   getDriverClasses,
   getPenaltiesForSubsessions,
+  getCarLogos,
+  getRaceLinksForSubsessions,
   formatDate,
   formatLapTime,
   displayLayoutName,
@@ -23,6 +25,8 @@ import {
   type EventRecord,
   type Circuit,
   type CircuitLayout,
+  type CarLogo,
+  type RaceLinks,
 } from '../../lib/supabase';
 import { getEventSessions, formatSessionTime, CATEGORY_LABELS } from '../../lib/eventFormatting';
 import {
@@ -79,15 +83,24 @@ interface IncidentEntry {
   resolution: string | null;
 }
 let incidentEntries: IncidentEntry[] = [];
+/** One race's broadcast or photo-album link, paired with the historical round it belongs to for date/season display — same shape for both new sections below, just holding whichever url applies. */
+interface MediaEntry {
+  round: LayoutRoundSummary;
+  raceNumber: number;
+  url: string;
+}
+let broadcastEntries: MediaEntry[] = [];
+let photoAlbumEntries: MediaEntry[] = [];
 
 if (!loadError && event && event.circuit_id) {
   try {
-    const [circuits, layouts, driverClasses, allRounds, drivers] = await Promise.all([
+    const [circuits, layouts, driverClasses, allRounds, drivers, carLogos] = await Promise.all([
       getCircuits(supabaseEnv),
       getAllCircuitLayouts(supabaseEnv),
       getDriverClasses(supabaseEnv),
       getAllRounds(supabaseEnv),
       driversSelect(supabaseEnv, { includeAi: true }),
+      getCarLogos(supabaseEnv),
     ]);
 
     circuit = circuits.find((c) => c.id === event!.circuit_id) ?? null;
@@ -102,10 +115,14 @@ if (!loadError && event && event.circuit_id) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
 
-    const [layoutHighlights, layoutClassBestLaps, penalties] = await Promise.all([
+    const [layoutHighlights, layoutClassBestLaps, penalties, raceLinks] = await Promise.all([
       getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
-      getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers),
+      getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers, carLogos),
       getPenaltiesForSubsessions(
+        supabaseEnv,
+        historicalRounds.map((r) => r.subsessionId)
+      ),
+      getRaceLinksForSubsessions(
         supabaseEnv,
         historicalRounds.map((r) => r.subsessionId)
       ),
@@ -134,6 +151,24 @@ if (!loadError && event && event.circuit_id) {
       })
       .filter((x): x is IncidentEntry => x !== null)
       .sort((a, b) => b.round.startTime.localeCompare(a.round.startTime));
+
+    const byRoundDesc = (a: MediaEntry, b: MediaEntry) => b.round.startTime.localeCompare(a.round.startTime);
+    broadcastEntries = raceLinks
+      .filter((l): l is RaceLinks & { broadcast_url: string } => l.broadcast_url !== null)
+      .map((l): MediaEntry | null => {
+        const round = roundBySubsession.get(l.subsession_id);
+        return round ? { round, raceNumber: l.race_number, url: l.broadcast_url } : null;
+      })
+      .filter((x): x is MediaEntry => x !== null)
+      .sort(byRoundDesc);
+    photoAlbumEntries = raceLinks
+      .filter((l): l is RaceLinks & { photo_album_url: string } => l.photo_album_url !== null)
+      .map((l): MediaEntry | null => {
+        const round = roundBySubsession.get(l.subsession_id);
+        return round ? { round, raceNumber: l.race_number, url: l.photo_album_url } : null;
+      })
+      .filter((x): x is MediaEntry => x !== null)
+      .sort(byRoundDesc);
   } catch (err) {
     console.error('Failed to load Event Briefing historical data:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -254,6 +289,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </span>
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
                     <span class="text-white/70">{displayDriverName(gammaBestLap.driver.name)}</span>
+                    {gammaBestLap.carLogoUrl && (
+                      <img src={gammaBestLap.carLogoUrl} alt={gammaBestLap.carName ?? ''} class="h-5 w-5 flex-none rounded object-contain" />
+                    )}
                     <span class="text-white/40">({formatDate(gammaBestLap.date)})</span>
                   </p>
                 )}
@@ -264,6 +302,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </span>
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
                     <span class="text-white/70">{displayDriverName(deltaBestLap.driver.name)}</span>
+                    {deltaBestLap.carLogoUrl && (
+                      <img src={deltaBestLap.carLogoUrl} alt={deltaBestLap.carName ?? ''} class="h-5 w-5 flex-none rounded object-contain" />
+                    )}
                     <span class="text-white/40">({formatDate(deltaBestLap.date)})</span>
                   </p>
                 )}
@@ -326,24 +367,35 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         {/* 4. Past results at this circuit layout — same round list
             findRoundsForLayout() already powers for the calendar page's
             "Race Recaps at this Layout," just rendered here as plain links
-            into the full results page rather than an expandable recap. */}
+            into the full results page rather than an expandable recap.
+            Starts collapsed, like every section below it — a <details>
+            wraps the heading + list together, same group/rotate-caret
+            convention used site-wide (see circuits.astro), rather than the
+            per-item collapse Past Incidents' descriptions use. */}
         <div class="reveal mt-8" style="transition-delay: 140ms">
-          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Results at This Layout</h2>
-          {historicalRounds.length === 0 ? (
-            <p class="mt-3 text-sm text-white/40">No past rounds at this layout yet.</p>
-          ) : (
-            <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {historicalRounds.map((r, i) => (
-                <a
-                  href={`/results/${r.subsessionId}`}
-                  class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
-                >
-                  <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
-                  <span class="text-white/50">{formatDate(r.startTime)}</span>
-                </a>
-              ))}
+          <details class="group">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+              <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Results</h2>
+              <span class="text-white/40 transition group-open:rotate-180">▾</span>
+            </summary>
+            <div class="mt-3">
+              {historicalRounds.length === 0 ? (
+                <p class="text-sm text-white/40">No past rounds at this layout yet.</p>
+              ) : (
+                <div class="overflow-hidden rounded-xl border border-white/10">
+                  {historicalRounds.map((r, i) => (
+                    <a
+                      href={`/results/${r.subsessionId}`}
+                      class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
+                    >
+                      <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
+                      <span class="text-white/50">{formatDate(r.startTime)}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </details>
         </div>
 
         {/* 5. Past incidents at this circuit layout — every penalty logged
@@ -355,33 +407,111 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             "who" identity, just one of two kinds. The free-text description
             starts collapsed (often long/narrative) with its own toggle; the
             resolution (time/points/PP/warning, from describePenaltyResolution)
-            stays always visible on its own line below it. */}
+            stays always visible on its own line below it. The whole section
+            (heading + list) also starts collapsed, same as Past Results. */}
         <div class="reveal mt-8" style="transition-delay: 160ms">
-          <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Incidents at This Layout</h2>
-          {incidentEntries.length === 0 ? (
-            <p class="mt-3 text-sm text-white/40">No incidents logged at this layout yet.</p>
-          ) : (
-            <div class="mt-3 overflow-hidden rounded-xl border border-white/10">
-              {incidentEntries.map((inc, i) => (
-                <div class={`p-3 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
-                  <div class="flex flex-wrap items-center justify-between gap-2">
-                    <span class="font-semibold text-white">{inc.identityLabel}</span>
-                    <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-xs text-white/40 hover:text-white">
-                      {formatDate(inc.round.startTime)}
-                    </a>
-                  </div>
-                  <details class="group mt-1">
-                    <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-white/40 hover:text-white/60">
-                      Description
-                      <span class="text-white/30 transition group-open:rotate-180">▾</span>
-                    </summary>
-                    <p class="mt-1 text-white/70">{inc.description}</p>
-                  </details>
-                  {inc.resolution && <p class="mt-1 text-xs text-white/50">{inc.resolution}</p>}
+          <details class="group">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+              <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Incidents</h2>
+              <span class="text-white/40 transition group-open:rotate-180">▾</span>
+            </summary>
+            <div class="mt-3">
+              {incidentEntries.length === 0 ? (
+                <p class="text-sm text-white/40">No incidents logged at this layout yet.</p>
+              ) : (
+                <div class="overflow-hidden rounded-xl border border-white/10">
+                  {incidentEntries.map((inc, i) => (
+                    <div class={`p-3 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="font-semibold text-white">{inc.identityLabel}</span>
+                        <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-xs text-white/40 hover:text-white">
+                          {formatDate(inc.round.startTime)}
+                        </a>
+                      </div>
+                      <details class="group mt-1">
+                        <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-white/40 hover:text-white/60">
+                          Description
+                          <span class="text-white/30 transition group-open:rotate-180">▾</span>
+                        </summary>
+                        <p class="mt-1 text-white/70">{inc.description}</p>
+                      </details>
+                      {inc.resolution && <p class="mt-1 text-xs text-white/50">{inc.resolution}</p>}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </details>
+        </div>
+
+        {/* 6. Past broadcasts at this circuit layout — every race_links row
+            with a broadcast_url set, across the same historical rounds Past
+            Results/Incidents above use, newest first. Same collapsed-by-
+            default section shape as Past Results/Incidents; a plain link
+            list (no thumbnail) since this is a compact briefing summary,
+            not the Media page's own Videos → Broadcasts gallery. */}
+        <div class="reveal mt-8" style="transition-delay: 180ms">
+          <details class="group">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+              <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Broadcasts</h2>
+              <span class="text-white/40 transition group-open:rotate-180">▾</span>
+            </summary>
+            <div class="mt-3">
+              {broadcastEntries.length === 0 ? (
+                <p class="text-sm text-white/40">No broadcasts on file for this layout yet.</p>
+              ) : (
+                <div class="overflow-hidden rounded-xl border border-white/10">
+                  {broadcastEntries.map((b, i) => (
+                    <a
+                      href={b.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
+                    >
+                      <span class="font-semibold">
+                        {b.round.seasonLabel ?? CATEGORY_LABELS.championship}
+                        {b.raceNumber > 1 && ` — Race ${b.raceNumber}`}
+                      </span>
+                      <span class="text-white/50">{formatDate(b.round.startTime)}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
+        </div>
+
+        {/* 7. Past photo albums at this circuit layout — same shape as Past
+            Broadcasts just above, against race_links.photo_album_url. */}
+        <div class="reveal mt-8" style="transition-delay: 200ms">
+          <details class="group">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+              <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Photo Albums</h2>
+              <span class="text-white/40 transition group-open:rotate-180">▾</span>
+            </summary>
+            <div class="mt-3">
+              {photoAlbumEntries.length === 0 ? (
+                <p class="text-sm text-white/40">No photo albums on file for this layout yet.</p>
+              ) : (
+                <div class="overflow-hidden rounded-xl border border-white/10">
+                  {photoAlbumEntries.map((p, i) => (
+                    <a
+                      href={p.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
+                    >
+                      <span class="font-semibold">
+                        {p.round.seasonLabel ?? CATEGORY_LABELS.championship}
+                        {p.raceNumber > 1 && ` — Race ${p.raceNumber}`}
+                      </span>
+                      <span class="text-white/50">{formatDate(p.round.startTime)}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
         </div>
       </>
     )}

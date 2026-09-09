@@ -1359,6 +1359,19 @@ export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: 
 }
 
 /**
+ * Every race's links across a given set of rounds — the bulk version of
+ * getRaceLinksForSubsession above, same "one query for many rounds at once"
+ * shape as getPenaltiesForSubsessions. Used by the Event Briefing page to
+ * pull broadcast/photo-album links for every historical round at one
+ * layout without a per-round fetch. Returns an empty list (no query) for
+ * an empty input, same as getPenaltiesForSubsessions.
+ */
+export async function getRaceLinksForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RaceLinks[]> {
+  if (subsessionIds.length === 0) return [];
+  return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&subsession_id=in.(${subsessionIds.join(',')})`);
+}
+
+/**
  * Every race_links row across every round that has a broadcast_url set —
  * powers the Media page's Videos → Broadcasts filter (default filter),
  * which needs "every broadcast link on file" rather than one round at a

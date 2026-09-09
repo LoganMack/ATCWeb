@@ -2051,6 +2051,10 @@ export interface ClassBestLap {
   subsessionId: number;
   /** The round's start_time this lap was set in — `curated_rounds.start_time`, same field LayoutRoundSummary.startTime carries. */
   date: string;
+  /** `curated_race_results.car_name` for this exact (subsession_id, driver) row — the car actually driven to set this lap, not whatever the driver drives today. Null on the rare row with no car_name on file. */
+  carName: string | null;
+  /** car_logos lookup for carName (0009_car_logos.sql, admin-curated, keyed by car_name text) — null when carName is null or has no logo on file. */
+  carLogoUrl: string | null;
 }
 
 /**
@@ -2074,7 +2078,9 @@ export interface ClassBestLap {
 export async function getLayoutClassBestLaps(
   env: SupabaseEnv,
   rounds: LayoutRoundSummary[],
-  driversBasic?: DriverBasic[]
+  driversBasic?: DriverBasic[],
+  /** See getSeasonCarTeamStats' identical param — pass a pre-fetched car_logos list to skip this function's own fetch. */
+  carLogosLookup?: CarLogo[]
 ): Promise<Map<number, ClassBestLap>> {
   const bestByClass = new Map<number, ClassBestLap>();
   if (rounds.length === 0) return bestByClass;
@@ -2082,11 +2088,12 @@ export async function getLayoutClassBestLaps(
   const subsessionIds = rounds.map((r) => r.subsessionId);
   const roundBySubsession = new Map(rounds.map((r) => [r.subsessionId, r]));
 
-  const [drivers, raceRows, scoreRows] = await Promise.all([
+  const [drivers, carLogos, raceRows, scoreRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
-    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null }>(
+    carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
+    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`
+      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
@@ -2095,6 +2102,7 @@ export async function getLayoutClassBestLaps(
   ]);
 
   const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   // First class_id seen per (subsession, driver) — same "class doesn't
   // change race-to-race within one round" reasoning as every other
   // per-round class lookup in this file.
@@ -2115,7 +2123,15 @@ export async function getLayoutClassBestLaps(
     const seconds = row.best_lap_ten_thousandths / 10000;
     const existing = bestByClass.get(classId);
     if (!existing || seconds < existing.seconds) {
-      bestByClass.set(classId, { classId, seconds, driver, subsessionId: row.subsession_id, date: round.startTime });
+      bestByClass.set(classId, {
+        classId,
+        seconds,
+        driver,
+        subsessionId: row.subsession_id,
+        date: round.startTime,
+        carName: row.car_name,
+        carLogoUrl: row.car_name ? (carLogoByName.get(row.car_name) ?? null) : null,
+      });
     }
   }
 
@@ -2187,18 +2203,22 @@ export async function buildLayoutClassBestLaps(
   roundLayoutBySubsession: Map<number, string | null>,
   circuits: Circuit[],
   layouts: CircuitLayout[],
-  driversBasic?: DriverBasic[]
+  driversBasic?: DriverBasic[],
+  /** See getSeasonCarTeamStats' identical param — pass a pre-fetched car_logos list to skip this function's own fetch. */
+  carLogosLookup?: CarLogo[]
 ): Promise<(circuitId: string, eventLayoutName: string | null) => Map<number, ClassBestLap>> {
-  const [drivers, raceRows, scoreRows] = await Promise.all([
+  const [drivers, carLogos, raceRows, scoreRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
-    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null }>(
+    carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
+    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths&best_lap_ten_thousandths=not.is.null`
+      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&best_lap_ten_thousandths=not.is.null`
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(env, `race_scores?select=subsession_id,driver_id,class_id`),
   ]);
 
   const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const classIdBySubDriver = new Map<string, number>();
   for (const s of scoreRows) {
@@ -2228,7 +2248,15 @@ export async function buildLayoutClassBestLaps(
     const seconds = row.best_lap_ten_thousandths / 10000;
     const existing = byClass.get(classId);
     if (!existing || seconds < existing.seconds) {
-      byClass.set(classId, { classId, seconds, driver, subsessionId: row.subsession_id, date: round.start_time });
+      byClass.set(classId, {
+        classId,
+        seconds,
+        driver,
+        subsessionId: row.subsession_id,
+        date: round.start_time,
+        carName: row.car_name,
+        carLogoUrl: row.car_name ? (carLogoByName.get(row.car_name) ?? null) : null,
+      });
     }
   }
 
