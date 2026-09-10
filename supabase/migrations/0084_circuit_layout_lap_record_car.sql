@@ -1,0 +1,13 @@
+-- Alpha Touring Challenge — car driven for the curated lap record
+--
+-- circuit_layouts.lap_record_holder is free text (may predate ATC, or come
+-- from a source broader than this league's own imported results — see
+-- 0013_circuit_layout_lap_record_seconds.sql), so there's no driver/
+-- subsession row to resolve a car from the way the Event Briefing page's
+-- Gamma/Delta best-lap lines do (curated_race_results.car_name for that
+-- exact row — see getLayoutClassBestLaps in src/lib/results.ts). This adds
+-- a small admin-entered companion field so the record's car logo (and name,
+-- on hover) can show next to the holder's name there too, same as those two
+-- lines — keyed against car_logos.car_name (0009_car_logos.sql) the same
+-- way, just typed in by an admin instead of read off a results row.
+alter table circuit_layouts add column if not exists lap_record_car_name text;

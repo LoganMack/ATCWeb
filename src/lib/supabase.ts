@@ -2695,6 +2695,8 @@ export interface PageViewStats {
   topCountries: { country: string; visitors: number }[];
   /** Always exactly 24 entries (hour 0-23, America/New_York), last 30 days — see get_page_view_stats() for why every hour is guaranteed present even with zero views. */
   hourly: { hour: number; views: number }[];
+  /** Same shape as `hourly` above, scoped to just today's calendar date in America/New_York instead of the last 30 days — see get_page_view_stats() (0083_page_views_hourly_today.sql). */
+  hourlyToday: { hour: number; views: number }[];
   /** Last 30 days, successful (200) views only, most-visited first — see get_page_view_stats() (0080_page_views_status_and_stats.sql). */
   topPages: { path: string; views: number }[];
   /** Last 30 days, status >= 400 only, grouped by path+status so a 404 and a 500 on the same path show separately. */

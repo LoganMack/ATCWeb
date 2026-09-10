@@ -85,6 +85,7 @@ import {
   type LeaderRaceStats,
   type Format,
 } from './penalties';
+import { LEAGUE_TIME_ZONE } from './timezone';
 
 /**
  * Real championship seasons are named like "ATC17" — anything that doesn't
@@ -2136,6 +2137,79 @@ export async function getLayoutClassBestLaps(
   }
 
   return bestByClass;
+}
+
+export interface ResolvedLapRecordCar {
+  carName: string;
+  carLogoUrl: string | null;
+}
+
+/**
+ * Best-effort match of circuit_layouts' admin-curated lap record
+ * (lap_record_seconds/lap_record_date, both free-typed — see
+ * 0013_circuit_layout_lap_record_seconds.sql) back to the actual
+ * curated_race_results row it came from, so its car can be read off that
+ * row and looked up in car_logos — same idea as getLayoutClassBestLaps'
+ * Gamma/Delta lines just above, just applied to a pre-existing record
+ * instead of one this file computes itself.
+ *
+ * Matching strategy: narrow to rounds at this layout on the record's own
+ * date (America/New_York, matching every other "IRL" date on the site —
+ * see LEAGUE_TIME_ZONE), then find whichever curated_race_results row's lap
+ * time is closest to lap_record_seconds, within a small tolerance. The
+ * tolerance (rather than exact equality) exists because lap_record_seconds
+ * was typed in from a formatted "1:42.512" display (3 decimals) while
+ * curated_race_results stores raw ten-thousandths (4 decimals) — an exact
+ * check would miss real matches on rounding alone. Falls back to searching
+ * every historical round at this layout (still lap-time-scoped, same
+ * tolerance) when no round matches the date, in case the date was entered
+ * slightly off or left unset — a coincidental collision within 2ms across
+ * unrelated rounds is vanishingly unlikely.
+ *
+ * Returns null, with no error, whenever nothing matches close enough — this
+ * is the expected, correct outcome for a record that predates ATC's own
+ * imported results or comes from a source broader than this league (this
+ * field's own doc comment), not a bug to chase. The Event Briefing page
+ * just shows no logo in that case, same graceful-degradation as everywhere
+ * else a car_logos lookup can come up empty.
+ */
+export async function resolveLapRecordCar(
+  env: SupabaseEnv,
+  layoutRow: Pick<CircuitLayout, 'lap_record_seconds' | 'lap_record_date'>,
+  historicalRounds: LayoutRoundSummary[],
+  carLogosLookup?: CarLogo[]
+): Promise<ResolvedLapRecordCar | null> {
+  if (layoutRow.lap_record_seconds === null || historicalRounds.length === 0) return null;
+
+  const etDate = (iso: string) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: LEAGUE_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+
+  const dateMatches = layoutRow.lap_record_date
+    ? historicalRounds.filter((r) => etDate(r.startTime) === layoutRow.lap_record_date)
+    : [];
+  const candidateRounds = dateMatches.length > 0 ? dateMatches : historicalRounds;
+  const subsessionIds = candidateRounds.map((r) => r.subsessionId);
+
+  const [rows, carLogos] = await Promise.all([
+    restGetAll<{ subsession_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
+      env,
+      `curated_race_results?select=subsession_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&car_name=not.is.null`
+    ),
+    carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
+  ]);
+
+  const TOLERANCE_SECONDS = 0.002;
+  let best: { carName: string; diff: number } | null = null;
+  for (const row of rows) {
+    if (row.best_lap_ten_thousandths === null || !row.car_name) continue;
+    const diff = Math.abs(row.best_lap_ten_thousandths / 10000 - layoutRow.lap_record_seconds);
+    if (diff > TOLERANCE_SECONDS) continue;
+    if (!best || diff < best.diff) best = { carName: row.car_name, diff };
+  }
+  if (!best) return null;
+
+  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
+  return { carName: best.carName, carLogoUrl: carLogoByName.get(best.carName) ?? null };
 }
 
 /**

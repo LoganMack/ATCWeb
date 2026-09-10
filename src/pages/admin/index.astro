@@ -160,6 +160,8 @@ const topCountries = pageViewStats?.topCountries ?? [];
 const maxCountryVisitors = Math.max(1, ...topCountries.map((c) => c.visitors));
 const hourly = pageViewStats?.hourly ?? [];
 const maxHourlyViews = Math.max(1, ...hourly.map((h) => h.views));
+const hourlyToday = pageViewStats?.hourlyToday ?? [];
+const maxHourlyTodayViews = Math.max(1, ...hourlyToday.map((h) => h.views));
 const topPages = pageViewStats?.topPages ?? [];
 const maxPageViews = Math.max(1, ...topPages.map((p) => p.views));
 const topErrors = pageViewStats?.topErrors ?? [];
@@ -284,6 +286,35 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
               <span>6pm</span>
               <span>12am</span>
             </div>
+          </div>
+        </div>
+
+        {/* Same shape as the 30-day chart just above, scoped to just today
+            (America/New_York) via get_page_view_stats()' hourlyToday key
+            (0083_page_views_hourly_today.sql) — a real-time-ish traffic
+            shape that 30 days of averaging would otherwise smooth away.
+            Full-width its own row (rather than paired in the 2-col grid
+            above) since it reads as a companion to that chart, not to Top
+            Regions. */}
+        <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <h3 class="text-xs uppercase tracking-wide text-white/40">Traffic by Hour (Today, ET)</h3>
+          <div class="mt-4 flex h-24 items-stretch gap-1">
+            {hourlyToday.map((h) => (
+              <div class="relative h-full flex-1 rounded-t bg-white/5">
+                <div
+                  class="absolute bottom-0 w-full rounded-t bg-brand-primary/70 transition hover:bg-brand-primary"
+                  style={`height: ${Math.round((h.views / maxHourlyTodayViews) * 100)}%`}
+                  title={`${formatHour(h.hour)} ET — ${h.views} view${h.views === 1 ? '' : 's'}`}
+                />
+              </div>
+            ))}
+          </div>
+          <div class="mt-1 flex justify-between text-[10px] text-white/30">
+            <span>12am</span>
+            <span>6am</span>
+            <span>12pm</span>
+            <span>6pm</span>
+            <span>12am</span>
           </div>
         </div>
 

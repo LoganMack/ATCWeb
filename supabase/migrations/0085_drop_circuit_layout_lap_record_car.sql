@@ -1,0 +1,13 @@
+-- Alpha Touring Challenge — drop circuit_layouts.lap_record_car_name
+--
+-- Added in 0084_circuit_layout_lap_record_car.sql as an admin-typed
+-- companion field so the Event Briefing page could show a car logo next to
+-- the curated lap record holder. Superseded the same day by
+-- resolveLapRecordCar() (src/lib/results.ts) — since we already know the
+-- record's date and lap time, and curated_race_results already has the car
+-- for every logged lap, the car can be matched automatically (closest lap
+-- time on the record's own date, small tolerance for rounding) instead of
+-- asking an admin to type it in a second time. No real data was ever
+-- entered into this column (added and dropped within the same session), so
+-- there's nothing to backfill or migrate off of it.
+alter table circuit_layouts drop column if exists lap_record_car_name;

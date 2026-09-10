@@ -36,6 +36,7 @@ import {
   getRoundLayoutsForSubsessions,
   getLayoutClassHighlights,
   getLayoutClassBestLaps,
+  resolveLapRecordCar,
   driversSelect,
   describePenaltyResolution,
   type LayoutRoundSummary,
@@ -68,6 +69,9 @@ const sessions = event ? getEventSessions(event) : [];
 
 let circuit: Circuit | null = null;
 let layoutRow: CircuitLayout | null = null;
+/** The car (and its car_logos logo) resolveLapRecordCar() matched the curated lap_record_seconds/holder/date to, by finding the actual curated_race_results row it came from — see that function's own doc comment. Both null when no match is found (a record that predates ATC's own results, or lands outside the 2ms lap-time tolerance) — the page just shows no logo/hover-name in that case. */
+let recordCarName: string | null = null;
+let recordCarLogoUrl: string | null = null;
 let imageUrl: string | null = null;
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let classNameById = new Map<number, string>();
@@ -115,7 +119,7 @@ if (!loadError && event && event.circuit_id) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
 
-    const [layoutHighlights, layoutClassBestLaps, penalties, raceLinks] = await Promise.all([
+    const [layoutHighlights, layoutClassBestLaps, penalties, raceLinks, resolvedRecordCar] = await Promise.all([
       getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
       getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers, carLogos),
       getPenaltiesForSubsessions(
@@ -126,9 +130,12 @@ if (!loadError && event && event.circuit_id) {
         supabaseEnv,
         historicalRounds.map((r) => r.subsessionId)
       ),
+      layoutRow ? resolveLapRecordCar(supabaseEnv, layoutRow, historicalRounds, carLogos) : Promise.resolve(null),
     ]);
     highlights = layoutHighlights;
     classBestLaps = layoutClassBestLaps;
+    recordCarName = resolvedRecordCar?.carName ?? null;
+    recordCarLogoUrl = resolvedRecordCar?.carLogoUrl ?? null;
 
     const driverById = new Map(drivers.map((d) => [d.id, d]));
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
@@ -271,9 +278,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Track Record</h2>
           <div class="mt-3 rounded-xl border border-white/10 p-4 text-sm">
             {layoutRow && layoutRow.lap_record_seconds !== null ? (
-              <p>
+              <p class="flex flex-wrap items-center">
                 <span class="font-display text-2xl">{formatLapTime(layoutRow.lap_record_seconds)}</span>
                 {layoutRow.lap_record_holder && <span class="ml-2 text-white/70">{layoutRow.lap_record_holder}</span>}
+                {recordCarLogoUrl && (
+                  <img
+                    src={recordCarLogoUrl}
+                    alt={recordCarName ?? ''}
+                    title={recordCarName ?? ''}
+                    class="ml-2 h-5 w-5 flex-none rounded object-contain"
+                  />
+                )}
                 {layoutRow.lap_record_date && <span class="ml-1 text-white/40">({formatDate(layoutRow.lap_record_date)})</span>}
               </p>
             ) : (
@@ -290,7 +305,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
                     <span class="text-white/70">{displayDriverName(gammaBestLap.driver.name)}</span>
                     {gammaBestLap.carLogoUrl && (
-                      <img src={gammaBestLap.carLogoUrl} alt={gammaBestLap.carName ?? ''} class="h-5 w-5 flex-none rounded object-contain" />
+                      <img
+                        src={gammaBestLap.carLogoUrl}
+                        alt={gammaBestLap.carName ?? ''}
+                        title={gammaBestLap.carName ?? ''}
+                        class="h-5 w-5 flex-none rounded object-contain"
+                      />
                     )}
                     <span class="text-white/40">({formatDate(gammaBestLap.date)})</span>
                   </p>
@@ -303,7 +323,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
                     <span class="text-white/70">{displayDriverName(deltaBestLap.driver.name)}</span>
                     {deltaBestLap.carLogoUrl && (
-                      <img src={deltaBestLap.carLogoUrl} alt={deltaBestLap.carName ?? ''} class="h-5 w-5 flex-none rounded object-contain" />
+                      <img
+                        src={deltaBestLap.carLogoUrl}
+                        alt={deltaBestLap.carName ?? ''}
+                        title={deltaBestLap.carName ?? ''}
+                        class="h-5 w-5 flex-none rounded object-contain"
+                      />
                     )}
                     <span class="text-white/40">({formatDate(deltaBestLap.date)})</span>
                   </p>
