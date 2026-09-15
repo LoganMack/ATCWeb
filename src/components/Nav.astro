@@ -296,8 +296,8 @@ const links: { href: string; label: string; external?: boolean }[] = [
 
   document.addEventListener('astro:page-load', initLiveBanner);
 
-  // Frozen table headers (src/styles/global.css: `.overflow-x-auto thead
-  // th`) stick just below THIS header as the page scrolls — but this
+  // Frozen table headers (src/styles/global.css: `[data-sticky-thead]
+  // thead th`) stick just below THIS header as the page scrolls — but this
   // header's own real height isn't a fixed number: the "Happening Now"
   // banner above adds to it on some page loads and not others, and the
   // logo (h-9 vs h-11) changes size at the sm: breakpoint. Rather than

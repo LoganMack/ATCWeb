@@ -291,7 +291,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           {section.rows.length === 0 ? (
             <p class="text-sm text-white/40">No results.</p>
           ) : (
-            <div class="overflow-x-auto">
+            <div data-sticky-thead>
               <table class="w-full min-w-[480px] border-collapse text-sm">
                 <thead>
                   <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">

@@ -282,7 +282,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && mode === 'list' && standings.length > 0 && (
-      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
+      <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
         <table class="w-full border-collapse" data-sortable>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -422,7 +422,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && mode === 'matrix' && standings.length > 0 && (
-      <div class="mt-8 overflow-x-auto rounded-xl border border-white/10">
+      <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
         <table class="w-full border-collapse text-sm">
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">

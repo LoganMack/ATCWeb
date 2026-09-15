@@ -188,16 +188,38 @@ th[data-sort-key][data-sort-dir='desc']::after {
    the nav depending on the page. This :root default is only the same-page
    fallback for the instant before that script runs.
 
-   Scoped to `.overflow-x-auto` — every results/standings/roster/admin
-   table on the site wraps its `<table>` in a div carrying that class (the
-   site's own established convention) — specifically so this does NOT also
-   catch the two driver-profile season/round tables
-   (src/pages/drivers/[id]/fragment.astro) that scroll inside their own
-   fixed-height `max-h-[23rem] overflow-auto` panel instead of with the
-   page. Those already have their own correct `sticky top-0` header scoped
-   to that panel, and don't want the nav's offset at all — nesting this
-   rule's `position: sticky` inside an already-sticky ancestor would be at
-   best redundant, at worst fight it.
+   Scoped to `[data-sticky-thead]` — a marker attribute added to each
+   table's own `overflow-x-auto` wrapper div, back when these tables used
+   to scroll horizontally on narrow screens. That had to be removed
+   (Logan's call, Sept 2026): `overflow-x: auto` on one axis makes the
+   BROWSER silently compute the other axis's overflow to `auto` too (a real
+   CSS rule, not a bug), which makes the wrapper div itself a scrolling
+   container — and `position: sticky` on anything inside it then sticks
+   relative to THAT DIV, not the page, even though the div itself never
+   actually scrolls vertically. That's what caused the frozen header to
+   render detached (sitting on top of a body row instead of above it) the
+   first time this was implemented — confirmed by reproducing it standalone
+   and watching it resolve instantly the moment overflow-x-auto came off.
+   There's a real CSS-level fix for this now (per-axis scroll containers),
+   but as of this writing it's Chrome-only behind an experimental flag, not
+   something a production site can rely on. So: no more horizontal
+   scrolling on these tables — a table wider than its card now just
+   overflows past it instead of scrolling. Low real risk on the
+   public-facing tables (they already hide extra columns at sm:/md:/lg:
+   before this point), higher on admin tables and the two driver-profile
+   "detail row" breakdown tables (team-stats/fragment.astro,
+   driver-stats/fragment.astro — both force a wide min-width and don't hide
+   any columns), which can now genuinely overflow on a narrow window.
+
+   `[data-sticky-thead]` specifically does NOT include the two
+   driver-profile season/round tables (src/pages/drivers/[id]/fragment.astro)
+   that scroll inside their own fixed-height `max-h-[23rem] overflow-auto`
+   panel instead of with the page — those intentionally exploit the same
+   overflow-auto-creates-a-scroll-container behavior explained above, and
+   already have their own correct `sticky top-0` header scoped to that
+   panel; they don't want the nav's offset, and stacking this rule's
+   `position: sticky` inside an already-sticky ancestor would be redundant
+   at best.
 
    Sticky positioning is applied per-`<th>` rather than on `<thead>`/`<tr>`
    — the more broadly-supported technique for a table header that needs to
@@ -205,17 +227,17 @@ th[data-sort-key][data-sort-dir='desc']::after {
    uses). An opaque `bg-brand-ink` is required so body rows scrolling
    underneath don't show through the frozen header — it matches the page's
    own background exactly, since none of these tables sit on a distinct
-   card panel of their own (see the wrapper convention above). The bottom
-   border is redrawn as a `box-shadow` instead of relying on the header
-   row's own Tailwind `border-b` class: a collapsed-border table's cell
-   borders aren't guaranteed to repaint correctly once those cells are
-   offset by `position: sticky`, but a box-shadow paints with the element
-   itself, so it can't be affected by that. */
+   card panel of their own. The bottom border is redrawn as a `box-shadow`
+   instead of relying on the header row's own Tailwind `border-b` class: a
+   collapsed-border table's cell borders aren't guaranteed to repaint
+   correctly once those cells are offset by `position: sticky`, but a
+   box-shadow paints with the element itself, so it can't be affected by
+   that. */
 :root {
   --sticky-header-offset: 76px;
 }
 
-.overflow-x-auto thead th {
+[data-sticky-thead] thead th {
   position: sticky;
   top: var(--sticky-header-offset);
   z-index: 20;
