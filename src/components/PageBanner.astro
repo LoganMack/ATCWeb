@@ -13,9 +13,33 @@
 // ink by the bottom of that band so it blends into the rest of the (black)
 // page rather than hard-cutting off.
 //
-// Usage: add `relative overflow-hidden` to the page's <section>, then drop
+// Usage: add `relative` to the page's <section> (needed so the two
+// absolutely-positioned divs below anchor to it), then drop
 // <PageBanner imageUrl={...} /> as the section's first child, before the
 // <h1>.
+//
+// Deliberately NOT `overflow-hidden` on that section, even though it might
+// look like the obvious pairing with `relative` here — both of this
+// component's own divs are already self-bounding (`inset-x-0 top-0` plus an
+// explicit `h-40`/`sm:h-56`, and a CSS `background-image` is clipped to its
+// own box regardless of overflow), so overflow-hidden was never actually
+// doing any clipping work for THIS component. What it does do is make that
+// <section> a scroll container, which — per the exact same overflow-not-
+// visible-creates-a-scroll-container rule documented at length in
+// global.css next to `[data-sticky-thead]` — hijacks position:sticky for
+// every frozen table header anywhere inside that section (or inside a
+// fragment loaded into it), making them stick to the section instead of the
+// page. That's exactly how standings/team-standings/roster/teams/driver
+// profile/driver stats/team stats/hall of fame/awards all silently lost
+// their sticky headers (Logan's report, Sept 2026) while results pages —
+// the one place this component ISN'T used — kept working. Confirmed via the
+// same Playwright rect-inspection technique used for the original
+// overflow-x-auto version of this bug: adding overflow-hidden back
+// reproduces it instantly, removing it fixes it instantly, and no visual
+// difference appears either way (nothing here ever relied on it clipping
+// anything). If a future page genuinely needs to clip something that
+// bleeds past its own box, scope overflow-hidden to a wrapper around just
+// that element instead of the whole section.
 interface Props {
   imageUrl: string | null;
 }

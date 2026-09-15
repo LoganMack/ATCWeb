@@ -211,6 +211,22 @@ th[data-sort-key][data-sort-dir='desc']::after {
    driver-stats/fragment.astro — both force a wide min-width and don't hide
    any columns), which can now genuinely overflow on a narrow window.
 
+   UPDATE (Logan's report, Sept 2026): the exact same overflow-not-visible-
+   creates-a-scroll-container rule bit this feature a second time, one level
+   higher up the DOM than the fix above — the shared "relative overflow-
+   hidden" wrapper `<section>` every PageBanner-using page (standings,
+   team-standings, roster, teams, driver profile, driver/team stats, hall of
+   fame, awards) was built with turned THAT section into the sticky
+   reference frame instead of the page, exactly like the wrapper divs did
+   before. Results pages don't use PageBanner and so never had this ancestor
+   — that's why sticky headers kept working there and nowhere else. Fixed by
+   dropping `overflow-hidden` from those sections (`relative` alone is
+   enough for PageBanner's own absolutely-positioned divs, which are already
+   self-bounding and were never actually relying on the parent clipping
+   them — see PageBanner.astro's own doc comment for the full explanation
+   and the Playwright verification). No table wrapper changes needed this
+   time; `[data-sticky-thead]` itself was already correct everywhere.
+
    `[data-sticky-thead]` specifically does NOT include the two
    driver-profile season/round tables (src/pages/drivers/[id]/fragment.astro)
    that scroll inside their own fixed-height `max-h-[23rem] overflow-auto`
