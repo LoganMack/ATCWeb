@@ -138,7 +138,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
 
     <h1 class="reveal mt-4 font-display text-4xl sm:text-5xl">{post.title}</h1>
     <p class="reveal mt-4 flex flex-wrap items-center gap-2 text-sm uppercase tracking-widest text-white/50" style="transition-delay: 80ms">
-      <span>{date} · {post.author_name}</span>
+      <span>{date}</span>
       {post.season_label && (
         <span class="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/50">
           {post.season_label}
