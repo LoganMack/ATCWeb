@@ -179,3 +179,46 @@ th[data-sort-key][data-sort-dir='desc']::after {
   content: '\25BC';
   opacity: 1;
 }
+
+/* Frozen table headers. `--sticky-header-offset` is kept in sync with the
+   site's own sticky nav bar's REAL height by updateStickyHeaderOffset() in
+   Nav.astro — that height varies page to page (the "Happening Now" live
+   banner adds to it on some page loads, not others), so a hardcoded value
+   here would either leave a gap or let a frozen header sit half-covered by
+   the nav depending on the page. This :root default is only the same-page
+   fallback for the instant before that script runs.
+
+   Scoped to `.overflow-x-auto` — every results/standings/roster/admin
+   table on the site wraps its `<table>` in a div carrying that class (the
+   site's own established convention) — specifically so this does NOT also
+   catch the two driver-profile season/round tables
+   (src/pages/drivers/[id]/fragment.astro) that scroll inside their own
+   fixed-height `max-h-[23rem] overflow-auto` panel instead of with the
+   page. Those already have their own correct `sticky top-0` header scoped
+   to that panel, and don't want the nav's offset at all — nesting this
+   rule's `position: sticky` inside an already-sticky ancestor would be at
+   best redundant, at worst fight it.
+
+   Sticky positioning is applied per-`<th>` rather than on `<thead>`/`<tr>`
+   — the more broadly-supported technique for a table header that needs to
+   keep working under `border-collapse: collapse` (which every table here
+   uses). An opaque `bg-brand-ink` is required so body rows scrolling
+   underneath don't show through the frozen header — it matches the page's
+   own background exactly, since none of these tables sit on a distinct
+   card panel of their own (see the wrapper convention above). The bottom
+   border is redrawn as a `box-shadow` instead of relying on the header
+   row's own Tailwind `border-b` class: a collapsed-border table's cell
+   borders aren't guaranteed to repaint correctly once those cells are
+   offset by `position: sticky`, but a box-shadow paints with the element
+   itself, so it can't be affected by that. */
+:root {
+  --sticky-header-offset: 76px;
+}
+
+.overflow-x-auto thead th {
+  position: sticky;
+  top: var(--sticky-header-offset);
+  z-index: 20;
+  @apply bg-brand-ink;
+  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}

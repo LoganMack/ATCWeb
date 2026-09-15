@@ -295,4 +295,46 @@ const links: { href: string; label: string; external?: boolean }[] = [
   }
 
   document.addEventListener('astro:page-load', initLiveBanner);
+
+  // Frozen table headers (src/styles/global.css: `.overflow-x-auto thead
+  // th`) stick just below THIS header as the page scrolls — but this
+  // header's own real height isn't a fixed number: the "Happening Now"
+  // banner above adds to it on some page loads and not others, and the
+  // logo (h-9 vs h-11) changes size at the sm: breakpoint. Rather than
+  // hardcode a value that would either leave a gap or let a frozen table
+  // header sit half-covered depending on the page, this measures the
+  // header's actual rendered height and exposes it as a CSS custom
+  // property every table's sticky `top` reads. Re-measured on the same
+  // triggers as layoutMarquee() above and for the same reasons: once
+  // Google Fonts' display=swap finishes replacing the fallback font
+  // metrics, and on resize (its own debounced listener, kept separate
+  // from the marquee's own since that one is only attached when a live
+  // banner is present — this needs to run on every page).
+  let stickyOffsetResizeTimeout: ReturnType<typeof setTimeout> | undefined;
+  let stickyOffsetResizeListenerAttached = false;
+
+  function updateStickyHeaderOffset() {
+    const header = document.querySelector('header');
+    if (!header) return;
+    const height = Math.ceil(header.getBoundingClientRect().height);
+    document.documentElement.style.setProperty('--sticky-header-offset', `${height}px`);
+  }
+
+  function initStickyHeaderOffset() {
+    updateStickyHeaderOffset();
+
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => updateStickyHeaderOffset());
+    }
+
+    if (!stickyOffsetResizeListenerAttached) {
+      stickyOffsetResizeListenerAttached = true;
+      window.addEventListener('resize', () => {
+        clearTimeout(stickyOffsetResizeTimeout);
+        stickyOffsetResizeTimeout = setTimeout(updateStickyHeaderOffset, 200);
+      });
+    }
+  }
+
+  document.addEventListener('astro:page-load', initStickyHeaderOffset);
 </script>
