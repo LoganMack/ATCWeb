@@ -75,7 +75,6 @@ export const GET: APIRoute = async ({ params, url, locals }) => {
           event_date: ev.eventDate,
           event_time: (startTimeByKind[kind] ?? '').slice(0, 5),
           format: ev.format ?? '',
-          status: 'official',
           strength_of_field: '',
           exhibition: ev.category === 'exhibition' ? 'yes' : 'no',
         };

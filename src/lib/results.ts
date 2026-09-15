@@ -168,7 +168,6 @@ export interface RoundSummary {
   format: 'endurance' | 'sprint' | null;
   strength_of_field: number | null;
   num_drivers: number | null;
-  status: 'provisional' | 'official' | 'unofficial';
 }
 
 export interface DriverBasic {
@@ -4127,7 +4126,7 @@ export async function computeTeamCareerStats(
 // ---------------------------------------------------------------------------
 
 const ROUND_SUMMARY_SELECT =
-  'subsession_id,season_id,start_time,track_name,season_label,round_number,format,strength_of_field,num_drivers,status';
+  'subsession_id,season_id,start_time,track_name,season_label,round_number,format,strength_of_field,num_drivers';
 
 /** Every round for a season, most recent first. */
 export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {

@@ -58,8 +58,8 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
 
 // Championship is the default/normal case and deliberately gets no special
 // treatment here — callers only render a category badge when it's NOT
-// 'championship', same "only flag the anomalous state" convention as
-// round.status !== 'official' on the Race Results list. Test/Holiday/iRacing
+// 'championship', the same "only flag the anomalous state" convention used
+// elsewhere in the app. Test/Holiday/iRacing
 // are all plain neutral grey — none of them belong to a Sprint/Endurance/
 // Special format or a driver class, so there's no brand hue that actually
 // represents them; grey reads as "informational" rather than implying a

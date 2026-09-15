@@ -169,7 +169,6 @@ interface RoundIdentity {
   eventDate: string;
   startTimeIso: string;
   format: 'endurance' | 'sprint' | null;
-  status: string;
   strengthOfField: number | null;
   isExhibition: boolean;
   eventId: string | null;
@@ -177,7 +176,7 @@ interface RoundIdentity {
 
 /**
  * Resolves the round-level fields shared by every result CSV's first row in
- * a group (circuit/layout/season/date/time/format/status/SOF/exhibition),
+ * a group (circuit/layout/season/date/time/format/SOF/exhibition),
  * validates the circuit/season/date actually match something, and resolves
  * curated_rounds.event_id via circuit_id + event_date (see this file's own
  * header comment). Returns null when the group's circuit/season/date can't
@@ -201,8 +200,6 @@ function resolveRoundIdentity(importKey: string, get: RowGetter, first: string[]
   const eventTime = eventTimeRaw.length === 5 ? `${eventTimeRaw}:00` : eventTimeRaw;
   const formatRaw = get(first, 'format').toLowerCase();
   const format = formatRaw === 'endurance' || formatRaw === 'sprint' ? formatRaw : null;
-  const statusRaw = get(first, 'status').toLowerCase();
-  const status = statusRaw === 'provisional' || statusRaw === 'unofficial' ? statusRaw : 'official';
   const sofRaw = get(first, 'strength_of_field');
   const strengthOfField = sofRaw ? Number(sofRaw) : null;
   const exhibitionRaw = get(first, 'exhibition').toLowerCase();
@@ -233,7 +230,6 @@ function resolveRoundIdentity(importKey: string, get: RowGetter, first: string[]
     eventDate,
     startTimeIso: `${eventDate}T${eventTime}.000Z`,
     format,
-    status,
     strengthOfField,
     isExhibition,
     eventId,
@@ -269,7 +265,6 @@ async function writeRoundRow(
     layout: identity.layoutName || null,
     format: identity.format,
     strength_of_field: identity.strengthOfField,
-    status: identity.status,
     event_id: identity.eventId,
   };
 
