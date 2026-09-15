@@ -323,7 +323,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
                 >
                   <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
-                  <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name}>
+                  <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name} data-csv-value={displayDriverName(row.driver.name)}>
                     <div class="flex flex-wrap items-center gap-2">
                       <span
                         data-chevron
@@ -459,7 +459,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {standings.map((row) => (
               <tr class="border-b border-white/5">
                 <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70">{row.position}</td>
-                <td class="py-2.5 pr-4 font-semibold">
+                <td class="py-2.5 pr-4 font-semibold" data-csv-value={displayDriverName(row.driver.name)}>
                   <span class="flex items-center gap-1.5 whitespace-nowrap">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                     {shortDriverName(row.driver.name)}

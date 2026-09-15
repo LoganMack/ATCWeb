@@ -268,7 +268,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
               >
                 <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
-                <td class="py-2.5 pr-3 font-semibold" data-col="team" data-sort-value={row.teamName}>
+                <td class="py-2.5 pr-3 font-semibold" data-col="team" data-sort-value={row.teamName} data-csv-value={row.teamName}>
                   <div class="flex items-center gap-2">
                     <span
                       data-chevron
@@ -346,7 +346,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {standings.map((row) => (
               <tr class="border-b border-white/5">
                 <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70">{row.position}</td>
-                <td class="py-2.5 pr-4 font-semibold">
+                <td class="py-2.5 pr-4 font-semibold" data-csv-value={row.teamName}>
                   <span class="flex items-center gap-2 whitespace-nowrap">
                     <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-5 w-5" />
                     {row.teamName}

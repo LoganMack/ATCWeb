@@ -20,9 +20,30 @@
  * etc.) are still exported in full — a CSV isn't screen-width-constrained
  * the way the page is, so there's no reason to drop data just because a
  * narrow window currently hides it.
+ *
+ * A cell's raw `textContent` isn't always what belongs in the CSV, though.
+ * Two cases handled here:
+ *   - The `▶` expand/collapse chevron (see expandRows.ts's `data-chevron`
+ *     spans) is decoration, not data — stripped from every cell, on every
+ *     table, rather than needing a per-page opt-out.
+ *   - A name cell can render extra UI alongside the name itself — a car
+ *     number badge, a car/team logo's acronym-tile fallback text — glued
+ *     right up against it with no real space character between them (flex
+ *     `gap` is visual spacing only), e.g. "DriverName#14APX". Cells like
+ *     that carry an explicit `data-csv-value="…"` with just the clean
+ *     value, which wins over textContent when present. See
+ *     standings.astro / team-standings.astro for the cells that set it.
  */
 function cellText(cell: Element): string {
-  return (cell.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const override = cell.getAttribute('data-csv-value');
+  if (override !== null) {
+    return override.replace(/\s+/g, ' ').trim();
+  }
+
+  return (cell.textContent ?? '')
+    .replace(/▶/g, '') // ▶ — see doc comment above
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function csvField(value: string): string {
