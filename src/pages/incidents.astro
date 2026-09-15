@@ -1,0 +1,129 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import PageBanner from '../components/PageBanner.astro';
+import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import { bannerUrlFor } from '../lib/pageBanners';
+
+// Same shell-then-spinner split as driver-stats.astro/team-stats.astro/
+// hall-of-fame.astro — getAllIncidents() (src/lib/incidents.ts) fetches
+// EVERY penalty ever logged across the site's whole history, which is
+// cheaper than computeDriverCareerStats but still not something worth
+// blocking this page's first paint on. This shell only fetches the page
+// banner, renders the tab switcher shell + a loading skeleton, and leaves
+// the actual three tables to incidents/fragment.astro, fetched client-side
+// once this shell has already painted.
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'incidents');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Incidents" description="Every steward-logged incident in Alpha Touring Challenge history.">
+  <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+    <PageBanner imageUrl={bannerUrl} />
+    <h1 class="reveal font-display text-5xl">Incidents</h1>
+
+    <HistoryTabs active="incidents" />
+
+    <!--
+      The three-way All Incidents / By Driver / By Offense switch — plain
+      radio-less tab buttons toggling `hidden` on sibling panels, same shape
+      as the homepage's standings widget. The one real difference: that
+      widget's markup (and its toggle script) render synchronously in the
+      same page load, so its script can just querySelector the tabs/panels
+      directly. Here the tabs AND panels only exist once
+      incidents/fragment.astro's HTML lands via `container.innerHTML =`
+      below — and a <script> tag inside HTML set that way never executes
+      (see drivers/[id]/fragment.astro's own doc comment on this exact
+      limitation). So this toggle script lives here, in the shell (which
+      DOES execute normally), using one delegated `document` click listener
+      — same "resolve fresh against whatever's in the DOM right now" shape
+      as expandRows.ts — so it works correctly for tab buttons that don't
+      exist yet when this script first runs.
+    -->
+    <div data-incidents-results data-fragment-url="/incidents/fragment">
+      <div class="mt-8 flex flex-wrap gap-2" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading incidents…</span>
+        <div class="h-9 w-40 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-9 w-32 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-9 w-36 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+      </div>
+      <div class="mt-4 h-96 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+    </div>
+  </section>
+
+  <script>
+    // Fetches incidents/fragment.astro (the expensive getAllIncidents()
+    // computation) client-side once this shell has already painted — see
+    // this file's top-of-file comment and incidents/fragment.astro for the
+    // full explanation.
+    function initIncidentsResults() {
+      const container = document.querySelector<HTMLElement>('[data-incidents-results]');
+      const url = container?.dataset.fragmentUrl;
+      if (!container || !url) return;
+      // Cleared immediately, before the fetch even resolves — same guard
+      // driver-stats.astro/team-stats.astro use, so the synthetic
+      // astro:page-load dispatched below (once the fragment lands) doesn't
+      // see this same data-fragment-url and fetch it all over again.
+      delete container.dataset.fragmentUrl;
+
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Incidents fragment request failed (${res.status})`);
+          return res.text();
+        })
+        .then((html) => {
+          container.innerHTML = html;
+          // sortable-table.ts and expandRows.ts (both sitewide, delegated/
+          // per-element-guarded listeners) only bind against content that
+          // exists at astro:page-load time — re-dispatching it here is the
+          // established fix for "content changed without a real
+          // navigation" (see driver-stats.astro's identical comment).
+          document.dispatchEvent(new Event('astro:page-load'));
+        })
+        .catch((err) => {
+          console.error('Failed to load incidents:', err);
+          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load incidents right now — try refreshing the page.</p>';
+        });
+    }
+
+    document.addEventListener('astro:page-load', initIncidentsResults);
+
+    // The All Incidents / By Driver / By Offense tab switch — see this
+    // file's markup comment above for why this has to be a delegated
+    // listener living in the shell rather than a script inside the
+    // fragment itself. Bound once (module scripts run at most once per
+    // page load, soft navigations included — see expandRows.ts's own doc
+    // comment on this exact pattern), so no re-init guard is needed here
+    // the way per-element setup functions need one.
+    document.addEventListener('click', (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-incidents-tab]');
+      if (!tab) return;
+      const widget = tab.closest<HTMLElement>('[data-incidents-widget]');
+      if (!widget) return;
+      const key = tab.dataset.incidentsTab;
+
+      widget.querySelectorAll<HTMLElement>('[data-incidents-tab]').forEach((t) => {
+        const active = t === tab;
+        t.setAttribute('aria-selected', active ? 'true' : 'false');
+        t.classList.toggle('bg-brand-primary', active);
+        t.classList.toggle('text-white', active);
+        t.classList.toggle('bg-white/5', !active);
+        t.classList.toggle('text-white/60', !active);
+      });
+      widget.querySelectorAll<HTMLElement>('[data-incidents-panel]').forEach((panel) => {
+        panel.classList.toggle('hidden', panel.dataset.incidentsPanel !== key);
+      });
+    });
+  </script>
+</Layout>

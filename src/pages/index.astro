@@ -33,6 +33,7 @@ import {
   getAllTeamSeasonLogosSafe,
   isChampionshipSeason,
   driversSelect,
+  getPreviousResultSummary,
   type DriverSeasonStanding,
   type TeamSeasonStanding,
   type DriverSeasonExtras,
@@ -136,13 +137,36 @@ const loadHeroBanner = async () => {
   }
 };
 
-// All 5 of the above are mutually independent — none reads another's
+// --- Previous Result card ---------------------------------------------
+//
+// Sits in the right-hand column between Upcoming Events and Standings.
+// getPreviousResultSummary() is its own deliberately cheap computation
+// (season/round/track/layout + each class's winner of the single most
+// recent round on file) — see its own doc comment in results.ts for why
+// it's nowhere near as expensive as the standings widget below.
+let previousResult: Awaited<ReturnType<typeof getPreviousResultSummary>> = null;
+const loadPreviousResult = async () => {
+  try {
+    previousResult = await getPreviousResultSummary(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load previous result summary:', err);
+  }
+};
+
+// All 6 of the above are mutually independent — none reads another's
 // result — so they run concurrently as one round-trip's worth of latency
-// instead of 4 (the first was already batched into its own Promise.all;
+// instead of 6 (the first was already batched into its own Promise.all;
 // now it's batched with the rest too). Awaiting this before moving on to
 // the standings widget below is what preserves the ordering guarantee the
 // broadcast/banner comment above depends on.
-await Promise.all([loadTopSection(), loadSeasonLogos(), loadNewsTags(), loadBroadcastSetting(), loadHeroBanner()]);
+await Promise.all([
+  loadTopSection(),
+  loadSeasonLogos(),
+  loadNewsTags(),
+  loadBroadcastSetting(),
+  loadHeroBanner(),
+  loadPreviousResult(),
+]);
 
 const featuredNews = latestNews[0] ?? null;
 const moreNews = latestNews.slice(1, 8);
@@ -282,27 +306,43 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="Home">
-  <section class="relative overflow-hidden px-6 pb-16 pt-28 sm:pt-36">
+  <!--
+    Single continuous section for the whole homepage top area — Featured
+    Story/More News (left) and Upcoming Events/Previous Result/Standings
+    (right) used to be split across TWO separate <section>s (one grid for
+    the "above the fold" row, a second grid for the row below it), each
+    re-aligned at a shared top edge. That meant a column only as tall as
+    its own content in the first grid could leave a big, uneven gap before
+    the second grid's matching column started — e.g. a short Featured Story
+    pushing "More News" way down the page, even though "Standings" right
+    next to it (below a taller Upcoming Events) had barely any gap at all.
+    One section with each column as ONE continuously-stacked div (below)
+    fixes that: every heading just sits `mt-12` under whatever's above it
+    IN ITS OWN COLUMN, independent of the other column's height.
+  -->
+  <section class="relative px-6 pb-24 pt-28 sm:pt-36">
     <!--
       Homepage hero background image — admin-managed (see
-      /admin/site-properties, page_key 'home'), no longer a static file. When
-      set, it fills this whole hero section, fading to solid black at the
-      bottom (same top-to-bottom gradient treatment PageBanner.astro uses
-      on every other page's header banner) rather than a flat dark overlay,
-      so it blends into the plain-black section below instead of cutting
-      off hard. When not set, this section renders nothing here at all — no
-      image div, no gradient — so it's just plain black (bg-brand-ink, same
-      as the rest of the site), not the blue radial-gradient placeholder
-      this used to always show.
+      /admin/site-properties, page_key 'home'), no longer a static file.
+      Capped to a fixed height (h-*, not inset-0) and pinned to the top
+      via inset-x-0/top-0 — the same "band across the top, not the whole
+      section" technique PageBanner.astro uses on every other page's header
+      banner — rather than stretching to match this section's own height,
+      which now spans the ENTIRE homepage content below (not just the
+      hero row) per the comment above. Fades to solid black by the bottom
+      of that band so it blends into the plain-black page below instead of
+      cutting off hard. When not set, this section renders nothing here at
+      all — no image div, no gradient — so it's just plain black
+      (bg-brand-ink, same as the rest of the site).
     -->
     {heroImageUrl && (
       <>
         <div
-          class="pointer-events-none absolute inset-0 -z-20 bg-cover bg-center"
+          class="pointer-events-none absolute inset-x-0 top-0 -z-20 h-[32rem] bg-cover bg-center sm:h-[40rem]"
           style={`background-image: url('${heroImageUrl}')`}
         >
         </div>
-        <div class="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-brand-ink/30 via-brand-ink/80 to-brand-ink"></div>
+        <div class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[32rem] bg-gradient-to-b from-brand-ink/30 via-brand-ink/80 to-brand-ink sm:h-[40rem]"></div>
       </>
     )}
 
@@ -337,6 +377,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             No news yet.
           </p>
         )}
+
+        <div class="mt-12">
+          <h2 class="mb-6 font-display text-3xl">More News</h2>
+
+          {moreNews.length === 0 ? (
+            <p class="text-sm text-white/50">No more news yet.</p>
+          ) : (
+            <>
+              <ul class="divide-y divide-white/10">
+                {moreNews.map((post) => (
+                  <li>
+                    <a
+                      href={`/news/${post.slug}`}
+                      class="flex items-baseline justify-between gap-4 py-3 text-white/80 transition hover:text-white"
+                    >
+                      <span class="truncate font-semibold">{post.title}</span>
+                      <span class="flex-none text-xs text-white/40">{formatDate(post.published_at)}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+              <a href="/news" class="mt-4 inline-block text-sm text-white/60 hover:text-white">View all &rarr;</a>
+            </>
+          )}
+        </div>
       </div>
 
       <div>
@@ -372,38 +437,57 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             )}
           </div>
         )}
-      </div>
-    </div>
-  </section>
 
-  <section class="mx-auto max-w-6xl px-6 pb-24">
-    <div class="grid gap-12 lg:grid-cols-2 lg:gap-16">
-      <div>
-        <h2 class="mb-6 font-display text-3xl">More News</h2>
+        <div class="mt-12">
+          <h2 class="mb-6 font-display text-3xl">Previous Result</h2>
 
-        {moreNews.length === 0 ? (
-          <p class="text-sm text-white/50">No more news yet.</p>
-        ) : (
-          <>
-            <ul class="divide-y divide-white/10">
-              {moreNews.map((post) => (
-                <li>
-                  <a
-                    href={`/news/${post.slug}`}
-                    class="flex items-baseline justify-between gap-4 py-3 text-white/80 transition hover:text-white"
-                  >
-                    <span class="truncate font-semibold">{post.title}</span>
-                    <span class="flex-none text-xs text-white/40">{formatDate(post.published_at)}</span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-            <a href="/news" class="mt-4 inline-block text-sm text-white/60 hover:text-white">View all &rarr;</a>
-          </>
-        )}
-      </div>
+          {!previousResult ? (
+            <p class="text-sm text-white/50">No results yet.</p>
+          ) : (
+            <a
+              href={`/results/${previousResult.subsessionId}`}
+              class="block rounded-xl border border-white/10 bg-white/[0.03] p-5 transition hover:bg-white/[0.06]"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                <p class="text-xs font-semibold uppercase tracking-widest text-white/40">
+                  {previousResult.seasonLabel}
+                  {previousResult.displayRoundNumber !== null ? ` · Round ${previousResult.displayRoundNumber}` : ' · Exhibition'}
+                </p>
+                <p class="text-xs text-white/40">{formatDate(previousResult.startTime)}</p>
+              </div>
+              <p class="mt-1 font-display text-2xl">
+                {previousResult.trackName}
+                {previousResult.layoutName && <span class="text-white/50"> — {previousResult.layoutName}</span>}
+              </p>
 
-      <div>
+              {previousResult.classWinners.length === 0 ? (
+                <p class="mt-3 text-sm text-white/50">No classified results yet.</p>
+              ) : (
+                <div class="mt-4 flex flex-col gap-2">
+                  {previousResult.classWinners.map((winner) => (
+                    <div class="flex items-center gap-2 text-sm">
+                      <span
+                        class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(winner.className)}`}
+                      >
+                        {winner.className}
+                      </span>
+                      <DriverFlag nationality1={winner.driver.nationality_1} nationality2={winner.driver.nationality_2} />
+                      <span class="min-w-0 flex-1 truncate font-semibold">
+                        {displayDriverName(winner.driver.name)}
+                        {winner.driver.car_number !== null && <span class="text-white/40"> #{winner.driver.car_number}</span>}
+                      </span>
+                      {winner.teamName && <TeamLogo name={winner.teamName} logoUrl={winner.teamLogoUrl} size="h-5 w-5" title={winner.teamName} />}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p class="mt-4 text-sm text-white/60">Full race result &rarr;</p>
+            </a>
+          )}
+        </div>
+
+        <div class="mt-12">
         <h2 class="mb-6 font-display text-3xl">Standings</h2>
 
         {standingsTabs.length === 0 ? (
@@ -487,9 +571,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <a href="/standings" class="mt-4 inline-block text-sm text-white/60 hover:text-white">Full standings &rarr;</a>
       </div>
     </div>
+    </div>
 
     {broadcastEmbedUrl && (
-      <div class="mt-16">
+      <div class="mx-auto mt-16 max-w-6xl">
         <h2 class="mb-6 font-display text-3xl">Featured Broadcast</h2>
         <div class="aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
           <iframe

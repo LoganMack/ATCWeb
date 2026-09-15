@@ -7,9 +7,21 @@ import '../styles/global.css';
 interface Props {
   title: string;
   description?: string;
+  /**
+   * Absolute image URL for link-preview embeds (Discord, Slack, Twitter/X,
+   * iMessage, …) — omitted (no og:image/twitter:image at all) rather than
+   * falling back to a site-wide default, since a generic logo slapped on
+   * every embed is worse than no image for a page that doesn't have one
+   * (most pages). news/[slug].astro is the one caller that passes this
+   * today (a post's cover_image_url, already an absolute Supabase storage
+   * URL — see NewsPost's own doc comment).
+   */
+  image?: string | null;
+  /** og:type — 'article' for a news post (also gets its own byline-less article treatment from some embedders), 'website' for everything else. */
+  type?: 'website' | 'article';
 }
 
-const { title, description = "iRacing's premier NA TCR series." } = Astro.props;
+const { title, description = "iRacing's premier NA TCR series.", image = null, type = 'website' } = Astro.props;
 ---
 
 <!doctype html>
@@ -22,6 +34,29 @@ const { title, description = "iRacing's premier NA TCR series." } = Astro.props;
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="description" content={description} />
     <title>{title} · Alpha Touring Challenge</title>
+
+    <!--
+      Open Graph + Twitter Card — what a link-preview embed (Discord, Slack,
+      Twitter/X, iMessage, etc.) actually reads, completely independent of
+      the <title>/<meta name="description"> above (an embedder never renders
+      those). og:title deliberately uses the bare `title` prop, not the
+      "· Alpha Touring Challenge"-suffixed page <title> — og:site_name below
+      already carries that, so suffixing both would just repeat it in the
+      embed. `Astro.url.href` for og:url is the same "build it from the live
+      request, never hardcode a domain" convention already used elsewhere on
+      this site (see signup.astro/forgot-password.astro's Astro.url.origin
+      usage) — correct in production and any preview/staging deploy alike.
+    -->
+    <meta property="og:site_name" content="Alpha Touring Challenge" />
+    <meta property="og:type" content={type} />
+    <meta property="og:url" content={Astro.url.href} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    {image && <meta property="og:image" content={image} />}
+    <meta name="twitter:card" content={image ? 'summary_large_image' : 'summary'} />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    {image && <meta name="twitter:image" content={image} />}
 
     <!--
       Fonts: Teko (display/headlines) + Roboto (body), loaded from Google

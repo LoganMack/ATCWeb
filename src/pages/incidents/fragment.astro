@@ -1,0 +1,354 @@
+---
+export const prerender = false;
+
+import DriverFlag from '../../components/DriverFlag.astro';
+import { resolveSupabaseEnv, displayDriverName, formatDate } from '../../lib/supabase';
+import { getAllIncidents, type IncidentRow } from '../../lib/incidents';
+
+/**
+ * Same shell-then-spinner split as driver-stats/fragment.astro —
+ * incidents.astro now only renders the tab-switcher shell + a loading
+ * skeleton, then fetches THIS route client-side for the actual three
+ * tables (getAllIncidents() computes all three views — All Incidents, By
+ * Driver, By Offense — from one shared fetch, see src/lib/incidents.ts).
+ *
+ * Returns a bare HTML fragment — no <Layout>, no <html>/<head>, and no
+ * <script> (a script tag here would never execute once dropped in via
+ * `container.innerHTML =` — see incidents.astro's own doc comment on this
+ * exact limitation, which is why the tab-switcher script lives there
+ * instead). Never linked to directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let data: Awaited<ReturnType<typeof getAllIncidents>> = { all: [], byDriver: [], byOffense: [] };
+try {
+  data = await getAllIncidents(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load incidents (fragment):', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+function sessionLabel(row: IncidentRow): string {
+  if (row.sessionType === 'qualifying') return 'Qualifying';
+  if (row.sessionType === 'practice') return 'Practice';
+  return `Race ${row.raceNumber}`;
+}
+
+function roundLabel(row: IncidentRow): string {
+  return row.displayRoundNumber !== null ? `Round ${row.displayRoundNumber}` : 'Exhibition';
+}
+
+function driverLabel(row: IncidentRow): string {
+  if (!row.driver) return 'RI';
+  return row.driver.car_number !== null ? `#${row.driver.car_number} ${displayDriverName(row.driver.name)}` : displayDriverName(row.driver.name);
+}
+
+function involvedLabel(row: IncidentRow): string {
+  if (row.involvedDrivers.length === 0) return '—';
+  return row.involvedDrivers
+    .map((d) => (d.car_number !== null ? `#${d.car_number}` : displayDriverName(d.name)))
+    .join(', ');
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+{loadError && (
+  <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    Couldn't load incidents right now.
+    <br /><span class="mt-1 block text-white/50">{loadError}</span>
+  </p>
+)}
+
+{!loadError && (
+  <div data-incidents-widget>
+    <div class="mt-8 flex flex-wrap gap-2" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        data-incidents-tab="all"
+        aria-selected="true"
+        class="rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-semibold text-white transition"
+      >
+        All Incidents ({data.all.length})
+      </button>
+      <button
+        type="button"
+        role="tab"
+        data-incidents-tab="byDriver"
+        aria-selected="false"
+        class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+      >
+        By Driver ({data.byDriver.length})
+      </button>
+      <button
+        type="button"
+        role="tab"
+        data-incidents-tab="byOffense"
+        aria-selected="false"
+        class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+      >
+        By Offense ({data.byOffense.length})
+      </button>
+    </div>
+
+    <!-- ================= All Incidents ================= -->
+    <div data-incidents-panel="all" class="mt-4">
+      {data.all.length === 0 ? (
+        <p class="mt-6 text-white/60">No incidents logged yet.</p>
+      ) : (
+        <div class="rounded-xl border border-white/10" data-sticky-thead>
+          <table class="w-full min-w-[1100px] border-collapse" data-sortable>
+            <thead>
+              <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="date">Date</th>
+                <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="season">Season</th>
+                <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="round">Round</th>
+                <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>
+                <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="session">Session</th>
+                <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="incidentnum">#</th>
+                <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lap">Lap</th>
+                <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
+                <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="involved">Involved</th>
+                <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="offenses">Offenses</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">PP</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="time">Time</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="pts">Pts</th>
+                <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="warning">Warn</th>
+                <th class="hidden py-3 pr-4 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.all.map((row) => (
+                <>
+                  <tr
+                    data-expand-row
+                    tabindex="0"
+                    role="button"
+                    aria-expanded="false"
+                    class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+                  >
+                    <td class="py-2.5 pl-4 pr-3 text-white/60" data-col="date" data-sort-value={row.startTime}>
+                      {formatDate(row.startTime)}
+                    </td>
+                    <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="season">{row.seasonLabel ?? '—'}</td>
+                    <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="round" data-sort-value={row.displayRoundNumber ?? -1}>
+                      {roundLabel(row)}
+                    </td>
+                    <td class="hidden py-2.5 pr-3 font-semibold sm:table-cell" data-col="track">{row.trackName}</td>
+                    <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="session">{sessionLabel(row)}</td>
+                    <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="incidentnum">{row.incidentNumber ?? '—'}</td>
+                    <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lap">{row.lap ?? '—'}</td>
+                    <td class="py-2.5 pr-3 font-semibold" data-col="driver">
+                      <div class="flex items-center gap-1.5">
+                        {row.driver && <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />}
+                        <span title={row.driver === null ? 'Racing Incident — no driver at fault' : undefined}>{driverLabel(row)}</span>
+                      </div>
+                    </td>
+                    <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
+                    <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell" data-col="offenses">
+                      {row.offenseNames.length > 0 ? row.offenseNames.join(', ') : '—'}
+                    </td>
+                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp">{row.penaltyPoints || '—'}</td>
+                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="time">
+                      {row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}
+                    </td>
+                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pts">{row.pointsPenalty || '—'}</td>
+                    <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="warning" data-sort-value={row.isWarning ? 1 : 0}>
+                      {row.isWarning ? 'Yes' : '—'}
+                    </td>
+                    <td class="hidden py-2.5 pr-4 text-center text-white/60 xl:table-cell" data-col="appealed" data-sort-value={row.isAppealed ? 1 : 0}>
+                      {row.isAppealed ? 'Yes' : '—'}
+                    </td>
+                  </tr>
+                  <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-sm">
+                    <td colspan={15} class="px-4 py-4 sm:pl-11">
+                      <p class="text-white/70">{row.description || 'No description recorded.'}</p>
+                      <a href={`/results/${row.subsessionId}`} class="mt-2 inline-block text-xs text-white/50 hover:text-white">
+                        View full round result &rarr;
+                      </a>
+                    </td>
+                  </tr>
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    <!-- ================= By Driver ================= -->
+    <div data-incidents-panel="byDriver" class="mt-4 hidden">
+      {data.byDriver.length === 0 ? (
+        <p class="mt-6 text-white/60">No incidents logged yet.</p>
+      ) : (
+        <div class="rounded-xl border border-white/10" data-sticky-thead>
+          <table class="w-full border-collapse" data-sortable>
+            <thead>
+              <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Driver</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="incidents">Incidents</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="penalized">Times Penalized</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">Penalty Points</th>
+                <th class="py-3 pr-4 text-center font-medium" data-sort-key="pointslost">Points Lost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.byDriver.map((agg) => {
+                const name = displayDriverName(agg.driver.name);
+                return (
+                  <>
+                    <tr
+                      data-expand-row
+                      tabindex="0"
+                      role="button"
+                      aria-expanded="false"
+                      class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+                    >
+                      <td class="py-2.5 pl-4 pr-3 font-semibold" data-col="name" data-sort-value={name}>
+                        <div class="flex items-center gap-2">
+                          <span data-chevron class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150" aria-hidden="true">
+                            &#9654;
+                          </span>
+                          <span>
+                            {name} {agg.driver.car_number !== null && <span class="text-white/40">#{agg.driver.car_number}</span>}
+                          </span>
+                          <DriverFlag nationality1={agg.driver.nationality_1} nationality2={agg.driver.nationality_2} />
+                        </div>
+                      </td>
+                      <td class="py-2.5 pr-3 text-center text-white/60" data-col="incidents">{agg.incidentsInvolvedIn}</td>
+                      <td class="py-2.5 pr-3 text-center text-white/60" data-col="penalized">{agg.timesPenalized}</td>
+                      <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp">{agg.penaltyPoints}</td>
+                      <td class="py-2.5 pr-4 text-center text-white/60" data-col="pointslost">{agg.pointsLost}</td>
+                    </tr>
+                    <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                      <td colspan={5} class="px-4 py-4 sm:pl-11">
+                        <div data-sticky-thead>
+                          <table class="w-full min-w-[820px] border-collapse">
+                            <thead>
+                              <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                                <th class="py-2 pr-3 font-medium">Date</th>
+                                <th class="py-2 pr-3 font-medium">Round</th>
+                                <th class="py-2 pr-3 font-medium">Session</th>
+                                <th class="py-2 pr-3 font-medium">Role</th>
+                                <th class="py-2 pr-3 font-medium">Offenses</th>
+                                <th class="py-2 pr-3 text-center font-medium">PP</th>
+                                <th class="py-2 pr-3 text-center font-medium">Time</th>
+                                <th class="py-2 pr-3 text-center font-medium">Pts</th>
+                                <th class="py-2 pr-3 font-medium">Description</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {agg.incidents.map((row) => (
+                                <tr class="border-b border-white/5">
+                                  <td class="py-2 pr-3 text-white/60">{formatDate(row.startTime)}</td>
+                                  <td class="py-2 pr-3 text-white/70">
+                                    {roundLabel(row)} — {row.trackName}
+                                  </td>
+                                  <td class="py-2 pr-3 text-white/60">{sessionLabel(row)}</td>
+                                  <td class="py-2 pr-3 text-white/60">{row.driver?.id === agg.driver.id ? 'Penalized' : 'Involved'}</td>
+                                  <td class="py-2 pr-3 text-white/60">{row.offenseNames.length > 0 ? row.offenseNames.join(', ') : '—'}</td>
+                                  <td class="py-2 pr-3 text-center text-white/70">{row.penaltyPoints || '—'}</td>
+                                  <td class="py-2 pr-3 text-center text-white/70">{row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}</td>
+                                  <td class="py-2 pr-3 text-center text-white/70">{row.pointsPenalty || '—'}</td>
+                                  <td class="py-2 pr-3 text-white/50">{row.description || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  </>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+
+    <!-- ================= By Offense ================= -->
+    <div data-incidents-panel="byOffense" class="mt-4 hidden">
+      {data.byOffense.length === 0 ? (
+        <p class="mt-6 text-white/60">No incidents logged yet.</p>
+      ) : (
+        <div class="rounded-xl border border-white/10" data-sticky-thead>
+          <table class="w-full border-collapse" data-sortable>
+            <thead>
+              <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Offense</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="incidents">Incidents</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">Penalty Points</th>
+                <th class="py-3 pr-4 text-center font-medium" data-sort-key="pointslost">Points Lost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.byOffense.map((agg) => (
+                <>
+                  <tr
+                    data-expand-row
+                    tabindex="0"
+                    role="button"
+                    aria-expanded="false"
+                    class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+                  >
+                    <td class="py-2.5 pl-4 pr-3 font-semibold" data-col="name" data-sort-value={agg.offenseName}>
+                      <div class="flex items-center gap-2">
+                        <span data-chevron class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150" aria-hidden="true">
+                          &#9654;
+                        </span>
+                        <span>{agg.offenseName}</span>
+                      </div>
+                    </td>
+                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="incidents">{agg.incidentCount}</td>
+                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp">{agg.penaltyPoints}</td>
+                    <td class="py-2.5 pr-4 text-center text-white/60" data-col="pointslost">{agg.pointsLost}</td>
+                  </tr>
+                  <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                    <td colspan={4} class="px-4 py-4 sm:pl-11">
+                      <div data-sticky-thead>
+                        <table class="w-full min-w-[820px] border-collapse">
+                          <thead>
+                            <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+                              <th class="py-2 pr-3 font-medium">Date</th>
+                              <th class="py-2 pr-3 font-medium">Round</th>
+                              <th class="py-2 pr-3 font-medium">Session</th>
+                              <th class="py-2 pr-3 font-medium">Driver</th>
+                              <th class="py-2 pr-3 text-center font-medium">PP</th>
+                              <th class="py-2 pr-3 text-center font-medium">Time</th>
+                              <th class="py-2 pr-3 text-center font-medium">Pts</th>
+                              <th class="py-2 pr-3 font-medium">Description</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {agg.incidents.map((row) => (
+                              <tr class="border-b border-white/5">
+                                <td class="py-2 pr-3 text-white/60">{formatDate(row.startTime)}</td>
+                                <td class="py-2 pr-3 text-white/70">
+                                  {roundLabel(row)} — {row.trackName}
+                                </td>
+                                <td class="py-2 pr-3 text-white/60">{sessionLabel(row)}</td>
+                                <td class="py-2 pr-3 text-white/60">{driverLabel(row)}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{row.penaltyPoints || '—'}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}</td>
+                                <td class="py-2 pr-3 text-center text-white/70">{row.pointsPenalty || '—'}</td>
+                                <td class="py-2 pr-3 text-white/50">{row.description || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  </div>
+)}

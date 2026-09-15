@@ -9,7 +9,7 @@
 // results.astro/standings.astro/team-standings.astro, which now render
 // StandingsTabs.astro (or nothing, for Results) instead of this component.
 interface Props {
-  active: 'champions' | 'driverStats' | 'teamStats' | 'hallOfFame' | 'awards' | 'circuits';
+  active: 'champions' | 'driverStats' | 'teamStats' | 'hallOfFame' | 'awards' | 'circuits' | 'incidents';
 }
 
 const { active } = Astro.props;
@@ -21,6 +21,7 @@ const tabs: { key: Props['active']; href: string; label: string }[] = [
   { key: 'hallOfFame', href: '/hall-of-fame', label: 'Hall of Fame' },
   { key: 'awards', href: '/awards', label: 'Awards' },
   { key: 'circuits', href: '/circuits', label: 'Circuits' },
+  { key: 'incidents', href: '/incidents', label: 'Incidents' },
 ];
 ---
 

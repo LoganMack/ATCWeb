@@ -38,6 +38,7 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame' },
   { key: 'awards', label: 'Awards', description: '/awards' },
   { key: 'media', label: 'Media', description: '/media' },
+  { key: 'incidents', label: 'Incidents', description: '/incidents' },
 ];
 
 import { resizedImageUrl } from './supabase';

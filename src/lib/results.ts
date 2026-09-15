@@ -45,6 +45,7 @@ import {
   getTestRoundIds,
   getCarLogos,
   getSeasons,
+  getPenaltiesForSubsession,
   getPenaltiesForSubsessions,
   getAllTeamSeasonLogos,
   getDriverClasses,
@@ -76,6 +77,7 @@ import type {
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
+  applyPenaltiesToRoundResults,
   effectivePenaltyPoints,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
@@ -4152,6 +4154,102 @@ export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: num
     `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`
   );
   return rounds[0] ?? null;
+}
+
+/** Just the newest round on file (by start_time) — powers the homepage's "Previous Result" card. A dedicated `limit=1` query rather than getAllRounds()[0]; no reason to pull the whole table's history down to the edge function just to look at the first row. */
+export async function getMostRecentRound(env: SupabaseEnv): Promise<RoundSummary | null> {
+  const rounds = await restGet<RoundSummary[]>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc&limit=1`);
+  return rounds[0] ?? null;
+}
+
+export interface PreviousResultClassWinner {
+  classId: number;
+  className: string;
+  driver: DriverBasic;
+  teamName: string | null;
+  teamLogoUrl: string | null;
+}
+
+export interface PreviousResultSummary {
+  subsessionId: number;
+  seasonId: string;
+  seasonLabel: string | null;
+  trackName: string;
+  layoutName: string | null;
+  /** Null means this round is excluded from standings (exhibition/test round, or a whole non-championship season) — mirrors results.astro's own "Exhibition"/"Test" label instead of "Round N" for those. */
+  displayRoundNumber: number | null;
+  format: 'endurance' | 'sprint' | null;
+  startTime: string;
+  /** One entry per class that actually had a classified (non-DSQ'd) P1 in this round's LAST race — the standard "who won the round" convention for a multi-race sprint-format round, matching how a season's own "wins" tally counts a round finish, not a per-race one. Empty (not missing) when the round genuinely has no results yet. */
+  classWinners: PreviousResultClassWinner[];
+}
+
+/**
+ * Everything the homepage's "Previous Result" card needs for the single
+ * most-recently-run round on file. Penalty-adjusted, same as every other
+ * results view on the site — showing the pre-penalty "winner" the moment a
+ * steward corrects it would be a visible, confusing regression from that
+ * round's own results page.
+ *
+ * Deliberately much cheaper than computeRoundRecap() (src/lib/newsRecap.ts),
+ * which this card doesn't need: no fastest-lap/track-record lookup, no
+ * rookie/bonus highlights, no team-points battle, just each class's winner.
+ * This runs on every homepage load, so it's kept to the minimum query set —
+ * one round lookup, one round-results computation, one penalties fetch, and
+ * three small reference lookups (classes, this round's own layout name, and
+ * the season's own round list for display-numbering) needed to label it
+ * correctly. Returns null (never throws) on any failure, or when the
+ * database has no rounds on file at all yet — the homepage just omits the
+ * section in either case, same as every other homepage widget's own
+ * try/catch.
+ */
+export async function getPreviousResultSummary(env: SupabaseEnv): Promise<PreviousResultSummary | null> {
+  const round = await getMostRecentRound(env);
+  if (!round) return null;
+
+  const [rawResults, penalties, classes, excludedRoundIds, layoutBySubsession, seasonRounds] = await Promise.all([
+    getRoundResults(env, round.subsession_id),
+    getPenaltiesForSubsession(env, round.subsession_id),
+    getDriverClasses(env),
+    getStandingsExcludedRoundIds(env),
+    getRoundLayoutsForSubsessions(env, [round.subsession_id]),
+    getRoundsForSeason(env, round.season_id),
+  ]);
+
+  const results = penalties.length > 0 ? applyPenaltiesToRoundResults(rawResults, penalties, round.format) : rawResults;
+
+  const raceNumbers = [...results.overall.keys()].sort((a, b) => a - b);
+  const finalRaceNumber = raceNumbers[raceNumbers.length - 1];
+
+  const classWinners: PreviousResultClassWinner[] = [];
+  if (finalRaceNumber !== undefined) {
+    for (const c of classes) {
+      const rows = results.byClass.get(c.id)?.get(finalRaceNumber) ?? [];
+      const winner = rows.find((r) => r.position === 1 && !r.dsq);
+      if (!winner) continue;
+      classWinners.push({
+        classId: c.id,
+        className: c.name,
+        driver: winner.driver,
+        teamName: winner.team?.name ?? null,
+        teamLogoUrl: winner.team?.logoUrl ?? null,
+      });
+    }
+  }
+
+  const displayRoundNumbers = computeDisplayRoundNumbers(seasonRounds, excludedRoundIds, new Set());
+
+  return {
+    subsessionId: round.subsession_id,
+    seasonId: round.season_id,
+    seasonLabel: round.season_label,
+    trackName: round.track_name,
+    layoutName: layoutBySubsession.get(round.subsession_id) ?? null,
+    displayRoundNumber: displayRoundNumbers.get(round.subsession_id) ?? null,
+    format: round.format,
+    startTime: round.start_time,
+    classWinners,
+  };
 }
 
 /** One race's broadcast link, joined with its round's track/date/season for display — what the Media page's Videos → Broadcasts filter (the tab's default) actually renders. */
