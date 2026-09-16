@@ -3546,6 +3546,24 @@ export interface DriverRaceHistoryRow {
   totalPoints: number;
   dsq: boolean;
   classified: boolean;
+  /** This race's own best lap (ten-thousandths of a second), straight off getLapStatsForSubsessions — null when lap stats weren't recorded for this race. Powers the driver profile's Bests tab: grouping every race with the same layoutLabel and taking the minimum across this field gives this driver's personal best at that layout. Unlike bestLapTenThousandths on RaceResultRow, there's no pre-formatted sibling field here — the Bests tab formats the post-grouping MINIMUM, not any one race's own value, so formatting a single race's raw number here would go unused. */
+  bestLapTenThousandths: number | null;
+  /** The raw curated_rounds.layout text for this specific race (e.g. "Junior", or null when unset) — NOT the same as layoutLabel above, which is trackName plus this value already combined into one display string. Kept separately so the Bests tab can show Track and Layout as two distinct sortable columns rather than having to re-split layoutLabel back apart. Null (rather than "N/A"'s own sentinel — see displayLayoutName) when this round never had a layout value on file at all. */
+  roundLayoutText: string | null;
+  /**
+   * This layout's curated Track Record (`circuit_layouts.lap_record_seconds`
+   * — the same admin-entered figure shown on the Circuits and Event
+   * Briefing pages, via `resolveLayout`'s same trackName/layout matching
+   * used for `totalCorners` above), in seconds. Per Logan: the Bests tab's
+   * "Track Record" column should read this curated figure, not a freshly
+   * computed "fastest ATC lap on file" — that field can be null (no record
+   * entered yet) or even predate/exceed ATC's own results (see
+   * resolveLapRecordCar's own doc comment), same caveats as everywhere else
+   * on the site this field is shown. Null whenever resolveLayout can't pin
+   * this round to one specific circuit_layouts row, or that row has no
+   * record on file.
+   */
+  layoutRecordSeconds: number | null;
 }
 
 /**
@@ -3777,10 +3795,18 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   // doc comment — and this label should still distinguish configurations
   // even then, straight off the source data).
   const layoutLabelBySubsession = new Map<number, string>();
+  // The same resolved circuit_layouts row this loop already looks up for
+  // totalCorners' corner count — also carries lap_record_seconds, the
+  // Bests tab's "Track Record" column (see DriverRaceHistoryRow.
+  // layoutRecordSeconds' own doc comment for why this reuses the curated
+  // figure rather than computing one fresh). No extra fetch: `layout` below
+  // is the one resolveLayout() call this loop already makes per subsession.
+  const layoutRecordBySubsession = new Map<number, number | null>();
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
     const layout = trackName ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, circuitLayouts) : null;
     cornersBySubsession.set(subsessionId, layout?.corners ?? null);
+    layoutRecordBySubsession.set(subsessionId, layout?.lap_record_seconds ?? null);
     const rawLayoutText = roundLayouts.get(subsessionId);
     layoutLabelBySubsession.set(subsessionId, rawLayoutText ? `${trackName ?? '—'} — ${rawLayoutText}` : trackName ?? '—');
   }
@@ -3887,6 +3913,9 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       totalPoints,
       dsq: score.dsq,
       classified: score.classified,
+      bestLapTenThousandths: lapStatsByKey.get(resultKey(score.subsession_id, score.race_number, custId))?.best_lap_ten_thousandths ?? null,
+      roundLayoutText: roundLayouts.get(score.subsession_id) ?? null,
+      layoutRecordSeconds: layoutRecordBySubsession.get(score.subsession_id) ?? null,
     });
   }
 

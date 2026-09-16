@@ -193,9 +193,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <div data-driver-results data-fragment-url={`/drivers/${driverId}/fragment?hof=${driver.is_hall_of_fame ? 1 : 0}`}>
           <div class="mt-8 grid gap-8 lg:grid-cols-3" aria-live="polite" aria-busy="true">
             <span class="sr-only">Loading driver stats…</span>
+            <!-- One skeleton block, not two — Seasons/Races/Splits/Bests now
+                 render as a single tabbed card (see fragment.astro), not
+                 separate stacked cards. -->
             <div class="flex flex-col gap-8 lg:col-span-2">
-              <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
-              <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+              <div class="h-[34rem] animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
             </div>
             <div class="flex flex-col gap-8">
               <div class="h-40 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
@@ -274,5 +276,35 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     document.addEventListener('astro:page-load', initDriverResults);
     document.addEventListener('astro:page-load', initSplitsSync);
+
+    // The Seasons / Races / Splits / Bests tab switch — same reasoning as
+    // initDriverResults' own doc comment on why this has to be a delegated
+    // listener living here in the shell rather than a <script> inside the
+    // fragment: the fragment's tab buttons/panels don't exist yet when this
+    // script first runs, and a <script> tag set via `innerHTML` never
+    // executes at all. Bound once at module scope (same "no re-init guard
+    // needed" reasoning as incidents.astro's identical All Incidents/By
+    // Driver/By Offense switch, which this mirrors) — a delegated listener
+    // on `document` naturally keeps working for tab buttons that don't
+    // exist yet at the time this line runs.
+    document.addEventListener('click', (e) => {
+      const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-tab]');
+      if (!tab) return;
+      const widget = tab.closest<HTMLElement>('[data-driver-tabs]');
+      if (!widget) return;
+      const key = tab.dataset.driverTab;
+
+      widget.querySelectorAll<HTMLElement>('[data-driver-tab]').forEach((t) => {
+        const active = t === tab;
+        t.setAttribute('aria-selected', active ? 'true' : 'false');
+        t.classList.toggle('bg-brand-primary', active);
+        t.classList.toggle('text-white', active);
+        t.classList.toggle('bg-white/5', !active);
+        t.classList.toggle('text-white/60', !active);
+      });
+      widget.querySelectorAll<HTMLElement>('[data-driver-panel]').forEach((panel) => {
+        panel.classList.toggle('hidden', panel.dataset.driverPanel !== key);
+      });
+    });
   </script>
 </Layout>

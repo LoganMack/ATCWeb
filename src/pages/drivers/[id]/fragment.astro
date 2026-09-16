@@ -13,6 +13,8 @@ import {
   getNewsPosts,
   getAllNewsPostDrivers,
   getAllNewsPostTags,
+  formatLapTime,
+  displayLayoutName,
   type NewsPost,
   type NewsTag,
 } from '../../../lib/supabase';
@@ -527,6 +529,44 @@ const splitGroupsClass: SplitGroup[] = [
   { name: 'Team', rows: buildUnorderedRows(teamGroups, classPos, classQualPos) },
   { name: 'Layout', rows: buildUnorderedRows(layoutGroups, classPos, classQualPos) },
 ];
+
+// --- Bests: one row per layout this driver has ever raced (same layoutGroups
+// grouping the Splits card's own Layout split uses above, so the two stay
+// consistent about what counts as "one layout"), with this driver's own
+// fastest lap there against the site's curated Track Record for that layout.
+// Personal Best is the MINIMUM bestLapTenThousandths across every race in
+// the group (DSQ'd/unclassified races still count — a lap time is a raw
+// timing fact independent of classification, same reasoning
+// getDriverBestLapsAtTrack/getLayoutClassBestLaps use). Track Record is the
+// same circuit_layouts.lap_record_seconds figure shown on the Circuits and
+// Event Briefing pages (results.ts resolves it once per race already, via
+// the same resolveLayout() call totalCorners uses — see
+// DriverRaceHistoryRow.layoutRecordSeconds' own doc comment), so it's
+// identical across every race in a group; read off the first row rather
+// than re-resolved here.
+interface LayoutBestRow {
+  trackName: string;
+  /** Already run through displayLayoutName (so the "N/A" single-configuration sentinel reads as "Full Course") — "—" when this track's rounds have never had a layout value on file at all. */
+  layoutText: string;
+  personalBestTenThousandths: number | null;
+  personalBestFormatted: string;
+  trackRecordSeconds: number | null;
+  trackRecordFormatted: string;
+}
+const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
+  .map(([, rows]) => {
+    const bestTimes = rows.map((r) => r.bestLapTenThousandths).filter((t): t is number => t !== null);
+    const personalBestTenThousandths = bestTimes.length > 0 ? Math.min(...bestTimes) : null;
+    return {
+      trackName: rows[0].trackName,
+      layoutText: rows[0].roundLayoutText ? displayLayoutName(rows[0].roundLayoutText) : '—',
+      personalBestTenThousandths,
+      personalBestFormatted: formatLapTime(personalBestTenThousandths !== null ? personalBestTenThousandths / 10000 : null),
+      trackRecordSeconds: rows[0].layoutRecordSeconds,
+      trackRecordFormatted: formatLapTime(rows[0].layoutRecordSeconds),
+    };
+  })
+  .sort((a, b) => a.trackName.localeCompare(b.trackName) || a.layoutText.localeCompare(b.layoutText));
 ---
 
 {loadError && (
@@ -540,22 +580,66 @@ const splitGroupsClass: SplitGroup[] = [
   <>
   <div class="mt-8 grid gap-8 lg:grid-cols-3">
     <div class="flex flex-col gap-8 lg:col-span-2">
-      <!-- Season stats -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <details class="group">
-          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <span class="flex items-center gap-2">
-              <h2 class="font-display text-2xl">Seasons</h2>
-              <span class="font-display text-2xl text-white/40">{career?.seasons.length ?? 0}</span>
-            </span>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
-              <polyline points="9 6 15 12 9 18" />
-            </svg>
-          </summary>
+      <!-- Seasons / Races / Splits / Bests — one card, four tabs, instead of
+           three separate always-visible collapsible cards (plus the new
+           Bests tab) per Logan. Same delegated tab-button pattern as
+           incidents.astro's All Incidents / By Driver / By Offense switch —
+           see that file's own markup comment for why the click listener has
+           to live in the shell (drivers/[id].astro) rather than a <script>
+           here: this fragment is injected via `container.innerHTML =`, and
+           a <script> tag added that way never executes. Splits' own
+           internal Overall/Class radio toggle and per-split-type <details>
+           are untouched by this — only the outer "three separate cards"
+           shell became "one card, tab-selected panels." -->
+      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4" data-driver-tabs>
+        <div class="mb-3 flex flex-wrap gap-2" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            data-driver-tab="seasons"
+            aria-selected="true"
+            class="rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-semibold text-white transition"
+          >
+            {/* No separate color class on this count — it inherits whatever
+                color the tab-switch script gives its parent button (white
+                when active, white/60 when not), so it doesn't stay dim after
+                this tab becomes the active one. Same for every count below. */}
+            Seasons <span>({career?.seasons.length ?? 0})</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-driver-tab="races"
+            aria-selected="false"
+            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+          >
+            Races <span>({raceHistory.length})</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-driver-tab="splits"
+            aria-selected="false"
+            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+          >
+            Splits
+          </button>
+          <button
+            type="button"
+            role="tab"
+            data-driver-tab="bests"
+            aria-selected="false"
+            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+          >
+            Bests <span>({layoutBests.length})</span>
+          </button>
+        </div>
+
+        <div data-driver-panel="seasons">
         {!career || career.seasons.length === 0 ? (
           <p class="text-sm text-white/40">No season history yet.</p>
         ) : (
-          <div class="max-h-[23rem] overflow-auto">
+          <div class="max-h-[32rem] overflow-auto">
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
@@ -666,25 +750,13 @@ const splitGroupsClass: SplitGroup[] = [
             </table>
           </div>
         )}
-        </details>
-      </div>
+        </div>
 
-      <!-- Race-by-race history -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <details class="group">
-          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <span class="flex items-center gap-2">
-              <h2 class="font-display text-2xl">Races</h2>
-              <span class="font-display text-2xl text-white/40">{raceHistory.length}</span>
-            </span>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
-              <polyline points="9 6 15 12 9 18" />
-            </svg>
-          </summary>
+        <div data-driver-panel="races" class="hidden">
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
-          <div class="max-h-[23rem] overflow-auto">
+          <div class="max-h-[32rem] overflow-auto">
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
@@ -774,39 +846,28 @@ const splitGroupsClass: SplitGroup[] = [
             </table>
           </div>
         )}
-        </details>
-      </div>
+        </div>
 
-      <!-- Splits: per-Month/Round/Car aggregate stats. Each split group is
-           its own nested collapsible (default collapsed), independent of
-           the other two and of the outer Splits card's own collapse. The
-           Overall/Class toggle below is pure CSS (paired radio inputs +
-           Tailwind's peer-checked variant, same "no JS needed" approach as
-           the <details> collapses) — this fragment is injected via
-           `innerHTML` by drivers/[id].astro, and a <script> tag added that
-           way never executes, so both row sets are rendered once up front
-           and the toggle just switches which one is visible.
+        <!-- Splits: per-Month/Round/Car aggregate stats. Each split group is
+             its own nested collapsible (default collapsed), independent of
+             the other four and of the outer panel's own tab visibility. The
+             Overall/Class toggle below is pure CSS (paired radio inputs +
+             Tailwind's peer-checked variant, same "no JS needed" approach as
+             the <details> collapses) — this fragment is injected via
+             `innerHTML` by drivers/[id].astro, and a <script> tag added that
+             way never executes, so both row sets are rendered once up front
+             and the toggle just switches which one is visible.
 
-           Each mode's row-set is its own independent DOM subtree (below),
-           so a <details> a visitor opens under Overall isn't the same
-           element as its counterpart under Class — CSS alone can't keep
-           them showing the same open/closed state across a toggle. Each
-           <details> here carries data-split-name (matching by split group
-           name, e.g. "Month"), and drivers/[id].astro's shell script (the
-           one place a <script> in this page actually runs — see above)
-           mirrors open/closed state between the two same-named elements on
-           every toggle event, so opening either one opens both. -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
-        <details class="group">
-          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <span class="flex items-center gap-2">
-              <h2 class="font-display text-2xl">Splits</h2>
-              <span class="font-display text-2xl text-white/40">{splitGroupsOverall.length}</span>
-            </span>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
-              <polyline points="9 6 15 12 9 18" />
-            </svg>
-          </summary>
+             Each mode's row-set is its own independent DOM subtree (below),
+             so a <details> a visitor opens under Overall isn't the same
+             element as its counterpart under Class — CSS alone can't keep
+             them showing the same open/closed state across a toggle. Each
+             <details> here carries data-split-name (matching by split group
+             name, e.g. "Month"), and drivers/[id].astro's shell script (the
+             one place a <script> in this page actually runs — see above)
+             mirrors open/closed state between the two same-named elements on
+             every toggle event, so opening either one opens both. -->
+        <div data-driver-panel="splits" class="hidden">
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
@@ -963,7 +1024,53 @@ const splitGroupsClass: SplitGroup[] = [
             </div>
           </>
         )}
-        </details>
+        </div>
+
+        <!-- Bests: one row per layout this driver has ever raced, sorted
+             alphabetically by track then layout — see the layoutBests
+             computation above for exactly how Personal Best/Track Record are
+             derived. -->
+        <div data-driver-panel="bests" class="hidden">
+        {layoutBests.length === 0 ? (
+          <p class="text-sm text-white/40">No races on file yet.</p>
+        ) : (
+          <div class="max-h-[32rem] overflow-auto">
+            <table class="w-full border-collapse text-xs" data-sortable>
+              <thead>
+                <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium" data-sort-key="track">Track</th>
+                  <th class="py-2 pr-2 font-medium" data-sort-key="layout">Layout</th>
+                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="pb">Personal Best</th>
+                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="record">Track Record</th>
+                </tr>
+              </thead>
+              <tbody>
+                {layoutBests.map((r) => (
+                  <tr class="border-b border-white/5">
+                    <td class="py-2 pr-2 font-semibold text-white/90" data-col="track" data-sort-value={r.trackName}>{r.trackName}</td>
+                    <td class="py-2 pr-2 text-white/70" data-col="layout" data-sort-value={r.layoutText}>{r.layoutText}</td>
+                    <td
+                      class="py-2 pr-2 text-center font-display text-white/90"
+                      data-col="pb"
+                      data-sort-value={r.personalBestTenThousandths ?? ''}
+                    >
+                      {r.personalBestFormatted}
+                    </td>
+                    <td
+                      class="py-2 pr-2 text-center font-display text-white/70"
+                      data-col="record"
+                      data-sort-value={r.trackRecordSeconds ?? ''}
+                      title="circuit_layouts.lap_record_seconds — the same curated Track Record shown on the Circuits and Event Briefing pages, not necessarily an ATC-only figure."
+                    >
+                      {r.trackRecordFormatted}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        </div>
       </div>
     </div>
 

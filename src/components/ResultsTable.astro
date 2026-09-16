@@ -304,30 +304,45 @@ for (const p of racePenalties) {
             )}
             <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.margin}</td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">
-              {row.startingPosition ?? '—'}
-              {row.polePosition && (
-                <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Pole position">P</sup>
-              )}
+              {/* The "P" badge is absolutely positioned off a wrapper sized
+                  to just the number, rather than sitting inline after it —
+                  a plain inline sup here means text-center centers the
+                  number+badge pair as one block, so the number itself
+                  visibly drifts left of where it sits in every other row
+                  that has no badge. Pulling the badge out of flow like this
+                  keeps the number itself centered regardless of whether a
+                  badge is shown — same fix applied to the Incidents
+                  column's I/FI/! badges below, per Logan. */}
+              <span class="relative inline-block">
+                {row.startingPosition ?? '—'}
+                {row.polePosition && (
+                  <sup class="absolute left-full top-0 ml-0.5 text-[10px] font-sans text-brand-gold" title="Pole position">P</sup>
+                )}
+              </span>
             </td>
             <td
               class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell"
               title={cornersPerIncident !== null ? `${cornersPerIncident.toFixed(1)} corners per incident` : undefined}
             >
-              {row.incidents ?? '—'}
-              {row.incidentsBonus && (
-                <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="3 incidents or less bonus">I</sup>
-              )}
-              {row.fewestIncidentsBonus > 0 && (
-                <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Fewest Incidents bonus">FI</sup>
-              )}
-              {incidentLimitExceededDriverIds.has(row.driver.id) && (
-                <sup
-                  class="ml-0.5 text-[10px] font-sans text-brand-pink"
-                  title={`Exceeded this round's incident limit${incidentLimit !== null ? ` (${incidentLimit})` : ''}`}
-                >
-                  !
-                </sup>
-              )}
+              <span class="relative inline-block">
+                {row.incidents ?? '—'}
+                <span class="absolute left-full top-0 ml-0.5 inline-flex items-start gap-0.5">
+                  {row.incidentsBonus && (
+                    <sup class="text-[10px] font-sans text-brand-gold" title="3 incidents or less bonus">I</sup>
+                  )}
+                  {row.fewestIncidentsBonus > 0 && (
+                    <sup class="text-[10px] font-sans text-brand-gold" title="Fewest Incidents bonus">FI</sup>
+                  )}
+                  {incidentLimitExceededDriverIds.has(row.driver.id) && (
+                    <sup
+                      class="text-[10px] font-sans text-brand-pink"
+                      title={`Exceeded this round's incident limit${incidentLimit !== null ? ` (${incidentLimit})` : ''}`}
+                    >
+                      !
+                    </sup>
+                  )}
+                </span>
+              </span>
             </td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.laps ?? '—'}</td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">
