@@ -18,8 +18,6 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
-  getSiteSettings,
-  upsertSiteSetting,
   getPageBanners,
   upsertPageBanner,
   deletePageBanner,
@@ -40,7 +38,6 @@ import {
   displayDriverName,
   type PenaltyOffense,
 } from '../../../lib/supabase';
-import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../../../lib/siteSettings';
 import { BANNER_PAGES } from '../../../lib/pageBanners';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getChampions, driversSelect } from '../../../lib/results';
@@ -50,7 +47,6 @@ const accessToken = Astro.locals.session!.accessToken;
 const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
-let saved = false;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop();
@@ -227,38 +223,7 @@ if (Astro.request.method === 'POST') {
         error = err instanceof Error ? err.message : 'Failed to save this banner.';
       }
     }
-  } else {
-    const broadcastUrl = String(form.get('featured_broadcast_url') ?? '').trim();
-
-    if (broadcastUrl && !youtubeEmbedUrl(broadcastUrl)) {
-      error = "That doesn't look like a YouTube URL — paste the normal watch/share link (or leave it blank to remove the broadcast).";
-    } else {
-      try {
-        await upsertSiteSetting(supabaseEnv, accessToken, {
-          setting_key: FEATURED_BROADCAST_URL_KEY,
-          value: broadcastUrl || null,
-        });
-        await logActivity(supabaseEnv, accessToken, actor, {
-          action: 'edit',
-          entity_type: 'site_property',
-          entity_label: 'Featured Broadcast URL',
-          details: broadcastUrl || '(cleared)',
-        });
-        saved = true;
-      } catch (err) {
-        console.error('Failed to save site settings:', err);
-        error = err instanceof Error ? err.message : 'Failed to save.';
-      }
-    }
   }
-}
-
-let currentBroadcastUrl = '';
-try {
-  currentBroadcastUrl = siteSettingValue(await getSiteSettings(supabaseEnv), FEATURED_BROADCAST_URL_KEY) ?? '';
-} catch (err) {
-  console.error('Failed to load site settings:', err);
-  if (!error) error = 'Failed to load current settings.';
 }
 
 let configured: Awaited<ReturnType<typeof getPageBanners>> = [];
@@ -382,35 +347,8 @@ if (!championsLoadError && activeClass) {
   {error && (
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
-  {saved && !error && (
-    <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">Saved.</p>
-  )}
 
-  <section class="reveal mt-8 max-w-xl rounded-lg bg-white/5 p-5 ring-1 ring-white/10" style="transition-delay: 60ms">
-    <h2 class="font-semibold">Featured Broadcast</h2>
-    <p class="mt-1 text-xs text-white/40">
-      The YouTube video/live URL shown in the homepage's "Featured Broadcast" section. Leave blank to hide that section entirely.
-    </p>
-    <form method="POST" data-astro-reload class="mt-3">
-      <input type="hidden" name="form_section" value="broadcast" />
-      <input
-        id="featured_broadcast_url"
-        type="text"
-        name="featured_broadcast_url"
-        value={currentBroadcastUrl}
-        placeholder="https://www.youtube.com/watch?v=..."
-        class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
-      />
-      <button
-        type="submit"
-        class="mt-4 rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110"
-      >
-        Save
-      </button>
-    </form>
-  </section>
-
-  <section class="reveal mt-8" style="transition-delay: 80ms">
+  <section class="reveal mt-8" style="transition-delay: 60ms">
     <h2 class="font-semibold">Page Banners</h2>
     <p class="mt-1 max-w-2xl text-xs text-white/40">
       An optional background image for the space between the top nav and each page's own header — the Home entry is

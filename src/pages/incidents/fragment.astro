@@ -1,8 +1,7 @@
 ---
 export const prerender = false;
 
-import DriverFlag from '../../components/DriverFlag.astro';
-import { resolveSupabaseEnv, displayDriverName, formatDate } from '../../lib/supabase';
+import { resolveSupabaseEnv, displayDriverName, shortDriverName, formatDateShort } from '../../lib/supabase';
 import { getAllIncidents, type IncidentRow } from '../../lib/incidents';
 
 /**
@@ -42,13 +41,13 @@ function roundLabel(row: IncidentRow): string {
 
 function driverLabel(row: IncidentRow): string {
   if (!row.driver) return 'RI';
-  return row.driver.car_number !== null ? `#${row.driver.car_number} ${displayDriverName(row.driver.name)}` : displayDriverName(row.driver.name);
+  return row.driver.car_number !== null ? `#${row.driver.car_number} ${shortDriverName(row.driver.name)}` : shortDriverName(row.driver.name);
 }
 
 function involvedLabel(row: IncidentRow): string {
   if (row.involvedDrivers.length === 0) return '—';
   return row.involvedDrivers
-    .map((d) => (d.car_number !== null ? `#${d.car_number}` : displayDriverName(d.name)))
+    .map((d) => (d.car_number !== null ? `#${d.car_number}` : shortDriverName(d.name)))
     .join(', ');
 }
 
@@ -108,7 +107,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="round">Round</th>
                 <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>
                 <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="session">Session</th>
-                <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="incidentnum">#</th>
                 <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lap">Lap</th>
                 <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
                 <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="involved">Involved</th>
@@ -131,25 +129,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
                   >
                     <td class="py-2.5 pl-4 pr-3 text-white/60" data-col="date" data-sort-value={row.startTime}>
-                      {formatDate(row.startTime)}
+                      {formatDateShort(row.startTime)}
                     </td>
                     <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="season">{row.seasonLabel ?? '—'}</td>
                     <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="round" data-sort-value={row.displayRoundNumber ?? -1}>
-                      {roundLabel(row)}
+                      {row.displayRoundNumber !== null ? row.displayRoundNumber : 'Exhibition'}
                     </td>
                     <td class="hidden py-2.5 pr-3 font-semibold sm:table-cell" data-col="track">{row.trackName}</td>
                     <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="session">{sessionLabel(row)}</td>
-                    <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="incidentnum">{row.incidentNumber ?? '—'}</td>
                     <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lap">{row.lap ?? '—'}</td>
                     <td class="py-2.5 pr-3 font-semibold" data-col="driver">
-                      <div class="flex items-center gap-1.5">
-                        {row.driver && <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />}
-                        <span title={row.driver === null ? 'Racing Incident — no driver at fault' : undefined}>{driverLabel(row)}</span>
-                      </div>
+                      <span title={row.driver === null ? 'Racing Incident — no driver at fault' : undefined}>{driverLabel(row)}</span>
                     </td>
                     <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
                     <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell" data-col="offenses">
-                      {row.offenseNames.length > 0 ? row.offenseNames.join(', ') : '—'}
+                      {row.offenseNames.length > 0 ? (
+                        <div class="flex flex-col gap-0.5">
+                          {row.offenseNames.map((n) => <div>{n}</div>)}
+                        </div>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp">{row.penaltyPoints || '—'}</td>
                     <td class="py-2.5 pr-3 text-center text-white/60" data-col="time">
@@ -164,7 +164,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </td>
                   </tr>
                   <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-sm">
-                    <td colspan={15} class="px-4 py-4 sm:pl-11">
+                    <td colspan={14} class="px-4 py-4 sm:pl-11">
                       <p class="text-white/70">{row.description || 'No description recorded.'}</p>
                       <a href={`/results/${row.subsessionId}`} class="mt-2 inline-block text-xs text-white/50 hover:text-white">
                         View full round result &rarr;
@@ -213,9 +213,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             &#9654;
                           </span>
                           <span>
-                            {name} {agg.driver.car_number !== null && <span class="text-white/40">#{agg.driver.car_number}</span>}
+                            {name}
+                            {agg.driver.car_number !== null && <span class="text-white/40"> #{agg.driver.car_number}</span>}
                           </span>
-                          <DriverFlag nationality1={agg.driver.nationality_1} nationality2={agg.driver.nationality_2} />
                         </div>
                       </td>
                       <td class="py-2.5 pr-3 text-center text-white/60" data-col="incidents">{agg.incidentsInvolvedIn}</td>
@@ -243,7 +243,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             <tbody>
                               {agg.incidents.map((row) => (
                                 <tr class="border-b border-white/5">
-                                  <td class="py-2 pr-3 text-white/60">{formatDate(row.startTime)}</td>
+                                  <td class="py-2 pr-3 text-white/60">{formatDateShort(row.startTime)}</td>
                                   <td class="py-2 pr-3 text-white/70">
                                     {roundLabel(row)} — {row.trackName}
                                   </td>
@@ -326,7 +326,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           <tbody>
                             {agg.incidents.map((row) => (
                               <tr class="border-b border-white/5">
-                                <td class="py-2 pr-3 text-white/60">{formatDate(row.startTime)}</td>
+                                <td class="py-2 pr-3 text-white/60">{formatDateShort(row.startTime)}</td>
                                 <td class="py-2 pr-3 text-white/70">
                                   {roundLabel(row)} — {row.trackName}
                                 </td>

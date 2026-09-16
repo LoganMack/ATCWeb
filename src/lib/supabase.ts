@@ -1506,9 +1506,13 @@ export function deletePageBanner(env: SupabaseEnv, accessToken: string, pageKey:
 //
 // A generic key/value table for one-off, site-wide values that don't have
 // a natural table of their own — unlike page_banners above, these aren't
-// per-page. First (and so far only) use: 'featured_broadcast_url' (see
-// src/lib/siteSettings.ts for the key constant and the YouTube-URL-to-
-// embed-URL parsing), managed from /admin/site-properties.
+// per-page. Current use: the driver probation/inactivity thresholds (see
+// src/lib/siteSettings.ts for the key constants), managed from the "Driver
+// Settings" panel above the admin Drivers list. The table used to also hold
+// a manually-pasted 'featured_broadcast_url' for the homepage; that's gone
+// now (see 0087_remove_featured_broadcast_setting.sql) — the homepage
+// derives its broadcast embed automatically instead, from whichever race
+// result most recently had a broadcast link attached.
 
 export interface SiteSettingRow {
   setting_key: string;

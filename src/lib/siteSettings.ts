@@ -6,9 +6,6 @@
  * they mean.
  */
 
-/** The homepage "Featured Broadcast" YouTube URL — set from /admin/site-properties, rendered by src/pages/index.astro. */
-export const FEATURED_BROADCAST_URL_KEY = 'featured_broadcast_url';
-
 /**
  * Driver settings (0041_driver_settings.sql) — set from the "Driver
  * Settings" panel above the admin Drivers list. Both pairs follow the same

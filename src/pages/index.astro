@@ -14,7 +14,6 @@ import {
   getSeasons,
   getDriverClasses,
   getStandingsExcludedRoundIds,
-  getSiteSettings,
   resolveSupabaseEnv,
   displayDriverName,
   formatDate,
@@ -34,17 +33,18 @@ import {
   isChampionshipSeason,
   driversSelect,
   getPreviousResultSummary,
+  getAllBroadcastVideos,
   type DriverSeasonStanding,
   type TeamSeasonStanding,
   type DriverSeasonExtras,
 } from '../lib/results';
-import { FEATURED_BROADCAST_URL_KEY, siteSettingValue, youtubeEmbedUrl } from '../lib/siteSettings';
-import { classBadgeClasses } from '../lib/classColors';
+import { youtubeEmbedUrl } from '../lib/siteSettings';
+import { classBadgeClasses, classBadgeLetter } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Fetch 8 rather than the 4 this page used to show: 1 goes into the new
-// hero-row "latest story" slot, the other 7 fill the plain text "more news"
+// Fetch 16 rather than the 4 this page used to show: 1 goes into the new
+// hero-row "latest story" slot, the other 15 fill the plain text "more news"
 // list right below it (see the template below).
 let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
 let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
@@ -55,7 +55,7 @@ let eventLayouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
 const loadTopSection = async () => {
   try {
     [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
-      getNewsPosts(supabaseEnv, 8),
+      getNewsPosts(supabaseEnv, 16),
       getUpcomingEvents(supabaseEnv, 4),
       getAllCircuitLayouts(supabaseEnv),
     ]);
@@ -98,7 +98,7 @@ const loadNewsTags = async () => {
   }
 };
 
-// --- Featured broadcast + hero banner (admin-managed) ----------------------
+// --- Previous Broadcast + hero banner ---------------------------------------
 //
 // Grouped into the same Promise.all as everything else above (news, events,
 // circuit layouts, season logos, news tags) rather than awaited on its own
@@ -114,14 +114,24 @@ const loadNewsTags = async () => {
 // standings" were ever reported as one bug, not two). Running it and its
 // neighbors concurrently with each other, before the widget, is strictly
 // safer than the old one-at-a-time ordering: it finishes sooner, not later.
+//
+// This used to be a manually-pasted YouTube URL set from
+// /admin/site-properties (see 0087_remove_featured_broadcast_setting.sql,
+// which drops the now-unused setting that admin form used to write) — now
+// it's automatic: whichever race result most recently had a broadcast link
+// attached (src/pages/results/[subsessionId].astro sets race_links.broadcast_url),
+// via getAllBroadcastVideos() (results.ts), which already returns every
+// broadcast link on file joined with its round, newest first — [0] is all
+// this needs.
+let previousBroadcast: Awaited<ReturnType<typeof getAllBroadcastVideos>>[number] | null = null;
 let broadcastEmbedUrl: string | null = null;
-const loadBroadcastSetting = async () => {
+const loadPreviousBroadcast = async () => {
   try {
-    const settings = await getSiteSettings(supabaseEnv);
-    const rawBroadcastUrl = siteSettingValue(settings, FEATURED_BROADCAST_URL_KEY);
-    broadcastEmbedUrl = rawBroadcastUrl ? youtubeEmbedUrl(rawBroadcastUrl) : null;
+    const videos = await getAllBroadcastVideos(supabaseEnv);
+    previousBroadcast = videos[0] ?? null;
+    broadcastEmbedUrl = previousBroadcast ? youtubeEmbedUrl(previousBroadcast.broadcast_url) : null;
   } catch (err) {
-    console.error('Failed to load featured broadcast setting:', err);
+    console.error('Failed to load previous broadcast:', err);
   }
 };
 
@@ -163,13 +173,13 @@ await Promise.all([
   loadTopSection(),
   loadSeasonLogos(),
   loadNewsTags(),
-  loadBroadcastSetting(),
+  loadPreviousBroadcast(),
   loadHeroBanner(),
   loadPreviousResult(),
 ]);
 
 const featuredNews = latestNews[0] ?? null;
-const moreNews = latestNews.slice(1, 8);
+const moreNews = latestNews.slice(1, 16);
 
 // Same pre-joined-bundle approach as calendar.astro's own "Add All to
 // Calendar" button, just scoped to whatever's actually shown here (the
@@ -241,7 +251,7 @@ try {
     // of everything else this page already fetches, it pushed a single
     // homepage load over Cloudflare Workers' per-request subrequest limit —
     // which doesn't fail loudly, it just makes every fetch downstream of
-    // the limit (this widget, then the Featured Broadcast section right
+    // the limit (this widget, then the Previous Broadcast section right
     // after it) silently return nothing, exactly what "No standings yet."
     // plus a vanished YouTube embed looked like. The fix keeping both
     // things true at once: build ONE second context here (still never
@@ -469,14 +479,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <span
                         class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(winner.className)}`}
                       >
-                        {winner.className}
+                        {classBadgeLetter(winner.className)}
                       </span>
+                      {winner.teamName && <TeamLogo name={winner.teamName} logoUrl={winner.teamLogoUrl} size="h-5 w-5" title={winner.teamName} />}
                       <DriverFlag nationality1={winner.driver.nationality_1} nationality2={winner.driver.nationality_2} />
                       <span class="min-w-0 flex-1 truncate font-semibold">
                         {displayDriverName(winner.driver.name)}
                         {winner.driver.car_number !== null && <span class="text-white/40"> #{winner.driver.car_number}</span>}
                       </span>
-                      {winner.teamName && <TeamLogo name={winner.teamName} logoUrl={winner.teamLogoUrl} size="h-5 w-5" title={winner.teamName} />}
                     </div>
                   ))}
                 </div>
@@ -573,19 +583,26 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     </div>
     </div>
 
-    {broadcastEmbedUrl && (
+    {broadcastEmbedUrl && previousBroadcast && (
       <div class="mx-auto mt-16 max-w-6xl">
-        <h2 class="mb-6 font-display text-3xl">Featured Broadcast</h2>
+        <h2 class="font-display text-3xl">Previous Broadcast</h2>
+        <p class="mb-6 mt-1 text-sm text-white/50">
+          {previousBroadcast.season_label && `${previousBroadcast.season_label} · `}
+          {previousBroadcast.track_name} — Race {previousBroadcast.race_number}
+        </p>
         <div class="aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
           <iframe
             class="h-full w-full"
             src={broadcastEmbedUrl}
-            title="Featured Broadcast"
+            title="Previous Broadcast"
             loading="lazy"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             allowfullscreen
           ></iframe>
         </div>
+        <a href={`/results/${previousBroadcast.subsession_id}`} class="mt-3 inline-block text-sm text-white/60 hover:text-white">
+          Full race result &rarr;
+        </a>
       </div>
     )}
   </section>
