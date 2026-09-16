@@ -171,6 +171,7 @@ interface RoundIdentity {
   format: 'endurance' | 'sprint' | null;
   strengthOfField: number | null;
   isExhibition: boolean;
+  isTest: boolean;
   eventId: string | null;
 }
 
@@ -204,6 +205,8 @@ function resolveRoundIdentity(importKey: string, get: RowGetter, first: string[]
   const strengthOfField = sofRaw ? Number(sofRaw) : null;
   const exhibitionRaw = get(first, 'exhibition').toLowerCase();
   const isExhibition = exhibitionRaw === 'yes' || exhibitionRaw === 'true' || exhibitionRaw === '1';
+  const testRaw = get(first, 'test').toLowerCase();
+  const isTest = testRaw === 'yes' || testRaw === 'true' || testRaw === '1';
 
   const circuit = ctx.circuits.find((c) => c.name.toLowerCase() === circuitName.toLowerCase());
   const season = ctx.seasons.find((s) => s.name.toLowerCase() === seasonName.toLowerCase());
@@ -232,14 +235,15 @@ function resolveRoundIdentity(importKey: string, get: RowGetter, first: string[]
     format,
     strengthOfField,
     isExhibition,
+    isTest,
     eventId,
   };
 }
 
 /**
  * Upserts the curated_rounds row (and manual_result_imports link, and
- * exhibition round_overrides flag) for one resolved round identity. Call
- * AFTER clearing the calling importer's own results table for an
+ * exhibition/test round_overrides flags) for one resolved round identity.
+ * Call AFTER clearing the calling importer's own results table for an
  * already-imported round — see resolveRoundIdentity()'s doc comment.
  *
  * `numDrivers`/`updateNumDrivers`: num_drivers is meant to reflect the
@@ -296,6 +300,28 @@ async function writeRoundRow(
     } catch (err) {
       console.error(
         `Failed to set the exhibition flag for manual round "${identity.importKey}" (the round itself still imported):`,
+        err
+      );
+    }
+  }
+
+  // Same upsert shape as the exhibition flag above, independent flag (see
+  // 0036_round_test_flag.sql) — set the exact same way: from the CSV's own
+  // `test` column, itself pre-filled from the linked event's `category`
+  // (see src/pages/api/import-templates/[kind].ts) when this template was
+  // downloaded for a specific Test Session event. This is now the ONLY way
+  // to flag a round as a test session — the round detail page's admin
+  // toggle button was removed per Logan (the event is the source of truth).
+  if (identity.isTest) {
+    try {
+      try {
+        await restPost(env, accessToken, 'round_overrides', { subsession_id: identity.subsessionId, is_test: true });
+      } catch {
+        await restPatch(env, accessToken, `round_overrides?subsession_id=eq.${identity.subsessionId}`, { is_test: true });
+      }
+    } catch (err) {
+      console.error(
+        `Failed to set the test flag for manual round "${identity.importKey}" (the round itself still imported):`,
         err
       );
     }

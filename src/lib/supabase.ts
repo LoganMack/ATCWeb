@@ -1294,16 +1294,29 @@ export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
  * for each. Everywhere in src/lib/results.ts that fetches
  * `exhibitionRoundIds` to filter scores/standings uses this instead of
  * `getExhibitionRoundIds` alone now; callers that need the true
- * exhibition-only set for display (e.g. the round detail page's admin
- * toggle buttons) keep calling `getExhibitionRoundIds`/`getTestRoundIds`
- * separately.
+ * exhibition-only set for display (e.g. the round detail page's
+ * Exhibition/Test badges) keep calling `getExhibitionRoundIds`/
+ * `getTestRoundIds` separately.
  */
 export async function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Set<number>> {
   const [exhibition, test] = await Promise.all([getExhibitionRoundIds(env), getTestRoundIds(env)]);
   return new Set([...exhibition, ...test]);
 }
 
-/** Marks (or unmarks) one round as a non-points exhibition — upserts on subsession_id. Only ever writes is_exhibition; a prior is_test flag on the same row (if any) survives untouched — see 0036_round_test_flag.sql for why these are independent. */
+/**
+ * Marks (or unmarks) one round as a non-points exhibition — upserts on
+ * subsession_id. Only ever writes is_exhibition; a prior is_test flag on the
+ * same row (if any) survives untouched — see 0036_round_test_flag.sql for
+ * why these are independent.
+ *
+ * No longer called from the round detail page — that page's admin toggle
+ * buttons were removed per Logan ("these should be set by the event that is
+ * linked to this race result"), and both flags are now set entirely via the
+ * linked event's own `category`, propagated at import time (see
+ * src/pages/api/import-templates/[kind].ts and raceResultsImport.ts's
+ * writeRoundRow). Left in place as a plain upsert helper in case a future
+ * admin flow needs to write these flags directly again.
+ */
 export async function setRoundExhibition(
   env: SupabaseEnv,
   accessToken: string,
@@ -1320,7 +1333,7 @@ export async function setRoundExhibition(
   return rows[0];
 }
 
-/** Marks (or unmarks) one round as a test round — same upsert shape as setRoundExhibition, independent flag. */
+/** Marks (or unmarks) one round as a test round — same upsert shape as setRoundExhibition, independent flag. Same "no longer called from the round page" note applies — see setRoundExhibition's own doc comment. */
 export async function setRoundTest(env: SupabaseEnv, accessToken: string, subsessionId: number, isTest: boolean) {
   const res = await fetch(`${env.url}/rest/v1/round_overrides?on_conflict=subsession_id`, {
     method: 'POST',

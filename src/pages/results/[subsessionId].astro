@@ -5,13 +5,12 @@ import Layout from '../../layouts/Layout.astro';
 import ResultsTable from '../../components/ResultsTable.astro';
 import QualifyingResultsTable from '../../components/QualifyingResultsTable.astro';
 import PracticeResultsTable from '../../components/PracticeResultsTable.astro';
+import RaceLinksBlock from '../../components/RaceLinksBlock.astro';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
   getExhibitionRoundIds,
   getTestRoundIds,
-  setRoundExhibition,
-  setRoundTest,
   getRaceLinksForSubsession,
   upsertRaceLinks,
   formatDate,
@@ -33,9 +32,9 @@ import {
   computeDisplayRoundNumbers,
   isChampionshipSeason,
   topTeamScorers,
-  iracingResultsUrl,
   getRoundLayoutsForSubsessions,
   resolveLayout,
+  getDriverBestLapsAtTrack,
   type RoundResults,
   type QualifyingRow,
   type PracticeRow,
@@ -62,25 +61,12 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
 
-  if (intent === 'toggle-exhibition') {
-    const nextIsExhibition = String(form.get('next') ?? 'true') === 'true';
-    try {
-      await setRoundExhibition(supabaseEnv, Astro.locals.session!.accessToken, subsessionId, nextIsExhibition);
-    } catch (err) {
-      console.error('Failed to update round exhibition flag:', err);
-    }
-    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
-  }
-
-  if (intent === 'toggle-test') {
-    const nextIsTest = String(form.get('next') ?? 'true') === 'true';
-    try {
-      await setRoundTest(supabaseEnv, Astro.locals.session!.accessToken, subsessionId, nextIsTest);
-    } catch (err) {
-      console.error('Failed to update round test flag:', err);
-    }
-    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
-  }
+  // Exhibition/test are no longer toggled from this page — both are driven
+  // entirely by the calendar Event linked to this round (its `category`
+  // field), propagated into round_overrides.is_exhibition/is_test at import
+  // time (see src/pages/api/import-templates/[kind].ts and
+  // raceResultsImport.ts's writeRoundRow) per Logan: "these should be set by
+  // the event that is linked to this race result."
 
   if (intent === 'save-race-links') {
     // Empty strings from the form mean "clear this field" (null), not
@@ -315,7 +301,43 @@ async function loadLayoutCorners() {
   }
 }
 
-await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners()]);
+// Every driver id appearing anywhere in this round's Overall results —
+// scopes the personal-best lookup just below to the drivers who actually
+// raced this round, not the whole roster (see getDriverBestLapsAtTrack's own
+// bounded-fetch reasoning). Pure in-memory work over the (post-penalty)
+// roundResults, same "no fetch of its own" reasoning as
+// incidentTotalByDriverId above.
+const roundDriverIds = new Set<string>();
+if (!loadError && round) {
+  for (const rows of roundResults.overall.values()) {
+    for (const row of rows) roundDriverIds.add(row.driver.id);
+  }
+}
+
+// This driver's fastest-ever lap at this track BEFORE this round — powers
+// ResultsTable's expanded detail panel "beat their personal best at this
+// track" indicator (per Logan: "like the track record logic in the race
+// recaps," but per-driver rather than newsRecap.ts's whole-round-vs-
+// official-record comparison — see getDriverBestLapsAtTrack's own doc
+// comment).
+let driverBestLapsAtTrack: Map<string, number> = new Map();
+async function loadDriverBestLapsAtTrack() {
+  if (loadError || !round || roundDriverIds.size === 0) return;
+  try {
+    const roundLayouts = await getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]);
+    driverBestLapsAtTrack = await getDriverBestLapsAtTrack(
+      supabaseEnv,
+      round!.track_name,
+      roundLayouts.get(subsessionId) ?? null,
+      [...roundDriverIds],
+      subsessionId
+    );
+  } catch (err) {
+    console.error("Failed to look up drivers' personal bests at this track:", err);
+  }
+}
+
+await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners(), loadDriverBestLapsAtTrack()]);
 
 // Drivers whose round-total incidents exceed (not just meet) the limit —
 // ResultsTable flags every one of their race rows this round, in red.
@@ -375,6 +397,15 @@ for (const [raceNumber, overallRows] of roundResults.overall) {
   }
 }
 
+// Race links (iRacing Results / Replay / Broadcast / Photo Album) — one set
+// per ROUND, not per race (see RaceLinksBlock.astro's own doc comment).
+// Always saved/read against the round's first race number as the canonical
+// row. Rendered on the same line as the FIRST race table's title (see
+// `slot="race-links"` on <ResultsTable> below) rather than in the page
+// header, per Logan.
+const canonicalRaceNumber = overallRaceNumbers[0] ?? 1;
+const raceLinks = raceLinksByRace.get(canonicalRaceNumber) ?? null;
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
@@ -396,124 +427,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <h1 class="reveal mt-3 font-display text-5xl" style="transition-delay: 40ms">
           {isExhibition ? 'Exhibition — ' : displayRoundNumber !== null ? `Round ${displayRoundNumber} — ` : ''}{round.track_name}
         </h1>
-        <div class="reveal mt-3 flex flex-wrap items-center justify-between gap-3" style="transition-delay: 80ms">
+        <div class="reveal mt-3" style="transition-delay: 80ms">
           <p class="text-white/60">{formatDate(round.start_time)}</p>
-
-          {/* Race links (iRacing Results / Replay / Broadcast / Photo Album) — one
-              set per ROUND, not per race (a round's races all share the same
-              iRacing session/broadcast/photo album in practice — see this
-              migration's own header comment on why this used to be modeled
-              per-race: 0007_race_links.sql). Always saved/read against the
-              round's first race number as the canonical row; the table's
-              schema is unchanged, this is just no longer shown/edited per race. */}
-          {(() => {
-            const canonicalRaceNumber = overallRaceNumbers[0] ?? 1;
-            const links = raceLinksByRace.get(canonicalRaceNumber) ?? null;
-            const hasAnyLink = links && (links.iracing_subsession_id || links.replay_url || links.broadcast_url || links.photo_album_url);
-            if (!hasAnyLink && !isAdmin) return null;
-            return (
-              <div class="flex flex-wrap items-center gap-2">
-                {links?.iracing_subsession_id && (
-                  <a
-                    href={iracingResultsUrl(links.iracing_subsession_id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-                  >
-                    iRacing Results
-                  </a>
-                )}
-                {links?.replay_url && (
-                  <a
-                    href={links.replay_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-                  >
-                    Download Replay
-                  </a>
-                )}
-                {links?.broadcast_url && (
-                  <a
-                    href={links.broadcast_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-                  >
-                    Watch Broadcast
-                  </a>
-                )}
-                {links?.photo_album_url && (
-                  <a
-                    href={links.photo_album_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-                  >
-                    Photo Album
-                  </a>
-                )}
-                {isAdmin && (
-                  <details class="relative">
-                    <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/50 ring-1 ring-white/10 transition hover:bg-white/10">
-                      Edit links
-                    </summary>
-                    <form
-                      method="POST"
-                      data-astro-reload
-                      class="absolute right-0 z-10 mt-2 flex w-64 flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-4 shadow-xl"
-                    >
-                      <input type="hidden" name="intent" value="save-race-links" />
-                      <input type="hidden" name="subsession_id" value={subsessionId} />
-                      <input type="hidden" name="race_number" value={canonicalRaceNumber} />
-                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                        iRacing subsession ID
-                        <input
-                          type="number"
-                          name="iracing_subsession_id"
-                          value={links?.iracing_subsession_id ?? ''}
-                          class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                        />
-                      </label>
-                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                        Replay download URL
-                        <input
-                          type="url"
-                          name="replay_url"
-                          value={links?.replay_url ?? ''}
-                          class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                        />
-                      </label>
-                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                        Broadcast video URL
-                        <input
-                          type="url"
-                          name="broadcast_url"
-                          value={links?.broadcast_url ?? ''}
-                          class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                        />
-                      </label>
-                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                        Photo album URL
-                        <input
-                          type="url"
-                          name="photo_album_url"
-                          value={links?.photo_album_url ?? ''}
-                          class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-                        />
-                      </label>
-                      <button
-                        type="submit"
-                        class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
-                      >
-                        Save
-                      </button>
-                    </form>
-                  </details>
-                )}
-              </div>
-            );
-          })()}
         </div>
 
         {isExhibition && (
@@ -581,18 +496,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     incidentLimit={incidentLimit}
                     incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
                     layoutCorners={layoutCorners}
-                  />
+                    driverBestLapsAtTrack={driverBestLapsAtTrack}
+                  >
+                    {raceNumber === overallRaceNumbers[0] && (
+                      <Fragment slot="race-links">
+                        <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+                      </Fragment>
+                    )}
+                  </ResultsTable>
                 ))}
               </>
             )}
 
-            {view === 'class' && orderedClassIds.map((classId) => {
+            {view === 'class' && orderedClassIds.map((classId, classIdx) => {
               const byRace = roundResults.byClass.get(classId)!;
               const raceNumbers = [...byRace.keys()].sort((a, b) => a - b);
               return (
                 <div class="mt-12">
                   <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
-                  {raceNumbers.map((raceNumber) => (
+                  {raceNumbers.map((raceNumber, raceIdx) => (
                     <ResultsTable
                       raceNumber={raceNumber}
                       rows={byRace.get(raceNumber)!}
@@ -601,7 +523,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       incidentLimit={incidentLimit}
                       incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
                       layoutCorners={layoutCorners}
-                    />
+                      driverBestLapsAtTrack={driverBestLapsAtTrack}
+                    >
+                      {classIdx === 0 && raceIdx === 0 && (
+                        <Fragment slot="race-links">
+                          <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+                        </Fragment>
+                      )}
+                    </ResultsTable>
                   ))}
                 </div>
               );
@@ -643,30 +572,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </>
         )}
 
-        {isAdmin && !isSeasonExhibition && (
-          <div class="mt-16 flex flex-wrap gap-3 border-t border-white/10 pt-6">
-            <form method="POST" data-astro-reload>
-              <input type="hidden" name="intent" value="toggle-exhibition" />
-              <input type="hidden" name="next" value={isRoundFlaggedExhibition ? 'false' : 'true'} />
-              <button
-                type="submit"
-                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
-              >
-                {isRoundFlaggedExhibition ? 'Unflag as exhibition' : 'Flag this round as an exhibition'}
-              </button>
-            </form>
-            <form method="POST" data-astro-reload>
-              <input type="hidden" name="intent" value="toggle-test" />
-              <input type="hidden" name="next" value={isTest ? 'false' : 'true'} />
-              <button
-                type="submit"
-                class="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/70 ring-1 ring-white/10 transition hover:bg-white/10"
-              >
-                {isTest ? 'Unflag as test' : 'Flag this round as a test'}
-              </button>
-            </form>
-          </div>
-        )}
       </>
     )}
   </section>

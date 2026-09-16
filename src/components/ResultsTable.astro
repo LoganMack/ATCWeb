@@ -40,7 +40,7 @@ import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
 
-/** `total_points` minus every bonus/deduction component — the base points this driver earned purely from their overall finishing position (see RaceResultRow.bonusPoints' own doc comment on the total_points formula). Shown as its own line in the expanded detail panel. */
+/** `total_points` minus every bonus/deduction component — the base points this driver earned purely from their overall finishing position (see RaceResultRow.bonusPoints' own doc comment on the total_points formula). Shown as the "Base Points" row in the expanded detail panel's points-breakdown table. */
 function finishPoints(row: RaceResultRow): number {
   return row.totalPoints - row.bonusPoints;
 }
@@ -50,9 +50,16 @@ interface BreakdownLine {
   value: number;
 }
 
-/** Every nonzero component of this driver's points, itemized, for the expanded detail panel — a "better breakdown" than the old collapsed-row combined bonus figure. Finish points always shown (even 0); everything else only when nonzero. */
-function pointsBreakdownLines(row: RaceResultRow): BreakdownLine[] {
-  const lines: BreakdownLine[] = [{ label: 'Finish', value: finishPoints(row) }];
+/**
+ * Every nonzero BONUS component of this driver's points, itemized, for the
+ * expanded detail panel's points-breakdown table — everything besides the
+ * "Base Points" row (finishPoints, above) and the penalty rows (pointsDeduction/
+ * penaltyPointsDelta, rendered separately below). Only nonzero components
+ * shown, same "no clutter for a component that didn't apply" reasoning as
+ * every inline badge (FL/LL/A/SS/etc.) elsewhere in this table.
+ */
+function bonusPointsLines(row: RaceResultRow): BreakdownLine[] {
+  const lines: BreakdownLine[] = [];
   if (row.classPoints !== 0) lines.push({ label: 'Class', value: row.classPoints });
   if (row.finesseBonus !== 0) lines.push({ label: 'Finesse', value: row.finesseBonus });
   if (row.poleBonus !== 0) lines.push({ label: 'Pole', value: row.poleBonus });
@@ -61,7 +68,6 @@ function pointsBreakdownLines(row: RaceResultRow): BreakdownLine[] {
   if (row.fewestIncidentsBonus !== 0) lines.push({ label: 'Fewest Incidents', value: row.fewestIncidentsBonus });
   if (row.fastestLapBonus !== 0) lines.push({ label: 'Fastest Lap', value: row.fastestLapBonus });
   if (row.sprintSweepBonus !== 0) lines.push({ label: 'Sprint Sweep', value: row.sprintSweepBonus });
-  if (row.pointsDeduction !== 0) lines.push({ label: 'Deduction', value: row.pointsDeduction });
   return lines;
 }
 
@@ -125,6 +131,8 @@ interface Props {
   incidentLimitExceededDriverIds?: Set<string>;
   /** This round's resolved layout's corner count (circuit_layouts.corners, via results.ts's resolveLayout()) — computed once at the page level since it's the same figure for every race/view of this round. Null when the round's track/layout doesn't resolve to a circuit_layouts row with a corner count on file (see 0022_circuit_layout_corners.sql). Powers the Incidents column's hover tooltip below; same "corners navigated ÷ incidents" formula as the Sublime Finesse season stat (getSeasonDriverExtendedStats), just for this one race instead of a whole season. */
   layoutCorners?: number | null;
+  /** driverId -> that driver's fastest-ever lap at this track BEFORE this round (results.ts's getDriverBestLapsAtTrack()), computed once at the page level since it's the same lookup for every race/view of this round. Missing entry means no prior lap on file at this track (first time here, or the lookup failed) — the "beat personal best" indicator in the expanded detail panel just stays hidden in that case, same graceful-degradation as every other optional lookup here. */
+  driverBestLapsAtTrack?: Map<string, number>;
 }
 
 const {
@@ -137,6 +145,7 @@ const {
   incidentLimit = null,
   incidentLimitExceededDriverIds = new Set(),
   layoutCorners = null,
+  driverBestLapsAtTrack,
 } = Astro.props;
 
 // racePenalties is filtered by session_type 'race' too — a stray
@@ -158,6 +167,10 @@ for (const p of racePenalties) {
 <div class="mt-6">
   <div class="flex flex-wrap items-center justify-between gap-2">
     <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Race {raceNumber}</h3>
+    {/* Only the FIRST race table on the page actually fills this slot (see
+        src/pages/results/[subsessionId].astro) — one set of race links per
+        round, shown once, on the first table's title line, per Logan. */}
+    <slot name="race-links" />
   </div>
 
   <div class="mt-2 rounded-xl border border-white/10" data-sticky-thead>
@@ -181,7 +194,17 @@ for (const p of racePenalties) {
           const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
           const tagLabel = penaltyTagLabel(rowPenalties);
           const isRealPenalty = tagLabel.startsWith('Penalty');
-          const breakdownLines = pointsBreakdownLines(row);
+          const bonusLines = bonusPointsLines(row);
+          // Modeled on newsRecap.ts's track-record check (matchCircuitLayout/
+          // isTrackRecord) but per-DRIVER: did this driver's best lap THIS
+          // race beat the fastest lap on file for them at this track from
+          // any PRIOR round (driverBestLapsAtTrack excludes this round
+          // itself — see results.ts's getDriverBestLapsAtTrack). Missing
+          // entry (no prior lap on file, or the lookup failed) just hides
+          // the indicator rather than claiming a false positive/negative.
+          const priorBestAtTrack = driverBestLapsAtTrack?.get(row.driver.id) ?? null;
+          const beatPersonalBest =
+            row.bestLapTenThousandths !== null && priorBestAtTrack !== null && row.bestLapTenThousandths < priorBestAtTrack;
           // Same "corners navigated ÷ incidents" formula as the season-long
           // Sublime Finesse stat (getSeasonDriverExtendedStats in
           // results.ts), scoped to just this one race's laps/incidents —
@@ -315,68 +338,91 @@ for (const p of racePenalties) {
           </tr>
           <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
             <td colspan={showClass ? 10 : 9} class="px-4 py-4 sm:pl-11">
-              <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+              <div class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
                 <div>
-                  <div class="text-[10px] uppercase tracking-wide text-white/30">Average Lap</div>
-                  <div class="mt-0.5 font-display text-sm text-white/90">{row.averageLapFormatted}</div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Lap Times</div>
+                  <table class="mt-1 w-full max-w-xs">
+                    <tbody>
+                      <tr class="border-b border-white/5">
+                        <td class="py-1 text-white/50">Best Lap</td>
+                        <td class="py-1 text-right font-display text-white/90">
+                          {row.bestLapFormatted}
+                          {beatPersonalBest && (
+                            <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="New personal best at this track">
+                              PB
+                            </sup>
+                          )}
+                        </td>
+                      </tr>
+                      <tr class="border-b border-white/5">
+                        <td class="py-1 text-white/50">Average Lap</td>
+                        <td class="py-1 text-right font-display text-white/90">{row.averageLapFormatted}</td>
+                      </tr>
+                      <tr>
+                        <td class="py-1 text-white/50">Race Time</td>
+                        <td class="py-1 text-right font-display text-white/90">{row.overallRaceTimeFormatted}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
                 <div>
-                  <div class="text-[10px] uppercase tracking-wide text-white/30">Best Lap</div>
-                  <div class="mt-0.5 font-display text-sm text-white/90">{row.bestLapFormatted}</div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Points Breakdown</div>
+                  {row.notInRoster ? (
+                    // This entrant has no drivers roster entry at all, so
+                    // recalculate_race_scores() never produced a race_scores
+                    // row for them (see RaceResultRow.notInRoster's own doc
+                    // comment) — there's no points formula to itemize here.
+                    // Use the admin "Sync Results with Roster" button on the
+                    // Drivers admin page to add them to the roster, which will
+                    // let them be scored on the next recalculation.
+                    <p class="mt-1 text-white/40">
+                      Not scored — this driver isn't on the roster yet, so no points were calculated for this result.
+                    </p>
+                  ) : (
+                    <table class="mt-1 w-full max-w-xs">
+                      <tbody>
+                        <tr class="border-b border-white/5">
+                          <td class="py-1 text-white/50">Base Points</td>
+                          <td class="py-1 text-right font-semibold text-white/90">{finishPoints(row)}</td>
+                        </tr>
+                        {bonusLines.map((line) => (
+                          <tr class="border-b border-white/5">
+                            <td class="py-1 text-white/50">{line.label}</td>
+                            <td class="py-1 text-right font-semibold text-white/90">
+                              {line.value > 0 ? '+' : ''}
+                              {line.value}
+                            </td>
+                          </tr>
+                        ))}
+                        {row.pointsDeduction !== 0 && (
+                          <tr class="border-b border-white/5">
+                            <td class="py-1 text-white/50">Points Deduction</td>
+                            <td class="py-1 text-right font-semibold text-brand-pink">{row.pointsDeduction}</td>
+                          </tr>
+                        )}
+                        {penaltyPointsDelta(row) !== 0 && (
+                          <tr class="border-b border-white/5">
+                            <td class="py-1 text-white/50">Penalty Adjustment</td>
+                            <td class={`py-1 text-right font-semibold ${penaltyPointsDelta(row) > 0 ? 'text-brand-blue' : 'text-brand-pink'}`}>
+                              {penaltyPointsDelta(row) > 0 ? '+' : ''}
+                              {penaltyPointsDelta(row)}
+                            </td>
+                          </tr>
+                        )}
+                        <tr class="border-b border-white/5">
+                          <td class="py-1 text-white/50">Class Point Total</td>
+                          <td class="py-1 text-right font-semibold text-white/90">{row.totalPoints}</td>
+                        </tr>
+                        <tr>
+                          <td class="py-1 text-white/50">Team Points</td>
+                          <td class="py-1 text-right font-semibold text-white/90">
+                            {row.team ? (teamPointsByRaceDriver?.get(`${raceNumber}:${row.driver.id}`) ?? 0) : '—'}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  )}
                 </div>
-                <div>
-                  <div class="text-[10px] uppercase tracking-wide text-white/30">Overall Race Time</div>
-                  <div class="mt-0.5 font-display text-sm text-white/90">{row.overallRaceTimeFormatted}</div>
-                </div>
-                <div>
-                  <div class="text-[10px] uppercase tracking-wide text-white/30">Led</div>
-                  <div class="mt-0.5 font-display text-sm text-white/90">{row.lapsLed ?? 0}</div>
-                </div>
-                {row.team && (
-                  <div>
-                    <div class="text-[10px] uppercase tracking-wide text-white/30">Team Points</div>
-                    <div class="mt-0.5 font-display text-sm text-white/90">
-                      {teamPointsByRaceDriver?.get(`${raceNumber}:${row.driver.id}`) ?? 0}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div class="mt-4">
-                <div class="text-[10px] uppercase tracking-wide text-white/30">Points Breakdown</div>
-                {row.notInRoster ? (
-                  // This entrant has no drivers roster entry at all, so
-                  // recalculate_race_scores() never produced a race_scores
-                  // row for them (see RaceResultRow.notInRoster's own doc
-                  // comment) — there's no points formula to itemize here.
-                  // Use the admin "Sync Results with Roster" button on the
-                  // Drivers admin page to add them to the roster, which will
-                  // let them be scored on the next recalculation.
-                  <p class="mt-1 text-white/40">
-                    Not scored — this driver isn't on the roster yet, so no points were calculated for this result.
-                  </p>
-                ) : (
-                  <>
-                    <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-white/60">
-                      {breakdownLines.map((line) => (
-                        <span>
-                          {line.label}:{' '}
-                          <span class="font-semibold text-white/90">
-                            {line.value > 0 && line.label !== 'Finish' ? '+' : ''}
-                            {line.value}
-                          </span>
-                        </span>
-                      ))}
-                      <span class="text-white/40">
-                        Total: <span class="font-semibold text-white/90">{row.totalPoints}</span>
-                      </span>
-                    </div>
-                    {penaltyPointsDelta(row) !== 0 && (
-                      <div class={`mt-1.5 text-[11px] font-semibold ${penaltyPointsDelta(row) > 0 ? 'text-brand-blue' : 'text-brand-pink'}`}>
-                        {penaltyPointsDelta(row) > 0 ? '+' : ''}{penaltyPointsDelta(row)} pt{Math.abs(penaltyPointsDelta(row)) === 1 ? '' : 's'} from this round's penalties
-                      </div>
-                    )}
-                  </>
-                )}
               </div>
             </td>
           </tr>

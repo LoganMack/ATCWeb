@@ -18,15 +18,22 @@ const RESULT_KINDS = new Set(['race-results', 'qualifying-results', 'practice-re
  * When a signed-in admin downloads one of the three results templates for a
  * specific event (?eventId=... — Admin > Add Race Result's per-event upload
  * buttons), the round-identifying columns (circuit_name, layout,
- * season_name, event_date, event_time, format, exhibition) are pre-filled
- * from that event, and import_key is pre-filled with the existing manual
- * round's key if this event already has one linked (so uploading, say, a
- * qualifying template for an event that already has a race result attaches
- * to that SAME round instead of creating a new one) — see
+ * season_name, event_date, event_time, format, exhibition, test) are
+ * pre-filled from that event, and import_key is pre-filled with the existing
+ * manual round's key if this event already has one linked (so uploading,
+ * say, a qualifying template for an event that already has a race result
+ * attaches to that SAME round instead of creating a new one) — see
  * getEventsMissingResults()/suggestImportKey() in raceResultsImport.ts. An
  * anonymous request, or an eventId that isn't actually missing anything
  * (kind/eventId combination is stale), just gets the plain unfilled
  * template, same as before this existed.
+ *
+ * exhibition/test are both driven entirely by the linked event's own
+ * `category` ('exhibition' | 'test' | anything else -> 'no' for both) — the
+ * round detail page no longer has its own admin toggle buttons for these
+ * flags (removed per Logan: "these should be set by the event that is
+ * linked to this race result"), so this prefill is now the ONLY path that
+ * sets round_overrides.is_exhibition/is_test for a manually-imported round.
  */
 export const GET: APIRoute = async ({ params, url, locals }) => {
   // The admin page's download links point at `/api/import-templates/${kind}.csv`
@@ -77,6 +84,7 @@ export const GET: APIRoute = async ({ params, url, locals }) => {
           format: ev.format ?? '',
           strength_of_field: '',
           exhibition: ev.category === 'exhibition' ? 'yes' : 'no',
+          test: ev.category === 'test' ? 'yes' : 'no',
         };
       }
     } catch (err) {

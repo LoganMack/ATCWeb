@@ -113,19 +113,19 @@ const NEWS_TEMPLATE: CsvTemplate = {
 const RACE_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format',
-    'strength_of_field', 'exhibition', 'race_number', 'driver_car_number', 'class_name', 'car_name',
+    'strength_of_field', 'exhibition', 'test', 'race_number', 'driver_car_number', 'class_name', 'car_name',
     'finish_position', 'starting_position', 'incidents', 'laps_complete', 'laps_led', 'interval_ten_thousandths',
     'average_lap_time', 'best_lap_time',
   ],
   exampleRows: [
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      '1450', 'yes', '1', '4', 'Alpha', 'BMW M4 GT3', '1', '1', '2', '32', '32', '0', '1:42.331',
+      '1450', 'yes', 'no', '1', '4', 'Alpha', 'BMW M4 GT3', '1', '1', '2', '32', '32', '0', '1:42.331',
       '1:41.998',
     ],
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      '1450', 'yes', '1', '12', 'Gamma', 'Ferrari 296 GT3', '2', '3', '0', '32', '0', '15230',
+      '1450', 'yes', 'no', '1', '12', 'Gamma', 'Ferrari 296 GT3', '2', '3', '0', '32', '0', '15230',
       '1:43.010', '1:42.550',
     ],
   ],
@@ -133,23 +133,23 @@ const RACE_RESULTS_TEMPLATE: CsvTemplate = {
 
 // Same round-level columns as the race results template (import_key,
 // circuit_name, layout, season_name, event_date, event_time, format,
-// strength_of_field, exhibition) — all three result importers share one
-// import_key namespace via manual_result_imports (see
+// strength_of_field, exhibition, test) — all three result importers share
+// one import_key namespace via manual_result_imports (see
 // raceResultsImport.ts's header comment), so uploading a race CSV and a
 // qualifying CSV under the same import_key ties both to the same round.
 const QUALIFYING_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format',
-    'strength_of_field', 'exhibition', 'driver_car_number', 'class_name', 'qual_position', 'best_lap_time',
+    'strength_of_field', 'exhibition', 'test', 'driver_car_number', 'class_name', 'qual_position', 'best_lap_time',
   ],
   exampleRows: [
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      '1450', 'yes', '4', 'Alpha', '1', '1:41.204',
+      '1450', 'yes', 'no', '4', 'Alpha', '1', '1:41.204',
     ],
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      '1450', 'yes', '12', 'Gamma', '2', '1:42.018',
+      '1450', 'yes', 'no', '12', 'Gamma', '2', '1:42.018',
     ],
   ],
 };
@@ -160,16 +160,16 @@ const QUALIFYING_RESULTS_TEMPLATE: CsvTemplate = {
 const PRACTICE_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key', 'circuit_name', 'layout', 'season_name', 'event_date', 'event_time', 'format',
-    'strength_of_field', 'exhibition', 'driver_car_number', 'class_name', 'laps', 'best_lap_time',
+    'strength_of_field', 'exhibition', 'test', 'driver_car_number', 'class_name', 'laps', 'best_lap_time',
   ],
   exampleRows: [
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      '1450', 'yes', '4', 'Alpha', '18', '1:42.550',
+      '1450', 'yes', 'no', '4', 'Alpha', '18', '1:42.550',
     ],
     [
       'exh-2026-08-09-watkinsglen', 'Watkins Glen', 'Full Course', 'ATC18', '2026-08-09', '19:00', 'sprint',
-      '1450', 'yes', '12', 'Gamma', '16', '1:43.117',
+      '1450', 'yes', 'no', '12', 'Gamma', '16', '1:43.117',
     ],
   ],
 };
@@ -203,6 +203,7 @@ export interface RoundColumnPrefill {
   format?: string;
   strength_of_field?: string;
   exhibition?: string;
+  test?: string;
 }
 
 export function getImportTemplateCsv(kind: string, prefill?: RoundColumnPrefill): string | null {

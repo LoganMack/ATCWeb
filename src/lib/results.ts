@@ -2427,6 +2427,67 @@ export async function getLayoutBestLapSeconds(env: SupabaseEnv, trackName: strin
 }
 
 /**
+ * Each driver's fastest-ever lap at a track (optionally narrowed to one
+ * layout — same track_name/layout matching as findSubsessionIdsForTrack/
+ * getLayoutBestLapSeconds just above, not the full circuit_layouts
+ * disambiguation machinery), excluding one specific round — powers the
+ * round results page's "beat their personal best at this track" detail-
+ * panel indicator (per Logan: "like the track record logic in the race
+ * recaps," but per-DRIVER rather than the whole-round-vs-official-record
+ * comparison newsRecap.ts's matchCircuitLayout()/isTrackRecord do). Scoped
+ * to just this one track's rounds and the given drivers (not every driver
+ * on file), same bounded-bulk-fetch-once-per-page-load reasoning as
+ * getLayoutClassBestLaps, to stay well under Cloudflare Workers' per-request
+ * subrequest limit (see this file's own header comment on that class of
+ * bug). Returns an empty map (never throws) rather than letting a lookup
+ * failure here break the whole results page — callers should still wrap
+ * this in their own try/catch the way every other page-level fetch here is,
+ * since an empty map degrades gracefully (no PB indicator shown) either way.
+ */
+export async function getDriverBestLapsAtTrack(
+  env: SupabaseEnv,
+  trackName: string,
+  layoutName: string | null,
+  driverIds: string[],
+  excludeSubsessionId: number,
+  driversBasic?: DriverBasic[]
+): Promise<Map<string, number>> {
+  const best = new Map<string, number>();
+  if (driverIds.length === 0) return best;
+
+  const [subsessionIds, drivers] = await Promise.all([
+    findSubsessionIdsForTrack(env, trackName, layoutName),
+    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
+  ]);
+  const otherSubsessionIds = subsessionIds.filter((id) => id !== excludeSubsessionId);
+  if (otherSubsessionIds.length === 0) return best;
+
+  const driverIdSet = new Set(driverIds);
+  const driverIdByCustId = new Map<number, string>();
+  for (const d of drivers) {
+    if (d.iracing_cust_id == null || !driverIdSet.has(d.id)) continue;
+    driverIdByCustId.set(d.iracing_cust_id, d.id);
+  }
+  const custIds = [...driverIdByCustId.keys()];
+  if (custIds.length === 0) return best;
+
+  const rows = await restGetAll<{ cust_id: number; best_lap_ten_thousandths: number | null }>(
+    env,
+    `curated_race_results?select=cust_id,best_lap_ten_thousandths&subsession_id=in.(${otherSubsessionIds.join(',')})&cust_id=in.(${custIds.join(',')})&best_lap_ten_thousandths=not.is.null`
+  );
+  for (const row of rows) {
+    if (row.best_lap_ten_thousandths === null) continue;
+    const driverId = driverIdByCustId.get(row.cust_id);
+    if (!driverId) continue;
+    const existing = best.get(driverId);
+    if (existing === undefined || row.best_lap_ten_thousandths < existing) {
+      best.set(driverId, row.best_lap_ten_thousandths);
+    }
+  }
+  return best;
+}
+
+/**
  * Combines `getCuratedRaceResultsForSubsessions`' columns with
  * `getLapStatsForSubsessions`' two extra ones into ONE query — for
  * `computeDriverCareerStats`' bulk path only. Every other caller keeps
@@ -4533,6 +4594,8 @@ export interface RaceResultRow {
   averageLapTenThousandths: number | null;
   /** This driver's single fastest lap the race, formatted the same way. Same source/isolation as averageLapFormatted. */
   bestLapFormatted: string;
+  /** Raw ten-thousandths-of-a-second value bestLapFormatted is formatted from — kept unformatted so callers can do numeric comparisons (e.g. against a driver's personal-best at this track, see getDriverBestLapsAtTrack) without round-tripping through the display string. Null when there's no data. */
+  bestLapTenThousandths: number | null;
   /**
    * "Overall race time" — own laps × own average lap (rule 18.3.2's method
    * for comparing drivers who aren't on the lead lap, where the normal
@@ -4708,6 +4771,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       averageLapFormatted: formatLapTime(averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null),
       averageLapTenThousandths,
       bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
+      bestLapTenThousandths,
       overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
       overallRaceTimeTenThousandths,
       notInRoster: false,
@@ -4786,6 +4850,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       averageLapFormatted: formatLapTime(averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null),
       averageLapTenThousandths,
       bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
+      bestLapTenThousandths,
       overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
       overallRaceTimeTenThousandths,
       notInRoster: true,
