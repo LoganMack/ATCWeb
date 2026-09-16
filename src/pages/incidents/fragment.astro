@@ -44,6 +44,12 @@ function driverLabel(row: IncidentRow): string {
   return row.driver.car_number !== null ? `#${row.driver.car_number} ${shortDriverName(row.driver.name)}` : shortDriverName(row.driver.name);
 }
 
+/** All Incidents list's Driver column, collapsed to just the car number (or a short name when there's no number on file, or "RI" for a driverless Racing Incident entry) — the full name is revealed on hover instead (see that cell's `title` attribute below), per Logan: "hide the driver name and only display the number." Distinct from driverLabel above, which stays name-first for every other table (By Driver, and the By Offense/By Driver detail panels) that wasn't part of this request. */
+function driverNumberLabel(row: IncidentRow): string {
+  if (!row.driver) return 'RI';
+  return row.driver.car_number !== null ? `#${row.driver.car_number}` : shortDriverName(row.driver.name);
+}
+
 function involvedLabel(row: IncidentRow): string {
   if (row.involvedDrivers.length === 0) return '—';
   return row.involvedDrivers
@@ -138,8 +144,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <td class="hidden py-2.5 pr-3 font-semibold sm:table-cell" data-col="track">{row.trackName}</td>
                     <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="session">{sessionLabel(row)}</td>
                     <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lap">{row.lap ?? '—'}</td>
-                    <td class="py-2.5 pr-3 font-semibold" data-col="driver">
-                      <span title={row.driver === null ? 'Racing Incident — no driver at fault' : undefined}>{driverLabel(row)}</span>
+                    <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver?.car_number ?? -1}>
+                      <span
+                        class="cursor-help underline decoration-dotted decoration-white/30 underline-offset-2"
+                        title={row.driver === null ? 'Racing Incident — no driver at fault' : displayDriverName(row.driver.name)}
+                      >
+                        {driverNumberLabel(row)}
+                      </span>
                     </td>
                     <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
                     <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell" data-col="offenses">

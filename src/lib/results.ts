@@ -81,10 +81,14 @@ import {
   effectivePenaltyPoints,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
+  reorderByTimePenalty,
+  sumPenaltiesByRaceDriver,
+  scoringRaceNumber,
   type SeasonScoreRow,
   type SeasonClassScoreRow,
   type SeasonOverallAdjustment,
   type LeaderRaceStats,
+  type Positionable,
   type Format,
 } from './penalties';
 import { LEAGUE_TIME_ZONE } from './timezone';
@@ -109,6 +113,32 @@ import { LEAGUE_TIME_ZONE } from './timezone';
  */
 export function isChampionshipSeason(seasonName: string): boolean {
   return /^ATC\d+$/i.test(seasonName.trim());
+}
+
+/**
+ * A championship season whose results are final enough to actually hand out
+ * that season's hardware from — a real championship-FORMAT season (see
+ * isChampionshipSeason above) that is ALSO no longer flagged `is_current`.
+ * Deliberately a separate predicate from isChampionshipSeason: that one is
+ * about a season's naming/format (real vs. exhibition/test), this one is
+ * about whether it's decided yet — a season can be a real ATCx championship
+ * season and still be in progress. Per Logan: "we should not grant any
+ * driver or team a championship in any statistic anywhere, until that
+ * season is no longer marked current."
+ *
+ * Every place that decides "who IS the champion" (getChampions,
+ * getChampionsWithExtras, getTeamChampions, computeSeasonAwards) filters its
+ * season list with this instead of isChampionshipSeason alone, so the
+ * in-progress season's row simply doesn't appear yet. Every place that
+ * instead TALLIES a career "championships" count from a per-season
+ * classPosition/teamPosition (aggregateDriverCareerStats, computeTeamCareerStats)
+ * keeps including the current season's row for its other (already-final,
+ * race-by-race) stats — wins, starts, laps, etc. — and only gates the
+ * championship increment itself on `!row.season.is_current`, since those
+ * other numbers are real regardless of how the standings race finishes.
+ */
+export function isDecidedChampionshipSeason(season: Pick<Season, 'name' | 'is_current'>): boolean {
+  return isChampionshipSeason(season.name) && !season.is_current;
 }
 
 // ---------------------------------------------------------------------------
@@ -2860,7 +2890,9 @@ export interface ChampionEntry {
  * no hardcoded season cutoffs needed.
  */
 export async function getChampions(env: SupabaseEnv, seasons: Season[], classId: number): Promise<ChampionEntry[]> {
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  // isDecidedChampionshipSeason, not isChampionshipSeason alone — a season
+  // still flagged is_current has no champion to show yet, per Logan.
+  const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
   // Same "bulk-fetch once across every season, then slice in memory" fix
@@ -2950,7 +2982,8 @@ export async function getChampionsWithExtras(
   seasons: Season[],
   classId: number
 ): Promise<{ champions: ChampionEntry[]; extrasBySeasonId: Map<string, DriverSeasonExtras | undefined> }> {
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  // Same isDecidedChampionshipSeason gate as getChampions() above.
+  const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
   const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows, rulesets] = await Promise.all([
@@ -3059,7 +3092,8 @@ export interface TeamChampionEntry {
  * automatically, same as getChampions() skips a class's pre-existence.
  */
 export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], classId?: number): Promise<TeamChampionEntry[]> {
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  // Same isDecidedChampionshipSeason gate as getChampions() above.
+  const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
   const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds] = await Promise.all([
@@ -3208,7 +3242,12 @@ export function aggregateDriverCareerStats(driver: DriverBasic, seasonRows: Driv
   let anyCornersResolved = false;
 
   for (const r of seasonRows) {
-    if (r.classPosition === 1) championships++;
+    // Don't credit a championship for a season still in progress
+    // (r.season.is_current) — its OTHER stats below (wins, starts, laps,
+    // etc.) are already-happened facts and still count in real time; only
+    // the "won the whole thing" title waits until the season is decided,
+    // per Logan.
+    if (r.classPosition === 1 && !r.season.is_current) championships++;
     wins += r.wins;
     podiums += r.podiums;
     poles += r.poles;
@@ -4062,7 +4101,9 @@ export async function computeTeamCareerStats(
         accum.totalCorners += row.totalCorners;
         accum.anyCornersResolved = true;
       }
-      if (row.classPosition === 1) accum.driverChampionships += 1;
+      // Same "don't credit a still-in-progress season" gate as
+      // aggregateDriverCareerStats' own championships counter above.
+      if (row.classPosition === 1 && !row.season.is_current) accum.driverChampionships += 1;
       accum.drivers.push({
         driverId: driverStats.driver.id,
         name: driverStats.driver.name,
@@ -4133,7 +4174,9 @@ export async function computeTeamCareerStats(
 
     for (const r of seasonRows) {
       const teamTitlePosition = view === 'delta' ? r.deltaTeamPosition : r.teamPosition;
-      if (teamTitlePosition === 1) championships++;
+      // Same "don't credit a still-in-progress season" gate as
+      // aggregateDriverCareerStats' own championships counter.
+      if (teamTitlePosition === 1 && !r.season.is_current) championships++;
       wins += r.wins;
       podiums += r.podiums;
       poles += r.poles;
@@ -5412,7 +5455,10 @@ function classifyRoundForSpecialistAwards(subsessionId: number, overallContext: 
  * doc comments describe hitting before this same fix.
  */
 export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Season[]): Promise<SeasonAwards[]> {
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  // isDecidedChampionshipSeason, not isChampionshipSeason alone — no awards
+  // for a season still in progress, per Logan (same reasoning as
+  // getChampions()'s own gate).
+  const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   if (championshipSeasons.length === 0) return [];
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
@@ -5585,6 +5631,22 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
 
       // Dominator/Defender — biggest/smallest class-winning margin of any
       // single race this season (not a season total — see doc comment).
+      //
+      // Penalty-aware: for any race a penalty actually touched (for one of
+      // THIS class's own drivers — a penalty against a different class in
+      // the same race never changes this class's own order/margin), the
+      // class's top two are re-ranked/re-gapped the exact same way the round
+      // results page and the season standings views do it
+      // (reorderByTimePenalty — see src/lib/penalties.ts's Position
+      // recalculation header), rather than reading the raw pre-penalty
+      // finish order straight off curated_race_results. That used to be a
+      // real gap: a penalty that swapped a class's top two (or changed the
+      // gap between them) never showed up here, per Logan. Untouched races
+      // keep reading raw pipeline data directly — reordering with an
+      // all-zero penalty map isn't guaranteed byte-identical to the
+      // original sort (ties/pipeline quirks), same reasoning
+      // computeSeasonOverallAdjustments itself documents for skipping
+      // untouched races.
       const classRaceGroups = new Map<string, RaceScoreOverallRow[]>();
       for (const s of overallContext.overallScores) {
         const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
@@ -5592,6 +5654,20 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         classRaceGroups.get(key)!.push(s);
       }
       const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+
+      // Penalties grouped by (subsessionId:scoringRaceNumber) — same
+      // shape/reasoning as computeSeasonOverallAdjustments' own
+      // penaltiesByRace, so sumPenaltiesByRaceDriver (keyed only by
+      // raceNumber, not subsessionId) never collides across two different
+      // rounds that happen to share a race number.
+      const marginRaceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
+      const penaltiesByMarginRace = new Map<string, Penalty[]>();
+      for (const p of overallContext.penalties) {
+        const key = marginRaceKey(p.subsession_id, scoringRaceNumber(p));
+        if (!penaltiesByMarginRace.has(key)) penaltiesByMarginRace.set(key, []);
+        penaltiesByMarginRace.get(key)!.push(p);
+      }
+
       interface MarginObservation {
         driverId: string;
         margin: number;
@@ -5601,34 +5677,80 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
       }
       const marginObservations: MarginObservation[] = [];
       for (const [key, group] of classRaceGroups) {
-        const ranked = group
+        const [subsessionIdStr, raceNumberStr] = key.split(':');
+        const subsessionId = Number(subsessionIdStr);
+        const raceNumber = Number(raceNumberStr);
+
+        const positionable: Positionable[] = group
           .filter((s) => !s.dsq)
           .map((s) => {
             const custId = overallContext.custIdByDriverId.get(s.driver_id);
-            const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+            const raw = custId != null ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
+            const lapStatsRow = custId != null ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
             return {
               driverId: s.driver_id,
               position: raw?.adjusted_position ?? raw?.finish_position ?? null,
-              interval: raw?.interval_ten_thousandths ?? null,
+              intervalTenThousandths: raw?.interval_ten_thousandths ?? null,
+              lapsComplete: raw?.laps_complete ?? null,
+              averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
             };
           })
-          .filter((r) => r.position !== null)
-          .sort((a, b) => (a.position as number) - (b.position as number));
-        if (ranked.length < 2) continue;
-        const [p1, p2] = ranked;
-        // Only a real, usable time gap for both (a negative interval means
-        // "a lap or more down," not a real gap — see `formatMargin`) counts
-        // as a margin here; anything else is skipped rather than guessed at.
-        if (p1.interval === null || p2.interval === null || p1.interval < 0 || p2.interval < 0) continue;
-        const margin = p2.interval - p1.interval;
-        if (margin < 0 || !driverById.has(p1.driverId)) continue;
-        const [subsessionIdStr, raceNumberStr] = key.split(':');
-        const subsessionId = Number(subsessionIdStr);
+          .filter((r) => r.position !== null);
+        if (positionable.length < 2) continue;
+
+        const racePenalties = penaltiesByMarginRace.get(marginRaceKey(subsessionId, raceNumber)) ?? [];
+        const penaltyByRaceDriver = sumPenaltiesByRaceDriver(racePenalties.map((p) => ({ ...p, race_number: raceNumber })));
+        const touched = positionable.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driverId}`));
+
+        let p1DriverId: string | null = null;
+        let margin: number | null = null;
+
+        if (touched) {
+          const leader: LeaderRaceStats = overallContext.leaderStatsByRace.get(marginRaceKey(subsessionId, raceNumber)) ?? {
+            lapsComplete: null,
+            averageLapTenThousandths: null,
+          };
+          const ranked = reorderByTimePenalty(positionable, raceNumber, penaltyByRaceDriver, leader);
+          // Only the lead-lap group (lapsDown === 0) has a real, comparable
+          // time gap — same "usable margin" gate the untouched branch below
+          // applies to the raw interval. gapTenThousandths is already
+          // re-zeroed against whichever row is actually smallest now (see
+          // RankedPosition's own doc comment), so the class winner always
+          // reads exactly 0 here.
+          const leadLapRanked = [...ranked.entries()]
+            .filter(([, r]) => r.lapsDown === 0 && r.gapTenThousandths !== null)
+            .sort((a, b) => (a[1].gapTenThousandths as number) - (b[1].gapTenThousandths as number));
+          if (leadLapRanked.length >= 2) {
+            const [[id1, r1], [, r2]] = leadLapRanked;
+            p1DriverId = id1;
+            margin = (r2.gapTenThousandths as number) - (r1.gapTenThousandths as number);
+          }
+        } else {
+          const ranked = [...positionable].sort((a, b) => (a.position as number) - (b.position as number));
+          const [rp1, rp2] = ranked;
+          // Only a real, usable time gap for both (a negative interval means
+          // "a lap or more down," not a real gap — see `formatMargin`) counts
+          // as a margin here; anything else is skipped rather than guessed at.
+          if (
+            rp1.intervalTenThousandths !== null &&
+            rp2.intervalTenThousandths !== null &&
+            rp1.intervalTenThousandths >= 0 &&
+            rp2.intervalTenThousandths >= 0
+          ) {
+            const m = rp2.intervalTenThousandths - rp1.intervalTenThousandths;
+            if (m >= 0) {
+              p1DriverId = rp1.driverId;
+              margin = m;
+            }
+          }
+        }
+
+        if (p1DriverId === null || margin === null || margin < 0 || !driverById.has(p1DriverId)) continue;
         marginObservations.push({
-          driverId: p1.driverId,
+          driverId: p1DriverId,
           margin,
           subsessionId,
-          raceNumber: Number(raceNumberStr),
+          raceNumber,
           trackName: trackNameBySubsession.get(subsessionId) ?? 'Unknown',
         });
       }

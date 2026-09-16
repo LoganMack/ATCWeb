@@ -164,7 +164,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             <td class="py-2 pr-3 font-semibold text-white/90">
                               <span class="inline-flex items-center gap-1.5">
                                 <span class="inline-flex w-3.5 shrink-0 justify-center">
-                                  {r.classPosition === 1 && <TrophyIcon title="Class champion" />}
+                                  {/* Not r.season.is_current — no trophy for a still-in-progress
+                                      season's current P1, per Logan (same gate
+                                      aggregateDriverCareerStats' own championships count uses). */}
+                                  {r.classPosition === 1 && !r.season.is_current && <TrophyIcon title="Class champion" />}
                                 </span>
                                 {r.season.name}
                               </span>

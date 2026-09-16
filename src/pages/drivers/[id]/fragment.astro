@@ -178,10 +178,13 @@ try {
   // into awardGroups here.
   if (career) {
     for (const s of career.seasons) {
-      if (s.classPosition === 1) {
+      // Not s.season.is_current — no championship of any kind granted for a
+      // season still in progress, per Logan (same gate
+      // aggregateDriverCareerStats' own championships count uses).
+      if (s.classPosition === 1 && !s.season.is_current) {
         awardEntries.push({ seasonNumber: s.season.number, seasonName: s.season.name, label: `${s.className} Champion`, detail: null, className: s.className });
       }
-      if (s.teamPosition === 1) {
+      if (s.teamPosition === 1 && !s.season.is_current) {
         awardEntries.push({
           seasonNumber: s.season.number,
           seasonName: s.season.name,
@@ -193,7 +196,7 @@ try {
           className: s.className,
         });
       }
-      if (s.deltaTeamPosition === 1) {
+      if (s.deltaTeamPosition === 1 && !s.season.is_current) {
         awardEntries.push({
           seasonNumber: s.season.number,
           seasonName: s.season.name,
@@ -591,7 +594,10 @@ const splitGroupsClass: SplitGroup[] = [
                           drawn into it.
                         -->
                         <span class="relative inline-block pl-4">
-                          {r.classPosition === 1 && (
+                          {/* Not r.season.is_current — no trophy for a still-in-progress
+                              season's current P1, per Logan (same gate the Awards card
+                              above and driver-stats/team-stats use). */}
+                          {r.classPosition === 1 && !r.season.is_current && (
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
                               viewBox="0 0 24 24"

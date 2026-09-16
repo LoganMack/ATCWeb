@@ -4,7 +4,6 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/supabase';
 import { signUp, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
-import { logActivity } from '../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const session = Astro.locals.session;
@@ -50,15 +49,13 @@ if (Astro.request.method === 'POST') {
           ...cookieOptions,
           maxAge: 60 * 60 * 24 * 30,
         });
-        // Logged as the new user's own action (not an admin's) — RLS's
-        // "insert_activity_log" policy (0051_activity_log.sql) allows
-        // exactly this one non-admin case: auth.uid() = actor_id.
-        await logActivity(
-          supabaseEnv,
-          newSession.accessToken,
-          { id: newSession.user.id, name: displayName || email },
-          { action: 'add', entity_type: 'user', entity_label: displayName || email, entity_id: newSession.user.id }
-        );
+        // The "user added" activity_log row is written by the
+        // handle_new_user() DB trigger now (0088_log_user_creation.sql),
+        // not here — that fires for every new auth.users row unconditionally
+        // (including the email-confirmation-required path this file can't
+        // reach, since there's no session/access-token yet in that case),
+        // so it's the single reliable place for this rather than duplicating
+        // it here for just the no-confirmation-required path.
         return Astro.redirect('/', 302);
       }
       checkEmail = true;
