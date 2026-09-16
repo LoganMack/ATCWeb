@@ -2,7 +2,7 @@
 // One race's results table — shared by both the overall (cross-class) and
 // per-class views on /results/[subsessionId]. Column order is fixed:
 // Pos, Driver / Number, (Class, overall view only), Margin, Start,
-// Incidents, Laps, Led, Best Lap, Class Points. There's deliberately no
+// Incidents, Laps, Led, Best (best lap), Class Pts. There's deliberately no
 // separate "badges" column anymore — pole and the post-penalty adjustment
 // flag are shown as small inline markers on Start/Pos instead, and result
 // tags (e.g. "Unclassified") are shown next to the driver's name, so the
@@ -77,14 +77,18 @@ function penaltyPointsDelta(row: RaceResultRow): number {
 }
 
 /**
- * "Penalty (1PP)" / "Penalty (Warning)" / "Penalty" / "Racing Incident" —
- * the tag's own label, so the headline is visible without visiting the
- * Incident Report page. Sums effective PP across every penalty logged
- * against this driver in this race; falls back to "(Warning)" only when
- * nothing carries PP but at least one entry is a warning. When a logged
- * entry carries no real effect at all (no PP, no warning, no time/points
- * penalty — e.g. reviewed and cleared, or appealed down to nothing), it
- * reads as "Racing Incident" instead of "Penalty" per Logan.
+ * "1PP" / "Penalty (Warning)" / "Penalty" / "Racing Incident" — the tag's
+ * own label, so the headline is visible without visiting the Incident
+ * Report page. Sums effective PP across every penalty logged against this
+ * driver in this race; falls back to "(Warning)" only when nothing carries
+ * PP but at least one entry is a warning. When a logged entry carries no
+ * real effect at all (no PP, no warning, no time/points penalty — e.g.
+ * reviewed and cleared, or appealed down to nothing), it reads as "Racing
+ * Incident" instead of "Penalty" per Logan.
+ *
+ * The PP case reads just "XPP" (not "Penalty (XPP)") per Logan — see
+ * isRealPenalty below for why the badge styling no longer keys off a
+ * "Penalty" text prefix now that this branch doesn't say that word anymore.
  *
  * Note this is a DIFFERENT "Racing Incident" than the literal one on the
  * Incident Report page (a penalty entry with no driver_id at all — see
@@ -96,7 +100,7 @@ function penaltyPointsDelta(row: RaceResultRow): number {
 function penaltyTagLabel(rowPenalties: Penalty[]): string {
   if (rowPenalties.length === 0) return '';
   const totalPP = rowPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
-  if (totalPP > 0) return `Penalty (${totalPP}PP)`;
+  if (totalPP > 0) return `${totalPP}PP`;
   if (rowPenalties.some((p) => p.is_warning)) return 'Penalty (Warning)';
   const hasTimeOrPointsEffect = rowPenalties.some(
     (p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0
@@ -185,15 +189,19 @@ for (const p of racePenalties) {
           <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell">Incidents</th>
           <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Laps</th>
           <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Led</th>
-          <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Best Lap</th>
-          <th class="py-3 pr-4 text-center font-medium">Class Points</th>
+          <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell">Best</th>
+          <th class="py-3 pr-4 text-center font-medium">Class Pts</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((row) => {
           const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
           const tagLabel = penaltyTagLabel(rowPenalties);
-          const isRealPenalty = tagLabel.startsWith('Penalty');
+          // Not a "Penalty"-prefix check anymore — the PP case now reads
+          // just "XPP" (see penaltyTagLabel above) — so this is everything
+          // real EXCEPT the two non-penalty states: no tag at all, and a
+          // bare "Racing Incident" with no logged effect.
+          const isRealPenalty = tagLabel !== '' && tagLabel !== 'Racing Incident';
           const bonusLines = bonusPointsLines(row);
           // Modeled on newsRecap.ts's track-record check (matchCircuitLayout/
           // isTrackRecord) but per-DRIVER: did this driver's best lap THIS
@@ -268,7 +276,10 @@ for (const p of racePenalties) {
                 {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" />}
                 {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
                 {row.tags.map((tag) => (
-                  <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50">
+                  <span
+                    class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50"
+                    title={tag === 'Unclassified' ? 'Completed less than 50% of overall race length. No points scored.' : undefined}
+                  >
                     {tag}
                   </span>
                 ))}
@@ -340,18 +351,18 @@ for (const p of racePenalties) {
             <td colspan={showClass ? 10 : 9} class="px-4 py-4 sm:pl-11">
               <div class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
                 <div>
-                  <div class="text-[10px] uppercase tracking-wide text-white/30">Lap Times</div>
+                  <div class="text-[10px] uppercase tracking-wide text-white/30">Timings</div>
                   <table class="mt-1 w-full max-w-xs">
                     <tbody>
                       <tr class="border-b border-white/5">
                         <td class="py-1 text-white/50">Best Lap</td>
                         <td class="py-1 text-right font-display text-white/90">
-                          {row.bestLapFormatted}
                           {beatPersonalBest && (
-                            <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="New personal best at this track">
+                            <sup class="mr-0.5 text-[10px] font-sans text-brand-gold" title="New personal best at this track">
                               PB
                             </sup>
                           )}
+                          {row.bestLapFormatted}
                         </td>
                       </tr>
                       <tr class="border-b border-white/5">

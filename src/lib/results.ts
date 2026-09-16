@@ -4619,9 +4619,17 @@ export interface RaceResultRow {
    * "-xL" when the raw interval is negative, which iRacing uses to flag a
    * driver who finished one or more laps down (x = leader's laps_complete
    * minus this driver's) rather than a real time gap.
+   *
+   * "The leader" here means whichever leader this row's own view cares
+   * about: the race's actual overall on-track leader for an Overall-view
+   * row, or that row's own class leader for a Per Class-view (byClass) row
+   * — the two are built as separate row objects (see getRoundResults'
+   * byClass construction / applyPenaltiesToRoundResults' class-scoped
+   * margin reorder in src/lib/penalties.ts), so the same driver's margin
+   * can legitimately read differently in each view.
    */
   margin: string;
-  /** The raw value `margin` above is formatted from (ten-thousandths of a second, negative = the "-xL" laps-down flag) — kept around unformatted so src/lib/penalties.ts can numerically re-sort the field around a time penalty. */
+  /** The raw value `margin` above is formatted from (ten-thousandths of a second, negative = the "-xL" laps-down flag, relative to whichever leader `margin` itself is measured against — see its own doc comment) — kept around unformatted so src/lib/penalties.ts can numerically re-sort the field around a time penalty. */
   intervalTenThousandths: number | null;
   /** Set by applyPenaltiesToRoundResults() (src/lib/penalties.ts) when a time penalty (this driver's own, or another driver's that cascaded past them) moved this driver from a different position — the position they'd have had before this round's penalties, so the UI can show it struck through next to the new one. Null when unaffected. */
   penaltyOldPosition: number | null;
@@ -4747,7 +4755,21 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     }
   }
 
-  function toRow(score: RaceScoreWithClass, driver: DriverBasic, raw: CuratedRaceResultRow, position: number | null): RaceResultRow {
+  function toRow(
+    score: RaceScoreWithClass,
+    driver: DriverBasic,
+    raw: CuratedRaceResultRow,
+    position: number | null,
+    /**
+     * When set, this row's margin is measured against THIS driver (the
+     * class leader) instead of the race's overall on-track leader — used by
+     * the byClass construction below so the Per Class view shows distance
+     * to the class leader rather than distance to the overall winner. Left
+     * unset for the Overall view's own toRow() calls, which keep measuring
+     * against `leaderLapsByRace`/0 exactly as before.
+     */
+    classLeaderRaw: CuratedRaceResultRow | null = null
+  ): RaceResultRow {
     const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
     const lapStatsRow = lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id));
     const averageLapTenThousandths = lapStatsRow?.average_lap_ten_thousandths ?? null;
@@ -4805,7 +4827,9 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
       tags,
-      margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null),
+      margin: classLeaderRaw
+        ? formatMargin(raw.interval_ten_thousandths, raw.laps_complete, classLeaderRaw.laps_complete, classLeaderRaw.interval_ten_thousandths)
+        : formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null),
       intervalTenThousandths: raw.interval_ten_thousandths,
       penaltyOldPosition: null,
       hasPenalty: false,
@@ -4932,9 +4956,15 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       // bottom, so the results page shows the complete field.
       const ranked = group.filter((m) => !m.score.dsq).sort((a, b) => rawPos(a) - rawPos(b));
       const dsqd = group.filter((m) => m.score.dsq).sort((a, b) => rawPos(a) - rawPos(b));
+      // The class leader (this class's own P1, pre-penalty) — every row in
+      // this class/race is measured against them for margin display in the
+      // Per Class view, rather than against the race's overall leader. Null
+      // when the whole class is DSQ'd and there's no one to measure against
+      // (falls back to toRow()'s usual overall-leader margin in that case).
+      const classLeaderRaw = ranked.length > 0 ? ranked[0].raw : null;
       classOut.set(raceNumber, [
-        ...ranked.map((m, i) => toRow(m.score, m.driver, m.raw, i + 1)),
-        ...dsqd.map((m) => toRow(m.score, m.driver, m.raw, null)),
+        ...ranked.map((m, i) => toRow(m.score, m.driver, m.raw, i + 1, classLeaderRaw)),
+        ...dsqd.map((m) => toRow(m.score, m.driver, m.raw, null, classLeaderRaw)),
       ]);
     }
     byClass.set(classId, classOut);
@@ -5237,21 +5267,36 @@ export function pctOf(count: number, denominator: number, ofWhat: string): strin
  * same lap (Logan: "most likely a lap down or more"). When that happens,
  * `ownLaps`/`leaderLaps` (both from `curated_race_results.laps_complete`)
  * are used to show "-xL" (x laps down) instead of a bogus time gap.
+ *
+ * `leaderIntervalTenThousandths` lets a caller measure against someone OTHER
+ * than the row this interval is naturally zeroed against — namely the Per
+ * Class view, which wants "distance to the class leader" rather than
+ * "distance to the overall race leader." Every `interval_ten_thousandths`
+ * in a race shares the same fixed reference point (the overall leader), so
+ * as long as both this row's and the alternate leader's intervals are real,
+ * non-negative time gaps, their difference is exactly the gap between the
+ * two of them. Defaults to 0 (the overall leader's own gap to themselves),
+ * reproducing the original overall-leader behavior exactly. A null or
+ * negative value here means there's no usable time-based reference (the
+ * alternate leader is themselves laps down against the overall leader), so
+ * this falls back to the laps-down comparison only.
  */
 export function formatMargin(
   intervalTenThousandths: number | null,
   ownLaps: number | null,
-  leaderLaps: number | null
+  leaderLaps: number | null,
+  leaderIntervalTenThousandths: number | null = 0
 ): string {
   if (intervalTenThousandths === null) return '—';
-  if (intervalTenThousandths < 0) {
+  const hasValidOffset = leaderIntervalTenThousandths !== null && leaderIntervalTenThousandths >= 0;
+  if (intervalTenThousandths < 0 || !hasValidOffset) {
     if (ownLaps !== null && leaderLaps !== null && leaderLaps > ownLaps) {
       return `-${leaderLaps - ownLaps}L`;
     }
     return '—';
   }
-  if (intervalTenThousandths === 0) return '—';
-  return (intervalTenThousandths / 10000).toFixed(3);
+  if (intervalTenThousandths === leaderIntervalTenThousandths) return '—';
+  return ((intervalTenThousandths - (leaderIntervalTenThousandths as number)) / 10000).toFixed(3);
 }
 
 /** Builds the URL for a race's results on iRacing's own site from its real iRacing subsession id (see `race_links` / 0007_race_links.sql — NOT the same as this app's own `subsession_id` grouping key). */

@@ -482,13 +482,20 @@ function recomputeRow(
   format: Format | null,
   penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>,
   /**
-   * The OVERALL (never class-relative) reordering result for this driver
-   * this race, used to refresh margin/tags display — for EVERY row in a
-   * touched race, not just ones with their own penalty, since the leader
-   * a margin is measured against can itself change (see this file's
-   * Position recalculation header on why margin is always measured against
-   * the actual race leader regardless of which view — class or overall — a
-   * row belongs to). Undefined when the race wasn't reordered at all.
+   * The reordering result to refresh margin/tags display FROM, for EVERY
+   * row in a touched race — not just ones with their own penalty, since the
+   * leader a margin is measured against can itself change. For the Overall
+   * view this is always the OVERALL reorder (measured against the race's
+   * actual on-track leader, per rule 18.3.2 — see this file's Position
+   * recalculation header). For the Per Class view (byClass rows) this is
+   * instead a class-scoped reorder measured against that class's own
+   * leader, so margin reads "distance to the class leader" there — position/
+   * laps-down/DSQ handling stays rules-correct either way since THAT still
+   * always comes from the overall-leader-based reorder (newPosition/
+   * newClassPosition, passed separately above); only the display-only
+   * margin/tags/intervalTenThousandths below are sourced from this
+   * class-scoped reorder instead. Undefined when the race wasn't reordered
+   * at all.
    */
   overallRanked: RankedPosition | undefined,
   /** classId -> whether that class awards the top-3-in-class Class Points bonus at all (false for Alpha) — looked up via row.classId, which is always this row's own class whether it came from the byClass loop or the overall loop. */
@@ -499,11 +506,14 @@ function recomputeRow(
   const positionChanged = newPosition !== row.position;
   const classPositionChanged = newClassPosition !== originalClassPosition;
 
-  // Margin/tags are always measured against the CURRENT overall leader
+  // Margin/tags are always measured against the CURRENT leader of whichever
+  // reorder `overallRanked` was built from — the race's overall leader for
+  // an Overall-view row, or that row's own class leader for a byClass row
+  // (see applyPenaltiesToRoundResults' two separate reorder passes)
   // (reorderByTimePenalty re-zeroes the lead-lap group against whoever
   // actually has the smallest total time now — see its own comments), so
   // ANY row's margin can change even if that row itself was never
-  // penalized and never moved position: if the actual leader picked up a
+  // penalized and never moved position: if the relevant leader picked up a
   // penalty small enough to keep the win, their own margin drops to 0 and
   // everyone else's shifts by exactly the leader's penalty, all without
   // anyone's relative ORDER (or points) changing at all. So this can't be
@@ -701,6 +711,7 @@ export function applyPenaltiesToRoundResults(
     // differently), so this has to be gathered across all classes before
     // either view is actually written back.
     const positionsByClassId = new Map<number, Map<string, RankedPosition>>();
+    const marginRankedByClassId = new Map<number, Map<string, RankedPosition>>();
     const newClassPositionByDriver = new Map<string, number>();
     const originalClassPositionByDriver = new Map<string, number>();
     for (const [classId, byRace] of results.byClass) {
@@ -713,15 +724,33 @@ export function applyPenaltiesToRoundResults(
       // as getRoundResults() produced it — its own `position` field IS that
       // driver's original class position, for a class-view row.
       for (const row of classRows) if (row.position !== null) originalClassPositionByDriver.set(row.driver.id, row.position);
+
+      // A second, display-only reorder for this class, measured against the
+      // class's OWN leader (its pre-penalty position-1 row) instead of the
+      // race's overall leader — this is what the Per Class view's margin
+      // ("distance to the class leader") is sourced from below. Kept
+      // entirely separate from `newPositions` above: position/laps-down/DSQ
+      // classification must stay measured against the actual race leader
+      // per rule 18.3.2 (see reorderByTimePenalty's own doc comment on why),
+      // this is purely about what number is shown next to a driver's name.
+      const classLeaderRow = classRows.find((r) => r.position === 1);
+      const classLeader: LeaderRaceStats = {
+        lapsComplete: classLeaderRow?.laps ?? null,
+        averageLapTenThousandths: classLeaderRow?.averageLapTenThousandths ?? null,
+      };
+      marginRankedByClassId.set(classId, reorderByTimePenalty(toPositionable(classRows), raceNumber, penaltyByRaceDriver, classLeader));
     }
 
-    // Pass 2: write back recomputed rows for both views. Margin/overall-
-    // race-time always come from the OVERALL reorder (newOverallRanked),
-    // regardless of which view a row belongs to.
+    // Pass 2: write back recomputed rows for both views. The Overall view's
+    // margin/overall-race-time always comes from the OVERALL reorder
+    // (newOverallRanked); the Per Class view's comes from that class's own
+    // margin-only reorder (marginRankedByClassId) instead, so it reads
+    // distance to the class leader rather than the overall leader.
     for (const [classId, byRace] of results.byClass) {
       const classRows = byRace.get(raceNumber);
       if (!classRows) continue;
       const newPositions = positionsByClassId.get(classId)!;
+      const marginRanked = marginRankedByClassId.get(classId)!;
       newByClass.get(classId)!.set(
         raceNumber,
         classRows.map((row) =>
@@ -733,7 +762,7 @@ export function applyPenaltiesToRoundResults(
             raceNumber,
             format,
             penaltyByRaceDriver,
-            newOverallRanked.get(row.driver.id),
+            marginRanked.get(row.driver.id),
             classPointsEligibleByClassId
           )
         )
