@@ -107,7 +107,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title={driver ? displayName : 'Driver'} description={driver ? `${displayName}'s driver profile, stats, and race history.` : 'Driver profile.'}>
-  <section class="relative mx-auto max-w-7xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-7xl px-6 pb-24 pt-8">
     {loadError && (
       <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load this driver's profile right now.

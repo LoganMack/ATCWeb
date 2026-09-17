@@ -410,7 +410,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title={round ? round.track_name : 'Race Results'} description="Race-by-race results for this round.">
-  <section class="mx-auto max-w-5xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="mx-auto max-w-5xl px-6 pb-24 pt-8">
     <a href={backHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
     {loadError && (
@@ -424,7 +424,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {round && (
       <>
-        <h1 class="reveal mt-3 font-display text-5xl" style="transition-delay: 40ms">
+        <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
           {isExhibition ? 'Exhibition — ' : displayRoundNumber !== null ? `Round ${displayRoundNumber} — ` : ''}{round.track_name}
         </h1>
         <div class="reveal mt-3" style="transition-delay: 80ms">

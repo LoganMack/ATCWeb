@@ -497,7 +497,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title={round ? `Incident Report — ${round.track_name}` : 'Incident Report'} description="Every incident and penalty logged for this round.">
-  <section class="mx-auto max-w-6xl px-6 pb-24 pt-8 sm:pt-36">
+  <section class="mx-auto max-w-6xl px-6 pb-24 pt-8">
     <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
 
     {loadError && (

@@ -201,9 +201,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="Media" description="Broadcasts, cinematics, educational videos, track guides, race photos, posters, and meetups from Alpha Touring Challenge.">
-  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
-    <h1 class="reveal font-display text-5xl">Media</h1>
+    <h1 class="reveal font-display text-2xl sm:text-5xl">Media</h1>
 
     <div class="reveal mb-8 mt-8 flex flex-wrap gap-2" style="transition-delay: 40ms">
       {TABS.map((t) => (

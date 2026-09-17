@@ -83,9 +83,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="News" description="News and updates from Alpha Touring Challenge.">
-  <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-28 sm:pt-36">
+  <section class="relative mx-auto max-w-6xl overflow-hidden px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
-    <h1 class="reveal font-display text-5xl">News</h1>
+    <h1 class="reveal font-display text-2xl sm:text-5xl">News</h1>
 
     {loadError && (
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
