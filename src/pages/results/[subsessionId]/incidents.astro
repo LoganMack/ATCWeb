@@ -223,14 +223,26 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
           if (row.every((c) => c.trim() === '')) continue;
 
           const raceNumber = Number(get(row, 'race_number'));
-          const carNumber = Number(get(row, 'driver_car_number'));
-          const driver = resolveDriver(carNumber);
-          if (!Number.isFinite(raceNumber) || !driver) {
+          const carNumberRaw = get(row, 'driver_car_number');
+          // "RI" in the driver car number column means nobody's at fault for
+          // this one — the same Racing Incident sentinel (driver_id: null,
+          // 0020_penalty_racing_incident.sql) the manual entry form's own
+          // "Racing Incident (no driver at fault)" option stores, per Logan.
+          const isRacingIncident = carNumberRaw.trim().toUpperCase() === 'RI';
+          const carNumber = Number(carNumberRaw);
+          const driver = isRacingIncident ? null : resolveDriver(carNumber);
+          if (!Number.isFinite(raceNumber) || (!isRacingIncident && !driver)) {
             skipped++;
             continue;
           }
 
-          const offenseNames = get(row, 'offense_names').split(';').map((s) => s.trim()).filter(Boolean);
+          // Offenses/warning describe a specific driver's fault — force them
+          // empty/off for a Racing Incident row regardless of what the CSV
+          // actually has in those columns, same authoritative-guard reasoning
+          // the manual entry form uses just above in this file.
+          const offenseNames = isRacingIncident
+            ? []
+            : get(row, 'offense_names').split(';').map((s) => s.trim()).filter(Boolean);
           const offenseIds = offenseNames
             .map((name) => importOffenses.find((o) => o.name.toLowerCase() === name.toLowerCase())?.id)
             .filter((id): id is string => Boolean(id));
@@ -257,14 +269,16 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
             // session-type column) — Logan hasn't asked to extend it to
             // qualifying/practice, so those stay a form-only path for now.
             session_type: 'race',
-            driver_id: driver.id,
+            // Guarded by the skip check above: reaching here with
+            // isRacingIncident false means driver resolved successfully.
+            driver_id: isRacingIncident ? null : driver!.id,
             incident_number: get(row, 'incident_number') || null,
             lap: lapRaw ? Number(lapRaw) : null,
             description: get(row, 'description') || null,
             time_penalty_seconds: timeRaw ? Number(timeRaw) : null,
             points_penalty: pointsRaw ? Number(pointsRaw) : 0,
             penalty_points: ppRaw ? Number(ppRaw) : 0,
-            is_warning: isWarningRaw === 'true' || isWarningRaw === 'yes' || isWarningRaw === '1',
+            is_warning: isRacingIncident ? false : (isWarningRaw === 'true' || isWarningRaw === 'yes' || isWarningRaw === '1'),
             is_appealed: false,
             appeal_result: null,
             appeal_time_penalty_seconds: null,
@@ -274,7 +288,7 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
 
           try {
             await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
-            touchedDriverIds.add(driver.id);
+            if (driver) touchedDriverIds.add(driver.id);
             imported++;
           } catch (err) {
             console.error('Failed to import an incident row:', err);
@@ -546,7 +560,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </form>
                 <p class="text-white/30">
                   Rows are matched by race number and driver car number — anything unrecognized is skipped rather than
-                  failing the whole import.
+                  failing the whole import. Use "RI" as the driver car number for a Racing Incident (no driver at fault).
                 </p>
               </div>
             </details>
@@ -614,7 +628,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             )}
                           </td>
                           <td class="py-2.5 pr-3 text-white/50">{involvedSummary(p) ?? '—'}</td>
-                          <td class="max-w-xs py-2.5 pr-3 text-white/50">
+                          <td class="max-w-xs py-2.5 pr-3 align-top text-white/50">
+                            {/* align-top, not the table's usual (default)
+                                vertical-centering — a <td> centers its
+                                content as ONE block, so a row with a "Show
+                                more" button (taller: text + gap + button)
+                                had its text sit visibly higher than the same
+                                text in a row with no button, even though
+                                both rows' description text should start at
+                                the same place. Anchoring to the top instead
+                                means the text's own position never depends
+                                on whether the button is present, per Logan. */}
                             {p.description ? (
                               <div class="flex flex-col items-start gap-0.5">
                                 <div
@@ -645,9 +669,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             )}
                           </td>
                           <td class="py-2.5 pr-3 text-center text-white/60">
-                            <div>{pp || '—'}</div>
-                            {p.is_warning && (
+                            {/* A warning never carries a PP value of its own
+                                (penalty_points is stored 0 — see this file's
+                                own "warning" sentinel comment above), so
+                                showing both would always read as "— Warning"
+                                — just the word, no placeholder dash, per
+                                Logan. */}
+                            {p.is_warning ? (
                               <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
+                            ) : (
+                              <div>{pp || '—'}</div>
                             )}
                           </td>
                           <td class="py-2.5 pr-3 text-center text-white/60">{time ? `+${time}s` : '—'}</td>

@@ -77,18 +77,20 @@ function penaltyPointsDelta(row: RaceResultRow): number {
 }
 
 /**
- * "1PP" / "Penalty (Warning)" / "Penalty" / "Racing Incident" — the tag's
- * own label, so the headline is visible without visiting the Incident
- * Report page. Sums effective PP across every penalty logged against this
- * driver in this race; falls back to "(Warning)" only when nothing carries
- * PP but at least one entry is a warning. When a logged entry carries no
- * real effect at all (no PP, no warning, no time/points penalty — e.g.
- * reviewed and cleared, or appealed down to nothing), it reads as "Racing
- * Incident" instead of "Penalty" per Logan.
+ * "1PP" / "Warning" / "Penalty" / "Racing Incident" — the tag's own label,
+ * so the headline is visible without visiting the Incident Report page.
+ * Sums effective PP across every penalty logged against this driver in this
+ * race; falls back to "Warning" only when nothing carries PP but at least
+ * one entry is a warning. When a logged entry carries no real effect at all
+ * (no PP, no warning, no time/points penalty — e.g. reviewed and cleared, or
+ * appealed down to nothing), it reads as "Racing Incident" instead of
+ * "Penalty" per Logan.
  *
- * The PP case reads just "XPP" (not "Penalty (XPP)") per Logan — see
+ * The PP case reads just "XPP" (not "Penalty (XPP)"), and the warning case
+ * reads just "Warning" (not "Penalty (Warning)") — both per Logan, so the
+ * badge's text format matches regardless of which of the two applies. See
  * isRealPenalty below for why the badge styling no longer keys off a
- * "Penalty" text prefix now that this branch doesn't say that word anymore.
+ * "Penalty" text prefix now that neither branch says that word anymore.
  *
  * Note this is a DIFFERENT "Racing Incident" than the literal one on the
  * Incident Report page (a penalty entry with no driver_id at all — see
@@ -101,7 +103,7 @@ function penaltyTagLabel(rowPenalties: Penalty[]): string {
   if (rowPenalties.length === 0) return '';
   const totalPP = rowPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
   if (totalPP > 0) return `${totalPP}PP`;
-  if (rowPenalties.some((p) => p.is_warning)) return 'Penalty (Warning)';
+  if (rowPenalties.some((p) => p.is_warning)) return 'Warning';
   const hasTimeOrPointsEffect = rowPenalties.some(
     (p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0
   );
