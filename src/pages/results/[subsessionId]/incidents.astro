@@ -510,7 +510,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     {round && (
       <>
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
-          Incident Report — {round.track_name}
+          {/* Mobile: "Incident Report" and the track name stack on two
+              lines, with the track name dropping out of the italic Teko
+              display font into the same Roboto body font as the date line
+              below it, per Logan. Desktop keeps the original single-line
+              "Incident Report — Track Name" in the display font throughout. */}
+          Incident Report
+          <span class="hidden sm:inline"> — </span>
+          <span class="mt-1 block font-body text-lg not-italic sm:mt-0 sm:inline sm:font-display sm:text-5xl sm:italic">
+            {round.track_name}
+          </span>
         </h1>
         <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
           {formatDate(round.start_time)}
@@ -577,8 +586,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <thead>
                   <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
                     {/* On mobile, only the columns an admin/driver needs at a
-                        glance stay visible (Lap/Driver/Offenses/PP/Time/Pts);
-                        the rest (incident #, Involved, Description, Pos Δ,
+                        glance stay visible (Lap/Driver/PP/Time/Pts); the rest
+                        (incident #, Involved, Description, Offenses, Pos Δ,
                         Pts Δ) are hidden below md and surfaced instead in the
                         tap-to-view details modal — see [data-incident-row]/
                         [data-mobile-incident-dialog] below, per Logan. */}
@@ -587,7 +596,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <th class="py-3 pr-3 font-medium">Driver</th>
                     <th class="hidden py-3 pr-3 font-medium md:table-cell">Involved</th>
                     <th class="hidden py-3 pr-3 font-medium md:table-cell">Description</th>
-                    <th class="py-3 pr-3 font-medium">Offenses</th>
+                    <th class="hidden py-3 pr-3 font-medium md:table-cell">Offenses</th>
                     <th class="py-3 pr-3 text-center font-medium">PP</th>
                     <th class="py-3 pr-3 text-center font-medium">Time</th>
                     <th class="py-3 pr-3 text-center font-medium">Pts</th>
@@ -612,7 +621,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           class={`${isAdmin ? '' : 'border-b border-white/5 '}cursor-pointer text-sm active:bg-white/5 md:cursor-default md:active:bg-transparent`}
                           data-incident-row
                           data-incident-summary={JSON.stringify({
-                            driverLabel: p.driver_id === null ? 'Racing Incident (no driver at fault)' : (driver?.car_number != null ? `#${driver.car_number} — ${driver.name}` : '—'),
+                            driverLabel: p.driver_id === null ? 'Racing Incident (no driver at fault)' : (driver?.car_number != null ? `#${driver.car_number}` : '—'),
                             incidentNumber: p.incident_number,
                             lap: p.lap,
                             involved: involvedSummary(p),
@@ -686,7 +695,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               '—'
                             )}
                           </td>
-                          <td class="py-2.5 pr-3 text-white/50">
+                          <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell">
                             {p.offense_ids.length > 0 ? (
                               <div class="flex flex-col gap-0.5">
                                 {p.offense_ids.map((id) => <div>{offenseNameById.get(id) ?? '?'}</div>)}
