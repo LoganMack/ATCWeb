@@ -494,9 +494,16 @@ const seasonParam = Astro.url.searchParams.get('season');
 const backToRoundHref = `/results/${subsessionId}${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+// Link-preview (Discord/Slack/etc.) description — a live incident count
+// reads better in an embed than the old static blurb, per Logan.
+const incidentCountDescription = `${sortedPenalties.length} incident${sortedPenalties.length === 1 ? '' : 's'} reported.`;
 ---
 
-<Layout title={round ? `Incident Report — ${round.track_name}` : 'Incident Report'} description="Every incident and penalty logged for this round.">
+<Layout
+  title={round ? `Incident Report: ${round.track_name}` : 'Incident Report'}
+  description={round ? incidentCountDescription : 'Every incident and penalty logged for this round.'}
+>
   <section class="mx-auto max-w-6xl px-6 pb-24 pt-8">
     <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
 
