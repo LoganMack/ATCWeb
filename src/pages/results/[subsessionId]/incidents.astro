@@ -497,7 +497,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title={round ? `Incident Report — ${round.track_name}` : 'Incident Report'} description="Every incident and penalty logged for this round.">
-  <section class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
+  <section class="mx-auto max-w-6xl px-6 pb-24 pt-8 sm:pt-36">
     <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
 
     {loadError && (
@@ -509,7 +509,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {round && (
       <>
-        <h1 class="reveal mt-3 font-display text-5xl" style="transition-delay: 40ms">
+        <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
           Incident Report — {round.track_name}
         </h1>
         <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
@@ -576,17 +576,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <table class="w-full border-collapse">
                 <thead>
                   <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                    <th class="py-3 pl-4 pr-3 font-medium">#</th>
-                    <th class="py-3 pr-3 text-center font-medium">Lap</th>
+                    {/* On mobile, only the columns an admin/driver needs at a
+                        glance stay visible (Lap/Driver/Offenses/PP/Time/Pts);
+                        the rest (incident #, Involved, Description, Pos Δ,
+                        Pts Δ) are hidden below md and surfaced instead in the
+                        tap-to-view details modal — see [data-incident-row]/
+                        [data-mobile-incident-dialog] below, per Logan. */}
+                    <th class="hidden py-3 pl-4 pr-3 font-medium md:table-cell">#</th>
+                    <th class="py-3 pl-4 pr-3 text-center font-medium md:pl-0">Lap</th>
                     <th class="py-3 pr-3 font-medium">Driver</th>
-                    <th class="py-3 pr-3 font-medium">Involved</th>
-                    <th class="py-3 pr-3 font-medium">Description</th>
+                    <th class="hidden py-3 pr-3 font-medium md:table-cell">Involved</th>
+                    <th class="hidden py-3 pr-3 font-medium md:table-cell">Description</th>
                     <th class="py-3 pr-3 font-medium">Offenses</th>
                     <th class="py-3 pr-3 text-center font-medium">PP</th>
                     <th class="py-3 pr-3 text-center font-medium">Time</th>
                     <th class="py-3 pr-3 text-center font-medium">Pts</th>
-                    <th class="py-3 pr-3 text-center font-medium">Pos &Delta;</th>
-                    <th class="py-3 pr-4 text-center font-medium">Pts &Delta;</th>
+                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Pos &Delta;</th>
+                    <th class="hidden py-3 pr-4 text-center font-medium md:table-cell">Pts &Delta;</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -602,9 +608,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       : (p.description ?? '');
                     return (
                       <>
-                        <tr class={isAdmin ? 'text-sm' : 'border-b border-white/5 text-sm'}>
-                          <td class="py-2.5 pl-4 pr-3 text-white/60">{p.incident_number ?? '—'}</td>
-                          <td class="py-2.5 pr-3 text-center text-white/60">{p.lap ?? '—'}</td>
+                        <tr
+                          class={`${isAdmin ? '' : 'border-b border-white/5 '}cursor-pointer text-sm active:bg-white/5 md:cursor-default md:active:bg-transparent`}
+                          data-incident-row
+                          data-incident-summary={JSON.stringify({
+                            driverLabel: p.driver_id === null ? 'Racing Incident (no driver at fault)' : (driver?.car_number != null ? `#${driver.car_number} — ${driver.name}` : '—'),
+                            incidentNumber: p.incident_number,
+                            lap: p.lap,
+                            involved: involvedSummary(p),
+                            description: p.description,
+                            offenses: p.offense_ids.map((id) => offenseNameById.get(id) ?? '?'),
+                            isWarning: p.is_warning,
+                            pp,
+                            time,
+                            points,
+                            positionDelta: formatDelta(positionDelta),
+                            positionDeltaClass: deltaClass(positionDelta),
+                            pointsDelta: formatDelta(pointsDelta),
+                            pointsDeltaClass: deltaClass(pointsDelta),
+                            isAppealed: p.is_appealed,
+                            appealResult: p.appeal_result,
+                          })}
+                        >
+                          <td class="hidden py-2.5 pl-4 pr-3 text-white/60 md:table-cell">{p.incident_number ?? '—'}</td>
+                          <td class="py-2.5 pl-4 pr-3 text-center text-white/60 md:pl-0">{p.lap ?? '—'}</td>
                           <td class="py-2.5 pr-3 font-semibold">
                             <div title={p.driver_id === null ? 'Racing Incident — no driver at fault' : undefined}>
                               {p.driver_id === null ? 'RI' : (driver?.car_number != null ? `#${driver.car_number}` : '—')}
@@ -627,8 +654,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               </div>
                             )}
                           </td>
-                          <td class="py-2.5 pr-3 text-white/50">{involvedSummary(p) ?? '—'}</td>
-                          <td class="max-w-xs py-2.5 pr-3 align-top text-white/50">
+                          <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell">{involvedSummary(p) ?? '—'}</td>
+                          <td class="hidden max-w-xs py-2.5 pr-3 align-top text-white/50 md:table-cell">
                             {/* align-top, not the table's usual (default)
                                 vertical-centering — a <td> centers its
                                 content as ONE block, so a row with a "Show
@@ -682,9 +709,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             )}
                           </td>
                           <td class="py-2.5 pr-3 text-center text-white/60">{time ? `+${time}s` : '—'}</td>
-                          <td class="py-2.5 pr-3 text-center text-white/60">{points ? points : '—'}</td>
-                          <td class={`py-2.5 pr-3 text-center font-semibold ${deltaClass(positionDelta)}`}>{formatDelta(positionDelta)}</td>
-                          <td class={`py-2.5 pr-4 text-center font-semibold ${deltaClass(pointsDelta)}`}>{formatDelta(pointsDelta)}</td>
+                          <td class="py-2.5 pr-3 text-center text-white/60">
+                            <span>{points ? points : '—'}</span>
+                            {/* Mobile-only tap hint — the row itself is the
+                                target, this just signals "there's more here"
+                                since the columns hiding to the right (Pos Δ/
+                                Pts Δ, already hidden above) leave no other
+                                visual cue that a tap opens the details modal. */}
+                            <span class="ml-1 text-white/25 md:hidden" aria-hidden="true">›</span>
+                          </td>
+                          <td class={`hidden py-2.5 pr-3 text-center font-semibold md:table-cell ${deltaClass(positionDelta)}`}>{formatDelta(positionDelta)}</td>
+                          <td class={`hidden py-2.5 pr-4 text-center font-semibold md:table-cell ${deltaClass(pointsDelta)}`}>{formatDelta(pointsDelta)}</td>
                         </tr>
                         {isAdmin && (
                           <tr class="border-b border-white/5 text-sm">
@@ -904,6 +939,82 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </form>
           </dialog>
         )}
+
+        {/* Mobile-only "view details" popup: on small screens the table
+            hides incident #/Involved/Description/Pos Δ/Pts Δ (see the
+            hidden md:table-cell columns above) so tapping a row here shows
+            everything about that incident in one readable card. Every
+            viewer gets this (not isAdmin-gated) — it's read-only, no form.
+            Desktop already shows every column so the row click is a no-op
+            there (see initIncidentPage's mobile matchMedia guard). */}
+        <dialog
+          data-mobile-incident-dialog
+          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+        >
+          <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+            <div class="flex items-center justify-between">
+              <h4 class="font-display text-lg">Incident Details</h4>
+              <button type="button" data-close-mobile-incident-dialog class="text-white/40 hover:text-white">✕</button>
+            </div>
+
+            <dl class="flex flex-col gap-3 text-sm">
+              <div>
+                <dt class="text-[11px] uppercase tracking-wide text-white/40">Driver</dt>
+                <dd data-mobile-driver class="mt-0.5 font-semibold"></dd>
+              </div>
+              <div class="flex gap-6">
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Incident #</dt>
+                  <dd data-mobile-incident-number class="mt-0.5"></dd>
+                </div>
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Lap</dt>
+                  <dd data-mobile-lap class="mt-0.5"></dd>
+                </div>
+              </div>
+              <div data-mobile-involved-row class="hidden">
+                <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
+                <dd data-mobile-involved class="mt-0.5 text-white/70"></dd>
+              </div>
+              <div data-mobile-description-row class="hidden">
+                <dt class="text-[11px] uppercase tracking-wide text-white/40">Description</dt>
+                <dd data-mobile-description class="mt-0.5 text-white/70"></dd>
+              </div>
+              <div data-mobile-offenses-row class="hidden">
+                <dt class="text-[11px] uppercase tracking-wide text-white/40">Offenses</dt>
+                <dd data-mobile-offenses class="mt-0.5 flex flex-col gap-0.5 text-white/70"></dd>
+              </div>
+              <div class="flex gap-6">
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">PP</dt>
+                  <dd data-mobile-pp class="mt-0.5"></dd>
+                </div>
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Time</dt>
+                  <dd data-mobile-time class="mt-0.5"></dd>
+                </div>
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts</dt>
+                  <dd data-mobile-points class="mt-0.5"></dd>
+                </div>
+              </div>
+              <div class="flex gap-6">
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Pos &Delta;</dt>
+                  <dd data-mobile-position-delta class="mt-0.5 font-semibold"></dd>
+                </div>
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts &Delta;</dt>
+                  <dd data-mobile-points-delta class="mt-0.5 font-semibold"></dd>
+                </div>
+              </div>
+              <div data-mobile-appeal-row class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2">
+                <dt class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Appealed</dt>
+                <dd data-mobile-appeal class="mt-1 text-[13px] text-brand-pink/90"></dd>
+              </div>
+            </dl>
+          </div>
+        </dialog>
       </>
     )}
   </section>
@@ -955,6 +1066,82 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         detail?.classList.toggle('hidden');
       });
     });
+
+    // Mobile "view details" popup for [data-incident-row] — placed ahead of
+    // the `if (!dialog) return` below so it still wires up for non-admin
+    // viewers, who never get the add/edit <dialog> rendered at all. Every
+    // viewer should be able to tap a row on mobile to see the columns the
+    // table hides below md (incident #, Involved, Description, Pos Δ, Pts Δ).
+    const mobileDialog = document.querySelector<HTMLDialogElement>('[data-mobile-incident-dialog]');
+    if (mobileDialog) {
+      const isMobileViewport = () => window.matchMedia('(max-width: 767px)').matches;
+      const setField = (selector: string, text: string) => {
+        const el = mobileDialog.querySelector<HTMLElement>(selector);
+        if (el) el.textContent = text;
+      };
+      const setRowVisible = (selector: string, visible: boolean) => {
+        mobileDialog.querySelector<HTMLElement>(selector)?.classList.toggle('hidden', !visible);
+      };
+
+      document.querySelectorAll<HTMLTableRowElement>('[data-incident-row]').forEach((row) => {
+        row.addEventListener('click', (event) => {
+          if (!isMobileViewport()) return;
+          // Don't hijack the Appealed toggle — it's still visible and
+          // interactive on mobile (inside the Driver cell) with its own
+          // click handler above; let that run instead of opening the modal.
+          if ((event.target as HTMLElement).closest('[data-appeal-toggle], [data-appeal-detail]')) return;
+          if (!row.dataset.incidentSummary) return;
+          const summary = JSON.parse(row.dataset.incidentSummary);
+
+          setField('[data-mobile-driver]', summary.driverLabel ?? '—');
+          setField('[data-mobile-incident-number]', summary.incidentNumber != null ? String(summary.incidentNumber) : '—');
+          setField('[data-mobile-lap]', summary.lap != null ? String(summary.lap) : '—');
+
+          setRowVisible('[data-mobile-involved-row]', Boolean(summary.involved));
+          setField('[data-mobile-involved]', summary.involved ?? '');
+
+          setRowVisible('[data-mobile-description-row]', Boolean(summary.description));
+          setField('[data-mobile-description]', summary.description ?? '');
+
+          const offenses: string[] = summary.offenses ?? [];
+          setRowVisible('[data-mobile-offenses-row]', offenses.length > 0);
+          const offensesEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-offenses]');
+          if (offensesEl) {
+            offensesEl.replaceChildren(
+              ...offenses.map((name: string) => {
+                const div = document.createElement('div');
+                div.textContent = name;
+                return div;
+              })
+            );
+          }
+
+          setField('[data-mobile-pp]', summary.isWarning ? 'Warning' : (summary.pp ? String(summary.pp) : '—'));
+          setField('[data-mobile-time]', summary.time ? `+${summary.time}s` : '—');
+          setField('[data-mobile-points]', summary.points ? String(summary.points) : '—');
+
+          const posEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-position-delta]');
+          if (posEl) {
+            posEl.textContent = summary.positionDelta ?? '—';
+            posEl.className = `mt-0.5 font-semibold ${summary.positionDeltaClass ?? 'text-white/40'}`;
+          }
+          const ptsEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-points-delta]');
+          if (ptsEl) {
+            ptsEl.textContent = summary.pointsDelta ?? '—';
+            ptsEl.className = `mt-0.5 font-semibold ${summary.pointsDeltaClass ?? 'text-white/40'}`;
+          }
+
+          setRowVisible('[data-mobile-appeal-row]', Boolean(summary.isAppealed));
+          setField('[data-mobile-appeal]', summary.appealResult || 'No appeal notes recorded.');
+
+          mobileDialog.showModal();
+        });
+      });
+
+      mobileDialog.querySelectorAll<HTMLButtonElement>('[data-close-mobile-incident-dialog]').forEach((btn) => {
+        btn.addEventListener('click', () => mobileDialog.close());
+      });
+    }
 
     const dialog = document.querySelector<HTMLDialogElement>('[data-incident-dialog]');
     if (!dialog) return;
