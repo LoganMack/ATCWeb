@@ -2,390 +2,77 @@
 export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import StatBlock from '../../components/StatBlock.astro';
-import {
-  resolveSupabaseEnv,
-  getDrivers,
-  getTeams,
-  getAllNewsPosts,
-  getEvents,
-  getCircuits,
-  getSeasons,
-  getOrganizations,
-  getPageViewStats,
-  getMissingRaceResultsCount,
-  getActivityLogCountSince,
-  type PageViewStats,
-} from '../../lib/supabase';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
-
-let driverCount = 0;
-let teamCount = 0;
-let draftCount = 0;
-let upcomingEventCount = 0;
-let pastEventCount = 0;
-let circuitCount = 0;
-let seasonCount = 0;
-let currentSeasonName: string | null = null;
-let organizationCount = 0;
-let missingRaceResultsCount = 0;
-let activityLogCount24h = 0;
-let pageViewStats: PageViewStats | null = null;
-
-// Every independent fetch this page needs, run together — same
-// "named-function + Promise.all" pattern used across the rest of the site
-// (see roster.astro/standings.astro/etc.) rather than awaiting one after
-// another. getPageViewStats/getMissingRaceResultsCount/getActivityLogCountSince
-// already catch or don't need their own try/catch (see src/lib/supabase.ts),
-// so they're wired in as their own Promise.all entries below rather than
-// folded into loadCounts()'s try/catch.
-async function loadCounts() {
-  try {
-    const [drivers, teams, news, events, circuits, seasons, organizations] = await Promise.all([
-      getDrivers(supabaseEnv),
-      getTeams(supabaseEnv),
-      getAllNewsPosts(supabaseEnv, accessToken),
-      getEvents(supabaseEnv),
-      getCircuits(supabaseEnv),
-      getSeasons(supabaseEnv),
-      getOrganizations(supabaseEnv),
-    ]);
-    driverCount = drivers.length;
-    teamCount = teams.length;
-    draftCount = news.filter((p) => p.status === 'draft').length;
-    const todayStr = new Date().toISOString().slice(0, 10);
-    upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
-    pastEventCount = events.filter((e) => e.event_date < todayStr).length;
-    circuitCount = circuits.length;
-    seasonCount = seasons.length;
-    currentSeasonName = seasons.find((s) => s.is_current)?.name ?? null;
-    organizationCount = organizations.length;
-  } catch (err) {
-    console.error('Failed to load admin dashboard counts:', err);
-  }
-}
-
-const oneDayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-
-await Promise.all([
-  loadCounts(),
-  getPageViewStats(supabaseEnv, accessToken).then((stats) => (pageViewStats = stats)),
-  getMissingRaceResultsCount(supabaseEnv)
-    .then((count) => (missingRaceResultsCount = count))
-    .catch((err) => console.error('Failed to load missing race results count:', err)),
-  getActivityLogCountSince(supabaseEnv, accessToken, oneDayAgoIso)
-    .then((count) => (activityLogCount24h = count))
-    .catch((err) => console.error('Failed to load activity log count:', err)),
-]);
-
-interface DashboardCard {
-  href: string;
-  label: string;
-  detail: string;
-}
-
-// --- "Admin Tools" — the day-to-day content/roster tables, ordered exactly
-// as Logan asked: Import + Activity Log first (2-col), then Drivers + Teams
-// (2-col), then Events / Organizations / News (3-col). ------------------
-
-const importAndLog: DashboardCard[] = [
-  {
-    href: '/admin/import',
-    label: 'Add Race Result',
-    detail: `${missingRaceResultsCount} finished event${missingRaceResultsCount === 1 ? '' : 's'} missing race results.`,
-  },
-  {
-    href: '/admin/activity-log',
-    label: 'Activity Log',
-    detail: `${activityLogCount24h} entr${activityLogCount24h === 1 ? 'y' : 'ies'} in the last 24 hours`,
-  },
-];
-
-const driversAndTeams: DashboardCard[] = [
-  { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} on the roster` },
-  { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
-];
-
-const eventsOrgsNews: DashboardCard[] = [
-  { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming, ${pastEventCount} past` },
-  { href: '/admin/organizations', label: 'Organizations', detail: `${organizationCount} organization${organizationCount === 1 ? '' : 's'}` },
-  { href: '/admin/news', label: 'News', detail: `${draftCount} draft${draftCount === 1 ? '' : 's'}` },
-];
-
-// --- "Utilities" — everything else, alphabetized, 4-col. Every /admin/*
-// section not already placed above lands here, so nothing is ever
-// admin-only-reachable by typing the URL directly (keep in sync with
-// AdminLayout's own sub-nav links). ---------------------------------------
-
-const utilities: DashboardCard[] = [
-  { href: '/admin/awards', label: 'Awards', detail: 'Best Racecraft & Most Improved picks' },
-  { href: '/admin/circuits', label: 'Circuits', detail: `${circuitCount} circuits` },
-  { href: '/admin/import-tools', label: 'Import Tools', detail: 'Bulk CSV import for Events/Circuits/News' },
-  { href: '/admin/media', label: 'Media', detail: 'Videos, graphics & meetup photos' },
-  { href: '/admin/rulesets', label: 'Rulesets', detail: 'Scoring rulesets' },
-  {
-    href: '/admin/seasons',
-    label: 'Seasons',
-    detail: currentSeasonName ? `Current: ${currentSeasonName}` : `${seasonCount} season${seasonCount === 1 ? '' : 's'}`,
-  },
-  {
-    href: '/admin/site-properties',
-    label: 'Site Properties',
-    detail: 'Banners, broadcast URL, car logos, penalty offenses & champion photos',
-  },
-  { href: '/admin/users', label: 'Users', detail: 'Assign admin access' },
-];
-
-// --- Site analytics display helpers --------------------------------------
-
-/** ISO 3166-1 alpha-2 -> readable name via the platform's own locale data (Intl.DisplayNames) — no hardcoded country-name table to maintain. Falls back to the raw code for anything it can't resolve (e.g. Cloudflare's "T1" for Tor exit traffic, or the "Unknown" bucket the RPC already labels itself). */
-function countryName(code: string): string {
-  if (!code || code === 'Unknown') return 'Unknown';
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
-  } catch {
-    return code;
-  }
-}
-
-function formatHour(hour: number): string {
-  const period = hour < 12 ? 'AM' : 'PM';
-  const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h12}${period}`;
-}
-
-const topCountries = pageViewStats?.topCountries ?? [];
-const maxCountryVisitors = Math.max(1, ...topCountries.map((c) => c.visitors));
-const hourly = pageViewStats?.hourly ?? [];
-const maxHourlyViews = Math.max(1, ...hourly.map((h) => h.views));
-const hourlyToday = pageViewStats?.hourlyToday ?? [];
-const maxHourlyTodayViews = Math.max(1, ...hourlyToday.map((h) => h.views));
-const topPages = pageViewStats?.topPages ?? [];
-const maxPageViews = Math.max(1, ...topPages.map((p) => p.views));
-const topErrors = pageViewStats?.topErrors ?? [];
-const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
+// Same shell-then-spinner split as the public site's awards.astro/
+// champions.astro/etc. (see admin/fragment.astro's own top-of-file comment)
+// — this page used to await seven-plus parallel Supabase queries (every
+// driver/team/news/event/circuit/season/organization row, plus page-view
+// stats and two more counts) right here before sending any HTML, so opening
+// /admin always meant a blank page for however long that round-trip took.
+// Now the shell renders instantly with a loading-cards skeleton below, and
+// admin/fragment.astro is fetched client-side for the actual dashboard, per
+// Logan ("add the loading cards animation to the admin panel so we can
+// access it faster").
 ---
 
 <AdminLayout title="Dashboard">
   <h1 class="reveal font-display text-4xl">Dashboard</h1>
-  {currentSeasonName && (
-    <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-      Current season: <span class="font-semibold text-brand-primary">{currentSeasonName}</span>
-    </p>
-  )}
 
-  <section class="reveal mt-8" style="transition-delay: 60ms">
-    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Admin Tools</h2>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      {importAndLog.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
-    </div>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2">
-      {driversAndTeams.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
-    </div>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {eventsOrgsNews.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
-    </div>
-  </section>
-
-  <section class="reveal mt-12" style="transition-delay: 80ms">
-    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Site Analytics</h2>
-
-    {pageViewStats ? (
-      <div class="mt-4 space-y-6">
-        <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-          <dl class="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-3">
-            <StatBlock
-              label="Visitors Today"
-              value={pageViewStats.visitorsToday}
-              sub={`${pageViewStats.viewsToday} page view${pageViewStats.viewsToday === 1 ? '' : 's'}`}
-            />
-            <StatBlock
-              label="Visitors (7 days)"
-              value={pageViewStats.visitors7d}
-              sub={`${pageViewStats.views7d} page views`}
-            />
-            <StatBlock
-              label="Visitors (30 days)"
-              value={pageViewStats.visitors30d}
-              sub={`${pageViewStats.views30d} page views`}
-            />
-          </dl>
-        </div>
-
-        <div class="grid gap-4 lg:grid-cols-2">
-          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-            <h3 class="text-xs uppercase tracking-wide text-white/40">Top Regions (30 days)</h3>
-            {topCountries.length > 0 ? (
-              <ul class="mt-3 space-y-2.5">
-                {topCountries.map((c) => (
-                  <li>
-                    <div class="flex items-center justify-between text-sm">
-                      <span class="text-white/80">{countryName(c.country)}</span>
-                      <span class="text-white/50">{c.visitors}</span>
-                    </div>
-                    <div class="mt-1 h-1.5 rounded-full bg-white/5">
-                      <div
-                        class="h-1.5 rounded-full bg-brand-primary"
-                        style={`width: ${Math.max(4, Math.round((c.visitors / maxCountryVisitors) * 100))}%`}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p class="mt-3 text-sm text-white/40">No visits recorded yet.</p>
-            )}
-          </div>
-
-          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-            {/* Today's hourly shape stacked directly above the 30-day
-                rollup, in one card — get_page_view_stats()' hourlyToday key
-                (0083_page_views_hourly_today.sql), same bar shape as the
-                30-day chart below it, just scoped to today (America/
-                New_York) so a real-time-ish traffic shape isn't smoothed
-                away by 30 days of averaging. */}
-            <h3 class="text-xs uppercase tracking-wide text-white/40">Traffic by Hour (Today, ET)</h3>
-            <div class="mt-4 flex h-24 items-stretch gap-1">
-              {hourlyToday.map((h) => (
-                <div class="relative h-full flex-1 rounded-t bg-white/5">
-                  <div
-                    class="absolute bottom-0 w-full rounded-t bg-brand-primary/70 transition hover:bg-brand-primary"
-                    style={`height: ${Math.round((h.views / maxHourlyTodayViews) * 100)}%`}
-                    title={`${formatHour(h.hour)} ET — ${h.views} view${h.views === 1 ? '' : 's'}`}
-                  />
-                </div>
-              ))}
-            </div>
-            <div class="mt-1 flex justify-between text-[10px] text-white/30">
-              <span>12am</span>
-              <span>6am</span>
-              <span>12pm</span>
-              <span>6pm</span>
-              <span>12am</span>
-            </div>
-
-            <h3 class="mt-5 border-t border-white/10 pt-4 text-xs uppercase tracking-wide text-white/40">Traffic by Hour (30 days, ET)</h3>
-            <div class="mt-4 flex h-24 items-stretch gap-1">
-              {hourly.map((h) => (
-                <div class="relative h-full flex-1 rounded-t bg-white/5">
-                  <div
-                    class="absolute bottom-0 w-full rounded-t bg-brand-primary/70 transition hover:bg-brand-primary"
-                    style={`height: ${Math.round((h.views / maxHourlyViews) * 100)}%`}
-                    title={`${formatHour(h.hour)} ET — ${h.views} view${h.views === 1 ? '' : 's'}`}
-                  />
-                </div>
-              ))}
-            </div>
-            <div class="mt-1 flex justify-between text-[10px] text-white/30">
-              <span>12am</span>
-              <span>6am</span>
-              <span>12pm</span>
-              <span>6pm</span>
-              <span>12am</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid gap-4 lg:grid-cols-2">
-          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-            <h3 class="text-xs uppercase tracking-wide text-white/40">Most Popular Pages by Views (30 days)</h3>
-            {topPages.length > 0 ? (
-              <ul class="mt-3 space-y-2.5">
-                {topPages.map((p) => (
-                  <li>
-                    <div class="flex items-center justify-between gap-3 text-sm">
-                      <span class="truncate text-white/80" title={p.path}>{p.path}</span>
-                      <span class="shrink-0 text-white/50">{p.views}</span>
-                    </div>
-                    <div class="mt-1 h-1.5 rounded-full bg-white/5">
-                      <div
-                        class="h-1.5 rounded-full bg-brand-primary"
-                        style={`width: ${Math.max(4, Math.round((p.views / maxPageViews) * 100))}%`}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p class="mt-3 text-sm text-white/40">No page views recorded yet.</p>
-            )}
-          </div>
-
-          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-5">
-            <h3 class="text-xs uppercase tracking-wide text-white/40">Most Common Errors (30 days)</h3>
-            {topErrors.length > 0 ? (
-              <ul class="mt-3 space-y-2.5">
-                {topErrors.map((e) => (
-                  <li>
-                    <div class="flex items-center justify-between gap-3 text-sm">
-                      <span class="truncate text-white/80" title={e.path}>
-                        <span class="mr-1.5 rounded bg-red-500/20 px-1.5 py-0.5 text-xs font-semibold text-red-300">{e.status}</span>
-                        {e.path}
-                      </span>
-                      <span class="shrink-0 text-white/50">{e.occurrences}</span>
-                    </div>
-                    <div class="mt-1 h-1.5 rounded-full bg-white/5">
-                      <div
-                        class="h-1.5 rounded-full bg-red-400/70"
-                        style={`width: ${Math.max(4, Math.round((e.occurrences / maxErrorOccurrences) * 100))}%`}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p class="mt-3 text-sm text-white/40">No errors recorded in the last 30 days.</p>
-            )}
-          </div>
-        </div>
+  <div data-admin-dashboard data-fragment-url="/admin/fragment">
+    <div class="mt-8 flex flex-col gap-8" aria-live="polite" aria-busy="true">
+      <span class="sr-only">Loading Dashboard…</span>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
       </div>
-    ) : (
-      <p class="mt-4 text-sm text-white/50">Analytics aren't available right now.</p>
-    )}
-  </section>
-
-  <section class="reveal mt-12" style="transition-delay: 100ms">
-    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Utilities</h2>
-
-    <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {utilities.map((card) => (
-        <a
-          href={card.href}
-          class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
-        >
-          <h3 class="font-display text-2xl">{card.label}</h3>
-          <p class="mt-1 text-sm text-white/60">{card.detail}</p>
-        </a>
-      ))}
+      <div class="grid gap-4 lg:grid-cols-2">
+        <div class="h-56 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+        <div class="h-56 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+      </div>
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+      </div>
     </div>
-  </section>
+  </div>
+
+  <script>
+    // Same fetch-fragment-then-drop-in pattern as awards.astro/
+    // champions.astro/team-stats.astro — see admin/fragment.astro's own
+    // top-of-file comment for the full reasoning (reveal.ts re-dispatch
+    // included).
+    function initAdminDashboard() {
+      const container = document.querySelector<HTMLElement>('[data-admin-dashboard]');
+      const url = container?.dataset.fragmentUrl;
+      if (!container || !url) return;
+      delete container.dataset.fragmentUrl;
+
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Admin dashboard fragment request failed (${res.status})`);
+          return res.text();
+        })
+        .then((html) => {
+          container.innerHTML = html;
+          document.dispatchEvent(new Event('astro:page-load'));
+        })
+        .catch((err) => {
+          console.error('Failed to load admin dashboard:', err);
+          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load the dashboard right now — try refreshing the page.</p>';
+        });
+    }
+
+    document.addEventListener('astro:page-load', initAdminDashboard);
+  </script>
 </AdminLayout>

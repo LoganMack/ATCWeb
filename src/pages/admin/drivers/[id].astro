@@ -581,10 +581,6 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
         placeholder="e.g. 123456"
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
-      <span class="text-xs text-white/40">
-        Required for this driver's results to show up scored anywhere on the site. Usually set automatically by the
-        "Sync Results with Roster" button on the Drivers list — only edit this by hand to fix a mismatch.
-      </span>
     </label>
 
     <label class="flex flex-col gap-1.5 text-sm">
@@ -855,10 +851,10 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
       }
       const status = match.driver_statuses?.name ?? 'unknown status';
       if (status === 'Inactive') {
-        hint!.textContent = `Car #${num} was last used by ${match.name} (Inactive) — saving will free it up from them.`;
+        hint!.textContent = `#${num} is in use by ${match.name} (Inactive)`;
         hint!.className = 'text-xs text-brand-gold';
       } else {
-        hint!.textContent = `Car #${num} is currently used by ${match.name} (${status}).`;
+        hint!.textContent = `#${num} is in use by ${match.name} (${status}).`;
         hint!.className = 'text-xs text-brand-pink';
       }
     }

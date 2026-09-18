@@ -242,7 +242,6 @@ if (Astro.request.method === 'POST') {
     }
   } else {
     const name = String(form.get('name') ?? '').trim();
-    const status = form.get('status') === 'inactive' ? 'inactive' : 'active';
     const primary_color_hex = String(form.get('primary_color_hex') ?? '').trim() || null;
     const logoFile = form.get('logo');
 
@@ -258,10 +257,16 @@ if (Astro.request.method === 'POST') {
       try {
         let teamId = isNew ? null : id!;
         if (isNew) {
-          const created = await createTeam(supabaseEnv, accessToken, { name, status, primary_color_hex });
+          // No `status` written here anymore — see this page's Status
+          // fieldset removal below. A team's active/inactive state is now
+          // purely computed (does it have drivers on the CURRENT season's
+          // roster?), same rule the public Teams page and the admin Teams
+          // list already use, so the database column is left alone at
+          // whatever default Postgres gives a new row.
+          const created = await createTeam(supabaseEnv, accessToken, { name, primary_color_hex });
           teamId = created.id;
         } else {
-          await updateTeam(supabaseEnv, accessToken, teamId!, { name, status, primary_color_hex });
+          await updateTeam(supabaseEnv, accessToken, teamId!, { name, primary_color_hex });
         }
 
         if (logoFile instanceof File && logoFile.size > 0) {
@@ -292,7 +297,7 @@ if (!isNew && id) {
   if (!team) return Astro.redirect('/admin/teams', 302);
 }
 
-const t: Partial<Team> = team ?? { name: '', status: 'active', primary_color_hex: '', logo_url: null };
+const t: Partial<Team> = team ?? { name: '', primary_color_hex: '', logo_url: null };
 
 // Season roster editor — teams field a different (max 4) set of drivers
 // each season, tracked separately from teams.id/drivers.id. See
@@ -377,17 +382,10 @@ const rosterDriversOnTeam = rosterDrivers
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
-    <fieldset class="flex flex-col gap-1.5 text-sm">
-      <legend class="text-white/70">Status</legend>
-      <label class="flex items-center gap-2">
-        <input type="radio" name="status" value="active" checked={t.status === 'active'} />
-        <span>Active</span>
-      </label>
-      <label class="flex items-center gap-2">
-        <input type="radio" name="status" value="inactive" checked={t.status === 'inactive'} />
-        <span>Inactive</span>
-      </label>
-    </fieldset>
+    {/* Status is no longer set by hand here — it's purely computed from
+        whether this team has drivers on the current season's roster (see
+        the "Roster by Season" editor below and admin/teams/index.astro's
+        own comment on activeTeamIds), per Logan. */}
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Primary color (hex)</span>
       <input

@@ -243,17 +243,19 @@ function formatFoundedDate(iso: string): string {
 }
 
 // Only teams with drivers on the roster for the selected season are shown.
-// For the CURRENT season, that's further narrowed to active teams only —
-// there's no filter to toggle this anymore (see the removed Active/
-// Inactive/All buttons), so an inactive team just doesn't appear in the
-// live current-season view at all. A PAST season's roster is a fixed
-// historical fact — a team that's since gone inactive was still a full
-// participant that season, so it's left in, alphabetical like everyone
-// else. Once loaded, clicking a column header (src/scripts/sortable-table.ts)
+// A team's "active" status is no longer a separate stored flag an admin sets
+// by hand (see admin/teams/[id].astro) — having at least one driver on the
+// CURRENT season's roster now IS the definition of active, so the single
+// roster-membership filter below already does double duty: for the current
+// season it's exactly "active teams only" (an inactive team simply has no
+// current-season roster entry, so it drops out here on its own), and for a
+// PAST season it correctly leaves every team that actually raced that season
+// in, regardless of whether they're still fielding cars today — that's a
+// fixed historical fact, not something "active" should retroactively hide.
+// Once loaded, clicking a column header (src/scripts/sortable-table.ts)
 // re-sorts the whole table client-side.
 const sortedTeams = teams
   .filter((team) => (rosterByTeamId.get(team.id)?.length ?? 0) > 0)
-  .filter((team) => isPastSeason || team.status === 'active')
   .sort((a, b) => a.name.localeCompare(b.name));
 
 // Whether any team's roster for the selected season has a 4th driver

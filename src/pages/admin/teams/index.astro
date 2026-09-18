@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getTeams } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getTeams, getSeasons, getTeamRosterForSeason } from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -13,6 +13,26 @@ try {
 } catch (err) {
   console.error('Failed to load teams for admin:', err);
   loadError = true;
+}
+
+// Status is no longer a field an admin sets by hand (see admin/teams/[id].astro
+// — the old Active/Inactive radio buttons are gone) — a team is Active here
+// exactly when it has at least one driver on the CURRENT season's roster
+// (team_rosters), same rule the public Teams page already uses to decide
+// which teams show up in its current-season view (see that page's own
+// `sortedTeams` comment). teams.status itself is left alone in the database
+// (unused now, not deleted) rather than trying to keep it in sync from every
+// roster-mutating admin action.
+let activeTeamIds = new Set<string>();
+try {
+  const seasons = await getSeasons(supabaseEnv);
+  const currentSeason = seasons.find((s) => s.is_current) ?? null;
+  if (currentSeason) {
+    const rosterEntries = await getTeamRosterForSeason(supabaseEnv, currentSeason.id);
+    activeTeamIds = new Set(rosterEntries.map((r) => r.team_id));
+  }
+} catch (err) {
+  console.error('Failed to load current-season rosters for team status:', err);
 }
 ---
 
@@ -30,7 +50,16 @@ try {
     </p>
   )}
 
-  <div class="reveal mt-8 rounded-xl border border-white/10" style="transition-delay: 80ms" data-sticky-thead>
+  <div class="reveal mt-8 max-w-sm" style="transition-delay: 60ms">
+    <input
+      type="search"
+      id="admin-teams-search"
+      placeholder="Search teams…"
+      class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+    />
+  </div>
+
+  <div class="reveal mt-4 rounded-xl border border-white/10" style="transition-delay: 80ms" data-sticky-thead>
     <table class="w-full border-collapse" data-sortable>
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -39,34 +68,61 @@ try {
           <th class="py-3 pr-6 font-medium"></th>
         </tr>
       </thead>
-      <tbody>
-        {teams.map((team) => (
-          <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
-            <td class="py-3 pl-6 pr-3" data-col="name">
-              <div class="flex items-center gap-3">
-                {team.logo_url ? (
-                  <img src={team.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
-                ) : (
-                  <div class="h-8 w-8 rounded bg-white/10"></div>
-                )}
-                <span class="font-semibold">{team.name}</span>
-              </div>
-            </td>
-            <td class="py-3 pr-3" data-col="status" data-sort-value={team.status}>
-              <span
-                class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
-                  team.status === 'active' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
-                }`}
-              >
-                {team.status}
-              </span>
-            </td>
-            <td class="py-3 pr-6 text-right">
-              <a href={`/admin/teams/${team.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
-            </td>
-          </tr>
-        ))}
+      <tbody id="admin-teams-body">
+        {teams.map((team) => {
+          const isActive = activeTeamIds.has(team.id);
+          return (
+            <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]" data-search={team.name.toLowerCase()}>
+              <td class="py-3 pl-6 pr-3" data-col="name">
+                <div class="flex items-center gap-3">
+                  {team.logo_url ? (
+                    <img src={team.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
+                  ) : (
+                    <div class="h-8 w-8 rounded bg-white/10"></div>
+                  )}
+                  <span class="font-semibold">{team.name}</span>
+                </div>
+              </td>
+              <td class="py-3 pr-3" data-col="status" data-sort-value={isActive ? 'active' : 'inactive'}>
+                <span
+                  class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
+                    isActive ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/50'
+                  }`}
+                >
+                  {isActive ? 'active' : 'inactive'}
+                </span>
+              </td>
+              <td class="py-3 pr-6 text-right">
+                <a href={`/admin/teams/${team.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
+    <p id="admin-teams-search-empty" class="hidden px-6 py-4 text-sm text-white/40">No matches.</p>
   </div>
 </AdminLayout>
+
+<script>
+  // Client-side filter for the teams list above — same show/hide-by-
+  // [data-search] pattern admin/media/index.astro's Race Photos search uses.
+  document.addEventListener('astro:page-load', () => {
+    const input = document.getElementById('admin-teams-search') as HTMLInputElement | null;
+    const body = document.getElementById('admin-teams-body');
+    const empty = document.getElementById('admin-teams-search-empty');
+    if (!input || !body) return;
+
+    const rows = body.querySelectorAll<HTMLElement>('[data-search]');
+    input.addEventListener('input', () => {
+      const term = input.value.trim().toLowerCase();
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const matches = !term || (row.dataset.search ?? '').includes(term);
+        row.style.display = matches ? '' : 'none';
+        if (matches) visibleCount += 1;
+      });
+      empty?.classList.toggle('hidden', visibleCount > 0);
+    });
+  });
+</script>
