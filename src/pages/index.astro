@@ -33,14 +33,14 @@ import {
   getAllTeamSeasonLogosSafe,
   isChampionshipSeason,
   driversSelect,
-  getPreviousResultSummary,
+  getPreviousResultWidget,
   getAllBroadcastVideos,
   type DriverSeasonStanding,
   type TeamSeasonStanding,
   type DriverSeasonExtras,
 } from '../lib/results';
 import { youtubeEmbedUrl } from '../lib/siteSettings';
-import { classBadgeClasses, classBadgeLetter } from '../lib/classColors';
+import { classBadgeClasses } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -152,17 +152,21 @@ const loadHeroBanner = async () => {
 
 // --- Previous Result card ---------------------------------------------
 //
-// Sits in the right-hand column between Upcoming Events and Standings.
-// getPreviousResultSummary() is its own deliberately cheap computation
-// (season/round/track/layout + each class's winner of the single most
-// recent round on file) — see its own doc comment in results.ts for why
-// it's nowhere near as expensive as the standings widget below.
-let previousResult: Awaited<ReturnType<typeof getPreviousResultSummary>> = null;
+// Sits in the right-hand column between Upcoming Events and Standings,
+// styled and structured to match the Standings widget below it — same
+// dropdown-driven Overall/Alpha/Delta/Gamma(+Team) tab set, just pulled
+// from the single most recent ROUND's own results instead of the season's,
+// plus a second dropdown for which SESSION of that round (Practice,
+// Qualifying, Race 1/2/3...) is showing. getPreviousResultWidget() is its
+// own deliberately cheap computation — see its own doc comment in
+// results.ts for why it's nowhere near as expensive as the standings
+// widget below.
+let previousResult: Awaited<ReturnType<typeof getPreviousResultWidget>> = null;
 const loadPreviousResult = async () => {
   try {
-    previousResult = await getPreviousResultSummary(supabaseEnv);
+    previousResult = await getPreviousResultWidget(supabaseEnv);
   } catch (err) {
-    console.error('Failed to load previous result summary:', err);
+    console.error('Failed to load previous result widget:', err);
   }
 };
 
@@ -457,10 +461,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           {!previousResult ? (
             <p class="text-sm text-white/50">No results yet.</p>
           ) : (
-            <a
-              href={`/results/${previousResult.subsessionId}`}
-              class="block rounded-xl border border-white/10 bg-white/[0.03] p-5 transition hover:bg-white/[0.06]"
-            >
+            <>
               <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                 <p class="text-xs font-semibold uppercase tracking-widest text-white/40">
                   {previousResult.seasonLabel}
@@ -468,34 +469,107 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </p>
                 <p class="text-xs text-white/40">{formatDate(previousResult.startTime)}</p>
               </div>
-              <p class="mt-1 font-display text-2xl">
+              <p class="mb-4 mt-1 font-display text-2xl">
                 {previousResult.trackName}
                 {previousResult.layoutName && <span class="text-white/50"> — {previousResult.layoutName}</span>}
               </p>
 
-              {previousResult.classWinners.length === 0 ? (
-                <p class="mt-3 text-sm text-white/50">No classified results yet.</p>
+              {previousResult.sessions.length === 0 ? (
+                <p class="text-sm text-white/50">No classified results yet.</p>
               ) : (
-                <div class="mt-4 flex flex-col gap-2">
-                  {previousResult.classWinners.map((winner) => (
-                    <div class="flex items-center gap-2 text-sm">
-                      <span
-                        class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(winner.className)}`}
+                <div data-previous-result-widget>
+                  <!--
+                    Two dropdowns: which SESSION of this round (Practice,
+                    Qualifying, Race 1/2/3...), and which result type within
+                    it (Overall/Alpha/Delta/Gamma, plus Alpha/Delta Team on a
+                    Race session — see PreviousResultWidgetSession's own doc
+                    comment in results.ts). The result-type options differ
+                    per session (team tabs only exist on Race sessions), so
+                    rather than rebuilding one dropdown's options in JS, every
+                    session gets its own result-type <select>, and only the
+                    one matching the active session is ever visible — same
+                    "everything's already rendered, JS just toggles `hidden`"
+                    approach as the Standings widget below.
+                  -->
+                  <div class="flex flex-wrap gap-2">
+                    <select
+                      data-session-select
+                      class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary"
+                    >
+                      {previousResult.sessions.map((session, i) => (
+                        <option value={session.key} selected={i === 0} class="bg-brand-ink text-white">
+                          {session.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    {previousResult.sessions.map((session, i) => (
+                      <select
+                        data-result-type-select
+                        data-session={session.key}
+                        class={`rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary ${i === 0 ? '' : 'hidden'}`}
                       >
-                        {classBadgeLetter(winner.className)}
-                      </span>
-                      {winner.teamName && <TeamLogo name={winner.teamName} logoUrl={winner.teamLogoUrl} size="h-5 w-5" title={winner.teamName} />}
-                      <DriverFlag nationality1={winner.driver.nationality_1} nationality2={winner.driver.nationality_2} />
-                      <span class="min-w-0 flex-1 truncate font-semibold">
-                        {displayDriverName(winner.driver.name)}
-                        {winner.driver.car_number !== null && <span class="text-white/40"> #{winner.driver.car_number}</span>}
-                      </span>
-                    </div>
-                  ))}
+                        {session.tabs.map((tab, j) => (
+                          <option value={tab.key} selected={j === 0} class="bg-brand-ink text-white">
+                            {tab.label}
+                          </option>
+                        ))}
+                      </select>
+                    ))}
+                  </div>
+
+                  <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+                    {previousResult.sessions.map((session, i) => (
+                      <div data-session-panel={session.key} class={i === 0 ? '' : 'hidden'}>
+                        {session.tabs.map((tab, j) => (
+                          <ol data-result-panel={tab.key} class={j === 0 ? '' : 'hidden'}>
+                            {tab.rows.length === 0 ? (
+                              <li class="p-4 text-sm text-white/50">No results yet.</li>
+                            ) : tab.type === 'driver' ? (
+                              tab.rows.map((row) => {
+                                const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
+                                return (
+                                  <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                                    <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position ?? '—'}</span>
+                                    <span class="min-w-0 flex-1 truncate font-semibold">
+                                      {displayDriverName(row.driver.name)}
+                                      {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
+                                    </span>
+                                    <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                                    {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />}
+                                    {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
+                                    {rowClassName && (
+                                      <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
+                                        {rowClassName}
+                                      </span>
+                                    )}
+                                    <span class="flex-none text-sm text-white/60">{row.metricLabel}</span>
+                                  </li>
+                                );
+                              })
+                            ) : (
+                              tab.rows.map((row) => (
+                                <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                                  <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
+                                  <TeamLogo name={row.teamName} logoUrl={row.teamLogoUrl} size="h-6 w-6" />
+                                  <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
+                                  <span class="flex-none text-sm text-white/60">{row.points} pts</span>
+                                </li>
+                              ))
+                            )}
+                          </ol>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
+            </>
+          )}
 
-              <p class="mt-4 text-sm text-white/60">Full race result &rarr;</p>
+          {previousResult && (
+            <a href={`/results/${previousResult.subsessionId}`} class="mt-4 inline-block text-sm text-white/60 hover:text-white">
+              Full race result &rarr;
             </a>
           )}
         </div>
@@ -508,27 +582,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         ) : (
           <div data-standings-widget>
             <!--
-              Purely client-side tab switching — every view's rows are
-              already rendered below, this just toggles which `hidden`.
-              Deliberately NOT a link/form submission, so there's no server
-              round trip here and (correctly) no loading-bar treatment from
+              Purely client-side filtering — every view's rows are already
+              rendered below, this just toggles which `hidden`. Deliberately
+              NOT a link/form submission, so there's no server round trip
+              here and (correctly) no loading-bar treatment from
               pageProgress.ts fires for it — same reasoning as the search-box
               filters and sortable-table column clicks elsewhere on the site.
             -->
-            <div class="flex flex-wrap gap-2" role="tablist">
-              {standingsTabs.map((tab, i) => (
-                <button
-                  type="button"
-                  role="tab"
-                  data-standings-tab={tab.key}
-                  aria-selected={i === 0 ? 'true' : 'false'}
-                  class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                    i === 0 ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div class="flex flex-wrap gap-2">
+              <select
+                data-standings-select
+                class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary"
+              >
+                {standingsTabs.map((tab, i) => (
+                  <option value={tab.key} selected={i === 0} class="bg-brand-ink text-white">
+                    {tab.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
@@ -617,27 +688,70 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       if (widget.dataset.standingsInit === 'true') return;
       widget.dataset.standingsInit = 'true';
 
-      const tabs = Array.from(widget.querySelectorAll<HTMLButtonElement>('[data-standings-tab]'));
+      const select = widget.querySelector<HTMLSelectElement>('[data-standings-select]');
       const panels = Array.from(widget.querySelectorAll<HTMLElement>('[data-standings-panel]'));
+      if (!select) return;
 
-      tabs.forEach((tab) => {
-        tab.addEventListener('click', () => {
-          const key = tab.dataset.standingsTab;
-          tabs.forEach((t) => {
-            const active = t === tab;
-            t.setAttribute('aria-selected', active ? 'true' : 'false');
-            t.classList.toggle('bg-brand-primary', active);
-            t.classList.toggle('text-white', active);
-            t.classList.toggle('bg-white/5', !active);
-            t.classList.toggle('text-white/60', !active);
-          });
-          panels.forEach((panel) => {
-            panel.classList.toggle('hidden', panel.dataset.standingsPanel !== key);
-          });
+      select.addEventListener('change', () => {
+        panels.forEach((panel) => {
+          panel.classList.toggle('hidden', panel.dataset.standingsPanel !== select.value);
+        });
+      });
+    });
+  }
+
+  // Previous Result widget: a session dropdown (Practice/Qualifying/Race
+  // 1/2/3...) and, per session, its own result-type dropdown (Overall/
+  // Alpha/Delta/Gamma, plus Alpha/Delta Team on Race sessions only) — see
+  // the long comment on the markup above for why there's one result-type
+  // <select> per session rather than one shared <select> whose options get
+  // rewritten in JS. Switching session shows that session's own
+  // result-type <select> and resets it to its first option (a team-tab
+  // selection from a Race session wouldn't exist on Practice/Qualifying),
+  // then shows the matching result panel; switching result type just
+  // toggles panels within the currently-visible session.
+  function initPreviousResultWidget() {
+    document.querySelectorAll<HTMLElement>('[data-previous-result-widget]').forEach((widget) => {
+      if (widget.dataset.previousResultInit === 'true') return;
+      widget.dataset.previousResultInit = 'true';
+
+      const sessionSelect = widget.querySelector<HTMLSelectElement>('[data-session-select]');
+      const resultTypeSelects = Array.from(widget.querySelectorAll<HTMLSelectElement>('[data-result-type-select]'));
+      const sessionPanels = Array.from(widget.querySelectorAll<HTMLElement>('[data-session-panel]'));
+      if (!sessionSelect) return;
+
+      function showResultPanel(sessionPanel: HTMLElement, tabKey: string) {
+        sessionPanel.querySelectorAll<HTMLElement>('[data-result-panel]').forEach((panel) => {
+          panel.classList.toggle('hidden', panel.dataset.resultPanel !== tabKey);
+        });
+      }
+
+      function activateSession(sessionKey: string) {
+        sessionPanels.forEach((panel) => {
+          panel.classList.toggle('hidden', panel.dataset.sessionPanel !== sessionKey);
+        });
+        resultTypeSelects.forEach((select) => {
+          select.classList.toggle('hidden', select.dataset.session !== sessionKey);
+        });
+        const activeSelect = resultTypeSelects.find((select) => select.dataset.session === sessionKey);
+        const activePanel = sessionPanels.find((panel) => panel.dataset.sessionPanel === sessionKey);
+        if (activeSelect && activePanel) {
+          activeSelect.selectedIndex = 0;
+          showResultPanel(activePanel, activeSelect.value);
+        }
+      }
+
+      sessionSelect.addEventListener('change', () => activateSession(sessionSelect.value));
+
+      resultTypeSelects.forEach((select) => {
+        select.addEventListener('change', () => {
+          const panel = sessionPanels.find((p) => p.dataset.sessionPanel === select.dataset.session);
+          if (panel) showResultPanel(panel, select.value);
         });
       });
     });
   }
 
   document.addEventListener('astro:page-load', initStandingsWidget);
+  document.addEventListener('astro:page-load', initPreviousResultWidget);
 </script>
