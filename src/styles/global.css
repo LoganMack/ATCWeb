@@ -395,6 +395,23 @@ th[data-sort-key][data-sort-dir='desc']::after {
 .light .text-brand-gold\/80 { color: rgb(148 111 8 / 0.8); }
 .light .text-red-300 { color: rgb(185 28 28 / 1); }
 
+/* ---- solid blue buttons: text stays white in light mode ----
+   `bg-brand-primary` (SOLID, full-opacity — not the low-opacity
+   `bg-brand-primary/NN` tinted-panel pattern, e.g. news/[slug].astro's
+   "View Race Results" pill, left untouched on purpose) is this site's
+   "blue button" convention — Sign-Up, every admin form's Save/Add/New
+   button, the active state of a pill/tab filter, the Nav "Beta" badge.
+   These almost never spell out `text-white` in their own class list (they
+   just inherit the page's base text color), so in light mode they were
+   silently inheriting `.light body`'s dark ink color instead — dark text
+   on a still-blue background, unreadable. Declaring `color` directly on
+   the same element `.bg-brand-primary` is on beats inheritance outright,
+   and (since it's declared after `.text-white`'s own override above) wins
+   the source-order tie against the rare button that also spells out
+   `text-white` explicitly — either way, every solid blue button keeps
+   white text in both themes. */
+.light .bg-brand-primary { color: rgb(255 255 255 / 1); }
+
 /* ---- "selected" pill/tab convention: `bg-white` + `text-brand-ink`
    together, used site-wide for active filters/tabs (roster, calendar,
    standings, champions, media, results, driver-stats, team-stats,

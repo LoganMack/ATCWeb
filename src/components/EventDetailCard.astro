@@ -28,10 +28,14 @@ interface Props {
    * client-side, only when this card's "Race Recaps at this Layout"
    * summary is first expanded — see /api/layout-rounds.ts and this file's
    * `data-layout-rounds-summary`/`data-layout-rounds-body` below — so the
-   * page never has to ship rows nobody asked to see. Optional/omittable for
-   * any future caller that doesn't have this data on hand — the
-   * collapsible below simply doesn't render without it, same as any other
-   * optional section on this card.
+   * page never has to ship rows nobody asked to see. `0` (as opposed to
+   * `undefined`) is a meaningful value here, not just "no data" — it means
+   * this circuit+layout combination has never been raced before, and
+   * renders "This is a new layout!" in this collapsible's place. Optional/
+   * omittable for any future caller that doesn't have this data on hand —
+   * leaving it `undefined` renders neither that message nor the collapsible
+   * (same as any other optional section on this card), rather than a false
+   * "new layout" claim for a layout nobody actually checked.
    */
   layoutRoundsCount?: number;
   /**
@@ -55,7 +59,7 @@ interface Props {
   layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
 }
 
-const { event, index = 0, layoutRoundsCount = 0, linkedRound = null, layouts = [] } = Astro.props;
+const { event, index = 0, layoutRoundsCount, linkedRound = null, layouts = [] } = Astro.props;
 const sessions = getEventSessions(event);
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 96 });
 
@@ -194,16 +198,20 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
     </div>
   )}
 
-  {(layoutRoundsCount > 0 || icsBlock) && (
+  {(layoutRoundsCount !== undefined || icsBlock) && (
     <div class="mt-4 border-t border-white/10 pt-4">
       <div class="flex flex-wrap items-start gap-x-6 gap-y-2">
-        {layoutRoundsCount > 0 && (
-          <details class="min-w-0 flex-1" data-layout-rounds-summary data-circuit-id={event.circuit_id} data-layout={event.layout ?? ''}>
-            <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
-              Race Recaps at this Layout ({layoutRoundsCount})
-            </summary>
-            <div class="mt-3 flex flex-col gap-2" data-layout-rounds-body></div>
-          </details>
+        {layoutRoundsCount !== undefined && (
+          layoutRoundsCount > 0 ? (
+            <details class="min-w-0 flex-1" data-layout-rounds-summary data-circuit-id={event.circuit_id} data-layout={event.layout ?? ''}>
+              <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
+                Race Recaps at this Layout ({layoutRoundsCount})
+              </summary>
+              <div class="mt-3 flex flex-col gap-2" data-layout-rounds-body></div>
+            </details>
+          ) : (
+            <p class="min-w-0 flex-1 text-sm font-semibold text-white/60">This is a new layout!</p>
+          )
         )}
         {icsBlock && (
           <button

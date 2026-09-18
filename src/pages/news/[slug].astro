@@ -156,16 +156,6 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
       ))}
     </p>
 
-    {post.round_subsession_id !== null && roundTrackName && (
-      <a
-        href={`/results/${post.round_subsession_id}`}
-        class="reveal mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand-primary/15 px-3 py-1.5 text-sm font-semibold text-brand-primary ring-1 ring-brand-primary/30 transition hover:bg-brand-primary/25"
-        style="transition-delay: 100ms"
-      >
-        View Race Results &rarr;
-      </a>
-    )}
-
     {post.cover_image_url && (
       <img
         src={post.cover_image_url}
@@ -195,6 +185,16 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
         </p>
       ))}
     </div>
+
+    {post.round_subsession_id !== null && roundTrackName && (
+      <a
+        href={`/results/${post.round_subsession_id}`}
+        class="reveal mt-2 inline-flex items-center gap-1.5 rounded-lg bg-brand-primary/15 px-3 py-1.5 text-sm font-semibold text-brand-primary ring-1 ring-brand-primary/30 transition hover:bg-brand-primary/25"
+        style="transition-delay: 180ms"
+      >
+        View Race Results &rarr;
+      </a>
+    )}
 
     {recap && (
       <div class="reveal mt-16 border-t border-white/10 pt-10" style="transition-delay: 200ms">

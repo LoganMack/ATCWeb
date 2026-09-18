@@ -798,7 +798,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
-                  <th class="py-2 pr-2 font-medium" data-sort-key="season">Season</th>
+                  <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="season">Season</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="round">Round</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="class">Class</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="car">Car</th>
@@ -956,7 +956,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     <table class="w-full border-collapse text-xs" data-sortable>
                       <thead>
                         <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
-                          <th class="py-2 pr-2 font-medium" data-sort-key="label">{g.name}</th>
+                          <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="label">{g.name}</th>
                           <th class="py-2 pr-2 text-center font-medium" data-sort-key="starts">Starts</th>
                           <th class="py-2 pr-2 text-center font-medium" data-sort-key="wins">Wins</th>
                           <th class="py-2 pr-2 text-center font-medium" data-sort-key="podiums">Podiums</th>
@@ -1016,7 +1016,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     <table class="w-full border-collapse text-xs" data-sortable>
                       <thead>
                         <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
-                          <th class="py-2 pr-2 font-medium" data-sort-key="label">{g.name}</th>
+                          <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="label">{g.name}</th>
                           <th class="py-2 pr-2 text-center font-medium" data-sort-key="starts">Starts</th>
                           <th class="py-2 pr-2 text-center font-medium" data-sort-key="wins">Wins</th>
                           <th class="py-2 pr-2 text-center font-medium" data-sort-key="podiums">Podiums</th>
@@ -1076,7 +1076,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
-                  <th class="py-2 pr-2 font-medium" data-sort-key="track">Track</th>
+                  <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="track">Track</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="layout">Layout</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="pb">Personal Best</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="record">Track Record</th>
@@ -1088,14 +1088,14 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     <td class="py-2 pr-2 font-semibold text-white/90" data-col="track" data-sort-value={r.trackName}>{r.trackName}</td>
                     <td class="py-2 pr-2 text-white/70" data-col="layout" data-sort-value={r.layoutText}>{r.layoutText}</td>
                     <td
-                      class="py-2 pr-2 text-center font-display text-base text-white/90"
+                      class="py-2 pr-2 text-center text-base font-bold text-white/90"
                       data-col="pb"
                       data-sort-value={r.personalBestTenThousandths ?? ''}
                     >
                       {r.personalBestFormatted}
                     </td>
                     <td
-                      class="py-2 pr-2 text-center font-display text-base text-white/70"
+                      class="py-2 pr-2 text-center text-base text-white/70"
                       data-col="record"
                       data-sort-value={r.trackRecordSeconds ?? ''}
                       title="circuit_layouts.lap_record_seconds — the same curated Track Record shown on the Circuits and Event Briefing pages, not necessarily an ATC-only figure."
@@ -1128,7 +1128,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
-                  <th class="py-2 pr-2 font-medium" data-sort-key="round">Round</th>
+                  <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="round">Round</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="penalized">Penalized</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="offenses">Offense(s)</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="pp">PP</th>

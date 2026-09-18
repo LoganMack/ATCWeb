@@ -155,6 +155,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 {statusTooltip.split('; ').map((line) => (
                   <p class="text-xs text-white/40">{line}</p>
                 ))}
+                {statusName === 'Veteran' && <p class="text-xs text-white/40">Earned after 75 appearances.</p>}
               </div>
             )}
           </div>
