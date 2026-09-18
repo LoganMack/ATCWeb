@@ -714,6 +714,21 @@ export function getAllDriverLastRaces(env: SupabaseEnv): Promise<DriverLastRaceR
 }
 
 /**
+ * Number of calendar events strictly after `sinceDate` and on/through today —
+ * same "rounds elapsed since a driver's own anchor date" shape
+ * isOnProbationNow() (src/lib/penalties.ts) already uses for probation,
+ * reused here so buildInactivityNote() can show real progress toward the
+ * inactivity-rounds threshold for a driver who signed up but hasn't raced
+ * yet (there's no driver_last_race row to read rounds_since_last_race off
+ * of in that case — this is the sign-up-date equivalent, computed the same
+ * "events since X" way rather than adding a parallel SQL view for it).
+ */
+export function roundsSinceDate(events: { event_date: string }[], sinceDate: string, today: Date = new Date()): number {
+  const todayStr = today.toISOString().slice(0, 10);
+  return events.filter((e) => e.event_date > sinceDate && e.event_date <= todayStr).length;
+}
+
+/**
  * The same inactivity-countdown message shown on the admin driver edit page
  * (next to the Status pill) — pulled out here so the admin Drivers LIST page
  * can reuse it verbatim as a hover tooltip instead of re-deriving its own
@@ -722,18 +737,32 @@ export function getAllDriverLastRaces(env: SupabaseEnv): Promise<DriverLastRaceR
  * unrecognized/missing status name (e.g. a brand new driver with no status
  * yet), same as the edit page's own "only meaningful once the driver
  * actually exists" guard.
+ *
+ * signUpDate/roundsSinceSignup are only consulted for the New/Active-with-
+ * no-races-yet case below — every caller that can supply them should (see
+ * roundsSinceDate above for how to compute the latter); a caller that
+ * doesn't (or a driver with no sign_up_date on file) just falls back to the
+ * generic threshold description instead of a real progress breakdown.
  */
 export function buildInactivityNote(
   statusName: string | null,
   lastRace: DriverLastRace | null | undefined,
   inactivityDays: number,
-  inactivityRounds: number
+  inactivityRounds: number,
+  signUpDate?: string | null,
+  roundsSinceSignup?: number | null
 ): string | null {
   if (statusName === 'Veteran') return 'Veterans are exempt from inactivity.';
   if (statusName === 'Inactive') return 'Inactive until next appearance.';
   if (statusName === 'New' || statusName === 'Active') {
     if (!lastRace?.last_race_at) {
-      return `Inactive if absent ${inactivityDays} days and ${inactivityRounds} rounds after sign-up.`;
+      if (!signUpDate) {
+        return `Inactive if absent ${inactivityDays} days and ${inactivityRounds} rounds after sign-up.`;
+      }
+      const signUpStart = new Date(`${signUpDate}T00:00:00`);
+      const daysSinceSignup = Math.floor((Date.now() - signUpStart.getTime()) / (1000 * 60 * 60 * 24));
+      const rounds = roundsSinceSignup ?? 0;
+      return `Signed-up on ${formatDate(signUpDate)}; ${rounds}/${inactivityRounds} rounds absent; ${daysSinceSignup}/${inactivityDays} days absent`;
     }
     const daysSince = Math.floor((Date.now() - new Date(lastRace.last_race_at).getTime()) / (1000 * 60 * 60 * 24));
     const rounds = lastRace.rounds_since_last_race ?? 0;

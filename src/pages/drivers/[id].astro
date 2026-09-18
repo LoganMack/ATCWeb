@@ -29,6 +29,7 @@ import {
   displayDriverName,
   resizedImageUrl,
   buildInactivityNote,
+  roundsSinceDate,
   getSeasons,
   getTeamRosterWithTeamsForSeason,
 } from '../../lib/supabase';
@@ -78,7 +79,14 @@ if (!loadError && driver) {
     const inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
     onProbationNow = isOnProbationNow(driver, events, new Date(), probationDays, probationRounds);
     statusTooltip =
-      buildInactivityNote(driver.driver_statuses?.name ?? null, lastRace, inactivityDays, inactivityRounds) ?? undefined;
+      buildInactivityNote(
+        driver.driver_statuses?.name ?? null,
+        lastRace,
+        inactivityDays,
+        inactivityRounds,
+        driver.sign_up_date,
+        driver.sign_up_date ? roundsSinceDate(events, driver.sign_up_date) : null
+      ) ?? undefined;
 
     // Same fix as roster.astro: show this driver's real CURRENT-season team
     // (team_rosters), not the possibly-stale drivers.team_id getDriverProfileById

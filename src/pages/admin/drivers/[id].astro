@@ -15,6 +15,8 @@ import {
   getDriversBasic,
   getDriverLastRace,
   buildInactivityNote,
+  roundsSinceDate,
+  getEvents,
   setDriverCarNumber,
   getSiteSettings,
   getSeasons,
@@ -459,7 +461,19 @@ try {
 let inactivityNote: string | null = null;
 if (!isNew && driver) {
   const lastRace = statusName === 'New' || statusName === 'Active' ? await getDriverLastRace(supabaseEnv, driver.id) : null;
-  inactivityNote = buildInactivityNote(statusName, lastRace, inactivityDays, inactivityRounds);
+  // Only needed for the no-races-yet branch (a driver with sign_up_date set
+  // but no lastRace.last_race_at) — buildInactivityNote ignores this param
+  // entirely once lastRace.last_race_at is set, so skip the fetch otherwise.
+  let roundsSinceSignup: number | null = null;
+  if (!lastRace?.last_race_at && driver.sign_up_date) {
+    try {
+      const events = await getEvents(supabaseEnv);
+      roundsSinceSignup = roundsSinceDate(events, driver.sign_up_date);
+    } catch (err) {
+      console.error('Failed to load events for inactivity note:', err);
+    }
+  }
+  inactivityNote = buildInactivityNote(statusName, lastRace, inactivityDays, inactivityRounds, driver.sign_up_date, roundsSinceSignup);
 }
 
 // Live "is this number taken?" lookup — fetched once, matched client-side

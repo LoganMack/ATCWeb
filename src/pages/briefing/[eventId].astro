@@ -43,7 +43,7 @@ import {
   type LayoutHighlights,
   type ClassBestLap,
 } from '../../lib/results';
-import { classBadgeClasses } from '../../lib/classColors';
+import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';
 import WeatherIcon from '../../components/WeatherIcon.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -300,7 +300,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 {gammaBestLap && gammaClass && (
                   <p class="flex flex-wrap items-center gap-2">
                     <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(gammaClass.name)}`}>
-                      {gammaClass.name}
+                      {classBadgeLetter(gammaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
                     <span class="text-white/70">{displayDriverName(gammaBestLap.driver.name)}</span>
@@ -318,7 +318,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 {deltaBestLap && deltaClass && (
                   <p class="flex flex-wrap items-center gap-2">
                     <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(deltaClass.name)}`}>
-                      {deltaClass.name}
+                      {classBadgeLetter(deltaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
                     <span class="text-white/70">{displayDriverName(deltaBestLap.driver.name)}</span>

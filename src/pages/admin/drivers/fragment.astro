@@ -1,0 +1,261 @@
+---
+export const prerender = false;
+
+import DriverFlag from '../../../components/DriverFlag.astro';
+import {
+  resolveSupabaseEnv,
+  getDrivers,
+  getSiteSettings,
+  syncDriverStatuses,
+  syncRookieStatus,
+  getAllDriverLastRaces,
+  getEvents,
+  buildInactivityNote,
+  roundsSinceDate,
+  formatDate,
+} from '../../../lib/supabase';
+import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
+
+/**
+ * Same shell-then-spinner split as admin/fragment.astro — admin/drivers/
+ * index.astro used to run two opportunistic write RPCs (syncDriverStatuses/
+ * syncRookieStatus) plus load the Driver Settings values, the full drivers
+ * list, and a bulk driver_last_race lookup, all right in its own
+ * frontmatter, blocking the whole page behind however long that took. Now
+ * the shell renders instantly with a loading-cards skeleton and fetches
+ * THIS route client-side for the Driver Settings panel and the drivers
+ * table, per Logan (same request that added loading cards to admin/index.astro
+ * and the rest of the admin panel).
+ *
+ * Returns a bare HTML fragment — no <AdminLayout>, no <html>/<head> — meant
+ * only to be dropped into admin/drivers/index.astro's list container via
+ * `container.innerHTML = await res.text()`. Never linked to directly.
+ *
+ * POST handling for this page's three forms (sync-statuses,
+ * sync-results-roster, save-settings) stays in admin/drivers/index.astro —
+ * every form here still posts to /admin/drivers (data-astro-reload, no
+ * `action` override), regardless of the fact that this markup itself is
+ * fragment-loaded.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+
+// Same plain query-string pill as the shell — re-read here since this route
+// is fetched independently with its own ?filter= passed through by the
+// shell's data-fragment-url.
+const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all';
+
+let probationDays = 45;
+let probationRounds = 4;
+let inactivityDays = 90;
+let inactivityRounds = 12;
+let settingsLoadError = false;
+async function loadSettings() {
+  try {
+    const settings = await getSiteSettings(supabaseEnv);
+    probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
+    probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
+    inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
+    inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
+  } catch (err) {
+    console.error('Failed to load driver settings:', err);
+    settingsLoadError = true;
+  }
+}
+
+let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
+let loadError = false;
+async function loadDrivers() {
+  try {
+    drivers = await getDrivers(supabaseEnv, { aiOnly: activeFilter === 'ai' });
+  } catch (err) {
+    console.error('Failed to load drivers for admin:', err);
+    loadError = true;
+  }
+}
+
+// Status hover tooltip — same message the edit page shows next to the
+// Status pill (see buildInactivityNote's own doc comment), reused verbatim
+// here rather than re-derived. One bulk driver_last_race query for the
+// whole roster instead of one getDriverLastRace() call per row.
+let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
+async function loadLastRaces() {
+  try {
+    const lastRaces = await getAllDriverLastRaces(supabaseEnv);
+    lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
+  } catch (err) {
+    console.error('Failed to load driver_last_race for admin drivers list:', err);
+  }
+}
+
+// Bulk calendar events — needed to compute "rounds since sign-up" (via
+// roundsSinceDate) for New/Active drivers who haven't raced yet, same
+// events-based approximation isOnProbationNow() already uses for its own
+// "rounds since an anchor date" concept. Fetched once here rather than
+// per-row.
+let events: Awaited<ReturnType<typeof getEvents>> = [];
+async function loadEvents() {
+  try {
+    events = await getEvents(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load events for admin drivers inactivity notes:', err);
+  }
+}
+
+// No cron/scheduled-worker infrastructure in this app — status and rookie
+// automation both run opportunistically here, the one admin page every
+// admin visits before touching any individual driver, in addition to the
+// explicit "Sync Statuses" button on the shell. Best-effort: a sync failure
+// shouldn't block this fragment from showing the (possibly stale) driver
+// list — errors here are only logged, never shown, which is exactly why the
+// button exists: a background failure here is invisible, but the same
+// failure via the button surfaces as a real error banner (see
+// admin/drivers/index.astro's sync-statuses POST branch).
+async function opportunisticSync() {
+  try {
+    await syncDriverStatuses(supabaseEnv, accessToken);
+  } catch (err) {
+    console.error('Failed to sync driver statuses:', err);
+  }
+  try {
+    await syncRookieStatus(supabaseEnv, accessToken);
+  } catch (err) {
+    console.error('Failed to sync rookie status:', err);
+  }
+}
+
+// Every independent fetch/RPC this fragment needs, run together — same
+// "named-function + Promise.all" pattern used across the rest of the site.
+await Promise.all([loadSettings(), loadDrivers(), loadLastRaces(), loadEvents(), opportunisticSync()]);
+
+function tooltipFor(driver: (typeof drivers)[number]): string | undefined {
+  const lastRace = lastRaceByDriverId.get(driver.id);
+  const roundsSinceSignup =
+    !lastRace?.last_race_at && driver.sign_up_date ? roundsSinceDate(events, driver.sign_up_date) : null;
+  return (
+    buildInactivityNote(
+      driver.driver_statuses?.name ?? null,
+      lastRace,
+      inactivityDays,
+      inactivityRounds,
+      driver.sign_up_date,
+      roundsSinceSignup
+    ) ?? undefined
+  );
+}
+---
+
+<details class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-5">
+  <summary class="cursor-pointer font-semibold text-white/80">Driver Settings</summary>
+  {settingsLoadError && (
+    <p class="mt-4 text-sm text-brand-pink">Couldn't load current driver settings — showing defaults below.</p>
+  )}
+  <form method="POST" action="/admin/drivers" data-astro-reload class="mt-4 grid gap-4 sm:grid-cols-2">
+    <input type="hidden" name="intent" value="save-settings" />
+    <div class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Probation length</span>
+      <div class="flex items-center gap-2">
+        <input
+          type="number"
+          name="probation_days"
+          min="1"
+          step="1"
+          value={probationDays}
+          class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <span class="text-white/50">days, and</span>
+        <input
+          type="number"
+          name="probation_rounds"
+          min="1"
+          step="1"
+          value={probationRounds}
+          class="w-20 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <span class="text-white/50">rounds</span>
+      </div>
+    </div>
+    <div class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Time to become inactive</span>
+      <div class="flex items-center gap-2">
+        <input
+          type="number"
+          name="inactivity_days"
+          min="1"
+          step="1"
+          value={inactivityDays}
+          class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <span class="text-white/50">days, and</span>
+        <input
+          type="number"
+          name="inactivity_rounds"
+          min="1"
+          step="1"
+          value={inactivityRounds}
+          class="w-20 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <span class="text-white/50">rounds</span>
+      </div>
+    </div>
+    <div class="sm:col-span-2">
+      <button type="submit" class="rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110">
+        Save
+      </button>
+    </div>
+  </form>
+</details>
+
+{loadError && (
+  <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    Couldn't load drivers.
+  </p>
+)}
+
+{!loadError && (
+  <div class="mt-3 rounded-xl border border-white/10" data-sticky-thead>
+    <table class="w-full border-collapse" data-sortable>
+      <thead>
+        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+          <th class="py-3 pl-6 pr-2 font-medium" data-sort-key="number">#</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="name">Driver</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="class">Class</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="nationality">Nationality</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="signup">Sign-up</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
+          <th class="py-3 pr-6 font-medium"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {drivers.map((driver) => (
+          <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
+            <td class="py-3 pl-6 pr-2 font-display text-xl text-white/60" data-col="number" data-sort-value={driver.car_number ?? Number.MAX_SAFE_INTEGER}>
+              {driver.car_number !== null ? `#${driver.car_number}` : '—'}
+            </td>
+            <td class="py-3 pr-3 font-semibold" data-col="name">{driver.name}</td>
+            <td class="py-3 pr-3 text-white/60" data-col="team">{driver.teams?.name ?? '—'}</td>
+            <td class="py-3 pr-3 text-white/60" data-col="class">{driver.driver_classes?.name}</td>
+            <td class="py-3 pr-3" data-col="nationality">
+              {driver.nationality_1 ? (
+                <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
+              ) : (
+                <span class="text-white/30">—</span>
+              )}
+            </td>
+            <td class="py-3 pr-3 text-white/60" data-col="signup" data-sort-value={driver.sign_up_date ?? ''}>
+              {driver.sign_up_date ? formatDate(driver.sign_up_date) : '—'}
+            </td>
+            <td class="py-3 pr-3 text-white/60" data-col="status" title={tooltipFor(driver)}>
+              {driver.driver_statuses?.name}
+            </td>
+            <td class="py-3 pr-6 text-right">
+              <a href={`/admin/drivers/${driver.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}

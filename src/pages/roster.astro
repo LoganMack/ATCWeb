@@ -12,6 +12,7 @@ import {
   resolveSupabaseEnv,
   getAllDriverLastRaces,
   buildInactivityNote,
+  roundsSinceDate,
   getSeasons,
   getTeamRosterWithTeamsForSeason,
 } from '../lib/supabase';
@@ -325,7 +326,14 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
               driver={driver}
               index={i}
               onProbation={onProbationNowByDriverId.get(driver.id) ?? false}
-              statusTooltip={buildInactivityNote(driver.driver_statuses?.name ?? null, lastRaceByDriverId.get(driver.id), inactivityDays, inactivityRounds) ?? undefined}
+              statusTooltip={buildInactivityNote(
+                driver.driver_statuses?.name ?? null,
+                lastRaceByDriverId.get(driver.id),
+                inactivityDays,
+                inactivityRounds,
+                driver.sign_up_date,
+                driver.sign_up_date ? roundsSinceDate(events, driver.sign_up_date) : null
+              ) ?? undefined}
             />
           ))}
         </tbody>

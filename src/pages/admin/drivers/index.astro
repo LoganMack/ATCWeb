@@ -1,27 +1,18 @@
 ---
 export const prerender = false;
 
+// Same shell-then-spinner split as admin/index.astro (see admin/drivers/
+// fragment.astro's own top-of-file comment) — this page used to run two
+// opportunistic write RPCs (syncDriverStatuses/syncRookieStatus) plus fetch
+// every driver and their driver_last_race row, all before sending any HTML,
+// so opening /admin/drivers always meant a blank page for however long that
+// took. POST handling (the three form intents below) stays right here since
+// that's the URL every form on this page posts to — only the GET-time data
+// loading and table/settings-panel rendering moved to the fragment.
+
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import DriverFlag from '../../../components/DriverFlag.astro';
-import {
-  resolveSupabaseEnv,
-  getDrivers,
-  getSiteSettings,
-  upsertSiteSetting,
-  syncDriverStatuses,
-  syncRookieStatus,
-  syncResultsWithRoster,
-  getAllDriverLastRaces,
-  buildInactivityNote,
-  formatDate,
-} from '../../../lib/supabase';
-import {
-  PROBATION_DAYS_KEY,
-  PROBATION_ROUNDS_KEY,
-  INACTIVITY_DAYS_KEY,
-  INACTIVITY_ROUNDS_KEY,
-  siteSettingInt,
-} from '../../../lib/siteSettings';
+import { resolveSupabaseEnv, upsertSiteSetting, syncDriverStatuses, syncRookieStatus, syncResultsWithRoster } from '../../../lib/supabase';
+import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY } from '../../../lib/siteSettings';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -130,67 +121,18 @@ const syncedRecalcFailed = Astro.url.searchParams.get('synced_recalc_failed');
 const syncedStatuses = Astro.url.searchParams.get('synced_statuses');
 const syncedRookies = Astro.url.searchParams.get('synced_rookies');
 
-let probationDays = 45;
-let probationRounds = 4;
-let inactivityDays = 90;
-let inactivityRounds = 12;
-try {
-  const settings = await getSiteSettings(supabaseEnv);
-  probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
-  probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
-  inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
-  inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
-} catch (err) {
-  console.error('Failed to load driver settings:', err);
-  if (!error) error = 'Failed to load current driver settings.';
-}
-
-// No cron/scheduled-worker infrastructure in this app — status and rookie
-// automation both run opportunistically here, the one admin page every
-// admin visits before touching any individual driver, in addition to the
-// explicit "Sync Statuses" button below. Best-effort: a sync failure
-// shouldn't block the page from showing the (possibly stale) driver list —
-// errors here are only logged, never shown, which is exactly why the
-// button exists: a background failure here is invisible, but the same
-// failure via the button surfaces as a real error banner (see the
-// sync-statuses POST branch above).
-try {
-  await syncDriverStatuses(supabaseEnv, accessToken);
-} catch (err) {
-  console.error('Failed to sync driver statuses:', err);
-}
-try {
-  await syncRookieStatus(supabaseEnv, accessToken);
-} catch (err) {
-  console.error('Failed to sync rookie status:', err);
-}
+// Driver Settings (probation/inactivity values), the two opportunistic
+// syncDriverStatuses/syncRookieStatus RPCs, the drivers list itself, and the
+// bulk driver_last_race lookup all moved to admin/drivers/fragment.astro —
+// see that file's top-of-file comment. All that's left here is the cheap,
+// dependency-free query-string filter below, needed synchronously to render
+// the All/AI tabs and to build the fragment's URL.
 
 // All vs. AI — same plain query-string pill pattern as the Activity Log's
 // category filter (src/pages/admin/activity-log/index.astro). AI-flagged
 // drivers (0057_driver_ai_flag.sql) exist only to satisfy an exhibition
 // result's FK and are never mixed into the default "All" list.
 const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all';
-
-let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
-let loadError = false;
-try {
-  drivers = await getDrivers(supabaseEnv, { aiOnly: activeFilter === 'ai' });
-} catch (err) {
-  console.error('Failed to load drivers for admin:', err);
-  loadError = true;
-}
-
-// Status hover tooltip — same message the edit page shows next to the
-// Status pill (see buildInactivityNote's own doc comment), reused verbatim
-// here rather than re-derived. One bulk driver_last_race query for the
-// whole roster instead of one getDriverLastRace() call per row.
-let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
-try {
-  const lastRaces = await getAllDriverLastRaces(supabaseEnv);
-  lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
-} catch (err) {
-  console.error('Failed to load driver_last_race for admin drivers list:', err);
-}
 ---
 
 <AdminLayout title="Drivers">
@@ -267,74 +209,7 @@ try {
     </div>
   )}
 
-  <details class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-5" style="transition-delay: 40ms">
-    <summary class="cursor-pointer font-semibold text-white/80">Driver Settings</summary>
-    <form method="POST" data-astro-reload class="mt-4 grid gap-4 sm:grid-cols-2">
-      <input type="hidden" name="intent" value="save-settings" />
-      <div class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Probation length</span>
-        <div class="flex items-center gap-2">
-          <input
-            type="number"
-            name="probation_days"
-            min="1"
-            step="1"
-            value={probationDays}
-            class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-          <span class="text-white/50">days, and</span>
-          <input
-            type="number"
-            name="probation_rounds"
-            min="1"
-            step="1"
-            value={probationRounds}
-            class="w-20 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-          <span class="text-white/50">rounds</span>
-        </div>
-      </div>
-      <div class="flex flex-col gap-1.5 text-sm">
-        <span class="text-white/70">Time to become inactive</span>
-        <div class="flex items-center gap-2">
-          <input
-            type="number"
-            name="inactivity_days"
-            min="1"
-            step="1"
-            value={inactivityDays}
-            class="w-24 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-          <span class="text-white/50">days, and</span>
-          <input
-            type="number"
-            name="inactivity_rounds"
-            min="1"
-            step="1"
-            value={inactivityRounds}
-            class="w-20 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-          <span class="text-white/50">rounds</span>
-        </div>
-      </div>
-      <div class="sm:col-span-2">
-        <button
-          type="submit"
-          class="rounded-lg bg-brand-primary px-5 py-2 text-sm font-semibold transition hover:brightness-110"
-        >
-          Save
-        </button>
-      </div>
-    </form>
-  </details>
-
-  {loadError && (
-    <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-      Couldn't load drivers.
-    </p>
-  )}
-
-  <div class="reveal mt-8 flex flex-wrap gap-1.5" style="transition-delay: 60ms">
+  <div class="reveal mt-8 flex flex-wrap gap-1.5" style="transition-delay: 40ms">
     <a
       href="/admin/drivers"
       class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${activeFilter === 'all' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
@@ -349,53 +224,12 @@ try {
     </a>
   </div>
 
-  <div class="reveal mt-3 rounded-xl border border-white/10" style="transition-delay: 80ms" data-sticky-thead>
-    <table class="w-full border-collapse" data-sortable>
-      <thead>
-        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-          <th class="py-3 pl-6 pr-2 font-medium" data-sort-key="number">#</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="name">Driver</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="class">Class</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="nationality">Nationality</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="signup">Sign-up</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
-          <th class="py-3 pr-6 font-medium"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {drivers.map((driver) => (
-          <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
-            <td class="py-3 pl-6 pr-2 font-display text-xl text-white/60" data-col="number" data-sort-value={driver.car_number ?? Number.MAX_SAFE_INTEGER}>
-              {driver.car_number !== null ? `#${driver.car_number}` : '—'}
-            </td>
-            <td class="py-3 pr-3 font-semibold" data-col="name">{driver.name}</td>
-            <td class="py-3 pr-3 text-white/60" data-col="team">{driver.teams?.name ?? '—'}</td>
-            <td class="py-3 pr-3 text-white/60" data-col="class">{driver.driver_classes?.name}</td>
-            <td class="py-3 pr-3" data-col="nationality">
-              {driver.nationality_1 ? (
-                <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
-              ) : (
-                <span class="text-white/30">—</span>
-              )}
-            </td>
-            <td class="py-3 pr-3 text-white/60" data-col="signup" data-sort-value={driver.sign_up_date ?? ''}>
-              {driver.sign_up_date ? formatDate(driver.sign_up_date) : '—'}
-            </td>
-            <td
-              class="py-3 pr-3 text-white/60"
-              data-col="status"
-              title={buildInactivityNote(driver.driver_statuses?.name ?? null, lastRaceByDriverId.get(driver.id), inactivityDays, inactivityRounds) ?? undefined}
-            >
-              {driver.driver_statuses?.name}
-            </td>
-            <td class="py-3 pr-6 text-right">
-              <a href={`/admin/drivers/${driver.id}`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+  <div data-admin-drivers-list data-fragment-url={`/admin/drivers/fragment?filter=${activeFilter}`}>
+    <div class="mt-3 flex flex-col gap-4" aria-live="polite" aria-busy="true">
+      <span class="sr-only">Loading drivers…</span>
+      <div class="h-24 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+      <div class="h-96 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+    </div>
   </div>
 </AdminLayout>
 
@@ -407,4 +241,32 @@ try {
       });
     });
   });
+
+  // Same fetch-fragment-then-drop-in pattern as admin/index.astro/
+  // driver-stats.astro — see admin/drivers/fragment.astro's own top-of-file
+  // comment for the full reasoning (astro:page-load re-dispatch included so
+  // sortable-table.ts binds the newly-inserted table).
+  function initAdminDriversList() {
+    const container = document.querySelector<HTMLElement>('[data-admin-drivers-list]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+    delete container.dataset.fragmentUrl;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Admin drivers fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        document.dispatchEvent(new Event('astro:page-load'));
+      })
+      .catch((err) => {
+        console.error('Failed to load admin drivers list:', err);
+        container.innerHTML =
+          '<p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">Couldn’t load drivers right now — try refreshing the page.</p>';
+      });
+  }
+
+  document.addEventListener('astro:page-load', initAdminDriversList);
 </script>
