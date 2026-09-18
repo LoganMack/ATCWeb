@@ -260,3 +260,170 @@ th[data-sort-key][data-sort-dir='desc']::after {
   @apply bg-brand-ink;
   box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.1);
 }
+
+/* ============================================================
+   LIGHT MODE
+   ============================================================
+   Dark is the default, unprefixed styling everywhere above. It's toggled
+   via the footer button (src/scripts/theme.ts), applied to <html> as the
+   `.light` class, persisted to localStorage, and read back before first
+   paint by the inline script in Layout.astro's <head> (FOUC prevention).
+
+   This is a single additive override sheet rather than per-component
+   edits — every color utility actually used across the site (extracted by
+   compiling this file's real Tailwind output against the real component
+   markup) got one of a few generic transforms:
+
+     - white, at any opacity, in any color-bearing property -> "ink"
+       (rgb(17 17 20), a near-black foreground). Covers running text,
+       borders, and the translucent white tints used everywhere as
+       dark-mode surface treatments (card backgrounds, hover states,
+       dividers, rings).
+     - brand-ink (#0B0B0E, the site's near-black) -> "paper"
+       (rgb(247 247 249), a near-white background). Covers solid dark
+       backgrounds (page body, sticky headers) and the hero gradient
+       stops built from it.
+     - true black (bg-black, backdrop overlays) and box-shadows are left
+       unchanged — those read as "shadow/scrim", not "theme foreground/
+       background", in either mode.
+     - the three brand hues (blue/pink/gold) keep their normal tint/badge/
+       border/ring usage unchanged, but get darkened, WCAG-contrast-
+       checked variants where they're used as *text* — the values tuned
+       for text on the dark brand-ink background don't have enough
+       contrast against a light one on their own.
+
+   A few selectors don't fit that generic rule and get their own explicit
+   override below, each with its own comment: the "selected pill" bg-white
+   + text-brand-ink pairing used site-wide for active tabs/filters, the
+   "Happening Now" nav marquee (a fixed white/black strip in both themes
+   by design), and the sticky table header (its background comes from a
+   Sass-style `@apply`, not a `.bg-brand-ink` class on the element, so the
+   generic override below doesn't reach it).
+   ============================================================ */
+
+.light {
+  color-scheme: light;
+}
+
+/* The `body` rule above comes from `@apply bg-brand-ink text-white ...`,
+   which compiles straight into this plain-element selector rather than
+   the `.bg-brand-ink`/`.text-white` utility classes (the <body> tag itself
+   carries no class attribute) — so it needs its own override here, same
+   as the sticky table header below. */
+.light body {
+  background-color: rgb(247 247 249 / 1);
+  color: rgb(17 17 20 / 1);
+}
+
+/* ---- borders: white/NN -> ink/NN ---- */
+.light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(17 17 20 / 0.1); }
+.light .border-white\/5 { border-color: rgb(17 17 20 / 0.05); }
+.light .border-white\/10 { border-color: rgb(17 17 20 / 0.1); }
+.light .border-white\/15 { border-color: rgb(17 17 20 / 0.15); }
+.light .border-white\/20 { border-color: rgb(17 17 20 / 0.2); }
+.light .hover\:border-white\/20:hover { border-color: rgb(17 17 20 / 0.2); }
+
+/* ---- backgrounds: translucent white tints -> ink tints ---- */
+.light .bg-white\/5 { background-color: rgb(17 17 20 / 0.05); }
+.light .bg-white\/10 { background-color: rgb(17 17 20 / 0.1); }
+.light .bg-white\/\[0\.02\] { background-color: rgb(17 17 20 / 0.02); }
+.light .bg-white\/\[0\.03\] { background-color: rgb(17 17 20 / 0.03); }
+.light .hover\:bg-white\/5:hover { background-color: rgb(17 17 20 / 0.05); }
+.light .hover\:bg-white\/10:hover { background-color: rgb(17 17 20 / 0.1); }
+.light .hover\:bg-white\/20:hover { background-color: rgb(17 17 20 / 0.2); }
+.light .hover\:bg-white\/\[0\.02\]:hover { background-color: rgb(17 17 20 / 0.02); }
+.light .hover\:bg-white\/\[0\.03\]:hover { background-color: rgb(17 17 20 / 0.03); }
+.light .hover\:bg-white\/\[0\.04\]:hover { background-color: rgb(17 17 20 / 0.04); }
+.light .hover\:bg-white\/\[0\.06\]:hover { background-color: rgb(17 17 20 / 0.06); }
+.light .active\:bg-white\/5:active { background-color: rgb(17 17 20 / 0.05); }
+.light .open\:bg-white\/\[0\.05\][open] { background-color: rgb(17 17 20 / 0.05); }
+.light .file\:bg-white\/10::file-selector-button { background-color: rgb(17 17 20 / 0.1); }
+.light .peer\/class:checked ~ .peer-checked\/class\:bg-white\/10 { background-color: rgb(17 17 20 / 0.1); }
+.light .peer\/overall:checked ~ .peer-checked\/overall\:bg-white\/10 { background-color: rgb(17 17 20 / 0.1); }
+.light .ring-white\/10 { --tw-ring-color: rgb(17 17 20 / 0.1); }
+.light .ring-white\/15 { --tw-ring-color: rgb(17 17 20 / 0.15); }
+.light .decoration-white\/20 { text-decoration-color: rgb(17 17 20 / 0.2); }
+.light .decoration-white\/25 { text-decoration-color: rgb(17 17 20 / 0.25); }
+.light .decoration-white\/30 { text-decoration-color: rgb(17 17 20 / 0.3); }
+
+/* ---- text: white/NN -> ink/NN. This is the big one — the base body text
+   color (global.css `body` rule above) is full-opacity `text-white`, so
+   this single override is what makes ordinary running text legible. ---- */
+.light .text-white { color: rgb(17 17 20 / 1); }
+.light .text-white\/20 { color: rgb(17 17 20 / 0.2); }
+.light .text-white\/25 { color: rgb(17 17 20 / 0.25); }
+.light .text-white\/30 { color: rgb(17 17 20 / 0.3); }
+.light .text-white\/35 { color: rgb(17 17 20 / 0.35); }
+.light .text-white\/40 { color: rgb(17 17 20 / 0.4); }
+.light .text-white\/50 { color: rgb(17 17 20 / 0.5); }
+.light .text-white\/60 { color: rgb(17 17 20 / 0.6); }
+.light .text-white\/70 { color: rgb(17 17 20 / 0.7); }
+.light .text-white\/80 { color: rgb(17 17 20 / 0.8); }
+.light .text-white\/90 { color: rgb(17 17 20 / 0.9); }
+.light .hover\:text-white:hover { color: rgb(17 17 20 / 1); }
+.light .hover\:text-white\/60:hover { color: rgb(17 17 20 / 0.6); }
+.light .hover\:text-white\/70:hover { color: rgb(17 17 20 / 0.7); }
+.light .hover\:text-white\/80:hover { color: rgb(17 17 20 / 0.8); }
+.light .file\:text-white::file-selector-button { color: rgb(17 17 20 / 1); }
+.light .peer\/class:checked ~ .peer-checked\/class\:text-white { color: rgb(17 17 20 / 1); }
+.light .peer\/overall:checked ~ .peer-checked\/overall\:text-white { color: rgb(17 17 20 / 1); }
+
+/* ---- solid dark backgrounds (brand-ink) -> paper ---- */
+.light .bg-brand-ink { background-color: rgb(247 247 249 / 1); }
+.light .bg-brand-ink\/80 { background-color: rgb(247 247 249 / 0.8); }
+.light .from-brand-ink\/30 {
+  --tw-gradient-from: rgb(247 247 249 / 0.3) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position);
+}
+.light .via-brand-ink\/80 {
+  --tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(247 247 249 / 0.8) var(--tw-gradient-via-position), var(--tw-gradient-to);
+}
+.light .to-brand-ink { --tw-gradient-to: rgb(247 247 249 / 1) var(--tw-gradient-to-position); }
+
+/* ---- brand-color TEXT gets darkened, WCAG-checked variants. Background/
+   border/ring usages of the same brand colors (badges, tinted panels,
+   focus rings) are left unchanged — those are low-opacity tints, not the
+   thing that has to stay readable at body-text size. ---- */
+.light .text-brand-blue { color: rgb(66 104 245 / 1); }
+.light .text-brand-primary { color: rgb(66 104 245 / 1); }
+.light .hover\:text-brand-primary:hover { color: rgb(66 104 245 / 1); }
+.light .text-brand-pink { color: rgb(232 12 66 / 1); }
+.light .text-brand-pink\/90 { color: rgb(232 12 66 / 0.9); }
+.light .hover\:text-brand-pink:hover { color: rgb(232 12 66 / 1); }
+.light .text-brand-gold { color: rgb(148 111 8 / 1); }
+.light .text-brand-gold\/80 { color: rgb(148 111 8 / 0.8); }
+.light .text-red-300 { color: rgb(185 28 28 / 1); }
+
+/* ---- "selected" pill/tab convention: `bg-white` + `text-brand-ink`
+   together, used site-wide for active filters/tabs (roster, calendar,
+   standings, champions, media, results, driver-stats, team-stats,
+   team-standings, admin/site-properties). In dark mode this reads as a
+   light chip with dark text, standing out against the dark page — the
+   same generic white->ink / brand-ink->paper transform above happens to
+   invert it correctly on its own: light mode gets a dark chip with light
+   text, the same "stands out" affordance, just flipped. The
+   `data-[active=true]` variant (roster/calendar) is a separate compiled
+   selector from the plain utility classes, so it needs its own copy of
+   the same override. ---- */
+.light .bg-white { background-color: rgb(17 17 20 / 1); }
+.light .text-brand-ink { color: rgb(247 247 249 / 1); }
+.light .data-\[active\=true\]\:bg-white[data-active="true"] { background-color: rgb(17 17 20 / 1); }
+.light .data-\[active\=true\]\:text-brand-ink[data-active="true"] { color: rgb(247 247 249 / 1); }
+
+/* ---- "Happening Now" nav marquee (src/components/Nav.astro) is a fixed
+   white-strip-with-black-text treatment by design, not a themed surface —
+   it stays white/black in both modes. More specific than the generic
+   `.light .bg-white` rule above (scoped to its own attribute selector), so
+   it wins regardless of source order. ---- */
+.light [data-marquee-viewport].bg-white { background-color: rgb(255 255 255 / 1); }
+
+/* ---- sticky table headers (see the [data-sticky-thead] rule above): its
+   background comes from `@apply bg-brand-ink`, which compiles straight
+   into this selector's own background-color rather than a separate
+   `.bg-brand-ink` class — so it needs its own override here, same as the
+   hardcoded border box-shadow right next to it. ---- */
+.light [data-sticky-thead] thead th {
+  background-color: rgb(247 247 249 / 1);
+  box-shadow: 0 1px 0 0 rgba(17, 17, 20, 0.1);
+}

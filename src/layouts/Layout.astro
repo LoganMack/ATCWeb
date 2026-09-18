@@ -28,6 +28,30 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!--
+      Theme FOUC prevention. Dark is the default/unprefixed styling
+      everywhere on the site; light mode is purely additive `.light`-scoped
+      CSS (see global.css) toggled by the footer button (src/scripts/theme.ts)
+      and persisted to localStorage. This has to run synchronously, before
+      the stylesheet below paints anything, or a returning light-mode visitor
+      would see a flash of dark styling on every load. Astro's View
+      Transitions keep the same <html> node across client-side navigations,
+      so the class this sets sticks around on its own after the first run —
+      no re-run needed on `astro:page-load` the way the rest of the site's
+      per-page scripts need.
+    -->
+    <script is:inline>
+      (function () {
+        try {
+          var stored = localStorage.getItem('atc-theme');
+          if (stored === 'light') {
+            document.documentElement.classList.add('light');
+          }
+        } catch (e) {
+          // localStorage unavailable — fall back to the default (dark).
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
@@ -89,5 +113,6 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
     <script src="../scripts/localTime.ts"></script>
     <script src="../scripts/lightbox.ts"></script>
     <script src="../scripts/tableCsvExport.ts"></script>
+    <script src="../scripts/theme.ts"></script>
   </body>
 </html>

@@ -15,6 +15,7 @@ import {
   getAllNewsPostTags,
   formatLapTime,
   displayLayoutName,
+  shortDriverName,
   type NewsPost,
   type NewsTag,
 } from '../../../lib/supabase';
@@ -25,6 +26,7 @@ import {
   type DriverCareerStats,
   type DriverRaceHistoryRow,
 } from '../../../lib/results';
+import { getAllIncidents, type IncidentRow } from '../../../lib/incidents';
 import { classBadgeClasses, classBadgeLetter, classTextColorClass } from '../../../lib/classColors';
 
 /**
@@ -308,6 +310,30 @@ try {
 } catch (err) {
   console.error('Failed to load driver profile data:', err);
   loadError = err instanceof Error ? err.message : String(err);
+}
+
+// --- Incidents: every steward-logged incident this driver appears in,
+// either as the penalized party (driver_id) or just tagged as involved
+// (involved_driver_ids) — isolated in its own try/catch (same reasoning as
+// Related News above) so a hiccup loading site-wide incident history can't
+// take down Seasons/Races/Splits/Bests/Awards, none of which depend on it.
+// Reuses getAllIncidents()'s existing byDriver rollup (src/lib/incidents.ts,
+// the same source History → Incidents' By Driver tab reads) rather than
+// re-deriving IncidentRow[] from penalties/rounds/drivers/offenses a second
+// time — this driver's own incidents[] list (newest first) is already
+// fully computed there, penalty-appeal-aware PP/time/points and all.
+let driverIncidents: IncidentRow[] = [];
+try {
+  const incidentsData = await getAllIncidents(supabaseEnv);
+  driverIncidents = incidentsData.byDriver.find((d) => d.driver.id === driverId)?.incidents ?? [];
+} catch (err) {
+  console.error('Failed to load incident history for driver profile:', err);
+}
+
+/** Who actually got penalized on this incident — "RI" (Racing Incident) when nobody was at fault. Bolded/brighter when it's THIS profile's own driver (the common case, since most of a driver's own incidents are ones they were penalized on), dimmer when it's someone else and this driver is only tagged as involved. */
+function incidentDriverLabel(row: IncidentRow): string {
+  if (!row.driver) return 'RI';
+  return row.driver.car_number !== null ? `#${row.driver.car_number} ${shortDriverName(row.driver.name)}` : shortDriverName(row.driver.name);
 }
 
 // Awards are displayed grouped by season (one heading per season, its
@@ -633,6 +659,15 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
           >
             Bests <span>({layoutBests.length})</span>
           </button>
+          <button
+            type="button"
+            role="tab"
+            data-driver-tab="incidents"
+            aria-selected="false"
+            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+          >
+            Incidents <span>({driverIncidents.length})</span>
+          </button>
         </div>
 
         <div data-driver-panel="seasons">
@@ -642,21 +677,21 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
           <div class="max-h-[32rem] overflow-auto">
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
-                <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
-                  <th class="py-2 pr-2 font-medium" data-sort-key="season">Season</th>
-                  <th class="py-2 pr-2 font-medium" data-sort-key="class">Class</th>
-                  <th class="py-2 pr-2 font-medium" data-sort-key="cars">Car(s)</th>
-                  <th class="py-2 pr-2 font-medium" data-sort-key="teams">Team(s)</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="wins">Wins</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="poles">Poles</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="podiums">Podiums</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="top5s">Top 5s</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="laps">Laps</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="lapsLed">Led</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="cpi">CPI</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="starts">Starts</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="classPos">Class Pos</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="overallPos">Overall Pos</th>
+                <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left align-middle text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pl-2 pr-2 font-medium align-middle" data-sort-key="season">Season</th>
+                  <th class="py-2 pr-2 font-medium align-middle" data-sort-key="class">Class</th>
+                  <th class="py-2 pr-2 font-medium align-middle" data-sort-key="cars">Car(s)</th>
+                  <th class="py-2 pr-2 font-medium align-middle" data-sort-key="teams">Team(s)</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="wins">Wins</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="poles">Poles</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="podiums">Podiums</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="top5s">Top 5s</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="laps">Laps</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="lapsLed">Led</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="cpi">CPI</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="starts">Starts</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="classPos">Class Pos</th>
+                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="overallPos">Overall Pos</th>
                 </tr>
               </thead>
               <tbody>
@@ -777,7 +812,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
               <tbody>
                 {raceHistory.map((r) => (
                   <tr class="border-b border-white/5">
-                    <td class="py-2 pr-2 text-white/70" data-col="season" data-sort-value={r.season?.number ?? ''}>{r.season?.name ?? '—'}</td>
+                    <td class="py-2 pr-2 font-semibold text-white/90" data-col="season" data-sort-value={r.season?.number ?? ''}>{r.season?.name ?? '—'}</td>
                     <td class="py-2 pr-2" data-col="round" data-sort-value={r.startTime}>
                       <a href={`/results/${r.subsessionId}`} class="text-brand-primary hover:underline">
                         {r.displayRoundNumber !== null ? `Round ${r.displayRoundNumber}` : r.trackName}
@@ -1050,20 +1085,78 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     <td class="py-2 pr-2 font-semibold text-white/90" data-col="track" data-sort-value={r.trackName}>{r.trackName}</td>
                     <td class="py-2 pr-2 text-white/70" data-col="layout" data-sort-value={r.layoutText}>{r.layoutText}</td>
                     <td
-                      class="py-2 pr-2 text-center font-display text-white/90"
+                      class="py-2 pr-2 text-center font-display text-base text-white/90"
                       data-col="pb"
                       data-sort-value={r.personalBestTenThousandths ?? ''}
                     >
                       {r.personalBestFormatted}
                     </td>
                     <td
-                      class="py-2 pr-2 text-center font-display text-white/70"
+                      class="py-2 pr-2 text-center font-display text-base text-white/70"
                       data-col="record"
                       data-sort-value={r.trackRecordSeconds ?? ''}
                       title="circuit_layouts.lap_record_seconds — the same curated Track Record shown on the Circuits and Event Briefing pages, not necessarily an ATC-only figure."
                     >
                       {r.trackRecordFormatted}
                     </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        </div>
+
+        <!-- Incidents: every steward-logged incident this driver appears in
+             at all (penalized party OR just tagged as involved), newest
+             first — see driverIncidents' own doc comment above for where
+             this comes from (getAllIncidents()'s byDriver rollup, the same
+             source History → Incidents' By Driver tab reads). "Penalized"
+             shows who actually took the PP/time/points on THIS incident —
+             brighter/bold when it was this driver themselves (the common
+             case), dimmer when it was someone else and this driver is only
+             tagged as involved (e.g. the other car in a contact incident
+             that got judged in their favor). -->
+        <div data-driver-panel="incidents" class="hidden">
+        {driverIncidents.length === 0 ? (
+          <p class="text-sm text-white/40">No incidents on file yet.</p>
+        ) : (
+          <div class="max-h-[32rem] overflow-auto">
+            <table class="w-full border-collapse text-xs" data-sortable>
+              <thead>
+                <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
+                  <th class="py-2 pr-2 font-medium" data-sort-key="round">Round</th>
+                  <th class="py-2 pr-2 font-medium" data-sort-key="penalized">Penalized</th>
+                  <th class="py-2 pr-2 font-medium" data-sort-key="offenses">Offense(s)</th>
+                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="pp">PP</th>
+                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="time">Time</th>
+                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="pts">Pts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {driverIncidents.map((row) => (
+                  <tr class="border-b border-white/5">
+                    <td class="py-2 pr-2" data-col="round" data-sort-value={row.startTime}>
+                      <a href={`/results/${row.subsessionId}`} class="text-brand-primary hover:underline">
+                        {row.displayRoundNumber !== null ? `Round ${row.displayRoundNumber}` : row.trackName}
+                      </a>
+                      <div class="text-[10px] text-white/40">{formatDateShort(row.startTime)}</div>
+                    </td>
+                    <td
+                      class={row.driver?.id === driverId ? 'py-2 pr-2 font-semibold text-white/90' : 'py-2 pr-2 text-white/60'}
+                      data-col="penalized"
+                      data-sort-value={incidentDriverLabel(row)}
+                    >
+                      {incidentDriverLabel(row)}
+                    </td>
+                    <td class="py-2 pr-2 text-white/70" data-col="offenses" data-sort-value={row.offenseNames.join(', ')}>
+                      {row.offenseNames.length > 0 ? row.offenseNames.join(', ') : '—'}
+                    </td>
+                    <td class="py-2 pr-2 text-center text-white/70" data-col="pp">{row.penaltyPoints || '—'}</td>
+                    <td class="py-2 pr-2 text-center text-white/70" data-col="time">
+                      {row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}
+                    </td>
+                    <td class="py-2 pr-2 text-center text-white/70" data-col="pts">{row.pointsPenalty || '—'}</td>
                   </tr>
                 ))}
               </tbody>
