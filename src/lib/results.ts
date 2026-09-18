@@ -4281,6 +4281,29 @@ export function getAllRounds(env: SupabaseEnv) {
   return restGetAll<RoundSummary>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`);
 }
 
+/**
+ * Just the start_time of every officially-scored round — the minimal slice
+ * of curated_rounds needed to count "rounds since date X" the same way
+ * sync_driver_statuses() does for its never-raced-driver Inactive check
+ * (0063_driver_never_raced_inactivity.sql's `curated_rounds.status =
+ * 'official'` branch). Paired with supabase.ts's roundsSinceDate() to power
+ * the "X/12 rounds absent" half of a New driver's inactivity tooltip
+ * (buildInactivityNote) on the roster, driver profile, and admin drivers
+ * pages.
+ *
+ * Deliberately NOT the same source as isOnProbationNow()'s own "rounds
+ * since date X" clock (src/lib/penalties.ts), which counts calendar events
+ * instead — that's an intentional difference for probation (a driver can't
+ * outlast probation just because results haven't been imported yet), but
+ * the inactivity rule's own DB-side automation only ever looks at real,
+ * officially-scored rounds, so this display has to match that or it'll
+ * claim a driver has "fulfilled the requirements" to go Inactive before the
+ * database actually agrees and flips them.
+ */
+export function getOfficialRoundStartTimes(env: SupabaseEnv) {
+  return restGetAll<{ start_time: string }>(env, `curated_rounds?select=start_time&status=eq.official&order=start_time.asc`);
+}
+
 export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: number) {
   const rounds = await restGet<RoundSummary[]>(
     env,

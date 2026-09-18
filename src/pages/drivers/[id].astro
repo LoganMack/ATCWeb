@@ -33,6 +33,7 @@ import {
   getSeasons,
   getTeamRosterWithTeamsForSeason,
 } from '../../lib/supabase';
+import { getOfficialRoundStartTimes } from '../../lib/results';
 import { isOnProbationNow } from '../../lib/penalties';
 import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';
 import {
@@ -67,9 +68,10 @@ let statusTooltip: string | undefined;
 
 if (!loadError && driver) {
   try {
-    const [settings, events, lastRace, seasons] = await Promise.all([
+    const [settings, events, officialRounds, lastRace, seasons] = await Promise.all([
       getSiteSettings(supabaseEnv),
       getEvents(supabaseEnv),
+      getOfficialRoundStartTimes(supabaseEnv),
       getDriverLastRace(supabaseEnv, driverId),
       getSeasons(supabaseEnv),
     ]);
@@ -85,7 +87,11 @@ if (!loadError && driver) {
         inactivityDays,
         inactivityRounds,
         driver.sign_up_date,
-        driver.sign_up_date ? roundsSinceDate(events, driver.sign_up_date) : null
+        // roundsSinceDate() needs real officially-scored rounds (matching
+        // sync_driver_statuses()'s own definition), NOT the calendar
+        // `events` isOnProbationNow() uses just above for its own,
+        // deliberately different clock — see roundsSinceDate's doc comment.
+        driver.sign_up_date ? roundsSinceDate(officialRounds, driver.sign_up_date) : null
       ) ?? undefined;
 
     // Same fix as roster.astro: show this driver's real CURRENT-season team

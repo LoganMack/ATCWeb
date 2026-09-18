@@ -16,6 +16,7 @@ import {
   getSeasons,
   getTeamRosterWithTeamsForSeason,
 } from '../lib/supabase';
+import { getOfficialRoundStartTimes } from '../lib/results';
 import { isOnProbationNow } from '../lib/penalties';
 import { bannerUrlFor } from '../lib/pageBanners';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
@@ -69,6 +70,21 @@ const loadEvents = async () => {
   }
 };
 
+// roundsSinceDate() (for the inactivity tooltip below) needs the same
+// "rounds since date X" count sync_driver_statuses() itself uses for a
+// never-raced driver — real officially-scored rounds, NOT the calendar
+// events fetched just above for probation's own (deliberately different)
+// clock. See roundsSinceDate's own doc comment in lib/supabase.ts for why
+// reusing `events` here used to make this tooltip overstate progress.
+let officialRounds: Awaited<ReturnType<typeof getOfficialRoundStartTimes>> = [];
+const loadOfficialRounds = async () => {
+  try {
+    officialRounds = await getOfficialRoundStartTimes(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load official round dates for inactivity status tooltips:', err);
+  }
+};
+
 // Status hover tooltip — the same buildInactivityNote() breakdown the admin
 // Drivers list shows next to each driver's status pill, reused verbatim
 // here so the public roster's tooltip never drifts out of sync with what
@@ -116,14 +132,22 @@ const loadCurrentTeams = async () => {
   }
 };
 
-// These six Supabase reads are all independent of each other — the only
+// These seven Supabase reads are all independent of each other — the only
 // real dependency in this file is the synchronous derivation right below
 // (onProbationNowByDriverId needs `drivers`, `events`, and the probation
-// settings, all fully resolved), so there's no reason to pay for 6
+// settings, all fully resolved), so there's no reason to pay for 7
 // sequential round-trips one after another when running them together costs
 // about as much as the single slowest one. Each keeps its own try/catch
 // exactly as before, so one failing still doesn't take the others down.
-await Promise.all([loadDriverSettings(), loadDrivers(), loadEvents(), loadLastRaces(), loadBanner(), loadCurrentTeams()]);
+await Promise.all([
+  loadDriverSettings(),
+  loadDrivers(),
+  loadEvents(),
+  loadOfficialRounds(),
+  loadLastRaces(),
+  loadBanner(),
+  loadCurrentTeams(),
+]);
 
 // Override each driver's embedded `teams` (drivers.team_id, via getDrivers)
 // with their real current-season team_rosters assignment computed above.
@@ -332,7 +356,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
                 inactivityDays,
                 inactivityRounds,
                 driver.sign_up_date,
-                driver.sign_up_date ? roundsSinceDate(events, driver.sign_up_date) : null
+                driver.sign_up_date ? roundsSinceDate(officialRounds, driver.sign_up_date) : null
               ) ?? undefined}
             />
           ))}

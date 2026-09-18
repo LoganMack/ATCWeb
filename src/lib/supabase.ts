@@ -714,18 +714,31 @@ export function getAllDriverLastRaces(env: SupabaseEnv): Promise<DriverLastRaceR
 }
 
 /**
- * Number of calendar events strictly after `sinceDate` and on/through today —
- * same "rounds elapsed since a driver's own anchor date" shape
- * isOnProbationNow() (src/lib/penalties.ts) already uses for probation,
- * reused here so buildInactivityNote() can show real progress toward the
- * inactivity-rounds threshold for a driver who signed up but hasn't raced
- * yet (there's no driver_last_race row to read rounds_since_last_race off
- * of in that case — this is the sign-up-date equivalent, computed the same
- * "events since X" way rather than adding a parallel SQL view for it).
+ * Number of officially-scored rounds (curated_rounds, via
+ * getOfficialRoundStartTimes() in results.ts) strictly after `sinceDate` —
+ * matches sync_driver_statuses()'s own never-raced-driver Inactive check
+ * (0063_driver_never_raced_inactivity.sql: `curated_rounds.status =
+ * 'official' and start_time > sign_up_date`) exactly, so buildInactivityNote()
+ * shows a New driver's real progress toward the inactivity-rounds threshold
+ * — the same rounds count the database itself uses to decide when to flip
+ * them, not an approximation.
+ *
+ * Deliberately NOT calendar events, despite isOnProbationNow() (src/lib/
+ * penalties.ts) using exactly that "events since X" shape for its own
+ * "rounds since a driver's own anchor date" clock — an earlier version of
+ * this function reused that same events-based approach, which overcounts
+ * (a scheduled-but-not-yet-run event, a cancelled round, or a
+ * holiday/iracing placeholder entry all count as a calendar "event" but
+ * aren't a real scored round). That mismatch let this tooltip claim a
+ * driver had "fulfilled the requirements" to go Inactive — showing e.g.
+ * 12/12 rounds absent — while the database's own rule, counting only real
+ * curated_rounds, still saw 11 and correctly left them New. Comparison is
+ * against midnight UTC on `sinceDate`, matching how Postgres compares a
+ * `date` column against curated_rounds.start_time's `timestamptz`.
  */
-export function roundsSinceDate(events: { event_date: string }[], sinceDate: string, today: Date = new Date()): number {
-  const todayStr = today.toISOString().slice(0, 10);
-  return events.filter((e) => e.event_date > sinceDate && e.event_date <= todayStr).length;
+export function roundsSinceDate(rounds: { start_time: string }[], sinceDate: string): number {
+  const sinceMidnightUtc = new Date(`${sinceDate}T00:00:00Z`).getTime();
+  return rounds.filter((r) => new Date(r.start_time).getTime() > sinceMidnightUtc).length;
 }
 
 /**

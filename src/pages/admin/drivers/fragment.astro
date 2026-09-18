@@ -9,11 +9,11 @@ import {
   syncDriverStatuses,
   syncRookieStatus,
   getAllDriverLastRaces,
-  getEvents,
   buildInactivityNote,
   roundsSinceDate,
   formatDate,
 } from '../../../lib/supabase';
+import { getOfficialRoundStartTimes } from '../../../lib/results';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
 
 /**
@@ -89,17 +89,18 @@ async function loadLastRaces() {
   }
 }
 
-// Bulk calendar events — needed to compute "rounds since sign-up" (via
-// roundsSinceDate) for New/Active drivers who haven't raced yet, same
-// events-based approximation isOnProbationNow() already uses for its own
-// "rounds since an anchor date" concept. Fetched once here rather than
-// per-row.
-let events: Awaited<ReturnType<typeof getEvents>> = [];
-async function loadEvents() {
+// Bulk officially-scored round dates — needed to compute "rounds since
+// sign-up" (via roundsSinceDate) for New/Active drivers who haven't raced
+// yet, matching sync_driver_statuses()'s own never-raced-driver Inactive
+// check exactly (curated_rounds, not the calendar's events table — see
+// roundsSinceDate's doc comment in lib/supabase.ts for why the two aren't
+// interchangeable here). Fetched once here rather than per-row.
+let officialRounds: Awaited<ReturnType<typeof getOfficialRoundStartTimes>> = [];
+async function loadOfficialRounds() {
   try {
-    events = await getEvents(supabaseEnv);
+    officialRounds = await getOfficialRoundStartTimes(supabaseEnv);
   } catch (err) {
-    console.error('Failed to load events for admin drivers inactivity notes:', err);
+    console.error('Failed to load official round dates for admin drivers inactivity notes:', err);
   }
 }
 
@@ -127,12 +128,12 @@ async function opportunisticSync() {
 
 // Every independent fetch/RPC this fragment needs, run together — same
 // "named-function + Promise.all" pattern used across the rest of the site.
-await Promise.all([loadSettings(), loadDrivers(), loadLastRaces(), loadEvents(), opportunisticSync()]);
+await Promise.all([loadSettings(), loadDrivers(), loadLastRaces(), loadOfficialRounds(), opportunisticSync()]);
 
 function tooltipFor(driver: (typeof drivers)[number]): string | undefined {
   const lastRace = lastRaceByDriverId.get(driver.id);
   const roundsSinceSignup =
-    !lastRace?.last_race_at && driver.sign_up_date ? roundsSinceDate(events, driver.sign_up_date) : null;
+    !lastRace?.last_race_at && driver.sign_up_date ? roundsSinceDate(officialRounds, driver.sign_up_date) : null;
   return (
     buildInactivityNote(
       driver.driver_statuses?.name ?? null,

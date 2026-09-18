@@ -16,7 +16,6 @@ import {
   getDriverLastRace,
   buildInactivityNote,
   roundsSinceDate,
-  getEvents,
   setDriverCarNumber,
   getSiteSettings,
   getSeasons,
@@ -34,6 +33,7 @@ import {
   type DriverSeasonClass,
   type DriverSeasonCarNumber,
 } from '../../../lib/supabase';
+import { getOfficialRoundStartTimes } from '../../../lib/results';
 import { getAllProfiles } from '../../../lib/auth';
 import { COUNTRIES } from '../../../lib/countries';
 import { INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
@@ -464,13 +464,16 @@ if (!isNew && driver) {
   // Only needed for the no-races-yet branch (a driver with sign_up_date set
   // but no lastRace.last_race_at) — buildInactivityNote ignores this param
   // entirely once lastRace.last_race_at is set, so skip the fetch otherwise.
+  // Real officially-scored rounds (matching sync_driver_statuses()'s own
+  // never-raced-driver definition), not calendar events — see
+  // roundsSinceDate's doc comment in lib/supabase.ts.
   let roundsSinceSignup: number | null = null;
   if (!lastRace?.last_race_at && driver.sign_up_date) {
     try {
-      const events = await getEvents(supabaseEnv);
-      roundsSinceSignup = roundsSinceDate(events, driver.sign_up_date);
+      const officialRounds = await getOfficialRoundStartTimes(supabaseEnv);
+      roundsSinceSignup = roundsSinceDate(officialRounds, driver.sign_up_date);
     } catch (err) {
-      console.error('Failed to load events for inactivity note:', err);
+      console.error('Failed to load official round dates for inactivity note:', err);
     }
   }
   inactivityNote = buildInactivityNote(statusName, lastRace, inactivityDays, inactivityRounds, driver.sign_up_date, roundsSinceSignup);
