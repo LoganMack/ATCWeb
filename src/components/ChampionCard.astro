@@ -7,6 +7,7 @@ import StatBlock from './StatBlock.astro';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
 import PhotoGrid from './PhotoGrid.astro';
+import SeasonLogo from './SeasonLogo.astro';
 
 interface Props {
   entry: ChampionEntry;
@@ -34,7 +35,12 @@ function raceWord(n: number): string {
     <div class="p-6">
       <div>
         <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
-          {season.logo_url && <img src={resizedImageUrl(season.logo_url, { width: 32 })} alt="" loading="lazy" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+          <SeasonLogo
+            darkUrl={resizedImageUrl(season.logo_url, { width: 32 })}
+            lightUrl={resizedImageUrl(season.logo_url_light, { width: 32 })}
+            loading="lazy"
+            class="h-4 w-4 flex-none rounded-sm object-contain"
+          />
           {season.name}
         </p>
         <div class="mt-1 flex flex-wrap items-center gap-2">
@@ -44,7 +50,7 @@ function raceWord(n: number): string {
           <DriverFlag nationality1={d.driver.nationality_1} nationality2={d.driver.nationality_2} />
           {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
           {extras?.cars.map((c) => (
-            <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-6 w-6" title={`${c.carName} — ${raceWord(c.races)}`} />
+            <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-6 w-6" title={`${c.carName} — ${raceWord(c.races)}`} tint />
           ))}
           {extras?.teams.map((t) => (
             <TeamLogo

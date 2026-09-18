@@ -6,6 +6,7 @@ import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, getPageBanners, formatDate } from '../lib/supabase';
 import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
+import SeasonLogo from '../components/SeasonLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -133,9 +134,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </option>
               </optgroup>
             </select>
-            {activeSeason?.logo_url && (
-              <img src={activeSeason.logo_url} alt="" class="h-9 w-9 flex-none rounded object-contain" />
-            )}
+            <SeasonLogo darkUrl={activeSeason?.logo_url ?? null} lightUrl={activeSeason?.logo_url_light} />
           </div>
         </label>
         {activePooledFilter && (

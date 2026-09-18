@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import DriverFlag from '../../components/DriverFlag.astro';
-import { resolveSupabaseEnv, getSeasons, getManualAwards, displayDriverName, type Season, type ManualAward } from '../../lib/supabase';
+import SeasonLogo from '../../components/SeasonLogo.astro';
+import { resolveSupabaseEnv, getSeasons, getManualAwards, displayDriverName, type Season, type ManualAward, type SeasonLogoPair } from '../../lib/supabase';
 import {
   computeSeasonAwardsHistory,
   driversSelect,
@@ -48,7 +49,7 @@ interface WinnerDisplay {
 
 interface AwardRow {
   seasonName: string;
-  seasonLogoUrl: string | null;
+  seasonLogo: SeasonLogoPair | null;
   winners: WinnerDisplay[];
   valueText: string | null;
 }
@@ -76,7 +77,7 @@ function winnerDisplay(driver: DriverBasic, link?: { href: string; label: string
 function row(season: Season, winners: WinnerDisplay[], valueText: string | null): AwardRow {
   return {
     seasonName: season.name,
-    seasonLogoUrl: season.logo_url,
+    seasonLogo: season.logo_url ? { dark: season.logo_url, light: season.logo_url_light } : null,
     winners,
     valueText,
   };
@@ -306,7 +307,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <tr class="border-b border-white/5">
                       <td class="py-2 pr-3 font-semibold text-white/90">
                         <span class="flex items-center gap-1.5">
-                          {r.seasonLogoUrl && <img src={r.seasonLogoUrl} alt="" class="h-4 w-4 flex-none rounded-sm object-contain" />}
+                          {r.seasonLogo && <SeasonLogo darkUrl={r.seasonLogo.dark} lightUrl={r.seasonLogo.light} class="h-4 w-4 flex-none rounded-sm object-contain" />}
                           {r.seasonName}
                         </span>
                       </td>

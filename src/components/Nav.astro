@@ -1,20 +1,43 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
-import { resolveSupabaseEnv } from '../lib/supabase';
+import { resolveSupabaseEnv, getSeasons } from '../lib/supabase';
 import { getLiveBannerInfo } from '../lib/liveEvent';
+import SeasonLogo from './SeasonLogo.astro';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
 const RULEBOOK_URL = 'https://docs.google.com/document/d/1a05Enq9lvnon3qBNnxeHhCUFmlDlBXC0K3R9SXMKFoM/edit?usp=sharing';
 
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
 // "Happening Now" banner (attached to the bottom of this nav, below) — Nav
 // renders on every single page via Layout.astro, so this has to be
 // best-effort: a failure here degrades to "no banner," never a broken page.
 // See src/lib/liveEvent.ts for how "currently happening" is determined.
-const liveBanner = await getLiveBannerInfo(resolveSupabaseEnv(Astro.locals)).catch((err) => {
+const liveBannerPromise = getLiveBannerInfo(supabaseEnv).catch((err) => {
   console.error('Failed to compute the "Happening Now" nav banner:', err);
   return null;
 });
+
+// Top-left site logo: pulls from the current season's own logo (dark/light
+// pair) when one is set, same best-effort shape as the banner above — Nav
+// renders on every page, so a lookup failure here must degrade to the
+// static fallback logo, never a broken page.
+const currentSeasonPromise = getSeasons(supabaseEnv)
+  .then((seasons) => seasons.find((s) => s.is_current) ?? null)
+  .catch((err) => {
+    console.error('Failed to load the current season for the nav logo:', err);
+    return null;
+  });
+
+const [liveBanner, currentSeason] = await Promise.all([liveBannerPromise, currentSeasonPromise]);
+
+// Falls back to the static logo file wholesale (both dark and light) unless
+// the current season has actually set its own dark-mode logo — pairing a
+// season's light-mode variant with the generic static dark fallback would
+// be a mismatched set that was never actually uploaded together.
+const navLogoDarkUrl = currentSeason?.logo_url ?? '/logos/atc18-white.png';
+const navLogoLightUrl = currentSeason?.logo_url ? (currentSeason.logo_url_light ?? null) : null;
 
 const links: { href: string; label: string; external?: boolean }[] = [
   { href: '/news', label: 'News' },
@@ -33,7 +56,12 @@ const links: { href: string; label: string; external?: boolean }[] = [
 <header class="sticky top-0 z-50 border-b border-white/10 bg-brand-ink/80 backdrop-blur">
   <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
     <a href="/" class="relative flex items-center" transition:name="site-logo">
-      <img src="/logos/atc18-white.png" alt="Alpha Touring Challenge" class="h-9 w-auto sm:h-11" />
+      <SeasonLogo
+        darkUrl={navLogoDarkUrl}
+        lightUrl={navLogoLightUrl}
+        alt="Alpha Touring Challenge"
+        class="h-9 w-auto object-contain sm:h-11"
+      />
       <span class="absolute -bottom-1 -right-2 rounded bg-brand-primary px-1 py-px text-[8px] font-display font-semibold uppercase leading-none tracking-wide text-white sm:-right-2.5 sm:text-[9px]">
         Beta
       </span>

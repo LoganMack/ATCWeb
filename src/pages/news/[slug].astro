@@ -13,6 +13,7 @@ import {
   MENTION_PATTERN,
   type NewsTag,
   type DriverOption,
+  type SeasonLogoPair,
 } from '../../lib/supabase';
 import { getRoundBySubsessionId } from '../../lib/results';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
@@ -20,6 +21,7 @@ import { classBadgeClasses } from '../../lib/classColors';
 import { isAdminView } from '../../lib/auth';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
+import SeasonLogo from '../../components/SeasonLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -45,12 +47,13 @@ const date = formatDate(post.published_at);
 
 // season_label is freeform text, not an FK to `seasons` — best-effort name
 // match so the season tag can show that season's logo, same as NewsCard.
-let seasonLogoUrl: string | null = null;
+let seasonLogo: SeasonLogoPair | null = null;
 async function loadSeasonLogo() {
   if (!post!.season_label) return;
   try {
     const seasons = await getSeasons(supabaseEnv);
-    seasonLogoUrl = seasons.find((s) => s.name === post!.season_label)?.logo_url ?? null;
+    const matched = seasons.find((s) => s.name === post!.season_label);
+    seasonLogo = matched?.logo_url ? { dark: matched.logo_url, light: matched.logo_url_light } : null;
   } catch (err) {
     console.error('Failed to load seasons for the post season tag logo:', err);
   }
@@ -142,7 +145,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
       {post.season_label && (
         <span class="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/50">
           {post.season_label}
-          {seasonLogoUrl && <img src={seasonLogoUrl} alt="" class="h-3.5 w-3.5 flex-none rounded-sm object-contain" />}
+          {seasonLogo && <SeasonLogo darkUrl={seasonLogo.dark} lightUrl={seasonLogo.light} class="h-3.5 w-3.5 flex-none rounded-sm object-contain" />}
         </span>
       )}
       {post.round_subsession_id !== null && (

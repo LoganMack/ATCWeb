@@ -44,3 +44,25 @@ function initThemeToggle() {
 }
 
 document.addEventListener('astro:page-load', initThemeToggle);
+
+// Astro's view-transition swap copies the INCOMING page's <html> attributes
+// onto the current document as part of the swap — and since `.light` is a
+// client-only preference (never server-rendered; theme.ts and the
+// FOUC-prevention inline script in Layout.astro are the only things that
+// ever add it), the incoming document never has it, so every soft
+// navigation was silently wiping it back to dark. `astro:before-swap` fires
+// with the incoming document still just an in-memory DOM (before it
+// replaces the current one), so re-applying the saved preference there
+// keeps it correct through the swap with no flash — the same document
+// Astro is about to swap in already has the right class by the time it
+// lands.
+document.addEventListener('astro:before-swap', (event) => {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    const swapEvent = event as unknown as { newDocument: Document };
+    swapEvent.newDocument.documentElement.classList.toggle('light', stored === 'light');
+  } catch {
+    // localStorage unavailable — nothing to restore, leave the incoming
+    // document's class as Astro already computed it.
+  }
+});

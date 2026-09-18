@@ -1,0 +1,33 @@
+---
+// Renders a season's logo, theme-aware. `darkUrl` (Season.logo_url) is
+// shown by default and in dark mode; `lightUrl` (Season.logo_url_light) —
+// optional, null until an admin uploads one — is swapped in for light mode.
+//
+// Every season's logo predates the light/dark toggle, so `lightUrl` being
+// null is the common case, not an edge case: when it's null this just
+// renders the single dark logo unconditionally, so light-mode visitors see
+// exactly what they'd see today rather than a blank space. When both exist,
+// this renders BOTH <img> tags and lets CSS pick the visible one — the same
+// "two elements, `.light` toggles which is visible" technique used for the
+// footer's sun/moon toggle icon — rather than a client-side src swap, so
+// there's no flash and it works even before any theme JS has run.
+interface Props {
+  darkUrl: string | null;
+  lightUrl?: string | null;
+  /** Tailwind size/shape classes, e.g. "h-9 w-9 rounded object-contain". */
+  class?: string;
+  alt?: string;
+  loading?: 'lazy' | 'eager';
+}
+
+const { darkUrl, lightUrl = null, class: className = 'h-9 w-9 flex-none rounded object-contain', alt = '', loading } = Astro.props;
+---
+
+{darkUrl && lightUrl ? (
+  <>
+    <img src={darkUrl} alt={alt} loading={loading} class={`${className} [.light_&]:hidden`} />
+    <img src={lightUrl} alt={alt} loading={loading} class={`${className} hidden [.light_&]:block`} />
+  </>
+) : (
+  darkUrl && <img src={darkUrl} alt={alt} loading={loading} class={className} />
+)}

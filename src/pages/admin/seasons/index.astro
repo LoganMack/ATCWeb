@@ -56,13 +56,14 @@ if (Astro.request.method === 'POST') {
 
   if (!seasonId) {
     error = 'Missing season.';
-  } else if (intent === 'remove') {
+  } else if (intent === 'remove' || intent === 'remove-light') {
+    const field = intent === 'remove' ? 'logo_url' : 'logo_url_light';
     try {
-      await updateSeasonLogo(supabaseEnv, accessToken, seasonId, null);
+      await updateSeasonLogo(supabaseEnv, accessToken, seasonId, { [field]: null });
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'edit',
         entity_type: 'season',
-        entity_label: `${seasonForLog?.name ?? 'Season'} — logo removed`,
+        entity_label: `${seasonForLog?.name ?? 'Season'} — ${intent === 'remove' ? 'dark' : 'light'} logo removed`,
         entity_id: seasonId,
       });
     } catch (err) {
@@ -139,19 +140,37 @@ if (Astro.request.method === 'POST') {
     }
     if (!error) return Astro.redirect('/admin/seasons', 302);
   } else {
+    // Dark and light are independently optional here — an admin can submit
+    // just one side (e.g. adding a light variant to a season that already
+    // has a dark logo) without re-supplying the other. Only errors if
+    // NEITHER side has anything to save, same as the single-logo form this
+    // replaced.
     const logoUrlField = String(form.get('logo_url') ?? '').trim();
     const logoFile = form.get('logo');
+    const logoUrlLightField = String(form.get('logo_url_light') ?? '').trim();
+    const logoLightFile = form.get('logo_light');
 
     try {
+      const logos: { logo_url?: string | null; logo_url_light?: string | null } = {};
+
       let logo_url = logoUrlField || null;
       if (logoFile instanceof File && logoFile.size > 0) {
         const path = `season-${seasonId}-${Date.now()}.${extFromFile(logoFile)}`;
         logo_url = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, logoFile);
       }
-      if (!logo_url) {
-        error = 'Provide a logo file or a logo URL.';
+      if (logo_url) logos.logo_url = logo_url;
+
+      let logo_url_light = logoUrlLightField || null;
+      if (logoLightFile instanceof File && logoLightFile.size > 0) {
+        const path = `season-${seasonId}-light-${Date.now()}.${extFromFile(logoLightFile)}`;
+        logo_url_light = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, logoLightFile);
+      }
+      if (logo_url_light) logos.logo_url_light = logo_url_light;
+
+      if (Object.keys(logos).length === 0) {
+        error = 'Provide a logo file or a logo URL (dark or light).';
       } else {
-        await updateSeasonLogo(supabaseEnv, accessToken, seasonId, logo_url);
+        await updateSeasonLogo(supabaseEnv, accessToken, seasonId, logos);
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
           entity_type: 'season',
@@ -191,6 +210,10 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
     on its own. The season marked <span class="font-semibold text-brand-primary">Current</span> is also the
     default every season picker on the site opens to — use "Set as Current" below to change it.
   </p>
+  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 50ms">
+    Dark is the site's default logo — every logo already on file is treated as one. Light is optional: set it once
+    a season needs its own version for light mode; until then, light mode just keeps showing the dark logo.
+  </p>
 
   {error && (
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
@@ -201,11 +224,24 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
     {seasons.map((season) => (
       <>
       <div class="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-3 ring-1 ring-white/10">
-        {season.logo_url ? (
-          <img src={season.logo_url} alt="" class="h-10 w-10 flex-none rounded object-contain" />
-        ) : (
-          <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
-        )}
+        <div class="flex flex-none items-center gap-1.5">
+          <div class="flex flex-col items-center gap-0.5">
+            {season.logo_url ? (
+              <img src={season.logo_url} alt="" class="h-10 w-10 flex-none rounded bg-brand-ink object-contain" />
+            ) : (
+              <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+            )}
+            <span class="text-[9px] font-semibold uppercase tracking-wide text-white/30">Dark</span>
+          </div>
+          <div class="flex flex-col items-center gap-0.5">
+            {season.logo_url_light ? (
+              <img src={season.logo_url_light} alt="" class="h-10 w-10 flex-none rounded bg-white object-contain" />
+            ) : (
+              <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+            )}
+            <span class="text-[9px] font-semibold uppercase tracking-wide text-white/30">Light</span>
+          </div>
+        </div>
         <span class="min-w-[10rem] font-semibold">
           {season.name}
           {season.is_current && <span class="ml-2 text-xs font-normal text-brand-primary">Current</span>}
@@ -213,18 +249,36 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
         <form method="POST" data-astro-reload enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
           <input type="hidden" name="intent" value="save" />
           <input type="hidden" name="season_id" value={season.id} />
-          <input
-            type="text"
-            name="logo_url"
-            placeholder="Logo URL (optional if uploading a file)"
-            class="w-56 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-          />
-          <input
-            type="file"
-            name="logo"
-            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-            class="w-56 text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
-          />
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="text-[10px] font-semibold uppercase tracking-wide text-white/40">Dark</span>
+            <input
+              type="text"
+              name="logo_url"
+              placeholder="Logo URL (optional if uploading a file)"
+              class="w-48 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+            />
+            <input
+              type="file"
+              name="logo"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              class="w-48 text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
+            />
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="text-[10px] font-semibold uppercase tracking-wide text-white/40">Light</span>
+            <input
+              type="text"
+              name="logo_url_light"
+              placeholder="Logo URL (optional if uploading a file)"
+              class="w-48 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+            />
+            <input
+              type="file"
+              name="logo_light"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              class="w-48 text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
+            />
+          </div>
           <button
             type="submit"
             class="rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
@@ -236,7 +290,14 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
           <form method="POST" data-astro-reload>
             <input type="hidden" name="intent" value="remove" />
             <input type="hidden" name="season_id" value={season.id} />
-            <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove</button>
+            <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove Dark</button>
+          </form>
+        )}
+        {season.logo_url_light && (
+          <form method="POST" data-astro-reload>
+            <input type="hidden" name="intent" value="remove-light" />
+            <input type="hidden" name="season_id" value={season.id} />
+            <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove Light</button>
           </form>
         )}
         {!season.is_current && (

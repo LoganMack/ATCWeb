@@ -1665,6 +1665,16 @@ export interface Season {
   number: number;
   name: string;
   logo_url: string | null;
+  /**
+   * Light-mode variant of `logo_url` (0089_season_light_logo.sql) —
+   * `logo_url` itself is treated as the dark-mode logo everywhere it's
+   * shown (every logo an admin uploaded before the light/dark toggle
+   * existed is a dark-mode logo). Null just means no light variant has
+   * been uploaded yet, in which case every render site keeps showing the
+   * dark logo in light mode too (see SeasonLogo.astro) rather than
+   * showing nothing.
+   */
+  logo_url_light: string | null;
   start_date: string | null;
   end_date: string | null;
   is_current: boolean;
@@ -1700,8 +1710,19 @@ export interface Season {
   delta_team_enabled: boolean;
 }
 
+/**
+ * A season's logo pair as passed into SeasonLogo.astro — used by every page
+ * that builds a `season name -> logo` lookup (news_label isn't an FK to
+ * `seasons`, so these are best-effort name-matched maps rather than joins;
+ * see news/index.astro, index.astro, drivers/[id]/fragment.astro).
+ */
+export interface SeasonLogoPair {
+  dark: string;
+  light: string | null;
+}
+
 const SEASON_SELECT =
-  'id,number,name,logo_url,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id,gamma_enabled,delta_enabled,delta_team_enabled';
+  'id,number,name,logo_url,logo_url_light,start_date,end_date,is_current,extra_drop_weeks,scoring_ruleset_id,gamma_enabled,delta_enabled,delta_team_enabled';
 
 /** All seasons, newest first. */
 export function getSeasons(env: SupabaseEnv) {
@@ -1713,9 +1734,20 @@ export async function getSeasonById(env: SupabaseEnv, id: string) {
   return seasons[0] ?? null;
 }
 
-/** Sets (or clears, with `null`) a season's logo — the only field seasons can be admin-edited from (0024_season_logos_and_page_banners.sql). */
-export async function updateSeasonLogo(env: SupabaseEnv, accessToken: string, id: string, logoUrl: string | null) {
-  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { logo_url: logoUrl });
+/**
+ * Sets (or clears, with `null`) a season's dark-mode and/or light-mode logo
+ * — the only fields seasons can be admin-edited from (0024_season_logos_and_page_banners.sql,
+ * 0089_season_light_logo.sql). Pass only the field(s) that actually changed
+ * — `logo_url`/`logo_url_light` are each independently optional, so e.g.
+ * removing just the light variant doesn't touch the dark one.
+ */
+export async function updateSeasonLogo(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  logos: { logo_url?: string | null; logo_url_light?: string | null }
+) {
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, logos);
 }
 
 /** Assigns (or clears, with `null`) which scoring ruleset a season uses — see Season.scoring_ruleset_id. */

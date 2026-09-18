@@ -24,15 +24,24 @@ interface Props {
    * usage, which passes a bigger value explicitly.
    */
   resizeWidth?: number;
+  /**
+   * Tints the logo solid black in light mode (see the `.light .theme-tint`
+   * rule in global.css) — for CAR logos specifically, most of which are
+   * light-colored artwork made to sit on the site's dark background and go
+   * near-invisible on a light one. Real TEAM logos keep their own colors in
+   * both themes (their usual callers never pass this); only pass `tint`
+   * from a call site that's rendering a car's logo.
+   */
+  tint?: boolean;
 }
 
-const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title, resizeWidth = 96 } = Astro.props;
+const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title, resizeWidth = 96, tint = false } = Astro.props;
 const hoverText = title ?? name;
 const resizedLogoUrl = resizedImageUrl(logoUrl, { width: resizeWidth });
 ---
 
 {resizedLogoUrl ? (
-  <img src={resizedLogoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''}`} />
+  <img src={resizedLogoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''} ${tint ? 'theme-tint' : ''}`} />
 ) : (
   <div
     class={`${size} flex-none rounded bg-white/10 flex items-center justify-center text-[9px] font-bold uppercase tracking-wide text-white/50 ${grayscale ? 'opacity-60' : ''}`}

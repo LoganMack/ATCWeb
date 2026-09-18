@@ -275,7 +275,7 @@ for (const p of racePenalties) {
                 </span>
                 <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                 {/* Car first, team second — every driver has a car, not every driver has a team. */}
-                {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" />}
+                {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />}
                 {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
                 {row.tags.map((tag) => (
                   <span

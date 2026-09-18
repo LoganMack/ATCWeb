@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../../layouts/Layout.astro';
 import NewsCard from '../../components/NewsCard.astro';
 import PageBanner from '../../components/PageBanner.astro';
-import { getNewsPosts, getPageBanners, getSeasons, resolveSupabaseEnv, getAllNewsPostTags, type NewsTag } from '../../lib/supabase';
+import { getNewsPosts, getPageBanners, getSeasons, resolveSupabaseEnv, getAllNewsPostTags, type NewsTag, type SeasonLogoPair } from '../../lib/supabase';
 import { bannerUrlFor } from '../../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -35,11 +35,13 @@ async function loadBanner() {
 
 // season_label on a post is freeform text, not an FK to `seasons` — best-
 // effort name match so NewsCard can show that season's logo next to its tag.
-let logoBySeasonLabel = new Map<string, string>();
+let logoBySeasonLabel = new Map<string, SeasonLogoPair>();
 async function loadSeasonLogos() {
   try {
     const seasons = await getSeasons(supabaseEnv);
-    logoBySeasonLabel = new Map(seasons.filter((s) => s.logo_url).map((s) => [s.name, s.logo_url!]));
+    logoBySeasonLabel = new Map(
+      seasons.filter((s) => s.logo_url).map((s) => [s.name, { dark: s.logo_url!, light: s.logo_url_light }])
+    );
   } catch (err) {
     console.error('Failed to load seasons for news card logos:', err);
   }

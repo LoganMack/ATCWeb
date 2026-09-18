@@ -427,3 +427,19 @@ th[data-sort-key][data-sort-dir='desc']::after {
   background-color: rgb(247 247 249 / 1);
   box-shadow: 0 1px 0 0 rgba(17, 17, 20, 0.1);
 }
+
+/* ---- `.theme-tint`: car logos and track/circuit images. Most of this
+   artwork is light-colored (white/light line art or transparent-background
+   logos) made to sit on the site's dark background — on light mode's paper
+   background it goes faint or invisible. `brightness(0)` turns every
+   non-transparent pixel solid black regardless of its original color,
+   preserving the image's own alpha/shape — the "silhouette" look asked for,
+   not a recolor. Applied via a plain class (not the white/ink transform
+   above) since these are raster images, not CSS colors: TeamLogo.astro's
+   `tint` prop adds it for car logos specifically (real team logos keep
+   their own colors in both themes), and it's added directly to the track
+   image <img> tags in circuits.astro/briefing/[eventId].astro/
+   UpcomingEventCard.astro/EventDetailCard.astro. */
+.light .theme-tint {
+  filter: brightness(0);
+}

@@ -76,7 +76,7 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
   <div class="flex flex-wrap items-start justify-between gap-4">
     <div class="flex items-center gap-4">
       {imageUrl && (
-        <img src={imageUrl} alt="" loading="lazy" class="h-12 w-12 flex-none rounded object-contain" />
+        <img src={imageUrl} alt="" loading="lazy" class="h-12 w-12 flex-none rounded object-contain theme-tint" />
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{event.title ?? event.circuits?.name ?? 'TBA'}</h3>
