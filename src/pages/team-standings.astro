@@ -248,7 +248,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
               <th class="py-3 pr-3 text-center font-medium" data-sort-key="points">Points</th>
               <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="starts">Starts</th>
-              <th class="py-3 pr-4 text-center font-medium" data-sort-key="appearances">Apps</th>
+              <th class="hidden py-3 pr-4 text-center font-medium sm:table-cell" data-sort-key="appearances">Apps</th>
             </tr>
           </thead>
           <tbody>
@@ -282,7 +282,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </td>
                 <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
                 <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts">{row.starts}</td>
-                <td class="py-2.5 pr-4 text-center text-white/60" data-col="appearances">{row.appearances}</td>
+                <td class="hidden py-2.5 pr-4 text-center text-white/60 sm:table-cell" data-col="appearances">{row.appearances}</td>
               </tr>
               <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                 <td colspan={5} class="px-4 py-4 sm:pl-11">
@@ -293,7 +293,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       {roster.map((driverStanding) => (
                         <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
                           <span class="flex items-center gap-1.5 font-semibold text-white/90">
-                            <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />
+                            <span class="hidden sm:contents">
+                              <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />
+                            </span>
                             {displayDriverName(driverStanding.driver.name)}
                             {driverStanding.driver.car_number !== null && (
                               <span class="text-white/40"> #{driverStanding.driver.car_number}</span>

@@ -133,8 +133,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <>
         <!-- Header -->
         <div class="reveal relative grid gap-6 rounded-xl border border-white/10 bg-white/[0.03] p-6 sm:grid-cols-[176px_1fr] sm:p-8">
-          <!-- Activity status: pinned to the top-right corner, right-aligned. -->
-          <div class="absolute right-6 top-6 flex flex-col items-end gap-1 text-right sm:right-8 sm:top-8">
+          <!-- Activity status: pinned to the top-right corner, right-aligned.
+               Hidden entirely on mobile (Logan) — the reserved `pr-24` gutter
+               on the name column below is dropped there too, so the driver
+               name/number get the full card width back instead of leaving a
+               gap for a status block that's no longer shown. -->
+          <div class="absolute right-6 top-6 hidden flex-col items-end gap-1 text-right sm:right-8 sm:top-8 sm:flex">
             <div class="flex flex-wrap items-center justify-end gap-2">
               <span class="text-sm font-semibold text-white/90">{statusName}</span>
               {onProbationNow && (
@@ -168,10 +172,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
           )}
 
-          <div class="min-w-0 pr-24 sm:pr-32">
+          <div class="min-w-0 sm:pr-32">
             <div class="flex flex-wrap items-center gap-2">
               <h1 class="font-display text-4xl leading-none sm:text-5xl">
-                {displayName} {driver.car_number !== null && <span class="text-white/40">#{driver.car_number}</span>}
+                {displayName}
+                {driver.car_number !== null && <span class="whitespace-nowrap text-white/40">#{driver.car_number}</span>}
               </h1>
               {driver.is_rookie && (
                 <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">Rookie</span>

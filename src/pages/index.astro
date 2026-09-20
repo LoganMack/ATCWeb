@@ -378,7 +378,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       heading instead.
     -->
     <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
-      <div>
+      <!--
+        min-w-0 on both direct grid-item columns below: CSS Grid items
+        default to `min-width: auto`, which for a track containing a
+        percentage-sized <img> (the NewsCard cover photo — `w-full` — see
+        NewsCard.astro) resolves to that IMAGE'S OWN INTRINSIC pixel size
+        (e.g. a raw 2048px-wide upload), not its rendered/cropped size —
+        a well-known grid quirk. With no `lg:grid-cols-2` active below the
+        lg breakpoint (mobile falls back to one implicit auto column),
+        that intrinsic width was silently forcing the whole column — and
+        with it this section and the page's <body> — wider than the
+        viewport, which is what was spilling every mobile card off the
+        right edge. `min-w-0` overrides that default back to 0, letting
+        the column (and everything percentage-sized inside it, like this
+        same image via `overflow-hidden`) shrink to the actual available
+        width instead. Harmless at the lg: 2-column breakpoint too — it
+        only ever matters when something would otherwise overflow.
+      -->
+      <div class="min-w-0">
         <!-- The page's one real <h1> — see the comment above for why this
              (not a big "Alpha Touring Challenge" headline) is it. Styled to
              match the "Standings" heading below rather than the old small
@@ -395,7 +412,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </p>
         )}
 
-        <div class="mt-12">
+        <!-- Hidden on mobile only (Logan) — same sm: breakpoint Nav.astro's
+             own mobile/desktop split uses. -->
+        <div class="mt-12 hidden sm:block">
           <h2 class="mb-6 font-display text-3xl">More News</h2>
 
           {moreNews.length === 0 ? (
@@ -421,7 +440,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         </div>
       </div>
 
-      <div>
+      <div class="min-w-0">
         <h2 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
           Upcoming Events
         </h2>

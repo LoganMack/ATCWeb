@@ -242,6 +242,21 @@ function formatFoundedDate(iso: string): string {
   return `${month} ${day}${ordinalSuffix(day)}, ${year}`;
 }
 
+/**
+ * Splits a display name into its first token and everything after it, so
+ * the mobile roster columns below can stack a driver's first name above
+ * their last (or "middle last", for a 3-part name — this only ever splits
+ * once, on the FIRST space) rather than letting the whole name wrap
+ * mid-word in a column this narrow. Desktop keeps the normal single-line
+ * "First Last #Number" — this is mobile-only, per Logan.
+ */
+function splitFirstName(fullName: string): { first: string; rest: string } {
+  const trimmed = fullName.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) return { first: trimmed, rest: '' };
+  return { first: trimmed.slice(0, spaceIdx), rest: trimmed.slice(spaceIdx + 1) };
+}
+
 // Only teams with drivers on the roster for the selected season are shown.
 // A team's "active" status is no longer a separate stored flag an admin sets
 // by hand (see admin/teams/[id].astro) — having at least one driver on the
@@ -283,7 +298,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
             type="search"
             id="team-search"
             placeholder="Search teams or drivers…"
-            class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
           />
         </div>
         {seasons.length > 0 && (
@@ -293,7 +308,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
               <select
                 name="season"
                 onchange="this.form.submit()"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                class="h-10 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
               >
                 {seasons.map((s) => (
                   <option value={s.id} selected={s.id === selectedSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
@@ -311,7 +326,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
-              {!isPastSeason && <th class="py-3 pr-4 font-medium" data-sort-key="founded">Founded</th>}
+              {!isPastSeason && <th class="hidden py-3 pr-4 font-medium sm:table-cell" data-sort-key="founded">Founded</th>}
               <th class="py-3 pr-4 font-medium">Driver 1</th>
               <th class="py-3 pr-4 font-medium">Driver 2</th>
               <th class="py-3 pr-4 font-medium">Driver 3</th>
@@ -339,22 +354,36 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                     </div>
                   </td>
                   {!isPastSeason && (
-                    <td class="py-2.5 pr-4 text-white/70" data-col="founded" data-sort-value={founded}>
+                    <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell" data-col="founded" data-sort-value={founded}>
                       {formatFoundedDate(founded)}
                     </td>
                   )}
-                  {Array.from({ length: driverColumnCount }, (_, i) => i).map((i) => (
-                    <td class="py-2.5 pr-4 text-white/70">
-                      {roster[i] ? (
-                        <>
-                          {displayDriverName(roster[i].name)}
-                          {roster[i].car_number !== null && <span class="text-white/40"> #{roster[i].car_number}</span>}
-                        </>
-                      ) : (
-                        <span class="text-white/25">—</span>
-                      )}
-                    </td>
-                  ))}
+                  {Array.from({ length: driverColumnCount }, (_, i) => i).map((i) => {
+                    const driver = roster[i];
+                    const fullName = driver ? displayDriverName(driver.name) : '';
+                    const { first, rest } = splitFirstName(fullName);
+                    return (
+                      <td class="py-2.5 pr-4 text-white/70">
+                        {driver ? (
+                          <>
+                            {/* Mobile: first name stacked above the rest of
+                                the name, no car number (Logan) — desktop
+                                keeps the original single-line "Name #Number". */}
+                            <span class="flex flex-col leading-tight sm:hidden">
+                              <span>{first}</span>
+                              {rest && <span>{rest}</span>}
+                            </span>
+                            <span class="hidden sm:inline">
+                              {fullName}
+                              {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
+                            </span>
+                          </>
+                        ) : (
+                          <span class="text-white/25">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

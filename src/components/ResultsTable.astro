@@ -273,26 +273,49 @@ for (const p of racePenalties) {
                 <span>
                   {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
-                <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                {/* Flag/car/team logos and the tag badges below are all
+                    hidden on mobile (Logan) — `hidden sm:contents` rather
+                    than `sm:inline-flex`/`sm:inline-block` so a wrapper
+                    holding MULTIPLE tag spans (row.tags below) still lets
+                    each one be its own flex item for this row's own
+                    `gap-2` at sm+, instead of the wrapper eating that gap
+                    as a single item. */}
+                <span class="hidden sm:contents">
+                  <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                </span>
                 {/* Car first, team second — every driver has a car, not every driver has a team. */}
-                {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />}
-                {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
-                {row.tags.map((tag) => (
-                  <span
-                    class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50"
-                    title={tag === 'Unclassified' ? 'Completed less than 50% of overall race length. No points scored.' : undefined}
-                  >
-                    {tag}
+                {row.car && (
+                  <span class="hidden sm:contents">
+                    <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />
                   </span>
-                ))}
+                )}
+                {row.team && (
+                  <span class="hidden sm:contents">
+                    <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />
+                  </span>
+                )}
+                {row.tags.length > 0 && (
+                  <span class="hidden sm:contents">
+                    {row.tags.map((tag) => (
+                      <span
+                        class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50"
+                        title={tag === 'Unclassified' ? 'Completed less than 50% of overall race length. No points scored.' : undefined}
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </span>
+                )}
                 {tagLabel && (
-                  <span
-                    class={isRealPenalty
-                      ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold'
-                      : 'rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50'}
-                    title="See the Incident Report for full details"
-                  >
-                    {tagLabel}
+                  <span class="hidden sm:contents">
+                    <span
+                      class={isRealPenalty
+                        ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold'
+                        : 'rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50'}
+                      title="See the Incident Report for full details"
+                    >
+                      {tagLabel}
+                    </span>
                   </span>
                 )}
               </div>

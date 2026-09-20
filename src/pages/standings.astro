@@ -304,7 +304,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10<span class="lowercase">s</span></th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
-              <th class="py-3 pr-3 text-center font-medium" data-sort-key="appearances">Apps</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="appearances">Apps</th>
               <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty" title="Penalty Points">PP</th>
             </tr>
           </thead>
@@ -334,19 +334,26 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <span>
                         {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
-                      <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                      {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
-                      {extras?.cars.map((c) => (
-                        <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} tint />
-                      ))}
-                      {extras?.teams.map((t) => (
-                        <TeamLogo
-                          name={t.teamName}
-                          logoUrl={t.logoUrl}
-                          size="h-5 w-5"
-                          title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
-                        />
-                      ))}
+                      {/* Flag/car/team logos hidden on mobile (Logan) —
+                          `hidden sm:contents` so each stays its own flex
+                          item for this row's `gap-2` at sm+ instead of the
+                          wrapper eating that gap as a single item — same
+                          technique as ResultsTable.astro's row cell. */}
+                      <span class="hidden sm:contents">
+                        <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                        {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
+                        {extras?.cars.map((c) => (
+                          <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} tint />
+                        ))}
+                        {extras?.teams.map((t) => (
+                          <TeamLogo
+                            name={t.teamName}
+                            logoUrl={t.logoUrl}
+                            size="h-5 w-5"
+                            title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
+                          />
+                        ))}
+                      </span>
                     </div>
                   </td>
                   {view === 'overall' && (
@@ -367,7 +374,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts" data-sort-value={row.starts}>
                     {row.starts} <span class="text-white/30">of {maxStarts}</span>
                   </td>
-                  <td class="py-2.5 pr-3 text-center text-white/60" data-col="appearances" data-sort-value={row.appearances}>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="appearances" data-sort-value={row.appearances}>
                     {row.appearances} <span class="text-white/30">of {maxAppearances}</span>
                   </td>
                   <td class="py-2.5 pr-4 text-center text-white/60" data-col="penalty" data-sort-value={ext?.penaltyPoints ?? 0} title="Penalty Points">
