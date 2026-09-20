@@ -348,22 +348,33 @@ th[data-sort-key][data-sort-dir='desc']::after {
 
 /* ---- text: white/NN -> ink/NN. This is the big one — the base body text
    color (global.css `body` rule above) is full-opacity `text-white`, so
-   this single override is what makes ordinary running text legible. ---- */
+   this single override is what makes ordinary running text legible.
+
+   Every opacity step here runs +0.08 darker than its literal Tailwind
+   value (e.g. `text-white/50` -> 0.58, not 0.5) — grey running text was
+   reading as too washed-out/low-contrast against this theme's light
+   background per Logan, and since the underlying color is already the
+   theme's ink (rgb(17 17 20)), opacity is the only lever that controls
+   how dark a given "grey" actually renders here. Flat, not scaled, so
+   every step (the near-invisible /20 tags through the near-solid /90
+   labels) gets the same nudge rather than compounding unevenly. `text-
+   white` itself (opacity 1, full ink) is already as dark as this scale
+   goes, so it's untouched, same as every hover: variant below. ---- */
 .light .text-white { color: rgb(17 17 20 / 1); }
-.light .text-white\/20 { color: rgb(17 17 20 / 0.2); }
-.light .text-white\/25 { color: rgb(17 17 20 / 0.25); }
-.light .text-white\/30 { color: rgb(17 17 20 / 0.3); }
-.light .text-white\/35 { color: rgb(17 17 20 / 0.35); }
-.light .text-white\/40 { color: rgb(17 17 20 / 0.4); }
-.light .text-white\/50 { color: rgb(17 17 20 / 0.5); }
-.light .text-white\/60 { color: rgb(17 17 20 / 0.6); }
-.light .text-white\/70 { color: rgb(17 17 20 / 0.7); }
-.light .text-white\/80 { color: rgb(17 17 20 / 0.8); }
-.light .text-white\/90 { color: rgb(17 17 20 / 0.9); }
+.light .text-white\/20 { color: rgb(17 17 20 / 0.28); }
+.light .text-white\/25 { color: rgb(17 17 20 / 0.33); }
+.light .text-white\/30 { color: rgb(17 17 20 / 0.38); }
+.light .text-white\/35 { color: rgb(17 17 20 / 0.43); }
+.light .text-white\/40 { color: rgb(17 17 20 / 0.48); }
+.light .text-white\/50 { color: rgb(17 17 20 / 0.58); }
+.light .text-white\/60 { color: rgb(17 17 20 / 0.68); }
+.light .text-white\/70 { color: rgb(17 17 20 / 0.78); }
+.light .text-white\/80 { color: rgb(17 17 20 / 0.88); }
+.light .text-white\/90 { color: rgb(17 17 20 / 0.98); }
 .light .hover\:text-white:hover { color: rgb(17 17 20 / 1); }
-.light .hover\:text-white\/60:hover { color: rgb(17 17 20 / 0.6); }
-.light .hover\:text-white\/70:hover { color: rgb(17 17 20 / 0.7); }
-.light .hover\:text-white\/80:hover { color: rgb(17 17 20 / 0.8); }
+.light .hover\:text-white\/60:hover { color: rgb(17 17 20 / 0.68); }
+.light .hover\:text-white\/70:hover { color: rgb(17 17 20 / 0.78); }
+.light .hover\:text-white\/80:hover { color: rgb(17 17 20 / 0.88); }
 .light .file\:text-white::file-selector-button { color: rgb(17 17 20 / 1); }
 .light .peer\/class:checked ~ .peer-checked\/class\:text-white { color: rgb(17 17 20 / 1); }
 .light .peer\/overall:checked ~ .peer-checked\/overall\:text-white { color: rgb(17 17 20 / 1); }
