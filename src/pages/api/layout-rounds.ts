@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv, getCircuits, getAllCircuitLayouts } from '../../lib/supabase';
+import { resolveSupabaseEnv, getCircuits, getAllCircuitLayouts, getExhibitionRoundIds, getTestRoundIds } from '../../lib/supabase';
 import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout, type LayoutRoundSummary } from '../../lib/results';
 
 export const prerender = false;
@@ -46,16 +46,31 @@ export const GET: APIRoute = async ({ url, locals }) => {
 
   try {
     const supabaseEnv = resolveSupabaseEnv(locals);
-    const [circuits, layouts, allRounds] = await Promise.all([
+    const [circuits, layouts, allRounds, exhibitionRoundIds, testRoundIds] = await Promise.all([
       getCircuits(supabaseEnv),
       getAllCircuitLayouts(supabaseEnv),
       getAllRounds(supabaseEnv),
+      // Needed so findRoundsForLayout can populate each round's
+      // displayRoundNumber (the recap title's "Round X") — see that
+      // function's own doc comment for why these are optional there but
+      // required for this specific caller to get real numbers back.
+      getExhibitionRoundIds(supabaseEnv),
+      getTestRoundIds(supabaseEnv),
     ]);
     const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
       supabaseEnv,
       allRounds.map((r) => r.subsession_id)
     );
-    const rounds: LayoutRoundSummary[] = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, circuitId, layout);
+    const rounds: LayoutRoundSummary[] = findRoundsForLayout(
+      allRounds,
+      roundLayoutBySubsession,
+      circuits,
+      layouts,
+      circuitId,
+      layout,
+      exhibitionRoundIds,
+      testRoundIds
+    );
 
     return new Response(JSON.stringify(rounds), {
       status: 200,

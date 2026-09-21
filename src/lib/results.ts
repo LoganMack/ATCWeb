@@ -1852,6 +1852,17 @@ export interface LayoutRoundSummary {
   trackName: string;
   startTime: string;
   seasonLabel: string | null;
+  /**
+   * This round's app-computed "Round N" (see computeDisplayRoundNumbers'
+   * own doc comment) — null for an exhibition/test/non-championship round,
+   * same meaning as everywhere else this display numbering is used. Only
+   * populated when a caller passes real exhibitionRoundIds/testRoundIds
+   * into findRoundsForLayout (see its own doc comment) — a caller that
+   * doesn't care about this (e.g. one that only reads trackName/startTime)
+   * can omit those and this just comes back null for every round, same as
+   * before this field existed.
+   */
+  displayRoundNumber: number | null;
 }
 
 /**
@@ -1930,7 +1941,18 @@ export function findRoundsForLayout(
   circuits: Circuit[],
   layouts: CircuitLayout[],
   circuitId: string,
-  eventLayoutName: string | null
+  eventLayoutName: string | null,
+  /**
+   * Optional — only needed to populate each result's displayRoundNumber
+   * (see LayoutRoundSummary's own doc comment). Defaulted to empty Sets so
+   * every existing caller that doesn't care about round numbers (the Event
+   * Briefing page, as of this writing) keeps working unchanged; a caller
+   * that DOES want them (the calendar page's "Race Recaps at this Layout"
+   * feature, via /api/layout-rounds.ts) passes the real
+   * getExhibitionRoundIds()/getTestRoundIds() results through.
+   */
+  exhibitionRoundIds: Set<number> = new Set(),
+  testRoundIds: Set<number> = new Set()
 ): LayoutRoundSummary[] {
   const targetKey = resolveEventLayoutKey(circuitId, eventLayoutName, layouts);
 
@@ -1939,9 +1961,34 @@ export function findRoundsForLayout(
     return resolved !== null && sameLayoutMatchKey(resolved, targetKey);
   });
 
+  // Display round numbers are SEASON-scoped (every season restarts at 1),
+  // so this groups the FULL allRounds list (not just this layout's own
+  // matches — a season's numbering depends on every round it ran, not only
+  // the ones that happen to match this one layout) by season_id and runs
+  // computeDisplayRoundNumbers per season, same function results.astro
+  // already calls for one season at a time — just applied across every
+  // season at once here, since one layout's history can span many of them.
+  const roundsBySeasonId = new Map<string, RoundSummary[]>();
+  for (const r of allRounds) {
+    if (!roundsBySeasonId.has(r.season_id)) roundsBySeasonId.set(r.season_id, []);
+    roundsBySeasonId.get(r.season_id)!.push(r);
+  }
+  const displayRoundNumberBySubsession = new Map<number, number | null>();
+  for (const seasonRounds of roundsBySeasonId.values()) {
+    for (const [subsessionId, num] of computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds)) {
+      displayRoundNumberBySubsession.set(subsessionId, num);
+    }
+  }
+
   return matches
     .sort((a, b) => b.start_time.localeCompare(a.start_time))
-    .map((r) => ({ subsessionId: r.subsession_id, trackName: r.track_name, startTime: r.start_time, seasonLabel: r.season_label }));
+    .map((r) => ({
+      subsessionId: r.subsession_id,
+      trackName: r.track_name,
+      startTime: r.start_time,
+      seasonLabel: r.season_label,
+      displayRoundNumber: displayRoundNumberBySubsession.get(r.subsession_id) ?? null,
+    }));
 }
 
 export interface ClassHighlight {

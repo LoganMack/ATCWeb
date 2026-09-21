@@ -4,7 +4,18 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import EventDetailCard from '../components/EventDetailCard.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { getEvents, getCircuits, getAllCircuitLayouts, getPageBanners, resolveSupabaseEnv, eventImageUrl } from '../lib/supabase';
+import {
+  getEvents,
+  getCircuits,
+  getAllCircuitLayouts,
+  getPageBanners,
+  resolveSupabaseEnv,
+  eventImageUrl,
+  getSeasons,
+  getScoringRulesets,
+  resolveSeasonRuleset,
+  resolveIncidentLimit,
+} from '../lib/supabase';
 import {
   getAllRounds,
   getRoundLayoutsForSubsessions,
@@ -72,7 +83,26 @@ const bulkFetchPromise = (async () => {
   }
 })();
 
-const [events, bulkResult] = await Promise.all([eventsPromise, bulkFetchPromise]);
+// Each event's "Incident Limit" figure (see EventDetailCard.astro's Rules
+// line) — resolved from the SEASON's scoring ruleset (not the round, unlike
+// results/[subsessionId].astro's own copy of this logic — see
+// resolveIncidentLimit's doc comment) so it still shows for an upcoming
+// event that has no imported round/subsession_id yet. Independent of
+// events/bulkFetchPromise above, so kicked off alongside them; the
+// race_overrides check inside resolveIncidentLimit still needs a
+// subsession_id when one exists, so this map is actually filled in below,
+// once linkedRoundByEventId is known.
+let incidentLimitByEventId = new Map<string, number | null>();
+const rulesetsFetchPromise = (async () => {
+  try {
+    return await Promise.all([getSeasons(supabaseEnv), getScoringRulesets(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to resolve season scoring rulesets for the event list:', err);
+    return null;
+  }
+})();
+
+const [events, bulkResult, rulesetsResult] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise]);
 
 if (bulkResult) {
   const [circuits, layoutsResult, allRounds] = bulkResult;
@@ -106,6 +136,22 @@ if (bulkResult) {
           ? roundsBySeasonRound.get(`${event.season_id}:${event.round_number}`) ?? null
           : null;
     linkedRoundByEventId.set(event.id, linked);
+  }
+}
+
+if (rulesetsResult) {
+  const [seasons, rulesets] = rulesetsResult;
+  const seasonById = new Map(seasons.map((s) => [s.id, s]));
+  for (const event of events) {
+    const season = event.season_id ? (seasonById.get(event.season_id) ?? null) : null;
+    const ruleset = season ? resolveSeasonRuleset(season, rulesets) : null;
+    // Prefer the linked round's own subsession_id (the one race_overrides
+    // would actually be listing) over event.subsession_id — the latter is
+    // just a manual override input to resolving the link in the first
+    // place, and can be null even when a round was matched via
+    // season_id+round_number instead.
+    const subsessionId = linkedRoundByEventId.get(event.id)?.subsession_id ?? event.subsession_id ?? null;
+    incidentLimitByEventId.set(event.id, resolveIncidentLimit(ruleset, event.format, subsessionId));
   }
 }
 
@@ -210,16 +256,16 @@ const upcomingIcsBundle = upcoming
     {!loadError && events.length > 0 && (
       <div data-view-panel="list">
         {upcoming.length > 0 && (
-          <div class="mt-10 space-y-4">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
+          <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
 
         {past.length > 0 && (
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
-            <div class="mt-6 space-y-4 opacity-70">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} layouts={layouts} />)}
+            <div class="mt-6 grid grid-cols-1 gap-4 opacity-70 sm:grid-cols-2">
+              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
             </div>
           </div>
         )}
@@ -586,7 +632,7 @@ const upcomingIcsBundle = upcoming
       return fetchRoundRecap(subsessionId).finally(() => hideProgress());
     }
 
-    function renderRoundRecap(container: HTMLElement, recap: RoundRecapLite | null) {
+    function renderRoundRecap(container: HTMLElement, recap: RoundRecapLite | null, subsessionId: number) {
       if (!recap) {
         container.innerHTML = '<p class="text-xs text-white/40">Couldn’t load this recap.</p>';
         return;
@@ -606,12 +652,20 @@ const upcomingIcsBundle = upcoming
         heading.textContent = `Race ${race.raceNumber}`;
         raceEl.appendChild(heading);
 
+        // One driver per line (not comma-joined) per Logan — easier to
+        // scan than a single run-on line once a class has 3 names in it.
         race.topByClass.forEach((cls) => {
-          const line = document.createElement('p');
-          line.className = 'mt-0.5 text-white/50';
-          const names = cls.top3.map((t) => `${t.position}. ${displayDriverName(t.driver.name)}`).join(', ');
-          line.textContent = `${cls.className}: ${names}`;
-          raceEl.appendChild(line);
+          const clsHeading = document.createElement('p');
+          clsHeading.className = 'mt-0.5 font-semibold text-white/50';
+          clsHeading.textContent = `${cls.className}:`;
+          raceEl.appendChild(clsHeading);
+
+          cls.top3.forEach((t) => {
+            const driverLine = document.createElement('p');
+            driverLine.className = 'pl-2 text-white/50';
+            driverLine.textContent = `${t.position}. ${displayDriverName(t.driver.name)}`;
+            raceEl.appendChild(driverLine);
+          });
         });
 
         if (race.fastestLap) {
@@ -633,6 +687,12 @@ const upcomingIcsBundle = upcoming
         wrap.appendChild(teamP);
       }
 
+      const resultLink = document.createElement('a');
+      resultLink.href = `/results/${subsessionId}`;
+      resultLink.className = 'mt-1 inline-block text-xs text-brand-primary hover:underline';
+      resultLink.textContent = 'Full race result →';
+      wrap.appendChild(resultLink);
+
       container.appendChild(wrap);
     }
 
@@ -648,7 +708,7 @@ const upcomingIcsBundle = upcoming
           if (!container || !Number.isFinite(subsessionId) || container.dataset.loaded === 'true') return;
           container.dataset.loaded = 'true';
           container.innerHTML = '<p class="text-xs text-white/40">Loading…</p>';
-          fetchRoundRecapWithProgress(subsessionId).then((recap) => renderRoundRecap(container, recap));
+          fetchRoundRecapWithProgress(subsessionId).then((recap) => renderRoundRecap(container, recap, subsessionId));
         });
       });
     }
@@ -670,6 +730,8 @@ const upcomingIcsBundle = upcoming
       trackName: string;
       startTime: string;
       seasonLabel: string | null;
+      /** Null for an exhibition/test/non-championship round — same meaning as everywhere else this display numbering is used (see computeDisplayRoundNumbers' own doc comment, src/lib/results.ts). */
+      displayRoundNumber: number | null;
     }
 
     const layoutRoundsCache = new Map<string, Promise<LayoutRoundLite[] | null>>();
@@ -728,7 +790,13 @@ const upcomingIcsBundle = upcoming
 
         const summary = document.createElement('summary');
         summary.className = 'cursor-pointer list-none text-xs font-semibold text-white/60 transition hover:text-white';
-        summary.textContent = `${formatDate(r.startTime)}${r.seasonLabel ? ` — ${r.seasonLabel}` : ''} — ${r.trackName}`;
+        // "Date: ATCX, Round X" per Logan — season label already comes back
+        // in the "ATCxx" short form (season name), and displayRoundNumber
+        // is the same app-computed "Round N" every other results view
+        // shows; either half falls back to "Exhibition" when this round
+        // isn't a numbered championship round.
+        const roundLabel = r.displayRoundNumber !== null ? `Round ${r.displayRoundNumber}` : 'Exhibition';
+        summary.textContent = `${formatDate(r.startTime)}: ${r.seasonLabel ?? 'Exhibition'}, ${roundLabel}`;
         details.appendChild(summary);
 
         const body = document.createElement('div');

@@ -1957,6 +1957,48 @@ export function resolveSeasonRuleset(season: Pick<Season, 'scoring_ruleset_id'>,
   return rulesets.find((r) => r.is_default) ?? null;
 }
 
+/**
+ * Round incident limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) —
+ * informational only, no scoring effect. Pulled out of
+ * results/[subsessionId].astro (where it originated, for an
+ * already-imported round) so EventDetailCard.astro/calendar.astro can show
+ * the same "15x"/"8x" figure for an EVENT, which may not have an imported
+ * round/subsession_id yet — both reduce to the same
+ * ruleset.rules.round_incident_limit.sprint/.endurance lookup, with a
+ * per-subsession race_overrides escape hatch for special events (checked
+ * first, same as base_points/classified_minimum overrides elsewhere).
+ *
+ * Read straight off `rules` (jsonb, typed `unknown` — see ScoringRuleset's
+ * own doc comment) with defensive optional-chaining since nothing
+ * guarantees its shape. Returns null whenever nothing resolves (no
+ * ruleset, a 'special'/null format, or no matching override) —
+ * deliberately not 0, since 0 would read as "no incidents allowed" rather
+ * than "no limit configured".
+ */
+export function resolveIncidentLimit(
+  ruleset: ScoringRuleset | null,
+  format: 'sprint' | 'endurance' | 'special' | null,
+  subsessionId: number | null
+): number | null {
+  const rules = (ruleset?.rules ?? null) as
+    | {
+        round_incident_limit?: { sprint?: number; endurance?: number };
+        race_overrides?: { subsession_ids?: number[]; incident_limit?: number };
+      }
+    | null;
+  const override = rules?.race_overrides;
+  if (subsessionId !== null && override?.subsession_ids?.includes(subsessionId) && typeof override.incident_limit === 'number') {
+    return override.incident_limit;
+  }
+  if (format === 'sprint' && typeof rules?.round_incident_limit?.sprint === 'number') {
+    return rules.round_incident_limit.sprint;
+  }
+  if (format === 'endurance' && typeof rules?.round_incident_limit?.endurance === 'number') {
+    return rules.round_incident_limit.endurance;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // CALENDAR — circuits + events
 // ---------------------------------------------------------------------------
@@ -2285,6 +2327,8 @@ export interface EventRecord {
   race3_laps: number | null;
   race3_weather: Weather | null;
   race3_wet_affected: boolean;
+  /** Free-text rules note for this event (0094_events_rules.sql) — shown on the calendar card to the left of the Fuel Limit line (EventDetailCard.astro), editable from the admin event form. Independent of fuel_limit_pct and the ruleset-driven incident limit (that one's read-only, resolved from the season's scoring ruleset — see resolveIncidentLimit). Null when nothing's been entered. */
+  rules: string | null;
 }
 
 export interface EventWithCircuit extends EventRecord {
@@ -2294,7 +2338,7 @@ export interface EventWithCircuit extends EventRecord {
 }
 
 const EVENT_SELECT =
-  'id,circuit_id,layout,event_date,format,fuel_limit_pct,results_url,category,title,subtitle,season_id,round_number,subsession_id,' +
+  'id,circuit_id,layout,event_date,format,fuel_limit_pct,rules,results_url,category,title,subtitle,season_id,round_number,subsession_id,' +
   'practice_start_time,practice_sim_time,practice_minutes,practice_weather,' +
   'qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
   'race1_start_time,race1_sim_time,race1_laps,race1_weather,race1_wet_affected,' +

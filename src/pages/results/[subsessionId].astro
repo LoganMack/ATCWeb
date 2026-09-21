@@ -18,6 +18,7 @@ import {
   getSeasonById,
   getScoringRulesets,
   resolveSeasonRuleset,
+  resolveIncidentLimit,
   getCircuits,
   getAllCircuitLayouts,
   type RaceLinks,
@@ -260,20 +261,7 @@ async function loadIncidentLimit() {
   try {
     const [incidentLimitSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round!.season_id), getScoringRulesets(supabaseEnv)]);
     const ruleset = incidentLimitSeason ? resolveSeasonRuleset(incidentLimitSeason, rulesets) : null;
-    const rules = (ruleset?.rules ?? null) as
-      | {
-          round_incident_limit?: { sprint?: number; endurance?: number };
-          race_overrides?: { subsession_ids?: number[]; incident_limit?: number };
-        }
-      | null;
-    const override = rules?.race_overrides;
-    if (override?.subsession_ids?.includes(subsessionId) && typeof override.incident_limit === 'number') {
-      incidentLimit = override.incident_limit;
-    } else if (round!.format === 'sprint' && typeof rules?.round_incident_limit?.sprint === 'number') {
-      incidentLimit = rules.round_incident_limit.sprint;
-    } else if (round!.format === 'endurance' && typeof rules?.round_incident_limit?.endurance === 'number') {
-      incidentLimit = rules.round_incident_limit.endurance;
-    }
+    incidentLimit = resolveIncidentLimit(ruleset, round!.format, subsessionId);
   } catch (err) {
     console.error('Failed to resolve round incident limit:', err);
   }

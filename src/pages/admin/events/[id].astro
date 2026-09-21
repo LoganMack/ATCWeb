@@ -89,6 +89,7 @@ function readForm(form: FormData): Partial<EventRecord> {
     event_date: str(form, 'event_date'),
     format: (str(form, 'format') || 'sprint') as EventFormat,
     fuel_limit_pct: circuitless ? null : optInt(form, 'fuel_limit_pct'),
+    rules: circuitless ? null : optStr(form, 'rules'),
     results_url: circuitless ? null : optStr(form, 'results_url'),
     category,
     season_id: seasonId,
@@ -218,6 +219,7 @@ const d: Partial<EventRecord> = event ?? {
   event_date: '',
   format: 'sprint',
   fuel_limit_pct: null,
+  rules: null,
   results_url: '',
   category: 'championship',
   season_id: null,
@@ -428,6 +430,16 @@ const d: Partial<EventRecord> = event ?? {
             min="0"
             name="fuel_limit_pct"
             value={d.fuel_limit_pct ?? ''}
+            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </label>
+        <label class="flex flex-col gap-1.5 text-sm sm:col-span-2">
+          <span class="text-white/70">Rules</span>
+          <input
+            type="text"
+            name="rules"
+            value={d.rules ?? ''}
+            placeholder="Optional — shown on the calendar card next to the fuel limit"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
         </label>
