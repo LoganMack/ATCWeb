@@ -2854,6 +2854,36 @@ export async function getPageViewStats(env: SupabaseEnv, accessToken: string): P
   }
 }
 
+export interface NewsPostViewCount {
+  path: string;
+  views: number;
+}
+
+/**
+ * Reads get_news_post_view_counts() (news_post_view_counts migration) — one
+ * row per `/news/<slug>` path that's ever actually been hit, with its
+ * all-time unique (distinct visitor_hash) view count. Backs the "Views"
+ * column on the admin News list. Same admin-only RLS gate as
+ * getPageViewStats (the accessToken is what actually gets past
+ * page_views' "admin read" policy). Returns null (rather than throwing) on
+ * any failure so the admin news list can just skip the Views column
+ * instead of failing the whole page.
+ */
+export async function getNewsPostViewCounts(env: SupabaseEnv, accessToken: string): Promise<NewsPostViewCount[] | null> {
+  try {
+    const res = await fetch(`${env.url}/rest/v1/rpc/get_news_post_view_counts`, {
+      method: 'POST',
+      headers: writeHeaders(env, accessToken),
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return (await res.json()) as NewsPostViewCount[];
+  } catch (err) {
+    console.error('Failed to load news post view counts:', err);
+    return null;
+  }
+}
+
 // --- Admin dashboard summary counts ----------------------------------------
 // Small, single-purpose count helpers backing the /admin dashboard card
 // subtitles — kept separate from each table's own CRUD functions above

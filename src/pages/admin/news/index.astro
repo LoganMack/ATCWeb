@@ -2,19 +2,28 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsPosts, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getAllNewsPosts, getNewsPostViewCounts, formatDate } from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
 
-let posts: Awaited<ReturnType<typeof getAllNewsPosts>> = [];
-let loadError = false;
-try {
-  posts = await getAllNewsPosts(supabaseEnv, accessToken);
-} catch (err) {
+// Independent fetches — the post list and the (separate, page_views-backed)
+// view counts don't depend on each other, so they run concurrently rather
+// than one after the other.
+const postsPromise = getAllNewsPosts(supabaseEnv, accessToken).catch((err) => {
   console.error('Failed to load news posts for admin:', err);
-  loadError = true;
-}
+  return null;
+});
+// getNewsPostViewCounts already swallows its own errors and returns null,
+// so this column just quietly shows nothing rather than failing the whole
+// page over an analytics hiccup.
+const viewCountsPromise = getNewsPostViewCounts(supabaseEnv, accessToken);
+
+const [postsResult, viewCounts] = await Promise.all([postsPromise, viewCountsPromise]);
+const posts: Awaited<ReturnType<typeof getAllNewsPosts>> = postsResult ?? [];
+const loadError = postsResult === null;
+// All-time unique views, keyed by each post's own /news/<slug> path.
+const viewsByPath = new Map<string, number>((viewCounts ?? []).map((v) => [v.path, v.views]));
 ---
 
 <AdminLayout title="News">
@@ -55,11 +64,14 @@ try {
             <th class="py-3 pr-3 font-medium" data-sort-key="author">Author</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="date">Published</th>
             <th class="py-3 pr-3 font-medium" data-sort-key="status">Status</th>
+            <th class="py-3 pr-3 text-center font-medium" data-sort-key="views" title="Unique views since this article was published">Views</th>
             <th class="py-3 pr-6 font-medium"></th>
           </tr>
         </thead>
         <tbody>
-          {posts.map((post) => (
+          {posts.map((post) => {
+            const views = viewsByPath.get(`/news/${post.slug}`) ?? 0;
+            return (
             <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
               <td class="py-3 pl-6 pr-3 font-semibold" data-col="title">{post.title}</td>
               <td class="py-3 pr-3 text-white/60" data-col="season" data-sort-value={post.season_label ?? ''}>
@@ -82,11 +94,15 @@ try {
                   {post.status}
                 </span>
               </td>
+              <td class="py-3 pr-3 text-center text-white/60" data-col="views" data-sort-value={views}>
+                {post.status === 'published' ? views.toLocaleString() : '—'}
+              </td>
               <td class="py-3 pr-6 text-right">
                 <a href={`/admin/news/${post.id}/edit`} class="text-sm font-semibold text-brand-primary hover:underline">Edit</a>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
