@@ -81,7 +81,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="Circuits" description="Every circuit Alpha Touring Challenge has raced, with each layout's lap record.">
-  <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-8">
+  <section class="relative mx-auto max-w-5xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Circuits</h1>
 
@@ -107,7 +107,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && sortedLayouts.length > 0 && (
-      <div class="reveal mt-4 overflow-hidden rounded-xl border border-white/10" style="transition-delay: 100ms" data-sticky-thead>
+      <div class="reveal mt-4 rounded-xl border border-white/10" style="transition-delay: 100ms" data-sticky-thead>
         <table class="w-full border-collapse text-sm">
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
