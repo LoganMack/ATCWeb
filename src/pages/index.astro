@@ -188,6 +188,17 @@ await Promise.all([
 const featuredNews = latestNews[0] ?? null;
 const moreNews = latestNews.slice(1, 16);
 
+// Previous Result widget's default-open session — a visitor lands here
+// wanting to see how the RACE went, not practice/qualifying, so this
+// defaults to the first race session (key `race-1`/`race-N`, see
+// getPreviousResultWidget's own doc comment for how `sessions` gets built:
+// Practice, then Qualifying, then each race in order) when the round has
+// one, falling back to whatever the first session actually on file is
+// (Qualifying, or Practice) for a round that hasn't had a race imported
+// yet. Per Logan.
+const defaultPreviousResultSessionKey =
+  previousResult?.sessions.find((s) => s.key.startsWith('race-'))?.key ?? previousResult?.sessions[0]?.key ?? null;
+
 // Same pre-joined-bundle approach as calendar.astro's own "Add All to
 // Calendar" button, just scoped to whatever's actually shown here (the
 // next few upcoming events, not the whole calendar) — see src/lib/ics.ts.
@@ -516,18 +527,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         data-session-select
                         class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary"
                       >
-                        {previousResult.sessions.map((session, i) => (
-                          <option value={session.key} selected={i === 0} class="bg-brand-ink text-white">
+                        {previousResult.sessions.map((session) => (
+                          <option value={session.key} selected={session.key === defaultPreviousResultSessionKey} class="bg-brand-ink text-white">
                             {session.label}
                           </option>
                         ))}
                       </select>
 
-                      {previousResult.sessions.map((session, i) => (
+                      {previousResult.sessions.map((session) => (
                         <select
                           data-result-type-select
                           data-session={session.key}
-                          class={`rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary ${i === 0 ? '' : 'hidden'}`}
+                          class={`rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary ${session.key === defaultPreviousResultSessionKey ? '' : 'hidden'}`}
                         >
                           {session.tabs.map((tab, j) => (
                             <option value={tab.key} selected={j === 0} class="bg-brand-ink text-white">
@@ -540,8 +551,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   </div>
 
                   <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
-                    {previousResult.sessions.map((session, i) => (
-                      <div data-session-panel={session.key} class={i === 0 ? '' : 'hidden'}>
+                    {previousResult.sessions.map((session) => (
+                      <div data-session-panel={session.key} class={session.key === defaultPreviousResultSessionKey ? '' : 'hidden'}>
                         {session.tabs.map((tab, j) => (
                           <ol data-result-panel={tab.key} class={j === 0 ? '' : 'hidden'}>
                             {tab.rows.length === 0 ? (
