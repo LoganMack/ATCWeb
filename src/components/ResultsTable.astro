@@ -35,7 +35,7 @@
 import type { RaceResultRow } from '../lib/results';
 import type { Penalty } from '../lib/supabase';
 import { displayDriverName, shortDriverName } from '../lib/supabase';
-import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from '../lib/penalties';
+import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints, scoringRaceNumber } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
@@ -154,11 +154,14 @@ const {
   driverBestLapsAtTrack,
 } = Astro.props;
 
-// racePenalties is filtered by session_type 'race' too — a stray
-// qualifying/practice penalty (race_number sentinel 0, never a real race
-// number) could never match raceNumber anyway, but the explicit check keeps
-// intent obvious here rather than relying on that coincidence.
-const racePenalties = penalties.filter((p) => p.session_type === 'race' && p.race_number === raceNumber);
+// Filtered by scoringRaceNumber (src/lib/penalties.ts), not the raw
+// session_type/race_number fields — a qualifying/practice-logged penalty is
+// stored with race_number pinned to the sentinel 0, but per Logan it always
+// SCORES onto Race 1 (see scoringRaceNumber's own doc comment), so it needs
+// to show up here — both the tag badge and the Timings breakdown below —
+// on Race 1's table too, not just on whichever session it was literally
+// logged against.
+const racePenalties = penalties.filter((p) => scoringRaceNumber(p) === raceNumber);
 // A Racing Incident entry (driver_id null) can't be attached to any
 // driver's row here — it has no driver — so it's simply excluded from this
 // map; it still shows up on the Incident Report page.
@@ -204,6 +207,16 @@ for (const p of racePenalties) {
           // real EXCEPT the two non-penalty states: no tag at all, and a
           // bare "Racing Incident" with no logged effect.
           const isRealPenalty = tagLabel !== '' && tagLabel !== 'Racing Incident';
+          // Total effective time penalty (seconds) from rowPenalties above —
+          // already baked into row.overallRaceTimeFormatted by
+          // src/lib/penalties.ts's own recalculation engine (upstream of this
+          // display), itemized here so it's clear at a glance how much of
+          // that figure came from a penalty — same reasoning as the Points
+          // Breakdown table's own "Penalty Adjustment" delta below. Includes
+          // a qualifying/practice-logged penalty that scored onto this race
+          // (see racePenalties above), not just one logged directly against
+          // it.
+          const timePenalty = rowPenalties.reduce((sum, p) => sum + (effectiveTimePenaltySeconds(p) ?? 0), 0);
           const bonusLines = bonusPointsLines(row);
           // Modeled on newsRecap.ts's track-record check (matchCircuitLayout/
           // isTrackRecord) but per-DRIVER: did this driver's best lap THIS
@@ -416,10 +429,16 @@ for (const p of racePenalties) {
                         <td class="py-1 text-white/50">Average Lap</td>
                         <td class="py-1 text-right font-display text-white/90">{row.averageLapFormatted}</td>
                       </tr>
-                      <tr>
+                      <tr class={timePenalty !== 0 ? 'border-b border-white/5' : ''}>
                         <td class="py-1 text-white/50">Race Time</td>
                         <td class="py-1 text-right font-display text-white/90">{row.overallRaceTimeFormatted}</td>
                       </tr>
+                      {timePenalty !== 0 && (
+                        <tr>
+                          <td class="py-1 text-white/50">Time Penalty</td>
+                          <td class="py-1 text-right font-display font-semibold text-brand-pink">+{timePenalty}s</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

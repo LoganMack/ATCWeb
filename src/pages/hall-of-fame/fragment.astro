@@ -15,7 +15,7 @@ import {
   displayDriverName,
   type HallOfFamePhoto,
 } from '../../lib/supabase';
-import { computeDriverCareerStats, type DriverCareerStats } from '../../lib/results';
+import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
 import { classBadgeClasses } from '../../lib/classColors';
 
 /**
@@ -72,6 +72,55 @@ function raceWord(n: number): string {
   return `${n} race${n === 1 ? '' : 's'}`;
 }
 
+// Overall/Alpha/Gamma/Delta stat filter on each card (per Logan) — see the
+// buttons below in the template for the full reasoning. Kept as a plain
+// tuple (not `classes` from getDriverClasses) since these four labels are
+// fixed regardless of what's actually on file, and "Overall" isn't a real
+// driver_classes row to begin with.
+const HOF_CLASS_KEYS = ['Overall', 'Alpha', 'Gamma', 'Delta'] as const;
+type HofClassKey = (typeof HOF_CLASS_KEYS)[number];
+
+interface HofExtras {
+  statsByClass: Record<HofClassKey, DriverCareerStats>;
+  defaultClass: HofClassKey;
+}
+
+// Precomputed here (frontmatter), not inline in the template's own
+// members.map() below, because a `Record<HofClassKey, ...>` type
+// annotation written INSIDE a template `{}` expression trips up Astro's
+// compiler — the `<`/`>` of the generic reads as the start of a JSX tag to
+// its expression-boundary scan, corrupting everything after it (reproduced
+// live: adding that one annotated const inside the template map callback
+// broke the whole file's build with an unrelated-looking esbuild parse
+// error many lines later). Plain TS in frontmatter has no such issue.
+const hofExtrasByDriverId = new Map<string, HofExtras>();
+for (const entry of members) {
+  const statsByClass: Record<HofClassKey, DriverCareerStats> = {
+    Overall: entry,
+    Alpha: aggregateDriverCareerStats(entry.driver, entry.seasons.filter((r) => r.className === 'Alpha')),
+    Gamma: aggregateDriverCareerStats(entry.driver, entry.seasons.filter((r) => r.className === 'Gamma')),
+    Delta: aggregateDriverCareerStats(entry.driver, entry.seasons.filter((r) => r.className === 'Delta')),
+  };
+
+  // Defaults to whichever class this member has made the most career
+  // starts in — Overall instead if Alpha wins that tiebreak, per Logan
+  // (Alpha is the default/entry class every driver starts in, so it isn't
+  // informative to call out on its own the way a Gamma/Delta specialist's
+  // class is; Overall already covers an Alpha-heavy career same as it
+  // would for anyone else).
+  let defaultClass: HofClassKey = 'Overall';
+  let mostStarts = -1;
+  for (const key of ['Alpha', 'Gamma', 'Delta'] as const) {
+    if (statsByClass[key].starts > mostStarts) {
+      mostStarts = statsByClass[key].starts;
+      defaultClass = key;
+    }
+  }
+  if (defaultClass === 'Alpha') defaultClass = 'Overall';
+
+  hofExtrasByDriverId.set(entry.driver.id, { statsByClass, defaultClass });
+}
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
@@ -90,10 +139,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   <div class="mt-8 flex flex-col gap-5">
     {members.map((entry, i) => {
       const name = displayDriverName(entry.driver.name);
+      const hof = hofExtrasByDriverId.get(entry.driver.id)!;
       return (
         <div
           class="reveal overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]"
           style={`transition-delay: ${Math.min(i, 4) * 30}ms`}
+          data-hof-card
         >
           <div
             data-expand-row
@@ -117,20 +168,52 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   {name} {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
                 </h3>
                 <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
+
+                {/* Overall/Alpha/Gamma/Delta stat filter (per Logan) — one
+                    independent toggle per card, pushed to the right end of
+                    the driver-name line via ml-auto. Click handling lives
+                    in src/scripts/hofClassFilter.ts (delegated, scoped to
+                    this card's own [data-hof-card] ancestor); expandRows.ts
+                    has a matching guard so clicking a button here doesn't
+                    also toggle the card's season-table row open/closed
+                    underneath it, same as it already does for PhotoGrid's
+                    lightbox buttons nested the same way. */}
+                <div class="ml-auto flex flex-wrap gap-1.5">
+                  {HOF_CLASS_KEYS.map((key) => (
+                    <button
+                      type="button"
+                      data-hof-class-btn
+                      data-hof-class-value={key}
+                      class="rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
+                      data-active={key === hof.defaultClass ? 'true' : 'false'}
+                    >
+                      {key}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {entry.bio && <p class="mt-3 max-w-2xl text-sm text-white/70">{entry.bio}</p>}
 
-              <dl class="mt-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
-                <StatBlock label="Championships" value={entry.championships} />
-                <StatBlock label="Wins" value={entry.wins} sub={entry.starts ? `${entry.starts} starts` : undefined} />
-                <StatBlock label="Poles" value={entry.poles} />
-                <StatBlock label="Podiums" value={entry.podiums} />
-                <StatBlock label="Top 5" labelSuffixLower="s" value={entry.top5s} />
-                <StatBlock label="Top 10" labelSuffixLower="s" value={entry.top10s} />
-                <StatBlock label="Starts" value={entry.starts} />
-                <StatBlock label="Appearances" value={entry.appearances} />
-              </dl>
+              {/* All four class variants render server-side; only the
+                  default one starts visible, and hofClassFilter.ts just
+                  toggles `hidden` on click rather than re-fetching or
+                  re-rendering anything. */}
+              {HOF_CLASS_KEYS.map((key) => (
+                <dl
+                  class={`mt-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4 ${key === hof.defaultClass ? '' : 'hidden'}`}
+                  data-hof-stats-panel={key}
+                >
+                  <StatBlock label="Championships" value={hof.statsByClass[key].championships} />
+                  <StatBlock label="Wins" value={hof.statsByClass[key].wins} sub={hof.statsByClass[key].starts ? `${hof.statsByClass[key].starts} starts` : undefined} />
+                  <StatBlock label="Poles" value={hof.statsByClass[key].poles} />
+                  <StatBlock label="Podiums" value={hof.statsByClass[key].podiums} />
+                  <StatBlock label="Top 5" labelSuffixLower="s" value={hof.statsByClass[key].top5s} />
+                  <StatBlock label="Top 10" labelSuffixLower="s" value={hof.statsByClass[key].top10s} />
+                  <StatBlock label="Starts" value={hof.statsByClass[key].starts} />
+                  <StatBlock label="Appearances" value={hof.statsByClass[key].appearances} />
+                </dl>
+              ))}
             </div>
           </div>
 

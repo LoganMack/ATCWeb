@@ -2,12 +2,25 @@
 // One round's Qualifying results — unlike ResultsTable.astro (one instance
 // per real race number), there's only ever one of these per round, since
 // qualifying isn't split by race (see getQualifyingForSubsession in
-// src/lib/results.ts). Deliberately lean: no expand row, no penalty tag, no
-// points column at all — per Logan, qualifying/practice results replace the
-// Margin column with Best Lap and hide every points column outright, since
+// src/lib/results.ts). Deliberately lean: no expand row, no points column
+// at all — per Logan, qualifying/practice results replace the Margin
+// column with Best Lap and hide every points column outright, since
 // qualifying carries no points of its own.
+//
+// DOES show the same penalty tag ResultsTable.astro shows (per Logan) —
+// a penalty logged directly against qualifying always SCORES onto Race 1
+// (see src/lib/penalties.ts's scoringRaceNumber), but it was still LOGGED
+// against this driver's qualifying result, so a visitor looking at
+// Qualifying needs to see it flagged here too, not just discover it later
+// on the Race 1 table it happens to score against. Shares the exact tag
+// label/styling logic ResultsTable.astro uses (sharedPenaltyTagLabel/
+// isRealPenaltyTag, src/lib/penalties.ts — see the former's own doc
+// comment for why it's not just named "penaltyTagLabel") rather than a
+// separate copy.
 import type { QualifyingRow } from '../lib/results';
+import type { Penalty } from '../lib/supabase';
 import { displayDriverName, shortDriverName } from '../lib/supabase';
+import { sharedPenaltyTagLabel, isRealPenaltyTag } from '../lib/penalties';
 import { classBadgeClasses } from '../lib/classColors';
 import DriverFlag from './DriverFlag.astro';
 
@@ -15,9 +28,25 @@ interface Props {
   rows: QualifyingRow[];
   showClass?: boolean;
   classNameById?: Map<number, string>;
+  /** Every penalty logged anywhere in this round — filtered down to session_type === 'qualifying' below, same "pass unfiltered, filter here" convention as ResultsTable.astro's own `penalties` prop. */
+  penalties?: Penalty[];
 }
 
-const { rows, showClass = false, classNameById } = Astro.props;
+const { rows, showClass = false, classNameById, penalties = [] } = Astro.props;
+
+// Unlike ResultsTable.astro there's no race_number to also match — every
+// qualifying penalty already belongs to THE ONE qualifying session this
+// table shows (race_number is always the sentinel 0 here — see Penalty's
+// own doc comment), so session_type alone is enough to scope this.
+const qualifyingPenalties = penalties.filter((p) => p.session_type === 'qualifying');
+// A Racing Incident entry (driver_id null) can't be attached to any
+// driver's row here — same exclusion as ResultsTable.astro's own map.
+const penaltiesByDriver = new Map<string, Penalty[]>();
+for (const p of qualifyingPenalties) {
+  if (!p.driver_id) continue;
+  if (!penaltiesByDriver.has(p.driver_id)) penaltiesByDriver.set(p.driver_id, []);
+  penaltiesByDriver.get(p.driver_id)!.push(p);
+}
 ---
 
 <div class="mt-6">
@@ -32,7 +61,11 @@ const { rows, showClass = false, classNameById } = Astro.props;
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
+        {rows.map((row) => {
+          const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
+          const tagLabel = sharedPenaltyTagLabel(rowPenalties);
+          const isRealPenalty = isRealPenaltyTag(tagLabel);
+          return (
           <tr class={`border-b border-white/5 text-sm ${row.notInRoster ? 'opacity-50' : ''}`}>
             <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70">
               {row.qualPosition ?? '—'}
@@ -52,6 +85,16 @@ const { rows, showClass = false, classNameById } = Astro.props;
                     Driver not listed in roster
                   </span>
                 )}
+                {tagLabel && (
+                  <span
+                    class={isRealPenalty
+                      ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold'
+                      : 'rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50'}
+                    title="See the Incident Report for full details"
+                  >
+                    {tagLabel}
+                  </span>
+                )}
               </div>
             </td>
             {showClass && (
@@ -67,7 +110,8 @@ const { rows, showClass = false, classNameById } = Astro.props;
             )}
             <td class="py-2.5 pr-4 text-center font-semibold">{row.bestLapFormatted}</td>
           </tr>
-        ))}
+          );
+        })}
       </tbody>
     </table>
   </div>

@@ -425,7 +425,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     {round && (
       <>
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
-          {isExhibition ? 'Exhibition — ' : displayRoundNumber !== null ? `Round ${displayRoundNumber} — ` : ''}{round.track_name}
+          {round.track_name}
         </h1>
         <div class="reveal mt-3" style="transition-delay: 80ms">
           <p class="text-white/60">{formatDate(round.start_time)}</p>
@@ -543,13 +543,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {qualifying.overall.length === 0 && <p class="mt-10 text-white/60">No qualifying results.</p>}
 
             {view === 'overall' && qualifying.overall.length > 0 && (
-              <QualifyingResultsTable rows={qualifying.overall} showClass classNameById={classNameById} />
+              <QualifyingResultsTable rows={qualifying.overall} showClass classNameById={classNameById} penalties={penalties} />
             )}
 
             {view === 'class' && qualifyingOrderedClassIds.map((classId) => (
               <div class="mt-12">
                 <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
-                <QualifyingResultsTable rows={qualifying.byClass.get(classId)!} />
+                <QualifyingResultsTable rows={qualifying.byClass.get(classId)!} penalties={penalties} />
               </div>
             ))}
           </>

@@ -222,19 +222,24 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       (every group happens to have exactly 4 options, so this tiles evenly)
       rather than a loose wrapped row — narrowed to w-3/4 of their grid cell
       per Logan's request so they don't feel as heavy as a full-width tile.
-      The freed-up 25% is pushed to the OUTER edges of each row (odd/left
-      button justify-self-end, even/right button justify-self-start) rather
-      than left in the middle, so the visual gap between the two buttons in
-      a row stays exactly gap-1.5, same as before the shrink — only the
-      row's overall width changed, not the spacing between its buttons.
-      Each group's label is wrapped in its own (otherwise-unused)
-      grid-cols-2 div and given the SAME w-3/4 justify-self-end sizing as
-      the leftmost button, so its text box's left edge lands exactly where
-      that button's left edge does — both grids share the same parent
-      width and the same 1fr/1fr column split, so their column 1 tracks
-      always coincide regardless of viewport width, without hardcoding a
-      pixel/percent offset. "Activity" here is the Active/Inactive/Unassigned/All group
-      (data-filter-group="status" in the markup/script below — the
+
+      Edge alignment (per Logan): Class (the leftmost group) is flush-left
+      — every button's `[&>*]:justify-self-start` keeps it hugging the left
+      edge of its own grid cell, so the group's overall left edge lands at
+      the same x as the search box's left edge above it (true for ANY
+      column count, since a grid's first column always starts at the
+      container's own left inner edge). Status (the rightmost group,
+      data-filter-group="experience" — see below) mirrors that with
+      `[&>*]:justify-self-end`, so its rightmost button's right edge lands
+      at the container's right inner edge, same as the nationality dropdown
+      above it (last column of any grid always ends there too). Each of
+      those two groups' labels drop the old shared grid-cols-2 wrapper and
+      just use a plain full-width span with text-align left/right to match
+      — simpler than trying to keep a label in step with a 2-column button
+      grid it's no longer centered over. Activity (the middle group) keeps
+      its original centered treatment untouched — nothing on either side of
+      it to align with. "Activity" here is the Active/Inactive/Unassigned/All
+      group (data-filter-group="status" in the markup/script below — the
       attribute name predates this label and isn't worth a churny rename)
       and "Status" is the New/Rookie/Veteran group
       (data-filter-group="experience") — see that group's own doc comment
@@ -249,22 +254,47 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
           placeholder="Search drivers, numbers, or teams…"
           class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
         />
-        <select
-          id="roster-nationality"
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        >
-          <option value="All" class="bg-brand-ink text-white">All Nationalities</option>
-          {nationalityOptions.map((n) => (
-            <option value={n.code} class="bg-brand-ink text-white">{n.name}</option>
-          ))}
-        </select>
+        <!--
+          Multi-select nationality filter (per Logan — checking both US and
+          UK should show drivers from either). A native <select multiple>
+          is highlight-based, not check-based, and is awkward without
+          ctrl/cmd-click, so this is a custom button + checkbox panel
+          instead, following the same open/closed disclosure idea as the
+          <details> dropdowns used elsewhere on the site. `state.nationality`
+          becomes a Set below (empty = "All", same as before); the trigger
+          button's own label text updates to reflect the current selection
+          (see updateNationalityLabel() in the script).
+        -->
+        <div class="relative" data-nationality-dropdown>
+          <button
+            type="button"
+            id="roster-nationality-toggle"
+            aria-haspopup="true"
+            aria-expanded="false"
+            class="flex w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-left text-white outline-none focus:border-brand-primary"
+          >
+            <span id="roster-nationality-label" class="truncate">All Nationalities</span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="flex-none text-white/40" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          <div
+            id="roster-nationality-panel"
+            class="absolute right-0 z-10 mt-1 hidden max-h-64 w-full min-w-[14rem] overflow-y-auto rounded-md border border-white/15 bg-brand-ink p-1.5 shadow-lg"
+          >
+            {nationalityOptions.map((n) => (
+              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-white/80 hover:bg-white/10">
+                <input type="checkbox" class="roster-nationality-checkbox" value={n.code} data-nat-name={n.name} />
+                {n.name}
+              </label>
+            ))}
+          </div>
+        </div>
       </div>
       <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
-          <div class="grid grid-cols-2 gap-1.5">
-            <span class="mb-1.5 block w-3/4 justify-self-end text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-          </div>
-          <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="class">
+          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+          <div class="grid grid-cols-2 gap-1.5 [&>*]:justify-self-start" data-filter-group="class">
             {classes.map((c) => (
               <button
                 type="button"
@@ -295,10 +325,8 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
           </div>
         </div>
         <div>
-          <div class="grid grid-cols-2 gap-1.5">
-            <span class="mb-1.5 block w-3/4 justify-self-end text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
-          </div>
-          <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="experience">
+          <span class="mb-1.5 block text-right text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
+          <div class="grid grid-cols-2 gap-1.5 [&>*]:justify-self-end" data-filter-group="experience">
             {experienceLevels.map((x) => (
               <button
                 type="button"
@@ -374,21 +402,48 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
     function initRosterFilters() {
       const body = document.getElementById('roster-body');
       const searchInput = document.getElementById('roster-search') as HTMLInputElement | null;
-      const nationalitySelect = document.getElementById('roster-nationality') as HTMLSelectElement | null;
+      const nationalityDropdown = document.querySelector<HTMLElement>('[data-nationality-dropdown]');
+      const nationalityToggle = document.getElementById('roster-nationality-toggle');
+      const nationalityPanel = document.getElementById('roster-nationality-panel');
+      const nationalityLabel = document.getElementById('roster-nationality-label');
+      const nationalityCheckboxes = Array.from(
+        document.querySelectorAll<HTMLInputElement>('.roster-nationality-checkbox')
+      );
       const empty = document.getElementById('roster-search-empty');
       if (!body) return;
 
       // Defaults match what's marked data-active="true" in the markup:
       // all classes, active-ish drivers only, any experience level, any
-      // nationality, empty search.
-      const state: Record<string, string> = { class: 'All', status: 'Active', experience: 'All', nationality: 'All', search: '' };
+      // nationality (empty Set — see below), empty search.
+      const state: { class: string; status: string; experience: string; nationality: Set<string>; search: string } = {
+        class: 'All',
+        status: 'Active',
+        experience: 'All',
+        nationality: new Set<string>(),
+        search: '',
+      };
 
       // A driver can hold up to two nationalities (data-nationalities is a
-      // comma-joined lowercase pair from DriverRow.astro) — the dropdown
-      // matches if either one equals the selected code.
+      // comma-joined lowercase pair from DriverRow.astro) — a row matches
+      // if EITHER of its own nationalities is checked (an empty Set, "All
+      // Nationalities," matches everyone).
       function nationalityMatches(row: HTMLElement) {
-        if (state.nationality === 'All') return true;
-        return (row.dataset.nationalities ?? '').split(',').includes(state.nationality);
+        if (state.nationality.size === 0) return true;
+        const rowNationalities = (row.dataset.nationalities ?? '').split(',');
+        return rowNationalities.some((code) => state.nationality.has(code));
+      }
+
+      function updateNationalityLabel() {
+        if (!nationalityLabel) return;
+        if (state.nationality.size === 0) {
+          nationalityLabel.textContent = 'All Nationalities';
+        } else if (state.nationality.size === 1) {
+          const code = Array.from(state.nationality)[0];
+          const checkbox = nationalityCheckboxes.find((c) => c.value === code);
+          nationalityLabel.textContent = checkbox?.dataset.natName ?? code.toUpperCase();
+        } else {
+          nationalityLabel.textContent = `${state.nationality.size} Nationalities`;
+        }
       }
 
       function statusMatches(row: HTMLElement) {
@@ -452,9 +507,37 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         applyFilters();
       });
 
-      nationalitySelect?.addEventListener('change', () => {
-        state.nationality = nationalitySelect.value;
-        applyFilters();
+      nationalityCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) state.nationality.add(checkbox.value);
+          else state.nationality.delete(checkbox.value);
+          updateNationalityLabel();
+          applyFilters();
+        });
+      });
+
+      // Plain toggle (not <details>/<summary>) so outside-click can close
+      // it below — <details> has no built-in "close when you click
+      // elsewhere on the page" behavior, and a checkbox panel left open
+      // after you've clicked away would be an easy miss.
+      nationalityToggle?.addEventListener('click', () => {
+        const isOpen = !nationalityPanel?.classList.contains('hidden');
+        nationalityPanel?.classList.toggle('hidden');
+        nationalityToggle.setAttribute('aria-expanded', String(!isOpen));
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!nationalityDropdown || !nationalityPanel || nationalityPanel.classList.contains('hidden')) return;
+        if (nationalityDropdown.contains(e.target as Node)) return;
+        nationalityPanel.classList.add('hidden');
+        nationalityToggle?.setAttribute('aria-expanded', 'false');
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !nationalityPanel?.classList.contains('hidden')) {
+          nationalityPanel?.classList.add('hidden');
+          nationalityToggle?.setAttribute('aria-expanded', 'false');
+        }
       });
 
       // Apply the default filter state immediately — otherwise every row is

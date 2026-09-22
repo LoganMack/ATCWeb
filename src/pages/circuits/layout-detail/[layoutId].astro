@@ -1,0 +1,379 @@
+---
+export const prerender = false;
+
+// Circuits page's per-layout expanded-row content — fetched client-side,
+// once, the first time a visitor expands a given row on /circuits (see
+// src/scripts/circuitLayoutDetail.ts). A plain HTML fragment (not a
+// <Layout>-wrapped page, and not JSON) meant to be dropped straight into
+// that row's detail <td> via innerHTML — same shape as hall-of-fame/
+// fragment.astro, driver-stats/fragment.astro, etc., just fetched per-row
+// on demand instead of once for the whole page on load.
+//
+// Reuses the same history sections the Event Briefing page
+// (src/pages/briefing/[eventId].astro) shows for a layout, minus its
+// Schedule section (future-looking, no equivalent for a layout in
+// general rather than one specific upcoming event) and minus the plain
+// curated lap_record_seconds/holder/date line (already shown in the
+// row's own Record/Record Holder/Record Date columns on /circuits — no
+// need to repeat it here). Every query below is the exact "expensive
+// per-layout" version circuits.astro's own frontmatter comment explains
+// this page deliberately avoids running for every layout up front.
+import {
+  resolveSupabaseEnv,
+  getCircuitById,
+  getCircuitLayoutById,
+  getCircuits,
+  getAllCircuitLayouts,
+  getDriverClasses,
+  getPenaltiesForSubsessions,
+  getCarLogos,
+  getRaceLinksForSubsessions,
+  getAllTrackGuides,
+  formatDate,
+  formatLapTime,
+  displayDriverName,
+  type RaceLinks,
+} from '../../../lib/supabase';
+import {
+  findRoundsForLayout,
+  getAllRounds,
+  getRoundLayoutsForSubsessions,
+  getLayoutClassHighlights,
+  getLayoutClassBestLaps,
+  driversSelect,
+  describePenaltyResolution,
+  type LayoutRoundSummary,
+  type LayoutHighlights,
+  type ClassBestLap,
+} from '../../../lib/results';
+import { CATEGORY_LABELS } from '../../../lib/eventFormatting';
+import { classBadgeClasses, classBadgeLetter } from '../../../lib/classColors';
+
+const layoutId = Astro.params.layoutId ?? '';
+
+const layoutRow = layoutId ? await getCircuitLayoutById(resolveSupabaseEnv(Astro.locals), layoutId) : null;
+if (!layoutRow) {
+  Astro.response.status = 404;
+}
+
+let circuitName = 'this layout';
+let classNameById = new Map<number, string>();
+let historicalRounds: LayoutRoundSummary[] = [];
+let highlights: LayoutHighlights = { winnersByClass: new Map(), polesByClass: new Map() };
+let classBestLaps: Map<number, ClassBestLap> = new Map();
+let guideCount = 0;
+interface IncidentEntry {
+  round: LayoutRoundSummary;
+  identityLabel: string;
+  description: string;
+  resolution: string | null;
+}
+let incidentEntries: IncidentEntry[] = [];
+interface MediaEntry {
+  round: LayoutRoundSummary;
+  raceNumber: number;
+  url: string;
+}
+let broadcastEntries: MediaEntry[] = [];
+let photoAlbumEntries: MediaEntry[] = [];
+let loadError: string | null = null;
+
+if (layoutRow) {
+  try {
+    const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+    const [circuit, circuits, layouts, driverClasses, allRounds, drivers, carLogos, allGuides] = await Promise.all([
+      getCircuitById(supabaseEnv, layoutRow.circuit_id),
+      getCircuits(supabaseEnv),
+      getAllCircuitLayouts(supabaseEnv),
+      getDriverClasses(supabaseEnv),
+      getAllRounds(supabaseEnv),
+      driversSelect(supabaseEnv, { includeAi: true }),
+      getCarLogos(supabaseEnv),
+      getAllTrackGuides(supabaseEnv),
+    ]);
+
+    circuitName = circuit?.name ?? circuitName;
+    classNameById = new Map(driverClasses.map((c) => [c.id, c.name]));
+    guideCount = allGuides.filter((g) => g.layout_id === layoutRow!.id).length;
+
+    const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
+      supabaseEnv,
+      allRounds.map((r) => r.subsession_id)
+    );
+    historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, layoutRow.circuit_id, layoutRow.name);
+
+    const [layoutHighlights, layoutClassBestLaps, penalties, raceLinks] = await Promise.all([
+      getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
+      getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers, carLogos),
+      getPenaltiesForSubsessions(
+        supabaseEnv,
+        historicalRounds.map((r) => r.subsessionId)
+      ),
+      getRaceLinksForSubsessions(
+        supabaseEnv,
+        historicalRounds.map((r) => r.subsessionId)
+      ),
+    ]);
+    highlights = layoutHighlights;
+    classBestLaps = layoutClassBestLaps;
+
+    const driverById = new Map(drivers.map((d) => [d.id, d]));
+    const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
+    incidentEntries = penalties
+      .map((p): IncidentEntry | null => {
+        const round = roundBySubsession.get(p.subsession_id);
+        if (!round) return null;
+        const driver = p.driver_id ? driverById.get(p.driver_id) : null;
+        const identityLabel = driver
+          ? driver.car_number !== null
+            ? `#${driver.car_number}`
+            : displayDriverName(driver.name)
+          : 'Racing Incident';
+        return {
+          round,
+          identityLabel,
+          description: p.description?.trim() || 'No description provided.',
+          resolution: describePenaltyResolution(p),
+        };
+      })
+      .filter((x): x is IncidentEntry => x !== null)
+      .sort((a, b) => b.round.startTime.localeCompare(a.round.startTime));
+
+    const byRoundDesc = (a: MediaEntry, b: MediaEntry) => b.round.startTime.localeCompare(a.round.startTime);
+    broadcastEntries = raceLinks
+      .filter((l): l is RaceLinks & { broadcast_url: string } => l.broadcast_url !== null)
+      .map((l): MediaEntry | null => {
+        const round = roundBySubsession.get(l.subsession_id);
+        return round ? { round, raceNumber: l.race_number, url: l.broadcast_url } : null;
+      })
+      .filter((x): x is MediaEntry => x !== null)
+      .sort(byRoundDesc);
+    photoAlbumEntries = raceLinks
+      .filter((l): l is RaceLinks & { photo_album_url: string } => l.photo_album_url !== null)
+      .map((l): MediaEntry | null => {
+        const round = roundBySubsession.get(l.subsession_id);
+        return round ? { round, raceNumber: l.race_number, url: l.photo_album_url } : null;
+      })
+      .filter((x): x is MediaEntry => x !== null)
+      .sort(byRoundDesc);
+  } catch (err) {
+    console.error('Failed to load circuit layout detail:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+const orderedClassIdsWithWinners = [...classNameById.keys()].filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
+
+// Gamma/Delta only (per Logan, same reasoning as the Event Briefing page) —
+// Alpha's own class-best is typically indistinguishable from the plain
+// fastest-lap-ever figure already shown in the row's own Record column, so
+// a separate Alpha line here would mostly just repeat it.
+const gammaClassId = [...classNameById.entries()].find(([, name]) => name === 'Gamma')?.[0] ?? null;
+const deltaClassId = [...classNameById.entries()].find(([, name]) => name === 'Delta')?.[0] ?? null;
+const gammaBestLap = gammaClassId !== null ? (classBestLaps.get(gammaClassId) ?? null) : null;
+const deltaBestLap = deltaClassId !== null ? (classBestLaps.get(deltaClassId) ?? null) : null;
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+---
+
+{!layoutRow && <p class="text-white/40">Layout not found.</p>}
+
+{layoutRow && loadError && (
+  <p class="text-white/40">Couldn't load this layout's history right now.</p>
+)}
+
+{layoutRow && !loadError && (
+  <div class="flex flex-col gap-6">
+    {(guideCount > 0 || gammaBestLap || deltaBestLap) && (
+      <div>
+        <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Gamma &amp; Delta Best Laps</p>
+        {gammaBestLap || deltaBestLap ? (
+          <div class="mt-1.5 space-y-1.5">
+            {gammaBestLap && gammaClassId !== null && (
+              <p class="flex flex-wrap items-center gap-2">
+                <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(gammaClassId) ?? '')}`}>
+                  {classBadgeLetter(classNameById.get(gammaClassId) ?? '')}
+                </span>
+                <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
+                <span class="text-white/70">{displayDriverName(gammaBestLap.driver.name)}</span>
+                {gammaBestLap.carLogoUrl && (
+                  <img src={gammaBestLap.carLogoUrl} alt={gammaBestLap.carName ?? ''} title={gammaBestLap.carName ?? ''} class="h-5 w-5 flex-none rounded object-contain" />
+                )}
+                <span class="text-white/40">({formatDate(gammaBestLap.date)})</span>
+              </p>
+            )}
+            {deltaBestLap && deltaClassId !== null && (
+              <p class="flex flex-wrap items-center gap-2">
+                <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(deltaClassId) ?? '')}`}>
+                  {classBadgeLetter(classNameById.get(deltaClassId) ?? '')}
+                </span>
+                <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
+                <span class="text-white/70">{displayDriverName(deltaBestLap.driver.name)}</span>
+                {deltaBestLap.carLogoUrl && (
+                  <img src={deltaBestLap.carLogoUrl} alt={deltaBestLap.carName ?? ''} title={deltaBestLap.carName ?? ''} class="h-5 w-5 flex-none rounded object-contain" />
+                )}
+                <span class="text-white/40">({formatDate(deltaBestLap.date)})</span>
+              </p>
+            )}
+          </div>
+        ) : (
+          <p class="mt-1.5 text-white/40">No class best laps on file yet.</p>
+        )}
+        {guideCount > 0 && (
+          <a href={`/media?tab=videos&filter=trackguide&layout=${encodeURIComponent(layoutRow.id)}`} class="mt-1.5 inline-block font-semibold text-brand-primary hover:underline">
+            {guideCount > 1 ? 'Watch Track Guides →' : 'Watch Track Guide →'}
+          </a>
+        )}
+      </div>
+    )}
+
+    <div>
+      <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Winners &amp; Pole-Sitters</p>
+      {orderedClassIdsWithWinners.length === 0 ? (
+        <p class="mt-1.5 text-white/40">No history at {circuitName} yet.</p>
+      ) : (
+        <div class="mt-1.5 grid gap-3 sm:grid-cols-3">
+          {orderedClassIdsWithWinners.map((classId) => {
+            const winners = highlights.winnersByClass.get(classId) ?? [];
+            const poles = highlights.polesByClass.get(classId) ?? [];
+            return (
+              <div class="rounded-lg border border-white/10 p-3">
+                <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(classId) ?? '')}`}>
+                  {classNameById.get(classId) ?? '—'}
+                </span>
+                <div class="mt-2">
+                  <p class="text-[10px] font-medium uppercase tracking-wide text-white/40">Winners</p>
+                  <ul class="mt-1 space-y-1">
+                    {winners.map((w) => (
+                      <li class="flex items-center justify-between gap-2">
+                        <a href={`/results/${w.round.subsessionId}`} class="hover:text-brand-primary">
+                          {displayDriverName(w.driver.name)}
+                        </a>
+                        <span class="text-white/40">{formatDate(w.round.startTime)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div class="mt-2">
+                  <p class="text-[10px] font-medium uppercase tracking-wide text-white/40">Pole-Sitters</p>
+                  <ul class="mt-1 space-y-1">
+                    {poles.map((p) => (
+                      <li class="flex items-center justify-between gap-2">
+                        <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="hover:text-brand-primary">
+                          {displayDriverName(p.driver.name)}
+                        </a>
+                        <span class="text-white/40">{formatDate(p.round.startTime)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+
+    <details class="group">
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Results</p>
+        <span class="text-white/30 transition group-open:rotate-180">▾</span>
+      </summary>
+      <div class="mt-1.5">
+        {historicalRounds.length === 0 ? (
+          <p class="text-white/40">No past rounds at this layout yet.</p>
+        ) : (
+          <div class="overflow-hidden rounded-lg border border-white/10">
+            {historicalRounds.map((r, i) => (
+              <a href={`/results/${r.subsessionId}`} class={`flex items-center justify-between gap-3 p-2.5 transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
+                <span class="text-white/50">{formatDate(r.startTime)}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+
+    <details class="group">
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Incidents</p>
+        <span class="text-white/30 transition group-open:rotate-180">▾</span>
+      </summary>
+      <div class="mt-1.5">
+        {incidentEntries.length === 0 ? (
+          <p class="text-white/40">No incidents logged at this layout yet.</p>
+        ) : (
+          <div class="overflow-hidden rounded-lg border border-white/10">
+            {incidentEntries.map((inc, i) => (
+              <div class={`p-2.5 ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <span class="font-semibold text-white">{inc.identityLabel}</span>
+                  <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-white/40 hover:text-white">
+                    {formatDate(inc.round.startTime)}
+                  </a>
+                </div>
+                <details class="group mt-1">
+                  <summary class="flex cursor-pointer list-none items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-white/40 hover:text-white/60">
+                    Description
+                    <span class="text-white/30 transition group-open:rotate-180">▾</span>
+                  </summary>
+                  <p class="mt-1 text-white/70">{inc.description}</p>
+                </details>
+                {inc.resolution && <p class="mt-1 text-white/50">{inc.resolution}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+
+    <details class="group">
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Broadcasts</p>
+        <span class="text-white/30 transition group-open:rotate-180">▾</span>
+      </summary>
+      <div class="mt-1.5">
+        {broadcastEntries.length === 0 ? (
+          <p class="text-white/40">No broadcasts on file for this layout yet.</p>
+        ) : (
+          <div class="overflow-hidden rounded-lg border border-white/10">
+            {broadcastEntries.map((b, i) => (
+              <a href={b.url} target="_blank" rel="noopener noreferrer" class={`flex items-center justify-between gap-3 p-2.5 transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                <span class="font-semibold">
+                  {b.round.seasonLabel ?? CATEGORY_LABELS.championship}
+                  {b.raceNumber > 1 && ` — Race ${b.raceNumber}`}
+                </span>
+                <span class="text-white/50">{formatDate(b.round.startTime)}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+
+    <details class="group">
+      <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
+        <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Photo Albums</p>
+        <span class="text-white/30 transition group-open:rotate-180">▾</span>
+      </summary>
+      <div class="mt-1.5">
+        {photoAlbumEntries.length === 0 ? (
+          <p class="text-white/40">No photo albums on file for this layout yet.</p>
+        ) : (
+          <div class="overflow-hidden rounded-lg border border-white/10">
+            {photoAlbumEntries.map((p, i) => (
+              <a href={p.url} target="_blank" rel="noopener noreferrer" class={`flex items-center justify-between gap-3 p-2.5 transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}>
+                <span class="font-semibold">
+                  {p.round.seasonLabel ?? CATEGORY_LABELS.championship}
+                  {p.raceNumber > 1 && ` — Race ${p.raceNumber}`}
+                </span>
+                <span class="text-white/50">{formatDate(p.round.startTime)}</span>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
+  </div>
+)}

@@ -472,7 +472,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <td class="py-2.5 pr-4 font-semibold" data-csv-value={displayDriverName(row.driver.name)}>
                   <span class="flex items-center gap-1.5 whitespace-nowrap">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                    {shortDriverName(row.driver.name)}
+                    {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as the List view above. */}
+                    <span class="hidden sm:inline">{displayDriverName(row.driver.name)}</span>
+                    <span class="sm:hidden">{shortDriverName(row.driver.name)}</span>
                     {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                   </span>
                 </td>
@@ -508,11 +510,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             ))}
           </tbody>
         </table>
-        <p class="border-t border-white/10 px-4 py-3 text-xs text-white/40">
-          Hover a round number for the circuit and format. <span class="text-white/35 line-through decoration-white/25">Struck-through</span> points
-          didn't count toward the season total (dropped). <span class="text-brand-pink">●</span> marks a round with a penalty logged against that
-          driver — hover it for details.
-        </p>
       </div>
       <div class="mt-3 flex justify-end">
         <button

@@ -62,11 +62,14 @@ function initExpandRows() {
   expandRowsInitialized = true;
 
   document.addEventListener('click', (e) => {
-    // Hall of Fame nests a PhotoGrid's lightbox buttons inside its
-    // data-expand-row summary row — without this guard, clicking a photo to
-    // enlarge it would also toggle the row open/closed underneath the
-    // lightbox overlay. lightbox.ts's own listener still fires normally.
+    // Hall of Fame nests a PhotoGrid's lightbox buttons AND its own
+    // Overall/Alpha/Gamma/Delta stat-filter buttons (see
+    // src/scripts/hofClassFilter.ts) inside its data-expand-row summary
+    // row — without these guards, clicking either would also toggle the
+    // row open/closed underneath. Each one's own listener still fires
+    // normally; this only stops it from ALSO reaching this one.
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
+    if ((e.target as HTMLElement).closest('[data-hof-class-btn]')) return;
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-expand-row]');
     if (row) toggleExpandRow(row);
   });
@@ -74,6 +77,7 @@ function initExpandRows() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
+    if ((e.target as HTMLElement).closest('[data-hof-class-btn]')) return;
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-expand-row]');
     if (!row) return;
     e.preventDefault();

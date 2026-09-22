@@ -120,7 +120,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">PP</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="time">Time</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="pts">Pts</th>
-                <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="warning">Warn</th>
                 <th class="hidden py-3 pr-4 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
               </tr>
             </thead>
@@ -162,20 +161,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         '—'
                       )}
                     </td>
-                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp">{row.penaltyPoints || '—'}</td>
+                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp" data-sort-value={row.isWarning ? 0 : row.penaltyPoints}>
+                      {/* A warning never carries a PP value of its own (see
+                          results/[subsessionId]/incidents.astro's own
+                          "warning" sentinel comment) — shown here the same
+                          way that page's own PP column shows it, per Logan,
+                          rather than a separate Warn column. */}
+                      {row.isWarning ? (
+                        <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
+                      ) : (
+                        <div>{row.penaltyPoints || '—'}</div>
+                      )}
+                    </td>
                     <td class="py-2.5 pr-3 text-center text-white/60" data-col="time">
                       {row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}
                     </td>
                     <td class="py-2.5 pr-3 text-center text-white/60" data-col="pts">{row.pointsPenalty || '—'}</td>
-                    <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="warning" data-sort-value={row.isWarning ? 1 : 0}>
-                      {row.isWarning ? 'Yes' : '—'}
-                    </td>
                     <td class="hidden py-2.5 pr-4 text-center text-white/60 xl:table-cell" data-col="appealed" data-sort-value={row.isAppealed ? 1 : 0}>
                       {row.isAppealed ? 'Yes' : '—'}
                     </td>
                   </tr>
                   <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-sm">
-                    <td colspan={14} class="px-4 py-4 sm:pl-11">
+                    <td colspan={13} class="px-4 py-4 sm:pl-11">
                       <p class="text-white/70">{row.description || 'No description recorded.'}</p>
                       <a href={`/results/${row.subsessionId}`} class="mt-2 inline-block text-xs text-white/50 hover:text-white">
                         View full round result &rarr;

@@ -2202,6 +2202,12 @@ export function getAllCircuitLayouts(env: SupabaseEnv) {
   return restGet<CircuitLayout[]>(env, `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`);
 }
 
+/** One layout by id — powers the Circuits page's per-row lazy detail fragment (src/pages/circuits/layout-detail/[layoutId].astro), which only needs the single layout a visitor just expanded rather than every layout on the site. */
+export async function getCircuitLayoutById(env: SupabaseEnv, id: string) {
+  const rows = await restGet<CircuitLayout[]>(env, `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&id=eq.${encodeURIComponent(id)}`);
+  return rows[0] ?? null;
+}
+
 export function createCircuitLayout(env: SupabaseEnv, accessToken: string, data: Partial<CircuitLayout>) {
   return restPost<CircuitLayout>(env, accessToken, 'circuit_layouts', data);
 }
