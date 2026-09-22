@@ -35,7 +35,12 @@ interface Props {
    * omittable for any future caller that doesn't have this data on hand —
    * leaving it `undefined` renders neither that message nor the collapsible
    * (same as any other optional section on this card), rather than a false
-   * "new layout" claim for a layout nobody actually checked.
+   * "new layout" claim for a layout nobody actually checked. This is also
+   * exactly what calendar.astro now passes for a circuitless HOLIDAY/IRACING
+   * event (0073_holiday_iracing_events.sql) — those have no circuit+layout
+   * at all, so "This is a new layout!" would be a nonsense claim for them;
+   * `0` stays reserved for an event that DOES have a circuit+layout that
+   * genuinely has never been raced.
    */
   layoutRoundsCount?: number;
   /**

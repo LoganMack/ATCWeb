@@ -15,7 +15,7 @@ import {
   getDriverClasses,
   getStandingsExcludedRoundIds,
   resolveSupabaseEnv,
-  displayDriverName,
+  shortDriverName,
   formatDate,
   getAllNewsPostTags,
   type NewsTag,
@@ -563,13 +563,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                 return (
                                   <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
                                     <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position ?? '—'}</span>
+                                    {/* Short "F. Lastname" form — this card
+                                        is a fixed, fairly narrow width at
+                                        every viewport, so long names get cut
+                                        off by the truncate above even on
+                                        desktop. */}
                                     <span class="min-w-0 flex-1 truncate font-semibold">
-                                      {displayDriverName(row.driver.name)}
+                                      {shortDriverName(row.driver.name)}
                                       {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                                     </span>
                                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                                    {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />}
-                                    {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
+                                    {/* Car/team logos hidden on mobile (Logan) — this card is narrow enough that they crowd the row; same "hidden sm:contents" technique as ResultsTable.astro's row. */}
+                                    {row.car && (
+                                      <span class="hidden sm:contents">
+                                        <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />
+                                      </span>
+                                    )}
+                                    {row.team && (
+                                      <span class="hidden sm:contents">
+                                        <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />
+                                      </span>
+                                    )}
                                     {rowClassName && (
                                       <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
                                         {rowClassName}
@@ -659,13 +673,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       return (
                         <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
                           <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
+                          {/* Same short-name treatment as the Previous Result widget's driver rows above — narrow fixed-width card. */}
                           <span class="min-w-0 flex-1 truncate font-semibold">
-                            {displayDriverName(row.driver.name)}
+                            {shortDriverName(row.driver.name)}
                             {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                           </span>
                           <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                          {primaryCar && <TeamLogo name={primaryCar.carName} logoUrl={primaryCar.logoUrl} size="h-5 w-5" tint />}
-                          {primaryTeam && <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />}
+                          {/* Car/team logos hidden on mobile (Logan) — same treatment as the Previous Result widget's driver rows above. */}
+                          {primaryCar && (
+                            <span class="hidden sm:contents">
+                              <TeamLogo name={primaryCar.carName} logoUrl={primaryCar.logoUrl} size="h-5 w-5" tint />
+                            </span>
+                          )}
+                          {primaryTeam && (
+                            <span class="hidden sm:contents">
+                              <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />
+                            </span>
+                          )}
                           {rowClassName && (
                             <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
                               {rowClassName}

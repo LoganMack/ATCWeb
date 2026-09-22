@@ -83,7 +83,8 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
             {s.startTime && (
               <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
             )}
-            {s.simTime && ` (in-sim ${formatSessionTime(s.simTime)})`}
+            {/* In-sim timing hidden on mobile (Logan) — this card is narrow there and the IRL start time is the one people actually plan around. */}
+            {s.simTime && <span class="hidden sm:inline"> (in-sim {formatSessionTime(s.simTime)})</span>}
             {s.detail && ` · ${s.detail}`}
           </span>
         </li>

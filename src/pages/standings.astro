@@ -331,8 +331,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       >
                         &#9654;
                       </span>
-                      <span>
+                      {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as ResultsTable.astro's row (Matrix view above already shows short names unconditionally, since that column is tight at every width). */}
+                      <span class="hidden sm:inline">
                         {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                      </span>
+                      <span class="sm:hidden">
+                        {shortDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
                       {/* Flag/car/team logos hidden on mobile (Logan) —
                           `hidden sm:contents` so each stays its own flex

@@ -7,7 +7,7 @@
 // Margin column with Best Lap and hide every points column outright, since
 // qualifying carries no points of its own.
 import type { QualifyingRow } from '../lib/results';
-import { displayDriverName } from '../lib/supabase';
+import { displayDriverName, shortDriverName } from '../lib/supabase';
 import { classBadgeClasses } from '../lib/classColors';
 import DriverFlag from './DriverFlag.astro';
 
@@ -39,8 +39,12 @@ const { rows, showClass = false, classNameById } = Astro.props;
             </td>
             <td class="py-2.5 pr-3 font-semibold">
               <div class="flex flex-wrap items-center gap-2">
-                <span>
+                {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as ResultsTable.astro's row. */}
+                <span class="hidden sm:inline">
                   {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                </span>
+                <span class="sm:hidden">
+                  {shortDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                 {row.notInRoster && (

@@ -66,7 +66,14 @@ const eventsPromise: Promise<Awaited<ReturnType<typeof getEvents>>> = (async () 
 // one level deeper is separately and already lazy — see
 // src/pages/api/round-recap/[subsessionId].ts.
 let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
-let layoutRoundsCountByEventId = new Map<string, number>();
+// null (as opposed to a real count) means this event has no circuit at all
+// (HOLIDAY/IRACING — see the loop below) — EventDetailCard's own
+// layoutRoundsCount prop treats `undefined` as "nothing to show here"
+// (neither the collapsible nor the "This is a new layout!" message), which
+// is what a circuitless event needs; `0` there specifically means "this
+// circuit+layout has never been raced," a claim that doesn't make sense
+// for an event with no circuit/layout in the first place.
+let layoutRoundsCountByEventId = new Map<string, number | null>();
 // Which curated_rounds row (if any) each event represents — same
 // season_id+round_number / subsession_id-override resolution as
 // getEventRound() (src/lib/results.ts), just done in bulk against the
@@ -124,10 +131,10 @@ if (bulkResult) {
     layoutRoundsCountByEventId.set(
       event.id,
       // HOLIDAY/IRACING events have no circuit_id at all (0073_holiday_iracing_events.sql)
-      // — nothing to find a layout's race-recap history for, so those just
-      // get 0 rather than passing null into a function typed to expect a
-      // real circuit id.
-      event.circuit_id ? countRoundsForLayout(event.circuit_id, event.layout) : 0
+      // — nothing to find a layout's race-recap history for, so those get
+      // null (see this map's own doc comment above) rather than calling
+      // countRoundsForLayout with no real circuit id to pass it.
+      event.circuit_id ? countRoundsForLayout(event.circuit_id, event.layout) : null
     );
     const linked =
       event.subsession_id !== null
@@ -257,7 +264,7 @@ const upcomingIcsBundle = upcoming
       <div data-view-panel="list">
         {upcoming.length > 0 && (
           <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
+            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
 
@@ -265,7 +272,7 @@ const upcomingIcsBundle = upcoming
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 grid grid-cols-1 gap-4 opacity-70 sm:grid-cols-2">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? 0} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
+              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
             </div>
           </div>
         )}
@@ -608,6 +615,14 @@ const upcomingIcsBundle = upcoming
       return name.replace(/\d+$/, '');
     }
 
+    /** Same "F. Lastname" formatting rule as shortDriverName() in src/lib/supabase.ts — these recap cards are narrow, so short names avoid wrapping. */
+    function shortDriverName(name: string): string {
+      const parts = displayDriverName(name).trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return '';
+      if (parts.length === 1) return parts[0];
+      return `${parts[0].charAt(0)}. ${parts[parts.length - 1]}`;
+    }
+
     function fetchRoundRecap(subsessionId: number): Promise<RoundRecapLite | null> {
       if (!recapCache.has(subsessionId)) {
         recapCache.set(
@@ -663,7 +678,7 @@ const upcomingIcsBundle = upcoming
           cls.top3.forEach((t) => {
             const driverLine = document.createElement('p');
             driverLine.className = 'pl-2 text-white/50';
-            driverLine.textContent = `${t.position}. ${displayDriverName(t.driver.name)}`;
+            driverLine.textContent = `${t.position}. ${shortDriverName(t.driver.name)}`;
             raceEl.appendChild(driverLine);
           });
         });
@@ -671,7 +686,7 @@ const upcomingIcsBundle = upcoming
         if (race.fastestLap) {
           const fl = document.createElement('p');
           fl.className = 'mt-0.5 text-white/50';
-          fl.textContent = `Fastest Lap: ${displayDriverName(race.fastestLap.driver.name)} — ${race.fastestLap.formatted}${
+          fl.textContent = `Fastest Lap: ${shortDriverName(race.fastestLap.driver.name)} — ${race.fastestLap.formatted}${
             race.fastestLap.isTrackRecord ? ' (Track Record!)' : ''
           }`;
           raceEl.appendChild(fl);
