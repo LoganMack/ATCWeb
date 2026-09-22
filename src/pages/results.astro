@@ -3,8 +3,8 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, getPageBanners, formatDate } from '../lib/supabase';
-import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers } from '../lib/results';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, getPageBanners, formatDate, displayLayoutName } from '../lib/supabase';
+import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
 import SeasonLogo from '../components/SeasonLogo.astro';
 
@@ -58,6 +58,12 @@ let testRoundIds: Set<number> = new Set();
 // pooled cross-season filters below don't have a single season to number
 // rounds within, so they render each round's own season label instead.
 let displayRoundNumbers: Map<number, number | null> = new Map();
+// Each round's own curated_rounds.layout text (admin-filled, may be unset)
+// — shown alongside the track name below ("Round 2: Track Name, Layout"),
+// same raw values getRoundLayoutsForSubsessions returns everywhere else on
+// the site (calendar.astro, results/[subsessionId].astro's layoutCorners
+// lookup); formatted for display with displayLayoutName() at render time.
+let layoutBySubsession: Map<number, string | null> = new Map();
 
 if (!loadError && (activeSeason || activePooledFilter)) {
   try {
@@ -76,6 +82,10 @@ if (!loadError && (activeSeason || activePooledFilter)) {
         ? seasonRounds.filter((r) => !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id))
         : seasonRounds; // a whole exhibition season: every round already belongs there, nothing to hide
     }
+    layoutBySubsession = await getRoundLayoutsForSubsessions(
+      supabaseEnv,
+      rounds.map((r) => r.subsession_id)
+    );
   } catch (err) {
     console.error('Failed to load rounds:', err);
     loadError = true;
@@ -158,10 +168,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           const isExhibition = activePooledFilter ? exhibitionRoundIds.has(round.subsession_id) : displayNumber === null;
           const isTest = testRoundIds.has(round.subsession_id);
           const titlePrefix = activePooledFilter
-            ? `${round.season_label ?? 'Exhibition'} — `
+            ? `${round.season_label ?? 'Exhibition'}: `
             : isExhibition
-              ? 'Exhibition — '
-              : `Round ${displayNumber} — `;
+              ? 'Exhibition: '
+              : `Round ${displayNumber}: `;
+          // "Round 2: Track Name, Track Layout" — layout only appended when
+          // this round actually has one on file (curated_rounds.layout is
+          // admin-filled, often unset for older/imported rounds), formatted
+          // through displayLayoutName() same as everywhere else layout names
+          // are shown (turns the "N/A" single-configuration sentinel into
+          // "Full Course").
+          const layoutRaw = layoutBySubsession.get(round.subsession_id) ?? null;
+          const trackLabel = layoutRaw ? `${round.track_name}, ${displayLayoutName(layoutRaw)}` : round.track_name;
           return (
           <a
             href={`/results/${round.subsession_id}${currentSeasonParam ? `?season=${encodeURIComponent(currentSeasonParam)}` : ''}`}
@@ -169,7 +187,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           >
             <div>
               <p class="font-semibold">
-                {titlePrefix}{round.track_name}
+                {titlePrefix}{trackLabel}
               </p>
               <p class="text-sm text-white/50">
                 {formatDate(round.start_time)}
@@ -187,6 +205,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   Test
                 </span>
               )}
+              {round.num_drivers !== null && <span class="hidden sm:inline">Grid {round.num_drivers}</span>}
               {round.strength_of_field !== null && <span class="hidden sm:inline">SoF {round.strength_of_field}</span>}
             </div>
           </a>

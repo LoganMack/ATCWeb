@@ -131,9 +131,9 @@ interface Props {
   penalties?: Penalty[];
   /** `${raceNumber}:${driverId}` -> points that driver actually contributed toward their team's total for that race (only the team's top 2 scorers each race count — see results.ts's topTeamScorers()) — computed once at the page level from the round's overall (cross-class) rows, since a driver's team contribution is the same fact whether this table is the Overall or Per Class view. Missing entry (not just 0) means either no team or not one of the top 2 that race. */
   teamPointsByRaceDriver?: Map<string, number>;
-  /** This round's Incident Limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) — informational only, no scoring effect. Null when the season's ruleset has no limit configured for this round's format (or no ruleset resolves at all). Only used here for the marker's tooltip; see incidentLimitExceededDriverIds for who it's actually shown on. */
+  /** This round's Incident Limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) — a PER-RACE cap, informational only, no scoring effect. Null when the season's ruleset has no limit configured for this round's format (or no ruleset resolves at all). Only used here for the marker's tooltip; see incidentLimitExceededDriverIds for who it's actually shown on. */
   incidentLimit?: number | null;
-  /** Driver ids whose total incidents across every race THIS ROUND exceed incidentLimit — computed once at the page level (same round-wide sum regardless of which race/view this particular table renders), so every one of that driver's race rows this round shows the marker, not just the race that tipped them over. */
+  /** Driver ids whose incidents in THIS SPECIFIC RACE exceed incidentLimit — computed once at the page level, per race_number (a driver who trips the limit in Race 1 isn't necessarily flagged in Race 2, and vice versa — see results/[subsessionId].astro's incidentTotalByRaceDriver), so only this table's own race gets the marker, not every race the driver ran this round. */
   incidentLimitExceededDriverIds?: Set<string>;
   /** This round's resolved layout's corner count (circuit_layouts.corners, via results.ts's resolveLayout()) — computed once at the page level since it's the same figure for every race/view of this round. Null when the round's track/layout doesn't resolve to a circuit_layouts row with a corner count on file (see 0022_circuit_layout_corners.sql). Powers the Incidents column's hover tooltip below; same "corners navigated ÷ incidents" formula as the Sublime Finesse season stat (getSeasonDriverExtendedStats), just for this one race instead of a whole season. */
   layoutCorners?: number | null;
@@ -361,7 +361,7 @@ for (const p of racePenalties) {
                   {incidentLimitExceededDriverIds.has(row.driver.id) && (
                     <sup
                       class="text-[10px] font-sans text-brand-pink"
-                      title={`Exceeded this round's incident limit${incidentLimit !== null ? ` (${incidentLimit})` : ''}`}
+                      title={`Exceeded this race's incident limit${incidentLimit !== null ? ` (${incidentLimit})` : ''}`}
                     >
                       !
                     </sup>

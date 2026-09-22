@@ -848,6 +848,8 @@ export function computeSeasonStandingsRoundColumns(
 }
 
 const BASELINE_DROP_WEEKS = 2;
+/** Drop weeks don't kick in until the championship has actually run this many rounds — per Logan. Below this, `finalizeStandings` forces the drop count to 0 regardless of `BASELINE_DROP_WEEKS`/`extra_drop_weeks`, so every round scored so far still counts toward the total (no early-season "your worst round doesn't count" swings while the sample size is tiny). */
+const MIN_ROUNDS_FOR_DROPS = 5;
 
 /**
  * The chronologically last non-excluded (exhibition/test) round of a
@@ -931,6 +933,15 @@ function newStandingsAccum(): StandingsAccum {
  * set, and the drop count comes entirely from the remaining rounds. Either
  * way the total number of rounds counted is unchanged (see the two
  * branches below) — only which round is guaranteed counted.
+ *
+ * `allSubsessionIds.size` doubles as "how many rounds has this championship
+ * actually run" (see its own param doc above — it's already the
+ * exhibition-filtered pool both callers pass), which is also what gates
+ * MIN_ROUNDS_FOR_DROPS below: too early in a season, dropping a driver's
+ * worst round would mean a single lucky/unlucky week swings the standings
+ * disproportionately, so no rounds drop at all until the season's raced
+ * enough of them for a "worst round" to be a meaningful outlier rather than
+ * a third of the season.
  */
 function finalizeStandings(
   accum: Map<string, StandingsAccum>,
@@ -942,7 +953,7 @@ function finalizeStandings(
   /** Standings Matrix view's penalty summaries (StandingsRoundCell.penalties) — see buildPenaltiesByDriverAndRound. Omitted entirely leaves every cell's penalties empty, harmless for any caller that doesn't need the Matrix view. */
   penaltiesByDriverAndRound?: Map<string, Map<number, Penalty[]>>
 ): DriverSeasonStanding[] {
-  const totalDrops = BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0);
+  const totalDrops = allSubsessionIds.size >= MIN_ROUNDS_FOR_DROPS ? BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0) : 0;
   // Only actually a constraint when the final round is both present in this
   // pool (this class/view may not have raced it at all) and the ruleset
   // wants it protected — otherwise this is exactly the old unconstrained

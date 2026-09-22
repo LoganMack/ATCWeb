@@ -213,18 +213,24 @@ const isExhibition = isRoundFlaggedExhibition || isSeasonExhibition;
 // is_exhibition) aren't mutually exclusive by design.
 const isTest = testRoundIds.has(subsessionId);
 
-// This driver's total incidents across every race this round — summed from
-// the overall (cross-class) rows, which cover every scored driver regardless
-// of which view (Overall/Per Class) is actually rendered, so the flag is
-// consistent between the two. Pure in-memory work over the (post-penalty)
-// roundResults with no fetch of its own, so it runs synchronously here
-// rather than nested inside the async incident-limit block below.
-const incidentTotalByDriverId = new Map<string, number>();
+// This driver's incidents in EACH INDIVIDUAL race this round — kept per
+// race_number, not summed across the round, since the ruleset's incident
+// limit (round_incident_limit) is a per-race cap: a driver who logs 5
+// incidents in Race 1 and 6 in Race 2 against a limit of 8 hasn't broken it
+// either time, even though 5+6 exceeds 8. Built from the overall
+// (cross-class) rows, which cover every scored driver regardless of which
+// view (Overall/Per Class) is actually rendered, so the flag is consistent
+// between the two. Pure in-memory work over the (post-penalty) roundResults
+// with no fetch of its own, so it runs synchronously here rather than
+// nested inside the async incident-limit block below.
+const incidentTotalByRaceDriver = new Map<number, Map<string, number>>();
 if (!loadError && round) {
-  for (const rows of roundResults.overall.values()) {
+  for (const [raceNumber, rows] of roundResults.overall) {
+    const byDriver = new Map<string, number>();
     for (const row of rows) {
-      incidentTotalByDriverId.set(row.driver.id, (incidentTotalByDriverId.get(row.driver.id) ?? 0) + (row.incidents ?? 0));
+      byDriver.set(row.driver.id, (byDriver.get(row.driver.id) ?? 0) + (row.incidents ?? 0));
     }
+    incidentTotalByRaceDriver.set(raceNumber, byDriver);
   }
 }
 
@@ -327,13 +333,19 @@ async function loadDriverBestLapsAtTrack() {
 
 await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners(), loadDriverBestLapsAtTrack()]);
 
-// Drivers whose round-total incidents exceed (not just meet) the limit —
-// ResultsTable flags every one of their race rows this round, in red.
-const incidentLimitExceededDriverIds = new Set(
-  incidentLimit !== null
-    ? [...incidentTotalByDriverId.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId)
-    : []
-);
+// Drivers whose incidents in a given race exceed (not just meet) the limit
+// — ResultsTable flags that race's row for them, in red. Per race_number
+// (see incidentTotalByRaceDriver above), so a driver flagged in Race 1 isn't
+// necessarily flagged in Race 2 too, and vice versa.
+const incidentLimitExceededDriverIdsByRace = new Map<number, Set<string>>();
+if (incidentLimit !== null) {
+  for (const [raceNumber, byDriver] of incidentTotalByRaceDriver) {
+    incidentLimitExceededDriverIdsByRace.set(
+      raceNumber,
+      new Set([...byDriver.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId))
+    );
+  }
+}
 
 const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
@@ -482,7 +494,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     penalties={penalties}
                     teamPointsByRaceDriver={teamPointsByRaceDriver}
                     incidentLimit={incidentLimit}
-                    incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
+                    incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(raceNumber) ?? new Set()}
                     layoutCorners={layoutCorners}
                     driverBestLapsAtTrack={driverBestLapsAtTrack}
                   >
@@ -509,7 +521,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       penalties={penalties}
                       teamPointsByRaceDriver={teamPointsByRaceDriver}
                       incidentLimit={incidentLimit}
-                      incidentLimitExceededDriverIds={incidentLimitExceededDriverIds}
+                      incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(raceNumber) ?? new Set()}
                       layoutCorners={layoutCorners}
                       driverBestLapsAtTrack={driverBestLapsAtTrack}
                     >
