@@ -31,6 +31,9 @@ import {
   getCircuits,
   getAllCircuitLayouts,
   formatLapTime,
+  getSeasonById,
+  getScoringRulesets,
+  resolveSeasonRuleset,
   type Circuit,
   type CircuitLayout,
   type SupabaseEnv,
@@ -270,13 +273,25 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   ]);
   if (!round) return null;
 
+  // This round's season's scoring ruleset — see results/[subsessionId].astro's
+  // matching fetch for why applyPenaltiesToRoundResults below needs it: a
+  // repositioned driver's new finish/class points must be priced off the
+  // SAME base_points/class_podium table the round was actually scored with.
+  let ruleset: Awaited<ReturnType<typeof getScoringRulesets>>[number] | null = null;
+  try {
+    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(env, round.season_id), getScoringRulesets(env)]);
+    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
+  } catch (err) {
+    console.error('Failed to resolve round scoring ruleset for recap:', err);
+  }
+
   // Same penalty recalculation every other results view uses — a recap
   // built off pre-penalty data would show a driver's finish/points as if
   // nothing had ever been logged against them.
   const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
   const roundResults: RoundResults =
     penalties.length > 0
-      ? applyPenaltiesToRoundResults(rawResults, penalties, round.format, classPointsEligibleByClassId)
+      ? applyPenaltiesToRoundResults(rawResults, penalties, round.format, classPointsEligibleByClassId, ruleset?.rules ?? null, subsessionId)
       : rawResults;
 
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));

@@ -23,6 +23,7 @@ import {
   getAllCircuitLayouts,
   type RaceLinks,
   type Penalty,
+  type ScoringRuleset,
 } from '../../lib/supabase';
 import {
   getRoundBySubsessionId,
@@ -178,6 +179,23 @@ if (!loadError && !round) {
   return Astro.redirect('/results', 302);
 }
 
+// This round's season's scoring ruleset — resolved once here, before the
+// penalty recompute below (which needs its base_points/class_podium tables,
+// see applyPenaltiesToRoundResults' own `rules` doc comment: a repositioned
+// driver's new finish/class points must be priced off the SAME table the
+// round was actually scored with, not a fixed default one) — and reused by
+// loadIncidentLimit further down instead of that block fetching it again
+// itself.
+let ruleset: ScoringRuleset | null = null;
+if (!loadError && round) {
+  try {
+    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
+    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
+  } catch (err) {
+    console.error('Failed to resolve round scoring ruleset:', err);
+  }
+}
+
 // Recalculate positions/points for anywhere a penalty applies (rule 64's
 // re-classification, plus each of that driver's own flat points_penalty
 // deductions) — see src/lib/penalties.ts for the full engine. A no-op
@@ -193,7 +211,14 @@ if (!loadError && penalties.length > 0) {
   // class points for an Alpha driver that the original pipeline data never
   // had.
   const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
-  roundResults = applyPenaltiesToRoundResults(roundResults, penalties, round?.format ?? null, classPointsEligibleByClassId);
+  roundResults = applyPenaltiesToRoundResults(
+    roundResults,
+    penalties,
+    round?.format ?? null,
+    classPointsEligibleByClassId,
+    ruleset?.rules ?? null,
+    subsessionId
+  );
 }
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
@@ -265,8 +290,8 @@ let incidentLimit: number | null = null;
 async function loadIncidentLimit() {
   if (loadError || !round) return;
   try {
-    const [incidentLimitSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round!.season_id), getScoringRulesets(supabaseEnv)]);
-    const ruleset = incidentLimitSeason ? resolveSeasonRuleset(incidentLimitSeason, rulesets) : null;
+    // `ruleset` already resolved above (needed earlier for the penalty
+    // recompute's points tables) — no second scoring_rulesets fetch needed.
     incidentLimit = resolveIncidentLimit(ruleset, round!.format, subsessionId);
   } catch (err) {
     console.error('Failed to resolve round incident limit:', err);

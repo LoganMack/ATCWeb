@@ -93,10 +93,16 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
             </td>
             {/* In-sim timing hidden on mobile (Logan) — this card is narrow there and the IRL start time is the one people actually plan around. */}
             <td class="hidden whitespace-nowrap pl-2 align-middle text-white/50 sm:table-cell">
-              {s.simTime && `(in-sim ${formatSessionTime(s.simTime)})`}
+              {s.simTime && `${formatSessionTime(s.simTime)} iRacing`}
             </td>
             <td class="pl-2 align-middle text-white/50">
-              {s.detail && `· ${s.detail}`}
+              {/* Qualifying's own detail (via getEventSessions) also includes
+                  the qualifying_minutes time length when set, joined with the
+                  laps count — this card only wants the laps count, so it's
+                  re-derived directly from the raw field rather than reusing
+                  that shared, pre-joined string. Every other session's detail
+                  (practice/race laps) is shown as-is. */}
+              {s.label === 'Qualifying' ? (event.qualifying_laps ? `${event.qualifying_laps} laps` : null) : s.detail}
             </td>
           </tr>
         ))}

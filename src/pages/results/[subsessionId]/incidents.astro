@@ -21,9 +21,13 @@ import {
   getDriverClasses,
   getDriverSeasonCarNumbersForSeason,
   uploadToStorage,
+  getSeasonById,
+  getScoringRulesets,
+  resolveSeasonRuleset,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
+  type ScoringRuleset,
 } from '../../../lib/supabase';
 import { getRoundBySubsessionId, getRoundResults, type RoundResults, type DriverBasic } from '../../../lib/results';
 import {
@@ -355,6 +359,21 @@ if (!loadError && !round) {
   return Astro.redirect('/results', 302);
 }
 
+// This round's season's scoring ruleset — see results/[subsessionId].astro's
+// matching fetch for why applyPenaltiesToRoundResults below needs it: a
+// repositioned driver's new finish/class points must be priced off the SAME
+// base_points/class_podium table the round was actually scored with, not a
+// fixed default one.
+let ruleset: ScoringRuleset | null = null;
+if (!loadError && round) {
+  try {
+    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
+    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
+  } catch (err) {
+    console.error('Failed to resolve round scoring ruleset:', err);
+  }
+}
+
 // The "before" snapshot is exactly what getRoundResults() returned (no
 // penalties applied yet); the "after" snapshot runs it through the same
 // engine the results page itself uses. Position/points lost or gained are
@@ -368,7 +387,14 @@ if (!loadError && !round) {
 const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
 const recomputedResults =
   penalties.length > 0
-    ? applyPenaltiesToRoundResults(originalResults, penalties, round?.format ?? null, classPointsEligibleByClassId)
+    ? applyPenaltiesToRoundResults(
+        originalResults,
+        penalties,
+        round?.format ?? null,
+        classPointsEligibleByClassId,
+        ruleset?.rules ?? null,
+        subsessionId
+      )
     : originalResults;
 
 interface PosPoints {

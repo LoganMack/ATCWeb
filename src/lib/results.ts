@@ -563,6 +563,8 @@ interface SeasonOverallContext {
   adjustments: Map<string, SeasonOverallAdjustment>;
   penalties: Penalty[];
   formatBySubsession: Map<number, Format | null>;
+  /** This season's resolved scoring_rulesets.rules, repeated for every one of this season's own subsession_ids — same Map-by-subsession shape as formatBySubsession purely so computeSeasonOverallAdjustments/computeSeasonClassAdjustments (which also serve getDriverRaceHistory's real multi-season, multi-ruleset call) can use one consistent lookup. Every context built here is always single-season, so every value in this map is identical. See src/lib/penalties.ts's resolvePointsTables for why this needs to be the season's own ruleset rather than the fixed FINISH_POINTS/CLASS_POINTS tables. */
+  rulesBySubsession: Map<number, unknown>;
   rawByKey: Map<string, CuratedRaceResultRow>;
   overallScores: RaceScoreOverallRow[];
   custIdByDriverId: Map<string, number>;
@@ -606,9 +608,15 @@ export async function getSeasonOverallContext(
   env: SupabaseEnv,
   season: Season,
   exhibitionIds: Set<number>,
-  drivers: DriverBasic[]
+  drivers: DriverBasic[],
+  /** Pass every ruleset on file when a caller already has them (e.g. computeSeasonStandings/computeOverallSeasonStandings, which resolve their own `canDropFinalRound` from the same fetch) so this doesn't refetch the same small table a second time. Resolved against this `season` via `resolveSeasonRuleset` either way. */
+  rulesets?: ScoringRuleset[]
 ): Promise<SeasonOverallContext> {
-  const overallScoresRaw = await getRaceScoresForSeasonOverall(env, season.id);
+  const [overallScoresRaw, allRulesets] = await Promise.all([
+    getRaceScoresForSeasonOverall(env, season.id),
+    rulesets ? Promise.resolve(rulesets) : getScoringRulesets(env),
+  ]);
+  const rules = resolveSeasonRuleset(season, allRulesets)?.rules ?? null;
   // Same exhibition-filtered scope the original single fetch-and-build
   // version used for its subsessionIds — buildSeasonOverallContext below
   // re-derives this same filtered set itself (cheap, in-memory), so this
@@ -624,7 +632,7 @@ export async function getSeasonOverallContext(
     getLapStatsForSubsessions(env, subsessionIds),
   ]);
 
-  return buildSeasonOverallContext(exhibitionIds, drivers, overallScoresRaw, rawResults, penalties, seasonRounds, lapStats);
+  return buildSeasonOverallContext(exhibitionIds, drivers, overallScoresRaw, rawResults, penalties, seasonRounds, lapStats, rules);
 }
 
 /**
@@ -644,7 +652,9 @@ function buildSeasonOverallContext(
   rawResults: CuratedRaceResultRow[],
   penalties: Penalty[],
   seasonRounds: RoundSummary[],
-  lapStats: RawLapStatsRow[]
+  lapStats: RawLapStatsRow[],
+  /** This season's resolved scoring_rulesets.rules (or null if none resolves) — every caller of this function is single-season-scoped, so this one value is repeated across every subsession_id below to build rulesBySubsession. See SeasonOverallContext.rulesBySubsession's own doc comment. */
+  rules: unknown
 ): SeasonOverallContext {
   const custIdByDriverId = new Map(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
@@ -658,6 +668,7 @@ function buildSeasonOverallContext(
       adjustments: new Map(),
       penalties: [],
       formatBySubsession: new Map(),
+      rulesBySubsession: new Map(),
       rawByKey: new Map(),
       overallScores: [],
       custIdByDriverId,
@@ -670,6 +681,7 @@ function buildSeasonOverallContext(
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const formatBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, r.format]));
+  const rulesBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, rules]));
 
   // This season's race leaders (rule 18.3.2's reference point — see
   // src/lib/penalties.ts's Position recalculation header) — every touched
@@ -686,7 +698,7 @@ function buildSeasonOverallContext(
   }
 
   if (penalties.length === 0) {
-    return { adjustments: new Map(), penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey, seasonRounds };
+    return { adjustments: new Map(), penalties, formatBySubsession, rulesBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey, seasonRounds };
   }
 
   const seasonScoreRows: SeasonScoreRow[] = overallScores.map((s) => {
@@ -711,8 +723,8 @@ function buildSeasonOverallContext(
     };
   });
 
-  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession);
-  return { adjustments, penalties, formatBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey, seasonRounds };
+  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession, rulesBySubsession);
+  return { adjustments, penalties, formatBySubsession, rulesBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey, seasonRounds };
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,7 +1132,7 @@ export async function computeSeasonStandings(
   // raced (a superset of this one class's own subsessions), so it doubles
   // as this class's curated_race_results lookup too — no separate fetch
   // needed for that anymore.
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
+  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
   const rawByKey = overallContext.rawByKey;
 
   // Group this class's race_scores rows by (subsession_id, race_number) so
@@ -1201,7 +1213,8 @@ export async function computeSeasonStandings(
     overallContext.formatBySubsession,
     overallContext.adjustments,
     overallContext.leaderStatsByRace,
-    awardsClassPoints
+    awardsClassPoints,
+    overallContext.rulesBySubsession
   );
 
   // Disqualified results are excluded from ranking entirely (not just
@@ -1380,7 +1393,7 @@ export async function computeOverallSeasonStandings(
   ]);
   const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
 
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
+  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
   const scores = overallContext.overallScores;
   if (scores.length === 0) return [];
 
@@ -1496,7 +1509,9 @@ export async function computeTeamSeasonStandings(
   classesLookup?: Lookup[],
   precomputedOverallContext?: SeasonOverallContext,
   /** Only meaningful for the per-class branch (`classId` set) — see `computeSeasonStandings`' identical param. */
-  precomputedScoresRaw?: RaceScoreRow[]
+  precomputedScoresRaw?: RaceScoreRow[],
+  /** Same sharing reasoning as `driversBasic` above — see `computeSeasonStandings`' identical param. Only actually used (to fetch a fresh `overallContext`) when `precomputedOverallContext` is omitted — every real caller today passes that in instead. */
+  rulesets?: ScoringRuleset[]
 ): Promise<TeamSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
@@ -1514,7 +1529,7 @@ export async function computeTeamSeasonStandings(
   // summaries — built from `overallContext.penalties` once, after the
   // branch — can see it too, and so it's fetched at most once regardless of
   // which branch runs.
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
+  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers, rulesets));
   const penaltiesByDriverAndRound = buildPenaltiesByDriverAndRound(overallContext.penalties);
 
   interface TeamAccum {
@@ -1648,7 +1663,8 @@ export async function computeTeamSeasonStandings(
       overallContext.formatBySubsession,
       overallContext.adjustments,
       overallContext.leaderStatsByRace,
-      awardsClassPoints
+      awardsClassPoints,
+      overallContext.rulesBySubsession
     );
 
     // Alpha Team points must come from the same source computeSeasonStandings'
@@ -2996,7 +3012,8 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
         seasonRawResults,
         seasonPenalties,
         seasonRounds,
-        seasonLapStats
+        seasonLapStats,
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null
       );
 
       const classScores = seasonScores.filter((s) => s.class_id === classId);
@@ -3086,7 +3103,8 @@ export async function getChampionsWithExtras(
         seasonRawResults,
         seasonPenalties,
         seasonRounds,
-        seasonLapStats
+        seasonLapStats,
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null
       );
 
       const classScores = seasonScores.filter((s) => s.class_id === classId);
@@ -3154,7 +3172,7 @@ export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], clas
   const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
-  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds] = await Promise.all([
+  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds, rulesets] = await Promise.all([
     driversSelect(env),
     getStandingsExcludedRoundIds(env),
     getDriverClasses(env),
@@ -3162,6 +3180,7 @@ export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], clas
     getAllTeamSeasonLogosSafe(env),
     getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
     getAllRounds(env),
+    getScoringRulesets(env),
   ]);
 
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
@@ -3189,7 +3208,8 @@ export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], clas
         seasonRawResults,
         seasonPenalties,
         seasonRounds,
-        seasonLapStats
+        seasonLapStats,
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null
       );
 
       const precomputedScoresRaw = classId !== undefined ? seasonScores.filter((s) => s.class_id === classId) : undefined;
@@ -3427,7 +3447,8 @@ export async function computeDriverCareerStats(
       seasonRawResults,
       seasonPenalties,
       seasonRounds,
-      seasonLapStats
+      seasonLapStats,
+      resolveSeasonRuleset(season, rulesets)?.rules ?? null
     );
 
     const scoresByClassId = new Map<number, RaceScoreRow[]>();
@@ -3685,6 +3706,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     circuitLayouts,
     roundLayouts,
     qualifyingRowsBulk,
+    rulesets,
   ] = await Promise.all([
     getCuratedRaceResultsForSubsessions(env, subsessionIds),
     getTeamsBasic(env),
@@ -3723,6 +3745,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       console.error('Failed to fetch qualifying results for driver race history — Avg Qualify will be omitted:', err);
       return [] as CuratedQualifyingBulkRow[];
     }),
+    getScoringRulesets(env),
   ]);
 
   const excludedRoundIds = new Set([...exhibitionRoundIds, ...testRoundIds]);
@@ -3747,6 +3770,18 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   );
   const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
   const formatBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r.format]));
+  // Unlike the single-season buildSeasonOverallContext pattern, this driver's
+  // career can span MANY seasons, each potentially on its own
+  // scoring_rulesets — so unlike that pattern's single repeated `rules`
+  // value, this has to resolve each round's own season's ruleset
+  // individually. See penalties.ts's computeSeasonOverallAdjustments'
+  // `rulesBySubsession` param doc comment.
+  const rulesBySubsession = new Map(
+    allRounds.map((r) => {
+      const roundSeason = seasonById.get(r.season_id);
+      return [r.subsession_id, roundSeason ? resolveSeasonRuleset(roundSeason, rulesets)?.rules ?? null : null];
+    })
+  );
 
   const seasonScoreRows: SeasonScoreRow[] = overallScoresRaw.map((s) => {
     const rowCustId = custIdByDriverId.get(s.driver_id);
@@ -3770,7 +3805,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
     };
   });
-  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession);
+  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession, rulesBySubsession);
 
   // Leader's laps_complete per (subsession, race) — same as getRoundResults'
   // own leaderLapsByRace, just keyed across every round in scope at once
@@ -5807,7 +5842,8 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         seasonRawResults,
         seasonPenalties,
         seasonRoundsList,
-        seasonLapStats
+        seasonLapStats,
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null
       );
       if (overallContext.overallScores.length === 0) return null;
 

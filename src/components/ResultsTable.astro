@@ -416,7 +416,7 @@ for (const p of racePenalties) {
                     <tbody>
                       <tr class="border-b border-white/5">
                         <td class="py-1 text-white/50">Best Lap</td>
-                        <td class="py-1 text-right font-display text-white/90">
+                        <td class="py-1 text-right text-white/90">
                           {beatPersonalBest && (
                             <sup class="mr-0.5 text-[10px] font-sans text-brand-gold" title="New personal best at this track">
                               PB
@@ -427,16 +427,16 @@ for (const p of racePenalties) {
                       </tr>
                       <tr class="border-b border-white/5">
                         <td class="py-1 text-white/50">Average Lap</td>
-                        <td class="py-1 text-right font-display text-white/90">{row.averageLapFormatted}</td>
+                        <td class="py-1 text-right text-white/90">{row.averageLapFormatted}</td>
                       </tr>
                       <tr class={timePenalty !== 0 ? 'border-b border-white/5' : ''}>
                         <td class="py-1 text-white/50">Race Time</td>
-                        <td class="py-1 text-right font-display text-white/90">{row.overallRaceTimeFormatted}</td>
+                        <td class="py-1 text-right text-white/90">{row.overallRaceTimeFormatted}</td>
                       </tr>
                       {timePenalty !== 0 && (
                         <tr>
                           <td class="py-1 text-white/50">Time Penalty</td>
-                          <td class="py-1 text-right font-display font-semibold text-brand-pink">+{timePenalty}s</td>
+                          <td class="py-1 text-right font-semibold text-brand-pink">+{timePenalty}s</td>
                         </tr>
                       )}
                     </tbody>
