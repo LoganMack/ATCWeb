@@ -291,7 +291,15 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
           </div>
         </div>
       </div>
-      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <!--
+        Mobile-exclusive: the three button groups below (Class/Activity/
+        Status) are desktop-only now (hidden, sm:grid) -- per Logan, mobile
+        gets a compact row of <select> dropdowns instead (right below this
+        comment's closing div), driving the exact same `state`/applyFilters
+        this whole card has always used. See setFilter() in the script below
+        for the shared click/change handler both UIs now go through.
+      -->
+      <div class="mt-4 hidden gap-4 sm:grid sm:grid-cols-3">
         <div>
           <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
           <div class="grid grid-cols-2 gap-1.5 [&>*]:justify-self-start" data-filter-group="class">
@@ -339,6 +347,42 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
             ))}
           </div>
         </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-3 gap-2 sm:hidden">
+        <label class="flex flex-col gap-1 text-xs">
+          <span class="font-semibold uppercase tracking-wide text-white/40">Class</span>
+          <select
+            id="roster-class-select"
+            class="h-10 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+          >
+            {classes.map((c) => (
+              <option value={c} selected={c === 'All'} class="bg-brand-ink text-white">{c}</option>
+            ))}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1 text-xs">
+          <span class="font-semibold uppercase tracking-wide text-white/40">Activity</span>
+          <select
+            id="roster-status-select"
+            class="h-10 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+          >
+            {statuses.map((s) => (
+              <option value={s} selected={s === 'Active'} class="bg-brand-ink text-white">{s}</option>
+            ))}
+          </select>
+        </label>
+        <label class="flex flex-col gap-1 text-xs">
+          <span class="font-semibold uppercase tracking-wide text-white/40">Status</span>
+          <select
+            id="roster-experience-select"
+            class="h-10 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+          >
+            {experienceLevels.map((x) => (
+              <option value={x} selected={x === 'All'} class="bg-brand-ink text-white">{x}</option>
+            ))}
+          </select>
+        </label>
       </div>
     </div>
 
@@ -489,18 +533,42 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         if (empty) empty.classList.toggle('hidden', visibleCount > 0);
       }
 
+      // Shared by both filter UIs -- the desktop button groups below AND
+      // the mobile-only <select> dropdowns (roster-class-select/
+      // roster-status-select/roster-experience-select, see the markup
+      // above) drive the exact same `state`/applyFilters through this one
+      // function, so the two stay interchangeable rather than risking drift
+      // between two hand-kept copies of "what happens when this filter
+      // changes." `group` here is always the matching [data-filter-group]
+      // element for `key`, so its buttons' data-active can be kept in sync
+      // even when the change came from the <select> instead of a button
+      // click -- not that it matters visually (that group is hidden on
+      // mobile, where the <select> lives), but it keeps state consistent
+      // if the viewport is later resized past the sm breakpoint.
+      function setFilter(key: 'class' | 'status' | 'experience', value: string, group: Element) {
+        state[key] = value;
+        group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
+          b.dataset.active = String(b.dataset.filterValue === value);
+        });
+        applyFilters();
+      }
+
       document.querySelectorAll<HTMLElement>('[data-filter-group]').forEach((group) => {
-        const key = group.dataset.filterGroup!;
+        const key = group.dataset.filterGroup as 'class' | 'status' | 'experience';
         group.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            state[key] = btn.dataset.filterValue!;
-            group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
-              b.dataset.active = String(b === btn);
-            });
-            applyFilters();
-          });
+          btn.addEventListener('click', () => setFilter(key, btn.dataset.filterValue!, group));
         });
       });
+
+      const classGroup = document.querySelector('[data-filter-group="class"]');
+      const statusGroup = document.querySelector('[data-filter-group="status"]');
+      const experienceGroup = document.querySelector('[data-filter-group="experience"]');
+      const classSelect = document.getElementById('roster-class-select') as HTMLSelectElement | null;
+      const statusSelect = document.getElementById('roster-status-select') as HTMLSelectElement | null;
+      const experienceSelect = document.getElementById('roster-experience-select') as HTMLSelectElement | null;
+      if (classGroup) classSelect?.addEventListener('change', () => setFilter('class', classSelect.value, classGroup));
+      if (statusGroup) statusSelect?.addEventListener('change', () => setFilter('status', statusSelect.value, statusGroup));
+      if (experienceGroup) experienceSelect?.addEventListener('change', () => setFilter('experience', experienceSelect.value, experienceGroup));
 
       searchInput?.addEventListener('input', () => {
         state.search = searchInput.value.trim().toLowerCase();

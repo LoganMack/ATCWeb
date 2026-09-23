@@ -451,7 +451,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </p>
         )}
 
-        <div class="mt-8 flex flex-wrap items-center gap-6">
+        {/* Desktop-only (hidden, sm:flex) -- per Logan, mobile gets a
+            compact pair of <select> dropdowns instead (right below) for
+            the session/view filters, and the Incident Report button
+            shrinks to a small icon that moves onto the race-links line
+            (see ResultsTable's race-links slot usage below). */}
+        <div class="mt-8 hidden flex-wrap items-center gap-6 sm:flex">
           <div class="flex flex-wrap gap-2">
             <a href={`/results/${subsessionId}?category=race&view=${view}${seasonQuerySuffix}`} class={pillClass(category === 'race')}>
               Race
@@ -479,6 +484,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </a>
         </div>
 
+        {/* Mobile-only session/view dropdowns -- same navigation targets as
+            the pill links above, just picked from a <select> instead. Each
+            option's value is the full destination URL; onchange just
+            navigates there, same as a plain link would. */}
+        <div class="mt-8 flex flex-wrap gap-3 sm:hidden">
+          <select
+            class="h-9 flex-1 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+            onchange="window.location.href=this.value"
+          >
+            <option value={`/results/${subsessionId}?category=race&view=${view}${seasonQuerySuffix}`} selected={category === 'race'} class="bg-brand-ink text-white">Race</option>
+            <option value={`/results/${subsessionId}?category=qualifying&view=${view}${seasonQuerySuffix}`} selected={category === 'qualifying'} class="bg-brand-ink text-white">Qualifying</option>
+            <option value={`/results/${subsessionId}?category=practice&view=${view}${seasonQuerySuffix}`} selected={category === 'practice'} class="bg-brand-ink text-white">Practice</option>
+          </select>
+          <select
+            class="h-9 flex-1 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+            onchange="window.location.href=this.value"
+          >
+            <option value={`/results/${subsessionId}?category=${category}&view=overall${seasonQuerySuffix}`} selected={view === 'overall'} class="bg-brand-ink text-white">Overall</option>
+            <option value={`/results/${subsessionId}?category=${category}&view=class${seasonQuerySuffix}`} selected={view === 'class'} class="bg-brand-ink text-white">Per Class</option>
+          </select>
+        </div>
+
         {category === 'race' && (
           <>
             {orderedClassIds.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
@@ -500,7 +527,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   >
                     {raceNumber === overallRaceNumbers[0] && (
                       <Fragment slot="race-links">
-                        <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+                        {/* Mobile-only Incident Report icon -- wrapped
+                            together with RaceLinksBlock in one flex row so
+                            the two act as a single slotted child (the outer
+                            title row is itself `justify-between`, between
+                            the "Race N" heading and whatever fills this
+                            slot); the icon then lands immediately to the
+                            right of the race links, same line, as asked.
+                            Desktop keeps the full "Incident Report" button
+                            in the filter row above instead (hidden here via
+                            sm:hidden) -- unchanged there. */}
+                        <div class="flex flex-wrap items-center gap-2">
+                          <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+                          <a
+                            href={incidentsHref}
+                            aria-label="Incident Report"
+                            title="Incident Report"
+                            class="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-brand-gold/15 text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:hidden"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+                              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                              <line x1="12" y1="9" x2="12" y2="13" />
+                              <line x1="12" y1="17" x2="12.01" y2="17" />
+                            </svg>
+                          </a>
+                        </div>
                       </Fragment>
                     )}
                   </ResultsTable>
@@ -527,7 +578,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     >
                       {classIdx === 0 && raceIdx === 0 && (
                         <Fragment slot="race-links">
-                          <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+                          {/* Same mobile-only Incident Report icon as the
+                              overall view above -- see that one's own
+                              comment. */}
+                          <div class="flex flex-wrap items-center gap-2">
+                            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+                            <a
+                              href={incidentsHref}
+                              aria-label="Incident Report"
+                              title="Incident Report"
+                              class="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-brand-gold/15 text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:hidden"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+                                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                                <line x1="12" y1="9" x2="12" y2="13" />
+                                <line x1="12" y1="17" x2="12.01" y2="17" />
+                              </svg>
+                            </a>
+                          </div>
                         </Fragment>
                       )}
                     </ResultsTable>

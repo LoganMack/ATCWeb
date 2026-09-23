@@ -326,11 +326,19 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
-              {!isPastSeason && <th class="hidden py-3 pr-4 font-medium sm:table-cell" data-sort-key="founded">Founded</th>}
-              <th class="py-3 pr-4 font-medium">Driver 1</th>
-              <th class="py-3 pr-4 font-medium">Driver 2</th>
-              <th class="py-3 pr-4 font-medium">Driver 3</th>
-              {showFourthDriverColumn && <th class="py-3 pr-4 font-medium">Driver 4</th>}
+              {/* Founded is now shown at every width — on mobile it
+                  REPLACES the driver columns below (hidden there instead,
+                  per Logan — see those columns' own comment). Still gated
+                  on !isPastSeason exactly as before. */}
+              {!isPastSeason && <th class="py-3 pr-4 font-medium" data-sort-key="founded">Founded</th>}
+              {/* Mobile: hidden (sm:table-cell) — a driver list is instead
+                  reached by tapping a row to expand it (chevron +
+                  [data-expand-row]/[data-detail-row], src/scripts/
+                  expandRows.ts). Desktop renders these exactly as before. */}
+              <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 1</th>
+              <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 2</th>
+              <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 3</th>
+              {showFourthDriverColumn && <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 4</th>}
             </tr>
           </thead>
           <tbody id="team-list">
@@ -342,19 +350,34 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
               const founded = foundedDateFor(team);
               const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
               return (
-                <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.04]" data-search={searchText}>
+                <>
+                <tr
+                  data-expand-row
+                  tabindex="0"
+                  role="button"
+                  aria-expanded="false"
+                  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04] sm:cursor-default"
+                  data-search={searchText}
+                >
                   <td class="py-2.5 pl-4 pr-3" data-col="name">
                     <div class="flex items-center gap-3">
+                      <span
+                        data-chevron
+                        class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150 sm:hidden"
+                        aria-hidden="true"
+                      >
+                        &#9654;
+                      </span>
                       <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" />
                       <div class="flex flex-col justify-center">
                         <span class="font-semibold leading-tight">{team.name}</span>
-                        {/* Always rendered (invisible when there's no org) so every row is exactly the same height regardless of whether that team has an organization — see this page's own org-name-by-team-id comment above. */}
-                        <span class={`text-[11px] leading-tight text-white/40 ${orgName ? '' : 'invisible'}`}>{orgName ?? ' '}</span>
+                        {/* Organization subtitle, hidden on mobile entirely (not just the invisible height-placeholder desktop still uses when a team has no org, per Logan). */}
+                        <span class={`hidden text-[11px] leading-tight text-white/40 sm:block ${orgName ? '' : 'sm:invisible'}`}>{orgName ?? ' '}</span>
                       </div>
                     </div>
                   </td>
                   {!isPastSeason && (
-                    <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell" data-col="founded" data-sort-value={founded}>
+                    <td class="py-2.5 pr-4 text-white/70" data-col="founded" data-sort-value={founded}>
                       {formatFoundedDate(founded)}
                     </td>
                   )}
@@ -363,7 +386,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                     const fullName = driver ? displayDriverName(driver.name) : '';
                     const { first, rest } = splitFirstName(fullName);
                     return (
-                      <td class="py-2.5 pr-4 text-white/70">
+                      <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell">
                         {driver ? (
                           <>
                             {/* Mobile: first name stacked above the rest of
@@ -385,6 +408,33 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                     );
                   })}
                 </tr>
+                {/* Mobile-only driver list, reached by tapping the row above
+                    -- replaces the always-visible driver columns there (see
+                    those columns' own comment). `sm:hidden` here is
+                    permanent (unlike the `hidden` class, which
+                    expandRows.ts toggles on click) -- it stacks with
+                    `hidden` so that even if this row's aria-expanded state
+                    were ever toggled true at a desktop width, it still can
+                    never actually render at sm+, no matter what. */}
+                <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs sm:hidden">
+                  <td colspan={!isPastSeason ? 2 : 1} class="px-4 py-4">
+                    <div class="text-[10px] uppercase tracking-wide text-white/30">Drivers</div>
+                    <table class="mt-1 w-full max-w-xs">
+                      <tbody>
+                        {roster.map((driver, i) => (
+                          <tr class="border-b border-white/5 last:border-0">
+                            <td class="py-1 text-white/50">Driver {i + 1}</td>
+                            <td class="py-1 text-right font-semibold text-white/90">
+                              {displayDriverName(driver.name)}
+                              {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+                </>
               );
             })}
           </tbody>
