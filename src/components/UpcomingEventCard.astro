@@ -72,24 +72,36 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
       </div>
     </div>
 
-    <ul class="mt-4 space-y-1.5 text-sm">
-      {sessions.map((s) => (
-        <li class="flex items-center justify-between gap-2 text-white/70">
-          <span class="flex items-center gap-1.5">
-            <WeatherIcon condition={s.weather} class="text-base" />
-            {s.label}
-          </span>
-          <span class="text-white/50">
-            {s.startTime && (
-              <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
-            )}
+    {/* A real <table> (no visible borders/header) rather than a flex list —
+        lets the ET time, in-sim time, and detail line up in their own
+        columns across every session row instead of each row's right-hand
+        content just being crammed against its own left edge. */}
+    <table class="mt-4 w-full border-separate border-spacing-y-1.5 text-left text-sm">
+      <tbody>
+        {sessions.map((s) => (
+          <tr class="text-white/70">
+            <td class="align-middle">
+              <span class="flex items-center gap-1.5">
+                <WeatherIcon condition={s.weather} class="text-base" />
+                {s.label}
+              </span>
+            </td>
+            <td class="whitespace-nowrap pl-2 align-middle text-white/50">
+              {s.startTime && (
+                <span data-utc-time={s.startTimeUtcIso ?? undefined}>{formatSessionTime(s.startTime)} ET</span>
+              )}
+            </td>
             {/* In-sim timing hidden on mobile (Logan) — this card is narrow there and the IRL start time is the one people actually plan around. */}
-            {s.simTime && <span class="hidden sm:inline"> (in-sim {formatSessionTime(s.simTime)})</span>}
-            {s.detail && ` · ${s.detail}`}
-          </span>
-        </li>
-      ))}
-    </ul>
+            <td class="hidden whitespace-nowrap pl-2 align-middle text-white/50 sm:table-cell">
+              {s.simTime && `(in-sim ${formatSessionTime(s.simTime)})`}
+            </td>
+            <td class="pl-2 align-middle text-white/50">
+              {s.detail && `· ${s.detail}`}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
 
     {/* Event Briefing + Add to Calendar — both only ever render here, i.e.
         only for the single next upcoming event (index.astro passes

@@ -18,7 +18,7 @@
  * database.
  */
 
-import { type SupabaseEnv, getPenaltiesForSubsessions, getPenaltyOffenses, getStandingsExcludedRoundIds } from './supabase';
+import { type SupabaseEnv, restGetAll, getPenaltiesForSubsessions, getPenaltyOffenses, getStandingsExcludedRoundIds } from './supabase';
 import { getAllRounds, driversSelect, computeDisplayRoundNumbers, type DriverBasic } from './results';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from './penalties';
 
@@ -61,6 +61,8 @@ export interface DriverIncidentAggregate {
   penaltyPoints: number;
   /** Sum of effective points_penalty across every incident this driver was penalized for — points LOST, not a net swing (see IncidentRow.pointsPenalty). */
   pointsLost: number;
+  /** Every race (subsession + race_number pair) this driver has ever started on file, across every round — the denominator for the By Driver table's Inc/Race and Pen/Race columns. Pulled straight from race_scores rather than the full standings engine (see this file's header comment on why), so it's every start regardless of season/class/exhibition status. */
+  racesStarted: number;
   /** Every incident this driver appears in at all (involved-in superset, not just timesPenalized), newest first — what the expanded row lists. */
   incidents: IncidentRow[];
 }
@@ -91,7 +93,7 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
   const rounds = await getAllRounds(env);
   const subsessionIds = rounds.map((r) => r.subsession_id);
 
-  const [penalties, driversBasic, offenses, excludedRoundIds] = await Promise.all([
+  const [penalties, driversBasic, offenses, excludedRoundIds, raceStartRows] = await Promise.all([
     getPenaltiesForSubsessions(env, subsessionIds),
     // includeAi: true — a penalty could in principle tag an AI-flagged
     // entrant (an exhibition-only synthetic driver, see DriverBasic's own
@@ -100,7 +102,23 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
     driversSelect(env, { includeAi: true }),
     getPenaltyOffenses(env),
     getStandingsExcludedRoundIds(env),
+    // Minimal columns straight off race_scores — just enough to count each
+    // driver's distinct (subsession, race_number) starts for the By Driver
+    // table's Inc/Race and Pen/Race columns. Deliberately not routed through
+    // results.ts's standings engine (see this file's header comment).
+    subsessionIds.length === 0
+      ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
+      : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
+          env,
+          `race_scores?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`
+        ),
   ]);
+
+  const racesStartedByDriver = new Map<string, Set<string>>();
+  for (const row of raceStartRows) {
+    if (!racesStartedByDriver.has(row.driver_id)) racesStartedByDriver.set(row.driver_id, new Set());
+    racesStartedByDriver.get(row.driver_id)!.add(`${row.subsession_id}:${row.race_number}`);
+  }
 
   const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
   const driverById = new Map(driversBasic.map((d) => [d.id, d]));
@@ -158,6 +176,7 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
           timesPenalized: 0,
           penaltyPoints: 0,
           pointsLost: 0,
+          racesStarted: racesStartedByDriver.get(driverId)?.size ?? 0,
           incidents: [],
         });
       }

@@ -42,17 +42,46 @@ function extFromFile(file: File): string {
 // any other date, past or future, to backdate/schedule a post.
 const todayIso = new Date().toISOString().slice(0, 10);
 
+// Grouped by season for the round picker below — every round across every
+// season (not just the current one), since a post can reasonably recap a
+// round from any point in the site's history. Fetched up here, ahead of the
+// POST handling below (rather than after it, as this used to be laid out),
+// because that handling now needs this same list too: there's no more
+// manual "Season tag" field (see that field's own removal further down) —
+// a post's season_label is derived from whichever round ends up linked,
+// so the POST branch has to be able to look that round up by
+// round_subsession_id before it can save anything.
+let allRounds: Awaited<ReturnType<typeof getAllRounds>> = [];
+try {
+  allRounds = await getAllRounds(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load rounds for the news editor:', err);
+}
+const roundsBySeasonLabel = new Map<string, typeof allRounds>();
+for (const r of allRounds) {
+  const key = r.season_label ?? 'Unlabeled';
+  if (!roundsBySeasonLabel.has(key)) roundsBySeasonLabel.set(key, []);
+  roundsBySeasonLabel.get(key)!.push(r);
+}
+
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const title = String(form.get('title') ?? '').trim();
   const excerpt = String(form.get('excerpt') ?? '').trim();
   const body = String(form.get('body') ?? '').trim();
-  const author_name = String(form.get('author_name') ?? '').trim() || displayName;
+  // No more editable Author field (removed per Logan) — always whoever's
+  // actually logged in and creating this post, not something the form can
+  // override.
+  const author_name = displayName;
   const coverFile = form.get('cover_image');
   const status = form.get('status') === 'published' ? 'published' : 'draft';
-  const season_label = String(form.get('season_label') ?? '').trim();
   const roundRaw = String(form.get('round_subsession_id') ?? '').trim();
   const round_subsession_id = roundRaw ? Number(roundRaw) : null;
+  // No more editable Season tag field either (removed per Logan) — driven
+  // entirely by whichever round ends up linked above, same season_label
+  // that round's own row already carries. No linked round means no season
+  // tag, same as leaving the old free-text field blank used to.
+  const season_label = round_subsession_id !== null ? (allRounds.find((r) => r.subsession_id === round_subsession_id)?.season_label ?? null) : null;
   // Stored as noon UTC rather than midnight for whatever date was picked —
   // a plain midnight-UTC timestamp can display as the PREVIOUS day once
   // formatDate() renders it in a negative-offset local timezone (this
@@ -92,7 +121,7 @@ if (Astro.request.method === 'POST') {
         author_name,
         cover_image_url,
         status,
-        season_label: season_label || null,
+        season_label,
         round_subsession_id: round_subsession_id !== null && Number.isFinite(round_subsession_id) ? round_subsession_id : null,
         published_at,
       });
@@ -115,28 +144,6 @@ if (Astro.request.method === 'POST') {
     }
   }
 }
-
-// Grouped by season for the round picker below — every round across every
-// season (not just the current one), since a post can reasonably recap a
-// round from any point in the site's history.
-let allRounds: Awaited<ReturnType<typeof getAllRounds>> = [];
-try {
-  allRounds = await getAllRounds(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load rounds for the news editor:', err);
-}
-const roundsBySeasonLabel = new Map<string, typeof allRounds>();
-for (const r of allRounds) {
-  const key = r.season_label ?? 'Unlabeled';
-  if (!roundsBySeasonLabel.has(key)) roundsBySeasonLabel.set(key, []);
-  roundsBySeasonLabel.get(key)!.push(r);
-}
-// Suggestions for the season-tag field — every distinct season_label
-// already in use across all rounds (championship AND non-points/exhibition
-// ones alike, since this is derived straight from curated_rounds rather
-// than filtered to real "ATCxx" seasons only). Free text, not a strict
-// picker — see 0017_news_round_season.sql for why.
-const seasonLabelSuggestions = [...new Set(allRounds.map((r) => r.season_label).filter((s): s is string => Boolean(s)))].sort();
 
 let allTags: Awaited<ReturnType<typeof getAllNewsTags>> = [];
 try {
@@ -213,55 +220,26 @@ const mentionDriversJson = JSON.stringify(
       </span>
     </div>
     <script type="application/json" id="mention-drivers-data" set:html={mentionDriversJson} />
-    <div class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Cover image</span>
-      <input
-        type="file"
-        name="cover_image"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
-      />
-      <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Optional — the article works fine without one.</span>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Cover image</span>
+        <input
+          type="file"
+          name="cover_image"
+          accept="image/png,image/jpeg,image/webp,image/svg+xml"
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-white"
+        />
+      </div>
+      <label class="flex flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Published date</span>
+        <input
+          type="date"
+          name="published_date"
+          value={todayIso}
+          class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </label>
     </div>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Published date</span>
-      <input
-        type="date"
-        name="published_date"
-        value={todayIso}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-      <span class="text-xs text-white/40">
-        Defaults to today. Pick an earlier date to backdate this post (e.g. news about an older result) — it
-        controls display order on the News page, same as a normal publish date.
-      </span>
-    </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Author</span>
-      <input
-        type="text"
-        name="author_name"
-        value={displayName}
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-    </label>
-    <label class="flex flex-col gap-1.5 text-sm">
-      <span class="text-white/70">Season tag</span>
-      <input
-        type="text"
-        name="season_label"
-        list="season-label-suggestions"
-        placeholder="e.g. ATC17"
-        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-      />
-      <datalist id="season-label-suggestions">
-        {seasonLabelSuggestions.map((label) => <option value={label} />)}
-      </datalist>
-      <span class="text-xs text-white/40">
-        Free text, not limited to real championship seasons — tag exhibitions or one-off events however you like.
-        Powers the season filter on the public News page.
-      </span>
-    </label>
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Linked round (optional)</span>
       <select
@@ -279,16 +257,12 @@ const mentionDriversJson = JSON.stringify(
           </optgroup>
         ))}
       </select>
-      <span class="text-xs text-white/40">
-        When set, the article shows a link to that round's results at the top and a live race recap (top finishers,
-        fastest laps, team points) at the bottom.
-      </span>
     </label>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Tags</legend>
       {allTags.length === 0 ? (
         <p class="text-xs text-white/40">
-          No tags yet — <a href="/admin/news/tags" class="text-brand-primary hover:underline">create some</a> to select them here.
+          No tags yet. <a href="/admin/news/tags" class="text-brand-primary hover:underline">Create some</a> first.
         </p>
       ) : (
         <div class="flex flex-wrap gap-3">
@@ -300,9 +274,6 @@ const mentionDriversJson = JSON.stringify(
           ))}
         </div>
       )}
-      <span class="text-xs text-white/40">
-        Managed on the <a href="/admin/news/tags" class="text-brand-primary hover:underline">News Tags</a> page.
-      </span>
     </fieldset>
     <fieldset class="flex flex-col gap-1.5 text-sm">
       <legend class="text-white/70">Status</legend>

@@ -50,6 +50,12 @@ function driverNumberLabel(row: IncidentRow): string {
   return row.driver.car_number !== null ? `#${row.driver.car_number}` : shortDriverName(row.driver.name);
 }
 
+/** Inc/Race and Pen/Race columns on the By Driver table — a driver with no races on file (shouldn't normally happen, but avoids a divide-by-zero) shows an em dash instead of a rate. */
+function perRace(count: number, races: number): string {
+  if (races === 0) return '—';
+  return (count / races).toFixed(2);
+}
+
 function involvedLabel(row: IncidentRow): string {
   if (row.involvedDrivers.length === 0) return '—';
   return row.involvedDrivers
@@ -208,7 +214,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
                 <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Driver</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="incidents">Incidents</th>
-                <th class="py-3 pr-3 text-center font-medium" data-sort-key="penalized">Times Penalized</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="incperrace">Inc/Race</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="penalized">Penalties</th>
+                <th class="py-3 pr-3 text-center font-medium" data-sort-key="penperrace">Pen/Race</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">Penalty Points</th>
                 <th class="py-3 pr-4 text-center font-medium" data-sort-key="pointslost">Points Lost</th>
               </tr>
@@ -237,12 +245,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         </div>
                       </td>
                       <td class="py-2.5 pr-3 text-center text-white/60" data-col="incidents">{agg.incidentsInvolvedIn}</td>
+                      <td class="py-2.5 pr-3 text-center text-white/60" data-col="incperrace">{perRace(agg.incidentsInvolvedIn, agg.racesStarted)}</td>
                       <td class="py-2.5 pr-3 text-center text-white/60" data-col="penalized">{agg.timesPenalized}</td>
+                      <td class="py-2.5 pr-3 text-center text-white/60" data-col="penperrace">{perRace(agg.timesPenalized, agg.racesStarted)}</td>
                       <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp">{agg.penaltyPoints}</td>
                       <td class="py-2.5 pr-4 text-center text-white/60" data-col="pointslost">{agg.pointsLost}</td>
                     </tr>
                     <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
-                      <td colspan={5} class="px-4 py-4 sm:pl-11">
+                      <td colspan={7} class="px-4 py-4 sm:pl-11">
                         <div data-sticky-thead>
                           <table class="w-full min-w-[820px] border-collapse">
                             <thead>
