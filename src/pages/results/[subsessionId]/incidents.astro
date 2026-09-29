@@ -553,6 +553,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 // Link-preview (Discord/Slack/etc.) description — a live incident count
 // reads better in an embed than the old static blurb, per Logan.
+// Next auto-incremented Incident # for the add/log dialog: one past the
+// highest purely-numeric incident_number already logged this round (1 for a
+// round with none). Non-numeric numbers are ignored; the field stays
+// editable either way.
+const nextIncidentNumber =
+  Math.max(0, ...sortedPenalties.map((p) => (p.incident_number && /^\d+$/.test(p.incident_number.trim()) ? Number(p.incident_number) : 0))) + 1;
 const incidentCountDescription = `${sortedPenalties.length} incident${sortedPenalties.length === 1 ? '' : 's'} reported.`;
 ---
 
@@ -609,7 +615,6 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <p class="font-semibold text-white/80">
                       {sessionLabelByValue.get(r.session) ?? r.session} · Lap {r.lap} · Turn {r.turn}
-                      <span class="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white/50">{r.status}</span>
                     </p>
                     <div class="flex flex-wrap items-center gap-2">
                       {r.status === 'open' && (
@@ -898,6 +903,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           <dialog
             id="incident-dialog"
             data-incident-dialog
+            data-next-incident-number={nextIncidentNumber}
             class="w-full max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
           >
             <form method="POST" data-astro-reload class="flex max-h-[85vh] flex-col gap-3 overflow-y-auto p-5">
@@ -916,7 +922,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                   <input type="text" name="incident_number" data-incident-number-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Driver
+                  Driver at Fault
                   <select
                     name="driver_id"
                     data-incident-driver-field
@@ -1341,7 +1347,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
     function updateFormValidity() {
       const missing: string[] = [];
       if (!sessionField.value) missing.push('Session');
-      if (!isDriverSelected(driverField.value)) missing.push('Driver');
+      if (!isDriverSelected(driverField.value)) missing.push('Driver at Fault');
       if (!numberField.value.trim()) missing.push('Incident #');
       if (!lapField.value.trim()) missing.push('Lap');
 
@@ -1395,6 +1401,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
         idField.value = '';
         fromReportField.value = '';
         heading.textContent = 'Add Incident';
+        numberField.value = dialog.dataset.nextIncidentNumber ?? '';
         setAppealFieldsVisible(false);
         // Fresh dialog, fresh tracking — nothing auto-selected yet.
         autoSelectedInvolvedId = null;
@@ -1477,8 +1484,9 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
 
     // "Log incident" on a driver-submitted report: opens the normal Add
     // Incident dialog pre-filled from the report (session, lap, involved
-    // cars, description). The steward still picks the driver/incident #;
-    // saving marks the report as logged (from_report_id).
+    // cars, and the next Incident # — the description is deliberately left
+    // blank). The steward still picks the driver at fault; saving marks the
+    // report as logged (from_report_id).
     document.querySelectorAll<HTMLButtonElement>('[data-log-report]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!btn.dataset.report) return;
@@ -1488,14 +1496,11 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
         idField.value = '';
         fromReportField.value = r.id;
         heading.textContent = 'Add Incident';
+        numberField.value = dialog.dataset.nextIncidentNumber ?? '';
         setAppealFieldsVisible(false);
         autoSelectedInvolvedId = null;
         sessionField.value = r.session;
         lapField.value = String(r.lap);
-        const desc = dialog.querySelector<HTMLTextAreaElement>('[name="description"]');
-        if (desc) {
-          desc.value = `Turn ${r.turn}${r.description ? ` — ${r.description}` : ''}${r.reporter ? ` (reported by ${r.reporter})` : ''}`;
-        }
         dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
           cb.checked = (r.driver_ids ?? []).includes(cb.value);
         });

@@ -407,7 +407,7 @@ const reportSession = Astro.locals.session;
 let reportFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 {
   const flash = Astro.url.searchParams.get('report');
-  if (flash === 'ok') reportFlash = { kind: 'ok', message: 'Thanks — your incident report was submitted to the stewards.' };
+  if (flash === 'ok') reportFlash = { kind: 'ok', message: 'Incident reported successfully.' };
   else if (flash === 'closed') reportFlash = { kind: 'error', message: 'The reporting period for this round has closed.' };
   else if (flash === 'invalid') reportFlash = { kind: 'error', message: 'Your report was missing a required field — please fill in Session, Lap, Turn and at least one car.' };
   else if (flash === 'failed') reportFlash = { kind: 'error', message: "Couldn't save your report right now. Please try again." };
@@ -517,6 +517,19 @@ Astro.response.headers.set(
 
 <Layout title={round ? round.track_name : 'Race Results'} description="Race-by-race results for this round.">
   <section class="mx-auto max-w-5xl px-6 pb-24 pt-8">
+    {reportFlash && (
+      <p
+        role="status"
+        class={`mb-4 rounded-lg border px-4 py-3 text-sm ${
+          reportFlash.kind === 'ok'
+            ? 'border-brand-primary/30 bg-brand-primary/10 text-white/80'
+            : 'border-brand-pink/30 bg-brand-pink/10 text-white/80'
+        }`}
+      >
+        {reportFlash.message}
+      </p>
+    )}
+
     <a href={backHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
     {loadError && (
@@ -621,18 +634,6 @@ Astro.response.headers.set(
           {category !== 'race' && reportingOpen && <ReportIncidentButton />}
         </div>
 
-        {reportFlash && (
-          <p
-            role="status"
-            class={`mt-4 rounded-lg border px-4 py-3 text-sm ${
-              reportFlash.kind === 'ok'
-                ? 'border-brand-primary/30 bg-brand-primary/10 text-white/80'
-                : 'border-brand-pink/30 bg-brand-pink/10 text-white/80'
-            }`}
-          >
-            {reportFlash.message}
-          </p>
-        )}
 
         {reportingOpen && (
           <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} />

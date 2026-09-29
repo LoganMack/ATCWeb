@@ -80,7 +80,7 @@ const showAdminLink = isAdminView(Astro.locals);
             ? 'rounded-lg bg-brand-gold/15 px-3 py-1 text-xs font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25'
             : 'rounded-lg bg-white/5 px-3 py-1 text-xs font-semibold text-white/40 ring-1 ring-white/10 transition hover:bg-white/10'}
         >
-          {broadcasterMode ? 'Broadcaster View On — latest round hidden' : 'View as Broadcaster'}
+          {broadcasterMode ? 'Broadcaster View On' : 'View as Broadcaster'}
         </button>
       </form>
       {isRealAdmin && (

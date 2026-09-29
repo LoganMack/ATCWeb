@@ -16,6 +16,12 @@ interface Props {
   drivers: { id: string; name: string; car_number: number | null }[];
 }
 const { subsessionId, sessionOptions, drivers } = Astro.props;
+/** "Logan Mack" -> "L. Mack"; anything after the first word is kept as the last name. A single-word name is left as-is. */
+function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return name.trim();
+  return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(' ')}`;
+}
 const dialogId = `report-incident-dialog-${subsessionId}`;
 const fieldClass =
   'rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary';
@@ -65,7 +71,7 @@ const fieldClass =
         {drivers.map((d) => (
           <label class="flex items-center gap-2 text-xs text-white/70">
             <input type="checkbox" name="involved_driver_ids" value={d.id} />
-            {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+            {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {shortName(d.name)}
           </label>
         ))}
       </div>
