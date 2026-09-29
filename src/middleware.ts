@@ -81,6 +81,30 @@ async function hashVisitor(ip: string, userAgent: string, dateStr: string): Prom
     .slice(0, 32);
 }
 
+/**
+ * Pages opt into the SHARED edge cache with `Cache-Control: public,
+ * s-maxage=N, stale-while-revalidate=M` (no `max-age`). That header is for
+ * the edge cache only, but browsers also read it: with no max-age the
+ * freshness lifetime is 0, and `stale-while-revalidate` then lets Chrome
+ * serve its own stale copy of the page for up to M seconds while it
+ * revalidates in the background. The visible bug: the footer's "View as
+ * Broadcaster" toggle POSTs and redirects back to the same URL, and the
+ * browser answered that GET from its stale cached copy (the pre-toggle
+ * render) — the toggle only appeared to work after a manual refresh.
+ *
+ * So whatever goes to the BROWSER gets `max-age=0, must-revalidate` in
+ * place of that header (the edge cache still stores the original, since
+ * this runs after/away from `cache.put`'s copy). Responses that set their
+ * own explicit `max-age` are left alone.
+ */
+function forBrowser(response: Response): Response {
+  const cc = response.headers.get('Cache-Control') ?? '';
+  if (cc.includes('public') && !/(^|[\s,])max-age=/.test(cc)) {
+    response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
+  }
+  return response;
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
 
@@ -124,11 +148,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (cache && isCacheableMethod && !hasAuthCookies && !broadcasterMode) {
     const cached = await cache.match(context.request);
     if (cached) {
-      return new Response(cached.body, {
-        status: cached.status,
-        statusText: cached.statusText,
-        headers: cached.headers,
-      });
+      return forBrowser(
+        new Response(cached.body, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: cached.headers,
+        })
+      );
     }
   }
 
@@ -252,6 +278,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
   ) {
     context.locals.runtime.ctx.waitUntil(cache.put(context.request, response.clone()));
   }
+
+  // Only now — the clone above already captured the edge-cache header.
+  forBrowser(response);
 
   // --- Site analytics (0077_page_views.sql, 0080_page_views_status_and_stats.sql) ---
   //

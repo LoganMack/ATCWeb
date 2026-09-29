@@ -1,0 +1,35 @@
+---
+export const prerender = false;
+
+import { resolveSupabaseEnv, restGet } from '../../lib/supabase';
+
+/**
+ * Permanent link to the most recent round's results page: /results/latest.
+ *
+ * Redirects (302, never 301 — the destination changes every round) to
+ * /results/<subsessionId> for the round with the newest start_time in
+ * curated_rounds, carrying over any query string (?category=qualifying,
+ * ?view=class, …). Goes through restGet with the env from
+ * resolveSupabaseEnv(Astro.locals), so a visitor with "View as Broadcaster"
+ * on is sent to the latest round they're actually allowed to see, not the
+ * hidden one. A static route, so it takes priority over [subsessionId].
+ */
+const env = resolveSupabaseEnv(Astro.locals);
+
+let latestId: number | null = null;
+try {
+  const rows = await restGet<{ subsession_id: number }[]>(
+    env,
+    'curated_rounds?select=subsession_id&order=start_time.desc&limit=1'
+  );
+  latestId = rows[0]?.subsession_id ?? null;
+} catch (err) {
+  console.error('Failed to look up the latest round for /results/latest:', err);
+}
+
+const redirect = Astro.redirect(latestId !== null ? `/results/${latestId}${Astro.url.search}` : '/results', 302);
+// Set on the redirect Response itself (headers on Astro.response aren't
+// carried onto a returned redirect) so no browser reuses a stale target.
+redirect.headers.set('Cache-Control', 'no-store');
+return redirect;
+---
