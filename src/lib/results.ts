@@ -4629,6 +4629,7 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
 /** One race's broadcast link, joined with its round's track/date/season for display — what the Media page's Videos → Broadcasts filter (the tab's default) actually renders. */
 export interface BroadcastVideo {
   subsession_id: number;
+  season_id: string;
   race_number: number;
   broadcast_url: string;
   track_name: string;
@@ -4656,6 +4657,7 @@ export async function getAllBroadcastVideos(env: SupabaseEnv): Promise<Broadcast
     if (!round) continue;
     out.push({
       subsession_id: link.subsession_id,
+      season_id: round.season_id,
       race_number: link.race_number,
       broadcast_url: link.broadcast_url,
       track_name: round.track_name,
@@ -4665,6 +4667,56 @@ export async function getAllBroadcastVideos(env: SupabaseEnv): Promise<Broadcast
   }
   out.sort((a, b) => b.start_time.localeCompare(a.start_time));
   return out;
+}
+
+/**
+ * Everything the homepage's Previous Broadcast subtitle needs beyond what a
+ * BroadcastVideo carries: this round's site-wide display "Round N" (the same
+ * exhibition/test-skipping numbering computeDisplayRoundNumbers gives the
+ * results page — null for an exhibition/test round) and its layout name
+ * (curated_rounds.layout, falling back to the attached calendar event's
+ * layout — a freshly imported round often has the former unset until an
+ * admin fills it in). Fetches are small and run concurrently; every one
+ * degrades to null on failure rather than breaking the page.
+ */
+export async function getBroadcastRoundDetails(
+  env: SupabaseEnv,
+  subsessionId: number,
+  seasonId: string
+): Promise<{ roundNumber: number | null; layout: string | null }> {
+  const [roundNumber, layout] = await Promise.all([
+    (async () => {
+      try {
+        const [seasonRounds, exhibitionIds, testIds] = await Promise.all([
+          getRoundsForSeason(env, seasonId),
+          getExhibitionRoundIds(env),
+          getTestRoundIds(env),
+        ]);
+        return computeDisplayRoundNumbers(seasonRounds, exhibitionIds, testIds).get(subsessionId) ?? null;
+      } catch (err) {
+        console.error('Failed to compute the broadcast round number:', err);
+        return null;
+      }
+    })(),
+    (async () => {
+      try {
+        const rows = await restGet<{ layout: string | null; event_id: string | null }[]>(
+          env,
+          `curated_rounds?select=layout,event_id&subsession_id=eq.${subsessionId}`
+        );
+        const round = rows[0];
+        if (!round) return null;
+        if (round.layout) return round.layout;
+        if (!round.event_id) return null;
+        const events = await restGet<{ layout: string | null }[]>(env, `events?select=layout&id=eq.${round.event_id}`);
+        return events[0]?.layout ?? null;
+      } catch (err) {
+        console.error('Failed to look up the broadcast round layout:', err);
+        return null;
+      }
+    })(),
+  ]);
+  return { roundNumber, layout };
 }
 
 /** One round's photographer photo album link, joined with its round's track/date/season for display — what the Media page's Graphics tab renders as its "Round Photo Albums" list. Same shape as BroadcastVideo above, one field renamed. */

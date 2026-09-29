@@ -300,20 +300,6 @@ for (const p of racePenalties) {
                     each one be its own flex item for this row's own
                     `gap-2` at sm+, instead of the wrapper eating that gap
                     as a single item. */}
-                <span class="hidden sm:contents">
-                  <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                </span>
-                {/* Car first, team second — every driver has a car, not every driver has a team. */}
-                {row.car && (
-                  <span class="hidden sm:contents">
-                    <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />
-                  </span>
-                )}
-                {row.team && (
-                  <span class="hidden sm:contents">
-                    <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />
-                  </span>
-                )}
                 {row.tags.length > 0 && (
                   <span class="hidden sm:contents">
                     {row.tags.map((tag) => (
@@ -338,6 +324,24 @@ for (const p of racePenalties) {
                     </span>
                   </span>
                 )}
+                {/* Flag / car logo / team logo, pinned to the right edge of the
+                    cell (ml-auto) in three FIXED-WIDTH slots so they line up
+                    in columns row to row: a driver with no team (or no car,
+                    or no flag) still gets an empty slot in its place, so the
+                    flag and car logo never shift left to fill the gap.
+                    Hidden on mobile like before. */}
+                <span class="ml-auto hidden items-center gap-2 sm:flex">
+                  <span class="flex h-5 w-6 flex-none items-center justify-center">
+                    <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                  </span>
+                  {/* Car first, team second — every driver has a car, not every driver has a team. */}
+                  <span class="flex h-5 w-5 flex-none items-center justify-center">
+                    {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />}
+                  </span>
+                  <span class="flex h-5 w-5 flex-none items-center justify-center">
+                    {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
+                  </span>
+                </span>
               </div>
             </td>
             {showClass && (

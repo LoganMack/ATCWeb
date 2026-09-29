@@ -695,7 +695,7 @@ function recomputeRow(
   // gated on `pen` or a position change the way points/position below are.
   let margin = row.margin;
   let intervalTenThousandths = row.intervalTenThousandths;
-  let tags = row.tags;
+  const tags = row.tags;
   if (overallRanked) {
     if (overallRanked.lapsDown > 0) {
       margin = `-${overallRanked.lapsDown}L`;
@@ -708,17 +708,6 @@ function recomputeRow(
       // file and results.ts — the two already share type-only imports).
       margin = overallRanked.gapTenThousandths === 0 ? '—' : (overallRanked.gapTenThousandths / 10000).toFixed(3);
       intervalTenThousandths = overallRanked.gapTenThousandths;
-    }
-    // Only flag this when the penalty ITSELF pushed them further down than
-    // their completed laps already had them — an already-laps-down driver
-    // who got, say, a PP-only penalty this race (no time effect, or not
-    // enough to cross another boundary) shouldn't read as if the penalty
-    // caused a laps-down status they already had independent of it. Stays
-    // false for an untouched row regardless of any leader re-zeroing above,
-    // since that row's OWN lapsDown/lapsDownBefore never differ without its
-    // own penalty (see reorderByTimePenalty).
-    if (overallRanked.lapsDown > overallRanked.lapsDownBefore) {
-      tags = [...tags, `${overallRanked.lapsDown} Lap${overallRanked.lapsDown > 1 ? 's' : ''} Down (Penalty)`];
     }
   }
 
