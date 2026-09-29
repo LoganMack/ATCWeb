@@ -6,6 +6,7 @@ import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, getPageBanners, formatDate, displayLayoutName } from '../lib/supabase';
 import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions } from '../lib/results';
 import { bannerUrlFor } from '../lib/pageBanners';
+import { EVENT_TAG_CLASSES } from '../lib/eventFormatting';
 import SeasonLogo from '../components/SeasonLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -196,12 +197,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
               {activePooledFilter === 'test-sessions' && isExhibition && (
-                <span class="rounded-lg bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink">
+                <span class={`${EVENT_TAG_CLASSES} bg-brand-pink/15 text-brand-pink`}>
                   Exhibition
                 </span>
               )}
               {isTest && (
-                <span class="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white/60">
+                <span class={`${EVENT_TAG_CLASSES} bg-white/10 text-white/60`}>
                   Test
                 </span>
               )}

@@ -40,7 +40,7 @@ import {
   type DriverSeasonExtras,
 } from '../lib/results';
 import { youtubeEmbedUrl } from '../lib/siteSettings';
-import { classBadgeClasses } from '../lib/classColors';
+import { classTagFull } from '../lib/classColors';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -585,7 +585,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                       </span>
                                     )}
                                     {rowClassName && (
-                                      <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
+                                      <span class={classTagFull(rowClassName)}>
                                         {rowClassName}
                                       </span>
                                     )}
@@ -691,7 +691,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             </span>
                           )}
                           {rowClassName && (
-                            <span class={`flex-none rounded border px-1.5 py-0.5 text-[10px] font-semibold ${classBadgeClasses(rowClassName)}`}>
+                            <span class={classTagFull(rowClassName)}>
                               {rowClassName}
                             </span>
                           )}

@@ -1,7 +1,7 @@
 ---
 import type { Driver } from '../lib/supabase';
 import { formatDateShort, displayDriverName } from '../lib/supabase';
-import { classBadgeClasses } from '../lib/classColors';
+import { classTagFull } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
 
@@ -18,7 +18,6 @@ const { driver, index = 0, onProbation = false, statusTooltip } = Astro.props;
 
 const className = driver.driver_classes?.name ?? '';
 const statusName = driver.driver_statuses?.name ?? '';
-const badgeClasses = classBadgeClasses(className);
 // Name + number + team, lowercased, for the roster search box (see
 // roster.astro's initRosterFilters) — same data-attribute-driven
 // client-side filter pattern as data-class/data-status above.
@@ -74,7 +73,7 @@ const nationalitiesText = [driver.nationality_1, driver.nationality_2]
     </div>
   </td>
   <td class="py-2.5 pr-3" data-col="class">
-    <span class={`rounded-lg border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${badgeClasses}`}>
+    <span class={classTagFull(className)}>
       {className}
     </span>
   </td>

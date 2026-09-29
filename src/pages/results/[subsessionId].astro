@@ -42,6 +42,7 @@ import {
   type PracticeRow,
 } from '../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../lib/penalties';
+import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
 import { isAdminView } from '../../lib/auth';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -78,17 +79,12 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
       const s = String(v ?? '').trim();
       return s.length > 0 ? s : null;
     };
-    const numOrNull = (v: FormDataEntryValue | null) => {
-      const s = String(v ?? '').trim();
-      return s.length > 0 ? Number(s) : null;
-    };
     const raceNumber = Number(form.get('race_number'));
     if (Number.isFinite(raceNumber)) {
       try {
         await upsertRaceLinks(supabaseEnv, Astro.locals.session!.accessToken, {
           subsession_id: subsessionId,
           race_number: raceNumber,
-          iracing_subsession_id: numOrNull(form.get('iracing_subsession_id')),
           replay_url: strOrNull(form.get('replay_url')),
           broadcast_url: strOrNull(form.get('broadcast_url')),
           photo_album_url: strOrNull(form.get('photo_album_url')),
@@ -458,7 +454,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         {isExhibition && (
           <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
-            <span class="rounded-lg bg-brand-pink/15 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-brand-pink">
+            <span class={`${EVENT_TAG_CLASSES} bg-brand-pink/15 text-brand-pink`}>
               Exhibition
             </span>
             <span class="text-white/40">
@@ -469,7 +465,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         {isTest && (
           <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
-            <span class="rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold uppercase tracking-wide text-white/60">
+            <span class={`${EVENT_TAG_CLASSES} bg-white/10 text-white/60`}>
               Test
             </span>
             <span class="text-white/40">Flagged as a test round — find it via the Test Sessions filter on the Race Results list.</span>
@@ -501,12 +497,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               Per Class
             </a>
           </div>
-          <a
-            href={incidentsHref}
-            class="ml-auto rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
-          >
-            Incident Report
-          </a>
+          {/* On the Race category the desktop button lives on the race-links
+              line instead (see the race-links slot below); Qualifying/Practice
+              have no race-links line, so it stays up here for those. */}
+          {category !== 'race' && (
+            <a
+              href={incidentsHref}
+              class="ml-auto rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
+            >
+              Incident Report
+            </a>
+          )}
         </div>
 
         {/* Mobile-only session/view dropdowns -- same navigation targets as
@@ -559,9 +560,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             the "Race N" heading and whatever fills this
                             slot); the icon then lands immediately to the
                             right of the race links, same line, as asked.
-                            Desktop keeps the full "Incident Report" button
-                            in the filter row above instead (hidden here via
-                            sm:hidden) -- unchanged there. */}
+                            Desktop instead gets the full-text "Incident Report"
+                            button, right after the race links. */}
                         <div class="flex flex-wrap items-center gap-2">
                           <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
                           <a
@@ -575,6 +575,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               <line x1="12" y1="9" x2="12" y2="13" />
                               <line x1="12" y1="17" x2="12.01" y2="17" />
                             </svg>
+                          </a>
+                          <a
+                            href={incidentsHref}
+                            class="hidden rounded-lg bg-brand-gold/15 px-3 py-1 text-[11px] font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:inline-block"
+                          >
+                            Incident Report
                           </a>
                         </div>
                       </Fragment>
@@ -619,6 +625,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                 <line x1="12" y1="9" x2="12" y2="13" />
                                 <line x1="12" y1="17" x2="12.01" y2="17" />
                               </svg>
+                            </a>
+                            <a
+                              href={incidentsHref}
+                              class="hidden rounded-lg bg-brand-gold/15 px-3 py-1 text-[11px] font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:inline-block"
+                            >
+                              Incident Report
                             </a>
                           </div>
                         </Fragment>

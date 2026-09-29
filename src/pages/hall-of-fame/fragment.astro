@@ -16,7 +16,7 @@ import {
   type HallOfFamePhoto,
 } from '../../lib/supabase';
 import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
-import { classBadgeClasses } from '../../lib/classColors';
+import { classTagFull } from '../../lib/classColors';
 
 /**
  * Same shell-then-spinner split as champions/fragment.astro,
@@ -247,7 +247,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <tr class="border-b border-white/5">
                         <td class="py-2 pr-3 font-semibold text-white/90">{r.season.name}</td>
                         <td class="py-2 pr-3">
-                          <span class={`rounded-lg border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}>
+                          <span class={classTagFull(r.className)}>
                             {r.className}
                           </span>
                         </td>

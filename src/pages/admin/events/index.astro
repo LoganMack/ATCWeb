@@ -3,7 +3,7 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
-import { formatEventDate, FORMAT_BADGE_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
+import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -80,19 +80,19 @@ try {
               <td class="py-3 pr-3" data-col="format" data-sort-value={event.format}>
                 <div class="flex flex-wrap items-center gap-1.5">
                   {usesFormatBadge(event.category) ? (
-                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+                    <span class={`${EVENT_TAG_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
                       {FORMAT_LABELS[event.format]}
                     </span>
                   ) : (
                     // TEST/HOLIDAY/IRACING events don't use the format field
                     // (see eventFormatting.ts) — same override as
                     // EventDetailCard.astro/UpcomingEventCard.astro.
-                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+                    <span class={`${EVENT_TAG_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
                       {CATEGORY_LABELS[event.category]}
                     </span>
                   )}
                   {event.category !== 'championship' && usesFormatBadge(event.category) && (
-                    <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+                    <span class={`${EVENT_TAG_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
                       {CATEGORY_LABELS[event.category]}
                     </span>
                   )}

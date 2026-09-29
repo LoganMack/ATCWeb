@@ -28,7 +28,7 @@ import {
   type DriverRaceHistoryRow,
 } from '../../../lib/results';
 import { getAllIncidents, type IncidentRow } from '../../../lib/incidents';
-import { classBadgeClasses, classBadgeLetter, classTextColorClass } from '../../../lib/classColors';
+import { classBadgeLetter, classTextColorClass, classTagShort } from '../../../lib/classColors';
 
 /**
  * The expensive part of the driver profile page — see drivers/[id].astro's
@@ -744,7 +744,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                       </td>
                       <td class="py-2 pr-2" data-col="class" data-sort-value={r.classId}>
                         <span
-                          class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}
+                          class={classTagShort(r.className)}
                           title={r.className}
                         >
                           {classBadgeLetter(r.className)}
@@ -825,7 +825,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     </td>
                     <td class="py-2 pr-2" data-col="class" data-sort-value={r.classId}>
                       <span
-                        class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(r.className)}`}
+                        class={classTagShort(r.className)}
                         title={r.className}
                       >
                         {classBadgeLetter(r.className)}
@@ -1314,7 +1314,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     <td class="py-2 pr-2 font-semibold text-white/90">{m.seasonName}</td>
                     <td class="py-2 pr-2 text-white/60">
                       <span class="flex items-center gap-1.5">
-                        <span class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(m.from)}`}>
+                        <span class={classTagShort(m.from)}>
                           {classBadgeLetter(m.from)}
                         </span>
                         {m.from}
@@ -1322,7 +1322,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                     </td>
                     <td class="py-2 pr-2 text-white/80">
                       <span class="flex items-center gap-1.5">
-                        <span class={`rounded-lg border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(m.to)}`}>
+                        <span class={classTagShort(m.to)}>
                           {classBadgeLetter(m.to)}
                         </span>
                         {m.to}

@@ -47,7 +47,7 @@ import {
   type ClassBestLap,
 } from '../../../lib/results';
 import { CATEGORY_LABELS } from '../../../lib/eventFormatting';
-import { classBadgeClasses, classBadgeLetter } from '../../../lib/classColors';
+import { classBadgeLetter, classTagFull, classTagShort } from '../../../lib/classColors';
 
 const layoutId = Astro.params.layoutId ?? '';
 
@@ -191,7 +191,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-r
           <div class="mt-1.5 space-y-1.5">
             {gammaBestLap && gammaClassId !== null && (
               <p class="flex flex-wrap items-center gap-2">
-                <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(gammaClassId) ?? '')}`}>
+                <span class={classTagShort(classNameById.get(gammaClassId) ?? '')}>
                   {classBadgeLetter(classNameById.get(gammaClassId) ?? '')}
                 </span>
                 <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
@@ -204,7 +204,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-r
             )}
             {deltaBestLap && deltaClassId !== null && (
               <p class="flex flex-wrap items-center gap-2">
-                <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(deltaClassId) ?? '')}`}>
+                <span class={classTagShort(classNameById.get(deltaClassId) ?? '')}>
                   {classBadgeLetter(classNameById.get(deltaClassId) ?? '')}
                 </span>
                 <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
@@ -238,7 +238,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-r
             const poles = highlights.polesByClass.get(classId) ?? [];
             return (
               <div class="rounded-lg border border-white/10 p-3">
-                <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(classId) ?? '')}`}>
+                <span class={classTagFull(classNameById.get(classId) ?? '')}>
                   {classNameById.get(classId) ?? '—'}
                 </span>
                 <div class="mt-2">

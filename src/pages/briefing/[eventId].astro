@@ -43,7 +43,7 @@ import {
   type LayoutHighlights,
   type ClassBestLap,
 } from '../../lib/results';
-import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';
+import { classBadgeLetter, classTagFull, classTagShort } from '../../lib/classColors';
 import WeatherIcon from '../../components/WeatherIcon.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -299,7 +299,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <div class="mt-3 space-y-1.5 border-t border-white/10 pt-3">
                 {gammaBestLap && gammaClass && (
                   <p class="flex flex-wrap items-center gap-2">
-                    <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(gammaClass.name)}`}>
+                    <span class={classTagShort(gammaClass.name)}>
                       {classBadgeLetter(gammaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
@@ -317,7 +317,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 )}
                 {deltaBestLap && deltaClass && (
                   <p class="flex flex-wrap items-center gap-2">
-                    <span class={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${classBadgeClasses(deltaClass.name)}`}>
+                    <span class={classTagShort(deltaClass.name)}>
                       {classBadgeLetter(deltaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
@@ -353,7 +353,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 const poles = highlights.polesByClass.get(classId) ?? [];
                 return (
                   <div class="rounded-xl border border-white/10 p-4">
-                    <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(classId) ?? '')}`}>
+                    <span class={classTagFull(classNameById.get(classId) ?? '')}>
                       {classNameById.get(classId) ?? '—'}
                     </span>
                     <div class="mt-3">

@@ -36,7 +36,7 @@ import type { RaceResultRow } from '../lib/results';
 import type { Penalty } from '../lib/supabase';
 import { displayDriverName, shortDriverName } from '../lib/supabase';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints, scoringRaceNumber } from '../lib/penalties';
-import { classBadgeClasses } from '../lib/classColors';
+import { classTagFull } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
 
@@ -257,12 +257,12 @@ for (const p of racePenalties) {
                     </sup>
                   )}
                   {row.aggressionBonusWon && (
-                    <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Naked Aggression bonus — most net positions gained this race">
+                    <sup class="ml-0.5 text-[10px] font-sans text-brand-primary" title="Naked Aggression bonus — most net positions gained this race">
                       A
                     </sup>
                   )}
                   {row.sprintSweepWon && (
-                    <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Sprint Sweep bonus — won every sprint race this round">
+                    <sup class="ml-0.5 text-[10px] font-sans text-brand-primary" title="Sprint Sweep bonus — won every sprint race this round">
                       SS
                     </sup>
                   )}
@@ -342,7 +342,7 @@ for (const p of racePenalties) {
             </td>
             {showClass && (
               <td class="hidden py-2.5 pr-3 sm:table-cell">
-                <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById?.get(row.classId) ?? '')}`}>
+                <span class={classTagFull(classNameById?.get(row.classId) ?? '')}>
                   {classNameById?.get(row.classId) ?? '—'}
                 </span>
               </td>
@@ -361,7 +361,7 @@ for (const p of racePenalties) {
               <span class="relative inline-block">
                 {row.startingPosition ?? '—'}
                 {row.polePosition && (
-                  <sup class="absolute left-full top-0 ml-0.5 text-[10px] font-sans text-brand-gold" title="Pole position">P</sup>
+                  <sup class="absolute left-full top-0 ml-0.5 text-[10px] font-sans text-brand-primary" title="Pole position">P</sup>
                 )}
               </span>
             </td>
@@ -373,10 +373,10 @@ for (const p of racePenalties) {
                 {row.incidents ?? '—'}
                 <span class="absolute left-full top-0 ml-0.5 inline-flex items-start gap-0.5">
                   {row.incidentsBonus && (
-                    <sup class="text-[10px] font-sans text-brand-gold" title="3 incidents or less bonus">I</sup>
+                    <sup class="text-[10px] font-sans text-brand-primary" title="3 incidents or less bonus">I</sup>
                   )}
                   {row.fewestIncidentsBonus > 0 && (
-                    <sup class="text-[10px] font-sans text-brand-gold" title="Fewest Incidents bonus">FI</sup>
+                    <sup class="text-[10px] font-sans text-brand-primary" title="Fewest Incidents bonus">FI</sup>
                   )}
                   {incidentLimitExceededDriverIds.has(row.driver.id) && (
                     <sup
@@ -393,7 +393,7 @@ for (const p of racePenalties) {
             <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell">
               {row.lapsLed ?? 0}
               {row.lapLedWon && (
-                <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Lap Led bonus — led at least one lap">LL</sup>
+                <sup class="ml-0.5 text-[10px] font-sans text-brand-primary" title="Lap Led bonus — led at least one lap">LL</sup>
               )}
             </td>
             <td
@@ -402,7 +402,7 @@ for (const p of racePenalties) {
             >
               {row.bestLapFormatted}
               {row.fastestLapWon && (
-                <sup class="ml-0.5 text-[10px] font-sans text-brand-gold" title="Fastest Lap bonus">FL</sup>
+                <sup class="ml-0.5 text-[10px] font-sans text-brand-primary" title="Fastest Lap bonus">FL</sup>
               )}
             </td>
             <td class="py-2.5 pr-4 text-center font-semibold">{row.notInRoster ? '—' : row.totalPoints}</td>
@@ -418,7 +418,7 @@ for (const p of racePenalties) {
                         <td class="py-1 text-white/50">Best Lap</td>
                         <td class="py-1 text-right text-white/90">
                           {beatPersonalBest && (
-                            <sup class="mr-0.5 text-[10px] font-sans text-brand-gold" title="New personal best at this track">
+                            <sup class="mr-0.5 text-[10px] font-sans text-brand-primary" title="New personal best at this track">
                               PB
                             </sup>
                           )}

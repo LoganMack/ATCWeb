@@ -31,7 +31,7 @@ import {
   type DriverSeasonExtendedStats,
   type SeasonStandingsRoundColumn,
 } from '../lib/results';
-import { classBadgeClasses } from '../lib/classColors';
+import { classTagFull } from '../lib/classColors';
 import { bannerUrlFor } from '../lib/pageBanners';
 import { slugify } from '../lib/slug';
 
@@ -363,7 +363,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   {view === 'overall' && (
                     <td class="hidden py-2.5 pr-3 sm:table-cell">
                       {row.classId !== undefined && (
-                        <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById.get(row.classId) ?? '')}`}>
+                        <span class={classTagFull(classNameById.get(row.classId) ?? '')}>
                           {classNameById.get(row.classId) ?? '—'}
                         </span>
                       )}

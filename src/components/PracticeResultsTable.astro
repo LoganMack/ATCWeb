@@ -8,7 +8,7 @@
 // despite curated_practice_results having no stored position field at all.
 import type { PracticeRow } from '../lib/results';
 import { displayDriverName, shortDriverName } from '../lib/supabase';
-import { classBadgeClasses } from '../lib/classColors';
+import { classTagFull } from '../lib/classColors';
 import DriverFlag from './DriverFlag.astro';
 
 interface Props {
@@ -58,7 +58,7 @@ const { rows, showClass = false, classNameById } = Astro.props;
             {showClass && (
               <td class="hidden py-2.5 pr-3 sm:table-cell">
                 {row.classId !== null ? (
-                  <span class={`rounded-lg border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${classBadgeClasses(classNameById?.get(row.classId) ?? '')}`}>
+                  <span class={classTagFull(classNameById?.get(row.classId) ?? '')}>
                     {classNameById?.get(row.classId) ?? '—'}
                   </span>
                 ) : (

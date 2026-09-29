@@ -56,6 +56,18 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
   iracing: 'iRacing',
 };
 
+/**
+ * Shared shape for every event format/category pill ("SPRINT", "ENDURANCE",
+ * "SPECIAL", "TEST", "EXHIBITION", ...): always bold + uppercase, and one
+ * FIXED width per size tier so every tag in a tier lines up regardless of
+ * its label ("EXHIBITION" is the longest, and sets the width). Colors come
+ * from FORMAT_BADGE_CLASSES / CATEGORY_BADGE_CLASSES on top of this.
+ * `EVENT_TAG_CLASSES` is the standard size; `EVENT_TAG_COMPACT_CLASSES` is
+ * the small variant for tight list rows.
+ */
+export const EVENT_TAG_CLASSES = 'inline-flex w-28 flex-none items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wide';
+export const EVENT_TAG_COMPACT_CLASSES = 'inline-flex w-24 flex-none items-center justify-center rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide';
+
 // Championship is the default/normal case and deliberately gets no special
 // treatment here — callers only render a category badge when it's NOT
 // 'championship', the same "only flag the anomalous state" convention used

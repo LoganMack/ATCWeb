@@ -215,36 +215,11 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
     )}
 
     <!--
-      Search + nationality + all three filter groups live together in one
-      card: search (left) and the nationality dropdown (right) share a top
-      2-column line, then the three quick-filter groups sit side by side
-      below in one row, each one's OWN buttons arranged as a 2x2 grid
-      (every group happens to have exactly 4 options, so this tiles evenly)
-      rather than a loose wrapped row — narrowed to w-3/4 of their grid cell
-      per Logan's request so they don't feel as heavy as a full-width tile.
-
-      Edge alignment (per Logan): Class (the leftmost group) is flush-left
-      — every button's `[&>*]:justify-self-start` keeps it hugging the left
-      edge of its own grid cell, so the group's overall left edge lands at
-      the same x as the search box's left edge above it (true for ANY
-      column count, since a grid's first column always starts at the
-      container's own left inner edge). Status (the rightmost group,
-      data-filter-group="experience" — see below) mirrors that with
-      `[&>*]:justify-self-end`, so its rightmost button's right edge lands
-      at the container's right inner edge, same as the nationality dropdown
-      above it (last column of any grid always ends there too). Each of
-      those two groups' labels drop the old shared grid-cols-2 wrapper and
-      just use a plain full-width span with text-align left/right to match
-      — simpler than trying to keep a label in step with a 2-column button
-      grid it's no longer centered over. Activity (the middle group) keeps
-      its original centered treatment untouched — nothing on either side of
-      it to align with. "Activity" here is the Active/Inactive/Unassigned/All
-      group (data-filter-group="status" in the markup/script below — the
-      attribute name predates this label and isn't worth a churny rename)
-      and "Status" is the New/Rookie/Veteran group
-      (data-filter-group="experience") — see that group's own doc comment
-      above for why "Rookie" belongs in it despite not being a real
-      driver_statuses value.
+      Search + nationality share a top 2-column line; the Class / Activity /
+      Status dropdowns sit in one 3-column row below. "Activity" is the
+      Active/Inactive/Unassigned/All filter (state.status in the script) and
+      "Status" is the New/Rookie/Veteran filter (state.experience — see
+      experienceLevels above for why "Rookie" belongs in it).
     -->
     <div class="reveal mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-4" style="transition-delay: 100ms">
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -252,7 +227,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
           type="search"
           id="roster-search"
           placeholder="Search drivers, numbers, or teams…"
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
         />
         <!--
           Multi-select nationality filter (per Logan — checking both US and
@@ -271,7 +246,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
             id="roster-nationality-toggle"
             aria-haspopup="true"
             aria-expanded="false"
-            class="flex w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-left text-white outline-none focus:border-brand-primary"
+            class="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-white/5 px-3 text-left text-white outline-none focus:border-brand-primary"
           >
             <span id="roster-nationality-label" class="truncate">All Nationalities</span>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="flex-none text-white/40" aria-hidden="true">
@@ -292,92 +267,33 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         </div>
       </div>
       <!--
-        Mobile-exclusive: the three button groups below (Class/Activity/
-        Status) are desktop-only now (hidden, sm:grid) -- per Logan, mobile
-        gets a compact row of <select> dropdowns instead (right below this
-        comment's closing div), driving the exact same `state`/applyFilters
-        this whole card has always used. See setFilter() in the script below
-        for the shared click/change handler both UIs now go through.
+        Class / Activity / Status filters — dropdowns at every screen size
+        now (they used to be button groups on desktop, with these same
+        selects mobile-only). All three share one 3-column row with
+        identical left-aligned labels, one control height (h-10, same as the
+        search box and nationality dropdown above), and one gap, so the
+        labels and controls line up cleanly under each other.
       -->
-      <div class="mt-4 hidden gap-4 sm:grid sm:grid-cols-3">
-        <div>
-          <span class="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-          <div class="grid grid-cols-2 gap-1.5 [&>*]:justify-self-start" data-filter-group="class">
-            {classes.map((c) => (
-              <button
-                type="button"
-                data-filter-value={c}
-                class="w-3/4 rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-                data-active={c === 'All' ? 'true' : 'false'}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <div class="grid grid-cols-2 gap-1.5">
-            <span class="mb-1.5 block w-3/4 justify-self-end text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
-          </div>
-          <div class="grid grid-cols-2 gap-1.5 [&>*:nth-child(odd)]:justify-self-end [&>*:nth-child(even)]:justify-self-start" data-filter-group="status">
-            {statuses.map((s) => (
-              <button
-                type="button"
-                data-filter-value={s}
-                class="w-3/4 rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-                data-active={s === 'Active' ? 'true' : 'false'}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <span class="mb-1.5 block text-right text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
-          <div class="grid grid-cols-2 gap-1.5 [&>*]:justify-self-end" data-filter-group="experience">
-            {experienceLevels.map((x) => (
-              <button
-                type="button"
-                data-filter-value={x}
-                class="w-3/4 rounded-lg px-3 py-1 text-xs font-semibold ring-1 ring-white/15 transition data-[active=true]:bg-white data-[active=true]:text-brand-ink"
-                data-active={x === 'All' ? 'true' : 'false'}
-              >
-                {x}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-4 grid grid-cols-3 gap-2 sm:hidden">
-        <label class="flex flex-col gap-1 text-xs">
-          <span class="font-semibold uppercase tracking-wide text-white/40">Class</span>
-          <select
-            id="roster-class-select"
-            class="h-10 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
-          >
+      <div class="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+          <select id="roster-class-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
             {classes.map((c) => (
               <option value={c} selected={c === 'All'} class="bg-brand-ink text-white">{c}</option>
             ))}
           </select>
         </label>
-        <label class="flex flex-col gap-1 text-xs">
-          <span class="font-semibold uppercase tracking-wide text-white/40">Activity</span>
-          <select
-            id="roster-status-select"
-            class="h-10 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
-          >
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
+          <select id="roster-status-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
             {statuses.map((s) => (
               <option value={s} selected={s === 'Active'} class="bg-brand-ink text-white">{s}</option>
             ))}
           </select>
         </label>
-        <label class="flex flex-col gap-1 text-xs">
-          <span class="font-semibold uppercase tracking-wide text-white/40">Status</span>
-          <select
-            id="roster-experience-select"
-            class="h-10 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
-          >
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
+          <select id="roster-experience-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
             {experienceLevels.map((x) => (
               <option value={x} selected={x === 'All'} class="bg-brand-ink text-white">{x}</option>
             ))}
@@ -456,7 +372,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
       const empty = document.getElementById('roster-search-empty');
       if (!body) return;
 
-      // Defaults match what's marked data-active="true" in the markup:
+      // Defaults match the <select>s' initially-selected options in the markup:
       // all classes, active-ish drivers only, any experience level, any
       // nationality (empty Set — see below), empty search.
       const state: { class: string; status: string; experience: string; nationality: Set<string>; search: string } = {
@@ -533,42 +449,18 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
         if (empty) empty.classList.toggle('hidden', visibleCount > 0);
       }
 
-      // Shared by both filter UIs -- the desktop button groups below AND
-      // the mobile-only <select> dropdowns (roster-class-select/
-      // roster-status-select/roster-experience-select, see the markup
-      // above) drive the exact same `state`/applyFilters through this one
-      // function, so the two stay interchangeable rather than risking drift
-      // between two hand-kept copies of "what happens when this filter
-      // changes." `group` here is always the matching [data-filter-group]
-      // element for `key`, so its buttons' data-active can be kept in sync
-      // even when the change came from the <select> instead of a button
-      // click -- not that it matters visually (that group is hidden on
-      // mobile, where the <select> lives), but it keeps state consistent
-      // if the viewport is later resized past the sm breakpoint.
-      function setFilter(key: 'class' | 'status' | 'experience', value: string, group: Element) {
+      // The three filter <select>s drive `state`/applyFilters directly.
+      function setFilter(key: 'class' | 'status' | 'experience', value: string) {
         state[key] = value;
-        group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
-          b.dataset.active = String(b.dataset.filterValue === value);
-        });
         applyFilters();
       }
 
-      document.querySelectorAll<HTMLElement>('[data-filter-group]').forEach((group) => {
-        const key = group.dataset.filterGroup as 'class' | 'status' | 'experience';
-        group.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
-          btn.addEventListener('click', () => setFilter(key, btn.dataset.filterValue!, group));
-        });
-      });
-
-      const classGroup = document.querySelector('[data-filter-group="class"]');
-      const statusGroup = document.querySelector('[data-filter-group="status"]');
-      const experienceGroup = document.querySelector('[data-filter-group="experience"]');
       const classSelect = document.getElementById('roster-class-select') as HTMLSelectElement | null;
       const statusSelect = document.getElementById('roster-status-select') as HTMLSelectElement | null;
       const experienceSelect = document.getElementById('roster-experience-select') as HTMLSelectElement | null;
-      if (classGroup) classSelect?.addEventListener('change', () => setFilter('class', classSelect.value, classGroup));
-      if (statusGroup) statusSelect?.addEventListener('change', () => setFilter('status', statusSelect.value, statusGroup));
-      if (experienceGroup) experienceSelect?.addEventListener('change', () => setFilter('experience', experienceSelect.value, experienceGroup));
+      classSelect?.addEventListener('change', () => setFilter('class', classSelect.value));
+      statusSelect?.addEventListener('change', () => setFilter('status', statusSelect.value));
+      experienceSelect?.addEventListener('change', () => setFilter('experience', experienceSelect.value));
 
       searchInput?.addEventListener('input', () => {
         state.search = searchInput.value.trim().toLowerCase();

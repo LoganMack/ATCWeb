@@ -6,6 +6,7 @@ import {
   formatEventDateShort,
   formatSessionTime,
   FORMAT_BADGE_CLASSES,
+  EVENT_TAG_CLASSES, EVENT_TAG_COMPACT_CLASSES,
   FORMAT_LABELS,
   CATEGORY_BADGE_CLASSES,
   CATEGORY_LABELS,
@@ -46,13 +47,13 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
     <div class="flex items-center justify-between gap-3">
       <p class="font-display text-sm uppercase tracking-widest text-white/60">{formatEventDate(event.event_date)}</p>
       {usesFormatBadge(event.category) ? (
-        <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+        <span class={`${EVENT_TAG_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
           {FORMAT_LABELS[event.format]}
         </span>
       ) : (
         // TEST/HOLIDAY/IRACING events don't use the format field (see
         // eventFormatting.ts) — same override as EventDetailCard.astro.
-        <span class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+        <span class={`${EVENT_TAG_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
           {CATEGORY_LABELS[event.category]}
         </span>
       )}
@@ -165,11 +166,11 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
       </div>
     </div>
     {usesFormatBadge(event.category) ? (
-      <span class={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${FORMAT_BADGE_CLASSES[event.format]}`}>
+      <span class={`${EVENT_TAG_COMPACT_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
         {FORMAT_LABELS[event.format]}
       </span>
     ) : (
-      <span class={`rounded-lg px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${CATEGORY_BADGE_CLASSES[event.category]}`}>
+      <span class={`${EVENT_TAG_COMPACT_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
         {CATEGORY_LABELS[event.category]}
       </span>
     )}
