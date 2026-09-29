@@ -17,6 +17,11 @@ const viewAsVisitor = Astro.locals.viewAsVisitor;
 const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
 const isSignedIn = Boolean(Astro.locals.session);
 
+// "View as Broadcaster" — visible to everyone. While on, the most recent
+// round is hidden from every statistic (see src/middleware.ts) so a
+// broadcaster can record a delayed broadcast without spoilers.
+const broadcasterMode = Astro.locals.broadcasterMode;
+
 // Unlike "View as Visitor" above, this link itself SHOULD disappear while
 // previewing as a visitor (isAdminView, not isRealAdmin) — it's a plain
 // shortcut into /admin, not the toggle that controls the preview.
@@ -65,6 +70,19 @@ const showAdminLink = isAdminView(Astro.locals);
       {showAdminLink && (
         <a href="/admin" class="hover:text-white/80">Admin Panel</a>
       )}
+      <form method="POST" action="/api/broadcaster-mode" data-astro-reload>
+        <input type="hidden" name="next" value={currentPath} />
+        <input type="hidden" name="mode" value={broadcasterMode ? 'off' : 'on'} />
+        <button
+          type="submit"
+          title="Hide the most recent round from every statistic on the site, so a delayed broadcast has no spoilers."
+          class={broadcasterMode
+            ? 'rounded-lg bg-brand-gold/15 px-3 py-1 text-xs font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25'
+            : 'rounded-lg bg-white/5 px-3 py-1 text-xs font-semibold text-white/40 ring-1 ring-white/10 transition hover:bg-white/10'}
+        >
+          {broadcasterMode ? 'Broadcaster View On — latest round hidden' : 'View as Broadcaster'}
+        </button>
+      </form>
       {isRealAdmin && (
         <form method="POST" action="/api/view-mode" data-astro-reload>
           <input type="hidden" name="next" value={currentPath} />

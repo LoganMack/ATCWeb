@@ -1,3 +1,4 @@
+/// <reference path="../.astro/types.d.ts" />
 /// <reference types="astro/client" />
 
 interface ImportMetaEnv {
@@ -52,5 +53,9 @@ declare namespace App {
      * just for previewing the public site as a visitor.
      */
     viewAsVisitor: boolean;
+    /** True when the visitor has "View as Broadcaster" on (`atc_broadcaster` cookie) — see src/lib/auth.ts's BROADCASTER_COOKIE. */
+    broadcasterMode: boolean;
+    /** Subsession id(s) hidden from every subsession-keyed read while `broadcasterMode` is on (the most recent round). Carried onto SupabaseEnv by resolveSupabaseEnv. */
+    broadcasterHiddenSubsessionIds?: number[];
   }
 }

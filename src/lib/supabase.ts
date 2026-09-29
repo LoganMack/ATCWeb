@@ -25,6 +25,42 @@ import { LEAGUE_TIME_ZONE } from './timezone';
 export interface SupabaseEnv {
   url: string;
   anonKey: string;
+  /**
+   * "View as Broadcaster" (footer toggle, `atc_broadcaster` cookie): the
+   * subsession id(s) of the most recent round, which restGet/restGetAll then
+   * exclude from every subsession-keyed table (see SUBSESSION_KEYED_TABLES)
+   * so every stat on the site reads as if that round never existed. Empty/
+   * undefined for everyone else. Populated by src/middleware.ts into
+   * `locals.broadcasterHiddenSubsessionIds`, which resolveSupabaseEnv below
+   * carries onto the env every page already builds from `Astro.locals`.
+   */
+  hiddenSubsessionIds?: number[];
+}
+
+/**
+ * Tables keyed by `subsession_id` that hold a round's own data. Excluded:
+ * `events` (the calendar itself must stay intact), and `incident_reports`
+ * (steward workflow, not a statistic).
+ */
+const SUBSESSION_KEYED_TABLES = new Set([
+  'curated_rounds',
+  'curated_race_results',
+  'curated_qualifying',
+  'curated_practice_results',
+  'race_scores',
+  'penalties',
+  'race_links',
+  'round_overrides',
+  'manual_result_imports',
+]);
+
+function withHiddenRounds(env: SupabaseEnv, path: string): string {
+  const ids = env.hiddenSubsessionIds;
+  if (!ids || ids.length === 0) return path;
+  const table = path.split('?')[0];
+  if (!SUBSESSION_KEYED_TABLES.has(table)) return path;
+  const filter = `subsession_id=not.in.(${ids.join(',')})`;
+  return path.includes('?') ? `${path}&${filter}` : `${path}?${filter}`;
 }
 
 export function resolveSupabaseEnv(locals: App.Locals): SupabaseEnv {
@@ -32,6 +68,7 @@ export function resolveSupabaseEnv(locals: App.Locals): SupabaseEnv {
   return {
     url: runtimeEnv?.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL,
     anonKey: runtimeEnv?.PUBLIC_SUPABASE_ANON_KEY || import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
+    hiddenSubsessionIds: locals?.broadcasterHiddenSubsessionIds,
   };
 }
 
@@ -49,7 +86,7 @@ export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
   if (!env.url || !env.anonKey) {
     throw new Error('Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).');
   }
-  const res = await fetch(`${env.url}/rest/v1/${path}`, {
+  const res = await fetch(`${env.url}/rest/v1/${withHiddenRounds(env, path)}`, {
     headers: restHeaders(env),
   });
   if (!res.ok) {
@@ -82,7 +119,7 @@ export async function restGetAll<T>(env: SupabaseEnv, path: string, pageSize = 1
   }
   const out: T[] = [];
   for (let offset = 0; ; offset += pageSize) {
-    const res = await fetch(`${env.url}/rest/v1/${path}`, {
+    const res = await fetch(`${env.url}/rest/v1/${withHiddenRounds(env, path)}`, {
       headers: { ...restHeaders(env), Range: `${offset}-${offset + pageSize - 1}` },
     });
     // PostgREST returns 206 for a partial page and (in some configurations)

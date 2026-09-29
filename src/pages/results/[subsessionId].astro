@@ -6,6 +6,8 @@ import ResultsTable from '../../components/ResultsTable.astro';
 import QualifyingResultsTable from '../../components/QualifyingResultsTable.astro';
 import PracticeResultsTable from '../../components/PracticeResultsTable.astro';
 import RaceLinksBlock from '../../components/RaceLinksBlock.astro';
+import ReportIncidentButton from '../../components/ReportIncidentButton.astro';
+import ReportIncidentDialog from '../../components/ReportIncidentDialog.astro';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
@@ -42,6 +44,7 @@ import {
   type PracticeRow,
 } from '../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../lib/penalties';
+import { getReportingWindowForRound, isReportingOpen, createIncidentReport } from '../../lib/incidentReports';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
 import { isAdminView } from '../../lib/auth';
 
@@ -60,8 +63,14 @@ const subsessionId = Number(Astro.params.subsessionId);
 // season) — a PRG redirect back to this same URL keeps this in line with
 // every other admin mutation in the codebase (see admin/champions'
 // upload-photo fix for why that matters).
-if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId)) {
-  const form = await Astro.request.formData();
+// Read once up front (a request body can only be consumed once) — shared by
+// the admin intents below and the any-signed-in-user `report-incident`
+// intent handled further down, once the round's data has loaded.
+const postForm: FormData | null =
+  Astro.request.method === 'POST' && Number.isFinite(subsessionId) ? await Astro.request.formData() : null;
+
+if (isAdmin && postForm) {
+  const form = postForm;
   const intent = String(form.get('intent') ?? '');
 
   // Exhibition/test are no longer toggled from this page — both are driven
@@ -370,6 +379,76 @@ if (incidentLimit !== null) {
 
 const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
+// --- Incident reporting (per Logan) ----------------------------------------
+// Open for 24h after the race is over (see src/lib/incidentReports.ts for
+// the exact window math). The button is simply not rendered once closed, and
+// the POST below re-checks the window server-side.
+const reportSessionOptions: { value: string; label: string }[] = [
+  ...overallRaceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
+  { value: 'qualifying:0', label: 'Qualifying' },
+  { value: 'practice:0', label: 'Practice' },
+];
+const reportDriverById = new Map<string, { id: string; name: string; car_number: number | null }>();
+for (const rows of roundResults.overall.values()) {
+  for (const row of rows) {
+    reportDriverById.set(row.driver.id, { id: row.driver.id, name: row.driver.name, car_number: row.driver.car_number });
+  }
+}
+const reportDrivers = [...reportDriverById.values()].sort(
+  (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
+);
+const reportingWindow =
+  !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time) : null;
+const reportingOpen = isReportingOpen(reportingWindow);
+// Reporting is open to signed-out visitors too; a signed-in reporter's
+// identity is attached server-side (submit_incident_report reads their JWT).
+const reportSession = Astro.locals.session;
+
+let reportFlash: { kind: 'ok' | 'error'; message: string } | null = null;
+{
+  const flash = Astro.url.searchParams.get('report');
+  if (flash === 'ok') reportFlash = { kind: 'ok', message: 'Thanks — your incident report was submitted to the stewards.' };
+  else if (flash === 'closed') reportFlash = { kind: 'error', message: 'The reporting period for this round has closed.' };
+  else if (flash === 'invalid') reportFlash = { kind: 'error', message: 'Your report was missing a required field — please fill in Session, Lap, Turn and at least one car.' };
+  else if (flash === 'failed') reportFlash = { kind: 'error', message: "Couldn't save your report right now. Please try again." };
+}
+
+if (postForm && postForm.get('intent') === 'report-incident' && !loadError && round) {
+  const back = (code: string) => {
+    const url = new URL(Astro.url);
+    url.searchParams.set('report', code);
+    return Astro.redirect(`${url.pathname}${url.search}`, 302);
+  };
+  // Honeypot — real users never fill this hidden field; a bot that does gets a silent "success".
+  if (String(postForm.get('website') ?? '').trim() !== '') return back('ok');
+  if (!reportingOpen) return back('closed');
+
+  const sessionValue = String(postForm.get('session') ?? '');
+  const lapRaw = String(postForm.get('lap') ?? '').trim();
+  const lap = /^\d+$/.test(lapRaw) ? Number(lapRaw) : NaN;
+  const turn = String(postForm.get('turn') ?? '').trim().slice(0, 80);
+  const description = String(postForm.get('description') ?? '').trim().slice(0, 2000) || null;
+  const involved = [...new Set(postForm.getAll('involved_driver_ids').map(String))].filter((id) => reportDriverById.has(id));
+
+  if (!reportSessionOptions.some((o) => o.value === sessionValue) || !Number.isFinite(lap) || !turn || involved.length === 0) {
+    return back('invalid');
+  }
+  try {
+    await createIncidentReport(supabaseEnv, reportSession?.accessToken ?? null, {
+      subsession_id: subsessionId,
+      session: sessionValue,
+      lap,
+      turn,
+      description,
+      driver_ids: involved,
+    });
+  } catch (err) {
+    console.error('Failed to save incident report:', err);
+    return back('failed');
+  }
+  return back('ok');
+}
+
 const qualifying = await qualifyingPromise;
 const qualifyingOrderedClassIds = classes.map((c) => c.id).filter((id) => qualifying.byClass.has(id));
 
@@ -427,7 +506,13 @@ for (const [raceNumber, overallRows] of roundResults.overall) {
 const canonicalRaceNumber = overallRaceNumbers[0] ?? 1;
 const raceLinks = raceLinksByRace.get(canonicalRaceNumber) ?? null;
 
-Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+// A page showing a report confirmation/error banner (?report=…) must never be
+// stored in the shared edge cache (reporting is open to signed-out visitors,
+// whose renders otherwise ARE cached) — everyone else would see it.
+Astro.response.headers.set(
+  'Cache-Control',
+  reportFlash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
+);
 ---
 
 <Layout title={round ? round.track_name : 'Race Results'} description="Race-by-race results for this round.">
@@ -501,12 +586,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               line instead (see the race-links slot below); Qualifying/Practice
               have no race-links line, so it stays up here for those. */}
           {category !== 'race' && (
-            <a
-              href={incidentsHref}
-              class="ml-auto rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
-            >
-              Incident Report
-            </a>
+            <div class="ml-auto flex items-center gap-2">
+              <a
+                href={incidentsHref}
+                class="rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
+              >
+                Incident Report
+              </a>
+              {reportingOpen && <ReportIncidentButton />}
+            </div>
           )}
         </div>
 
@@ -514,7 +602,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             the pill links above, just picked from a <select> instead. Each
             option's value is the full destination URL; onchange just
             navigates there, same as a plain link would. */}
-        <div class="mt-8 flex flex-wrap gap-3 sm:hidden">
+        <div class="mt-8 flex flex-wrap items-center gap-3 sm:hidden">
           <select
             class="h-9 flex-1 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
             onchange="window.location.href=this.value"
@@ -530,7 +618,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <option value={`/results/${subsessionId}?category=${category}&view=overall${seasonQuerySuffix}`} selected={view === 'overall'} class="bg-brand-ink text-white">Overall</option>
             <option value={`/results/${subsessionId}?category=${category}&view=class${seasonQuerySuffix}`} selected={view === 'class'} class="bg-brand-ink text-white">Per Class</option>
           </select>
+          {category !== 'race' && reportingOpen && <ReportIncidentButton />}
         </div>
+
+        {reportFlash && (
+          <p
+            role="status"
+            class={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+              reportFlash.kind === 'ok'
+                ? 'border-brand-primary/30 bg-brand-primary/10 text-white/80'
+                : 'border-brand-pink/30 bg-brand-pink/10 text-white/80'
+            }`}
+          >
+            {reportFlash.message}
+          </p>
+        )}
+
+        {reportingOpen && (
+          <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} />
+        )}
 
         {category === 'race' && (
           <>
@@ -582,6 +688,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           >
                             Incident Report
                           </a>
+                          {reportingOpen && <ReportIncidentButton />}
                         </div>
                       </Fragment>
                     )}
@@ -632,6 +739,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             >
                               Incident Report
                             </a>
+                            {reportingOpen && <ReportIncidentButton />}
                           </div>
                         </Fragment>
                       )}

@@ -37,11 +37,12 @@
  */
 
 import { defineMiddleware } from 'astro:middleware';
-import { resolveSupabaseEnv, logPageView } from './lib/supabase';
+import { resolveSupabaseEnv, logPageView, restGet } from './lib/supabase';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
   VIEW_MODE_COOKIE,
+  BROADCASTER_COOKIE,
   authCookieOptions,
   getUser,
   getProfile,
@@ -87,6 +88,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const accessToken = context.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = context.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   const hasAuthCookies = Boolean(accessToken || refreshToken);
+  // "View as Broadcaster" — see src/lib/auth.ts's BROADCASTER_COOKIE. Any
+  // visitor can turn it on, so it's handled independently of auth: it just
+  // has to keep the response out of the shared edge cache in both
+  // directions (a spoiler-free render must never be stored for everyone
+  // else, and a cached full render must never be served to a broadcaster).
+  const broadcasterMode = context.cookies.get(BROADCASTER_COOKIE)?.value === '1';
+  context.locals.broadcasterMode = broadcasterMode;
 
   // `context.locals.runtime` only exists on the deployed Cloudflare Worker
   // (see @astrojs/cloudflare's server.js, which is what actually populates
@@ -113,7 +121,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // before returning — see this file's own top-of-file doc comment for
   // exactly why returning `cached` here directly crashes every such
   // request with a real 500.
-  if (cache && isCacheableMethod && !hasAuthCookies) {
+  if (cache && isCacheableMethod && !hasAuthCookies && !broadcasterMode) {
     const cached = await cache.match(context.request);
     if (cached) {
       return new Response(cached.body, {
@@ -121,6 +129,23 @@ export const onRequest = defineMiddleware(async (context, next) => {
         statusText: cached.statusText,
         headers: cached.headers,
       });
+    }
+  }
+
+  // Broadcaster mode: find the most recent round (unfiltered — `env` here
+  // was resolved before any hiding was set) and hand its subsession id to
+  // every downstream resolveSupabaseEnv(locals) call, which is what makes
+  // restGet/restGetAll exclude it. A failed lookup just means nothing gets
+  // hidden this request (logged) rather than breaking the page.
+  if (broadcasterMode && env.url && env.anonKey) {
+    try {
+      const latest = await restGet<{ subsession_id: number }[]>(
+        env,
+        'curated_rounds?select=subsession_id&order=start_time.desc&limit=1'
+      );
+      if (latest[0]) context.locals.broadcasterHiddenSubsessionIds = [latest[0].subsession_id];
+    } catch (err) {
+      console.error('Broadcaster mode: failed to look up the latest round:', err);
     }
   }
 
@@ -186,6 +211,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
     response = await next();
   }
 
+  // Never let a browser or intermediary hold a broadcaster-mode render
+  // either — it differs from the normal page at the same URL.
+  if (broadcasterMode) response.headers.set('Cache-Control', 'private, no-store');
+
   // --- Edge cache write (GET, anonymous, successful, opt-in pages only) ---
   //
   // Deliberately conservative — every condition below has to hold before
@@ -216,6 +245,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     cache &&
     isCacheableMethod &&
     !context.locals.session &&
+    !broadcasterMode &&
     response.status === 200 &&
     !response.headers.has('Set-Cookie') &&
     (response.headers.get('Cache-Control') ?? '').includes('public')

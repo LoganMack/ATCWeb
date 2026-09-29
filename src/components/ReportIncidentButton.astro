@@ -1,0 +1,22 @@
+---
+/**
+ * Small yellow "!" button that opens the Report Incident dialog
+ * (ReportIncidentDialog.astro) — "Report Incident" appears as a tooltip on
+ * hover/focus. Open to everyone, signed in or not. The CALLER decides
+ * whether the reporting window is open and only renders this at all when it
+ * is.
+ */
+const btnClass =
+  'group relative flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-brand-gold/15 text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:h-6 sm:w-6';
+const tipClass =
+  'pointer-events-none absolute right-0 top-full z-30 mt-1.5 hidden whitespace-nowrap rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 sm:block';
+---
+
+<button type="button" data-open-report-dialog aria-label="Report Incident" title="Report Incident" class={btnClass}>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 sm:h-3.5 sm:w-3.5" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="7" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+  <span class={tipClass} aria-hidden="true">Report Incident</span>
+</button>

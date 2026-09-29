@@ -359,3 +359,17 @@ export const VIEW_MODE_COOKIE = 'atc_view_mode';
 export function isAdminView(locals: App.Locals): boolean {
   return locals.session?.profile?.role === 'admin' && !locals.viewAsVisitor;
 }
+
+// ---------------------------------------------------------------------------
+// "View as Broadcaster" (spoiler-free viewing for delayed broadcasts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Set to '1' when ANY visitor (no sign-in needed) toggles "View as
+ * Broadcaster" in the footer. While set, src/middleware.ts hides the most
+ * recent round from every statistic on the site (see SupabaseEnv.
+ * hiddenSubsessionIds in src/lib/supabase.ts) and keeps the response out of
+ * the shared edge cache. Read/written in src/middleware.ts and
+ * src/pages/api/broadcaster-mode.ts.
+ */
+export const BROADCASTER_COOKIE = 'atc_broadcaster';

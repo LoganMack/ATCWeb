@@ -1,0 +1,127 @@
+---
+/**
+ * Report Incident dialog — opened by any [data-open-report-dialog] button
+ * (ReportIncidentButton.astro). Native <dialog> + showModal(), same pattern
+ * as RaceLinksBlock's Edit Links dialog, so it renders in the top layer
+ * above the sticky header. Posts to the results page itself
+ * (`intent=report-incident`), which re-validates everything server-side
+ * (required fields, session/driver validity, and the reporting window).
+ *
+ * Layout: Session / Lap / Turn share one row on sm+ and stack on mobile;
+ * Description and Cars Involved each get their own full-width row.
+ */
+interface Props {
+  subsessionId: number;
+  sessionOptions: { value: string; label: string }[];
+  drivers: { id: string; name: string; car_number: number | null }[];
+}
+const { subsessionId, sessionOptions, drivers } = Astro.props;
+const dialogId = `report-incident-dialog-${subsessionId}`;
+const fieldClass =
+  'rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary';
+---
+
+<dialog
+  id={dialogId}
+  data-report-dialog
+  class="w-full max-w-xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+>
+  <form method="POST" data-astro-reload data-report-form class="flex flex-col gap-3 p-5">
+    <input type="hidden" name="intent" value="report-incident" />
+    {/* Honeypot: hidden from people, tempting to form-filling bots. */}
+    <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="absolute -left-[9999px] h-0 w-0 opacity-0" />
+    <div class="flex items-center justify-between">
+      <h4 class="font-display text-xl">Report Incident</h4>
+      <button type="button" data-close-report-dialog class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+    </div>
+
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Session
+        <select name="session" required class={fieldClass}>
+          <option value="" selected disabled hidden class="bg-brand-ink text-white">Select session…</option>
+          {sessionOptions.map((o) => <option value={o.value} class="bg-brand-ink text-white">{o.label}</option>)}
+        </select>
+      </label>
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Lap
+        <input type="number" name="lap" required min="0" step="1" inputmode="numeric" class={fieldClass} />
+      </label>
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Turn
+        <input type="text" name="turn" required maxlength="80" class={fieldClass} />
+      </label>
+    </div>
+
+    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+      Description
+      <textarea name="description" rows="3" maxlength="2000" class={fieldClass}></textarea>
+    </label>
+
+    <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
+      <legend class="mb-1">Cars Involved</legend>
+      <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-3">
+        {drivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
+        {drivers.map((d) => (
+          <label class="flex items-center gap-2 text-xs text-white/70">
+            <input type="checkbox" name="involved_driver_ids" value={d.id} />
+            {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+
+    <button
+      type="submit"
+      data-report-submit
+      disabled
+      class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+    >
+      Submit Report
+    </button>
+  </form>
+</dialog>
+
+<script>
+  // One delegated listener set (registered once) so it survives client-side
+  // navigations; the submit button stays disabled until Session, Lap, Turn
+  // and at least one car are filled in (server re-checks all of it).
+  function updateReportSubmit(form: HTMLFormElement) {
+    const val = (name: string) => (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
+    const anyCar = form.querySelector('input[name="involved_driver_ids"]:checked') !== null;
+    const submit = form.querySelector<HTMLButtonElement>('[data-report-submit]');
+    if (submit) submit.disabled = !(val('session') && val('lap') !== '' && val('turn') && anyCar);
+  }
+
+  function initReportDialog() {
+    if (document.body.dataset.reportDialogInit === 'true') return;
+    document.body.dataset.reportDialogInit = 'true';
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('[data-open-report-dialog]')) {
+        const dialog = document.querySelector<HTMLDialogElement>('dialog[data-report-dialog]');
+        if (dialog && !dialog.open) {
+          const form = dialog.querySelector<HTMLFormElement>('[data-report-form]');
+          form?.reset();
+          if (form) updateReportSubmit(form);
+          dialog.showModal();
+        }
+        return;
+      }
+      if (target.closest('[data-close-report-dialog]')) {
+        target.closest('dialog')?.close();
+        return;
+      }
+      // Clicking the backdrop (the <dialog> itself, outside its form) closes it.
+      if (target instanceof HTMLDialogElement && target.hasAttribute('data-report-dialog')) target.close();
+    });
+    const onFormChange = (e: Event) => {
+      const form = (e.target as HTMLElement).closest<HTMLFormElement>('[data-report-form]');
+      if (form) updateReportSubmit(form);
+    };
+    document.addEventListener('input', onFormChange);
+    document.addEventListener('change', onFormChange);
+  }
+  initReportDialog();
+  document.addEventListener('astro:page-load', initReportDialog);
+</script>
