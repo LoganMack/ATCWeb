@@ -23,7 +23,6 @@ import {
   type SeasonLogoPair,
 } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
-import { buildEventIcsBlock } from '../lib/ics';
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,
@@ -212,14 +211,6 @@ const moreNews = latestNews.slice(1, 16);
 // yet. Per Logan.
 const defaultPreviousResultSessionKey =
   previousResult?.sessions.find((s) => s.key.startsWith('race-'))?.key ?? previousResult?.sessions[0]?.key ?? null;
-
-// Same pre-joined-bundle approach as calendar.astro's own "Add All to
-// Calendar" button, just scoped to whatever's actually shown here (the
-// next few upcoming events, not the whole calendar) — see src/lib/ics.ts.
-const upcomingIcsBundle = upcomingEvents
-  .map((e) => buildEventIcsBlock(e, eventLayouts))
-  .filter((b): b is string => b !== null)
-  .join('\r\n');
 
 // --- Top 5 standings widget ------------------------------------------------
 //
@@ -485,17 +476,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <a href="/calendar" class="text-sm text-white/60 hover:text-white">
               Full calendar &rarr;
             </a>
-            {upcomingIcsBundle && (
-              <button
-                type="button"
-                data-ics-download
-                data-ics-event={upcomingIcsBundle}
-                data-ics-filename="atc-upcoming-events.ics"
-                class="text-sm text-white/60 hover:text-white"
-              >
-                + Add all to calendar
-              </button>
-            )}
           </div>
         )}
 

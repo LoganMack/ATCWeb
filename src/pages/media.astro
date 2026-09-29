@@ -166,7 +166,7 @@ function filterHref(f: VideoFilter): string {
 const FILTER_LABELS: Record<VideoFilter, string> = {
   broadcasts: 'Broadcasts',
   cinematic: 'Cinematics',
-  educational: 'Educational',
+  educational: 'Briefings',
   trackguide: 'Track Guide',
   other: 'Other',
 };
@@ -200,7 +200,7 @@ const meetupPins = meetups
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title="Media" description="Broadcasts, cinematics, educational videos, track guides, race photos, posters, and meetups from Alpha Touring Challenge.">
+<Layout title="Media" description="Broadcasts, cinematics, briefings, track guides, race photos, posters, and meetups from Alpha Touring Challenge.">
   <section class="relative mx-auto max-w-5xl overflow-hidden px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Media</h1>

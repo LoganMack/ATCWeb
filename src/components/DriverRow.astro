@@ -57,25 +57,36 @@ const nationalitiesText = [driver.nationality_1, driver.nationality_2]
   </td>
   <td class="py-2.5 pr-3" data-col="name">
     <div class="flex items-center gap-2">
-      <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
       <span class="font-semibold">{displayDriverName(driver.name)}</span>
-      {driver.is_rookie && (
-        <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">
-          Rookie
+      {/* Flag + Rookie tag pinned to the right edge of the cell, so the tag sits
+          right up against the Class column next to it. Both live in
+          fixed-width slots (the Rookie slot is only reserved from sm up, where
+          there's room), so flags line up down the table whether or not a
+          driver is a rookie. */}
+      <span class="ml-auto flex items-center gap-2">
+        <span class="flex h-4 w-6 flex-none items-center justify-center">
+          <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
         </span>
-      )}
-    </div>
-  </td>
-  <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="team">
-    <div class="flex items-center gap-2">
-      {driver.teams && <TeamLogo name={driver.teams.name} logoUrl={driver.teams.logo_url} size="h-5 w-5" />}
-      <span>{driver.teams?.name ?? '—'}</span>
+        <span class="flex flex-none items-center justify-end sm:w-[3.25rem]">
+          {driver.is_rookie && (
+            <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/60">
+              Rookie
+            </span>
+          )}
+        </span>
+      </span>
     </div>
   </td>
   <td class="py-2.5 pr-3" data-col="class">
     <span class={classTagFull(className)}>
       {className}
     </span>
+  </td>
+  <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="team">
+    <div class="flex items-center gap-2">
+      {driver.teams && <TeamLogo name={driver.teams.name} logoUrl={driver.teams.logo_url} size="h-5 w-5" />}
+      <span>{driver.teams?.name ?? '—'}</span>
+    </div>
   </td>
   <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="status" title={statusTooltip}>
     <div class="flex flex-col">
