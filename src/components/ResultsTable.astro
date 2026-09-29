@@ -300,37 +300,37 @@ for (const p of racePenalties) {
                     each one be its own flex item for this row's own
                     `gap-2` at sm+, instead of the wrapper eating that gap
                     as a single item. */}
-                {row.tags.length > 0 && (
-                  <span class="hidden sm:contents">
-                    {row.tags.map((tag) => (
-                      <span
-                        class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50"
-                        title={tag === 'Unclassified' ? 'Completed less than 50% of overall race length. No points scored.' : undefined}
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </span>
-                )}
-                {tagLabel && (
-                  <span class="hidden sm:contents">
-                    <span
-                      class={isRealPenalty
-                        ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold'
-                        : 'rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50'}
-                      title="See the Incident Report for full details"
-                    >
-                      {tagLabel}
-                    </span>
-                  </span>
-                )}
-                {/* Flag / car logo / team logo, pinned to the right edge of the
+                {/* Tags (Unclassified / AI / penalty ...), then flag / car logo / team logo, pinned to the right edge of the
                     cell (ml-auto) in three FIXED-WIDTH slots so they line up
                     in columns row to row: a driver with no team (or no car,
                     or no flag) still gets an empty slot in its place, so the
                     flag and car logo never shift left to fill the gap.
                     Hidden on mobile like before. */}
                 <span class="ml-auto hidden items-center gap-2 sm:flex">
+                    {row.tags.length > 0 && (
+                    <span class="contents">
+                      {row.tags.map((tag) => (
+                        <span
+                          class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50"
+                          title={tag === 'Unclassified' ? 'Completed less than 50% of overall race length. No points scored.' : undefined}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                  {tagLabel && (
+                    <span class="contents">
+                      <span
+                        class={isRealPenalty
+                          ? 'rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold'
+                          : 'rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50'}
+                        title="See the Incident Report for full details"
+                      >
+                        {tagLabel}
+                      </span>
+                    </span>
+                  )}
                   <span class="flex h-5 w-6 flex-none items-center justify-center">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                   </span>

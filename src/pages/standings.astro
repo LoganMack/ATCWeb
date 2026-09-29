@@ -116,6 +116,13 @@ let matrixColumns: SeasonStandingsRoundColumn[] = [];
 // "Appearances" = one per distinct subsession_id (round) run, regardless of
 // how many races it had.
 let maxStarts = 0;
+// Slots reserved for the right-aligned flag / car logo / team logo group in the
+// List view's driver cell — a driver can have raced more than one car or team
+// this season, so reserve as many car and team slots as the busiest driver
+// needs (at least one each) and pad every other row up to that. Filled in
+// once `extrasByDriverId` is loaded below.
+let maxCarSlots = 1;
+let maxTeamSlots = 1;
 let maxAppearances = 0;
 if (!loadError && activeSeason) {
   try {
@@ -141,6 +148,10 @@ if (!loadError && activeSeason) {
     ]);
     standings = standingsResult;
     extrasByDriverId = extras;
+    for (const e of extras.values()) {
+      maxCarSlots = Math.max(maxCarSlots, e.cars.length);
+      maxTeamSlots = Math.max(maxTeamSlots, e.teams.length);
+    }
     extendedStatsByDriverId = extendedStats;
     maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
     maxStarts = new Set(overallContext.overallScores.map((s) => `${s.subsession_id}:${s.race_number}`)).size;
@@ -338,24 +349,34 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <span class="sm:hidden">
                         {shortDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
-                      {/* Flag/car/team logos hidden on mobile (Logan) —
-                          `hidden sm:contents` so each stays its own flex
-                          item for this row's `gap-2` at sm+ instead of the
-                          wrapper eating that gap as a single item — same
-                          technique as ResultsTable.astro's row cell. */}
-                      <span class="hidden sm:contents">
-                        <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                      {/* Flag / car logos / team logos pinned to the right edge of the
+                          cell (ml-auto) in FIXED-WIDTH slots, same as
+                          ResultsTable.astro's row: a driver with fewer cars or
+                          teams than the busiest driver (or none at all) gets
+                          empty slots in their place, so every row's flag and
+                          first car logo line up in columns. Hidden on mobile
+                          (Logan). */}
+                      <span class="ml-auto hidden items-center gap-2 sm:flex">
+                        <span class="flex h-5 w-6 flex-none items-center justify-center">
+                          <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                        </span>
                         {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
-                        {extras?.cars.map((c) => (
-                          <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} tint />
+                        {Array.from({ length: maxCarSlots }, (_, i) => extras?.cars[i]).map((c) => (
+                          <span class="flex h-5 w-5 flex-none items-center justify-center">
+                            {c && <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} tint />}
+                          </span>
                         ))}
-                        {extras?.teams.map((t) => (
-                          <TeamLogo
-                            name={t.teamName}
-                            logoUrl={t.logoUrl}
-                            size="h-5 w-5"
-                            title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
-                          />
+                        {Array.from({ length: maxTeamSlots }, (_, i) => extras?.teams[i]).map((t) => (
+                          <span class="flex h-5 w-5 flex-none items-center justify-center">
+                            {t && (
+                              <TeamLogo
+                                name={t.teamName}
+                                logoUrl={t.logoUrl}
+                                size="h-5 w-5"
+                                title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
+                              />
+                            )}
+                          </span>
                         ))}
                       </span>
                     </div>
