@@ -1,0 +1,88 @@
+---
+/**
+ * The results page's yellow incident button, in one of three states:
+ *
+ *  - 'report' — the reporting period is open: reads "Report Incident" and
+ *    opens the Report Incident dialog (ReportIncidentDialog.astro, via
+ *    [data-open-report-dialog]). Hovering shows "Incident reporting period
+ *    ends in X hours." (X minutes once 2 hours or less remain) — computed
+ *    server-side for first paint and re-computed live by the script below,
+ *    since this page is edge-cached for up to a minute.
+ *  - 'view' — the round's incident report has been posted (or the viewer is
+ *    an admin): reads "Incident Report" and links to the incident page.
+ *  - 'closed' — the period is over and the report isn't posted yet:
+ *    disabled, reads "Incident Report", hover explains the stewards are
+ *    still reviewing.
+ */
+import { reportingCountdownText } from '../lib/incidentReports';
+
+interface Props {
+  state: 'report' | 'view' | 'closed';
+  incidentsHref: string;
+  /** ISO time the reporting period ends — only used in the 'report' state. */
+  closesAtIso?: string | null;
+}
+const { state, incidentsHref, closesAtIso = null } = Astro.props;
+
+const btn =
+  'flex h-9 items-center rounded-lg bg-brand-gold/15 px-4 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25';
+const tip =
+  'pointer-events-none absolute right-0 top-full z-30 mt-1.5 w-max max-w-[16rem] rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100';
+const closes = closesAtIso ? new Date(closesAtIso) : null;
+---
+
+{state === 'view' && (
+  <a href={incidentsHref} class={btn}>Incident Report</a>
+)}
+
+{state === 'report' && (
+  <span class="group relative">
+    <button type="button" data-open-report-dialog class={`${btn} cursor-pointer`}>Report Incident</button>
+    <span class={tip} role="tooltip" data-incident-countdown data-closes-at={closesAtIso ?? undefined}>
+      {closes ? reportingCountdownText(closes) : 'Incident reporting is open.'}
+    </span>
+  </span>
+)}
+
+{state === 'closed' && (
+  <span class="group relative">
+    <button
+      type="button"
+      disabled
+      aria-disabled="true"
+      class="flex h-9 cursor-not-allowed items-center rounded-lg bg-white/5 px-4 text-sm font-semibold text-white/30 ring-1 ring-white/10"
+    >
+      Incident Report
+    </button>
+    <span class={tip} role="tooltip">The incident reporting period has closed. The stewards are currently reviewing.</span>
+  </span>
+)}
+
+<script>
+  // Keeps the "ends in X hours/minutes" hover text live (the page itself may
+  // be a minute-old cached copy). Runs on load, page swaps, and every time
+  // the button is hovered/focused, and re-ticks each 30s while visible.
+  function countdownText(closesAt: number): string {
+    const ms = closesAt - Date.now();
+    if (ms <= 0) return 'The incident reporting period has ended.';
+    const minutes = Math.ceil(ms / 60000);
+    if (minutes <= 120) return `Incident reporting period ends in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+    return `Incident reporting period ends in ${Math.floor(ms / 3600000)} hours.`;
+  }
+  function refreshIncidentCountdowns() {
+    document.querySelectorAll<HTMLElement>('[data-incident-countdown][data-closes-at]').forEach((el) => {
+      const closesAt = Date.parse(el.dataset.closesAt ?? '');
+      if (!Number.isNaN(closesAt)) el.textContent = countdownText(closesAt);
+    });
+  }
+  function initIncidentCountdown() {
+    refreshIncidentCountdowns();
+    if (document.body.dataset.incidentCountdownInit === 'true') return;
+    document.body.dataset.incidentCountdownInit = 'true';
+    document.addEventListener('mouseover', refreshIncidentCountdowns);
+    document.addEventListener('focusin', refreshIncidentCountdowns);
+    window.setInterval(refreshIncidentCountdowns, 30000);
+  }
+  initIncidentCountdown();
+  document.addEventListener('astro:page-load', initIncidentCountdown);
+</script>

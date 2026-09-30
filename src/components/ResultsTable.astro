@@ -174,14 +174,6 @@ for (const p of racePenalties) {
 ---
 
 <div class="mt-6">
-  <div class="flex flex-wrap items-center justify-between gap-2">
-    <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Race {raceNumber}</h3>
-    {/* Only the FIRST race table on the page actually fills this slot (see
-        src/pages/results/[subsessionId].astro) — one set of race links per
-        round, shown once, on the first table's title line, per Logan. */}
-    <slot name="race-links" />
-  </div>
-
   <div class="mt-2 rounded-xl border border-white/10" data-sticky-thead>
     <table class="w-full border-collapse">
       <thead>

@@ -19,13 +19,16 @@ import {
   restGet,
   restGetAuthed,
   restPatch,
+  getSiteSettings,
   type SupabaseEnv,
 } from './supabase';
+import { siteSettingInt, INCIDENT_REPORT_PERIOD_HOURS_KEY } from './siteSettings';
 import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from './timezone';
 
 export const LAP_LIMITED_RACE_OVER_MINUTES = 90;
 export const TIME_LIMITED_POST_RACE_MINUTES = 30;
 export const TIME_LIMITED_RACE_ASSUMED_MINUTES = 60;
+/** Default reporting-period length — the live value is the `incident_report_period_hours` site setting (admin > Site Properties); see getReportingPeriodHours. */
 export const REPORTING_WINDOW_HOURS = 24;
 
 interface WindowEvent {
@@ -51,7 +54,8 @@ export interface ReportingWindow {
 /** Pure — computes the window from an event (or, with no usable event, the round's own start time). */
 export function computeReportingWindow(
   event: WindowEvent | null,
-  roundStartTimeIso: string | null
+  roundStartTimeIso: string | null,
+  periodHours: number = REPORTING_WINDOW_HOURS
 ): ReportingWindow | null {
   let raceOver: Date | null = null;
 
@@ -86,7 +90,7 @@ export function computeReportingWindow(
     }
   }
   if (!raceOver) return null;
-  return { raceOverUtc: raceOver, closesUtc: new Date(raceOver.getTime() + REPORTING_WINDOW_HOURS * 3_600_000) };
+  return { raceOverUtc: raceOver, closesUtc: new Date(raceOver.getTime() + periodHours * 3_600_000) };
 }
 
 /** Reports open once the race is over is NOT required — a driver can report from practice onward; only the closing edge is enforced. */
@@ -99,7 +103,8 @@ export function isReportingOpen(window: ReportingWindow | null, now: Date = new 
 export async function getReportingWindowForRound(
   env: SupabaseEnv,
   subsessionId: number,
-  roundStartTimeIso: string | null
+  roundStartTimeIso: string | null,
+  periodHours: number = REPORTING_WINDOW_HOURS
 ): Promise<ReportingWindow | null> {
   let event: WindowEvent | null = null;
   try {
@@ -115,7 +120,66 @@ export async function getReportingWindowForRound(
   } catch (err) {
     console.error('Failed to look up the attached event for the reporting window:', err);
   }
-  return computeReportingWindow(event, roundStartTimeIso);
+  return computeReportingWindow(event, roundStartTimeIso, periodHours);
+}
+
+/** The configured reporting-period length in hours (site setting, default 24). Never throws — a failed settings read just means the default. */
+export async function getReportingPeriodHours(env: SupabaseEnv): Promise<number> {
+  try {
+    return siteSettingInt(await getSiteSettings(env), INCIDENT_REPORT_PERIOD_HOURS_KEY);
+  } catch (err) {
+    console.error('Failed to read the incident reporting period setting:', err);
+    return REPORTING_WINDOW_HOURS;
+  }
+}
+
+// --- Posted flag (0092_incident_posting.sql) -----------------------------------
+
+/** Whether stewards have posted this round's incident report (making its page public). No row = not posted. */
+export async function isRoundPosted(env: SupabaseEnv, subsessionId: number): Promise<boolean> {
+  try {
+    const rows = await restGet<{ posted: boolean }[]>(env, `round_incident_status?select=posted&subsession_id=eq.${subsessionId}`);
+    return rows[0]?.posted === true;
+  } catch (err) {
+    console.error('Failed to read the round incident posted flag:', err);
+    return false;
+  }
+}
+
+/** Every posted round's subsession id. */
+export async function getPostedSubsessionIds(env: SupabaseEnv): Promise<Set<number>> {
+  const rows = await restGet<{ subsession_id: number }[]>(env, 'round_incident_status?select=subsession_id&posted=eq.true');
+  return new Set(rows.map((r) => r.subsession_id));
+}
+
+/** Admin: post/unpost a round's incident report. */
+export async function setRoundPosted(env: SupabaseEnv, accessToken: string, subsessionId: number, posted: boolean): Promise<void> {
+  const res = await fetch(`${env.url}/rest/v1/round_incident_status?on_conflict=subsession_id`, {
+    method: 'POST',
+    headers: {
+      apikey: env.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify({ subsession_id: subsessionId, posted }),
+  });
+  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_incident_status: ${await res.text()}`);
+}
+
+/**
+ * Hover text for the results page's "Report Incident" button while the
+ * period is open: "Incident reporting period ends in X hours." — switching
+ * to minutes once 2 hours or less remain. (IncidentButton.astro's inline
+ * script recomputes the same text live client-side, so a cached page stays right.)
+ */
+export function reportingCountdownText(closesUtc: Date, now: Date = new Date()): string {
+  const ms = closesUtc.getTime() - now.getTime();
+  if (ms <= 0) return 'The incident reporting period has ended.';
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes <= 120) return `Incident reporting period ends in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+  const hours = Math.floor(ms / 3_600_000);
+  return `Incident reporting period ends in ${hours} hours.`;
 }
 
 // --- DB helpers ------------------------------------------------------------

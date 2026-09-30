@@ -6,7 +6,7 @@ import ResultsTable from '../../components/ResultsTable.astro';
 import QualifyingResultsTable from '../../components/QualifyingResultsTable.astro';
 import PracticeResultsTable from '../../components/PracticeResultsTable.astro';
 import RaceLinksBlock from '../../components/RaceLinksBlock.astro';
-import ReportIncidentButton from '../../components/ReportIncidentButton.astro';
+import IncidentButton from '../../components/IncidentButton.astro';
 import ReportIncidentDialog from '../../components/ReportIncidentDialog.astro';
 import {
   resolveSupabaseEnv,
@@ -44,7 +44,13 @@ import {
   type PracticeRow,
 } from '../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../lib/penalties';
-import { getReportingWindowForRound, isReportingOpen, createIncidentReport } from '../../lib/incidentReports';
+import {
+  getReportingWindowForRound,
+  getReportingPeriodHours,
+  isRoundPosted,
+  isReportingOpen,
+  createIncidentReport,
+} from '../../lib/incidentReports';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
 import { isAdminView } from '../../lib/auth';
 
@@ -110,19 +116,26 @@ if (isAdmin && postForm) {
   // read-only for penalties (see v0.16's README section for why).
 }
 
-// Race vs. Qualifying vs. Practice — three independent result categories,
-// each with its own Overall/Per Class view (see `view` below). Computed
-// here (rather than down by the template, where this used to live) purely
-// from URL params + subsessionId — neither depends on `round` — so the
-// qualifying/practice fetches below can start immediately alongside the
-// initial bulk fetch instead of waiting for `round` to resolve first.
-const categoryParam = Astro.url.searchParams.get('category');
-const category = categoryParam === 'qualifying' ? 'qualifying' : categoryParam === 'practice' ? 'practice' : 'race';
-// The points system is based on overall finishing position, not
-// class-relative position, so the overall (cross-class) view is the
-// default — the per-class view is still available via ?view=class. Shared
-// by both categories.
-const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
+// Which single table is showing: one SESSION (Practice, Qualifying, or one
+// specific race — `?session=practice|qualifying|race-N`, default Race 1) and
+// one CLASS filter (`?class=all|alpha|gamma|delta`, default All). Both are
+// driven by the two dropdowns below, one table at a time. The old
+// `?category=qualifying|practice` links (briefing/circuit pages, bookmarks)
+// still work and map onto `session`. Computed here (rather than down by the
+// template) purely from URL params + subsessionId — neither depends on
+// `round` — so the qualifying/practice fetches below can start immediately
+// alongside the initial bulk fetch instead of waiting for `round` to resolve.
+const sessionParam = Astro.url.searchParams.get('session') ?? '';
+const legacyCategoryParam = Astro.url.searchParams.get('category');
+const category: 'race' | 'qualifying' | 'practice' =
+  sessionParam === 'qualifying' || (!sessionParam && legacyCategoryParam === 'qualifying')
+    ? 'qualifying'
+    : sessionParam === 'practice' || (!sessionParam && legacyCategoryParam === 'practice')
+      ? 'practice'
+      : 'race';
+const requestedRaceMatch = /^race-(\d+)$/.exec(sessionParam);
+const requestedRaceNumber = requestedRaceMatch ? Number(requestedRaceMatch[1]) : null;
+const classParam = (Astro.url.searchParams.get('class') ?? 'all').toLowerCase();
 
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
 let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
@@ -229,7 +242,6 @@ if (!loadError && penalties.length > 0) {
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 // Classes ordered Alpha/Gamma/Delta (sort_order) rather than however Map
 // iteration happens to return them.
-const orderedClassIds = classes.map((c) => c.id).filter((id) => roundResults.byClass.has(id));
 
 // Exhibition either because the round itself is flagged (round_overrides)
 // or because the whole season it belongs to isn't a real championship
@@ -379,10 +391,23 @@ if (incidentLimit !== null) {
 
 const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
+// Active session/class for the single table shown — the requested race when
+// this round actually has it, else the round's first race (Race 1).
+const activeRaceNumber =
+  requestedRaceNumber !== null && overallRaceNumbers.includes(requestedRaceNumber) ? requestedRaceNumber : overallRaceNumbers[0] ?? 1;
+const sessionKey = category === 'race' ? `race-${activeRaceNumber}` : category;
+const activeClass = classes.find((c) => c.name.toLowerCase() === classParam) ?? null;
+const classKey = activeClass ? activeClass.name.toLowerCase() : 'all';
+
 // --- Incident reporting (per Logan) ----------------------------------------
-// Open for 24h after the race is over (see src/lib/incidentReports.ts for
-// the exact window math). The button is simply not rendered once closed, and
-// the POST below re-checks the window server-side.
+// Open for a configurable number of hours (site setting, default 24) after
+// the race is over — see src/lib/incidentReports.ts for the exact window
+// math. The yellow incident button is one of three states (IncidentButton.
+// astro): "Report Incident" while open, a disabled "Incident Report" once the
+// period has closed, and a working "Incident Report" link once stewards have
+// POSTED the round (admin > Incident Reporting) — posting also ends
+// reporting. Admins always get the link. The POST below re-checks the window
+// server-side.
 const reportSessionOptions: { value: string; label: string }[] = [
   ...overallRaceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
   { value: 'qualifying:0', label: 'Qualifying' },
@@ -397,9 +422,14 @@ for (const rows of roundResults.overall.values()) {
 const reportDrivers = [...reportDriverById.values()].sort(
   (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
 );
+const [reportingHours, roundPosted] =
+  !loadError && round
+    ? await Promise.all([getReportingPeriodHours(supabaseEnv), isRoundPosted(supabaseEnv, subsessionId)])
+    : [24, false];
 const reportingWindow =
-  !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time) : null;
-const reportingOpen = isReportingOpen(reportingWindow);
+  !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time, reportingHours) : null;
+const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
+const incidentButtonState: 'report' | 'view' | 'closed' = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : 'closed';
 // Reporting is open to signed-out visitors too; a signed-in reporter's
 // identity is attached server-side (submit_incident_report reads their JWT).
 const reportSession = Astro.locals.session;
@@ -450,10 +480,8 @@ if (postForm && postForm.get('intent') === 'report-incident' && !loadError && ro
 }
 
 const qualifying = await qualifyingPromise;
-const qualifyingOrderedClassIds = classes.map((c) => c.id).filter((id) => qualifying.byClass.has(id));
 
 const practice = await practicePromise;
-const practiceOrderedClassIds = classes.map((c) => c.id).filter((id) => practice.byClass.has(id));
 
 // Whatever `season` value (a real season number, or one of results.astro's
 // pooled "exhibition-rounds"/"test-sessions" filter sentinels) the Race
@@ -467,12 +495,25 @@ const backHref = seasonParam ? `/results?season=${encodeURIComponent(seasonParam
 const seasonQuerySuffix = seasonParam ? `&season=${encodeURIComponent(seasonParam)}` : '';
 const incidentsHref = `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
 
-/** Shared pill styling for the category/view toggle links below. */
-function pillClass(active: boolean): string {
-  return `rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-    active ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-  }`;
+/** Destination URL for a session/class combination (the two dropdowns' option values) — keeps the season filter this round was opened from. */
+function resultsHref(session: string, cls: string): string {
+  return `/results/${subsessionId}?session=${session}&class=${cls}${seasonQuerySuffix}`;
 }
+const selectClass =
+  'h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary';
+const sessionChoices: { key: string; label: string }[] = [
+  { key: 'practice', label: 'Practice' },
+  { key: 'qualifying', label: 'Qualifying' },
+  ...(overallRaceNumbers.length > 0 ? overallRaceNumbers : [1]).map((n) => ({ key: `race-${n}`, label: `Race ${n}` })),
+];
+
+// The one table's rows: the active class's own class-relative ranking when a
+// class is picked, else the overall (cross-class) field.
+const raceTableRows = activeClass
+  ? roundResults.byClass.get(activeClass.id)?.get(activeRaceNumber) ?? []
+  : roundResults.overall.get(activeRaceNumber) ?? [];
+const qualifyingTableRows = activeClass ? qualifying.byClass.get(activeClass.id) ?? [] : qualifying.overall;
+const practiceTableRows = activeClass ? practice.byClass.get(activeClass.id) ?? [] : practice.overall;
 
 // How many points each driver actually contributed toward their team's
 // total for a given race — only the team's top 2 scorers that race count
@@ -500,9 +541,8 @@ for (const [raceNumber, overallRows] of roundResults.overall) {
 // Race links (iRacing Results / Replay / Broadcast / Photo Album) — one set
 // per ROUND, not per race (see RaceLinksBlock.astro's own doc comment).
 // Always saved/read against the round's first race number as the canonical
-// row. Rendered on the same line as the FIRST race table's title (see
-// `slot="race-links"` on <ResultsTable> below) rather than in the page
-// header, per Logan.
+// row. Rendered as a blue "Race Links" button in the toolbar above the
+// results table, which opens a dialog listing them.
 const canonicalRaceNumber = overallRaceNumbers[0] ?? 1;
 const raceLinks = raceLinksByRace.get(canonicalRaceNumber) ?? null;
 
@@ -570,220 +610,65 @@ Astro.response.headers.set(
           </p>
         )}
 
-        {/* Desktop-only (hidden, sm:flex) -- per Logan, mobile gets a
-            compact pair of <select> dropdowns instead (right below) for
-            the session/view filters, and the Incident Report button
-            shrinks to a small icon that moves onto the race-links line
-            (see ResultsTable's race-links slot usage below). */}
-        <div class="mt-8 hidden flex-wrap items-center gap-6 sm:flex">
-          <div class="flex flex-wrap gap-2">
-            <a href={`/results/${subsessionId}?category=race&view=${view}${seasonQuerySuffix}`} class={pillClass(category === 'race')}>
-              Race
-            </a>
-            <a href={`/results/${subsessionId}?category=qualifying&view=${view}${seasonQuerySuffix}`} class={pillClass(category === 'qualifying')}>
-              Qualifying
-            </a>
-            <a href={`/results/${subsessionId}?category=practice&view=${view}${seasonQuerySuffix}`} class={pillClass(category === 'practice')}>
-              Practice
-            </a>
+        {/* One toolbar for every screen size: Session and Class dropdowns on
+            the left (each option's value is the full destination URL;
+            onchange just navigates there, same as a plain link would), the
+            blue Race Links button and yellow incident button on the right. */}
+        <div class="mt-8 flex flex-wrap items-center gap-3">
+          <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
+            {sessionChoices.map((o) => (
+              <option value={resultsHref(o.key, classKey)} selected={o.key === sessionKey} class="bg-brand-ink text-white">{o.label}</option>
+            ))}
+          </select>
+          <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
+            <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
+            {classes.map((c) => (
+              <option value={resultsHref(sessionKey, c.name.toLowerCase())} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
+            ))}
+          </select>
+          <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
+            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+            <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
           </div>
-          <div class="flex flex-wrap gap-2">
-            <a href={`/results/${subsessionId}?category=${category}&view=overall${seasonQuerySuffix}`} class={pillClass(view === 'overall')}>
-              Overall
-            </a>
-            <a href={`/results/${subsessionId}?category=${category}&view=class${seasonQuerySuffix}`} class={pillClass(view === 'class')}>
-              Per Class
-            </a>
-          </div>
-          {/* On the Race category the desktop button lives on the race-links
-              line instead (see the race-links slot below); Qualifying/Practice
-              have no race-links line, so it stays up here for those. */}
-          {category !== 'race' && (
-            <div class="ml-auto flex items-center gap-2">
-              <a
-                href={incidentsHref}
-                class="rounded-lg bg-brand-gold/15 px-4 py-1.5 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25"
-              >
-                Incident Report
-              </a>
-              {reportingOpen && <ReportIncidentButton />}
-            </div>
-          )}
         </div>
 
-        {/* Mobile-only session/view dropdowns -- same navigation targets as
-            the pill links above, just picked from a <select> instead. Each
-            option's value is the full destination URL; onchange just
-            navigates there, same as a plain link would. */}
-        <div class="mt-8 flex flex-wrap items-center gap-3 sm:hidden">
-          <select
-            class="h-9 flex-1 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
-            onchange="window.location.href=this.value"
-          >
-            <option value={`/results/${subsessionId}?category=race&view=${view}${seasonQuerySuffix}`} selected={category === 'race'} class="bg-brand-ink text-white">Race</option>
-            <option value={`/results/${subsessionId}?category=qualifying&view=${view}${seasonQuerySuffix}`} selected={category === 'qualifying'} class="bg-brand-ink text-white">Qualifying</option>
-            <option value={`/results/${subsessionId}?category=practice&view=${view}${seasonQuerySuffix}`} selected={category === 'practice'} class="bg-brand-ink text-white">Practice</option>
-          </select>
-          <select
-            class="h-9 flex-1 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
-            onchange="window.location.href=this.value"
-          >
-            <option value={`/results/${subsessionId}?category=${category}&view=overall${seasonQuerySuffix}`} selected={view === 'overall'} class="bg-brand-ink text-white">Overall</option>
-            <option value={`/results/${subsessionId}?category=${category}&view=class${seasonQuerySuffix}`} selected={view === 'class'} class="bg-brand-ink text-white">Per Class</option>
-          </select>
-          {category !== 'race' && reportingOpen && <ReportIncidentButton />}
-        </div>
-
-
-        {reportingOpen && (
+        {incidentButtonState === 'report' && (
           <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} />
         )}
 
         {category === 'race' && (
-          <>
-            {orderedClassIds.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
-
-            {view === 'overall' && orderedClassIds.length > 0 && (
-              <>
-                {overallRaceNumbers.map((raceNumber) => (
-                  <ResultsTable
-                    raceNumber={raceNumber}
-                    rows={roundResults.overall.get(raceNumber)!}
-                    showClass
-                    classNameById={classNameById}
-                    penalties={penalties}
-                    teamPointsByRaceDriver={teamPointsByRaceDriver}
-                    incidentLimit={incidentLimit}
-                    incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(raceNumber) ?? new Set()}
-                    layoutCorners={layoutCorners}
-                    driverBestLapsAtTrack={driverBestLapsAtTrack}
-                  >
-                    {raceNumber === overallRaceNumbers[0] && (
-                      <Fragment slot="race-links">
-                        {/* Mobile-only Incident Report icon -- wrapped
-                            together with RaceLinksBlock in one flex row so
-                            the two act as a single slotted child (the outer
-                            title row is itself `justify-between`, between
-                            the "Race N" heading and whatever fills this
-                            slot); the icon then lands immediately to the
-                            right of the race links, same line, as asked.
-                            Desktop instead gets the full-text "Incident Report"
-                            button, right after the race links. */}
-                        <div class="flex flex-wrap items-center gap-2">
-                          <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
-                          <a
-                            href={incidentsHref}
-                            aria-label="Incident Report"
-                            title="Incident Report"
-                            class="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-brand-gold/15 text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:hidden"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
-                              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                              <line x1="12" y1="9" x2="12" y2="13" />
-                              <line x1="12" y1="17" x2="12.01" y2="17" />
-                            </svg>
-                          </a>
-                          <a
-                            href={incidentsHref}
-                            class="hidden rounded-lg bg-brand-gold/15 px-3 py-1 text-[11px] font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:inline-block"
-                          >
-                            Incident Report
-                          </a>
-                          {reportingOpen && <ReportIncidentButton />}
-                        </div>
-                      </Fragment>
-                    )}
-                  </ResultsTable>
-                ))}
-              </>
-            )}
-
-            {view === 'class' && orderedClassIds.map((classId, classIdx) => {
-              const byRace = roundResults.byClass.get(classId)!;
-              const raceNumbers = [...byRace.keys()].sort((a, b) => a - b);
-              return (
-                <div class="mt-12">
-                  <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
-                  {raceNumbers.map((raceNumber, raceIdx) => (
-                    <ResultsTable
-                      raceNumber={raceNumber}
-                      rows={byRace.get(raceNumber)!}
-                      penalties={penalties}
-                      teamPointsByRaceDriver={teamPointsByRaceDriver}
-                      incidentLimit={incidentLimit}
-                      incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(raceNumber) ?? new Set()}
-                      layoutCorners={layoutCorners}
-                      driverBestLapsAtTrack={driverBestLapsAtTrack}
-                    >
-                      {classIdx === 0 && raceIdx === 0 && (
-                        <Fragment slot="race-links">
-                          {/* Same mobile-only Incident Report icon as the
-                              overall view above -- see that one's own
-                              comment. */}
-                          <div class="flex flex-wrap items-center gap-2">
-                            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
-                            <a
-                              href={incidentsHref}
-                              aria-label="Incident Report"
-                              title="Incident Report"
-                              class="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-brand-gold/15 text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:hidden"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
-                                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
-                                <line x1="12" y1="9" x2="12" y2="13" />
-                                <line x1="12" y1="17" x2="12.01" y2="17" />
-                              </svg>
-                            </a>
-                            <a
-                              href={incidentsHref}
-                              class="hidden rounded-lg bg-brand-gold/15 px-3 py-1 text-[11px] font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25 sm:inline-block"
-                            >
-                              Incident Report
-                            </a>
-                            {reportingOpen && <ReportIncidentButton />}
-                          </div>
-                        </Fragment>
-                      )}
-                    </ResultsTable>
-                  ))}
-                </div>
-              );
-            })}
-          </>
+          raceTableRows.length > 0 ? (
+            <ResultsTable
+              raceNumber={activeRaceNumber}
+              rows={raceTableRows}
+              showClass={!activeClass}
+              classNameById={classNameById}
+              penalties={penalties}
+              teamPointsByRaceDriver={teamPointsByRaceDriver}
+              incidentLimit={incidentLimit}
+              incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(activeRaceNumber) ?? new Set()}
+              layoutCorners={layoutCorners}
+              driverBestLapsAtTrack={driverBestLapsAtTrack}
+            />
+          ) : (
+            <p class="mt-10 text-white/60">No results.</p>
+          )
         )}
 
         {category === 'qualifying' && (
-          <>
-            {qualifying.overall.length === 0 && <p class="mt-10 text-white/60">No qualifying results.</p>}
-
-            {view === 'overall' && qualifying.overall.length > 0 && (
-              <QualifyingResultsTable rows={qualifying.overall} showClass classNameById={classNameById} penalties={penalties} />
-            )}
-
-            {view === 'class' && qualifyingOrderedClassIds.map((classId) => (
-              <div class="mt-12">
-                <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
-                <QualifyingResultsTable rows={qualifying.byClass.get(classId)!} penalties={penalties} />
-              </div>
-            ))}
-          </>
+          qualifyingTableRows.length > 0 ? (
+            <QualifyingResultsTable rows={qualifyingTableRows} showClass={!activeClass} classNameById={classNameById} penalties={penalties} />
+          ) : (
+            <p class="mt-10 text-white/60">No qualifying results.</p>
+          )
         )}
 
         {category === 'practice' && (
-          <>
-            {practice.overall.length === 0 && <p class="mt-10 text-white/60">No practice results.</p>}
-
-            {view === 'overall' && practice.overall.length > 0 && (
-              <PracticeResultsTable rows={practice.overall} showClass classNameById={classNameById} />
-            )}
-
-            {view === 'class' && practiceOrderedClassIds.map((classId) => (
-              <div class="mt-12">
-                <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">{classNameById.get(classId)}</h2>
-                <PracticeResultsTable rows={practice.byClass.get(classId)!} />
-              </div>
-            ))}
-          </>
+          practiceTableRows.length > 0 ? (
+            <PracticeResultsTable rows={practiceTableRows} showClass={!activeClass} classNameById={classNameById} />
+          ) : (
+            <p class="mt-10 text-white/60">No practice results.</p>
+          )
         )}
 
       </>

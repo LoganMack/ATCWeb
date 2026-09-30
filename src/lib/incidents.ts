@@ -20,6 +20,7 @@
 
 import { type SupabaseEnv, restGetAll, getPenaltiesForSubsessions, getPenaltyOffenses, getStandingsExcludedRoundIds } from './supabase';
 import { getAllRounds, driversSelect, computeDisplayRoundNumbers, type DriverBasic } from './results';
+import { getPostedSubsessionIds } from './incidentReports';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from './penalties';
 
 export interface IncidentRow {
@@ -93,8 +94,12 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
   const rounds = await getAllRounds(env);
   const subsessionIds = rounds.map((r) => r.subsession_id);
 
-  const [penalties, driversBasic, offenses, excludedRoundIds, raceStartRows] = await Promise.all([
+  const [allPenalties, postedRoundIds, driversBasic, offenses, excludedRoundIds, raceStartRows] = await Promise.all([
     getPenaltiesForSubsessions(env, subsessionIds),
+    // Only rounds whose incident report stewards have POSTED (admin >
+    // Incident Reporting, 0092_incident_posting.sql) show up on the public
+    // Incidents page — everything earlier was backfilled as posted.
+    getPostedSubsessionIds(env),
     // includeAi: true — a penalty could in principle tag an AI-flagged
     // entrant (an exhibition-only synthetic driver, see DriverBasic's own
     // doc comment); excluding them here would leave that incident's driver
@@ -113,6 +118,8 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
           `race_scores?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`
         ),
   ]);
+
+  const penalties = allPenalties.filter((p) => postedRoundIds.has(p.subsession_id));
 
   const racesStartedByDriver = new Map<string, Set<string>>();
   for (const row of raceStartRows) {

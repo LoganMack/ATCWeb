@@ -1,0 +1,194 @@
+---
+export const prerender = false;
+
+// Admin → Incident Reporting: one row per round with how many driver-submitted
+// reports it has (Reported / Pending / Dismissed / Logged), a "Posted" toggle
+// (posting makes the round's incident report public and re-enables the
+// results page's Incident Report button — see 0092_incident_posting.sql), and
+// an Edit link to the round's incident report page where reports are logged
+// or dismissed.
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, restGetAuthed, formatDate, getStandingsExcludedRoundIds } from '../../../lib/supabase';
+import { getAllRounds, computeDisplayRoundNumbers } from '../../../lib/results';
+import { getPostedSubsessionIds, setRoundPosted } from '../../../lib/incidentReports';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (String(form.get('intent') ?? '') === 'set-posted') {
+    const subsessionId = Number(form.get('subsession_id'));
+    const posted = String(form.get('posted') ?? '') === 'true';
+    if (Number.isFinite(subsessionId)) {
+      try {
+        await setRoundPosted(supabaseEnv, accessToken, subsessionId, posted);
+        const rounds = await getAllRounds(supabaseEnv);
+        const round = rounds.find((r) => r.subsession_id === subsessionId);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'incident_report',
+          entity_label: `${posted ? 'Posted' : 'Unposted'} incident report — ${round?.track_name ?? subsessionId}`,
+          entity_id: String(subsessionId),
+        });
+        const keep = new URL(Astro.request.url).searchParams.get('all') === '1' ? '?all=1' : '';
+        return Astro.redirect(`/admin/incident-reporting${keep}`, 302);
+      } catch (err) {
+        console.error('Failed to update posted flag:', err);
+        error = err instanceof Error ? err.message : 'Failed to update posted status.';
+      }
+    }
+  }
+}
+
+const showAll = Astro.url.searchParams.get('all') === '1';
+const DEFAULT_LIMIT = 25;
+
+interface Row {
+  subsessionId: number;
+  label: string;
+  trackName: string;
+  startTime: string;
+  reported: number;
+  pending: number;
+  dismissed: number;
+  logged: number;
+  posted: boolean;
+}
+
+let rows: Row[] = [];
+let totalRounds = 0;
+let loadError: string | null = null;
+try {
+  const [rounds, excluded, postedIds, reports] = await Promise.all([
+    getAllRounds(supabaseEnv),
+    getStandingsExcludedRoundIds(supabaseEnv),
+    getPostedSubsessionIds(supabaseEnv),
+    // Admin token — RLS only lets admins read every report.
+    restGetAuthed<{ subsession_id: number; status: 'open' | 'logged' | 'dismissed' }[]>(
+      supabaseEnv,
+      accessToken,
+      'incident_reports?select=subsession_id,status&limit=10000'
+    ),
+  ]);
+
+  const counts = new Map<number, { open: number; logged: number; dismissed: number }>();
+  for (const r of reports) {
+    const c = counts.get(r.subsession_id) ?? { open: 0, logged: 0, dismissed: 0 };
+    if (r.status === 'open') c.open++;
+    else if (r.status === 'logged') c.logged++;
+    else if (r.status === 'dismissed') c.dismissed++;
+    counts.set(r.subsession_id, c);
+  }
+
+  // Round numbers are per season.
+  const bySeason = new Map<string, typeof rounds>();
+  for (const r of rounds) {
+    if (!bySeason.has(r.season_id)) bySeason.set(r.season_id, []);
+    bySeason.get(r.season_id)!.push(r);
+  }
+  const displayNumber = new Map<number, number | null>();
+  for (const seasonRounds of bySeason.values()) {
+    for (const [id, n] of computeDisplayRoundNumbers(seasonRounds, excluded, new Set())) displayNumber.set(id, n);
+  }
+
+  totalRounds = rounds.length;
+  rows = [...rounds]
+    .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+    .map((r) => {
+      const c = counts.get(r.subsession_id) ?? { open: 0, logged: 0, dismissed: 0 };
+      const n = displayNumber.get(r.subsession_id);
+      const season = r.season_label ?? '';
+      const label = n != null ? `${season ? season + ' · ' : ''}Round ${n}` : `${season ? season + ' · ' : ''}Exhibition`;
+      return {
+        subsessionId: r.subsession_id,
+        label,
+        trackName: r.track_name,
+        startTime: r.start_time,
+        reported: c.open + c.logged + c.dismissed,
+        pending: c.open,
+        dismissed: c.dismissed,
+        logged: c.logged,
+        posted: postedIds.has(r.subsession_id),
+      };
+    });
+} catch (err) {
+  console.error('Failed to load incident reporting overview:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
+---
+
+<AdminLayout title="Incident Reporting">
+  <h1 class="reveal font-display text-4xl">Incident Reporting</h1>
+  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+    Driver-submitted incident reports for each round. Log or dismiss reports from a round's Edit page, then switch
+    <strong class="font-semibold text-white/80">Posted</strong> on to make the round's incident report public and re-enable its
+    Incident Report button.
+  </p>
+
+  {(error || loadError) && (
+    <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error ?? loadError}</p>
+  )}
+
+  <div class="reveal mt-8 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
+    <table class="w-full min-w-[720px] text-left text-sm">
+      <thead class="bg-white/5 text-xs uppercase tracking-wide text-white/50">
+        <tr>
+          <th class="px-4 py-3 font-semibold">Round</th>
+          <th class="px-3 py-3 text-center font-semibold">Reported</th>
+          <th class="px-3 py-3 text-center font-semibold">Pending</th>
+          <th class="px-3 py-3 text-center font-semibold">Dismissed</th>
+          <th class="px-3 py-3 text-center font-semibold">Logged</th>
+          <th class="px-3 py-3 text-center font-semibold">Posted</th>
+          <th class="px-4 py-3 text-right font-semibold"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {visibleRows.map((r) => (
+          <tr class="border-t border-white/5">
+            <td class="px-4 py-3">
+              <div class="font-semibold text-white">{r.label} — {r.trackName}</div>
+              <div class="text-xs text-white/40">{formatDate(r.startTime)}</div>
+            </td>
+            <td class="px-3 py-3 text-center tabular-nums">{r.reported}</td>
+            <td class={`px-3 py-3 text-center tabular-nums ${r.pending > 0 ? 'font-semibold text-brand-gold' : ''}`}>{r.pending}</td>
+            <td class="px-3 py-3 text-center tabular-nums">{r.dismissed}</td>
+            <td class="px-3 py-3 text-center tabular-nums">{r.logged}</td>
+            <td class="px-3 py-3 text-center">
+              <form method="POST" data-astro-reload action={showAll ? '?all=1' : undefined} class="inline-flex">
+                <input type="hidden" name="intent" value="set-posted" />
+                <input type="hidden" name="subsession_id" value={r.subsessionId} />
+                <input type="hidden" name="posted" value={r.posted ? 'false' : 'true'} />
+                <button
+                  type="submit"
+                  role="switch"
+                  aria-checked={r.posted ? 'true' : 'false'}
+                  aria-label={`${r.posted ? 'Unpost' : 'Post'} ${r.trackName} incident report`}
+                  class={`relative h-6 w-11 rounded-full transition ${r.posted ? 'bg-brand-primary' : 'bg-white/15'}`}
+                >
+                  <span class={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${r.posted ? 'left-[22px]' : 'left-0.5'}`}></span>
+                </button>
+              </form>
+            </td>
+            <td class="px-4 py-3 text-right">
+              <a href={`/results/${r.subsessionId}/incidents`} class="font-semibold text-brand-primary hover:underline">Edit</a>
+            </td>
+          </tr>
+        ))}
+        {visibleRows.length === 0 && (
+          <tr><td colspan="7" class="px-4 py-6 text-center text-white/50">No rounds yet.</td></tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+
+  {!showAll && totalRounds > DEFAULT_LIMIT && (
+    <p class="mt-4 text-sm"><a href="?all=1" class="text-brand-primary hover:underline">Show all {totalRounds} rounds</a></p>
+  )}
+</AdminLayout>

@@ -42,7 +42,7 @@ import { resolveDriverByCarNumberForSeason } from '../../../lib/raceResultsImpor
 import { parseCsv } from '../../../lib/csv';
 import { isAdminView } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
-import { getIncidentReportsForSubsession, setIncidentReportStatus, type IncidentReport } from '../../../lib/incidentReports';
+import { getIncidentReportsForSubsession, setIncidentReportStatus, isRoundPosted, type IncidentReport } from '../../../lib/incidentReports';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
@@ -377,6 +377,21 @@ if (!loadError && !round) {
   return Astro.redirect('/results', 302);
 }
 
+// An incident report is only public once an admin "posts" it (Admin →
+// Incident Reporting). Until then only admins can open this page; everyone
+// else goes back to the round's results.
+let roundPosted = true;
+if (round) {
+  try {
+    roundPosted = await isRoundPosted(supabaseEnv, subsessionId);
+  } catch (err) {
+    console.error('Failed to check whether incident report is posted:', err);
+  }
+  if (!roundPosted && !isAdmin) {
+    return Astro.redirect(`/results/${subsessionId}`, 302);
+  }
+}
+
 // This round's season's scoring ruleset — see results/[subsessionId].astro's
 // matching fetch for why applyPenaltiesToRoundResults below needs it: a
 // repositioned driver's new finish/class points must be priced off the SAME
@@ -593,6 +608,13 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
         <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
           {formatDate(round.start_time)}
         </p>
+
+        {isAdmin && !roundPosted && (
+          <p class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80">
+            This incident report isn't posted yet, so only admins can see it. Post it from
+            <a href="/admin/incident-reporting" class="ml-1 underline">Admin &rarr; Incident Reporting</a>.
+          </p>
+        )}
 
         {importedCount !== null && (
           <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">

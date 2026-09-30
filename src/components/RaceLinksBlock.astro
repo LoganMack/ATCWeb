@@ -7,11 +7,10 @@
 // number as the canonical row; the table's schema is unchanged, this is
 // just no longer shown/edited per race.
 //
-// Split out of src/pages/results/[subsessionId].astro into its own
-// component so it can be slotted into the first race table's title line
-// (see that page's `slot="race-links"` usage on <ResultsTable>) rather than
-// sitting in the page header, per Logan — the markup itself is unchanged,
-// only where it renders moved.
+// Renders as ONE blue "Race Links" button (on desktop and mobile alike) that
+// opens a dialog listing the individual link buttons — used to be a row of
+// inline buttons on the first race table's title line. Admins also get an
+// "Edit links" form inside that same dialog.
 import { iracingResultsUrl } from '../lib/results';
 import type { RaceLinks } from '../lib/supabase';
 
@@ -32,140 +31,147 @@ const { links, isAdmin, subsessionId, canonicalRaceNumber } = Astro.props;
 // being editable (null when none — no button in that case).
 const iracingSubsessionId = subsessionId > 0 ? subsessionId : links?.iracing_subsession_id ?? null;
 const hasAnyLink = iracingSubsessionId || links?.replay_url || links?.broadcast_url || links?.photo_album_url;
-const dialogId = `edit-links-dialog-${subsessionId}`;
+const dialogId = `race-links-dialog-${subsessionId}`;
 ---
 
 {(hasAnyLink || isAdmin) && (
-  <div class="flex flex-wrap items-center gap-2">
-    {iracingSubsessionId && (
-      <a
-        href={iracingResultsUrl(iracingSubsessionId)}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-      >
-        iRacing Results
-      </a>
-    )}
-    {links?.replay_url && (
-      <a
-        href={links.replay_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="hidden rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110 sm:inline-block"
-      >
-        Download Replay
-      </a>
-    )}
-    {links?.broadcast_url && (
-      <a
-        href={links.broadcast_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-      >
-        Watch Broadcast
-      </a>
-    )}
-    {links?.photo_album_url && (
-      <a
-        href={links.photo_album_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="rounded-lg bg-brand-primary px-3 py-1 text-[11px] font-semibold text-white transition hover:brightness-110"
-      >
-        Photo Album
-      </a>
-    )}
-    {isAdmin && (
-      <>
-        <button
-          type="button"
-          data-open-edit-links={dialogId}
-          class="cursor-pointer rounded-lg bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/50 ring-1 ring-white/10 transition hover:bg-white/10"
-        >
-          Edit links
-        </button>
-        {/* A native modal <dialog> (same pattern as the site's other dialogs
-            — incidents.astro, admin/rulesets) instead of the absolutely-
-            positioned popover this used to be: showModal() renders in the
-            browser's top layer, above the sticky site header (z-50) and every
-            transformed `.reveal` ancestor's own stacking context, which is
-            exactly what was trapping the old popover underneath the header. */}
-        <dialog
-          id={dialogId}
-          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
-        >
-          <form method="POST" data-astro-reload class="flex flex-col gap-3 p-5">
-            <input type="hidden" name="intent" value="save-race-links" />
-            <input type="hidden" name="subsession_id" value={subsessionId} />
-            <input type="hidden" name="race_number" value={canonicalRaceNumber} />
-            <div class="flex items-center justify-between">
-              <h4 class="font-display text-xl">Edit Links</h4>
-              <button type="button" data-close-edit-links class="text-white/40 hover:text-white" aria-label="Close">✕</button>
-            </div>
-            <label class="flex flex-col gap-1 text-[11px] text-white/50">
-              Replay download URL
-              <input
-                type="url"
-                name="replay_url"
-                value={links?.replay_url ?? ''}
-                class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-white/50">
-              Broadcast video URL
-              <input
-                type="url"
-                name="broadcast_url"
-                value={links?.broadcast_url ?? ''}
-                class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-white/50">
-              Photo album URL
-              <input
-                type="url"
-                name="photo_album_url"
-                value={links?.photo_album_url ?? ''}
-                class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
-              />
-            </label>
-            <button
-              type="submit"
-              class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+  <>
+    <button
+      type="button"
+      data-open-race-links={dialogId}
+      class="flex h-9 cursor-pointer items-center rounded-lg bg-brand-primary/15 px-4 text-sm font-semibold text-brand-primary ring-1 ring-brand-primary/30 transition hover:bg-brand-primary/25"
+    >
+      Race Links
+    </button>
+    {/* A native modal <dialog> (same pattern as the site's other dialogs —
+        incidents.astro, admin/rulesets): showModal() renders in the
+        browser's top layer, above the sticky site header (z-50) and every
+        transformed `.reveal` ancestor's own stacking context. */}
+    <dialog
+      id={dialogId}
+      data-race-links-dialog
+      class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+    >
+      <div class="flex flex-col gap-3 p-5">
+        <div class="flex items-center justify-between">
+          <h4 class="font-display text-xl">Race Links</h4>
+          <button type="button" data-close-race-links class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          {iracingSubsessionId && (
+            <a
+              href={iracingResultsUrl(iracingSubsessionId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110"
             >
-              Save
-            </button>
-          </form>
-        </dialog>
-      </>
-    )}
-  </div>
+              iRacing Results
+            </a>
+          )}
+          {links?.replay_url && (
+            <a
+              href={links.replay_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hidden rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110 sm:block"
+            >
+              Download Replay
+            </a>
+          )}
+          {links?.broadcast_url && (
+            <a
+              href={links.broadcast_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110"
+            >
+              Watch Broadcast
+            </a>
+          )}
+          {links?.photo_album_url && (
+            <a
+              href={links.photo_album_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110"
+            >
+              Photo Album
+            </a>
+          )}
+          {!hasAnyLink && <p class="text-sm text-white/50">No links have been added for this round yet.</p>}
+        </div>
+
+        {isAdmin && (
+          <details class="border-t border-white/10 pt-3">
+            <summary class="cursor-pointer list-none text-xs font-semibold text-white/50 hover:text-white/80">Edit links</summary>
+            <form method="POST" data-astro-reload class="mt-3 flex flex-col gap-3">
+              <input type="hidden" name="intent" value="save-race-links" />
+              <input type="hidden" name="subsession_id" value={subsessionId} />
+              <input type="hidden" name="race_number" value={canonicalRaceNumber} />
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Replay download URL
+                <input
+                  type="url"
+                  name="replay_url"
+                  value={links?.replay_url ?? ''}
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                />
+              </label>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Broadcast video URL
+                <input
+                  type="url"
+                  name="broadcast_url"
+                  value={links?.broadcast_url ?? ''}
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                />
+              </label>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Photo album URL
+                <input
+                  type="url"
+                  name="photo_album_url"
+                  value={links?.photo_album_url ?? ''}
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
+                />
+              </label>
+              <button
+                type="submit"
+                class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+              >
+                Save
+              </button>
+            </form>
+          </details>
+        )}
+      </div>
+    </dialog>
+  </>
 )}
 
 <script>
   // One delegated listener (registered once) so it keeps working across
   // client-side navigations without re-binding.
-  function initEditLinksDialog() {
-    if (document.body.dataset.editLinksInit === 'true') return;
-    document.body.dataset.editLinksInit = 'true';
+  function initRaceLinksDialog() {
+    if (document.body.dataset.raceLinksInit === 'true') return;
+    document.body.dataset.raceLinksInit = 'true';
     document.addEventListener('click', (e) => {
       const target = e.target as HTMLElement;
-      const opener = target.closest<HTMLElement>('[data-open-edit-links]');
+      const opener = target.closest<HTMLElement>('[data-open-race-links]');
       if (opener) {
-        const dialog = document.getElementById(opener.dataset.openEditLinks ?? '');
+        const dialog = document.getElementById(opener.dataset.openRaceLinks ?? '');
         if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
         return;
       }
-      if (target.closest('[data-close-edit-links]')) {
+      if (target.closest('[data-close-race-links]')) {
         target.closest('dialog')?.close();
         return;
       }
-      // Clicking the backdrop (the <dialog> element itself, outside its form) closes it.
-      if (target instanceof HTMLDialogElement && target.id.startsWith('edit-links-dialog-')) target.close();
+      // Clicking the backdrop (the <dialog> element itself, outside its content) closes it.
+      if (target instanceof HTMLDialogElement && target.hasAttribute('data-race-links-dialog')) target.close();
     });
   }
-  initEditLinksDialog();
-  document.addEventListener('astro:page-load', initEditLinksDialog);
+  initRaceLinksDialog();
+  document.addEventListener('astro:page-load', initRaceLinksDialog);
 </script>

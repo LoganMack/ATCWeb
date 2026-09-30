@@ -23,12 +23,20 @@ export const PROBATION_ROUNDS_KEY = 'probation_rounds';
 export const INACTIVITY_DAYS_KEY = 'inactivity_days';
 export const INACTIVITY_ROUNDS_KEY = 'inactivity_rounds';
 
+/**
+ * How long, in hours, incident reporting stays open after a round's race is
+ * over (see src/lib/incidentReports.ts) — edited under admin > Site
+ * Properties. Falls back to the default when unset/invalid.
+ */
+export const INCIDENT_REPORT_PERIOD_HOURS_KEY = 'incident_report_period_hours';
+
 /** Defaults matching what was hardcoded before these became configurable — used whenever a key is unset (nothing has ever saved it) or holds something non-numeric. */
 export const DRIVER_SETTING_DEFAULTS: Record<string, number> = {
   [PROBATION_DAYS_KEY]: 45,
   [PROBATION_ROUNDS_KEY]: 4,
   [INACTIVITY_DAYS_KEY]: 90,
   [INACTIVITY_ROUNDS_KEY]: 12,
+  [INCIDENT_REPORT_PERIOD_HOURS_KEY]: 24,
 };
 
 /** Looks up one setting's value, or null if unset. */
