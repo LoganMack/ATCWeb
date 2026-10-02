@@ -1813,7 +1813,7 @@ export interface DriverSeasonExtendedStats {
 // to the same circuit the plain name already matches — confirmed against
 // this repo's own circuits data that no "[Retired]"-tagged name has ever
 // been entered as its own distinct row, so this can't collide with one.
-function normalizeTrackOrLayoutName(s: string): string {
+export function normalizeTrackOrLayoutName(s: string): string {
   const withoutRetiredTag = s.replace(/^\[retired\]\s*/i, '');
   return withoutRetiredTag.toLowerCase().replace(/[^a-z0-9]/g, '');
 }

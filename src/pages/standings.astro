@@ -15,12 +15,15 @@ import {
   displayDriverName,
   shortDriverName,
   getPageBanners,
+  getCircuits,
+  type Circuit,
 } from '../lib/supabase';
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,
   computeSeasonStandingsRoundColumns,
   computeDisplayRoundNumbers,
+  normalizeTrackOrLayoutName,
   getSeasonCarTeamStats,
   getSeasonDriverExtendedStats,
   getSeasonOverallContext,
@@ -80,31 +83,35 @@ const classesForActiveSeason = classes.filter(
   (c) => (c.name !== 'Gamma' || activeSeason?.gamma_enabled) && (c.name !== 'Delta' || activeSeason?.delta_enabled)
 );
 
+// Class dropdown: "All" (every class combined — the old Overall view) or one
+// class (the old Per Class view). Old links still work: `?view=class` with
+// no/unknown class falls back to Alpha like before, `?view=overall` is
+// always All.
 const requestedClassName = Astro.url.searchParams.get('class');
+const legacyView = Astro.url.searchParams.get('view');
 const activeClass =
-  classesForActiveSeason.find((c) => c.name === requestedClassName) ??
-  classesForActiveSeason.find((c) => c.name === 'Alpha') ??
-  classesForActiveSeason[0];
+  legacyView === 'overall' || (requestedClassName === 'all') || (!requestedClassName && legacyView !== 'class')
+    ? undefined
+    : (classesForActiveSeason.find((c) => c.name === requestedClassName) ??
+      classesForActiveSeason.find((c) => c.name === 'Alpha') ??
+      classesForActiveSeason[0]);
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 
-// Same "Overall combines every class, Per Class is the original view"
-// toggle as the race results page, defaulting to Overall for the same
-// reason — it's the table that actually matches how points work when
-// class-only bonuses (class_points) are taken out of the mix (see
-// computeOverallSeasonStandings).
-const view = Astro.url.searchParams.get('view') === 'class' ? 'class' : 'overall';
+// "overall" = All classes combined (see computeOverallSeasonStandings);
+// "class" = one class's own standings.
+const view: 'overall' | 'class' = activeClass ? 'class' : 'overall';
 
-// New "List" (existing table, default) vs "Matrix" (drivers down the left,
-// one column per round across the top, penalty/drop flags on each cell —
-// see DriverSeasonStanding.roundCells) toggle, same URL-param pattern as
-// `view` above.
+// "List" (existing table, default) vs "Matrix" (drivers down the left, one
+// column per round across the top, penalty/drop flags on each cell — see
+// DriverSeasonStanding.roundCells), same URL-param pattern as before.
 const mode = Astro.url.searchParams.get('mode') === 'matrix' ? 'matrix' : 'list';
 
 let standings: DriverSeasonStanding[] = [];
 let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
 let matrixColumns: SeasonStandingsRoundColumn[] = [];
+const matrixLogoBySubsession = new Map<number, string | null>();
 // The season-wide denominators for the Starts/Apps columns below ("x of y")
 // — y is the same for every driver regardless of view (Overall vs Per
 // Class) or how many rounds any one driver personally attended, so it's
@@ -173,6 +180,22 @@ if (!loadError && activeSeason) {
     );
     const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
     matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
+
+    // Track logo for each column header (Matrix view only — List never
+    // needs circuits). Matched to a circuit by track name, same
+    // normalisation the rest of the site uses; a track with no logo on file
+    // falls back to an initials tile.
+    if (mode === 'matrix') {
+      try {
+        const circuits = await getCircuits(supabaseEnv);
+        const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
+        for (const col of matrixColumns) {
+          matrixLogoBySubsession.set(col.subsessionId, circuitByName.get(normalizeTrackOrLayoutName(col.trackName))?.logo_url ?? null);
+        }
+      } catch (err) {
+        console.error('Failed to load circuits for standings matrix headers:', err);
+      }
+    }
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -221,9 +244,34 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="mt-8 flex flex-wrap items-end justify-between gap-4">
+      <div class="relative z-30 mt-8">
         <form method="GET" class="flex flex-wrap items-end gap-4">
-          <input type="hidden" name="view" value={view} />
+          {mode === 'matrix' && matrixColumns.length > 1 && (
+            <div class="group relative flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Timeline Slider</span>
+              <div class="flex h-[42px] items-center gap-3">
+                <input
+                  type="range"
+                  id="timeline-slider"
+                  min="1"
+                  max={matrixColumns.length}
+                  step="1"
+                  value={matrixColumns.length}
+                  aria-label="Timeline Slider"
+                  class="w-40 accent-brand-primary"
+                />
+                <span id="timeline-slider-value" class="min-w-[4.5rem] text-white/70">
+                  Round {matrixColumns[matrixColumns.length - 1]?.roundNumber ?? matrixColumns.length}
+                </span>
+              </div>
+              <span
+                role="tooltip"
+                class="pointer-events-none absolute left-0 top-full z-40 mt-1 hidden w-64 rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-xs text-white/80 shadow-lg group-hover:block group-focus-within:block"
+              >
+                Move this slider to view the standings as they were, round-by-round.
+              </span>
+            </div>
+          )}
           <label class="flex flex-col gap-1.5 text-sm">
             <span class="text-white/60">Season</span>
             <div class="flex items-center gap-2">
@@ -239,60 +287,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <SeasonLogo darkUrl={activeSeason?.logo_url ?? null} lightUrl={activeSeason?.logo_url_light} />
             </div>
           </label>
-          {view === 'class' && (
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Class</span>
-              <select
-                name="class"
-                onchange="this.form.submit()"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-              >
-                {classesForActiveSeason.map((c) => (
-                  <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
-                ))}
-              </select>
-            </label>
-          )}
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">View</span>
+            <select
+              name="mode"
+              onchange="this.form.submit()"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
+              <option value="matrix" selected={mode === 'matrix'} class="bg-brand-ink text-white">Matrix</option>
+            </select>
+          </label>
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/60">Class</span>
+            <select
+              name="class"
+              onchange="this.form.submit()"
+              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              <option value="all" selected={!activeClass} class="bg-brand-ink text-white">All</option>
+              {classesForActiveSeason.map((c) => (
+                <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
+              ))}
+            </select>
+          </label>
         </form>
-
-        <div class="flex flex-wrap gap-4">
-          <div class="flex gap-2">
-            <a
-              href={`/standings?view=overall&mode=${mode}${activeSeason ? `&season=${activeSeason.number}` : ''}`}
-              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-                view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-              }`}
-            >
-              Overall
-            </a>
-            <a
-              href={`/standings?view=class&mode=${mode}${activeSeason ? `&season=${activeSeason.number}` : ''}${activeClass ? `&class=${activeClass.name}` : ''}`}
-              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-                view === 'class' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-              }`}
-            >
-              Per Class
-            </a>
-          </div>
-          <div class="flex gap-2">
-            <a
-              href={`/standings?view=${view}&mode=list${activeSeason ? `&season=${activeSeason.number}` : ''}${view === 'class' && activeClass ? `&class=${activeClass.name}` : ''}`}
-              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-                mode === 'list' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-              }`}
-            >
-              List
-            </a>
-            <a
-              href={`/standings?view=${view}&mode=matrix${activeSeason ? `&season=${activeSeason.number}` : ''}${view === 'class' && activeClass ? `&class=${activeClass.name}` : ''}`}
-              class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-                mode === 'matrix' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-              }`}
-            >
-              Matrix
-            </a>
-          </div>
-        </div>
       </div>
     )}
 
@@ -478,9 +497,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
               <th class="py-3 pr-4 font-medium">Driver</th>
-              {matrixColumns.map((col) => (
-                <th class="px-2 py-3 text-center font-medium" title={matrixColumnTitle(col.trackName, col.format)}>
-                  {col.roundNumber ?? '?'}
+              {matrixColumns.map((col, i) => (
+                <th
+                  class="px-2 py-3 text-center font-medium"
+                  data-round-col={i}
+                  data-csv-value={`R${col.roundNumber ?? '?'}`}
+                  title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`}
+                >
+                  <span class="inline-flex items-center justify-center">
+                    <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-7 w-7" title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`} tint />
+                  </span>
                 </th>
               ))}
               <th class="px-3 py-3 text-center font-medium">Total</th>
@@ -499,10 +525,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                   </span>
                 </td>
-                {matrixColumns.map((col) => {
+                {matrixColumns.map((col, i) => {
                   const cell = row.roundCells.get(col.subsessionId);
                   return (
-                    <td class="relative px-2 py-2.5 text-center">
+                    <td class="relative px-2 py-2.5 text-center" data-round-col={i}>
                       {cell ? (
                         <span
                           class={cell.dropped ? 'text-white/35 line-through decoration-white/25' : 'text-white/80'}
@@ -545,3 +571,29 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
   </section>
 </Layout>
+
+<script>
+  // Timeline Slider (Matrix view): hides every round column after the one
+  // the slider is set to. Columns are indexed 0..n-1 in chronological order
+  // (data-round-col); the slider's 1..n value is "show the first N rounds".
+  function initTimelineSlider() {
+    const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
+    if (!slider || slider.dataset.bound === 'true') return;
+    slider.dataset.bound = 'true';
+    const label = document.getElementById('timeline-slider-value');
+    const headers = Array.from(document.querySelectorAll<HTMLElement>('th[data-round-col]'));
+    function apply() {
+      const upTo = Number(slider!.value);
+      document.querySelectorAll<HTMLElement>('[data-round-col]').forEach((el) => {
+        el.classList.toggle('hidden', Number(el.dataset.roundCol) >= upTo);
+      });
+      const header = headers[upTo - 1];
+      const roundText = header?.dataset.csvValue?.replace(/^R/, '') ?? String(upTo);
+      if (label) label.textContent = `Round ${roundText}`;
+    }
+    slider.addEventListener('input', apply);
+    apply();
+  }
+  initTimelineSlider();
+  document.addEventListener('astro:page-load', initTimelineSlider);
+</script>
