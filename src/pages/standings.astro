@@ -2,7 +2,6 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import StandingsTabs from '../components/StandingsTabs.astro';
 import TeamLogo from '../components/TeamLogo.astro';
 import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
@@ -22,6 +21,7 @@ import {
 } from '../lib/supabase';
 import {
   computeSeasonStandings,
+  computeTeamSeasonStandings,
   computeOverallSeasonStandings,
   computeSeasonStandingsRoundColumns,
   computeDisplayRoundNumbers,
@@ -34,6 +34,7 @@ import {
   driversSelect,
   isChampionshipSeason,
   type DriverSeasonStanding,
+  type TeamSeasonStanding,
   type DriverSeasonExtras,
   type DriverSeasonExtendedStats,
   type SeasonStandingsRoundColumn,
@@ -50,10 +51,11 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // computation below instead of sequentially after them.
 const bannerPromise = (async () => {
   try {
-    return bannerUrlFor(await getPageBanners(supabaseEnv), 'standings');
+    const banners = await getPageBanners(supabaseEnv);
+    return { drivers: bannerUrlFor(banners, 'standings'), teams: bannerUrlFor(banners, 'team-standings') };
   } catch (err) {
     console.error('Failed to load page banner:', err);
-    return null;
+    return { drivers: null, teams: null };
   }
 })();
 
@@ -87,18 +89,28 @@ const classesForActiveSeason = classes.filter(
   (c) => (c.name !== 'Gamma' || activeSeason?.gamma_enabled) && (c.name !== 'Delta' || activeSeason?.delta_enabled)
 );
 
+// Championship dropdown: Drivers (default) or Teams — the old separate Team
+// Standings tab now lives here (/team-standings just redirects).
+const championship: 'drivers' | 'teams' = Astro.url.searchParams.get('championship') === 'teams' ? 'teams' : 'drivers';
+
 // Class dropdown: "All" (every class combined — the old Overall view) or one
 // class (the old Per Class view). Old links still work: `?view=class` with
 // no/unknown class falls back to Alpha like before, `?view=overall` is
 // always All.
 const requestedClassName = Astro.url.searchParams.get('class');
 const legacyView = Astro.url.searchParams.get('view');
-const activeClass =
+const driverActiveClass =
   legacyView === 'overall' || (requestedClassName === 'all') || (!requestedClassName && legacyView !== 'class')
     ? undefined
     : (classesForActiveSeason.find((c) => c.name === requestedClassName) ??
       classesForActiveSeason.find((c) => c.name === 'Alpha') ??
       classesForActiveSeason[0]);
+
+const activeClass = championship === 'drivers' ? driverActiveClass : undefined;
+// Teams: "All" = the overall team championship, "Delta" = the separate Delta
+// Team championship (see computeTeamSeasonStandings). Old `?view=delta` links
+// land here via the /team-standings redirect.
+const teamView: 'overall' | 'delta' = requestedClassName === 'Delta' || (!requestedClassName && legacyView === 'delta') ? 'delta' : 'overall';
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 
@@ -112,6 +124,10 @@ const view: 'overall' | 'class' = activeClass ? 'class' : 'overall';
 const mode = Astro.url.searchParams.get('mode') === 'matrix' ? 'matrix' : 'list';
 
 let standings: DriverSeasonStanding[] = [];
+let teamStandings: TeamSeasonStanding[] = [];
+// Keyed by driver id — powers each team row's expanded roster detail (always
+// the cross-class overall standing, whichever team view is showing).
+let overallStandingByDriverId = new Map<string, DriverSeasonStanding>();
 let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
 let matrixColumns: SeasonStandingsRoundColumn[] = [];
@@ -140,7 +156,7 @@ let maxStarts = 0;
 let maxCarSlots = 1;
 let maxTeamSlots = 1;
 let maxAppearances = 0;
-if (!loadError && activeSeason) {
+if (!loadError && activeSeason && championship === 'drivers') {
   try {
     const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
     // Built ONCE and shared across all three calls below instead of each
@@ -190,31 +206,64 @@ if (!loadError && activeSeason) {
     const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
     matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
 
-    // Track logo for each column header (Matrix view only — List never
-    // needs circuits). Matched to a circuit by track name, same
-    // normalisation the rest of the site uses; a track with no logo on file
-    // falls back to an initials tile.
-    if (mode === 'matrix') {
-      matrixDropWeeks = BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0);
-      try {
-        const rulesets = await getScoringRulesets(supabaseEnv);
-        matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, rulesets)?.can_drop_final_round ?? false;
-      } catch (err) {
-        console.error('Failed to load scoring rulesets for standings matrix:', err);
-      }
-      try {
-        const circuits = await getCircuits(supabaseEnv);
-        const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
-        for (const col of matrixColumns) {
-          matrixLogoBySubsession.set(col.subsessionId, circuitByName.get(normalizeTrackOrLayoutName(col.trackName))?.logo_url ?? null);
-        }
-      } catch (err) {
-        console.error('Failed to load circuits for standings matrix headers:', err);
-      }
-    }
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+// Delta Team championship didn't start until ATC10 (see
+// 0052_delta_team_enabled.sql) — skipped entirely for an out-of-range season
+// so the template can show a specific explanation instead of a bare "No results."
+const deltaNotActiveForSeason = championship === 'teams' && teamView === 'delta' && activeSeason ? !activeSeason.delta_team_enabled : false;
+
+if (!loadError && activeSeason && championship === 'teams' && !deltaNotActiveForSeason) {
+  try {
+    const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
+    const deltaClassId = teamView === 'delta' ? classes.find((c) => c.name === 'Delta')?.id : undefined;
+    // Built once and shared with both calls (see the driver branch above for why).
+    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
+    const [teamResult, overallStandings] = await Promise.all([
+      computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, deltaClassId, driversBasic, undefined, undefined, classes, overallContext),
+      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
+    ]);
+    teamStandings = teamResult;
+    overallStandingByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s]));
+
+    const matrixSubsessionIds = new Set(
+      (teamView === 'delta' && deltaClassId !== undefined
+        ? overallContext.overallScores.filter((s) => s.class_id === deltaClassId)
+        : overallContext.overallScores
+      ).map((s) => s.subsession_id)
+    );
+    const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
+    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
+  } catch (err) {
+    console.error('Failed to compute team standings:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+// Matrix-only extras shared by both championships: the drop rules the
+// Timeline Slider needs (teams never drop rounds), and a track logo for each
+// column header — matched to a circuit by track name, same normalisation the
+// rest of the site uses; a track with no logo falls back to an initials tile.
+if (!loadError && activeSeason && mode === 'matrix' && matrixColumns.length > 0) {
+  matrixDropWeeks = championship === 'drivers' ? BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0) : 0;
+  try {
+    const rulesets = await getScoringRulesets(supabaseEnv);
+    matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, rulesets)?.can_drop_final_round ?? false;
+  } catch (err) {
+    console.error('Failed to load scoring rulesets for standings matrix:', err);
+  }
+  try {
+    const circuits = await getCircuits(supabaseEnv);
+    const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
+    for (const col of matrixColumns) {
+      matrixLogoBySubsession.set(col.subsessionId, circuitByName.get(normalizeTrackOrLayoutName(col.trackName))?.logo_url ?? null);
+    }
+  } catch (err) {
+    console.error('Failed to load circuits for standings matrix headers:', err);
   }
 }
 
@@ -223,7 +272,9 @@ if (!loadError && activeSeason) {
 // changing a filter doesn't silently overwrite a previous, differently-
 // scoped download under the same name.
 const csvFilenameBase = slugify(
-  `standings ${activeSeason?.name ?? ''} ${view === 'class' && activeClass ? activeClass.name : 'overall'} ${mode}`
+  championship === 'teams'
+    ? `team standings ${activeSeason?.name ?? ''} ${teamView} ${mode}`
+    : `standings ${activeSeason?.name ?? ''} ${view === 'class' && activeClass ? activeClass.name : 'overall'} ${mode}`
 );
 
 function raceWord(n: number): string {
@@ -238,17 +289,18 @@ function matrixColumnTitle(trackName: string, format: 'endurance' | 'sprint' | n
   return `${trackName} — ${format.charAt(0).toUpperCase()}${format.slice(1)}`;
 }
 
-const bannerUrl = await bannerPromise;
+const banners = await bannerPromise;
+const bannerUrl = championship === 'teams' ? (banners.teams ?? banners.drivers) : banners.drivers;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title="Season Standings" description="Full season standings for every Alpha Touring Challenge season and class.">
+<Layout title="Season Standings" description="Full season driver and team standings for every Alpha Touring Challenge season and class.">
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Season Standings</h1>
 
-    <StandingsTabs active="drivers" />
+    <div class="mt-8"></div>
 
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -316,16 +368,36 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </select>
             </label>
             <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Championship</span>
+              <select
+                name="championship"
+                onchange="this.form.submit()"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              >
+                <option value="drivers" selected={championship === 'drivers'} class="bg-brand-ink text-white">Drivers</option>
+                <option value="teams" selected={championship === 'teams'} class="bg-brand-ink text-white">Teams</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
               <span class="text-white/60">Class</span>
               <select
                 name="class"
                 onchange="this.form.submit()"
                 class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
               >
-                <option value="all" selected={!activeClass} class="bg-brand-ink text-white">All</option>
-                {classesForActiveSeason.map((c) => (
-                  <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
-                ))}
+                {championship === 'drivers' ? (
+                  <>
+                    <option value="all" selected={!activeClass} class="bg-brand-ink text-white">All</option>
+                    {classesForActiveSeason.map((c) => (
+                      <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <option value="all" selected={teamView === 'overall'} class="bg-brand-ink text-white">All</option>
+                    <option value="Delta" selected={teamView === 'delta'} class="bg-brand-ink text-white">Delta</option>
+                  </>
+                )}
               </select>
             </label>
           </div>
@@ -333,11 +405,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
     )}
 
-    {!loadError && standings.length === 0 && (
+    {!loadError && deltaNotActiveForSeason && (
+      <p class="mt-10 text-white/60">The Delta Team championship began in ATC10 — no standings for {activeSeason?.name}.</p>
+    )}
+
+    {!loadError && !deltaNotActiveForSeason && (championship === 'drivers' ? standings.length === 0 : teamStandings.length === 0) && (
       <p class="mt-10 text-white/60">No results.</p>
     )}
 
-    {!loadError && mode === 'list' && standings.length > 0 && (
+    {!loadError && championship === 'drivers' && mode === 'list' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
         <table id="standings-table" class="w-full border-collapse" data-sortable>
           <thead>
@@ -508,7 +584,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
     )}
 
-    {!loadError && mode === 'matrix' && standings.length > 0 && (
+    {!loadError && championship === 'drivers' && mode === 'matrix' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
         <table id="standings-table" class="w-full border-collapse text-sm" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)}>
           <thead>
@@ -583,6 +659,180 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             ))}
           </tbody>
         </table>
+      </div>
+      <div class="mt-3 flex justify-end">
+        <button
+          type="button"
+          data-csv-export="standings-table"
+          data-csv-filename={csvFilenameBase}
+          class="inline-block self-start rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/20"
+        >
+          Export CSV
+        </button>
+      </div>
+    )}
+
+    {!loadError && !deltaNotActiveForSeason && championship === 'teams' && mode === 'list' && teamStandings.length > 0 && (
+      <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
+        <table id="standings-table" class="w-full border-collapse" data-sortable>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
+              <th class="py-3 pr-3 font-medium" data-sort-key="team">Team</th>
+              <th class="py-3 pr-3 text-center font-medium" data-sort-key="points">Points</th>
+              <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="starts">Starts</th>
+              <th class="hidden py-3 pr-4 text-center font-medium sm:table-cell" data-sort-key="appearances">Apps</th>
+            </tr>
+          </thead>
+          <tbody>
+            {teamStandings.map((row) => {
+              const roster = row.driverIds
+                .map((driverId) => overallStandingByDriverId.get(driverId))
+                .filter((s): s is DriverSeasonStanding => s !== undefined)
+                .sort((a, b) => a.position - b.position);
+              return (
+              <>
+              <tr
+                data-expand-row
+                tabindex="0"
+                role="button"
+                aria-expanded="false"
+                class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+              >
+                <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
+                <td class="py-2.5 pr-3 font-semibold" data-col="team" data-sort-value={row.teamName} data-csv-value={row.teamName}>
+                  <div class="flex items-center gap-2">
+                    <span
+                      data-chevron
+                      class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150"
+                      aria-hidden="true"
+                    >
+                      &#9654;
+                    </span>
+                    <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
+                    <span>{row.teamName}</span>
+                  </div>
+                </td>
+                <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts">{row.starts}</td>
+                <td class="hidden py-2.5 pr-4 text-center text-white/60 sm:table-cell" data-col="appearances">{row.appearances}</td>
+              </tr>
+              <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                <td colspan={5} class="px-4 py-4 sm:pl-11">
+                  {roster.length === 0 ? (
+                    <p class="text-white/40">No driver data available.</p>
+                  ) : (
+                    <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {roster.map((driverStanding) => (
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <span class="flex items-center gap-1.5 font-semibold text-white/90">
+                            <span class="hidden sm:contents">
+                              <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />
+                            </span>
+                            {displayDriverName(driverStanding.driver.name)}
+                            {driverStanding.driver.car_number !== null && (
+                              <span class="text-white/40"> #{driverStanding.driver.car_number}</span>
+                            )}
+                          </span>
+                          <span class="whitespace-nowrap text-white/50">
+                            P{driverStanding.position} — {driverStanding.totalPoints} pts — {driverStanding.starts} starts
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              </tr>
+              </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-3 flex justify-end">
+        <button
+          type="button"
+          data-csv-export="standings-table"
+          data-csv-filename={csvFilenameBase}
+          class="inline-block self-start rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/20"
+        >
+          Export CSV
+        </button>
+      </div>
+    )}
+
+    {!loadError && !deltaNotActiveForSeason && championship === 'teams' && mode === 'matrix' && teamStandings.length > 0 && (
+      <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
+        <table id="standings-table" class="w-full border-collapse text-sm" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final="false">
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
+              <th class="py-3 pr-4 font-medium">Team</th>
+              {matrixColumns.map((col, i) => (
+                <th
+                  class="px-2 py-3 text-center font-medium"
+                  data-round-col={i}
+                  data-csv-value={`R${col.roundNumber ?? '?'}`}
+                  title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`}
+                >
+                  <span class="inline-flex items-center justify-center">
+                    <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-7 w-7" title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`} tint />
+                  </span>
+                </th>
+              ))}
+              <th class="px-3 py-3 text-center font-medium">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {teamStandings.map((row, rowIndex) => (
+              <tr
+                class="border-b border-white/5"
+                data-matrix-row
+                data-orig-index={rowIndex}
+                data-orig-total={row.totalPoints}
+                data-points={matrixColumns.map((col) => row.roundCells.get(col.subsessionId)?.points ?? '').join(',')}
+              >
+                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70" data-pos-cell>{row.position}</td>
+                <td class="py-2.5 pr-4 font-semibold" data-csv-value={row.teamName}>
+                  <span class="flex items-center gap-2 whitespace-nowrap">
+                    <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-5 w-5" />
+                    {row.teamName}
+                  </span>
+                </td>
+                {matrixColumns.map((col, i) => {
+                  const cell = row.roundCells.get(col.subsessionId);
+                  return (
+                    <td class="relative px-2 py-2.5 text-center" data-round-col={i}>
+                      {cell ? (
+                        <span data-cell-points data-orig-dropped="false" class="text-white/80" title={`${cell.points} pts`}>
+                          {cell.points}
+                        </span>
+                      ) : (
+                        <span class="text-white/20">—</span>
+                      )}
+                      {cell && cell.penalties.length > 0 && (
+                        <span
+                          class="absolute right-1 top-1 text-[8px] leading-none text-brand-pink"
+                          aria-hidden="false"
+                          role="img"
+                          title={cell.penalties.join('\n')}
+                        >
+                          ●
+                        </span>
+                      )}
+                    </td>
+                  );
+                })}
+                <td class="px-3 py-2.5 text-center font-semibold text-white/90" data-total-cell>{row.totalPoints}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p class="border-t border-white/10 px-4 py-3 text-xs text-white/40">
+          Hover a round's logo for the circuit and format. Teams don't drop rounds — every round scored counts toward the total.
+          <span class="text-brand-pink">●</span> marks a round with a penalty logged against a driver who raced for that team this season — hover it
+          for details.
+        </p>
       </div>
       <div class="mt-3 flex justify-end">
         <button
