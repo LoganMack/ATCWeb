@@ -859,9 +859,9 @@ export function computeSeasonStandingsRoundColumns(
     .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.subsessionId - b.subsessionId);
 }
 
-const BASELINE_DROP_WEEKS = 2;
+export const BASELINE_DROP_WEEKS = 2;
 /** Drop weeks don't kick in until the championship has actually run this many rounds — per Logan. Below this, `finalizeStandings` forces the drop count to 0 regardless of `BASELINE_DROP_WEEKS`/`extra_drop_weeks`, so every round scored so far still counts toward the total (no early-season "your worst round doesn't count" swings while the sample size is tiny). */
-const MIN_ROUNDS_FOR_DROPS = 5;
+export const MIN_ROUNDS_FOR_DROPS = 5;
 
 /**
  * The chronologically last non-excluded (exhibition/test) round of a

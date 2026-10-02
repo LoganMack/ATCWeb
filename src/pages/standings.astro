@@ -16,6 +16,8 @@ import {
   shortDriverName,
   getPageBanners,
   getCircuits,
+  getScoringRulesets,
+  resolveSeasonRuleset,
   type Circuit,
 } from '../lib/supabase';
 import {
@@ -24,6 +26,8 @@ import {
   computeSeasonStandingsRoundColumns,
   computeDisplayRoundNumbers,
   normalizeTrackOrLayoutName,
+  BASELINE_DROP_WEEKS,
+  MIN_ROUNDS_FOR_DROPS,
   getSeasonCarTeamStats,
   getSeasonDriverExtendedStats,
   getSeasonOverallContext,
@@ -112,6 +116,11 @@ let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
 let matrixColumns: SeasonStandingsRoundColumn[] = [];
 const matrixLogoBySubsession = new Map<number, string | null>();
+// Timeline Slider inputs (see the script at the bottom): the drop rules the
+// real standings use, so the client can recompute "as of round N" totals the
+// same way finalizeStandings does.
+let matrixDropWeeks = BASELINE_DROP_WEEKS;
+let matrixCanDropFinalRound = false;
 // The season-wide denominators for the Starts/Apps columns below ("x of y")
 // — y is the same for every driver regardless of view (Overall vs Per
 // Class) or how many rounds any one driver personally attended, so it's
@@ -186,6 +195,13 @@ if (!loadError && activeSeason) {
     // normalisation the rest of the site uses; a track with no logo on file
     // falls back to an initials tile.
     if (mode === 'matrix') {
+      matrixDropWeeks = BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0);
+      try {
+        const rulesets = await getScoringRulesets(supabaseEnv);
+        matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, rulesets)?.can_drop_final_round ?? false;
+      } catch (err) {
+        console.error('Failed to load scoring rulesets for standings matrix:', err);
+      }
       try {
         const circuits = await getCircuits(supabaseEnv);
         const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
@@ -245,33 +261,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && (
       <div class="relative z-30 mt-8">
-        <form method="GET" class="flex flex-wrap items-end gap-4">
-          {mode === 'matrix' && matrixColumns.length > 1 && (
-            <div class="group relative flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Timeline Slider</span>
-              <div class="flex h-[42px] items-center gap-3">
-                <input
-                  type="range"
-                  id="timeline-slider"
-                  min="1"
-                  max={matrixColumns.length}
-                  step="1"
-                  value={matrixColumns.length}
-                  aria-label="Timeline Slider"
-                  class="w-40 accent-brand-primary"
-                />
-                <span id="timeline-slider-value" class="min-w-[4.5rem] text-white/70">
-                  Round {matrixColumns[matrixColumns.length - 1]?.roundNumber ?? matrixColumns.length}
-                </span>
-              </div>
-              <span
-                role="tooltip"
-                class="pointer-events-none absolute left-0 top-full z-40 mt-1 hidden w-64 rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-xs text-white/80 shadow-lg group-hover:block group-focus-within:block"
-              >
-                Move this slider to view the standings as they were, round-by-round.
-              </span>
-            </div>
-          )}
+        <form method="GET" class="flex flex-wrap items-end justify-between gap-x-4 gap-y-4">
           <label class="flex flex-col gap-1.5 text-sm">
             <span class="text-white/60">Season</span>
             <div class="flex items-center gap-2">
@@ -287,30 +277,58 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <SeasonLogo darkUrl={activeSeason?.logo_url ?? null} lightUrl={activeSeason?.logo_url_light} />
             </div>
           </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">View</span>
-            <select
-              name="mode"
-              onchange="this.form.submit()"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            >
-              <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
-              <option value="matrix" selected={mode === 'matrix'} class="bg-brand-ink text-white">Matrix</option>
-            </select>
-          </label>
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Class</span>
-            <select
-              name="class"
-              onchange="this.form.submit()"
-              class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            >
-              <option value="all" selected={!activeClass} class="bg-brand-ink text-white">All</option>
-              {classesForActiveSeason.map((c) => (
-                <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
-              ))}
-            </select>
-          </label>
+          <div class="flex flex-wrap items-end gap-4 sm:ml-auto">
+            {mode === 'matrix' && matrixColumns.length > 1 && (
+              <div class="group relative flex flex-col gap-1.5 text-sm">
+                <span class="text-white/60">Timeline Slider</span>
+                <div class="flex h-[42px] items-center gap-3">
+                  <input
+                    type="range"
+                    id="timeline-slider"
+                    min="1"
+                    max={matrixColumns.length}
+                    step="1"
+                    value={matrixColumns.length}
+                    aria-label="Timeline Slider"
+                    class="w-40 accent-brand-primary"
+                  />
+                  <span id="timeline-slider-value" class="min-w-[4.5rem] text-white/70">
+                    Round {matrixColumns[matrixColumns.length - 1]?.roundNumber ?? matrixColumns.length}
+                  </span>
+                </div>
+                <span
+                  role="tooltip"
+                  class="pointer-events-none absolute left-0 top-full z-40 mt-1 hidden w-64 rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-xs text-white/80 shadow-lg group-hover:block group-focus-within:block"
+                >
+                  Move this slider to view the standings as they were, round-by-round.
+                </span>
+              </div>
+            )}
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">View</span>
+              <select
+                name="mode"
+                onchange="this.form.submit()"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              >
+                <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
+                <option value="matrix" selected={mode === 'matrix'} class="bg-brand-ink text-white">Matrix</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Class</span>
+              <select
+                name="class"
+                onchange="this.form.submit()"
+                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              >
+                <option value="all" selected={!activeClass} class="bg-brand-ink text-white">All</option>
+                {classesForActiveSeason.map((c) => (
+                  <option value={c.name} selected={c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </form>
       </div>
     )}
@@ -492,7 +510,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && mode === 'matrix' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse text-sm">
+        <table id="standings-table" class="w-full border-collapse text-sm" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
@@ -513,9 +531,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </tr>
           </thead>
           <tbody>
-            {standings.map((row) => (
-              <tr class="border-b border-white/5">
-                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70">{row.position}</td>
+            {standings.map((row, rowIndex) => (
+              <tr
+                class="border-b border-white/5"
+                data-matrix-row
+                data-orig-index={rowIndex}
+                data-orig-total={row.totalPoints}
+                data-points={matrixColumns.map((col) => row.roundCells.get(col.subsessionId)?.points ?? '').join(',')}
+              >
+                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70" data-pos-cell>{row.position}</td>
                 <td class="py-2.5 pr-4 font-semibold" data-csv-value={displayDriverName(row.driver.name)}>
                   <span class="flex items-center gap-1.5 whitespace-nowrap">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
@@ -531,6 +555,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <td class="relative px-2 py-2.5 text-center" data-round-col={i}>
                       {cell ? (
                         <span
+                          data-cell-points
+                          data-orig-dropped={String(cell.dropped)}
                           class={cell.dropped ? 'text-white/35 line-through decoration-white/25' : 'text-white/80'}
                           title={`${cell.dropped ? 'Dropped round — ' : ''}${cell.points} pts`}
                         >
@@ -552,7 +578,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </td>
                   );
                 })}
-                <td class="px-3 py-2.5 text-center font-semibold text-white/90">{row.totalPoints}</td>
+                <td class="px-3 py-2.5 text-center font-semibold text-white/90" data-total-cell>{row.totalPoints}</td>
               </tr>
             ))}
           </tbody>
@@ -573,23 +599,108 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </Layout>
 
 <script>
-  // Timeline Slider (Matrix view): hides every round column after the one
-  // the slider is set to. Columns are indexed 0..n-1 in chronological order
-  // (data-round-col); the slider's 1..n value is "show the first N rounds".
+  // Timeline Slider (Matrix view): shows the standings "as of" round N.
+  //  - Round columns after N are hidden (data-round-col = chronological index).
+  //  - Total is recomputed from only the visible rounds, using the same
+  //    drop-week rules as the real standings (src/lib/results.ts
+  //    finalizeStandings): a round a driver skipped counts as 0 in their
+  //    pool, no rounds drop until 5+ are visible, the baseline + season's
+  //    extra drop weeks apply from then on, and (unless the ruleset allows
+  //    dropping it) the last visible round is protected from being dropped.
+  //  - Rows are re-ordered by the recomputed total and Pos renumbered; ties
+  //    keep the full-season order (the real tiebreakers — wins, podiums,
+  //    etc. — aren't recomputed as-of). Drivers who hadn't raced yet are
+  //    hidden. At the slider's max everything is restored to the server's
+  //    exact numbers.
   function initTimelineSlider() {
     const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
-    if (!slider || slider.dataset.bound === 'true') return;
+    const table = document.getElementById('standings-table') as HTMLTableElement | null;
+    if (!slider || !table || slider.dataset.bound === 'true') return;
     slider.dataset.bound = 'true';
     const label = document.getElementById('timeline-slider-value');
-    const headers = Array.from(document.querySelectorAll<HTMLElement>('th[data-round-col]'));
+    const headers = Array.from(table.querySelectorAll<HTMLElement>('th[data-round-col]'));
+    const tbody = table.tBodies[0];
+    const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>('tr[data-matrix-row]'));
+    const maxRounds = Number(slider.max);
+    const baseDrops = Number(table.dataset.dropWeeks ?? 2);
+    const minDropRounds = Number(table.dataset.minDropRounds ?? 5);
+    const canDropFinal = table.dataset.canDropFinal === 'true';
+    const DROPPED_CLASSES = ['text-white/35', 'line-through', 'decoration-white/25'];
+
+    const parsed = rows.map((row) => ({
+      row,
+      origIndex: Number(row.dataset.origIndex),
+      origTotal: Number(row.dataset.origTotal),
+      // '' = didn't attend that round (counts as 0 in the drop pool, but has no cell).
+      points: (row.dataset.points ?? '').split(',').map((v) => (v === '' ? null : Number(v))),
+    }));
+
+    function totalAsOf(points: (number | null)[], n: number) {
+      const pool = points.slice(0, n).map((p, i) => ({ i, p: p ?? 0 }));
+      const totalDrops = n >= minDropRounds ? baseDrops : 0;
+      const dropped = new Set<number>();
+      let total: number;
+      if (!canDropFinal && n >= 1) {
+        const finalPts = pool[n - 1].p;
+        const rest = pool.slice(0, n - 1).sort((a, b) => b.p - a.p || a.i - b.i);
+        const dropCount = Math.min(totalDrops, Math.max(0, n - 1));
+        const keep = Math.max(0, rest.length - dropCount);
+        total = finalPts + rest.slice(0, keep).reduce((s, r) => s + r.p, 0);
+        rest.slice(keep).forEach((r) => dropped.add(r.i));
+      } else {
+        const ranked = [...pool].sort((a, b) => b.p - a.p || a.i - b.i);
+        const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
+        total = ranked.slice(0, ranked.length - dropCount).reduce((s, r) => s + r.p, 0);
+        ranked.slice(ranked.length - dropCount).forEach((r) => dropped.add(r.i));
+      }
+      return { total, dropped };
+    }
+
+    function setDropped(span: HTMLElement, isDropped: boolean) {
+      DROPPED_CLASSES.forEach((c) => span.classList.toggle(c, isDropped));
+      span.classList.toggle('text-white/80', !isDropped);
+      const pts = span.textContent?.trim() ?? '';
+      span.title = `${isDropped ? 'Dropped round — ' : ''}${pts} pts`;
+    }
+
     function apply() {
-      const upTo = Number(slider!.value);
+      const n = Number(slider!.value);
+      const atMax = n >= maxRounds;
       document.querySelectorAll<HTMLElement>('[data-round-col]').forEach((el) => {
-        el.classList.toggle('hidden', Number(el.dataset.roundCol) >= upTo);
+        el.classList.toggle('hidden', Number(el.dataset.roundCol) >= n);
       });
-      const header = headers[upTo - 1];
-      const roundText = header?.dataset.csvValue?.replace(/^R/, '') ?? String(upTo);
+      const roundText = headers[n - 1]?.dataset.csvValue?.replace(/^R/, '') ?? String(n);
       if (label) label.textContent = `Round ${roundText}`;
+
+      const visible: { row: HTMLTableRowElement; total: number; origIndex: number }[] = [];
+      for (const r of parsed) {
+        // Cells only exist for rounds the driver attended — map each back to
+        // its column index via the parent td.
+        const byCol = new Map<number, HTMLElement>();
+        r.row.querySelectorAll<HTMLElement>('[data-cell-points]').forEach((span) => {
+          const td = span.closest<HTMLElement>('td[data-round-col]');
+          if (td) byCol.set(Number(td.dataset.roundCol), span);
+        });
+        if (atMax) {
+          r.row.classList.remove('hidden');
+          byCol.forEach((span) => setDropped(span, span.dataset.origDropped === 'true'));
+          visible.push({ row: r.row, total: r.origTotal, origIndex: r.origIndex });
+          continue;
+        }
+        const attended = r.points.slice(0, n).some((p) => p !== null);
+        r.row.classList.toggle('hidden', !attended);
+        if (!attended) continue;
+        const { total, dropped } = totalAsOf(r.points, n);
+        byCol.forEach((span, col) => setDropped(span, dropped.has(col)));
+        visible.push({ row: r.row, total, origIndex: r.origIndex });
+      }
+
+      visible.sort((a, b) => b.total - a.total || a.origIndex - b.origIndex);
+      visible.forEach((v, i) => {
+        v.row.querySelector('[data-total-cell]')!.textContent = String(v.total);
+        v.row.querySelector('[data-pos-cell]')!.textContent = String(i + 1);
+        tbody.appendChild(v.row);
+      });
     }
     slider.addEventListener('input', apply);
     apply();
