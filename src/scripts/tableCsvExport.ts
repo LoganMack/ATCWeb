@@ -64,7 +64,7 @@ function tableToCsv(table: HTMLTableElement): string {
   const tbody = table.tBodies[0];
   if (tbody) {
     Array.from(tbody.rows)
-      .filter((row) => !row.hasAttribute('data-detail-row'))
+      .filter((row) => !row.hasAttribute('data-detail-row') && row.style.display !== 'none')
       .forEach((row) => {
         lines.push(Array.from(row.cells).map((cell) => csvField(cellText(cell))).join(','));
       });

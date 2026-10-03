@@ -750,6 +750,21 @@ export interface DriverSeasonStanding {
   classId?: number;
   /** Standings page's "Matrix" view — one entry per round this driver actually attended (never a zero-filled entry for a round they skipped — see StandingsRoundCell). Keyed by subsession_id; pair with getSeasonStandingsRoundColumns for the full ordered list of column headers, including rounds this driver missed entirely. */
   roundCells: Map<number, StandingsRoundCell>;
+  /** Per-round breakdown of this row's wins/podiums/top5s/top10s/poles/starts/laps-led/laps — feeds the standings page's "Standings by Round" slider, which recomputes every column as of an earlier round. Keyed by subsession_id; a round this driver skipped has no entry. Sums to the season totals above. */
+  roundStats: Map<number, StandingsRoundStat>;
+}
+
+/** One round's worth of the counting stats DriverSeasonStanding totals — see DriverSeasonStanding.roundStats. */
+export interface StandingsRoundStat {
+  wins: number;
+  podiums: number;
+  top5s: number;
+  top10s: number;
+  /** 0 or 1 — poles are counted per round (distinct subsession), not per race. */
+  poles: number;
+  starts: number;
+  lapsLed: number;
+  laps: number;
 }
 
 /** One column of the standings page's "Matrix" view — one per round the season actually had (see computeSeasonStandingsRoundColumns), chronologically ordered by start_time. The column header itself is just `roundNumber` (Logan: keep the columns narrow) — `trackName`/`format` are there for the header's hover tooltip. */
@@ -894,6 +909,7 @@ interface StandingsAccum {
   lapsLed: number;
   laps: number;
   roundPoints: Map<number, number>;
+  roundStats: Map<number, StandingsRoundStat>;
   classId?: number;
 }
 
@@ -909,7 +925,17 @@ function newStandingsAccum(): StandingsAccum {
     lapsLed: 0,
     laps: 0,
     roundPoints: new Map(),
+    roundStats: new Map(),
   };
+}
+
+function roundStatFor(a: StandingsAccum, subsessionId: number): StandingsRoundStat {
+  let r = a.roundStats.get(subsessionId);
+  if (!r) {
+    r = { wins: 0, podiums: 0, top5s: 0, top10s: 0, poles: 0, starts: 0, lapsLed: 0, laps: 0 };
+    a.roundStats.set(subsessionId, r);
+  }
+  return r;
 }
 
 /**
@@ -1042,6 +1068,7 @@ function finalizeStandings(
       laps: a.laps,
       classId: a.classId,
       roundCells,
+      roundStats: a.roundStats,
     });
   }
 
@@ -1232,10 +1259,11 @@ export async function computeSeasonStandings(
       const classRank = adjustment ? adjustment.newClassPosition : originalClassPositionByKey.get(key) ?? null;
       if (classRank === null) continue;
       const a = getAccum(s.driver_id);
-      if (classRank === 1) a.wins++;
-      if (classRank <= 3) a.podiums++;
-      if (classRank <= 5) a.top5s++;
-      if (classRank <= 10) a.top10s++;
+      const rs = roundStatFor(a, s.subsession_id);
+      if (classRank === 1) { a.wins++; rs.wins++; }
+      if (classRank <= 3) { a.podiums++; rs.podiums++; }
+      if (classRank <= 5) { a.top5s++; rs.top5s++; }
+      if (classRank <= 10) { a.top10s++; rs.top10s++; }
     }
   }
 
@@ -1287,15 +1315,20 @@ export async function computeSeasonStandings(
     const a = getAccum(s.driver_id);
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
+    const rs = roundStatFor(a, s.subsession_id);
+    rs.starts += 1;
     if (isAlphaClass) {
       if (overallPoleDriverBySubsession!.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
     } else if (s.pole_bonus > 0) {
       a.poleSubsessionIds.add(s.subsession_id);
     }
+    rs.poles = a.poleSubsessionIds.has(s.subsession_id) ? 1 : 0;
     const custId = custIdByDriverId.get(s.driver_id);
     const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
     a.lapsLed += raw?.laps_led ?? 0;
     a.laps += raw?.laps_complete ?? 0;
+    rs.lapsLed += raw?.laps_led ?? 0;
+    rs.laps += raw?.laps_complete ?? 0;
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
     let totalPoints: number;
     if (isAlphaClass) {
@@ -1415,12 +1448,17 @@ export async function computeOverallSeasonStandings(
     a.classId = s.class_id;
     a.starts += 1;
     a.subsessionIds.add(s.subsession_id);
+    const rs = roundStatFor(a, s.subsession_id);
+    rs.starts += 1;
     if (overallPoleDriverBySubsession.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
+    rs.poles = a.poleSubsessionIds.has(s.subsession_id) ? 1 : 0;
 
     const custId = overallContext.custIdByDriverId.get(s.driver_id);
     const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
     a.lapsLed += raw?.laps_led ?? 0;
     a.laps += raw?.laps_complete ?? 0;
+    rs.lapsLed += raw?.laps_led ?? 0;
+    rs.laps += raw?.laps_complete ?? 0;
 
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
     const adjustment = overallContext.adjustments.get(key);
@@ -1429,10 +1467,10 @@ export async function computeOverallSeasonStandings(
 
     const position = adjustment ? adjustment.newPosition : s.scored_position;
     if (!s.dsq && position !== null) {
-      if (position === 1) a.wins++;
-      if (position <= 3) a.podiums++;
-      if (position <= 5) a.top5s++;
-      if (position <= 10) a.top10s++;
+      if (position === 1) { a.wins++; rs.wins++; }
+      if (position <= 3) { a.podiums++; rs.podiums++; }
+      if (position <= 5) { a.top5s++; rs.top5s++; }
+      if (position <= 10) { a.top10s++; rs.top10s++; }
     }
   }
 
@@ -1466,6 +1504,8 @@ export interface TeamSeasonStanding {
   driverIds: string[];
   /** Standings page's "Matrix" view — see DriverSeasonStanding.roundCells' own doc comment. `dropped` is always false here — teams never drop rounds (see this function's own doc comment on why). `penalties` pools every penalty logged against any driver who ever raced for this team this season, which can very occasionally over-flag a round for a team a penalized driver had already left by then (driverIds isn't tracked per-round) — acceptable slop for a purely informational summary. */
   roundCells: Map<number, StandingsRoundCell>;
+  /** Races any of this team's drivers started, per round — feeds the "Standings by Round" slider's as-of Starts column. */
+  roundStarts: Map<number, number>;
 }
 
 /**
@@ -1536,13 +1576,14 @@ export async function computeTeamSeasonStandings(
     starts: number;
     subsessionIds: Set<number>;
     roundPoints: Map<number, number>;
+    roundStarts: Map<number, number>;
     driverIds: Set<string>;
   }
   const accum = new Map<string, TeamAccum>();
   function getAccum(teamId: string): TeamAccum {
     let a = accum.get(teamId);
     if (!a) {
-      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map(), driverIds: new Set() };
+      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map(), roundStarts: new Map(), driverIds: new Set() };
       accum.set(teamId, a);
     }
     return a;
@@ -1566,6 +1607,7 @@ export async function computeTeamSeasonStandings(
       if (!s.team_id) continue;
       const a = getAccum(s.team_id);
       a.starts += 1;
+      a.roundStarts.set(s.subsession_id, (a.roundStarts.get(s.subsession_id) ?? 0) + 1);
       a.subsessionIds.add(s.subsession_id);
       a.driverIds.add(s.driver_id);
 
@@ -1700,6 +1742,7 @@ export async function computeTeamSeasonStandings(
       if (!s.team_id) continue;
       const a = getAccum(s.team_id);
       a.starts += 1;
+      a.roundStarts.set(s.subsession_id, (a.roundStarts.get(s.subsession_id) ?? 0) + 1);
       a.subsessionIds.add(s.subsession_id);
       a.driverIds.add(s.driver_id);
 
@@ -1753,6 +1796,7 @@ export async function computeTeamSeasonStandings(
       appearances: a.subsessionIds.size,
       driverIds: [...a.driverIds],
       roundCells,
+      roundStarts: a.roundStarts,
     });
   }
 
@@ -1794,6 +1838,19 @@ export interface DriverSeasonExtendedStats {
   cornersPerIncident: number | null;
   /** The raw numerator behind `cornersPerIncident` (corners navigated, not divided by incidents yet) — null under the same "nothing resolved" condition `cornersPerIncident` uses (NOT null just because incidents was 0, unlike that field — a career-stats aggregator summing this across seasons needs the real total, and dividing by a separately-summed incident count itself, to get a mathematically correct career CPI rather than an average of season ratios). See computeDriverCareerStats. */
   totalCorners: number | null;
+  /** Per-round breakdown of the figures above — feeds the "Standings by Round" slider's as-of detail panel. Keyed by subsession_id. `km`/`corners` are null for a round whose layout couldn't be matched (same "nothing resolved" rule as distanceKm/cornersPerIncident). Penalty points can exist for a round the driver didn't score in. */
+  byRound: Map<number, ExtendedRoundStat>;
+}
+
+export interface ExtendedRoundStat {
+  laps: number;
+  lapsLed: number;
+  netPositionsChange: number;
+  incidents: number;
+  penaltyPoints: number;
+  bonusPoints: number;
+  km: number | null;
+  corners: number | null;
 }
 
 // iRacing tags a track's older, superseded configuration with a leading
@@ -2701,12 +2758,30 @@ export async function getSeasonDriverExtendedStats(
     bonusPoints: number;
     distanceKm: number;
     totalCorners: number;
+    byRound: Map<number, ExtendedRoundStat>;
   }
   const accum = new Map<string, ExtendedAccum>();
+  function extRound(a: ExtendedAccum, subsessionId: number): ExtendedRoundStat {
+    let r = a.byRound.get(subsessionId);
+    if (!r) {
+      r = {
+        laps: 0,
+        lapsLed: 0,
+        netPositionsChange: 0,
+        incidents: 0,
+        penaltyPoints: 0,
+        bonusPoints: 0,
+        km: kmBySubsession.get(subsessionId) ?? null,
+        corners: cornersBySubsession.get(subsessionId) ?? null,
+      };
+      a.byRound.set(subsessionId, r);
+    }
+    return r;
+  }
   function getAccum(driverId: string): ExtendedAccum {
     let a = accum.get(driverId);
     if (!a) {
-      a = { laps: 0, lapsLed: 0, netPositionsChange: 0, incidents: 0, penaltyPoints: 0, bonusPoints: 0, distanceKm: 0, totalCorners: 0 };
+      a = { laps: 0, lapsLed: 0, netPositionsChange: 0, incidents: 0, penaltyPoints: 0, bonusPoints: 0, distanceKm: 0, totalCorners: 0, byRound: new Map() };
       accum.set(driverId, a);
     }
     return a;
@@ -2715,6 +2790,8 @@ export async function getSeasonDriverExtendedStats(
   for (const s of scores) {
     const a = getAccum(s.driver_id);
     a.bonusPoints += s.finesse_bonus + s.pole_bonus;
+    const er = extRound(a, s.subsession_id);
+    er.bonusPoints += s.finesse_bonus + s.pole_bonus;
 
     const custId = overallContext.custIdByDriverId.get(s.driver_id);
     const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
@@ -2722,10 +2799,14 @@ export async function getSeasonDriverExtendedStats(
     a.laps += raw.laps_complete ?? 0;
     a.lapsLed += raw.laps_led ?? 0;
     a.incidents += raw.incidents ?? 0;
+    er.laps += raw.laps_complete ?? 0;
+    er.lapsLed += raw.laps_led ?? 0;
+    er.incidents += raw.incidents ?? 0;
 
     const finalPosition = raw.adjusted_position ?? raw.finish_position;
     if (raw.starting_position !== null && finalPosition !== null) {
       a.netPositionsChange += raw.starting_position - finalPosition;
+      er.netPositionsChange += raw.starting_position - finalPosition;
     }
 
     const km = kmBySubsession.get(s.subsession_id);
@@ -2741,6 +2822,7 @@ export async function getSeasonDriverExtendedStats(
     if (!p.driver_id) continue;
     const a = getAccum(p.driver_id);
     a.penaltyPoints += effectivePenaltyPoints(p);
+    extRound(a, p.subsession_id).penaltyPoints += effectivePenaltyPoints(p);
   }
 
   // Whether at least one of this driver's rounds actually resolved to a
@@ -2770,6 +2852,7 @@ export async function getSeasonDriverExtendedStats(
       distanceKm: anyKmResolvedByDriver.get(driverId) ? a.distanceKm : null,
       cornersPerIncident: hasCorners && a.incidents > 0 ? a.totalCorners / a.incidents : null,
       totalCorners: hasCorners ? a.totalCorners : null,
+      byRound: a.byRound,
     });
   }
   return out;

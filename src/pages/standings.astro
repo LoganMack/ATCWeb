@@ -137,6 +137,11 @@ const matrixLogoBySubsession = new Map<number, string | null>();
 // same way finalizeStandings does.
 let matrixDropWeeks = BASELINE_DROP_WEEKS;
 let matrixCanDropFinalRound = false;
+// "Standings by Round" slider inputs (both List and Matrix): per-column
+// denominators for the "x of y" Starts/Apps cells, and (Teams list) the
+// driver round data behind each team's expandable roster.
+let colDenoms: { s: number; a: number }[] = [];
+let rosterJson = '';
 // The season-wide denominators for the Starts/Apps columns below ("x of y")
 // — y is the same for every driver regardless of view (Overall vs Per
 // Class) or how many rounds any one driver personally attended, so it's
@@ -206,6 +211,20 @@ if (!loadError && activeSeason && championship === 'drivers') {
     const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
     matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
 
+    // As-of denominators for the List view's "x of y" Starts/Apps cells —
+    // how many races/rounds the WHOLE season (every class) had run by each
+    // column's round, matching the season-wide maxStarts/maxAppearances above.
+    const startTimeBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.start_time]));
+    const racesBySubsession = new Map<number, Set<number>>();
+    for (const sc of overallContext.overallScores) {
+      if (!racesBySubsession.has(sc.subsession_id)) racesBySubsession.set(sc.subsession_id, new Set());
+      racesBySubsession.get(sc.subsession_id)!.add(sc.race_number);
+    }
+    const seasonRoundList = [...racesBySubsession].map(([id, races]) => ({ t: startTimeBySubsession.get(id) ?? '', races: races.size }));
+    colDenoms = matrixColumns.map((col) => {
+      const through = seasonRoundList.filter((r) => r.t <= col.startTime);
+      return { s: through.reduce((sum, r) => sum + r.races, 0), a: through.length };
+    });
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -238,6 +257,29 @@ if (!loadError && activeSeason && championship === 'teams' && !deltaNotActiveFor
     );
     const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
     matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
+
+    // Every driver's round-by-round overall points/starts, so each team's
+    // expandable roster can show "as of round N" positions too.
+    const overallColumns = computeSeasonStandingsRoundColumns(
+      overallContext.seasonRounds,
+      new Set(overallContext.overallScores.map((sc) => sc.subsession_id)),
+      displayRoundNumbers
+    );
+    rosterJson = JSON.stringify({
+      t: overallColumns.map((c) => c.startTime),
+      d: Object.fromEntries(
+        overallStandings.map((st) => [
+          st.driver.id,
+          {
+            o: st.position,
+            r: overallColumns.map((c) => {
+              const cell = st.roundCells.get(c.subsessionId);
+              return cell ? [cell.points, st.roundStats.get(c.subsessionId)?.starts ?? 0] : null;
+            }),
+          },
+        ])
+      ),
+    });
   } catch (err) {
     console.error('Failed to compute team standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -248,14 +290,17 @@ if (!loadError && activeSeason && championship === 'teams' && !deltaNotActiveFor
 // Timeline Slider needs (teams never drop rounds), and a track logo for each
 // column header — matched to a circuit by track name, same normalisation the
 // rest of the site uses; a track with no logo falls back to an initials tile.
-if (!loadError && activeSeason && mode === 'matrix' && matrixColumns.length > 0) {
-  matrixDropWeeks = championship === 'drivers' ? BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0) : 0;
+const driverDropWeeks = activeSeason ? BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0) : BASELINE_DROP_WEEKS;
+if (!loadError && activeSeason && matrixColumns.length > 0) {
+  matrixDropWeeks = championship === 'drivers' ? driverDropWeeks : 0;
   try {
     const rulesets = await getScoringRulesets(supabaseEnv);
     matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, rulesets)?.can_drop_final_round ?? false;
   } catch (err) {
-    console.error('Failed to load scoring rulesets for standings matrix:', err);
+    console.error('Failed to load scoring rulesets for standings:', err);
   }
+}
+if (!loadError && activeSeason && mode === 'matrix' && matrixColumns.length > 0) {
   try {
     const circuits = await getCircuits(supabaseEnv);
     const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
@@ -265,6 +310,61 @@ if (!loadError && activeSeason && mode === 'matrix' && matrixColumns.length > 0)
   } catch (err) {
     console.error('Failed to load circuits for standings matrix headers:', err);
   }
+}
+
+// ---- "Standings by Round" slider ----
+// The slider's value is "show the first N rounds"; it's carried across
+// dropdown changes in the `round` URL param as a round NUMBER (so it survives
+// switching to a class that raced a different set of rounds). No param, or a
+// round at/after the latest one, means all rounds.
+const sliderCols = matrixColumns.map((c) => ({ r: c.roundNumber, t: c.startTime }));
+const requestedRound = Number(Astro.url.searchParams.get('round'));
+const sliderValue =
+  Number.isFinite(requestedRound) && requestedRound > 0 && matrixColumns.length > 0
+    ? Math.max(1, matrixColumns.filter((c) => (c.roundNumber ?? 0) <= requestedRound).length)
+    : matrixColumns.length;
+
+/** One driver's per-column data for the client: null for a round they skipped, else [points, wins, podiums, top5s, top10s, poles, starts, laps-led, laps, detail-laps, detail-led, net positions, incidents, bonus, distance km|null, corners|null]. */
+function driverRoundsJson(row: DriverSeasonStanding): string {
+  const ext = extendedStatsByDriverId.get(row.driver.id);
+  return JSON.stringify(
+    matrixColumns.map((col) => {
+      const cell = row.roundCells.get(col.subsessionId);
+      if (!cell) return null;
+      const st = row.roundStats.get(col.subsessionId);
+      const ex = ext?.byRound.get(col.subsessionId);
+      return [
+        cell.points,
+        st?.wins ?? 0,
+        st?.podiums ?? 0,
+        st?.top5s ?? 0,
+        st?.top10s ?? 0,
+        st?.poles ?? 0,
+        st?.starts ?? 0,
+        st?.lapsLed ?? 0,
+        st?.laps ?? 0,
+        ex?.laps ?? 0,
+        ex?.lapsLed ?? 0,
+        ex?.netPositionsChange ?? 0,
+        ex?.incidents ?? 0,
+        ex?.bonusPoints ?? 0,
+        ex && ex.km !== null ? ex.laps * ex.km : null,
+        ex && ex.corners !== null ? ex.laps * ex.corners : null,
+      ];
+    })
+  );
+}
+function driverPenaltyJson(row: DriverSeasonStanding): string {
+  const ext = extendedStatsByDriverId.get(row.driver.id);
+  return JSON.stringify(matrixColumns.map((col) => ext?.byRound.get(col.subsessionId)?.penaltyPoints ?? 0));
+}
+function teamRoundsJson(row: TeamSeasonStanding): string {
+  return JSON.stringify(
+    matrixColumns.map((col) => {
+      const cell = row.roundCells.get(col.subsessionId);
+      return cell ? [cell.points, row.roundStarts.get(col.subsessionId) ?? 0] : null;
+    })
+  );
 }
 
 // CSV export filename — reflects whichever view is actually on screen
@@ -314,13 +414,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     {!loadError && (
       <div class="relative z-30 mt-8">
         <form method="GET" class="flex flex-wrap items-end justify-between gap-x-4 gap-y-4">
+          {/* Carries the Standings by Round slider across dropdown changes (the slider keeps this up to date; the Season dropdown disables it so a new season starts at all rounds). */}
+          <input type="hidden" name="round" id="timeline-round" value={sliderCols[sliderValue - 1]?.r ?? ''} disabled={sliderValue >= matrixColumns.length} />
           <label class="flex flex-col gap-1.5 text-sm">
             <span class="text-white/60">Season</span>
             <div class="flex items-center gap-2">
               <select
                 name="season"
-                onchange="this.form.submit()"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                onchange="var r = this.form.elements.round; if (r) r.disabled = true; this.form.submit()"
+                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
               >
                 {championshipSeasons.map((s) => (
                   <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
@@ -330,22 +432,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </div>
           </label>
           <div class="flex flex-wrap items-end gap-4 sm:ml-auto">
-            {mode === 'matrix' && matrixColumns.length > 1 && (
+            {matrixColumns.length > 1 && (
               <div class="group relative flex flex-col gap-1.5 text-sm">
-                <span class="text-white/60">Timeline Slider</span>
-                <div class="flex h-[42px] items-center gap-3">
+                <span class="text-white/60">Standings by Round</span>
+                <div class="flex h-10 items-center gap-3">
                   <input
                     type="range"
                     id="timeline-slider"
                     min="1"
                     max={matrixColumns.length}
                     step="1"
-                    value={matrixColumns.length}
-                    aria-label="Timeline Slider"
+                    value={sliderValue}
+                    aria-label="Standings by Round"
+                    data-cols={JSON.stringify(sliderCols)}
                     class="w-40 accent-brand-primary"
                   />
                   <span id="timeline-slider-value" class="min-w-[4.5rem] text-white/70">
-                    Round {matrixColumns[matrixColumns.length - 1]?.roundNumber ?? matrixColumns.length}
+                    Round {sliderCols[sliderValue - 1]?.r ?? sliderValue}
                   </span>
                 </div>
                 <span
@@ -361,7 +464,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <select
                 name="mode"
                 onchange="this.form.submit()"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
               >
                 <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
                 <option value="matrix" selected={mode === 'matrix'} class="bg-brand-ink text-white">Matrix</option>
@@ -372,7 +475,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <select
                 name="championship"
                 onchange="this.form.submit()"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
               >
                 <option value="drivers" selected={championship === 'drivers'} class="bg-brand-ink text-white">Drivers</option>
                 <option value="teams" selected={championship === 'teams'} class="bg-brand-ink text-white">Teams</option>
@@ -383,7 +486,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <select
                 name="class"
                 onchange="this.form.submit()"
-                class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
               >
                 {championship === 'drivers' ? (
                   <>
@@ -415,7 +518,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && championship === 'drivers' && mode === 'list' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse" data-sortable>
+        <table id="standings-table" class="w-full border-collapse" data-sortable data-kind="drivers" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks} data-denoms={JSON.stringify(colDenoms)}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
@@ -433,19 +536,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </tr>
           </thead>
           <tbody>
-            {standings.map((row) => {
+            {standings.map((row, rowIndex) => {
               const extras = extrasByDriverId.get(row.driver.id);
               const ext = extendedStatsByDriverId.get(row.driver.id);
               return (
                 <>
                 <tr
+                  data-standings-row
+                  data-orig-index={rowIndex}
+                  data-orig-total={row.totalPoints}
+                  data-name={displayDriverName(row.driver.name)}
+                  data-rounds={driverRoundsJson(row)}
+                  data-pp={driverPenaltyJson(row)}
                   data-expand-row
                   tabindex="0"
                   role="button"
                   aria-expanded="false"
                   class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
                 >
-                  <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
+                  <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position" data-live="pos">{row.position}</td>
                   <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver.name} data-csv-value={displayDriverName(row.driver.name)}>
                     <div class="flex flex-wrap items-center gap-2">
                       <span
@@ -503,19 +612,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       )}
                     </td>
                   )}
-                  <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins">{row.wins}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums">{row.podiums}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5">{row.top5s}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10">{row.top10s}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles">{row.poles}</td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts" data-sort-value={row.starts}>
+                  <td class="py-2.5 pr-3 text-center font-semibold" data-col="points" data-live="total">{row.totalPoints}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="wins" data-live="wins">{row.wins}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="podiums" data-live="podiums">{row.podiums}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5" data-live="top5">{row.top5s}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10" data-live="top10">{row.top10s}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles" data-live="poles">{row.poles}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts" data-live="starts" data-sort-value={row.starts}>
                     {row.starts} <span class="text-white/30">of {maxStarts}</span>
                   </td>
-                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="appearances" data-sort-value={row.appearances}>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="appearances" data-live="apps" data-sort-value={row.appearances}>
                     {row.appearances} <span class="text-white/30">of {maxAppearances}</span>
                   </td>
-                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="penalty" data-sort-value={ext?.penaltyPoints ?? 0} title="Penalty Points">
+                  <td class="py-2.5 pr-4 text-center text-white/60" data-col="penalty" data-live="pp" data-sort-value={ext?.penaltyPoints ?? 0} title="Penalty Points">
                     {ext?.penaltyPoints ?? 0}
                   </td>
                 </tr>
@@ -524,42 +633,42 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Laps</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">{ext?.laps ?? 0}</div>
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dlaps">{ext?.laps ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Led</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">{ext?.lapsLed ?? 0}</div>
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dled">{ext?.lapsLed ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Net Positions</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dnet">
                           {ext && ext.netPositionsChange > 0 ? '+' : ''}
                           {ext?.netPositionsChange ?? 0}
                         </div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Incidents / Lap</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dipl">
                           {ext?.incidentsPerLap !== null && ext?.incidentsPerLap !== undefined ? ext.incidentsPerLap.toFixed(2) : '—'}
                         </div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Corners / Incident</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dcpi">
                           {ext?.cornersPerIncident !== null && ext?.cornersPerIncident !== undefined ? ext.cornersPerIncident.toFixed(1) : '—'}
                         </div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Penalty Points</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">{ext?.penaltyPoints ?? 0}</div>
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dpp">{ext?.penaltyPoints ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Bonus Points</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">{ext?.bonusPoints ?? 0}</div>
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dbonus">{ext?.bonusPoints ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Distance Driven</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90">
+                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="ddist">
                           {ext?.distanceKm !== null && ext?.distanceKm !== undefined ? `${ext.distanceKm.toFixed(1)} km` : '—'}
                         </div>
                       </div>
@@ -586,7 +695,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && championship === 'drivers' && mode === 'matrix' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse text-sm" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)}>
+        <table id="standings-table" class="w-full border-collapse text-sm" data-kind="drivers" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
@@ -610,12 +719,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {standings.map((row, rowIndex) => (
               <tr
                 class="border-b border-white/5"
-                data-matrix-row
+                data-standings-row
                 data-orig-index={rowIndex}
                 data-orig-total={row.totalPoints}
-                data-points={matrixColumns.map((col) => row.roundCells.get(col.subsessionId)?.points ?? '').join(',')}
+                data-name={displayDriverName(row.driver.name)}
+                data-rounds={driverRoundsJson(row)}
               >
-                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70" data-pos-cell>{row.position}</td>
+                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70" data-live="pos">{row.position}</td>
                 <td class="py-2.5 pr-4 font-semibold" data-csv-value={displayDriverName(row.driver.name)}>
                   <span class="flex items-center gap-1.5 whitespace-nowrap">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
@@ -654,7 +764,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </td>
                   );
                 })}
-                <td class="px-3 py-2.5 text-center font-semibold text-white/90" data-total-cell>{row.totalPoints}</td>
+                <td class="px-3 py-2.5 text-center font-semibold text-white/90" data-live="total">{row.totalPoints}</td>
               </tr>
             ))}
           </tbody>
@@ -674,7 +784,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && !deltaNotActiveForSeason && championship === 'teams' && mode === 'list' && teamStandings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse" data-sortable>
+        <table id="standings-table" class="w-full border-collapse" data-sortable data-kind="teams" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
@@ -685,7 +795,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             </tr>
           </thead>
           <tbody>
-            {teamStandings.map((row) => {
+            {teamStandings.map((row, rowIndex) => {
               const roster = row.driverIds
                 .map((driverId) => overallStandingByDriverId.get(driverId))
                 .filter((s): s is DriverSeasonStanding => s !== undefined)
@@ -693,13 +803,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               return (
               <>
               <tr
+                data-standings-row
+                data-orig-index={rowIndex}
+                data-orig-total={row.totalPoints}
+                data-name={row.teamName}
+                data-rounds={teamRoundsJson(row)}
                 data-expand-row
                 tabindex="0"
                 role="button"
                 aria-expanded="false"
                 class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
               >
-                <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position">{row.position}</td>
+                <td class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70" data-col="position" data-live="pos">{row.position}</td>
                 <td class="py-2.5 pr-3 font-semibold" data-col="team" data-sort-value={row.teamName} data-csv-value={row.teamName}>
                   <div class="flex items-center gap-2">
                     <span
@@ -713,18 +828,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <span>{row.teamName}</span>
                   </div>
                 </td>
-                <td class="py-2.5 pr-3 text-center font-semibold" data-col="points">{row.totalPoints}</td>
-                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts">{row.starts}</td>
-                <td class="hidden py-2.5 pr-4 text-center text-white/60 sm:table-cell" data-col="appearances">{row.appearances}</td>
+                <td class="py-2.5 pr-3 text-center font-semibold" data-col="points" data-live="total">{row.totalPoints}</td>
+                <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts" data-live="starts" data-sort-value={row.starts}>{row.starts}</td>
+                <td class="hidden py-2.5 pr-4 text-center text-white/60 sm:table-cell" data-col="appearances" data-live="apps" data-sort-value={row.appearances}>{row.appearances}</td>
               </tr>
               <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                 <td colspan={5} class="px-4 py-4 sm:pl-11">
                   {roster.length === 0 ? (
                     <p class="text-white/40">No driver data available.</p>
                   ) : (
-                    <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3" data-roster>
                       {roster.map((driverStanding) => (
-                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2" data-roster-driver={driverStanding.driver.id} data-orig-pos={driverStanding.position}>
                           <span class="flex items-center gap-1.5 font-semibold text-white/90">
                             <span class="hidden sm:contents">
                               <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />
@@ -734,7 +849,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               <span class="text-white/40"> #{driverStanding.driver.car_number}</span>
                             )}
                           </span>
-                          <span class="whitespace-nowrap text-white/50">
+                          <span class="whitespace-nowrap text-white/50" data-roster-text>
                             P{driverStanding.position} — {driverStanding.totalPoints} pts — {driverStanding.starts} starts
                           </span>
                         </div>
@@ -748,6 +863,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             })}
           </tbody>
         </table>
+        {rosterJson && <script type="application/json" id="roster-data" set:html={rosterJson} />}
       </div>
       <div class="mt-3 flex justify-end">
         <button
@@ -763,7 +879,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && !deltaNotActiveForSeason && championship === 'teams' && mode === 'matrix' && teamStandings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse text-sm" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final="false">
+        <table id="standings-table" class="w-full border-collapse text-sm" data-kind="teams" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
@@ -787,12 +903,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {teamStandings.map((row, rowIndex) => (
               <tr
                 class="border-b border-white/5"
-                data-matrix-row
+                data-standings-row
                 data-orig-index={rowIndex}
                 data-orig-total={row.totalPoints}
-                data-points={matrixColumns.map((col) => row.roundCells.get(col.subsessionId)?.points ?? '').join(',')}
+                data-name={row.teamName}
+                data-rounds={teamRoundsJson(row)}
               >
-                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70" data-pos-cell>{row.position}</td>
+                <td class="py-2.5 pl-4 pr-3 font-display text-lg leading-none text-white/70" data-live="pos">{row.position}</td>
                 <td class="py-2.5 pr-4 font-semibold" data-csv-value={row.teamName}>
                   <span class="flex items-center gap-2 whitespace-nowrap">
                     <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-5 w-5" />
@@ -823,7 +940,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </td>
                   );
                 })}
-                <td class="px-3 py-2.5 text-center font-semibold text-white/90" data-total-cell>{row.totalPoints}</td>
+                <td class="px-3 py-2.5 text-center font-semibold text-white/90" data-live="total">{row.totalPoints}</td>
               </tr>
             ))}
           </tbody>
@@ -849,45 +966,63 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </Layout>
 
 <script>
-  // Timeline Slider (Matrix view): shows the standings "as of" round N.
-  //  - Round columns after N are hidden (data-round-col = chronological index).
-  //  - Total is recomputed from only the visible rounds, using the same
-  //    drop-week rules as the real standings (src/lib/results.ts
-  //    finalizeStandings): a round a driver skipped counts as 0 in their
-  //    pool, no rounds drop until 5+ are visible, the baseline + season's
-  //    extra drop weeks apply from then on, and (unless the ruleset allows
-  //    dropping it) the last visible round is protected from being dropped.
-  //  - Rows are re-ordered by the recomputed total and Pos renumbered; ties
-  //    keep the full-season order (the real tiebreakers — wins, podiums,
-  //    etc. — aren't recomputed as-of). Drivers who hadn't raced yet are
-  //    hidden. At the slider's max everything is restored to the server's
-  //    exact numbers.
-  function initTimelineSlider() {
+  // "Standings by Round" slider: shows the standings as they were after round
+  // N, for both the List and Matrix views, Drivers and Teams.
+  //  - Matrix: round columns after N are hidden.
+  //  - Every number is recomputed from just the visible rounds. Driver totals
+  //    use the same drop-week rules as the real standings (src/lib/results.ts
+  //    finalizeStandings): skipped rounds count as 0 in the pool, no rounds
+  //    drop until 5+ are visible, then baseline + the season's extra drop
+  //    weeks, and (unless the ruleset allows it) the last visible round can't
+  //    be dropped. Teams never drop rounds.
+  //  - Rows are re-ranked with the real tiebreak order (wins, podiums, top 5s,
+  //    top 10s, poles, laps led, laps, appearances, then name) and Pos
+  //    renumbered; anyone who hadn't raced yet is hidden. Team rosters show
+  //    each driver's as-of overall position (ties there fall back to the
+  //    full-season order).
+  //  - At the slider's max everything is restored to the server's exact values.
+  function initStandingsSlider() {
     const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
     const table = document.getElementById('standings-table') as HTMLTableElement | null;
     if (!slider || !table || slider.dataset.bound === 'true') return;
     slider.dataset.bound = 'true';
+
+    const kind = table.dataset.kind === 'teams' ? 'teams' : 'drivers';
+    const cols: { r: number | null; t: string }[] = JSON.parse(slider.dataset.cols ?? '[]');
+    const maxN = cols.length;
     const label = document.getElementById('timeline-slider-value');
-    const headers = Array.from(table.querySelectorAll<HTMLElement>('th[data-round-col]'));
+    const roundInput = document.getElementById('timeline-round') as HTMLInputElement | null;
     const tbody = table.tBodies[0];
-    const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>('tr[data-matrix-row]'));
-    const maxRounds = Number(slider.max);
-    const baseDrops = Number(table.dataset.dropWeeks ?? 2);
+    const baseDrops = Number(table.dataset.dropWeeks ?? 0);
+    const driverDrops = Number(table.dataset.driverDropWeeks ?? 2);
     const minDropRounds = Number(table.dataset.minDropRounds ?? 5);
     const canDropFinal = table.dataset.canDropFinal === 'true';
+    const denoms: { s: number; a: number }[] = JSON.parse(table.dataset.denoms ?? '[]');
     const DROPPED_CLASSES = ['text-white/35', 'line-through', 'decoration-white/25'];
 
-    const parsed = rows.map((row) => ({
+    const rows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>('tr[data-standings-row]')).map((row) => ({
       row,
+      detail: row.nextElementSibling?.hasAttribute('data-detail-row') ? (row.nextElementSibling as HTMLElement) : null,
       origIndex: Number(row.dataset.origIndex),
-      origTotal: Number(row.dataset.origTotal),
-      // '' = didn't attend that round (counts as 0 in the drop pool, but has no cell).
-      points: (row.dataset.points ?? '').split(',').map((v) => (v === '' ? null : Number(v))),
+      name: row.dataset.name ?? '',
+      rounds: JSON.parse(row.dataset.rounds ?? '[]') as (number[] | null)[],
+      pp: JSON.parse(row.dataset.pp ?? '[]') as number[],
     }));
 
-    function totalAsOf(points: (number | null)[], n: number) {
+    const rosterEl = document.getElementById('roster-data');
+    const roster: { t: string[]; d: Record<string, { o: number; r: (number[] | null)[] }> } | null = rosterEl
+      ? JSON.parse(rosterEl.textContent ?? 'null')
+      : null;
+
+    // Original server-rendered content of every live cell, to restore at max.
+    const origHtml = new Map<Element, string>();
+    document.querySelectorAll('[data-live], [data-roster-text]').forEach((el) => origHtml.set(el, el.innerHTML));
+    const origSort = new Map<HTMLElement, string | undefined>();
+    document.querySelectorAll<HTMLElement>('[data-live]').forEach((el) => origSort.set(el, el.dataset.sortValue));
+
+    function totalAsOf(points: (number | null)[], n: number, drops: number) {
       const pool = points.slice(0, n).map((p, i) => ({ i, p: p ?? 0 }));
-      const totalDrops = n >= minDropRounds ? baseDrops : 0;
+      const totalDrops = n >= minDropRounds ? drops : 0;
       const dropped = new Set<number>();
       let total: number;
       if (!canDropFinal && n >= 1) {
@@ -906,6 +1041,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       return { total, dropped };
     }
 
+    const sumIdx = (rounds: (number[] | null)[], n: number, idx: number) => {
+      let s = 0;
+      for (let i = 0; i < n; i++) s += rounds[i]?.[idx] ?? 0;
+      return s;
+    };
+    const live = (row: ParentNode, key: string) => row.querySelector<HTMLElement>(`[data-live="${key}"]`);
+    const setText = (row: ParentNode | null, key: string, text: string, sortValue?: number) => {
+      const el = row ? live(row, key) : null;
+      if (!el) return;
+      el.textContent = text;
+      if (sortValue !== undefined) el.dataset.sortValue = String(sortValue);
+    };
+    const setOfText = (row: ParentNode, key: string, value: number, denom: number | undefined) => {
+      const el = live(row, key);
+      if (!el) return;
+      el.innerHTML = `${value} <span class="text-white/30">of ${denom ?? ''}</span>`;
+      el.dataset.sortValue = String(value);
+    };
+
     function setDropped(span: HTMLElement, isDropped: boolean) {
       DROPPED_CLASSES.forEach((c) => span.classList.toggle(c, isDropped));
       span.classList.toggle('text-white/80', !isDropped);
@@ -913,48 +1067,166 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       span.title = `${isDropped ? 'Dropped round — ' : ''}${pts} pts`;
     }
 
+    function restoreAll() {
+      origHtml.forEach((html, el) => (el.innerHTML = html));
+      origSort.forEach((v, el) => {
+        if (v === undefined) delete el.dataset.sortValue;
+        else el.dataset.sortValue = v;
+      });
+      rows.forEach((r) => {
+        r.row.style.display = '';
+        if (r.detail) r.detail.style.display = '';
+        r.row.querySelectorAll<HTMLElement>('[data-cell-points]').forEach((span) => setDropped(span, span.dataset.origDropped === 'true'));
+      });
+      [...rows]
+        .sort((a, b) => a.origIndex - b.origIndex)
+        .forEach((r) => {
+          tbody.appendChild(r.row);
+          if (r.detail) tbody.appendChild(r.detail);
+        });
+      table!.querySelectorAll<HTMLElement>('[data-roster]').forEach((box) => {
+        const items = Array.from(box.querySelectorAll<HTMLElement>('[data-roster-driver]'));
+        items.forEach((it) => (it.style.display = ''));
+        items.sort((a, b) => Number(a.dataset.origPos) - Number(b.dataset.origPos)).forEach((it) => box.appendChild(it));
+      });
+    }
+
+    function updateRosters(n: number) {
+      if (!roster) return;
+      const cutoff = Date.parse(cols[n - 1].t);
+      const nOverall = roster.t.filter((t) => Date.parse(t) <= cutoff).length;
+      const asOf = Object.entries(roster.d)
+        .map(([id, d]) => {
+          const pts = d.r.map((r) => (r ? r[0] : null));
+          const attended = d.r.slice(0, nOverall).some((r) => r !== null);
+          return { id, o: d.o, attended, total: totalAsOf(pts, nOverall, driverDrops).total, starts: sumIdx(d.r, nOverall, 1) };
+        })
+        .filter((d) => d.attended)
+        .sort((a, b) => b.total - a.total || a.o - b.o);
+      const byId = new Map(asOf.map((d, i) => [d.id, { ...d, pos: i + 1 }]));
+      table!.querySelectorAll<HTMLElement>('[data-roster]').forEach((box) => {
+        const items = Array.from(box.querySelectorAll<HTMLElement>('[data-roster-driver]'));
+        items.forEach((it) => {
+          const info = byId.get(it.dataset.rosterDriver ?? '');
+          it.style.display = info ? '' : 'none';
+          const text = it.querySelector('[data-roster-text]');
+          if (info && text) text.textContent = `P${info.pos} — ${info.total} pts — ${info.starts} starts`;
+          it.dataset.livePos = String(info ? info.pos : 9999);
+        });
+        items.sort((a, b) => Number(a.dataset.livePos) - Number(b.dataset.livePos)).forEach((it) => box.appendChild(it));
+      });
+    }
+
     function apply() {
       const n = Number(slider!.value);
-      const atMax = n >= maxRounds;
+      const atMax = n >= maxN;
+      const roundText = String(cols[n - 1]?.r ?? n);
+      if (label) label.textContent = `Round ${roundText}`;
+      if (roundInput) {
+        roundInput.disabled = atMax;
+        roundInput.value = roundText;
+      }
       document.querySelectorAll<HTMLElement>('[data-round-col]').forEach((el) => {
         el.classList.toggle('hidden', Number(el.dataset.roundCol) >= n);
       });
-      const roundText = headers[n - 1]?.dataset.csvValue?.replace(/^R/, '') ?? String(n);
-      if (label) label.textContent = `Round ${roundText}`;
 
-      const visible: { row: HTMLTableRowElement; total: number; origIndex: number }[] = [];
-      for (const r of parsed) {
-        // Cells only exist for rounds the driver attended — map each back to
-        // its column index via the parent td.
-        const byCol = new Map<number, HTMLElement>();
-        r.row.querySelectorAll<HTMLElement>('[data-cell-points]').forEach((span) => {
-          const td = span.closest<HTMLElement>('td[data-round-col]');
-          if (td) byCol.set(Number(td.dataset.roundCol), span);
-        });
-        if (atMax) {
-          r.row.classList.remove('hidden');
-          byCol.forEach((span) => setDropped(span, span.dataset.origDropped === 'true'));
-          visible.push({ row: r.row, total: r.origTotal, origIndex: r.origIndex });
-          continue;
-        }
-        const attended = r.points.slice(0, n).some((p) => p !== null);
-        r.row.classList.toggle('hidden', !attended);
-        if (!attended) continue;
-        const { total, dropped } = totalAsOf(r.points, n);
-        byCol.forEach((span, col) => setDropped(span, dropped.has(col)));
-        visible.push({ row: r.row, total, origIndex: r.origIndex });
+      if (atMax) {
+        restoreAll();
+        return;
       }
 
-      visible.sort((a, b) => b.total - a.total || a.origIndex - b.origIndex);
-      visible.forEach((v, i) => {
-        v.row.querySelector('[data-total-cell]')!.textContent = String(v.total);
-        v.row.querySelector('[data-pos-cell]')!.textContent = String(i + 1);
-        tbody.appendChild(v.row);
+      const visible: { r: (typeof rows)[number]; keys: number[] }[] = [];
+      for (const r of rows) {
+        const attended = r.rounds.slice(0, n).some((x) => x !== null);
+        r.row.style.display = attended ? '' : 'none';
+        if (r.detail) r.detail.style.display = attended ? '' : 'none';
+        if (!attended) continue;
+
+        const pts = r.rounds.map((x) => (x ? x[0] : null));
+        const { total, dropped } = totalAsOf(pts, n, baseDrops);
+        const apps = r.rounds.slice(0, n).filter((x) => x !== null).length;
+        let keys: number[];
+
+        if (kind === 'drivers') {
+          const wins = sumIdx(r.rounds, n, 1);
+          const podiums = sumIdx(r.rounds, n, 2);
+          const top5 = sumIdx(r.rounds, n, 3);
+          const top10 = sumIdx(r.rounds, n, 4);
+          const poles = sumIdx(r.rounds, n, 5);
+          const starts = sumIdx(r.rounds, n, 6);
+          const ledTb = sumIdx(r.rounds, n, 7);
+          const lapsTb = sumIdx(r.rounds, n, 8);
+          keys = [total, wins, podiums, top5, top10, poles, ledTb, lapsTb, apps];
+
+          setText(r.row, 'total', String(total));
+          setText(r.row, 'wins', String(wins));
+          setText(r.row, 'podiums', String(podiums));
+          setText(r.row, 'top5', String(top5));
+          setText(r.row, 'top10', String(top10));
+          setText(r.row, 'poles', String(poles));
+          setOfText(r.row, 'starts', starts, denoms[n - 1]?.s);
+          setOfText(r.row, 'apps', apps, denoms[n - 1]?.a);
+          const pp = r.pp.slice(0, n).reduce((s, v) => s + v, 0);
+          setText(r.row, 'pp', String(pp), pp);
+
+          if (r.detail) {
+            const laps = sumIdx(r.rounds, n, 9);
+            const led = sumIdx(r.rounds, n, 10);
+            const net = sumIdx(r.rounds, n, 11);
+            const inc = sumIdx(r.rounds, n, 12);
+            const bonus = sumIdx(r.rounds, n, 13);
+            const visibleRounds = r.rounds.slice(0, n);
+            const anyKm = visibleRounds.some((x) => x && x[14] !== null);
+            const anyCor = visibleRounds.some((x) => x && x[15] !== null);
+            const dist = sumIdx(r.rounds, n, 14);
+            const cor = sumIdx(r.rounds, n, 15);
+            setText(r.detail, 'dlaps', String(laps));
+            setText(r.detail, 'dled', String(led));
+            setText(r.detail, 'dnet', `${net > 0 ? '+' : ''}${net}`);
+            setText(r.detail, 'dipl', laps > 0 ? (inc / laps).toFixed(2) : '—');
+            setText(r.detail, 'dcpi', anyCor && inc > 0 ? (cor / inc).toFixed(1) : '—');
+            setText(r.detail, 'dpp', String(pp));
+            setText(r.detail, 'dbonus', String(bonus));
+            setText(r.detail, 'ddist', anyKm ? `${dist.toFixed(1)} km` : '—');
+          }
+        } else {
+          keys = [total];
+          setText(r.row, 'total', String(total));
+          const starts = sumIdx(r.rounds, n, 1);
+          setText(r.row, 'starts', String(starts), starts);
+          setText(r.row, 'apps', String(apps), apps);
+        }
+
+        // Matrix cells: dropped-round styling as of this point in the season.
+        r.row.querySelectorAll<HTMLElement>('[data-cell-points]').forEach((span) => {
+          const td = span.closest<HTMLElement>('td[data-round-col]');
+          if (td) setDropped(span, dropped.has(Number(td.dataset.roundCol)));
+        });
+        visible.push({ r, keys });
+      }
+
+      visible.sort((a, b) => {
+        for (let i = 0; i < a.keys.length; i++) {
+          if (b.keys[i] !== a.keys[i]) return b.keys[i] - a.keys[i];
+        }
+        return a.r.name.localeCompare(b.r.name);
       });
+      const hiddenRows = rows.filter((r) => !visible.some((v) => v.r === r)).sort((a, b) => a.origIndex - b.origIndex);
+      visible.forEach((v, i) => {
+        setText(v.r.row, 'pos', String(i + 1));
+        tbody.appendChild(v.r.row);
+        if (v.r.detail) tbody.appendChild(v.r.detail);
+      });
+      hiddenRows.forEach((r) => {
+        tbody.appendChild(r.row);
+        if (r.detail) tbody.appendChild(r.detail);
+      });
+      if (kind === 'teams') updateRosters(n);
     }
+
     slider.addEventListener('input', apply);
     apply();
   }
-  initTimelineSlider();
-  document.addEventListener('astro:page-load', initTimelineSlider);
+  initStandingsSlider();
+  document.addEventListener('astro:page-load', initStandingsSlider);
 </script>

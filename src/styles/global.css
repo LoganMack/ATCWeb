@@ -253,6 +253,16 @@ th[data-sort-key][data-sort-dir='desc']::after {
   --sticky-header-offset: 76px;
 }
 
+/* Rounded table cards: the frozen header's opaque square corners (and a
+   hovered last row's) used to poke out past the card's rounded border — dark
+   notches at the corners, with a stray line through them. `overflow: clip`
+   trims everything to the rounded edge WITHOUT creating a scroll container
+   (unlike overflow hidden/auto, which would break the sticky header — see
+   above), so the sticky behavior is untouched. */
+[data-sticky-thead].rounded-xl {
+  overflow: clip;
+}
+
 [data-sticky-thead] thead th {
   position: sticky;
   top: var(--sticky-header-offset);
