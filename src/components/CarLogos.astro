@@ -1,0 +1,37 @@
+---
+// Car logo(s) for a driver in a season-wide or career-wide context. A driver
+// can have raced several cars over that span; showing a logo for every one
+// wrecked column spacing, so this shows ONE logo (the most-raced car — `cars`
+// is already sorted by races, descending) and, when there's more than one, a
+// small "+" over its top-right corner. Hovering shows one line per car:
+// "Car name: x races". A single car's hover text uses the same format.
+import TeamLogo from './TeamLogo.astro';
+
+interface Props {
+  cars: { carName: string; logoUrl: string | null; races: number }[];
+  /** Tailwind size classes for the logo, e.g. "h-5 w-5". */
+  size?: string;
+  /** What to render when there are no cars: nothing (default) or a muted dash. */
+  empty?: 'none' | 'dash';
+}
+
+const { cars, size = 'h-5 w-5', empty = 'none' } = Astro.props;
+const primary = cars[0];
+const hoverText = cars.map((c) => `${c.carName}: ${c.races} race${c.races === 1 ? '' : 's'}`).join('\n');
+---
+
+{primary ? (
+  <span class="relative inline-flex flex-none" title={hoverText}>
+    <TeamLogo name={primary.carName} logoUrl={primary.logoUrl} size={size} title={hoverText} tint />
+    {cars.length > 1 && (
+      <span
+        class="absolute -right-1.5 -top-1.5 flex h-3 w-3 cursor-help items-center justify-center rounded-full bg-brand-primary text-[10px] font-bold leading-none text-white"
+        aria-label={hoverText.replace(/\n/g, ', ')}
+      >
+        +
+      </span>
+    )}
+  </span>
+) : empty === 'dash' ? (
+  <span class="text-white/30">—</span>
+) : null}

@@ -4,6 +4,7 @@ import { pctOf } from '../lib/results';
 import type { ChampionPhoto } from '../lib/supabase';
 import { displayDriverName, resizedImageUrl } from '../lib/supabase';
 import StatBlock from './StatBlock.astro';
+import CarLogos from './CarLogos.astro';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
 import PhotoGrid from './PhotoGrid.astro';
@@ -49,9 +50,7 @@ function raceWord(n: number): string {
           </h3>
           <DriverFlag nationality1={d.driver.nationality_1} nationality2={d.driver.nationality_2} />
           {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
-          {extras?.cars.map((c) => (
-            <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-6 w-6" title={`${c.carName} — ${raceWord(c.races)}`} tint />
-          ))}
+          {extras && <CarLogos cars={extras.cars} size="h-6 w-6" />}
           {extras?.teams.map((t) => (
             <TeamLogo
               name={t.teamName}

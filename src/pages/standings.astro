@@ -2,6 +2,7 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
+import CarLogos from '../components/CarLogos.astro';
 import TeamLogo from '../components/TeamLogo.astro';
 import DriverFlag from '../components/DriverFlag.astro';
 import PageBanner from '../components/PageBanner.astro';
@@ -121,7 +122,8 @@ const view: 'overall' | 'class' = activeClass ? 'class' : 'overall';
 // "List" (existing table, default) vs "Matrix" (drivers down the left, one
 // column per round across the top, penalty/drop flags on each cell — see
 // DriverSeasonStanding.roundCells), same URL-param pattern as before.
-const mode = Astro.url.searchParams.get('mode') === 'matrix' ? 'matrix' : 'list';
+const requestedMode = Astro.url.searchParams.get('mode');
+const mode: 'list' | 'matrix' | 'graph' = requestedMode === 'matrix' ? 'matrix' : requestedMode === 'graph' ? 'graph' : 'list';
 
 let standings: DriverSeasonStanding[] = [];
 let teamStandings: TeamSeasonStanding[] = [];
@@ -158,7 +160,6 @@ let maxStarts = 0;
 // this season, so reserve as many car and team slots as the busiest driver
 // needs (at least one each) and pad every other row up to that. Filled in
 // once `extrasByDriverId` is loaded below.
-let maxCarSlots = 1;
 let maxTeamSlots = 1;
 let maxAppearances = 0;
 if (!loadError && activeSeason && championship === 'drivers') {
@@ -186,7 +187,6 @@ if (!loadError && activeSeason && championship === 'drivers') {
     standings = standingsResult;
     extrasByDriverId = extras;
     for (const e of extras.values()) {
-      maxCarSlots = Math.max(maxCarSlots, e.cars.length);
       maxTeamSlots = Math.max(maxTeamSlots, e.teams.length);
     }
     extendedStatsByDriverId = extendedStats;
@@ -300,7 +300,7 @@ if (!loadError && activeSeason && matrixColumns.length > 0) {
     console.error('Failed to load scoring rulesets for standings:', err);
   }
 }
-if (!loadError && activeSeason && mode === 'matrix' && matrixColumns.length > 0) {
+if (!loadError && activeSeason && mode !== 'graph' && (mode === 'matrix' || championship === 'drivers') && matrixColumns.length > 0) {
   try {
     const circuits = await getCircuits(supabaseEnv);
     const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
@@ -366,6 +366,37 @@ function teamRoundsJson(row: TeamSeasonStanding): string {
     })
   );
 }
+
+// Graph view data: running (cumulative) points per driver/team across the
+// visible rounds, in standings order — which is also each entity's fixed colour
+// slot (the first 8 get a named hue; the rest are muted grey lines).
+const graphSeries = (
+  championship === 'drivers'
+    ? standings.map((row) => ({
+        id: row.driver.id,
+        name: displayDriverName(row.driver.name),
+        short: shortDriverName(row.driver.name),
+        tag: row.classId !== undefined ? (classNameById.get(row.classId) ?? '') : '',
+        cells: row.roundCells,
+      }))
+    : teamStandings.map((row) => ({ id: row.teamId, name: row.teamName, short: row.teamName, tag: '', cells: row.roundCells }))
+).map((e) => {
+  let run = 0;
+  let started = false;
+  const cum = matrixColumns.map((col) => {
+    const cell = e.cells.get(col.subsessionId);
+    if (cell) {
+      run += cell.points;
+      started = true;
+    }
+    return started ? run : null;
+  });
+  return { id: e.id, name: e.name, short: e.short, tag: e.tag, cum };
+});
+const graphJson = JSON.stringify({
+  cols: matrixColumns.map((c) => ({ r: c.roundNumber, t: c.startTime, k: matrixColumnTitle(c.trackName, c.format) })),
+  series: graphSeries,
+});
 
 // CSV export filename — reflects whichever view is actually on screen
 // (season, Overall/Per Class + which class, List/Matrix) so exporting after
@@ -468,6 +499,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               >
                 <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
                 <option value="matrix" selected={mode === 'matrix'} class="bg-brand-ink text-white">Matrix</option>
+                <option value="graph" selected={mode === 'graph'} class="bg-brand-ink text-white">Graph</option>
               </select>
             </label>
             <label class="flex flex-col gap-1.5 text-sm">
@@ -514,6 +546,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && !deltaNotActiveForSeason && (championship === 'drivers' ? standings.length === 0 : teamStandings.length === 0) && (
       <p class="mt-10 text-white/60">No results.</p>
+    )}
+
+    {!loadError && !deltaNotActiveForSeason && mode === 'graph' && graphSeries.length > 0 && matrixColumns.length > 0 && (
+      <div id="standings-graph" class="graph-root mt-8 rounded-xl border border-white/10 p-4 sm:p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="font-semibold">Cumulative points</h2>
+          <div class="flex gap-2 text-xs">
+            <button type="button" data-graph-preset="top" class="rounded-md bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20">Top 8</button>
+            <button type="button" data-graph-preset="all" class="rounded-md bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20">All</button>
+            <button type="button" data-graph-preset="none" class="rounded-md bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20">None</button>
+          </div>
+        </div>
+        <div id="graph-plot" class="relative mt-3 w-full"></div>
+        <p class="mt-2 text-xs text-white/40">
+          Running total of each round's points — drop weeks aren't applied here. The top 8 are drawn in colour; click any name below to add or remove a line.
+        </p>
+        <div id="graph-legend" class="mt-3 flex max-h-40 flex-wrap gap-x-2 gap-y-1 overflow-y-auto text-xs"></div>
+        <script type="application/json" id="graph-data" set:html={graphJson} />
+      </div>
     )}
 
     {!loadError && championship === 'drivers' && mode === 'list' && standings.length > 0 && (
@@ -582,12 +633,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         <span class="flex h-5 w-6 flex-none items-center justify-center">
                           <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                         </span>
-                        {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
-                        {Array.from({ length: maxCarSlots }, (_, i) => extras?.cars[i]).map((c) => (
-                          <span class="flex h-5 w-5 flex-none items-center justify-center">
-                            {c && <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${raceWord(c.races)}`} tint />}
-                          </span>
-                        ))}
+                        {/* One car slot per row: the most-raced car's logo, plus a "+" when the driver used more than one (hover lists them all). Cars first, teams second — every driver has a car, not every driver has a team. */}
+                        <span class="flex h-5 w-5 flex-none items-center justify-center">
+                          {extras && <CarLogos cars={extras.cars} size="h-5 w-5" />}
+                        </span>
                         {Array.from({ length: maxTeamSlots }, (_, i) => extras?.teams[i]).map((t) => (
                           <span class="flex h-5 w-5 flex-none items-center justify-center">
                             {t && (
@@ -630,45 +679,76 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </tr>
                 <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                   <td colspan={view === 'overall' ? 12 : 11} class="px-4 py-4 sm:pl-11">
+                    {/* This driver's own Matrix line: one logo + points per round, dropped rounds struck through, ● on a penalised round. Follows the Standings by Round slider. */}
+                    <div class="mb-4 flex flex-wrap items-end gap-x-1 gap-y-2 border-b border-white/10 pb-4">
+                      {matrixColumns.map((col, i) => {
+                        const cell = row.roundCells.get(col.subsessionId);
+                        const title = `Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`;
+                        return (
+                          <div class="relative flex w-11 flex-col items-center gap-1" data-round-col={i} title={title}>
+                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-5 w-5" title={title} tint />
+                            {cell ? (
+                              <span
+                                data-cell-points
+                                data-orig-dropped={String(cell.dropped)}
+                                class={`text-xs ${cell.dropped ? 'text-white/35 line-through decoration-white/25' : 'text-white/80'}`}
+                                title={`${cell.dropped ? 'Dropped round — ' : ''}${cell.points} pts`}
+                              >
+                                {cell.points}
+                              </span>
+                            ) : (
+                              <span class="text-xs text-white/20">—</span>
+                            )}
+                            {cell && cell.penalties.length > 0 && (
+                              <span class="absolute right-1 top-0 text-[8px] leading-none text-brand-pink" role="img" title={cell.penalties.join('\n')}>●</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <div class="ml-auto flex flex-col items-end gap-1 pl-3">
+                        <span class="text-[10px] uppercase tracking-wide text-white/30">Total</span>
+                        <span class="text-sm font-semibold text-white/90" data-live="mtotal">{row.totalPoints}</span>
+                      </div>
+                    </div>
                     <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Laps</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dlaps">{ext?.laps ?? 0}</div>
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dlaps">{ext?.laps ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Led</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dled">{ext?.lapsLed ?? 0}</div>
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dled">{ext?.lapsLed ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Net Positions</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dnet">
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dnet">
                           {ext && ext.netPositionsChange > 0 ? '+' : ''}
                           {ext?.netPositionsChange ?? 0}
                         </div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Incidents / Lap</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dipl">
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dipl">
                           {ext?.incidentsPerLap !== null && ext?.incidentsPerLap !== undefined ? ext.incidentsPerLap.toFixed(2) : '—'}
                         </div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Corners / Incident</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dcpi">
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dcpi">
                           {ext?.cornersPerIncident !== null && ext?.cornersPerIncident !== undefined ? ext.cornersPerIncident.toFixed(1) : '—'}
                         </div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Penalty Points</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dpp">{ext?.penaltyPoints ?? 0}</div>
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dpp">{ext?.penaltyPoints ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Bonus Points</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="dbonus">{ext?.bonusPoints ?? 0}</div>
+                        <div class="mt-0.5 text-sm text-white/90" data-live="dbonus">{ext?.bonusPoints ?? 0}</div>
                       </div>
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Distance Driven</div>
-                        <div class="mt-0.5 font-display text-sm text-white/90" data-live="ddist">
+                        <div class="mt-0.5 text-sm text-white/90" data-live="ddist">
                           {ext?.distanceKm !== null && ext?.distanceKm !== undefined ? `${ext.distanceKm.toFixed(1)} km` : '—'}
                         </div>
                       </div>
@@ -984,8 +1064,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   function initStandingsSlider() {
     const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
     const table = document.getElementById('standings-table') as HTMLTableElement | null;
-    if (!slider || !table || slider.dataset.bound === 'true') return;
+    if (!slider || slider.dataset.bound === 'true') return;
     slider.dataset.bound = 'true';
+    if (!table) {
+      // Graph view has no table — the graph script listens to the slider itself;
+      // this just keeps the label and the carried-over `round` param current.
+      const gCols: { r: number | null }[] = JSON.parse(slider.dataset.cols ?? '[]');
+      const gLabel = document.getElementById('timeline-slider-value');
+      const gInput = document.getElementById('timeline-round') as HTMLInputElement | null;
+      const gApply = () => {
+        const gn = Number(slider.value);
+        const text = String(gCols[gn - 1]?.r ?? gn);
+        if (gLabel) gLabel.textContent = `Round ${text}`;
+        if (gInput) {
+          gInput.disabled = gn >= gCols.length;
+          gInput.value = text;
+        }
+      };
+      slider.addEventListener('input', gApply);
+      gApply();
+      return;
+    }
 
     const kind = table.dataset.kind === 'teams' ? 'teams' : 'drivers';
     const cols: { r: number | null; t: string }[] = JSON.parse(slider.dataset.cols ?? '[]');
@@ -1076,7 +1175,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       rows.forEach((r) => {
         r.row.style.display = '';
         if (r.detail) r.detail.style.display = '';
-        r.row.querySelectorAll<HTMLElement>('[data-cell-points]').forEach((span) => setDropped(span, span.dataset.origDropped === 'true'));
+        [...r.row.querySelectorAll<HTMLElement>('[data-cell-points]'), ...(r.detail ? r.detail.querySelectorAll<HTMLElement>('[data-cell-points]') : [])].forEach((span) =>
+          setDropped(span, span.dataset.origDropped === 'true')
+        );
       });
       [...rows]
         .sort((a, b) => a.origIndex - b.origIndex)
@@ -1180,6 +1281,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             const anyCor = visibleRounds.some((x) => x && x[15] !== null);
             const dist = sumIdx(r.rounds, n, 14);
             const cor = sumIdx(r.rounds, n, 15);
+            setText(r.detail, 'mtotal', String(total));
             setText(r.detail, 'dlaps', String(laps));
             setText(r.detail, 'dled', String(led));
             setText(r.detail, 'dnet', `${net > 0 ? '+' : ''}${net}`);
@@ -1197,9 +1299,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           setText(r.row, 'apps', String(apps), apps);
         }
 
-        // Matrix cells: dropped-round styling as of this point in the season.
-        r.row.querySelectorAll<HTMLElement>('[data-cell-points]').forEach((span) => {
-          const td = span.closest<HTMLElement>('td[data-round-col]');
+        // Matrix cells (the Matrix view's row, and a driver's own line in the expanded detail): dropped-round styling as of this point in the season.
+        const matrixCells = [...r.row.querySelectorAll<HTMLElement>('[data-cell-points]'), ...(r.detail ? r.detail.querySelectorAll<HTMLElement>('[data-cell-points]') : [])];
+        matrixCells.forEach((span) => {
+          const td = span.closest<HTMLElement>('[data-round-col]');
           if (td) setDropped(span, dropped.has(Number(td.dataset.roundCol)));
         });
         visible.push({ r, keys });
@@ -1230,3 +1333,279 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   initStandingsSlider();
   document.addEventListener('astro:page-load', initStandingsSlider);
 </script>
+
+<script>
+  // Graph view: cumulative points per driver/team (a running sum of each
+  // round's points — drop weeks are NOT applied here, so lines can end above
+  // the Total shown in List/Matrix). Hand-drawn SVG, no chart library. The
+  // "Standings by Round" slider trims the x-axis to the first N rounds.
+  function initStandingsGraph() {
+    const root = document.getElementById('standings-graph');
+    const dataEl = document.getElementById('graph-data');
+    const plot = document.getElementById('graph-plot');
+    const legend = document.getElementById('graph-legend');
+    if (!root || !dataEl || !plot || !legend || root.dataset.bound === 'true') return;
+    root.dataset.bound = 'true';
+
+    type Series = { id: string; name: string; short: string; tag: string; cum: (number | null)[] };
+    const data = JSON.parse(dataEl.textContent ?? '{}') as { cols: { r: number | null; t: string; k: string }[]; series: Series[] };
+    const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
+    const SVG = 'http://www.w3.org/2000/svg';
+    const TOP = 8;
+    const colorOf = (idx: number) => (idx < TOP ? `var(--g-${idx + 1})` : 'var(--g-muted)');
+    const shown = new Set(data.series.slice(0, TOP).map((s) => s.id));
+
+    function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>) {
+      const e = document.createElementNS(SVG, tag);
+      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+      return e;
+    }
+    function niceStep(raw: number) {
+      const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+      const f = raw / pow;
+      return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * pow;
+    }
+
+    let n = slider ? Number(slider.value) : data.cols.length;
+    let highlight: string | null = null;
+
+    const tip = document.createElement('div');
+    tip.className =
+      'pointer-events-none absolute z-20 hidden min-w-[11rem] max-w-[16rem] rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-xs shadow-lg';
+    plot.appendChild(tip);
+
+    function render() {
+      plot!.querySelector('svg')?.remove();
+      const w = Math.max(280, plot!.clientWidth);
+      const h = w < 520 ? 300 : 420;
+      const m = { l: 44, r: w < 520 ? 12 : 104, t: 12, b: 30 };
+      const iw = w - m.l - m.r;
+      const ih = h - m.t - m.b;
+      const visible = data.series.map((s, idx) => ({ s, idx })).filter((x) => shown.has(x.s.id));
+      const pool = visible.length ? visible : data.series.map((s, idx) => ({ s, idx }));
+      let ymax = 10;
+      for (const { s } of pool) for (let i = 0; i < n; i++) ymax = Math.max(ymax, s.cum[i] ?? 0);
+      const step = niceStep(ymax / 5);
+      const top = Math.ceil(ymax / step) * step;
+      const X = (i: number) => m.l + (n > 1 ? (i / (n - 1)) * iw : iw / 2);
+      const Y = (v: number) => m.t + ih - (v / top) * ih;
+
+      const svg = el('svg', { width: w, height: h, viewBox: `0 0 ${w} ${h}`, role: 'img', 'aria-label': 'Cumulative points by round' });
+      svg.style.display = 'block';
+      // Grid + y axis labels
+      for (let v = 0; v <= top + 0.001; v += step) {
+        svg.appendChild(el('line', { x1: m.l, x2: w - m.r, y1: Y(v), y2: Y(v), stroke: 'var(--g-grid)', 'stroke-width': 1 }));
+        const t = el('text', { x: m.l - 8, y: Y(v) + 4, 'text-anchor': 'end', fill: 'var(--g-axis)', 'font-size': 11 });
+        t.textContent = String(Math.round(v));
+        svg.appendChild(t);
+      }
+      // x axis labels (thinned so they never collide)
+      const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(iw / 36))));
+      for (let i = 0; i < n; i++) {
+        if (i % every !== 0 && i !== n - 1) continue;
+        const t = el('text', { x: X(i), y: h - 10, 'text-anchor': 'middle', fill: 'var(--g-axis)', 'font-size': 11 });
+        t.textContent = `R${data.cols[i].r ?? i + 1}`;
+        svg.appendChild(t);
+      }
+      // Lines — muted (beyond the 8 named hues) first so coloured ones sit on top
+      const ordered = [...visible].sort((a, b) => Number(b.idx >= TOP) - Number(a.idx >= TOP));
+      const paths = new Map<string, SVGPathElement>();
+      for (const { s, idx } of ordered) {
+        let d = '';
+        for (let i = 0; i < n; i++) {
+          const v = s.cum[i];
+          if (v === null) continue;
+          d += `${d ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`;
+        }
+        if (!d) continue;
+        const p = el('path', {
+          d,
+          fill: 'none',
+          stroke: colorOf(idx),
+          'stroke-width': highlight === s.id ? 3.5 : 2,
+          'stroke-linejoin': 'round',
+          'stroke-linecap': 'round',
+          opacity: highlight && highlight !== s.id ? 0.35 : 1,
+        });
+        paths.set(s.id, p);
+        svg.appendChild(p);
+        // end marker with a surface ring
+        const last = (() => {
+          for (let i = n - 1; i >= 0; i--) if (s.cum[i] !== null) return i;
+          return -1;
+        })();
+        if (last >= 0) svg.appendChild(el('circle', { cx: X(last), cy: Y(s.cum[last] as number), r: 3.5, fill: colorOf(idx), stroke: 'var(--g-surface)', 'stroke-width': 2 }));
+      }
+      // Direct labels on the four leaders (only where there's room on the right)
+      if (m.r > 60) {
+        const leaders = visible
+          .filter((x) => x.s.cum[n - 1] !== null)
+          .sort((a, b) => (b.s.cum[n - 1] as number) - (a.s.cum[n - 1] as number))
+          .slice(0, 4);
+        let lastY = -99;
+        for (const { s } of leaders) {
+          const y = Math.max(Y(s.cum[n - 1] as number) + 4, lastY + 13);
+          lastY = y;
+          const t = el('text', { x: w - m.r + 8, y, fill: 'var(--g-ink)', 'font-size': 11 });
+          t.textContent = s.short.length > 14 ? `${s.short.slice(0, 13)}…` : s.short;
+          svg.appendChild(t);
+        }
+      }
+      // Crosshair + hit layer
+      const cross = el('line', { y1: m.t, y2: m.t + ih, stroke: 'var(--g-axis)', 'stroke-width': 1, opacity: 0 });
+      svg.appendChild(cross);
+      const hit = el('rect', { x: m.l, y: m.t, width: iw, height: ih, fill: 'transparent' });
+      svg.appendChild(hit);
+      hit.addEventListener('pointermove', (e) => {
+        const box = svg.getBoundingClientRect();
+        const px = (e as PointerEvent).clientX - box.left;
+        const py = (e as PointerEvent).clientY - box.top;
+        const i = n > 1 ? Math.min(n - 1, Math.max(0, Math.round(((px - m.l) / iw) * (n - 1)))) : 0;
+        cross.setAttribute('x1', String(X(i)));
+        cross.setAttribute('x2', String(X(i)));
+        cross.setAttribute('opacity', '0.5');
+        // nearest line to the pointer at this x
+        let near: string | null = null;
+        let best = 28;
+        const rows = visible
+          .map(({ s, idx }) => ({ s, idx, v: s.cum[i] }))
+          .filter((r): r is { s: Series; idx: number; v: number } => r.v !== null);
+        for (const r of rows) {
+          const dist = Math.abs(Y(r.v) - py);
+          if (dist < best) {
+            best = dist;
+            near = r.s.id;
+          }
+        }
+        if (near !== highlight) {
+          highlight = near;
+          paths.forEach((p, id) => {
+            p.setAttribute('stroke-width', id === highlight ? '3.5' : '2');
+            p.setAttribute('opacity', highlight && id !== highlight ? '0.35' : '1');
+          });
+        }
+        rows.sort((a, b) => b.v - a.v);
+        tip.replaceChildren();
+        const head = document.createElement('div');
+        head.className = 'mb-1 font-semibold text-white/90';
+        head.textContent = `Round ${data.cols[i].r ?? i + 1} — ${data.cols[i].k}`;
+        tip.appendChild(head);
+        rows.slice(0, 10).forEach((r) => {
+          const line = document.createElement('div');
+          line.className = 'flex items-center gap-2 py-0.5';
+          if (r.s.id === highlight) line.style.fontWeight = '700';
+          const key = document.createElement('span');
+          key.style.cssText = `display:inline-block;width:12px;height:2px;flex:none;background:${colorOf(r.idx)}`;
+          const val = document.createElement('strong');
+          val.className = 'w-10 flex-none text-right tabular-nums text-white';
+          val.textContent = String(r.v);
+          const name = document.createElement('span');
+          name.className = 'truncate text-white/60';
+          name.textContent = r.s.name;
+          line.append(key, val, name);
+          tip.appendChild(line);
+        });
+        if (rows.length > 10) {
+          const more = document.createElement('div');
+          more.className = 'pt-1 text-white/40';
+          more.textContent = `+${rows.length - 10} more`;
+          tip.appendChild(more);
+        }
+        tip.classList.remove('hidden');
+        const tw = tip.offsetWidth;
+        const left = X(i) + 14 + tw > w ? X(i) - 14 - tw : X(i) + 14;
+        tip.style.left = `${Math.max(0, left)}px`;
+        tip.style.top = `${Math.max(0, Math.min(py - 20, h - tip.offsetHeight - 4))}px`;
+      });
+      hit.addEventListener('pointerleave', () => {
+        cross.setAttribute('opacity', '0');
+        tip.classList.add('hidden');
+        if (highlight) {
+          highlight = null;
+          paths.forEach((p) => {
+            p.setAttribute('stroke-width', '2');
+            p.setAttribute('opacity', '1');
+          });
+        }
+      });
+      plot!.insertBefore(svg, tip);
+    }
+
+    function renderLegend() {
+      legend!.replaceChildren();
+      data.series.forEach((s, idx) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', String(shown.has(s.id)));
+        b.className = 'flex items-center gap-1.5 rounded px-1.5 py-0.5 text-white/70 transition hover:bg-white/10';
+        b.style.opacity = shown.has(s.id) ? '1' : '0.4';
+        const key = document.createElement('span');
+        key.style.cssText = `display:inline-block;width:14px;height:3px;border-radius:2px;flex:none;background:${colorOf(idx)}`;
+        const name = document.createElement('span');
+        name.textContent = s.name;
+        b.append(key, name);
+        b.addEventListener('click', () => {
+          if (shown.has(s.id)) shown.delete(s.id);
+          else shown.add(s.id);
+          renderLegend();
+          render();
+        });
+        legend!.appendChild(b);
+      });
+    }
+
+    root.querySelectorAll<HTMLButtonElement>('[data-graph-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        shown.clear();
+        const preset = btn.dataset.graphPreset;
+        if (preset === 'top') data.series.slice(0, TOP).forEach((s) => shown.add(s.id));
+        if (preset === 'all') data.series.forEach((s) => shown.add(s.id));
+        renderLegend();
+        render();
+      });
+    });
+
+    slider?.addEventListener('input', () => {
+      n = Number(slider.value);
+      render();
+    });
+    new ResizeObserver(() => render()).observe(plot);
+    renderLegend();
+    render();
+  }
+  initStandingsGraph();
+  document.addEventListener('astro:page-load', initStandingsGraph);
+</script>
+
+<style is:global>
+  .graph-root {
+    --g-1: #3987e5;
+    --g-2: #d95926;
+    --g-3: #199e70;
+    --g-4: #c98500;
+    --g-5: #d55181;
+    --g-6: #008300;
+    --g-7: #9085e9;
+    --g-8: #e66767;
+    --g-muted: rgba(255, 255, 255, 0.35);
+    --g-grid: rgba(255, 255, 255, 0.08);
+    --g-axis: rgba(255, 255, 255, 0.55);
+    --g-ink: #ffffff;
+    --g-surface: #0b0b0e;
+  }
+  .light .graph-root {
+    --g-1: #2a78d6;
+    --g-2: #eb6834;
+    --g-3: #1baf7a;
+    --g-4: #eda100;
+    --g-5: #e87ba4;
+    --g-6: #008300;
+    --g-7: #4a3aa7;
+    --g-8: #e34948;
+    --g-muted: rgba(17, 17, 20, 0.35);
+    --g-grid: rgba(17, 17, 20, 0.08);
+    --g-axis: rgba(17, 17, 20, 0.6);
+    --g-ink: #111114;
+    --g-surface: #f7f7f9;
+  }
+</style>

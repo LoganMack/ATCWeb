@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import CarLogos from '../../../components/CarLogos.astro';
 import TeamLogo from '../../../components/TeamLogo.astro';
 import NewsCard from '../../../components/NewsCard.astro';
 import {
@@ -751,12 +752,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
                         </span>
                       </td>
                       <td class="py-2 pr-2" data-col="cars" data-sort-value={r.cars.map((c) => c.carName).join(', ')}>
-                        <div class="flex flex-wrap items-center gap-1">
-                          {r.cars.map((c) => (
-                            <TeamLogo name={c.carName} logoUrl={c.logoUrl} size="h-5 w-5" title={`${c.carName} — ${c.races} race${c.races === 1 ? '' : 's'}`} tint />
-                          ))}
-                          {r.cars.length === 0 && <span class="text-white/30">—</span>}
-                        </div>
+                        <CarLogos cars={r.cars} empty="dash" />
                       </td>
                       <td class="py-2 pr-2" data-col="teams" data-sort-value={r.teams.map((t) => t.teamName).join(', ')}>
                         <div class="flex flex-wrap items-center gap-1">
