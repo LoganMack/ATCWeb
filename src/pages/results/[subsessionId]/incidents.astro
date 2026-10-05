@@ -624,13 +624,16 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
         )}
 
         {isAdmin && incidentReports.length > 0 && (
-          <div class="mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
-            <h2 class="font-display text-xl text-brand-gold">
-              Reported Incidents
-              <span class="ml-2 text-sm text-white/40">
-                {incidentReports.filter((r) => r.status === 'open').length} open
-              </span>
-            </h2>
+          <details open class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
+            <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+              <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
+              <h2 class="font-display text-xl text-brand-gold">
+                Reported Incidents
+                <span class="ml-2 text-sm text-white/40">
+                  {incidentReports.filter((r) => r.status === 'open').length} open
+                </span>
+              </h2>
+            </summary>
             <ul class="mt-3 flex flex-col gap-2">
               {incidentReports.map((r) => (
                 <li class={`rounded-lg border border-white/10 bg-white/5 p-3 text-sm ${r.status === 'open' ? '' : 'opacity-50'}`}>
@@ -669,7 +672,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                 </li>
               ))}
             </ul>
-          </div>
+          </details>
         )}
 
         {isAdmin && (

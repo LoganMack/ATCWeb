@@ -512,6 +512,14 @@ const sessionChoices: { key: string; label: string }[] = [
 const raceTableRows = activeClass
   ? roundResults.byClass.get(activeClass.id)?.get(activeRaceNumber) ?? []
   : roundResults.overall.get(activeRaceNumber) ?? [];
+// Fastest lap of the whole race (across every class, even in a Per Class
+// view) — its time is shown in ATC blue in the results table.
+const raceBestLapTenThousandths = (() => {
+  const laps = (roundResults.overall.get(activeRaceNumber) ?? [])
+    .map((r) => r.bestLapTenThousandths)
+    .filter((n): n is number => n !== null && n > 0);
+  return laps.length > 0 ? Math.min(...laps) : null;
+})();
 const qualifyingTableRows = activeClass ? qualifying.byClass.get(activeClass.id) ?? [] : qualifying.overall;
 const practiceTableRows = activeClass ? practice.byClass.get(activeClass.id) ?? [] : practice.overall;
 
@@ -649,6 +657,8 @@ Astro.response.headers.set(
               incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(activeRaceNumber) ?? new Set()}
               layoutCorners={layoutCorners}
               driverBestLapsAtTrack={driverBestLapsAtTrack}
+              raceBestLapTenThousandths={raceBestLapTenThousandths}
+              showPenaltyTags={roundPosted}
             />
           ) : (
             <p class="mt-10 text-white/60">No results.</p>
@@ -657,7 +667,7 @@ Astro.response.headers.set(
 
         {category === 'qualifying' && (
           qualifyingTableRows.length > 0 ? (
-            <QualifyingResultsTable rows={qualifyingTableRows} showClass={!activeClass} classNameById={classNameById} penalties={penalties} />
+            <QualifyingResultsTable rows={qualifyingTableRows} showClass={!activeClass} classNameById={classNameById} penalties={roundPosted ? penalties : []} />
           ) : (
             <p class="mt-10 text-white/60">No qualifying results.</p>
           )

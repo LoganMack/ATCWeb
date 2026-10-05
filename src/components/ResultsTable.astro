@@ -139,6 +139,10 @@ interface Props {
   layoutCorners?: number | null;
   /** driverId -> that driver's fastest-ever lap at this track BEFORE this round (results.ts's getDriverBestLapsAtTrack()), computed once at the page level since it's the same lookup for every race/view of this round. Missing entry means no prior lap on file at this track (first time here, or the lookup failed) — the "beat personal best" indicator in the expanded detail panel just stays hidden in that case, same graceful-degradation as every other optional lookup here. */
   driverBestLapsAtTrack?: Map<string, number>;
+  /** The fastest lap of the whole race (ten-thousandths of a second), measured across every class — so it stays the same in the Per Class view. That lap's time is shown in ATC blue. Null/undefined when no lap times are on file. */
+  raceBestLapTenThousandths?: number | null;
+  /** False until stewards post this round's incident report — until then the penalty tag next to a driver's name ("1PP", "Warning", ...) is hidden so it can't spoil the unposted report. Defaults to true. */
+  showPenaltyTags?: boolean;
 }
 
 const {
@@ -152,7 +156,14 @@ const {
   incidentLimitExceededDriverIds = new Set(),
   layoutCorners = null,
   driverBestLapsAtTrack,
+  raceBestLapTenThousandths = null,
+  showPenaltyTags = true,
 } = Astro.props;
+
+/** Margins to the leader are shown with a leading "+" ("+1.234"); the "-1L" laps-down flag and the leader's "—" stay as they are. */
+function displayMargin(margin: string): string {
+  return /^\d/.test(margin) ? `+${margin}` : margin;
+}
 
 // Filtered by scoringRaceNumber (src/lib/penalties.ts), not the raw
 // session_type/race_number fields — a qualifying/practice-logged penalty is
@@ -193,7 +204,8 @@ for (const p of racePenalties) {
       <tbody>
         {rows.map((row) => {
           const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
-          const tagLabel = penaltyTagLabel(rowPenalties);
+          const tagLabel = showPenaltyTags ? penaltyTagLabel(rowPenalties) : '';
+          const isRaceBestLap = raceBestLapTenThousandths !== null && row.bestLapTenThousandths !== null && row.bestLapTenThousandths === raceBestLapTenThousandths;
           // Not a "Penalty"-prefix check anymore — the PP case now reads
           // just "XPP" (see penaltyTagLabel above) — so this is everything
           // real EXCEPT the two non-penalty states: no tag at all, and a
@@ -304,9 +316,9 @@ for (const p of racePenalties) {
                       {row.tags.map((tag) => (
                         <span
                           class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50"
-                          title={tag === 'Unclassified' ? 'Completed less than 50% of overall race length. No points scored.' : undefined}
+                          title={tag === 'Unclassified' ? 'Not classified. Completed less than 50% of race distance. No points scored.' : undefined}
                         >
-                          {tag}
+                          {tag === 'Unclassified' ? 'NC' : tag}
                         </span>
                       ))}
                     </span>
@@ -343,7 +355,7 @@ for (const p of racePenalties) {
                 </span>
               </td>
             )}
-            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{row.margin}</td>
+            <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{displayMargin(row.margin)}</td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">
               {/* The "P" badge is absolutely positioned off a wrapper sized
                   to just the number, rather than sitting inline after it —
@@ -393,7 +405,7 @@ for (const p of racePenalties) {
               )}
             </td>
             <td
-              class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell"
+              class={`hidden py-2.5 pr-3 text-center lg:table-cell ${isRaceBestLap ? 'font-semibold text-brand-primary' : 'text-white/60'}`}
               title={`Avg lap: ${row.averageLapFormatted}`}
             >
               {row.bestLapFormatted}
