@@ -40,6 +40,7 @@ import {
   resolveLayout,
   getDriverBestLapsAtTrack,
   type RoundResults,
+  type RaceResultRow,
   type QualifyingRow,
   type PracticeRow,
 } from '../../lib/results';
@@ -211,6 +212,44 @@ if (!loadError && round) {
     ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
   } catch (err) {
     console.error('Failed to resolve round scoring ruleset:', err);
+  }
+}
+
+// Until stewards POST the round's incident report (admin > Incident
+// Reporting), nothing about its penalties may show on this page — not the
+// tags, not repositioned finishers, not points adjustments, not time
+// penalties — since that would spoil the unposted report. So until then
+// (for everyone, admins included — they can see it all on the Incident
+// Report page) the penalties list is emptied, the penalty engine below is
+// skipped, and the flat points deductions the database already folded into
+// each driver's total are taken back out. Posting the round reveals it all.
+// If the posted flag can't be read, this errs on the side of concealing.
+let roundPosted = false;
+if (!loadError && round) {
+  try {
+    roundPosted = await isRoundPosted(supabaseEnv, subsessionId);
+  } catch (err) {
+    console.error('Failed to read incident report posted flag:', err);
+  }
+}
+if (!roundPosted) {
+  penalties = [];
+  const stripDeduction = (row: RaceResultRow): RaceResultRow => {
+    if (row.pointsDeduction === 0 && !row.hasPenalty && row.penaltyOldPosition === null) return row;
+    const totalPoints = row.totalPoints - row.pointsDeduction;
+    return {
+      ...row,
+      totalPoints,
+      originalTotalPoints: totalPoints,
+      bonusPoints: row.bonusPoints - row.pointsDeduction,
+      pointsDeduction: 0,
+      hasPenalty: false,
+      penaltyOldPosition: null,
+    };
+  };
+  for (const [raceNumber, rows] of roundResults.overall) roundResults.overall.set(raceNumber, rows.map(stripDeduction));
+  for (const byRace of roundResults.byClass.values()) {
+    for (const [raceNumber, rows] of byRace) byRace.set(raceNumber, rows.map(stripDeduction));
   }
 }
 
@@ -422,10 +461,7 @@ for (const rows of roundResults.overall.values()) {
 const reportDrivers = [...reportDriverById.values()].sort(
   (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
 );
-const [reportingHours, roundPosted] =
-  !loadError && round
-    ? await Promise.all([getReportingPeriodHours(supabaseEnv), isRoundPosted(supabaseEnv, subsessionId)])
-    : [24, false];
+const reportingHours = !loadError && round ? await getReportingPeriodHours(supabaseEnv) : 24;
 const reportingWindow =
   !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time, reportingHours) : null;
 const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
@@ -667,7 +703,7 @@ Astro.response.headers.set(
 
         {category === 'qualifying' && (
           qualifyingTableRows.length > 0 ? (
-            <QualifyingResultsTable rows={qualifyingTableRows} showClass={!activeClass} classNameById={classNameById} penalties={roundPosted ? penalties : []} />
+            <QualifyingResultsTable rows={qualifyingTableRows} showClass={!activeClass} classNameById={classNameById} penalties={penalties} />
           ) : (
             <p class="mt-10 text-white/60">No qualifying results.</p>
           )
