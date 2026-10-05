@@ -30,6 +30,13 @@ export const INACTIVITY_ROUNDS_KEY = 'inactivity_rounds';
  */
 export const INCIDENT_REPORT_PERIOD_HOURS_KEY = 'incident_report_period_hours';
 
+/**
+ * How long, in hours, drivers can submit an appeal for an incident after the
+ * round's incident report has been POSTED (see src/lib/incidentAppeals.ts).
+ * Edited under admin > Site Properties next to the reporting window.
+ */
+export const INCIDENT_APPEAL_PERIOD_HOURS_KEY = 'incident_appeal_period_hours';
+
 /** Defaults matching what was hardcoded before these became configurable — used whenever a key is unset (nothing has ever saved it) or holds something non-numeric. */
 export const DRIVER_SETTING_DEFAULTS: Record<string, number> = {
   [PROBATION_DAYS_KEY]: 45,
@@ -37,6 +44,7 @@ export const DRIVER_SETTING_DEFAULTS: Record<string, number> = {
   [INACTIVITY_DAYS_KEY]: 90,
   [INACTIVITY_ROUNDS_KEY]: 12,
   [INCIDENT_REPORT_PERIOD_HOURS_KEY]: 24,
+  [INCIDENT_APPEAL_PERIOD_HOURS_KEY]: 24,
 };
 
 /** Looks up one setting's value, or null if unset. */

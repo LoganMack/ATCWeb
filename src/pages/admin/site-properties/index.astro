@@ -41,7 +41,7 @@ import {
 import { BANNER_PAGES } from '../../../lib/pageBanners';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getSiteSettings, upsertSiteSetting } from '../../../lib/supabase';
-import { INCIDENT_REPORT_PERIOD_HOURS_KEY, siteSettingInt } from '../../../lib/siteSettings';
+import { INCIDENT_REPORT_PERIOD_HOURS_KEY, INCIDENT_APPEAL_PERIOD_HOURS_KEY, siteSettingInt } from '../../../lib/siteSettings';
 import { getChampions, driversSelect } from '../../../lib/results';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -74,22 +74,40 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const section = String(form.get('form_section') ?? '');
 
-  if (section === 'incident-reporting') {
+  if (section === 'incident-appeal') {
     const hours = Math.round(Number(String(form.get('period_hours') ?? '').trim()));
     if (!Number.isFinite(hours) || hours < 1 || hours > 720) {
-      error = 'Reporting period must be a whole number of hours between 1 and 720.';
+      error = 'Appeal window must be a whole number of hours between 1 and 720.';
+    } else {
+      try {
+        await upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INCIDENT_APPEAL_PERIOD_HOURS_KEY, value: String(hours) });
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'site_property',
+          entity_label: `Incident appeal window — ${hours}h`,
+        });
+        return Astro.redirect('/admin/site-properties', 302);
+      } catch (err) {
+        console.error('Failed to save incident appeal window:', err);
+        error = err instanceof Error ? err.message : 'Failed to save the appeal window.';
+      }
+    }
+  } else if (section === 'incident-reporting') {
+    const hours = Math.round(Number(String(form.get('period_hours') ?? '').trim()));
+    if (!Number.isFinite(hours) || hours < 1 || hours > 720) {
+      error = 'Reporting window must be a whole number of hours between 1 and 720.';
     } else {
       try {
         await upsertSiteSetting(supabaseEnv, accessToken, { setting_key: INCIDENT_REPORT_PERIOD_HOURS_KEY, value: String(hours) });
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
           entity_type: 'site_property',
-          entity_label: `Incident reporting period — ${hours}h`,
+          entity_label: `Incident reporting window — ${hours}h`,
         });
         return Astro.redirect('/admin/site-properties', 302);
       } catch (err) {
         console.error('Failed to save incident reporting period:', err);
-        error = err instanceof Error ? err.message : 'Failed to save the reporting period.';
+        error = err instanceof Error ? err.message : 'Failed to save the reporting window.';
       }
     }
   } else if (section === 'car-logo') {
@@ -357,8 +375,11 @@ if (!championsLoadError && activeClass) {
   }
 }
 let incidentPeriodHours = 24;
+let incidentAppealHours = 24;
 try {
-  incidentPeriodHours = siteSettingInt(await getSiteSettings(supabaseEnv), INCIDENT_REPORT_PERIOD_HOURS_KEY);
+  const settings = await getSiteSettings(supabaseEnv);
+  incidentPeriodHours = siteSettingInt(settings, INCIDENT_REPORT_PERIOD_HOURS_KEY);
+  incidentAppealHours = siteSettingInt(settings, INCIDENT_APPEAL_PERIOD_HOURS_KEY);
 } catch (err) {
   console.error('Failed to load incident reporting period:', err);
 }
@@ -375,14 +396,14 @@ try {
   )}
 
   <section class="reveal mt-8" style="transition-delay: 50ms">
-    <h2 class="font-semibold">Incident Reporting</h2>
+    <h2 class="font-semibold">Incident Reporting Window</h2>
     <p class="mt-1 max-w-2xl text-sm text-white/50">
       How long drivers can report incidents after a round's race ends. Once it closes, the Incident Report button on the results page is disabled until you post the round.
     </p>
     <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
       <input type="hidden" name="form_section" value="incident-reporting" />
       <label class="block text-sm">
-        <span class="text-white/60">Reporting period (hours)</span>
+        <span class="text-white/60">Reporting window (hours)</span>
         <input
           type="number"
           name="period_hours"
@@ -390,6 +411,28 @@ try {
           max="720"
           step="1"
           value={incidentPeriodHours}
+          required
+          class="mt-1 block w-32 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white"
+        />
+      </label>
+      <button type="submit" class="h-10 rounded-lg bg-brand-primary px-5 text-sm font-semibold text-white hover:bg-brand-primary/90">Save</button>
+    </form>
+
+    <h2 class="mt-8 font-semibold">Incident Appeal Window</h2>
+    <p class="mt-1 max-w-2xl text-sm text-white/50">
+      How long drivers can submit an appeal for an incident after you post the round's incident report. Once it closes, the Submit Appeal button in the incident details popup is disabled.
+    </p>
+    <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
+      <input type="hidden" name="form_section" value="incident-appeal" />
+      <label class="block text-sm">
+        <span class="text-white/60">Appeal window (hours)</span>
+        <input
+          type="number"
+          name="period_hours"
+          min="1"
+          max="720"
+          step="1"
+          value={incidentAppealHours}
           required
           class="mt-1 block w-32 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white"
         />

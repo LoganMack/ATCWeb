@@ -21,6 +21,7 @@ import {
   getDriverClasses,
   getDriverSeasonCarNumbersForSeason,
   uploadToStorage,
+  restGet,
   getSeasonById,
   getScoringRulesets,
   resolveSeasonRuleset,
@@ -42,6 +43,22 @@ import { resolveDriverByCarNumberForSeason } from '../../../lib/raceResultsImpor
 import { parseCsv } from '../../../lib/csv';
 import { isAdminView } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import {
+  getAppealClosesAt,
+  isAppealOpen,
+  createIncidentAppeal,
+  uploadAppealFile,
+  safeAppealFileName,
+  getIncidentAppealsForSubsession,
+  setIncidentAppealStatus,
+  signAppealFileUrl,
+  APPEAL_MAX_FILES,
+  APPEAL_MAX_FILE_BYTES,
+  APPEAL_MAX_MESSAGE_LENGTH,
+  APPEAL_ALLOWED_MIME_TYPES,
+  type AppealFileMeta,
+  type IncidentAppeal,
+} from '../../../lib/incidentAppeals';
 import { getIncidentReportsForSubsession, setIncidentReportStatus, isRoundPosted, type IncidentReport } from '../../../lib/incidentReports';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -61,8 +78,56 @@ async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
   return out;
 }
 
-if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId)) {
-  const form = await Astro.request.formData();
+// Read once up front (a request body can only be consumed once) — shared by
+// the open-to-everyone `submit-appeal` handler and the admin-only intents.
+const postForm: FormData | null =
+  Astro.request.method === 'POST' && Number.isFinite(subsessionId) ? await Astro.request.formData() : null;
+
+// --- Submit an appeal (anyone, signed in or not) ---------------------------
+// Open only while the Incident Appeal Window is (see lib/incidentAppeals.ts);
+// re-checked here server-side. The files go into the private
+// 'incident-appeals' bucket first, then one SECURITY DEFINER call records the
+// appeal text + file list (0093_incident_appeals.sql).
+if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') {
+  const back = (code: string) => {
+    const url = new URL(Astro.url);
+    url.searchParams.set('appeal', code);
+    return Astro.redirect(`${url.pathname}${url.search}`, 302);
+  };
+  // Honeypot — real users never fill this hidden field.
+  if (String(postForm.get('website') ?? '').trim() !== '') return back('ok');
+  const appealCloses = await getAppealClosesAt(supabaseEnv, subsessionId);
+  if (!isAppealOpen(appealCloses)) return back('closed');
+
+  const penaltyId = String(postForm.get('penalty_id') ?? '');
+  const message = String(postForm.get('message') ?? '').trim();
+  const files = postForm.getAll('files').filter((f): f is File => typeof f !== 'string' && f.size > 0);
+  if (!/^[0-9a-f-]{36}$/i.test(penaltyId) || !message || message.length > APPEAL_MAX_MESSAGE_LENGTH) return back('invalid');
+  if (files.length > APPEAL_MAX_FILES) return back('toomany');
+  if (files.some((f) => f.size > APPEAL_MAX_FILE_BYTES)) return back('toolarge');
+  if (files.some((f) => !APPEAL_ALLOWED_MIME_TYPES.includes(f.type))) return back('badtype');
+
+  try {
+    const owned = await restGet<{ id: string }[]>(supabaseEnv, `penalties?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`);
+    if (owned.length === 0) return back('invalid');
+    const appealId = crypto.randomUUID();
+    const token = Astro.locals.session?.accessToken ?? null;
+    const uploaded: AppealFileMeta[] = [];
+    for (const [i, file] of files.entries()) {
+      const path = `${appealId}/${i + 1}-${safeAppealFileName(file.name)}`;
+      await uploadAppealFile(supabaseEnv, token, path, file);
+      uploaded.push({ path, name: file.name, size: file.size, type: file.type });
+    }
+    await createIncidentAppeal(supabaseEnv, token, { id: appealId, penalty_id: penaltyId, message, files: uploaded });
+  } catch (err) {
+    console.error('Failed to save incident appeal:', err);
+    return back('failed');
+  }
+  return back('ok');
+}
+
+if (isAdmin && postForm) {
+  const form = postForm;
   const intent = String(form.get('intent') ?? '');
   const accessToken = Astro.locals.session!.accessToken;
   const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
@@ -180,6 +245,19 @@ if (isAdmin && Astro.request.method === 'POST' && Number.isFinite(subsessionId))
         await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status);
       } catch (err) {
         console.error('Failed to update incident report status:', err);
+      }
+    }
+    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
+  }
+
+  if (intent === 'set-appeal-status') {
+    const appealId = String(form.get('appeal_id') ?? '');
+    const status = String(form.get('status') ?? '');
+    if (appealId && (status === 'open' || status === 'reviewed' || status === 'dismissed')) {
+      try {
+        await setIncidentAppealStatus(supabaseEnv, accessToken, appealId, status);
+      } catch (err) {
+        console.error('Failed to update incident appeal status:', err);
       }
     }
     return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
@@ -494,6 +572,40 @@ if (isAdmin) {
 }
 const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
 
+// Appeals (0093_incident_appeals.sql) — admin-only queue, shown beneath the
+// reported incidents. Attached files live in a private bucket, so each gets a
+// one-hour signed download link here.
+let incidentAppeals: IncidentAppeal[] = [];
+const appealFileUrls = new Map<string, string | null>();
+if (isAdmin) {
+  try {
+    const token = Astro.locals.session!.accessToken;
+    incidentAppeals = await getIncidentAppealsForSubsession(supabaseEnv, token, subsessionId);
+    await Promise.all(
+      incidentAppeals.flatMap((a) => a.files.map(async (f) => { appealFileUrls.set(f.path, await signAppealFileUrl(supabaseEnv, token, f.path)); }))
+    );
+  } catch (err) {
+    console.error('Failed to load incident appeals:', err);
+  }
+}
+
+// Whether the Submit Appeal button in the details popup is live: open from
+// the moment the round was posted until the Incident Appeal Window runs out.
+// The button re-checks this live in the browser too (the page can be cached).
+const appealClosesAt = roundPosted ? await getAppealClosesAt(supabaseEnv, subsessionId) : null;
+const appealOpen = isAppealOpen(appealClosesAt);
+let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
+{
+  const flash = Astro.url.searchParams.get('appeal');
+  if (flash === 'ok') appealFlash = { kind: 'ok', message: 'Appeal submitted. The stewards will review it.' };
+  else if (flash === 'closed') appealFlash = { kind: 'error', message: 'The appeal window for this round has closed.' };
+  else if (flash === 'invalid') appealFlash = { kind: 'error', message: 'Your appeal needs a written explanation.' };
+  else if (flash === 'toomany') appealFlash = { kind: 'error', message: `You can attach up to ${APPEAL_MAX_FILES} files.` };
+  else if (flash === 'toolarge') appealFlash = { kind: 'error', message: 'Each file must be 10 MB or smaller.' };
+  else if (flash === 'badtype') appealFlash = { kind: 'error', message: 'Attachments must be images, PDFs, videos (MP4/WebM/MOV) or text files.' };
+  else if (flash === 'failed') appealFlash = { kind: 'error', message: "Couldn't save your appeal right now. Please try again." };
+}
+
 // Every loggable session for this round's dialog/grouping — every real race,
 // plus Qualifying and Practice (session_type sentinel race_number 0, see
 // 0056_penalty_session_type.sql), independent of whether Qualifying/Practice
@@ -519,6 +631,12 @@ function involvedSummary(p: Penalty): string | null {
 }
 
 /** Numeric incident_number sorts numerically; a non-numeric or missing one sorts to the end (Infinity), then falls back to a string compare so two non-numeric incident numbers still sort predictably rather than by insertion order. */
+/** "#12" — incident numbers are always shown with a leading # (not doubled if one was typed in). */
+function formatIncidentNumber(n: string | null): string {
+  const v = (n ?? '').trim();
+  if (!v) return '—';
+  return v.startsWith('#') ? v : `#${v}`;
+}
 function incidentNumberSortValue(p: Penalty): number {
   const n = p.incident_number ? Number(p.incident_number) : NaN;
   return Number.isFinite(n) ? n : Infinity;
@@ -549,9 +667,6 @@ for (const p of sortedPenalties) {
   penaltiesBySession.get(key)!.push(p);
 }
 const sessionKeysWithIncidents = sessionOptions.map((o) => o.value).filter((key) => penaltiesBySession.has(key));
-
-/** Descriptions longer than this many characters are cut off with a trailing ellipsis behind a "Show more" toggle — a hard character limit rather than CSS truncation, so the cell can never stretch wider than this regardless of how long the underlying text is. */
-const DESCRIPTION_TRUNCATE_LENGTH = 30;
 
 const importedCount = Astro.url.searchParams.get('imported');
 const skippedCount = Astro.url.searchParams.get('skipped');
@@ -616,6 +731,12 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           </p>
         )}
 
+        {appealFlash && (
+          <p class={`mt-4 rounded-lg border p-3 text-sm text-white/80 ${appealFlash.kind === 'ok' ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}>
+            {appealFlash.message}
+          </p>
+        )}
+
         {importedCount !== null && (
           <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
             Imported {importedCount} incident{importedCount === '1' ? '' : 's'}.
@@ -624,7 +745,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
         )}
 
         {isAdmin && incidentReports.length > 0 && (
-          <details open class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
+          <details class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
             <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
               <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
               <h2 class="font-display text-xl text-brand-gold">
@@ -671,6 +792,82 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                   </p>
                 </li>
               ))}
+            </ul>
+          </details>
+        )}
+
+        {isAdmin && incidentAppeals.length > 0 && (
+          <details class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
+            <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+              <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
+              <h2 class="font-display text-xl text-brand-gold">
+                Submitted Appeals
+                <span class="ml-2 text-sm text-white/40">
+                  {incidentAppeals.filter((a) => a.status === 'open').length} open
+                </span>
+              </h2>
+            </summary>
+            <ul class="mt-3 flex flex-col gap-2">
+              {incidentAppeals.map((a) => {
+                const appealed = penalties.find((p) => p.id === a.penalty_id);
+                const appealedDriver = appealed?.driver_id ? driverById.get(appealed.driver_id) : undefined;
+                return (
+                  <li class={`rounded-lg border border-white/10 bg-white/5 p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <p class="font-semibold text-white/80">
+                        {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
+                        {appealed && (
+                          <span class="font-normal text-white/50">
+                            {' · '}
+                            {appealed.driver_id === null ? 'Racing Incident' : (appealedDriver?.car_number != null ? `#${appealedDriver.car_number} ${appealedDriver.name}` : (appealedDriver?.name ?? 'Unknown driver'))}
+                            {appealed.lap != null && ` · Lap ${appealed.lap}`}
+                          </span>
+                        )}
+                      </p>
+                      <div class="flex flex-wrap items-center gap-2">
+                        {a.status === 'open' && (
+                          <form method="POST" data-astro-reload>
+                            <input type="hidden" name="intent" value="set-appeal-status" />
+                            <input type="hidden" name="appeal_id" value={a.id} />
+                            <input type="hidden" name="status" value="reviewed" />
+                            <button type="submit" class="rounded-lg bg-brand-primary px-3 py-1 text-xs font-semibold transition hover:brightness-110">Mark reviewed</button>
+                          </form>
+                        )}
+                        <form method="POST" data-astro-reload>
+                          <input type="hidden" name="intent" value="set-appeal-status" />
+                          <input type="hidden" name="appeal_id" value={a.id} />
+                          <input type="hidden" name="status" value={a.status === 'open' ? 'dismissed' : 'open'} />
+                          <button type="submit" class="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/20">
+                            {a.status === 'open' ? 'Dismiss' : 'Reopen'}
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                    <p class="mt-2 whitespace-pre-line text-white/70">{a.message}</p>
+                    {a.files.length > 0 && (
+                      <ul class="mt-2 flex flex-wrap gap-2">
+                        {a.files.map((f) => {
+                          const url = appealFileUrls.get(f.path) ?? null;
+                          const label = `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`;
+                          return (
+                            <li>
+                              {url ? (
+                                <a href={url} target="_blank" rel="noopener noreferrer" class="inline-block rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-brand-primary hover:bg-white/20">{label}</a>
+                              ) : (
+                                <span class="inline-block rounded-md bg-white/5 px-2 py-1 text-xs text-white/40" title="Couldn't create a download link">{label}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    <p class="mt-2 text-[11px] text-white/30">
+                      Submitted by {a.submitter_name ?? (a.submitter_id ? 'a signed-in user' : 'a signed-out visitor')} · {new Date(a.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
+                      {a.status !== 'open' && ` · ${a.status}`}
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           </details>
         )}
@@ -728,23 +925,23 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
               <table class="w-full border-collapse">
                 <thead>
                   <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                    {/* On mobile, only the columns an admin/driver needs at a
-                        glance stay visible (Lap/Driver/PP/Time/Pts); the rest
-                        (incident #, Involved, Description, Offenses, Pos Δ,
-                        Pts Δ) are hidden below md and surfaced instead in the
-                        tap-to-view details modal — see [data-incident-row]/
-                        [data-mobile-incident-dialog] below, per Logan. */}
-                    <th class="hidden py-3 pl-4 pr-3 font-medium md:table-cell">#</th>
-                    <th class="py-3 pl-4 pr-3 text-center font-medium md:pl-0">Lap</th>
+                    {/* Columns shown: on mobile just #, Lap, Driver and PP; from md
+                        up also Involved, Time, Pts, Pos Δ and Pts Δ. Everything
+                        else about an incident (description, offenses, appeal
+                        notes) lives in the details popup — click/tap any row
+                        (the › at the end of it) to open it
+                        ([data-incident-row] / [data-incident-details-dialog]
+                        below), per Logan. */}
+                    <th class="py-3 pl-4 pr-3 font-medium">#</th>
+                    <th class="py-3 pr-3 text-center font-medium">Lap</th>
                     <th class="py-3 pr-3 font-medium">Driver</th>
                     <th class="hidden py-3 pr-3 font-medium md:table-cell">Involved</th>
-                    <th class="hidden py-3 pr-3 font-medium md:table-cell">Description</th>
-                    <th class="hidden py-3 pr-3 font-medium md:table-cell">Offenses</th>
                     <th class="py-3 pr-3 text-center font-medium">PP</th>
-                    <th class="py-3 pr-3 text-center font-medium">Time</th>
-                    <th class="py-3 pr-3 text-center font-medium">Pts</th>
+                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Time</th>
+                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Pts</th>
                     <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Pos &Delta;</th>
-                    <th class="hidden py-3 pr-4 text-center font-medium md:table-cell">Pts &Delta;</th>
+                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Pts &Delta;</th>
+                    <th class="w-8 py-3 pr-4"><span class="sr-only">Details</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -754,18 +951,17 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                     const time = effectiveTimePenaltySeconds(p);
                     const points = effectivePointsPenalty(p);
                     const pp = effectivePenaltyPoints(p);
-                    const isLongDescription = (p.description?.length ?? 0) > DESCRIPTION_TRUNCATE_LENGTH;
-                    const truncatedDescription = isLongDescription
-                      ? `${p.description!.slice(0, DESCRIPTION_TRUNCATE_LENGTH).trimEnd()}…`
-                      : (p.description ?? '');
                     return (
                       <>
                         <tr
-                          class={`${isAdmin ? '' : 'border-b border-white/5 '}cursor-pointer text-sm active:bg-white/5 md:cursor-default md:active:bg-transparent`}
+                          class={`${isAdmin ? '' : 'border-b border-white/5 '}cursor-pointer text-sm transition hover:bg-white/[0.03] active:bg-white/5`}
+                          tabindex="0"
+                          role="button"
                           data-incident-row
                           data-incident-summary={JSON.stringify({
+                            penaltyId: p.id,
                             driverLabel: p.driver_id === null ? 'Racing Incident (no driver at fault)' : (driver?.car_number != null ? `#${driver.car_number}` : '—'),
-                            incidentNumber: p.incident_number,
+                            incidentNumber: formatIncidentNumber(p.incident_number),
                             lap: p.lap,
                             involved: involvedSummary(p),
                             description: p.description,
@@ -782,71 +978,14 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                             appealResult: p.appeal_result,
                           })}
                         >
-                          <td class="hidden py-2.5 pl-4 pr-3 text-white/60 md:table-cell">{p.incident_number ?? '—'}</td>
-                          <td class="py-2.5 pl-4 pr-3 text-center text-white/60 md:pl-0">{p.lap ?? '—'}</td>
+                          <td class="py-2.5 pl-4 pr-3 text-white/60">{formatIncidentNumber(p.incident_number)}</td>
+                          <td class="py-2.5 pr-3 text-center text-white/60">{p.lap ?? '—'}</td>
                           <td class="py-2.5 pr-3 font-semibold">
                             <div title={p.driver_id === null ? 'Racing Incident — no driver at fault' : undefined}>
                               {p.driver_id === null ? 'RI' : (driver?.car_number != null ? `#${driver.car_number}` : '—')}
                             </div>
-                            {p.is_appealed && (
-                              <button
-                                type="button"
-                                data-appeal-toggle
-                                class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink hover:underline"
-                              >
-                                Appealed
-                              </button>
-                            )}
-                            {p.is_appealed && (
-                              <div
-                                data-appeal-detail
-                                class="mt-1 hidden max-w-[12rem] rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-[11px] font-normal text-brand-pink/90"
-                              >
-                                {p.appeal_result || 'No appeal notes recorded.'}
-                              </div>
-                            )}
                           </td>
                           <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell">{involvedSummary(p) ?? '—'}</td>
-                          <td class="hidden max-w-xs py-2.5 pr-3 align-top text-white/50 md:table-cell">
-                            {/* align-top, not the table's usual (default)
-                                vertical-centering — a <td> centers its
-                                content as ONE block, so a row with a "Show
-                                more" button (taller: text + gap + button)
-                                had its text sit visibly higher than the same
-                                text in a row with no button, even though
-                                both rows' description text should start at
-                                the same place. Anchoring to the top instead
-                                means the text's own position never depends
-                                on whether the button is present, per Logan. */}
-                            {p.description ? (
-                              <div class="flex flex-col items-start gap-0.5">
-                                <div
-                                  data-desc-text
-                                  data-full-text={p.description}
-                                  data-truncated-text={truncatedDescription}
-                                  data-expanded="false"
-                                >
-                                  {isLongDescription ? truncatedDescription : p.description}
-                                </div>
-                                {isLongDescription && (
-                                  <button type="button" data-desc-toggle class="text-[10px] font-semibold text-white/40 hover:text-white">
-                                    Show more
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                          <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell">
-                            {p.offense_ids.length > 0 ? (
-                              <div class="flex flex-col gap-0.5">
-                                {p.offense_ids.map((id) => <div>{offenseNameById.get(id) ?? '?'}</div>)}
-                              </div>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
                           <td class="py-2.5 pr-3 text-center text-white/60">
                             {/* A warning never carries a PP value of its own
                                 (penalty_points is stored 0 — see this file's
@@ -860,22 +999,15 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                               <div>{pp || '—'}</div>
                             )}
                           </td>
-                          <td class="py-2.5 pr-3 text-center text-white/60">{time ? `+${time}s` : '—'}</td>
-                          <td class="py-2.5 pr-3 text-center text-white/60">
-                            <span>{points ? points : '—'}</span>
-                            {/* Mobile-only tap hint — the row itself is the
-                                target, this just signals "there's more here"
-                                since the columns hiding to the right (Pos Δ/
-                                Pts Δ, already hidden above) leave no other
-                                visual cue that a tap opens the details modal. */}
-                            <span class="ml-1 text-white/25 md:hidden" aria-hidden="true">›</span>
-                          </td>
+                          <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{time ? `+${time}s` : '—'}</td>
+                          <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{points ? points : '—'}</td>
                           <td class={`hidden py-2.5 pr-3 text-center font-semibold md:table-cell ${deltaClass(positionDelta)}`}>{formatDelta(positionDelta)}</td>
-                          <td class={`hidden py-2.5 pr-4 text-center font-semibold md:table-cell ${deltaClass(pointsDelta)}`}>{formatDelta(pointsDelta)}</td>
+                          <td class={`hidden py-2.5 pr-3 text-center font-semibold md:table-cell ${deltaClass(pointsDelta)}`}>{formatDelta(pointsDelta)}</td>
+                          <td class="py-2.5 pr-4 text-right text-lg leading-none text-white/30" aria-hidden="true">&rsaquo;</td>
                         </tr>
                         {isAdmin && (
                           <tr class="border-b border-white/5 text-sm">
-                            <td colspan={11} class="py-1.5 pl-4 pr-4">
+                            <td colspan={10} class="py-1.5 pl-4 pr-4">
                               <div class="flex justify-start gap-3">
                                 <button
                                   type="button"
@@ -1094,16 +1226,16 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           </dialog>
         )}
 
-        {/* Mobile-only "view details" popup: on small screens the table
-            hides incident #/Involved/Description/Pos Δ/Pts Δ (see the
-            hidden md:table-cell columns above) so tapping a row here shows
-            everything about that incident in one readable card. Every
-            viewer gets this (not isAdmin-gated) — it's read-only, no form.
-            Desktop already shows every column so the row click is a no-op
-            there (see initIncidentPage's mobile matchMedia guard). */}
+        {/* "Incident Details" popup — opened by clicking/tapping any incident
+            row (desktop and mobile alike). The table itself leaves out the
+            description, offenses and appeal notes, so this card is where
+            everything about one incident is readable in one place. Every
+            viewer gets it (not isAdmin-gated) — it's read-only, apart from
+            the "Submit Appeal" button at the bottom, which opens the appeal
+            form below while the Incident Appeal Window is open. */}
         <dialog
           data-mobile-incident-dialog
-          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
         >
           <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
             <div class="flex items-center justify-between">
@@ -1167,7 +1299,63 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                 <dd data-mobile-appeal class="mt-1 text-[13px] text-brand-pink/90"></dd>
               </div>
             </dl>
+
+            <div class="flex justify-end">
+              <button
+                type="button"
+                data-open-appeal-dialog
+                data-appeal-closes-at={appealClosesAt?.toISOString() ?? ''}
+                data-appeal-open={appealOpen ? 'true' : 'false'}
+                disabled={!appealOpen}
+                title={appealOpen ? 'Appeal this incident.' : 'The appeal window for this incident has closed.'}
+                class="rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-brand-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+              >
+                Submit Appeal
+              </button>
+            </div>
           </div>
+        </dialog>
+
+        <dialog
+          data-appeal-dialog
+          class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+        >
+          <form method="POST" enctype="multipart/form-data" data-astro-reload data-appeal-form class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+            <input type="hidden" name="intent" value="submit-appeal" />
+            <input type="hidden" name="penalty_id" data-appeal-penalty-id />
+            <input type="text" name="website" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true" />
+            <div class="flex items-center justify-between">
+              <h4 class="font-display text-lg">Submit Appeal <span data-appeal-incident-label class="text-white/50"></span></h4>
+              <button type="button" data-close-appeal-dialog class="text-white/40 hover:text-white">✕</button>
+            </div>
+            <label class="block text-sm">
+              <span class="text-white/60">Why should this incident be reviewed?</span>
+              <textarea
+                name="message"
+                required
+                rows="6"
+                maxlength={APPEAL_MAX_MESSAGE_LENGTH}
+                class="mt-1 block w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white"
+              ></textarea>
+            </label>
+            <label class="block text-sm">
+              <span class="text-white/60">Attachments (optional — up to {APPEAL_MAX_FILES} files, 10 MB each)</span>
+              <input
+                type="file"
+                name="files"
+                multiple
+                accept={APPEAL_ALLOWED_MIME_TYPES.join(',')}
+                data-appeal-files
+                class="mt-1 block w-full text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:bg-white/20"
+              />
+              <span class="mt-1 block text-[11px] text-white/30">Images, PDFs, videos (MP4/WebM/MOV) or text files.</span>
+            </label>
+            <p data-appeal-error class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90"></p>
+            <div class="flex justify-end gap-2">
+              <button type="button" data-close-appeal-dialog class="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/20">Cancel</button>
+              <button type="submit" class="rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-brand-ink transition hover:brightness-110">Submit Appeal</button>
+            </div>
+          </form>
         </dialog>
       </>
     )}
@@ -1194,41 +1382,13 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
   //     incident) — see syncInvolvedWithDriver below. Only ever touches the
   //     checkbox IT checked; anything the admin checked by hand is left
   //     alone even if the Driver field changes again afterward.
-  //   - [data-desc-toggle] — expands/collapses a long description.
-  //   - [data-appeal-toggle] — reveals/hides that incident's appeal notes.
   function initIncidentPage() {
-    document.querySelectorAll<HTMLButtonElement>('[data-desc-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const text = btn.previousElementSibling as HTMLElement | null;
-        if (!text) return;
-        const expanded = text.dataset.expanded === 'true';
-        if (expanded) {
-          text.textContent = text.dataset.truncatedText ?? '';
-          text.dataset.expanded = 'false';
-          btn.textContent = 'Show more';
-        } else {
-          text.textContent = text.dataset.fullText ?? '';
-          text.dataset.expanded = 'true';
-          btn.textContent = 'Show less';
-        }
-      });
-    });
-
-    document.querySelectorAll<HTMLButtonElement>('[data-appeal-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const detail = btn.nextElementSibling as HTMLElement | null;
-        detail?.classList.toggle('hidden');
-      });
-    });
-
-    // Mobile "view details" popup for [data-incident-row] — placed ahead of
-    // the `if (!dialog) return` below so it still wires up for non-admin
-    // viewers, who never get the add/edit <dialog> rendered at all. Every
-    // viewer should be able to tap a row on mobile to see the columns the
-    // table hides below md (incident #, Involved, Description, Pos Δ, Pts Δ).
+    // "Incident Details" popup for [data-incident-row] — opened by clicking
+    // (or pressing Enter/Space on) any incident row, on every screen size.
+    // Placed ahead of the `if (!dialog) return` below so it still wires up
+    // for non-admin viewers, who never get the add/edit <dialog> at all.
     const mobileDialog = document.querySelector<HTMLDialogElement>('[data-mobile-incident-dialog]');
     if (mobileDialog) {
-      const isMobileViewport = () => window.matchMedia('(max-width: 767px)').matches;
       const setField = (selector: string, text: string) => {
         const el = mobileDialog.querySelector<HTMLElement>(selector);
         if (el) el.textContent = text;
@@ -1237,58 +1397,116 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
         mobileDialog.querySelector<HTMLElement>(selector)?.classList.toggle('hidden', !visible);
       };
 
+      // Submit Appeal: live window check (the page may be cached at the edge)
+      // plus the appeal form popup itself.
+      const appealBtn = mobileDialog.querySelector<HTMLButtonElement>('[data-open-appeal-dialog]');
+      const appealDialog = document.querySelector<HTMLDialogElement>('[data-appeal-dialog]');
+      let currentPenaltyId = '';
+      let currentIncidentLabel = '';
+      const refreshAppealButton = () => {
+        if (!appealBtn) return;
+        const closesAt = appealBtn.dataset.appealClosesAt ? new Date(appealBtn.dataset.appealClosesAt).getTime() : NaN;
+        const open = appealBtn.dataset.appealOpen === 'true' && Number.isFinite(closesAt) && Date.now() < closesAt;
+        appealBtn.disabled = !open;
+        appealBtn.title = open ? 'Appeal this incident.' : 'The appeal window for this incident has closed.';
+      };
+      if (appealBtn && appealDialog) {
+        const appealForm = appealDialog.querySelector<HTMLFormElement>('[data-appeal-form]')!;
+        const fileInput = appealDialog.querySelector<HTMLInputElement>('[data-appeal-files]')!;
+        const errorEl = appealDialog.querySelector<HTMLElement>('[data-appeal-error]')!;
+        const showError = (msg: string) => {
+          errorEl.textContent = msg;
+          errorEl.classList.toggle('hidden', msg === '');
+        };
+        appealBtn.addEventListener('click', () => {
+          refreshAppealButton();
+          if (appealBtn.disabled) return;
+          appealDialog.querySelector<HTMLInputElement>('[data-appeal-penalty-id]')!.value = currentPenaltyId;
+          const label = appealDialog.querySelector<HTMLElement>('[data-appeal-incident-label]');
+          if (label) label.textContent = currentIncidentLabel !== '—' ? `· Incident ${currentIncidentLabel}` : '';
+          showError('');
+          mobileDialog.close();
+          appealDialog.showModal();
+        });
+        appealDialog.querySelectorAll<HTMLButtonElement>('[data-close-appeal-dialog]').forEach((btn) => {
+          btn.addEventListener('click', () => appealDialog.close());
+        });
+        fileInput.addEventListener('change', () => {
+          const files = Array.from(fileInput.files ?? []);
+          if (files.length > 3) showError('You can attach up to 3 files.');
+          else if (files.some((f) => f.size > 10 * 1024 * 1024)) showError('Each file must be 10 MB or smaller.');
+          else showError('');
+        });
+        appealForm.addEventListener('submit', (event) => {
+          const files = Array.from(fileInput.files ?? []);
+          if (files.length > 3) {
+            event.preventDefault();
+            showError('You can attach up to 3 files.');
+          } else if (files.some((f) => f.size > 10 * 1024 * 1024)) {
+            event.preventDefault();
+            showError('Each file must be 10 MB or smaller.');
+          }
+        });
+      }
+      refreshAppealButton();
+
+      const openDetails = (row: HTMLTableRowElement) => {
+        if (!row.dataset.incidentSummary) return;
+        const summary = JSON.parse(row.dataset.incidentSummary);
+        currentPenaltyId = summary.penaltyId ?? '';
+        currentIncidentLabel = summary.incidentNumber ?? '—';
+
+        setField('[data-mobile-driver]', summary.driverLabel ?? '—');
+        setField('[data-mobile-incident-number]', summary.incidentNumber ?? '—');
+        setField('[data-mobile-lap]', summary.lap != null ? String(summary.lap) : '—');
+
+        setRowVisible('[data-mobile-involved-row]', Boolean(summary.involved));
+        setField('[data-mobile-involved]', summary.involved ?? '');
+
+        setRowVisible('[data-mobile-description-row]', Boolean(summary.description));
+        setField('[data-mobile-description]', summary.description ?? '');
+
+        const offenses: string[] = summary.offenses ?? [];
+        setRowVisible('[data-mobile-offenses-row]', offenses.length > 0);
+        const offensesEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-offenses]');
+        if (offensesEl) {
+          offensesEl.replaceChildren(
+            ...offenses.map((name: string) => {
+              const div = document.createElement('div');
+              div.textContent = name;
+              return div;
+            })
+          );
+        }
+
+        setField('[data-mobile-pp]', summary.isWarning ? 'Warning' : (summary.pp ? String(summary.pp) : '—'));
+        setField('[data-mobile-time]', summary.time ? `+${summary.time}s` : '—');
+        setField('[data-mobile-points]', summary.points ? String(summary.points) : '—');
+
+        const posEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-position-delta]');
+        if (posEl) {
+          posEl.textContent = summary.positionDelta ?? '—';
+          posEl.className = `mt-0.5 font-semibold ${summary.positionDeltaClass ?? 'text-white/40'}`;
+        }
+        const ptsEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-points-delta]');
+        if (ptsEl) {
+          ptsEl.textContent = summary.pointsDelta ?? '—';
+          ptsEl.className = `mt-0.5 font-semibold ${summary.pointsDeltaClass ?? 'text-white/40'}`;
+        }
+
+        setRowVisible('[data-mobile-appeal-row]', Boolean(summary.isAppealed));
+        setField('[data-mobile-appeal]', summary.appealResult || 'No appeal notes recorded.');
+
+        refreshAppealButton();
+        mobileDialog.showModal();
+      };
+
       document.querySelectorAll<HTMLTableRowElement>('[data-incident-row]').forEach((row) => {
-        row.addEventListener('click', (event) => {
-          if (!isMobileViewport()) return;
-          // Don't hijack the Appealed toggle — it's still visible and
-          // interactive on mobile (inside the Driver cell) with its own
-          // click handler above; let that run instead of opening the modal.
-          if ((event.target as HTMLElement).closest('[data-appeal-toggle], [data-appeal-detail]')) return;
-          if (!row.dataset.incidentSummary) return;
-          const summary = JSON.parse(row.dataset.incidentSummary);
-
-          setField('[data-mobile-driver]', summary.driverLabel ?? '—');
-          setField('[data-mobile-incident-number]', summary.incidentNumber != null ? String(summary.incidentNumber) : '—');
-          setField('[data-mobile-lap]', summary.lap != null ? String(summary.lap) : '—');
-
-          setRowVisible('[data-mobile-involved-row]', Boolean(summary.involved));
-          setField('[data-mobile-involved]', summary.involved ?? '');
-
-          setRowVisible('[data-mobile-description-row]', Boolean(summary.description));
-          setField('[data-mobile-description]', summary.description ?? '');
-
-          const offenses: string[] = summary.offenses ?? [];
-          setRowVisible('[data-mobile-offenses-row]', offenses.length > 0);
-          const offensesEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-offenses]');
-          if (offensesEl) {
-            offensesEl.replaceChildren(
-              ...offenses.map((name: string) => {
-                const div = document.createElement('div');
-                div.textContent = name;
-                return div;
-              })
-            );
-          }
-
-          setField('[data-mobile-pp]', summary.isWarning ? 'Warning' : (summary.pp ? String(summary.pp) : '—'));
-          setField('[data-mobile-time]', summary.time ? `+${summary.time}s` : '—');
-          setField('[data-mobile-points]', summary.points ? String(summary.points) : '—');
-
-          const posEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-position-delta]');
-          if (posEl) {
-            posEl.textContent = summary.positionDelta ?? '—';
-            posEl.className = `mt-0.5 font-semibold ${summary.positionDeltaClass ?? 'text-white/40'}`;
-          }
-          const ptsEl = mobileDialog.querySelector<HTMLElement>('[data-mobile-points-delta]');
-          if (ptsEl) {
-            ptsEl.textContent = summary.pointsDelta ?? '—';
-            ptsEl.className = `mt-0.5 font-semibold ${summary.pointsDeltaClass ?? 'text-white/40'}`;
-          }
-
-          setRowVisible('[data-mobile-appeal-row]', Boolean(summary.isAppealed));
-          setField('[data-mobile-appeal]', summary.appealResult || 'No appeal notes recorded.');
-
-          mobileDialog.showModal();
+        row.addEventListener('click', () => openDetails(row));
+        row.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          openDetails(row);
         });
       });
 

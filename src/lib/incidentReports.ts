@@ -146,6 +146,23 @@ export async function isRoundPosted(env: SupabaseEnv, subsessionId: number): Pro
   }
 }
 
+/** When stewards posted this round's incident report, or null if it isn't posted (or was posted before appeals existed, in which case there's no timestamp and its appeal window counts as closed). */
+export async function getRoundPostedAt(env: SupabaseEnv, subsessionId: number): Promise<Date | null> {
+  try {
+    const rows = await restGet<{ posted: boolean; posted_at: string | null }[]>(
+      env,
+      `round_incident_status?select=posted,posted_at&subsession_id=eq.${subsessionId}`
+    );
+    const row = rows[0];
+    if (!row || row.posted !== true || !row.posted_at) return null;
+    const d = new Date(row.posted_at);
+    return Number.isNaN(d.getTime()) ? null : d;
+  } catch (err) {
+    console.error('Failed to read the round incident posted time:', err);
+    return null;
+  }
+}
+
 /** Every posted round's subsession id. */
 export async function getPostedSubsessionIds(env: SupabaseEnv): Promise<Set<number>> {
   const rows = await restGet<{ subsession_id: number }[]>(env, 'round_incident_status?select=subsession_id&posted=eq.true');
@@ -162,7 +179,7 @@ export async function setRoundPosted(env: SupabaseEnv, accessToken: string, subs
       'Content-Type': 'application/json',
       Prefer: 'resolution=merge-duplicates,return=minimal',
     },
-    body: JSON.stringify({ subsession_id: subsessionId, posted }),
+    body: JSON.stringify({ subsession_id: subsessionId, posted, posted_at: posted ? new Date().toISOString() : null }),
   });
   if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_incident_status: ${await res.text()}`);
 }
