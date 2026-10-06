@@ -788,7 +788,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                   </p>
                   {r.description && <p class="mt-1 text-white/70">{r.description}</p>}
                   <p class="mt-1 text-[11px] text-white/30">
-                    Reported by {r.reporter_name ?? (r.reporter_id ? 'a signed-in user' : 'a signed-out visitor')} · {new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
+                    Reported {new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
                   </p>
                 </li>
               ))}

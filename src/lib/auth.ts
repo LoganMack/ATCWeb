@@ -321,6 +321,40 @@ export async function getAllProfiles(env: SupabaseEnv, accessToken: string): Pro
   return ((await res.json()) as ProfileRow[]).map(toProfile);
 }
 
+/** Every login's email address (id -> email), for Admin > Users. Emails live in auth.users, so this goes through the admin-only admin_list_user_emails() function (0095). Returns an empty map if that function isn't available. */
+export async function getUserEmails(env: SupabaseEnv, accessToken: string): Promise<Map<string, string>> {
+  try {
+    const res = await fetch(`${env.url}/rest/v1/rpc/admin_list_user_emails`, {
+      method: 'POST',
+      headers: authHeaders(env, accessToken),
+      body: '{}',
+    });
+    if (!res.ok) return new Map();
+    const rows = (await res.json()) as { id: string; email: string | null }[];
+    return new Map(rows.filter((r) => r.email).map((r) => [r.id, r.email as string]));
+  } catch {
+    return new Map();
+  }
+}
+
+/** Deletes a login (and its profile) via the admin-only admin_delete_user() function (0095). Throws with the database's message on failure. */
+export async function deleteUser(env: SupabaseEnv, accessToken: string, userId: string): Promise<void> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/admin_delete_user`, {
+    method: 'POST',
+    headers: authHeaders(env, accessToken),
+    body: JSON.stringify({ p_user_id: userId }),
+  });
+  if (!res.ok) {
+    let message = await res.text();
+    try {
+      message = (JSON.parse(message) as { message?: string }).message ?? message;
+    } catch {
+      // keep raw text
+    }
+    throw new Error(message);
+  }
+}
+
 /** Links a login to a roster driver (or clears the link with `null`). Requires an admin's access token — RLS rejects this otherwise. */
 export async function setProfileDriver(
   env: SupabaseEnv,

@@ -138,12 +138,12 @@ const importAndLog: DashboardCard[] = [
   {
     href: '/admin/incident-reporting',
     label: 'Incident Reporting',
-    detail: `${openIncidentReportCount} open driver report${openIncidentReportCount === 1 ? '' : 's'}`,
+    detail: `${openIncidentReportCount} open report${openIncidentReportCount === 1 ? '' : 's'}`,
   },
   {
     href: '/admin/import',
     label: 'Add Race Result',
-    detail: `${missingRaceResultsCount} finished event${missingRaceResultsCount === 1 ? '' : 's'} missing race results.`,
+    detail: `${missingRaceResultsCount}`,
   },
   {
     href: '/admin/activity-log',
@@ -236,13 +236,18 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
         href={card.href}
         class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
       >
-        <h3 class="flex items-center gap-3 font-display text-2xl">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 flex-none text-brand-primary" aria-hidden="true">
+        {/* Icon is exactly as tall as the title (32px) + subtitle (20px) +
+            gap (4px) beside it, so it spans from the top of the title to
+            the bottom of the subtitle; both texts sit to its right. */}
+        <div class="flex items-center gap-4">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-14 w-14 flex-none text-brand-primary" aria-hidden="true">
             {(ICONS[card.label] ?? []).map((d) => <path d={d} />)}
           </svg>
-          {card.label}
-        </h3>
-        <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+          <div class="min-w-0">
+            <h3 class="font-display text-2xl leading-8">{card.label}</h3>
+            <p class="mt-1 text-sm leading-5 text-white/60">{card.detail}</p>
+          </div>
+        </div>
       </a>
     ))}
   </div>
@@ -253,13 +258,18 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
         href={card.href}
         class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
       >
-        <h3 class="flex items-center gap-3 font-display text-2xl">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 flex-none text-brand-primary" aria-hidden="true">
+        {/* Icon is exactly as tall as the title (32px) + subtitle (20px) +
+            gap (4px) beside it, so it spans from the top of the title to
+            the bottom of the subtitle; both texts sit to its right. */}
+        <div class="flex items-center gap-4">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-14 w-14 flex-none text-brand-primary" aria-hidden="true">
             {(ICONS[card.label] ?? []).map((d) => <path d={d} />)}
           </svg>
-          {card.label}
-        </h3>
-        <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+          <div class="min-w-0">
+            <h3 class="font-display text-2xl leading-8">{card.label}</h3>
+            <p class="mt-1 text-sm leading-5 text-white/60">{card.detail}</p>
+          </div>
+        </div>
       </a>
     ))}
   </div>
@@ -270,13 +280,18 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
         href={card.href}
         class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
       >
-        <h3 class="flex items-center gap-3 font-display text-2xl">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 flex-none text-brand-primary" aria-hidden="true">
+        {/* Icon is exactly as tall as the title (32px) + subtitle (20px) +
+            gap (4px) beside it, so it spans from the top of the title to
+            the bottom of the subtitle; both texts sit to its right. */}
+        <div class="flex items-center gap-4">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-14 w-14 flex-none text-brand-primary" aria-hidden="true">
             {(ICONS[card.label] ?? []).map((d) => <path d={d} />)}
           </svg>
-          {card.label}
-        </h3>
-        <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+          <div class="min-w-0">
+            <h3 class="font-display text-2xl leading-8">{card.label}</h3>
+            <p class="mt-1 text-sm leading-5 text-white/60">{card.detail}</p>
+          </div>
+        </div>
       </a>
     ))}
   </div>
@@ -448,13 +463,18 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
         href={card.href}
         class="group rounded-xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.06]"
       >
-        <h3 class="flex items-center gap-3 font-display text-2xl">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 flex-none text-brand-primary" aria-hidden="true">
+        {/* Icon is exactly as tall as the title (32px) + subtitle (20px) +
+            gap (4px) beside it, so it spans from the top of the title to
+            the bottom of the subtitle; both texts sit to its right. */}
+        <div class="flex items-center gap-4">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-14 w-14 flex-none text-brand-primary" aria-hidden="true">
             {(ICONS[card.label] ?? []).map((d) => <path d={d} />)}
           </svg>
-          {card.label}
-        </h3>
-        <p class="mt-1 text-sm text-white/60">{card.detail}</p>
+          <div class="min-w-0">
+            <h3 class="font-display text-2xl leading-8">{card.label}</h3>
+            <p class="mt-1 text-sm leading-5 text-white/60">{card.detail}</p>
+          </div>
+        </div>
       </a>
     ))}
   </div>
