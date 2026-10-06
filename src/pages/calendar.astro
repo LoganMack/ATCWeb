@@ -2,197 +2,29 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import EventDetailCard from '../components/EventDetailCard.astro';
 import PageBanner from '../components/PageBanner.astro';
-import {
-  getEvents,
-  getCircuits,
-  getAllCircuitLayouts,
-  getPageBanners,
-  resolveSupabaseEnv,
-  eventImageUrl,
-  getSeasons,
-  getScoringRulesets,
-  resolveSeasonRuleset,
-  resolveIncidentLimit,
-} from '../lib/supabase';
-import {
-  getAllRounds,
-  getRoundLayoutsForSubsessions,
-  buildLayoutRoundCounter,
-  type RoundSummary,
-} from '../lib/results';
-import { buildEventIcsBlock } from '../lib/ics';
+import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
 
+// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
+// this file only fetches the page banner and paints the heading plus a loading
+// skeleton right away. The events, rounds, layouts and rulesets the calendar
+// needs (several Supabase round trips) live in calendar/fragment.astro and are
+// fetched client-side once this shell has painted. The page's interaction
+// script below (List/Calendar toggle, month grid, recaps) stays here, since a
+// <script> inside fetched HTML never executes; every init function in it
+// bails out when its elements don't exist yet and binds when the fragment's
+// astro:page-load re-dispatch fires.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// bannerUrl is independent of everything else on this page — kicked off
-// immediately and awaited only right before the template needs it.
-const bannerPromise = (async () => {
-  try {
-    return bannerUrlFor(await getPageBanners(supabaseEnv), 'calendar');
-  } catch (err) {
-    console.error('Failed to load page banner:', err);
-    return null;
-  }
-})();
-
-// events and the circuits/layouts/allRounds bulk fetch don't depend on each
-// other — only the per-event loop below needs both — so both are kicked off
-// immediately and awaited together right before that loop runs, instead of
-// events being awaited first and the bulk fetch only starting afterward.
-let loadError = false;
-const eventsPromise: Promise<Awaited<ReturnType<typeof getEvents>>> = (async () => {
-  try {
-    return await getEvents(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load events:', err);
-    loadError = true;
-    return [];
-  }
-})();
-
-// Every event card's "Race Recaps at this Layout" collapsible (see
-// EventDetailCard.astro) needs to know how many historical rounds match its
-// own circuit+layout — computed here ONCE for the whole page (not per
-// card, several of which can repeat the same circuit) via a handful of
-// bulk fetches, then sliced in memory per event. Only the COUNT is kept —
-// the round list itself is fetched lazily, client-side, via
-// /api/layout-rounds.ts, only once a visitor actually expands a given
-// event's collapsible (see that route's own doc comment for why: eagerly
-// materializing every matching round for every event on the page used to
-// add hundreds of unopened <details> to the response). The recap CONTENT
-// one level deeper is separately and already lazy — see
-// src/pages/api/round-recap/[subsessionId].ts.
-let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
-// null (as opposed to a real count) means this event has no circuit at all
-// (HOLIDAY/IRACING — see the loop below) — EventDetailCard's own
-// layoutRoundsCount prop treats `undefined` as "nothing to show here"
-// (neither the collapsible nor the "This is a new layout!" message), which
-// is what a circuitless event needs; `0` there specifically means "this
-// circuit+layout has never been raced," a claim that doesn't make sense
-// for an event with no circuit/layout in the first place.
-let layoutRoundsCountByEventId = new Map<string, number | null>();
-// Which curated_rounds row (if any) each event represents — same
-// season_id+round_number / subsession_id-override resolution as
-// getEventRound() (src/lib/results.ts), just done in bulk against the
-// allRounds fetch this page already needs for layoutRoundsByEventId above,
-// rather than issuing one more REST call per event on a page that can list
-// several dozen of them.
-let linkedRoundByEventId = new Map<string, RoundSummary | null>();
-const bulkFetchPromise = (async () => {
-  try {
-    return await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getAllRounds(supabaseEnv)]);
-  } catch (err) {
-    console.error('Failed to resolve layout race-recap history for the event list:', err);
-    return null;
-  }
-})();
-
-// Each event's "Incident Limit" figure (see EventDetailCard.astro's Rules
-// line) — resolved from the SEASON's scoring ruleset (not the round, unlike
-// results/[subsessionId].astro's own copy of this logic — see
-// resolveIncidentLimit's doc comment) so it still shows for an upcoming
-// event that has no imported round/subsession_id yet. Independent of
-// events/bulkFetchPromise above, so kicked off alongside them; the
-// race_overrides check inside resolveIncidentLimit still needs a
-// subsession_id when one exists, so this map is actually filled in below,
-// once linkedRoundByEventId is known.
-let incidentLimitByEventId = new Map<string, number | null>();
-const rulesetsFetchPromise = (async () => {
-  try {
-    return await Promise.all([getSeasons(supabaseEnv), getScoringRulesets(supabaseEnv)]);
-  } catch (err) {
-    console.error('Failed to resolve season scoring rulesets for the event list:', err);
-    return null;
-  }
-})();
-
-const [events, bulkResult, rulesetsResult] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise]);
-
-if (bulkResult) {
-  const [circuits, layoutsResult, allRounds] = bulkResult;
-  layouts = layoutsResult;
-  const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
-    supabaseEnv,
-    allRounds.map((r) => r.subsession_id)
-  );
-  const roundsBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
-  const roundsBySeasonRound = new Map(allRounds.map((r) => [`${r.season_id}:${r.round_number}`, r]));
-  // O(rounds * (circuits + layouts)) once, up front, instead of re-resolving
-  // every round's layout key for every event — see buildLayoutRoundCounter's
-  // own doc comment (src/lib/results.ts) for why the old
-  // findRoundsForLayout(...).length-per-event approach was expensive enough,
-  // at this site's real data volume, to occasionally trip Cloudflare's
-  // per-request CPU limit outright.
-  const countRoundsForLayout = buildLayoutRoundCounter(allRounds, roundLayoutBySubsession, circuits, layouts);
-  for (const event of events) {
-    layoutRoundsCountByEventId.set(
-      event.id,
-      // HOLIDAY/IRACING events have no circuit_id at all (0073_holiday_iracing_events.sql)
-      // — nothing to find a layout's race-recap history for, so those get
-      // null (see this map's own doc comment above) rather than calling
-      // countRoundsForLayout with no real circuit id to pass it.
-      event.circuit_id ? countRoundsForLayout(event.circuit_id, event.layout) : null
-    );
-    const linked =
-      event.subsession_id !== null
-        ? roundsBySubsession.get(event.subsession_id) ?? null
-        : event.season_id !== null && event.round_number !== null
-          ? roundsBySeasonRound.get(`${event.season_id}:${event.round_number}`) ?? null
-          : null;
-    linkedRoundByEventId.set(event.id, linked);
-  }
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'calendar');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
 }
-
-if (rulesetsResult) {
-  const [seasons, rulesets] = rulesetsResult;
-  const seasonById = new Map(seasons.map((s) => [s.id, s]));
-  for (const event of events) {
-    const season = event.season_id ? (seasonById.get(event.season_id) ?? null) : null;
-    const ruleset = season ? resolveSeasonRuleset(season, rulesets) : null;
-    // Prefer the linked round's own subsession_id (the one race_overrides
-    // would actually be listing) over event.subsession_id — the latter is
-    // just a manual override input to resolving the link in the first
-    // place, and can be null even when a round was matched via
-    // season_id+round_number instead.
-    const subsessionId = linkedRoundByEventId.get(event.id)?.subsession_id ?? event.subsession_id ?? null;
-    incidentLimitByEventId.set(event.id, resolveIncidentLimit(ruleset, event.format, subsessionId));
-  }
-}
-
-const bannerUrl = await bannerPromise;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-
-const todayStr = new Date().toISOString().slice(0, 10);
-// getEvents() has no date filter (see src/lib/supabase.ts), so backdated
-// events are already fetched — this just splits them for the List view.
-const upcoming = events.filter((e) => e.event_date >= todayStr);
-const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
-
-// Lean payload for the client-side Calendar view (see the script at the
-// bottom) — just what a day cell / detail panel needs, serialized into a
-// data attribute (same JSON-in-a-data-attribute pattern the Incident Report
-// page uses for data-edit-incident) rather than fetched again client-side.
-const calendarEvents = events.map((e) => ({
-  date: e.event_date,
-  circuit: e.title ?? e.circuits?.name ?? 'TBA',
-  logoUrl: eventImageUrl(e, e.circuits, layouts),
-  layout: e.layout,
-  format: e.format,
-  category: e.category,
-}));
-
-// Every upcoming event's VEVENT block, pre-joined into one bundle for the
-// "Add All to Calendar" button below — see src/lib/ics.ts's own doc comment
-// for why this is built here (server-side, once) rather than re-derived
-// client-side from the individual per-card buttons.
-const upcomingIcsBundle = upcoming
-  .map((e) => buildEventIcsBlock(e, layouts))
-  .filter((b): b is string => b !== null)
-  .join('\n');
 ---
 
 <Layout title="Calendar" description="The Alpha Touring Challenge race calendar.">
@@ -200,121 +32,20 @@ const upcomingIcsBundle = upcoming
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Calendar</h1>
 
-    <div class="reveal mt-6 flex flex-wrap items-center justify-between gap-3" style="transition-delay: 100ms">
-      <div class="flex flex-wrap items-center gap-2" data-view-toggle>
-        <button
-          type="button"
-          data-view-value="list"
-          data-active="true"
-          class="btn btn-neutral"
-        >
-          List
-        </button>
-        <button
-          type="button"
-          data-view-value="calendar"
-          data-active="false"
-          class="btn btn-neutral"
-        >
-          Calendar
-        </button>
-
-        {past.length > 0 && (
-          <label class="ml-2 flex items-center gap-2 text-sm text-white/60">
-            <input
-              type="checkbox"
-              id="hide-past-events"
-              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
-            />
-            Hide past events
-          </label>
-        )}
-      </div>
-
-      {upcomingIcsBundle && (
-        <button
-          type="button"
-          data-ics-download
-          data-ics-event={upcomingIcsBundle}
-          data-ics-filename="atc-upcoming-events.ics"
-          class="btn btn-neutral btn-sm flex items-center gap-1.5"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-            <line x1="12" y1="14" x2="12" y2="18" />
-            <line x1="10" y1="16" x2="14" y2="16" />
-          </svg>
-          Add All Upcoming to Calendar
-        </button>
-      )}
-    </div>
-
-    {loadError && (
-      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load the calendar right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
-      </p>
-    )}
-
-    {!loadError && events.length === 0 && <p class="mt-8 text-white/60">No results.</p>}
-
-    {!loadError && events.length > 0 && (
-      <div data-view-panel="list">
-        {upcoming.length > 0 && (
-          <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
-          </div>
-        )}
-
-        {past.length > 0 && (
-          <div id="past-events-block">
-            <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
-            <div class="mt-6 grid grid-cols-1 gap-4 opacity-70 sm:grid-cols-2">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
-            </div>
-          </div>
-        )}
-      </div>
-    )}
-
-    {!loadError && events.length > 0 && (
-      <div data-view-panel="calendar" class="hidden mt-10" data-events={JSON.stringify(calendarEvents)}>
-        <div class="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            id="cal-prev"
-            aria-label="Previous month"
-            class="btn btn-neutral"
-          >
-            &larr;
-          </button>
-          <div class="flex items-center gap-3">
-            <h2 id="cal-month-label" class="font-display text-2xl"></h2>
-            <button
-              type="button"
-              id="cal-today"
-              class="btn btn-neutral btn-sm"
-            >
-              Today
-            </button>
-          </div>
-          <button
-            type="button"
-            id="cal-next"
-            aria-label="Next month"
-            class="btn btn-neutral"
-          >
-            &rarr;
-          </button>
+    <div data-calendar-results data-fragment-url={`/calendar/fragment${Astro.url.search}`}>
+      <div class="mt-6" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading calendar…</span>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="h-9 w-20 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-28 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
         </div>
-
-        <div id="cal-grid" class="mt-4 grid grid-cols-7 gap-1.5"></div>
-
-        <div id="cal-day-detail" class="hidden mt-8 border-t border-white/10 pt-6"></div>
+        <div class="mt-6 flex flex-col gap-4">
+          <div class="h-32 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-32 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-32 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        </div>
       </div>
-    )}
+    </div>
   </section>
 
   <script>
@@ -872,3 +603,40 @@ const upcomingIcsBundle = upcoming
     document.addEventListener('astro:page-load', initCalendarPage);
   </script>
 </Layout>
+
+<script>
+  // Shell-then-skeleton: fetches the calendar fragment (the expensive data work)
+  // client-side once this shell has already painted — same pattern as
+  // results.astro / standings.astro; see the matching fragment.astro for the
+  // full explanation.
+  function initCalendarResults() {
+    const container = document.querySelector<HTMLElement>('[data-calendar-results]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+    // Cleared immediately so the synthetic astro:page-load dispatched below
+    // doesn't see this same data-fragment-url and fetch it all over again.
+    delete container.dataset.fragmentUrl;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`calendar fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        // reveal.ts only observes `.reveal` elements present at page-load
+        // time; this content lands later, so mark it visible right away.
+        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+        // Sortable tables, row expanders and this page's own scripts bind
+        // against whatever exists at astro:page-load, so re-dispatch it now
+        // that the real content is in place.
+        document.dispatchEvent(new Event('astro:page-load'));
+      })
+      .catch((err) => {
+        console.error('Failed to load calendar:', err);
+        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
+      });
+  }
+
+  document.addEventListener('astro:page-load', initCalendarResults);
+</script>

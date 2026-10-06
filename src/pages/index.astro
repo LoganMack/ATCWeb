@@ -2,373 +2,34 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import NewsCard from '../components/NewsCard.astro';
-import UpcomingEventCard from '../components/UpcomingEventCard.astro';
-import CarLogos from '../components/CarLogos.astro';
-import TeamLogo from '../components/TeamLogo.astro';
-import DriverFlag from '../components/DriverFlag.astro';
-import {
-  getNewsPosts,
-  getUpcomingEvents,
-  getAllCircuitLayouts,
-  getPageBanners,
-  getSeasons,
-  getDriverClasses,
-  getStandingsExcludedRoundIds,
-  resolveSupabaseEnv,
-  displayLayoutName,
-  shortDriverName,
-  formatDate,
-  getAllNewsPostTags,
-  type NewsTag,
-  type SeasonLogoPair,
-} from '../lib/supabase';
+import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
-import {
-  computeSeasonStandings,
-  computeOverallSeasonStandings,
-  computeTeamSeasonStandings,
-  getSeasonOverallContext,
-  getSeasonCarTeamStats,
-  getTeamsBasic,
-  getAllTeamSeasonLogosSafe,
-  isChampionshipSeason,
-  driversSelect,
-  getPreviousResultWidget,
-  getAllBroadcastVideos,
-  getBroadcastRoundDetails,
-  type DriverSeasonStanding,
-  type TeamSeasonStanding,
-  type DriverSeasonExtras,
-} from '../lib/results';
-import { youtubeEmbedUrl } from '../lib/siteSettings';
-import { classTagFull } from '../lib/classColors';
 
+// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
+// this file only fetches the admin-managed hero image and paints the page
+// frame plus a loading skeleton right away. Everything data-heavy — latest
+// news, upcoming events, previous result, standings widget — lives in
+// home/fragment.astro and is fetched client-side by the loader script at the
+// bottom once this shell has painted. The widget interaction scripts (also at
+// the bottom) bind per-element at astro:page-load, so they pick up the
+// fragment's dropdowns when it lands (a <script> inside fetched HTML would
+// never execute, which is why they stay here).
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Fetch 16 rather than the 4 this page used to show: 1 goes into the new
-// hero-row "latest story" slot, the other 15 fill the plain text "more news"
-// list right below it (see the template below).
-let latestNews: Awaited<ReturnType<typeof getNewsPosts>> = [];
-let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
-// Just for eventImageUrl() below, so a layout's own image (once one's on
-// file) takes priority over the circuit's generic logo on the "Next Up"
-// card, same as everywhere else an event shows a circuit image.
-let eventLayouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
-const loadTopSection = async () => {
-  try {
-    [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
-      getNewsPosts(supabaseEnv, 16),
-      getUpcomingEvents(supabaseEnv, 4),
-      getAllCircuitLayouts(supabaseEnv),
-    ]);
-  } catch (err) {
-    // Supabase not configured yet / unreachable at build time — render the
-    // page gracefully instead of failing the whole request.
-    console.error('Failed to load homepage data:', err);
-  }
-};
-
-// season_label on a post is freeform text (see NewsPost's own doc comment),
-// not an FK to `seasons` — this is a best-effort name match so NewsCard can
-// show that season's logo next to its tag, same as the champion cards do.
-let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
-let logoBySeasonLabel = new Map<string, SeasonLogoPair>();
-const loadSeasonLogos = async () => {
-  try {
-    seasons = await getSeasons(supabaseEnv);
-    logoBySeasonLabel = new Map(
-      seasons.filter((s) => s.logo_url).map((s) => [s.name, { dark: s.logo_url!, light: s.logo_url_light }])
-    );
-  } catch (err) {
-    console.error('Failed to load seasons for news card logos:', err);
-  }
-};
-
-// Same bulk "fetch once, map by id" approach as logoBySeasonLabel just
-// above — only the featured post below actually renders tags (the "more
-// news" list is plain text links), but this stays consistent with how
-// news/index.astro/news/[slug].astro fetch the same data.
-let tagsByPostId = new Map<string, NewsTag[]>();
-const loadNewsTags = async () => {
-  try {
-    const links = await getAllNewsPostTags(supabaseEnv);
-    for (const link of links) {
-      if (!link.news_tags) continue;
-      if (!tagsByPostId.has(link.post_id)) tagsByPostId.set(link.post_id, []);
-      tagsByPostId.get(link.post_id)!.push(link.news_tags);
-    }
-  } catch (err) {
-    console.error('Failed to load news tags for the featured news card:', err);
-  }
-};
-
-// --- Previous Broadcast + hero banner ---------------------------------------
-//
-// Grouped into the same Promise.all as everything else above (news, events,
-// circuit layouts, season logos, news tags) rather than awaited on its own
-// afterward — but the group as a whole still fully resolves BEFORE the
-// standings widget below starts firing its own (much pricier) fetches, same
-// guarantee this used to get from being sequenced after the others one at a
-// time. That distinction matters: see the standings widget's own doc
-// comment below for the full incident this guards against — once upon a
-// time the widget alone could burn through nearly this whole page's
-// Cloudflare Workers subrequest budget, which silently starved whatever ran
-// after it on the same request — this used to be that code's neighbor, and
-// paid for it (that's why "the YouTube embed disappeared" and "no
-// standings" were ever reported as one bug, not two). Running it and its
-// neighbors concurrently with each other, before the widget, is strictly
-// safer than the old one-at-a-time ordering: it finishes sooner, not later.
-//
-// This used to be a manually-pasted YouTube URL set from
-// /admin/site-properties (see 0087_remove_featured_broadcast_setting.sql,
-// which drops the now-unused setting that admin form used to write) — now
-// it's automatic: whichever race result most recently had a broadcast link
-// attached (src/pages/results/[subsessionId].astro sets race_links.broadcast_url),
-// via getAllBroadcastVideos() (results.ts), which already returns every
-// broadcast link on file joined with its round, newest first — [0] is all
-// this needs.
-let previousBroadcast: Awaited<ReturnType<typeof getAllBroadcastVideos>>[number] | null = null;
-let broadcastEmbedUrl: string | null = null;
-// "ATC18: Round 3 at Charlotte Motor Speedway, Roval No Chicanes" — built
-// from the broadcast's round (season label, display round number, track,
-// layout); each piece is simply dropped when it isn't known.
-let broadcastSubtitle = '';
-const loadPreviousBroadcast = async () => {
-  try {
-    const videos = await getAllBroadcastVideos(supabaseEnv);
-    previousBroadcast = videos[0] ?? null;
-    broadcastEmbedUrl = previousBroadcast ? youtubeEmbedUrl(previousBroadcast.broadcast_url) : null;
-    if (previousBroadcast && broadcastEmbedUrl) {
-      const details = await getBroadcastRoundDetails(supabaseEnv, previousBroadcast.subsession_id, previousBroadcast.season_id);
-      const trackAndLayout = [previousBroadcast.track_name, details.layout ? displayLayoutName(details.layout) : null]
-        .filter(Boolean)
-        .join(', ');
-      const where = details.roundNumber !== null ? `Round ${details.roundNumber} at ${trackAndLayout}` : trackAndLayout;
-      broadcastSubtitle = previousBroadcast.season_label ? `${previousBroadcast.season_label}: ${where}` : where;
-    }
-  } catch (err) {
-    console.error('Failed to load previous broadcast:', err);
-  }
-};
-
 // No image configured just means no image: the section renders plain black
-// (this site's bg-brand-ink), same as the body behind it, rather than the
-// placeholder blue radial gradient this used to always show.
+// (this site's bg-brand-ink), same as the body behind it.
 let heroImageUrl: string | null = null;
-const loadHeroBanner = async () => {
-  try {
-    heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
-  } catch (err) {
-    console.error('Failed to load homepage banner:', err);
-  }
-};
-
-// --- Previous Result card ---------------------------------------------
-//
-// Sits in the right-hand column between Upcoming Events and Standings,
-// styled and structured to match the Standings widget below it — same
-// dropdown-driven Overall/Alpha/Delta/Gamma(+Team) tab set, just pulled
-// from the single most recent ROUND's own results instead of the season's,
-// plus a second dropdown for which SESSION of that round (Practice,
-// Qualifying, Race 1/2/3...) is showing. getPreviousResultWidget() is its
-// own deliberately cheap computation — see its own doc comment in
-// results.ts for why it's nowhere near as expensive as the standings
-// widget below.
-let previousResult: Awaited<ReturnType<typeof getPreviousResultWidget>> = null;
-const loadPreviousResult = async () => {
-  try {
-    previousResult = await getPreviousResultWidget(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load previous result widget:', err);
-  }
-};
-
-// All 6 of the above are mutually independent — none reads another's
-// result — so they run concurrently as one round-trip's worth of latency
-// instead of 6 (the first was already batched into its own Promise.all;
-// now it's batched with the rest too). Awaiting this before moving on to
-// the standings widget below is what preserves the ordering guarantee the
-// broadcast/banner comment above depends on.
-await Promise.all([
-  loadTopSection(),
-  loadSeasonLogos(),
-  loadNewsTags(),
-  loadPreviousBroadcast(),
-  loadHeroBanner(),
-  loadPreviousResult(),
-]);
-
-const featuredNews = latestNews[0] ?? null;
-const moreNews = latestNews.slice(1, 16);
-
-// Previous Result widget's default-open session — a visitor lands here
-// wanting to see how the RACE went, not practice/qualifying, so this
-// defaults to the first race session (key `race-1`/`race-N`, see
-// getPreviousResultWidget's own doc comment for how `sessions` gets built:
-// Practice, then Qualifying, then each race in order) when the round has
-// one, falling back to whatever the first session actually on file is
-// (Qualifying, or Practice) for a round that hasn't had a race imported
-// yet. Per Logan.
-const defaultPreviousResultSessionKey =
-  previousResult?.sessions.find((s) => s.key.startsWith('race-'))?.key ?? previousResult?.sessions[0]?.key ?? null;
-
-// --- Top 5 standings widget ------------------------------------------------
-//
-// One toggle-able widget covering Overall + all 3 classes' own driver
-// standings, plus Alpha's and Delta's own separate TEAM standings (Gamma
-// and an Overall team view aren't included here — only what was asked
-// for; the full /team-standings page still has its own Overall/Delta
-// toggle for the team competitions). No Rookies tab for now — pulled back
-// out until there's more rookie-specific logic to back it up.
-//
-// Rather than N separate page navigations (which would need the loading-bar
-// treatment — see pageProgress.ts — for every single toggle click), every
-// view is computed server-side up front and switched between client-side
-// with plain show/hide JS, same as the search-box filters elsewhere on the
-// site. That also means the season-wide penalty context only needs
-// fetching ONCE (`getSeasonOverallContext`, shared via `precomputedOverallContext`
-// into every `compute*Standings` call below, including the team ones)
-// instead of once per view — the same "share one expensive fetch across
-// every view that needs it" pattern computeDriverCareerStats had to be
-// rebuilt around after the Driver Stats subrequest-limit incident (see
-// README v0.34/v0.35).
-type StandingsTab =
-  | { key: string; label: string; type: 'driver'; rows: DriverSeasonStanding[] }
-  | { key: string; label: string; type: 'team'; rows: TeamSeasonStanding[] };
-
-let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
-let standingsTabs: StandingsTab[] = [];
-// Per-driver car/team logos for the driver-standings tabs (see
-// getSeasonCarTeamStats' own doc comment) — keyed by driver id.
-let carTeamExtrasByDriverId = new Map<string, DriverSeasonExtras>();
 try {
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
-  const activeSeason = championshipSeasons.find((s) => s.is_current) ?? championshipSeasons[0];
-
-  if (activeSeason) {
-    const [driversBasic, exhibitionRoundIds, driverClasses, teamsBasic, seasonLogoRows] = await Promise.all([
-      driversSelect(supabaseEnv),
-      getStandingsExcludedRoundIds(supabaseEnv),
-      getDriverClasses(supabaseEnv),
-      getTeamsBasic(supabaseEnv),
-      getAllTeamSeasonLogosSafe(supabaseEnv),
-    ]);
-    classes = driverClasses;
-    const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
-    const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
-
-    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
-
-    const [overallStandings, carTeamExtras] = await Promise.all([
-      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
-      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, teamsBasic, undefined, seasonLogoRows, overallContext),
-    ]);
-    carTeamExtrasByDriverId = carTeamExtras;
-
-    // Per-class driver standings and per-class team standings deliberately
-    // do NOT reuse the Overall tab's own `overallContext` object above (see
-    // README v0.39 — sharing it there was the suspected cause of Alpha's
-    // driver/team tabs once showing wrong numbers). But building a whole
-    // separate ~5-query context PER TAB (3 classes + 2 team tabs = 5 more
-    // full rebuilds) turned out to have its own real cost: stacked on top
-    // of everything else this page already fetches, it pushed a single
-    // homepage load over Cloudflare Workers' per-request subrequest limit —
-    // which doesn't fail loudly, it just makes every fetch downstream of
-    // the limit (this widget, then the Previous Broadcast section right
-    // after it) silently return nothing, exactly what "No standings yet."
-    // plus a vanished YouTube embed looked like. The fix keeping both
-    // things true at once: build ONE second context here (still never
-    // shared with the Overall tab above) and share THAT one across all 5
-    // of these secondary tabs — same "isolated from Overall, shared among
-    // themselves" shape as before, at 1/5th the query cost. Everything
-    // else cheap and non-adjustment-related (driversBasic, classes,
-    // teamsBasic, seasonLogoRows) is shared with every tab, Overall
-    // included, same as it already safely was.
-    const perClassContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
-
-    const perClassDriver = await Promise.all(
-      classes.map(async (c) => ({
-        key: c.name,
-        label: c.name,
-        type: 'driver' as const,
-        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, perClassContext),
-      }))
-    );
-
-    // delta-team only offered when the CURRENT season actually has the
-    // separate Delta Team championship active — see 0052_delta_team_enabled.sql
-    // (that competition didn't exist before ATC10, distinct from the Delta
-    // driver class itself, which is what deltaClassId reflects).
-    const teamTabDefs = [
-      { key: 'alpha-team', label: 'Alpha Team', classId: alphaClassId },
-      ...(activeSeason.delta_team_enabled ? [{ key: 'delta-team', label: 'Delta Team', classId: deltaClassId }] : []),
-    ].filter((t): t is { key: string; label: string; classId: number } => t.classId !== undefined);
-
-    const teamTabs = await Promise.all(
-      teamTabDefs.map(async (t) => ({
-        key: t.key,
-        label: t.label,
-        type: 'team' as const,
-        rows: await computeTeamSeasonStandings(
-          supabaseEnv,
-          activeSeason,
-          exhibitionRoundIds,
-          t.classId,
-          driversBasic,
-          teamsBasic,
-          seasonLogoRows,
-          classes,
-          perClassContext
-        ),
-      }))
-    );
-
-    standingsTabs = [
-      { key: 'overall', label: 'Overall', type: 'driver', rows: overallStandings.slice(0, 5) },
-      ...perClassDriver.map((c) => ({ ...c, rows: c.rows.slice(0, 5) })),
-      ...teamTabs.map((t) => ({ ...t, rows: t.rows.slice(0, 5) })),
-    ];
-  }
+  heroImageUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'home');
 } catch (err) {
-  console.error('Failed to load homepage standings widget:', err);
+  console.error('Failed to load homepage banner:', err);
 }
 
-// Cache this on Cloudflare's edge for a minute so most visits are served
-// instantly, while still picking up Supabase edits within ~60s.
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
 <Layout title="Home">
-  <!--
-    Single continuous section for the whole homepage top area — Featured
-    Story/More News (left) and Upcoming Events/Previous Result/Standings
-    (right) used to be split across TWO separate <section>s (one grid for
-    the "above the fold" row, a second grid for the row below it), each
-    re-aligned at a shared top edge. That meant a column only as tall as
-    its own content in the first grid could leave a big, uneven gap before
-    the second grid's matching column started — e.g. a short Featured Story
-    pushing "More News" way down the page, even though "Standings" right
-    next to it (below a taller Upcoming Events) had barely any gap at all.
-    One section with each column as ONE continuously-stacked div (below)
-    fixes that: every heading just sits `mt-12` under whatever's above it
-    IN ITS OWN COLUMN, independent of the other column's height.
-  -->
   <section class="relative px-6 pb-24 pt-8">
-    <!--
-      Homepage hero background image — admin-managed (see
-      /admin/site-properties, page_key 'home'), no longer a static file.
-      Capped to a fixed height (h-*, not inset-0) and pinned to the top
-      via inset-x-0/top-0 — the same "band across the top, not the whole
-      section" technique PageBanner.astro uses on every other page's header
-      banner — rather than stretching to match this section's own height,
-      which now spans the ENTIRE homepage content below (not just the
-      hero row) per the comment above. Fades to solid black by the bottom
-      of that band so it blends into the plain-black page below instead of
-      cutting off hard. When not set, this section renders nothing here at
-      all — no image div, no gradient — so it's just plain black
-      (bg-brand-ink, same as the rest of the site).
-    -->
     {heroImageUrl && (
       <>
         <div
@@ -380,363 +41,70 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </>
     )}
 
-    <!--
-      The old hero used to pair a big "Alpha Touring Challenge" headline +
-      tagline + Sign Up button on the left with Upcoming Events on the
-      right. Per Logan's request, that whole left-hand "sign-up blurb" is
-      now the most recent news story instead — Sign Up isn't lost, it's
-      just no longer duplicated here on top of the Discord/Sign-Up button
-      that's always present in the top nav (see Nav.astro) and footer on
-      every page, homepage included. No standalone page title here anymore
-      (the "Featured Story" / "Upcoming Events" labels below are the visible
-      headings) — an earlier pass left one in as a small subtitle purely
-      for an <h1>, but Logan flagged it as a stray leftover, so the
-      "Featured Story" <h1> below now doubles as the page's real first
-      heading instead.
-    -->
-    <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
-      <!--
-        min-w-0 on both direct grid-item columns below: CSS Grid items
-        default to `min-width: auto`, which for a track containing a
-        percentage-sized <img> (the NewsCard cover photo — `w-full` — see
-        NewsCard.astro) resolves to that IMAGE'S OWN INTRINSIC pixel size
-        (e.g. a raw 2048px-wide upload), not its rendered/cropped size —
-        a well-known grid quirk. With no `lg:grid-cols-2` active below the
-        lg breakpoint (mobile falls back to one implicit auto column),
-        that intrinsic width was silently forcing the whole column — and
-        with it this section and the page's <body> — wider than the
-        viewport, which is what was spilling every mobile card off the
-        right edge. `min-w-0` overrides that default back to 0, letting
-        the column (and everything percentage-sized inside it, like this
-        same image via `overflow-hidden`) shrink to the actual available
-        width instead. Harmless at the lg: 2-column breakpoint too — it
-        only ever matters when something would otherwise overflow.
-      -->
-      <div class="min-w-0">
-        <!-- The page's one real <h1> — see the comment above for why this
-             (not a big "Alpha Touring Challenge" headline) is it. Styled to
-             match the "Standings" heading below rather than the old small
-             uppercase-tracked label. -->
-        <h1 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
-          Featured Story
-        </h1>
 
-        {featuredNews ? (
-          <NewsCard post={featuredNews} index={0} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
-        ) : (
-          <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">
-            No news yet.
-          </p>
-        )}
-
-        <!-- Hidden on mobile only (Logan) — same sm: breakpoint Nav.astro's
-             own mobile/desktop split uses. -->
-        <div class="mt-12 hidden sm:block">
-          <h2 class="mb-6 font-display text-3xl">More News</h2>
-
-          {moreNews.length === 0 ? (
-            <p class="text-sm text-white/50">No more news yet.</p>
-          ) : (
-            <>
-              <ul class="divide-y divide-white/10">
-                {moreNews.map((post) => (
-                  <li>
-                    <a
-                      href={`/news/${post.slug}`}
-                      class="flex items-baseline justify-between gap-4 py-3 text-white/80 transition hover:text-white"
-                    >
-                      <span class="truncate font-semibold">{post.title}</span>
-                      <span class="flex-none text-xs text-white/40">{formatDate(post.published_at)}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
-              <a href="/news" class="mt-4 inline-block text-sm text-white/60 hover:text-white">View all &rarr;</a>
-            </>
-          )}
-        </div>
-      </div>
-
-      <div class="min-w-0">
-        <h2 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
-          Upcoming Events
-        </h2>
-
-        {upcomingEvents.length === 0 && (
-          <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">
-            No results.
-          </p>
-        )}
-
-        <div class="space-y-3">
-          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} layouts={eventLayouts} />)}
-        </div>
-
-        {upcomingEvents.length > 0 && (
-          <div class="reveal mt-4 flex flex-wrap items-center gap-4" style={`transition-delay: ${80 + upcomingEvents.length * 60}ms`}>
-            <a href="/calendar" class="text-sm text-white/60 hover:text-white">
-              Full calendar &rarr;
-            </a>
+    <div data-home-results data-fragment-url="/home/fragment">
+      <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading…</span>
+        <div class="min-w-0">
+          <div class="h-9 w-48 animate-pulse rounded-md bg-white/[0.03]"></div>
+          <div class="mt-4 h-72 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="mt-4 h-5 w-3/4 animate-pulse rounded bg-white/[0.03]"></div>
+          <div class="mt-12 h-9 w-40 animate-pulse rounded-md bg-white/[0.03]"></div>
+          <div class="mt-4 flex flex-col gap-3">
+            <div class="h-5 animate-pulse rounded bg-white/[0.03]"></div>
+            <div class="h-5 animate-pulse rounded bg-white/[0.03]"></div>
+            <div class="h-5 animate-pulse rounded bg-white/[0.03]"></div>
+            <div class="h-5 animate-pulse rounded bg-white/[0.03]"></div>
           </div>
-        )}
-
-        <div class="mt-12">
-          {!previousResult ? (
-            <>
-              <h2 class="mb-6 font-display text-3xl">Previous Result</h2>
-              <p class="text-sm text-white/50">No results yet.</p>
-            </>
-          ) : (
-            <>
-              {previousResult.sessions.length === 0 ? (
-                <>
-                  <h2 class="mb-6 font-display text-3xl">Previous Result</h2>
-                  <p class="text-sm text-white/50">No classified results yet.</p>
-                </>
-              ) : (
-                <div data-previous-result-widget>
-                  <!--
-                    Title and the two filter dropdowns share one row — title
-                    left, filters right (flush with the results box's own
-                    right edge below), per Logan — same treatment as the
-                    Standings widget's own title/filter row below, replacing
-                    the track name this row used to show instead (removed
-                    entirely, not shown anywhere else on this card). Two
-                    dropdowns: which SESSION of this round (Practice,
-                    Qualifying, Race 1/2/3...), and which result type within
-                    it (Overall/Alpha/Delta/Gamma, plus Alpha/Delta Team on a
-                    Race session — see PreviousResultWidgetSession's own doc
-                    comment in results.ts). The result-type options differ
-                    per session (team tabs only exist on Race sessions), so
-                    rather than rebuilding one dropdown's options in JS, every
-                    session gets its own result-type <select>, and only the
-                    one matching the active session is ever visible — same
-                    "everything's already rendered, JS just toggles `hidden`"
-                    approach as the Standings widget below.
-                  -->
-                  <div class="flex flex-wrap items-center justify-between gap-3">
-                    <h2 class="font-display text-3xl">Previous Result</h2>
-
-                    <div class="flex flex-wrap justify-end gap-2">
-                      <select
-                        data-session-select
-                        class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary"
-                      >
-                        {previousResult.sessions.map((session) => (
-                          <option value={session.key} selected={session.key === defaultPreviousResultSessionKey} class="bg-brand-ink text-white">
-                            {session.label}
-                          </option>
-                        ))}
-                      </select>
-
-                      {previousResult.sessions.map((session) => (
-                        <select
-                          data-result-type-select
-                          data-session={session.key}
-                          class={`rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary ${session.key === defaultPreviousResultSessionKey ? '' : 'hidden'}`}
-                        >
-                          {session.tabs.map((tab, j) => (
-                            <option value={tab.key} selected={j === 0} class="bg-brand-ink text-white">
-                              {tab.label}
-                            </option>
-                          ))}
-                        </select>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
-                    {previousResult.sessions.map((session) => (
-                      <div data-session-panel={session.key} class={session.key === defaultPreviousResultSessionKey ? '' : 'hidden'}>
-                        {session.tabs.map((tab, j) => (
-                          <ol data-result-panel={tab.key} class={j === 0 ? '' : 'hidden'}>
-                            {tab.rows.length === 0 ? (
-                              <li class="p-4 text-sm text-white/50">No results yet.</li>
-                            ) : tab.type === 'driver' ? (
-                              tab.rows.map((row) => {
-                                const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
-                                return (
-                                  <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
-                                    <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position ?? '—'}</span>
-                                    {/* Short "F. Lastname" form — this card
-                                        is a fixed, fairly narrow width at
-                                        every viewport, so long names get cut
-                                        off by the truncate above even on
-                                        desktop. */}
-                                    <span class="min-w-0 flex-1 truncate font-semibold">
-                                      {shortDriverName(row.driver.name)}
-                                      {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
-                                    </span>
-                                    <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                                    {/* Car/team logos hidden on mobile (Logan) — this card is narrow enough that they crowd the row; same "hidden sm:contents" technique as ResultsTable.astro's row. */}
-                                    {row.car && (
-                                      <span class="hidden sm:contents">
-                                        <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />
-                                      </span>
-                                    )}
-                                    {row.team && (
-                                      <span class="hidden sm:contents">
-                                        <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />
-                                      </span>
-                                    )}
-                                    {rowClassName && (
-                                      <span class={classTagFull(rowClassName)}>
-                                        {rowClassName}
-                                      </span>
-                                    )}
-                                    <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.metricLabel}</span>
-                                  </li>
-                                );
-                              })
-                            ) : (
-                              tab.rows.map((row) => (
-                                <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
-                                  <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
-                                  <TeamLogo name={row.teamName} logoUrl={row.teamLogoUrl} size="h-6 w-6" />
-                                  <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
-                                  <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.points} pts</span>
-                                </li>
-                              ))
-                            )}
-                          </ol>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {previousResult && (
-            <a href={`/results/${previousResult.subsessionId}`} class="mt-4 inline-block text-sm text-white/60 hover:text-white">
-              Full race result &rarr;
-            </a>
-          )}
         </div>
-
-        <div class="mt-12">
-        {standingsTabs.length === 0 ? (
-          <>
-            <h2 class="mb-6 font-display text-3xl">Standings</h2>
-            <p class="text-sm text-white/50">No standings yet.</p>
-          </>
-        ) : (
-          <div data-standings-widget>
-            <!--
-              Title and filter dropdown share one row — title left, filter
-              right — same treatment as the Previous Result widget's own
-              title/filter row above, per Logan. Purely client-side
-              filtering otherwise — every view's rows are already rendered
-              below, this just toggles which `hidden`. Deliberately NOT a
-              link/form submission, so there's no server round trip here and
-              (correctly) no loading-bar treatment from pageProgress.ts fires
-              for it — same reasoning as the search-box filters and
-              sortable-table column clicks elsewhere on the site.
-            -->
-            <div class="flex flex-wrap items-center justify-between gap-3">
-              <h2 class="font-display text-3xl">Standings</h2>
-              <div class="flex flex-wrap justify-end gap-2">
-              <select
-                data-standings-select
-                class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white outline-none transition hover:bg-white/10 focus:border-brand-primary"
-              >
-                {standingsTabs.map((tab, i) => (
-                  <option value={tab.key} selected={i === 0} class="bg-brand-ink text-white">
-                    {tab.label}
-                  </option>
-                ))}
-              </select>
-              </div>
-            </div>
-
-            <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
-              {standingsTabs.map((tab, i) => (
-                <ol data-standings-panel={tab.key} class={i === 0 ? '' : 'hidden'}>
-                  {tab.rows.length === 0 ? (
-                    <li class="p-4 text-sm text-white/50">No results yet.</li>
-                  ) : tab.type === 'driver' ? (
-                    tab.rows.map((row) => {
-                      const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
-                      // Only the driver's primary (most-raced) car/team this
-                      // season — extras.cars/teams are sorted by races
-                      // descending — to keep each row compact; almost every
-                      // driver only has one of each anyway.
-                      const extras = carTeamExtrasByDriverId.get(row.driver.id);
-                      const primaryTeam = extras?.teams[0];
-                      return (
-                        <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
-                          <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
-                          {/* Same short-name treatment as the Previous Result widget's driver rows above — narrow fixed-width card. */}
-                          <span class="min-w-0 flex-1 truncate font-semibold">
-                            {shortDriverName(row.driver.name)}
-                            {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
-                          </span>
-                          <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                          {/* Car/team logos hidden on mobile (Logan) — same treatment as the Previous Result widget's driver rows above. */}
-                          {extras && extras.cars.length > 0 && (
-                            <span class="hidden sm:contents">
-                              <CarLogos cars={extras.cars} size="h-5 w-5" />
-                            </span>
-                          )}
-                          {primaryTeam && (
-                            <span class="hidden sm:contents">
-                              <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />
-                            </span>
-                          )}
-                          {rowClassName && (
-                            <span class={classTagFull(rowClassName)}>
-                              {rowClassName}
-                            </span>
-                          )}
-                          <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.totalPoints} pts</span>
-                        </li>
-                      );
-                    })
-                  ) : (
-                    tab.rows.map((row) => (
-                      <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
-                        <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
-                        <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
-                        <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
-                        <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.totalPoints} pts</span>
-                      </li>
-                    ))
-                  )}
-                </ol>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <a href="/standings" class="mt-4 inline-block text-sm text-white/60 hover:text-white">Full standings &rarr;</a>
+        <div class="min-w-0">
+          <div class="h-9 w-48 animate-pulse rounded-md bg-white/[0.03]"></div>
+          <div class="mt-4 h-52 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="mt-12 h-9 w-40 animate-pulse rounded-md bg-white/[0.03]"></div>
+          <div class="mt-4 h-60 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        </div>
       </div>
     </div>
-    </div>
-
-    {broadcastEmbedUrl && previousBroadcast && (
-      <div class="mx-auto mt-16 max-w-6xl">
-        <h2 class="font-display text-3xl">Previous Broadcast</h2>
-        <p class="mb-6 mt-1 text-sm text-white/50">
-          {broadcastSubtitle}
-        </p>
-        <div class="aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">
-          <iframe
-            class="h-full w-full"
-            src={broadcastEmbedUrl}
-            title="Previous Broadcast"
-            loading="lazy"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowfullscreen
-          ></iframe>
-        </div>
-        <a href={`/results/${previousBroadcast.subsession_id}`} class="mt-3 inline-block text-sm text-white/60 hover:text-white">
-          Full race result &rarr;
-        </a>
-      </div>
-    )}
   </section>
 </Layout>
+
+<script>
+  // Shell-then-skeleton: fetches the home fragment (the expensive data work)
+  // client-side once this shell has already painted — same pattern as
+  // results.astro / standings.astro; see the matching fragment.astro for the
+  // full explanation.
+  function initHomeResults() {
+    const container = document.querySelector<HTMLElement>('[data-home-results]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+    // Cleared immediately so the synthetic astro:page-load dispatched below
+    // doesn't see this same data-fragment-url and fetch it all over again.
+    delete container.dataset.fragmentUrl;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`home fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        // reveal.ts only observes `.reveal` elements present at page-load
+        // time; this content lands later, so mark it visible right away.
+        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+        // Sortable tables, row expanders and this page's own scripts bind
+        // against whatever exists at astro:page-load, so re-dispatch it now
+        // that the real content is in place.
+        document.dispatchEvent(new Event('astro:page-load'));
+      })
+      .catch((err) => {
+        console.error('Failed to load home:', err);
+        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
+      });
+  }
+
+  document.addEventListener('astro:page-load', initHomeResults);
+</script>
+
 
 <script>
   function initStandingsWidget() {

@@ -2,84 +2,22 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import NewsCard from '../../components/NewsCard.astro';
 import PageBanner from '../../components/PageBanner.astro';
-import { getNewsPosts, getPageBanners, getSeasons, resolveSupabaseEnv, getAllNewsPostTags, type NewsTag, type SeasonLogoPair } from '../../lib/supabase';
+import { resolveSupabaseEnv, getPageBanners } from '../../lib/supabase';
 import { bannerUrlFor } from '../../lib/pageBanners';
 
+// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
+// this file only fetches the page banner and paints the heading plus a loading
+// skeleton right away; the posts, tags and filter form lives in news/fragment.astro and is
+// fetched client-side by the loader script below once this shell has painted.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Four independent fetches — none depends on another's result (the
-// seasonOptions/posts computations that use allPosts happen after all four
-// resolve) — so they're wrapped in named functions and run concurrently via
-// one Promise.all rather than one after another.
-let allPosts: Awaited<ReturnType<typeof getNewsPosts>> = [];
-let loadError = false;
-async function loadAllPosts() {
-  try {
-    allPosts = await getNewsPosts(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load news posts:', err);
-    loadError = true;
-  }
-}
-
 let bannerUrl: string | null = null;
-async function loadBanner() {
-  try {
-    bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'news');
-  } catch (err) {
-    console.error('Failed to load page banner:', err);
-  }
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'news');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
 }
-
-// season_label on a post is freeform text, not an FK to `seasons` — best-
-// effort name match so NewsCard can show that season's logo next to its tag.
-let logoBySeasonLabel = new Map<string, SeasonLogoPair>();
-async function loadSeasonLogos() {
-  try {
-    const seasons = await getSeasons(supabaseEnv);
-    logoBySeasonLabel = new Map(
-      seasons.filter((s) => s.logo_url).map((s) => [s.name, { dark: s.logo_url!, light: s.logo_url_light }])
-    );
-  } catch (err) {
-    console.error('Failed to load seasons for news card logos:', err);
-  }
-}
-
-// Every post's assigned tags (0055_news_tags.sql), fetched once and grouped
-// by post_id — same "fetch once, map by id" convention as logoBySeasonLabel
-// just above.
-let tagsByPostId = new Map<string, NewsTag[]>();
-async function loadTags() {
-  try {
-    const links = await getAllNewsPostTags(supabaseEnv);
-    for (const link of links) {
-      if (!link.news_tags) continue;
-      if (!tagsByPostId.has(link.post_id)) tagsByPostId.set(link.post_id, []);
-      tagsByPostId.get(link.post_id)!.push(link.news_tags);
-    }
-  } catch (err) {
-    console.error('Failed to load news tags for news cards:', err);
-  }
-}
-
-await Promise.all([loadAllPosts(), loadBanner(), loadSeasonLogos(), loadTags()]);
-
-// Every distinct season tag currently in use, for the filter dropdown —
-// derived straight from the posts themselves (already fetched in full, no
-// extra query needed) rather than from curated_rounds, since a post can be
-// tagged with a season no round is linked to at all.
-const seasonOptions = [...new Set(allPosts.map((p) => p.season_label).filter((s): s is string => Boolean(s)))].sort();
-
-const q = Astro.url.searchParams.get('q')?.trim() ?? '';
-const seasonFilter = Astro.url.searchParams.get('season') ?? '';
-
-const posts = allPosts.filter((p) => {
-  if (q && !p.title.toLowerCase().includes(q.toLowerCase())) return false;
-  if (seasonFilter && p.season_label !== seasonFilter) return false;
-  return true;
-});
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
@@ -89,62 +27,57 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">News</h1>
 
-    {loadError && (
-      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load news right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
-      </p>
-    )}
-
-    {!loadError && (
-      <form method="GET" class="reveal mt-8 flex flex-wrap items-end gap-3" style="transition-delay: 40ms">
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Search titles</span>
-          <input
-            type="search"
-            name="q"
-            value={q}
-            placeholder="Search news..."
-            class="w-64 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-        </label>
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Season</span>
-          <select
-            name="season"
-            onchange="this.form.submit()"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          >
-            <option value="" class="bg-brand-ink text-white">All seasons</option>
-            {seasonOptions.map((label) => (
-              <option value={label} selected={label === seasonFilter} class="bg-brand-ink text-white">{label}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="submit"
-          class="btn btn-neutral"
-        >
-          Search
-        </button>
-        {(q || seasonFilter) && (
-          <a href="/news" class="text-sm text-white/40 hover:text-white/70">Clear</a>
-        )}
-      </form>
-    )}
-
-    {!loadError && posts.length === 0 && (
-      <p class="mt-8 text-white/60">No results.</p>
-    )}
-
-    {posts.length > 0 && (
-      <div class="mt-10">
-        <NewsCard post={posts[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
-        {posts.length > 1 && (
-          <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />)}
-          </div>
-        )}
+    <div data-news-results data-fragment-url={`/news/fragment${Astro.url.search}`}>
+      <div aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading news…</span>
+        <div class="mt-8 flex flex-wrap items-end gap-3">
+          <div class="h-[4.5rem] w-64 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-[4.5rem] w-40 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+        </div>
+        <div class="mt-10 h-72 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        </div>
       </div>
-    )}
+    </div>
   </section>
 </Layout>
+
+<script>
+  // Shell-then-skeleton: fetches the news fragment (the expensive data work)
+  // client-side once this shell has already painted — same pattern as
+  // results.astro / standings.astro; see the matching fragment.astro for the
+  // full explanation.
+  function initNewsResults() {
+    const container = document.querySelector<HTMLElement>('[data-news-results]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+    // Cleared immediately so the synthetic astro:page-load dispatched below
+    // doesn't see this same data-fragment-url and fetch it all over again.
+    delete container.dataset.fragmentUrl;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`news fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        // reveal.ts only observes `.reveal` elements present at page-load
+        // time; this content lands later, so mark it visible right away.
+        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+        // Sortable tables, row expanders and this page's own scripts bind
+        // against whatever exists at astro:page-load, so re-dispatch it now
+        // that the real content is in place.
+        document.dispatchEvent(new Event('astro:page-load'));
+      })
+      .catch((err) => {
+        console.error('Failed to load news:', err);
+        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
+      });
+  }
+
+  document.addEventListener('astro:page-load', initNewsResults);
+</script>

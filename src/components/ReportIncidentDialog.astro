@@ -14,8 +14,10 @@ interface Props {
   subsessionId: number;
   sessionOptions: { value: string; label: string }[];
   drivers: { id: string; name: string; car_number: number | null }[];
+  /** Where the form POSTs (the results page's fragment, which owns the POST handling). Defaults to the current URL. */
+  action?: string;
 }
-const { subsessionId, sessionOptions, drivers } = Astro.props;
+const { subsessionId, sessionOptions, drivers, action } = Astro.props;
 /** "Logan Mack" -> "L. Mack"; anything after the first word is kept as the last name. A single-word name is left as-is. */
 function shortName(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -32,7 +34,7 @@ const fieldClass =
   data-report-dialog
   class="w-full max-w-xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
 >
-  <form method="POST" data-astro-reload data-report-form class="flex flex-col gap-3 p-5">
+  <form method="POST" action={action} data-astro-reload data-report-form class="flex flex-col gap-3 p-5">
     <input type="hidden" name="intent" value="report-incident" />
     {/* Honeypot: hidden from people, tempting to form-filling bots. */}
     <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="absolute -left-[9999px] h-0 w-0 opacity-0" />
@@ -88,46 +90,4 @@ const fieldClass =
   </form>
 </dialog>
 
-<script>
-  // One delegated listener set (registered once) so it survives client-side
-  // navigations; the submit button stays disabled until Session, Lap, Turn
-  // and at least one car are filled in (server re-checks all of it).
-  function updateReportSubmit(form: HTMLFormElement) {
-    const val = (name: string) => (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
-    const anyCar = form.querySelector('input[name="involved_driver_ids"]:checked') !== null;
-    const submit = form.querySelector<HTMLButtonElement>('[data-report-submit]');
-    if (submit) submit.disabled = !(val('session') && val('lap') !== '' && val('turn') && anyCar);
-  }
-
-  function initReportDialog() {
-    if (document.body.dataset.reportDialogInit === 'true') return;
-    document.body.dataset.reportDialogInit = 'true';
-    document.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('[data-open-report-dialog]')) {
-        const dialog = document.querySelector<HTMLDialogElement>('dialog[data-report-dialog]');
-        if (dialog && !dialog.open) {
-          const form = dialog.querySelector<HTMLFormElement>('[data-report-form]');
-          form?.reset();
-          if (form) updateReportSubmit(form);
-          dialog.showModal();
-        }
-        return;
-      }
-      if (target.closest('[data-close-report-dialog]')) {
-        target.closest('dialog')?.close();
-        return;
-      }
-      // Clicking the backdrop (the <dialog> itself, outside its form) closes it.
-      if (target instanceof HTMLDialogElement && target.hasAttribute('data-report-dialog')) target.close();
-    });
-    const onFormChange = (e: Event) => {
-      const form = (e.target as HTMLElement).closest<HTMLFormElement>('[data-report-form]');
-      if (form) updateReportSubmit(form);
-    };
-    document.addEventListener('input', onFormChange);
-    document.addEventListener('change', onFormChange);
-  }
-  initReportDialog();
-  document.addEventListener('astro:page-load', initReportDialog);
-</script>
+{/* Client behavior lives in src/scripts/reportIncidentDialog.ts (loaded by the results page shell — the markup here arrives via a fetched fragment, and scripts inside fetched HTML never run). */}

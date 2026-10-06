@@ -19,9 +19,11 @@ interface Props {
   isAdmin: boolean;
   subsessionId: number;
   canonicalRaceNumber: number;
+  /** Where the Edit-links form POSTs (the results page's fragment, which owns the POST handling). Defaults to the current URL. */
+  action?: string;
 }
 
-const { links, isAdmin, subsessionId, canonicalRaceNumber } = Astro.props;
+const { links, isAdmin, subsessionId, canonicalRaceNumber, action } = Astro.props;
 // The iRacing Results link is derived, not edited: a real pipeline round's
 // own `subsession_id` IS iRacing's subsession id (always positive), so the
 // button can just link straight to it. A manually-imported round instead
@@ -105,7 +107,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
         {isAdmin && (
           <details class="border-t border-white/10 pt-3">
             <summary class="cursor-pointer list-none text-xs font-semibold text-white/50 hover:text-white/80">Edit links</summary>
-            <form method="POST" data-astro-reload class="mt-3 flex flex-col gap-3">
+            <form method="POST" action={action} data-astro-reload class="mt-3 flex flex-col gap-3">
               <input type="hidden" name="intent" value="save-race-links" />
               <input type="hidden" name="subsession_id" value={subsessionId} />
               <input type="hidden" name="race_number" value={canonicalRaceNumber} />
@@ -150,28 +152,4 @@ const dialogId = `race-links-dialog-${subsessionId}`;
   </>
 )}
 
-<script>
-  // One delegated listener (registered once) so it keeps working across
-  // client-side navigations without re-binding.
-  function initRaceLinksDialog() {
-    if (document.body.dataset.raceLinksInit === 'true') return;
-    document.body.dataset.raceLinksInit = 'true';
-    document.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      const opener = target.closest<HTMLElement>('[data-open-race-links]');
-      if (opener) {
-        const dialog = document.getElementById(opener.dataset.openRaceLinks ?? '');
-        if (dialog instanceof HTMLDialogElement && !dialog.open) dialog.showModal();
-        return;
-      }
-      if (target.closest('[data-close-race-links]')) {
-        target.closest('dialog')?.close();
-        return;
-      }
-      // Clicking the backdrop (the <dialog> element itself, outside its content) closes it.
-      if (target instanceof HTMLDialogElement && target.hasAttribute('data-race-links-dialog')) target.close();
-    });
-  }
-  initRaceLinksDialog();
-  document.addEventListener('astro:page-load', initRaceLinksDialog);
-</script>
+{/* Client behavior lives in src/scripts/raceLinksDialog.ts (loaded by the results page shell — the markup here arrives via a fetched fragment, and scripts inside fetched HTML never run). */}

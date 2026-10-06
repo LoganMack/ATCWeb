@@ -2,729 +2,110 @@
 export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
-import ResultsTable from '../../components/ResultsTable.astro';
-import QualifyingResultsTable from '../../components/QualifyingResultsTable.astro';
-import PracticeResultsTable from '../../components/PracticeResultsTable.astro';
-import RaceLinksBlock from '../../components/RaceLinksBlock.astro';
-import IncidentButton from '../../components/IncidentButton.astro';
-import ReportIncidentDialog from '../../components/ReportIncidentDialog.astro';
-import {
-  resolveSupabaseEnv,
-  getDriverClasses,
-  getExhibitionRoundIds,
-  getTestRoundIds,
-  getRaceLinksForSubsession,
-  upsertRaceLinks,
-  formatDate,
-  getPenaltiesForSubsession,
-  getSeasonById,
-  getScoringRulesets,
-  resolveSeasonRuleset,
-  resolveIncidentLimit,
-  getCircuits,
-  getAllCircuitLayouts,
-  type RaceLinks,
-  type Penalty,
-  type ScoringRuleset,
-} from '../../lib/supabase';
-import {
-  getRoundBySubsessionId,
-  getRoundResults,
-  getQualifyingForSubsession,
-  getPracticeForSubsession,
-  getRoundsForSeason,
-  computeDisplayRoundNumbers,
-  isChampionshipSeason,
-  topTeamScorers,
-  getRoundLayoutsForSubsessions,
-  resolveLayout,
-  getDriverBestLapsAtTrack,
-  type RoundResults,
-  type RaceResultRow,
-  type QualifyingRow,
-  type PracticeRow,
-} from '../../lib/results';
-import { applyPenaltiesToRoundResults } from '../../lib/penalties';
-import {
-  getReportingWindowForRound,
-  getReportingPeriodHours,
-  isRoundPosted,
-  isReportingOpen,
-  createIncidentReport,
-} from '../../lib/incidentReports';
-import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
-import { isAdminView } from '../../lib/auth';
+import { resolveSupabaseEnv } from '../../lib/supabase';
+import { getRoundBySubsessionId } from '../../lib/results';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-// isAdminView (not a raw role check) so the footer's "View as Visitor"
-// toggle actually hides this page's admin-only UI while previewing.
-const isAdmin = isAdminView(Astro.locals);
+// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
+// this file paints the frame, the back link and a loading skeleton right away;
+// everything that needs the round's data — results, penalties, ruleset,
+// incident-report state, the admin/incident POST handling — lives in
+// [subsessionId]/fragment.astro and is fetched client-side once this shell has
+// painted. The fragment's forms POST straight to the fragment (which owns that
+// handling) and redirect back here.
+//
+// The dialog/countdown scripts below used to live inside their components;
+// those components now render inside the fetched fragment, where <script> tags
+// never execute, so the scripts are loaded here instead (all are delegated,
+// register-once listeners that don't need their elements to exist yet).
+const subsessionId = Astro.params.subsessionId;
 
-// iRacing subsession IDs are ordinary (non-bigint-range) integers in
-// practice, so Number() parsing here is safe — well under
-// Number.MAX_SAFE_INTEGER.
-const subsessionId = Number(Astro.params.subsessionId);
-
-// Admin-only: flag/unflag this specific round as a non-points exhibition
-// (e.g. a pre-season race run inside an otherwise real championship
-// season) — a PRG redirect back to this same URL keeps this in line with
-// every other admin mutation in the codebase (see admin/champions'
-// upload-photo fix for why that matters).
-// Read once up front (a request body can only be consumed once) — shared by
-// the admin intents below and the any-signed-in-user `report-incident`
-// intent handled further down, once the round's data has loaded.
-const postForm: FormData | null =
-  Astro.request.method === 'POST' && Number.isFinite(subsessionId) ? await Astro.request.formData() : null;
-
-if (isAdmin && postForm) {
-  const form = postForm;
-  const intent = String(form.get('intent') ?? '');
-
-  // Exhibition/test are no longer toggled from this page — both are driven
-  // entirely by the calendar Event linked to this round (its `category`
-  // field), propagated into round_overrides.is_exhibition/is_test at import
-  // time (see src/pages/api/import-templates/[kind].ts and
-  // raceResultsImport.ts's writeRoundRow) per Logan: "these should be set by
-  // the event that is linked to this race result."
-
-  if (intent === 'save-race-links') {
-    // Empty strings from the form mean "clear this field" (null), not
-    // "leave whatever was there" — the form always shows the current
-    // values, so a blank field means the admin actually cleared it.
-    const strOrNull = (v: FormDataEntryValue | null) => {
-      const s = String(v ?? '').trim();
-      return s.length > 0 ? s : null;
-    };
-    const raceNumber = Number(form.get('race_number'));
-    if (Number.isFinite(raceNumber)) {
-      try {
-        await upsertRaceLinks(supabaseEnv, Astro.locals.session!.accessToken, {
-          subsession_id: subsessionId,
-          race_number: raceNumber,
-          replay_url: strOrNull(form.get('replay_url')),
-          broadcast_url: strOrNull(form.get('broadcast_url')),
-          photo_album_url: strOrNull(form.get('photo_album_url')),
-        });
-      } catch (err) {
-        console.error('Failed to save race links:', err);
-      }
-    }
-    return Astro.redirect(`${Astro.url.pathname}${Astro.url.search}`, 302);
-  }
-
-  // Penalty add/edit/remove now lives entirely on the Incident Report page
-  // (src/pages/results/[subsessionId]/incidents.astro) — this page is
-  // read-only for penalties (see v0.16's README section for why).
-}
-
-// Which single table is showing: one SESSION (Practice, Qualifying, or one
-// specific race — `?session=practice|qualifying|race-N`, default Race 1) and
-// one CLASS filter (`?class=all|alpha|gamma|delta`, default All). Both are
-// driven by the two dropdowns below, one table at a time. The old
-// `?category=qualifying|practice` links (briefing/circuit pages, bookmarks)
-// still work and map onto `session`. Computed here (rather than down by the
-// template) purely from URL params + subsessionId — neither depends on
-// `round` — so the qualifying/practice fetches below can start immediately
-// alongside the initial bulk fetch instead of waiting for `round` to resolve.
-const sessionParam = Astro.url.searchParams.get('session') ?? '';
-const legacyCategoryParam = Astro.url.searchParams.get('category');
-const category: 'race' | 'qualifying' | 'practice' =
-  sessionParam === 'qualifying' || (!sessionParam && legacyCategoryParam === 'qualifying')
-    ? 'qualifying'
-    : sessionParam === 'practice' || (!sessionParam && legacyCategoryParam === 'practice')
-      ? 'practice'
-      : 'race';
-const requestedRaceMatch = /^race-(\d+)$/.exec(sessionParam);
-const requestedRaceNumber = requestedRaceMatch ? Number(requestedRaceMatch[1]) : null;
-const classParam = (Astro.url.searchParams.get('class') ?? 'all').toLowerCase();
-
-let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
-let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
-let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
-let exhibitionRoundIds: Set<number> = new Set();
-let testRoundIds: Set<number> = new Set();
-let raceLinksByRace: Map<number, RaceLinks> = new Map();
-let penalties: Penalty[] = [];
-let loadError: string | null = null;
-
-// Fetched only when actually viewing Qualifying — qualifying isn't split by
-// race (curated_qualifying has no race_number column, it's one session per
-// round), so this is a single overall/byClass pair rather than a per-race
-// map. See getQualifyingForSubsession's own doc comment. Depends only on
-// `category`/`subsessionId` (not on `round`), so it's kicked off here,
-// concurrently with the round/roundResults/etc. bulk fetch just below,
-// rather than waiting until after that fetch resolves.
-const qualifyingPromise: Promise<{ overall: QualifyingRow[]; byClass: Map<number, QualifyingRow[]> }> = (async () => {
-  if (category !== 'qualifying' || !Number.isFinite(subsessionId)) return { overall: [], byClass: new Map() };
+// Only the round's name, for the <title> and link-preview (Discord/Slack)
+// embeds — crawlers don't run the fragment's JS, so this has to be in the
+// shell's own HTML. One small lookup; everything else waits for the fragment.
+let trackName: string | null = null;
+if (Number.isFinite(Number(subsessionId))) {
   try {
-    return await getQualifyingForSubsession(supabaseEnv, subsessionId);
+    trackName = (await getRoundBySubsessionId(resolveSupabaseEnv(Astro.locals), Number(subsessionId)))?.track_name ?? null;
   } catch (err) {
-    console.error('Failed to load qualifying results:', err);
-    return { overall: [], byClass: new Map() };
-  }
-})();
-
-// Same fetched-only-when-actually-viewing / kicked-off-alongside-the-bulk-
-// fetch approach as qualifyingPromise just above, backed by
-// getPracticeForSubsession (curated_practice_results) instead.
-const practicePromise: Promise<{ overall: PracticeRow[]; byClass: Map<number, PracticeRow[]> }> = (async () => {
-  if (category !== 'practice' || !Number.isFinite(subsessionId)) return { overall: [], byClass: new Map() };
-  try {
-    return await getPracticeForSubsession(supabaseEnv, subsessionId);
-  } catch (err) {
-    console.error('Failed to load practice results:', err);
-    return { overall: [], byClass: new Map() };
-  }
-})();
-
-if (Number.isFinite(subsessionId)) {
-  try {
-    [round, roundResults, classes, exhibitionRoundIds, testRoundIds, raceLinksByRace, penalties] = await Promise.all([
-      getRoundBySubsessionId(supabaseEnv, subsessionId),
-      getRoundResults(supabaseEnv, subsessionId),
-      getDriverClasses(supabaseEnv),
-      getExhibitionRoundIds(supabaseEnv),
-      getTestRoundIds(supabaseEnv),
-      getRaceLinksForSubsession(supabaseEnv, subsessionId),
-      getPenaltiesForSubsession(supabaseEnv, subsessionId),
-    ]);
-  } catch (err) {
-    console.error('Failed to load round results:', err);
-    loadError = err instanceof Error ? err.message : String(err);
+    console.error('Failed to look up round for page title:', err);
   }
 }
-
-if (!loadError && !round) {
-  return Astro.redirect('/results', 302);
-}
-
-// This round's season's scoring ruleset — resolved once here, before the
-// penalty recompute below (which needs its base_points/class_podium tables,
-// see applyPenaltiesToRoundResults' own `rules` doc comment: a repositioned
-// driver's new finish/class points must be priced off the SAME table the
-// round was actually scored with, not a fixed default one) — and reused by
-// loadIncidentLimit further down instead of that block fetching it again
-// itself.
-let ruleset: ScoringRuleset | null = null;
-if (!loadError && round) {
-  try {
-    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
-    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
-  } catch (err) {
-    console.error('Failed to resolve round scoring ruleset:', err);
-  }
-}
-
-// Until stewards POST the round's incident report (admin > Incident
-// Reporting), nothing about its penalties may show on this page — not the
-// tags, not repositioned finishers, not points adjustments, not time
-// penalties — since that would spoil the unposted report. So until then
-// (for everyone, admins included — they can see it all on the Incident
-// Report page) the penalties list is emptied, the penalty engine below is
-// skipped, and the flat points deductions the database already folded into
-// each driver's total are taken back out. Posting the round reveals it all.
-// If the posted flag can't be read, this errs on the side of concealing.
-let roundPosted = false;
-if (!loadError && round) {
-  try {
-    roundPosted = await isRoundPosted(supabaseEnv, subsessionId);
-  } catch (err) {
-    console.error('Failed to read incident report posted flag:', err);
-  }
-}
-if (!roundPosted) {
-  penalties = [];
-  const stripDeduction = (row: RaceResultRow): RaceResultRow => {
-    if (row.pointsDeduction === 0 && !row.hasPenalty && row.penaltyOldPosition === null) return row;
-    const totalPoints = row.totalPoints - row.pointsDeduction;
-    return {
-      ...row,
-      totalPoints,
-      originalTotalPoints: totalPoints,
-      bonusPoints: row.bonusPoints - row.pointsDeduction,
-      pointsDeduction: 0,
-      hasPenalty: false,
-      penaltyOldPosition: null,
-    };
-  };
-  for (const [raceNumber, rows] of roundResults.overall) roundResults.overall.set(raceNumber, rows.map(stripDeduction));
-  for (const byRace of roundResults.byClass.values()) {
-    for (const [raceNumber, rows] of byRace) byRace.set(raceNumber, rows.map(stripDeduction));
-  }
-}
-
-// Recalculate positions/points for anywhere a penalty applies (rule 64's
-// re-classification, plus each of that driver's own flat points_penalty
-// deductions) — see src/lib/penalties.ts for the full engine. A no-op
-// (same object back) for a round with no penalties logged. Only ever
-// touches penalties.session_type === 'race' rows in effect, since
-// applyPenaltiesToRoundResults only ever looks up race_number keys that
-// exist in roundResults — a qualifying/practice penalty's race_number
-// sentinel (0) never matches a real race and is naturally never applied.
-if (!loadError && penalties.length > 0) {
-  // Alpha never earns the top-3-in-class Class Points bonus (Gamma/Delta's
-  // own per-race class-position bonus, see README) — told to recomputeRow
-  // via this lookup so a penalty-driven podium shuffle can't manufacture
-  // class points for an Alpha driver that the original pipeline data never
-  // had.
-  const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
-  roundResults = applyPenaltiesToRoundResults(
-    roundResults,
-    penalties,
-    round?.format ?? null,
-    classPointsEligibleByClassId,
-    ruleset?.rules ?? null,
-    subsessionId
-  );
-}
-
-const classNameById = new Map(classes.map((c) => [c.id, c.name]));
-// Classes ordered Alpha/Gamma/Delta (sort_order) rather than however Map
-// iteration happens to return them.
-
-// Exhibition either because the round itself is flagged (round_overrides)
-// or because the whole season it belongs to isn't a real championship
-// season (see isChampionshipSeason).
-const isRoundFlaggedExhibition = exhibitionRoundIds.has(subsessionId);
-const isSeasonExhibition = round?.season_label ? !isChampionshipSeason(round.season_label) : false;
-const isExhibition = isRoundFlaggedExhibition || isSeasonExhibition;
-// Independent of isExhibition — see 0036_round_test_flag.sql. A round can't
-// be BOTH season-flagged-exhibition and season-flagged-test since that's a
-// property of the season name, but the manual per-round flags (this one and
-// is_exhibition) aren't mutually exclusive by design.
-const isTest = testRoundIds.has(subsessionId);
-
-// This driver's incidents in EACH INDIVIDUAL race this round — kept per
-// race_number, not summed across the round, since the ruleset's incident
-// limit (round_incident_limit) is a per-race cap: a driver who logs 5
-// incidents in Race 1 and 6 in Race 2 against a limit of 8 hasn't broken it
-// either time, even though 5+6 exceeds 8. Built from the overall
-// (cross-class) rows, which cover every scored driver regardless of which
-// view (Overall/Per Class) is actually rendered, so the flag is consistent
-// between the two. Pure in-memory work over the (post-penalty) roundResults
-// with no fetch of its own, so it runs synchronously here rather than
-// nested inside the async incident-limit block below.
-const incidentTotalByRaceDriver = new Map<number, Map<string, number>>();
-if (!loadError && round) {
-  for (const [raceNumber, rows] of roundResults.overall) {
-    const byDriver = new Map<string, number>();
-    for (const row of rows) {
-      byDriver.set(row.driver.id, (byDriver.get(row.driver.id) ?? 0) + (row.incidents ?? 0));
-    }
-    incidentTotalByRaceDriver.set(raceNumber, byDriver);
-  }
-}
-
-// Three blocks that each depend only on `round` (not on each other) —
-// wrapped in named async functions and run concurrently via one Promise.all
-// right after `round` resolves, instead of one after another.
-
-// The displayed "Round N" skips exhibitions and test sessions entirely (so
-// flagging round 1 makes round 2 become "Round 1") — needs every round in
-// this round's season to compute, not just this one.
-let displayRoundNumber: number | null = null;
-async function loadDisplayRoundNumber() {
-  if (loadError || !round) return;
-  try {
-    const seasonRounds = await getRoundsForSeason(supabaseEnv, round!.season_id);
-    displayRoundNumber = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds).get(subsessionId) ?? null;
-  } catch (err) {
-    console.error('Failed to compute round number:', err);
-  }
-}
-
-// Round incident limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) —
-// informational only, no scoring effect: an ordinary sprint/endurance round
-// uses the season's ruleset round_incident_limit.sprint/.endurance; a
-// special-event round instead uses race_overrides.incident_limit, when this
-// subsession_id is listed in that ruleset's race_overrides.subsession_ids
-// (the same "special event" override mechanism base_points/
-// classified_minimum already use — see admin/rulesets). Read straight off
-// `rules` (jsonb, typed `unknown` — see ScoringRuleset's own doc comment)
-// with defensive optional-chaining since nothing guarantees its shape.
-let incidentLimit: number | null = null;
-async function loadIncidentLimit() {
-  if (loadError || !round) return;
-  try {
-    // `ruleset` already resolved above (needed earlier for the penalty
-    // recompute's points tables) — no second scoring_rulesets fetch needed.
-    incidentLimit = resolveIncidentLimit(ruleset, round!.format, subsessionId);
-  } catch (err) {
-    console.error('Failed to resolve round incident limit:', err);
-  }
-}
-
-// This round's resolved layout's corner count — powers ResultsTable's
-// Incidents-column corners-per-incident tooltip (same resolveLayout()
-// match-by-track-name-then-layout-name results.ts's season-long Sublime
-// Finesse stat uses, just for this one round). Null (no tooltip anywhere in
-// this round's tables) whenever the round's track/layout doesn't resolve —
-// same "nothing to compute from" cases as that season stat.
-let layoutCorners: number | null = null;
-async function loadLayoutCorners() {
-  if (loadError || !round) return;
-  try {
-    const [circuits, layouts, roundLayouts] = await Promise.all([
-      getCircuits(supabaseEnv),
-      getAllCircuitLayouts(supabaseEnv),
-      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
-    ]);
-    const layout = resolveLayout(round!.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
-    layoutCorners = layout?.corners ?? null;
-  } catch (err) {
-    console.error("Failed to resolve this round's layout for corners-per-incident:", err);
-  }
-}
-
-// Every driver id appearing anywhere in this round's Overall results —
-// scopes the personal-best lookup just below to the drivers who actually
-// raced this round, not the whole roster (see getDriverBestLapsAtTrack's own
-// bounded-fetch reasoning). Pure in-memory work over the (post-penalty)
-// roundResults, same "no fetch of its own" reasoning as
-// incidentTotalByDriverId above.
-const roundDriverIds = new Set<string>();
-if (!loadError && round) {
-  for (const rows of roundResults.overall.values()) {
-    for (const row of rows) roundDriverIds.add(row.driver.id);
-  }
-}
-
-// This driver's fastest-ever lap at this track BEFORE this round — powers
-// ResultsTable's expanded detail panel "beat their personal best at this
-// track" indicator (per Logan: "like the track record logic in the race
-// recaps," but per-driver rather than newsRecap.ts's whole-round-vs-
-// official-record comparison — see getDriverBestLapsAtTrack's own doc
-// comment).
-let driverBestLapsAtTrack: Map<string, number> = new Map();
-async function loadDriverBestLapsAtTrack() {
-  if (loadError || !round || roundDriverIds.size === 0) return;
-  try {
-    const roundLayouts = await getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]);
-    driverBestLapsAtTrack = await getDriverBestLapsAtTrack(
-      supabaseEnv,
-      round!.track_name,
-      roundLayouts.get(subsessionId) ?? null,
-      [...roundDriverIds],
-      subsessionId
-    );
-  } catch (err) {
-    console.error("Failed to look up drivers' personal bests at this track:", err);
-  }
-}
-
-await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners(), loadDriverBestLapsAtTrack()]);
-
-// Drivers whose incidents in a given race exceed (not just meet) the limit
-// — ResultsTable flags that race's row for them, in red. Per race_number
-// (see incidentTotalByRaceDriver above), so a driver flagged in Race 1 isn't
-// necessarily flagged in Race 2 too, and vice versa.
-const incidentLimitExceededDriverIdsByRace = new Map<number, Set<string>>();
-if (incidentLimit !== null) {
-  for (const [raceNumber, byDriver] of incidentTotalByRaceDriver) {
-    incidentLimitExceededDriverIdsByRace.set(
-      raceNumber,
-      new Set([...byDriver.entries()].filter(([, total]) => total > (incidentLimit as number)).map(([driverId]) => driverId))
-    );
-  }
-}
-
-const overallRaceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
-
-// Active session/class for the single table shown — the requested race when
-// this round actually has it, else the round's first race (Race 1).
-const activeRaceNumber =
-  requestedRaceNumber !== null && overallRaceNumbers.includes(requestedRaceNumber) ? requestedRaceNumber : overallRaceNumbers[0] ?? 1;
-const sessionKey = category === 'race' ? `race-${activeRaceNumber}` : category;
-const activeClass = classes.find((c) => c.name.toLowerCase() === classParam) ?? null;
-const classKey = activeClass ? activeClass.name.toLowerCase() : 'all';
-
-// --- Incident reporting (per Logan) ----------------------------------------
-// Open for a configurable number of hours (site setting, default 24) after
-// the race is over — see src/lib/incidentReports.ts for the exact window
-// math. The yellow incident button is one of three states (IncidentButton.
-// astro): "Report Incident" while open, a disabled "Incident Report" once the
-// period has closed, and a working "Incident Report" link once stewards have
-// POSTED the round (admin > Incident Reporting) — posting also ends
-// reporting. Admins always get the link. The POST below re-checks the window
-// server-side.
-const reportSessionOptions: { value: string; label: string }[] = [
-  ...overallRaceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
-  { value: 'qualifying:0', label: 'Qualifying' },
-  { value: 'practice:0', label: 'Practice' },
-];
-const reportDriverById = new Map<string, { id: string; name: string; car_number: number | null }>();
-for (const rows of roundResults.overall.values()) {
-  for (const row of rows) {
-    reportDriverById.set(row.driver.id, { id: row.driver.id, name: row.driver.name, car_number: row.driver.car_number });
-  }
-}
-const reportDrivers = [...reportDriverById.values()].sort(
-  (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
-);
-const reportingHours = !loadError && round ? await getReportingPeriodHours(supabaseEnv) : 24;
-const reportingWindow =
-  !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time, reportingHours) : null;
-const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
-const incidentButtonState: 'report' | 'view' | 'closed' = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : 'closed';
-// Admins normally only see the "Incident Report" link, but while reporting
-// is still open they also get the Report Incident button (placed between the
-// Race Links and Incident Report buttons) so they can file one themselves.
-const showReportButton = reportingOpen && (incidentButtonState === 'report' || isAdmin);
-// Reporting is open to signed-out visitors too; a signed-in reporter's
-// identity is attached server-side (submit_incident_report reads their JWT).
-const reportSession = Astro.locals.session;
-
-let reportFlash: { kind: 'ok' | 'error'; message: string } | null = null;
-{
-  const flash = Astro.url.searchParams.get('report');
-  if (flash === 'ok') reportFlash = { kind: 'ok', message: 'Incident reported successfully.' };
-  else if (flash === 'closed') reportFlash = { kind: 'error', message: 'The reporting period for this round has closed.' };
-  else if (flash === 'invalid') reportFlash = { kind: 'error', message: 'Your report was missing a required field — please fill in Session, Lap, Turn and at least one car.' };
-  else if (flash === 'failed') reportFlash = { kind: 'error', message: "Couldn't save your report right now. Please try again." };
-}
-
-if (postForm && postForm.get('intent') === 'report-incident' && !loadError && round) {
-  const back = (code: string) => {
-    const url = new URL(Astro.url);
-    url.searchParams.set('report', code);
-    return Astro.redirect(`${url.pathname}${url.search}`, 302);
-  };
-  // Honeypot — real users never fill this hidden field; a bot that does gets a silent "success".
-  if (String(postForm.get('website') ?? '').trim() !== '') return back('ok');
-  if (!reportingOpen) return back('closed');
-
-  const sessionValue = String(postForm.get('session') ?? '');
-  const lapRaw = String(postForm.get('lap') ?? '').trim();
-  const lap = /^\d+$/.test(lapRaw) ? Number(lapRaw) : NaN;
-  const turn = String(postForm.get('turn') ?? '').trim().slice(0, 80);
-  const description = String(postForm.get('description') ?? '').trim().slice(0, 2000) || null;
-  const involved = [...new Set(postForm.getAll('involved_driver_ids').map(String))].filter((id) => reportDriverById.has(id));
-
-  if (!reportSessionOptions.some((o) => o.value === sessionValue) || !Number.isFinite(lap) || !turn || involved.length === 0) {
-    return back('invalid');
-  }
-  try {
-    await createIncidentReport(supabaseEnv, reportSession?.accessToken ?? null, {
-      subsession_id: subsessionId,
-      session: sessionValue,
-      lap,
-      turn,
-      description,
-      driver_ids: involved,
-    });
-  } catch (err) {
-    console.error('Failed to save incident report:', err);
-    return back('failed');
-  }
-  return back('ok');
-}
-
-const qualifying = await qualifyingPromise;
-
-const practice = await practicePromise;
-
-// Whatever `season` value (a real season number, or one of results.astro's
-// pooled "exhibition-rounds"/"test-sessions" filter sentinels) the Race
-// Results list was showing when this round's link was clicked — carried
-// through every link below that returns to or stays within this round, so
-// "Back to Race Results" (and the category/view tabs and Incident Report
-// link, which shouldn't lose it either) land back on the same view instead
-// of always defaulting to the current season.
 const seasonParam = Astro.url.searchParams.get('season');
 const backHref = seasonParam ? `/results?season=${encodeURIComponent(seasonParam)}` : '/results';
-const seasonQuerySuffix = seasonParam ? `&season=${encodeURIComponent(seasonParam)}` : '';
-const incidentsHref = `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
 
-/** Destination URL for a session/class combination (the two dropdowns' option values) — keeps the season filter this round was opened from. */
-function resultsHref(session: string, cls: string): string {
-  return `/results/${subsessionId}?session=${session}&class=${cls}${seasonQuerySuffix}`;
-}
-const selectClass =
-  'h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary';
-const sessionChoices: { key: string; label: string }[] = [
-  { key: 'practice', label: 'Practice' },
-  { key: 'qualifying', label: 'Qualifying' },
-  ...(overallRaceNumbers.length > 0 ? overallRaceNumbers : [1]).map((n) => ({ key: `race-${n}`, label: `Race ${n}` })),
-];
-
-// The one table's rows: the active class's own class-relative ranking when a
-// class is picked, else the overall (cross-class) field.
-const raceTableRows = activeClass
-  ? roundResults.byClass.get(activeClass.id)?.get(activeRaceNumber) ?? []
-  : roundResults.overall.get(activeRaceNumber) ?? [];
-// Fastest lap of the whole race (across every class, even in a Per Class
-// view) — its time is shown in ATC blue in the results table.
-const raceBestLapTenThousandths = (() => {
-  const laps = (roundResults.overall.get(activeRaceNumber) ?? [])
-    .map((r) => r.bestLapTenThousandths)
-    .filter((n): n is number => n !== null && n > 0);
-  return laps.length > 0 ? Math.min(...laps) : null;
-})();
-const qualifyingTableRows = activeClass ? qualifying.byClass.get(activeClass.id) ?? [] : qualifying.overall;
-const practiceTableRows = activeClass ? practice.byClass.get(activeClass.id) ?? [] : practice.overall;
-
-// How many points each driver actually contributed toward their team's
-// total for a given race — only the team's top 2 scorers that race count
-// (topTeamScorers(), see results.ts), same class-blind "overall" points
-// formula the news recap's Team Scoring Breakdown uses, so this figure
-// always matches what that breakdown would show. Computed once from the
-// overall (cross-class) rows regardless of which view (Overall/Per Class)
-// is being rendered, since a team can span more than one class and a
-// driver's contribution to their team is the same fact either way.
-const teamPointsByRaceDriver = new Map<string, number>();
-for (const [raceNumber, overallRows] of roundResults.overall) {
-  const rowsByTeam = new Map<string, typeof overallRows>();
-  for (const row of overallRows) {
-    if (!row.team) continue;
-    if (!rowsByTeam.has(row.team.name)) rowsByTeam.set(row.team.name, []);
-    rowsByTeam.get(row.team.name)!.push(row);
-  }
-  for (const teamRows of rowsByTeam.values()) {
-    for (const row of topTeamScorers(teamRows, (r) => r.totalPoints - r.classPoints)) {
-      teamPointsByRaceDriver.set(`${raceNumber}:${row.driver.id}`, row.totalPoints - row.classPoints);
-    }
-  }
-}
-
-// Race links (iRacing Results / Replay / Broadcast / Photo Album) — one set
-// per ROUND, not per race (see RaceLinksBlock.astro's own doc comment).
-// Always saved/read against the round's first race number as the canonical
-// row. Rendered as a blue "Race Links" button in the toolbar above the
-// results table, which opens a dialog listing them.
-const canonicalRaceNumber = overallRaceNumbers[0] ?? 1;
-const raceLinks = raceLinksByRace.get(canonicalRaceNumber) ?? null;
-
-// A page showing a report confirmation/error banner (?report=…) must never be
-// stored in the shared edge cache (reporting is open to signed-out visitors,
-// whose renders otherwise ARE cached) — everyone else would see it.
-Astro.response.headers.set(
-  'Cache-Control',
-  reportFlash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
-);
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title={round ? round.track_name : 'Race Results'} description="Race-by-race results for this round.">
+<Layout title={trackName ?? 'Race Results'} description="Race-by-race results for this round.">
   <section class="mx-auto max-w-5xl px-6 pb-24 pt-8">
-    {reportFlash && (
-      <p
-        role="status"
-        class={`mb-4 rounded-lg border px-4 py-3 text-sm ${
-          reportFlash.kind === 'ok'
-            ? 'border-brand-primary/30 bg-brand-primary/10 text-white/80'
-            : 'border-brand-pink/30 bg-brand-pink/10 text-white/80'
-        }`}
-      >
-        {reportFlash.message}
-      </p>
-    )}
-
     <a href={backHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
-    {loadError && (
-      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load this round's results right now. If this mentions permission/RLS, race_scores or
-        curated_race_results likely still need the public-read policy from
-        <code>supabase/migrations/0004_champions.sql</code> — it has to be run manually in the Supabase SQL editor.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
-
-    {round && (
-      <>
-        <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
-          {round.track_name}
-        </h1>
-        <div class="reveal mt-3" style="transition-delay: 80ms">
-          <p class="text-white/60">{formatDate(round.start_time)}</p>
-        </div>
-
-        {isExhibition && (
-          <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
-            <span class={`${EVENT_TAG_CLASSES} bg-brand-pink/15 text-brand-pink`}>
-              Exhibition
-            </span>
-            <span class="text-white/40">
-              {isSeasonExhibition ? "Non-points season — excluded from standings & champions." : 'Flagged non-points — excluded from standings & champions.'}
-            </span>
-          </p>
-        )}
-
-        {isTest && (
-          <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
-            <span class={`${EVENT_TAG_CLASSES} bg-white/10 text-white/60`}>
-              Test
-            </span>
-            <span class="text-white/40">Flagged as a test round — find it via the Test Sessions filter on the Race Results list.</span>
-          </p>
-        )}
-
-        {/* One toolbar for every screen size: Session and Class dropdowns on
-            the left (each option's value is the full destination URL;
-            onchange just navigates there, same as a plain link would), the
-            blue Race Links button and yellow incident button on the right. */}
+    <div data-race-results data-fragment-url={`/results/${subsessionId}/fragment${Astro.url.search}`}>
+      <div aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading results…</span>
+        <div class="mt-3 h-12 w-72 max-w-full animate-pulse rounded-md bg-white/[0.03]"></div>
+        <div class="mt-3 h-5 w-40 animate-pulse rounded bg-white/[0.03]"></div>
         <div class="mt-8 flex flex-wrap items-center gap-3">
-          <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
-            {sessionChoices.map((o) => (
-              <option value={resultsHref(o.key, classKey)} selected={o.key === sessionKey} class="bg-brand-ink text-white">{o.label}</option>
-            ))}
-          </select>
-          <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
-            <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
-            {classes.map((c) => (
-              <option value={resultsHref(sessionKey, c.name.toLowerCase())} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
-            ))}
-          </select>
-          <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
-            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
-            {isAdmin && showReportButton && (
-              <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
-            )}
-            <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
+          <div class="h-9 w-32 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-24 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="flex gap-2 sm:ml-auto">
+            <div class="h-9 w-28 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+            <div class="h-9 w-32 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
           </div>
         </div>
-
-        {showReportButton && (
-          <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} />
-        )}
-
-        {category === 'race' && (
-          raceTableRows.length > 0 ? (
-            <ResultsTable
-              raceNumber={activeRaceNumber}
-              rows={raceTableRows}
-              showClass={!activeClass}
-              classNameById={classNameById}
-              penalties={penalties}
-              teamPointsByRaceDriver={teamPointsByRaceDriver}
-              incidentLimit={incidentLimit}
-              incidentLimitExceededDriverIds={incidentLimitExceededDriverIdsByRace.get(activeRaceNumber) ?? new Set()}
-              layoutCorners={layoutCorners}
-              driverBestLapsAtTrack={driverBestLapsAtTrack}
-              raceBestLapTenThousandths={raceBestLapTenThousandths}
-              showPenaltyTags={roundPosted}
-            />
-          ) : (
-            <p class="mt-10 text-white/60">No results.</p>
-          )
-        )}
-
-        {category === 'qualifying' && (
-          qualifyingTableRows.length > 0 ? (
-            <QualifyingResultsTable rows={qualifyingTableRows} showClass={!activeClass} classNameById={classNameById} penalties={penalties} />
-          ) : (
-            <p class="mt-10 text-white/60">No qualifying results.</p>
-          )
-        )}
-
-        {category === 'practice' && (
-          practiceTableRows.length > 0 ? (
-            <PracticeResultsTable rows={practiceTableRows} showClass={!activeClass} classNameById={classNameById} />
-          ) : (
-            <p class="mt-10 text-white/60">No practice results.</p>
-          )
-        )}
-
-      </>
-    )}
+        <div class="mt-6 h-[28rem] animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+      </div>
+    </div>
   </section>
 </Layout>
+
+<script>
+  import '../../scripts/raceLinksDialog';
+  import '../../scripts/reportIncidentDialog';
+  import '../../scripts/incidentCountdown';
+</script>
+
+<script>
+  // Shell-then-skeleton: fetches the race fragment (the expensive data work)
+  // client-side once this shell has already painted — same pattern as
+  // results.astro / standings.astro; see the matching fragment.astro for the
+  // full explanation.
+  function initRaceResults() {
+    const container = document.querySelector<HTMLElement>('[data-race-results]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+    // Cleared immediately so the synthetic astro:page-load dispatched below
+    // doesn't see this same data-fragment-url and fetch it all over again.
+    delete container.dataset.fragmentUrl;
+
+    fetch(url)
+      .then((res) => {
+        // Unknown round: the fragment answers with X-Redirect-To instead of redirecting.
+        const redirectTo = res.headers.get('X-Redirect-To');
+        if (redirectTo) {
+          window.location.replace(redirectTo);
+          throw new Error('redirecting');
+        }
+        if (!res.ok) throw new Error(`race fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        // reveal.ts only observes `.reveal` elements present at page-load
+        // time; this content lands later, so mark it visible right away.
+        const pageTitle = container.querySelector<HTMLElement>('[data-page-title]')?.dataset.pageTitle;
+        if (pageTitle) document.title = `${pageTitle} · Alpha Touring Challenge`;
+        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+        // Sortable tables, row expanders and this page's own scripts bind
+        // against whatever exists at astro:page-load, so re-dispatch it now
+        // that the real content is in place.
+        document.dispatchEvent(new Event('astro:page-load'));
+      })
+      .catch((err) => {
+        console.error('Failed to load race:', err);
+        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
+      });
+  }
+
+  document.addEventListener('astro:page-load', initRaceResults);
+</script>

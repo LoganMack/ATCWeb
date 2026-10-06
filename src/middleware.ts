@@ -304,6 +304,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     context.request.method === 'GET' &&
     !pathname.startsWith(ADMIN_PREFIX) &&
     !pathname.startsWith('/api') &&
+    // Shell-then-skeleton pages fetch a /…/fragment URL right after their own load; counting those too would double every view.
+    !pathname.endsWith('/fragment') &&
     !context.locals.isRealAdmin &&
     (response.status === 200 || response.status >= 400)
   ) {

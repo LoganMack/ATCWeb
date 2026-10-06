@@ -1,0 +1,425 @@
+---
+export const prerender = false;
+
+import {
+  getTeams,
+  getDrivers,
+  getSeasons,
+  getTeamRosterForSeason,
+  getAllTeamRosters,
+  getAllTeamSeasonLogos,
+  displayDriverName,
+  resolveSupabaseEnv,
+  getOrganizations,
+  getAllOrganizationTeamSeasons,
+  type Season,
+  type Team,
+} from '../../lib/supabase';
+import { driversSelect, getAllRounds, type DriverBasic } from '../../lib/results';
+import TeamLogo from '../../components/TeamLogo.astro';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let teams: Awaited<ReturnType<typeof getTeams>> = [];
+let loadError = false;
+const loadTeams = async () => {
+  try {
+    teams = await getTeams(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load teams:', err);
+    loadError = true;
+  }
+};
+
+// Season picker — which season's rosters/logos to show (defaults to
+// whichever season is marked current). Fetched up front (rather than inside
+// loadRoster below, as it used to be) so both the season <select> in the
+// template and the roster/logo/founded-date computations below can all use
+// the same resolved `selectedSeason`.
+let seasons: Season[] = [];
+const loadSeasons = async () => {
+  try {
+    seasons = await getSeasons(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load seasons:', err);
+  }
+};
+
+// Team -> organization name, for the small subtitle under a renamed team's
+// name (see 0043_organizations.sql). organization_team_seasons links a team
+// to an org per-season, but in practice a given team_id only ever
+// represents one era of one organization (a rename creates a brand-new
+// team_id, it doesn't re-link an existing one) — so any one link found for
+// a team_id is enough here; there's no need to pick a specific season the
+// way computeTeamCareerStats does. A team with no link at all (the common
+// case — most teams have never been renamed) just has no entry.
+let orgNameByTeamId = new Map<string, string>();
+const loadOrgNames = async () => {
+  try {
+    const [organizations, orgTeamSeasons] = await Promise.all([getOrganizations(supabaseEnv), getAllOrganizationTeamSeasons(supabaseEnv)]);
+    const orgNameById = new Map(organizations.map((o) => [o.id, o.name]));
+    for (const link of orgTeamSeasons) {
+      if (orgNameByTeamId.has(link.team_id)) continue;
+      const orgName = orgNameById.get(link.organization_id);
+      if (orgName) orgNameByTeamId.set(link.team_id, orgName);
+    }
+  } catch (err) {
+    console.error('Failed to load organizations for team subtitles:', err);
+  }
+};
+
+// Current roster (drivers.team_id — the same "current team" every driver's
+// profile shows, not the season-scoped team_rosters table) grouped by team
+// NAME (getDrivers's embedded `teams` has no id, just name/color/logo — see
+// its own doc comment), so the search box below can match on a team's
+// current member names too.
+let memberNamesByTeamName = new Map<string, string[]>();
+const loadMemberNames = async () => {
+  try {
+    const drivers = await getDrivers(supabaseEnv);
+    for (const d of drivers) {
+      if (!d.teams?.name) continue;
+      if (!memberNamesByTeamName.has(d.teams.name)) memberNamesByTeamName.set(d.teams.name, []);
+      memberNamesByTeamName.get(d.teams.name)!.push(displayDriverName(d.name));
+    }
+  } catch (err) {
+    console.error('Failed to load drivers for team search:', err);
+  }
+};
+
+// Drivers list, needed to resolve the roster's driver_id entries into
+// displayable rows (name/car number) — independent of everything else, so
+// it's fetched alongside the rest in the first Promise.all below rather than
+// nested inside the (now season-dependent) roster load.
+let driversBasic: DriverBasic[] = [];
+const loadDriversBasic = async () => {
+  try {
+    driversBasic = await driversSelect(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load drivers for team rosters:', err);
+  }
+};
+
+// These six blocks don't read each other's results, so they run
+// concurrently rather than as 6 sequential round-trips — each keeps its own
+// try/catch exactly as before, isolated from the others.
+await Promise.all([loadTeams(), loadSeasons(), loadOrgNames(), loadMemberNames(), loadDriversBasic()]);
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+// Which season's rosters/logos to show — a `?season=` query param (set by
+// the <select> below, GET-submitted so the whole page re-renders server-side
+// same as the admin team editor's identical season picker) falling back to
+// whichever season is marked current.
+const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0] ?? null;
+const requestedSeasonId = Astro.url.searchParams.get('season');
+const selectedSeason = (requestedSeasonId ? seasons.find((s) => s.id === requestedSeasonId) : undefined) ?? currentSeason;
+const isPastSeason = !!selectedSeason && selectedSeason.id !== currentSeason?.id;
+
+// The roster columns, sourced from the season-scoped team_rosters table for
+// whichever season is selected above — deliberately NOT the same
+// drivers.team_id list used for search above, since a driver's "current
+// team" field can drift out of sync with which season roster they were
+// actually locked into (team_rosters is the source of truth the scoring
+// engine itself uses for team eligibility). Most seasons cap teams at 3
+// drivers, but some historical seasons allowed 4 — rather than tracking that
+// as a per-season flag, it's just read off the data: if any team's roster
+// for the selected season has a 4th entry, a 4th driver column is shown.
+let rosterByTeamId = new Map<string, DriverBasic[]>();
+const loadSeasonRoster = async () => {
+  if (!selectedSeason) return;
+  try {
+    const rosterEntries = await getTeamRosterForSeason(supabaseEnv, selectedSeason.id);
+    const driverById = new Map(driversBasic.map((d) => [d.id, d]));
+    for (const entry of rosterEntries) {
+      const driver = driverById.get(entry.driver_id);
+      if (!driver) continue;
+      if (!rosterByTeamId.has(entry.team_id)) rosterByTeamId.set(entry.team_id, []);
+      rosterByTeamId.get(entry.team_id)!.push(driver);
+    }
+    for (const list of rosterByTeamId.values()) {
+      list.sort((a, b) => (a.car_number ?? Number.MAX_SAFE_INTEGER) - (b.car_number ?? Number.MAX_SAFE_INTEGER) || a.name.localeCompare(b.name));
+    }
+  } catch (err) {
+    console.error('Failed to load team rosters for selected season:', err);
+  }
+};
+
+// Contemporary logo for the selected season — team_season_logos holds
+// historical overrides (see admin team edit page's "Logos by Season"); a
+// team with no override on file for this season just falls back to its
+// current logo_url (the common case, including for the current season,
+// which normally has no override at all).
+let logoOverrideByTeamId = new Map<string, string>();
+const loadSeasonLogos = async () => {
+  if (!selectedSeason) return;
+  try {
+    const allLogos = await getAllTeamSeasonLogos(supabaseEnv);
+    for (const logo of allLogos) {
+      if (logo.season_id === selectedSeason.id) logoOverrideByTeamId.set(logo.team_id, logo.logo_url);
+    }
+  } catch (err) {
+    console.error('Failed to load historical team logos:', err);
+  }
+};
+
+// "Founded" date (see the current-season table's Founded column below):
+// this team's EARLIEST actually-raced round, resolved by cross-referencing
+// EVERY season this team ever had a team_rosters entry for (regardless of
+// which season is currently selected above — this is deliberately season
+// AGNOSTIC) against that season's own earliest curated_rounds.start_time.
+// Deliberately NOT seasons.start_date — every season row in this database
+// currently has start_date left null (an unpopulated column, not a data
+// error specific to any one season), which used to make this whole
+// computation silently no-op and fall back to teams.created_at for nearly
+// every team, showing a "Founded" date that was really just whenever that
+// team's DB row happened to be (re)created — often a recent bulk-import
+// timestamp with nothing to do with the team's actual history. Falls back
+// to teams.created_at only when a team has no roster history with any
+// resolvable round date at all (a brand-new team with no rounds on file
+// yet) — see Team.created_at's own doc comment in supabase.ts.
+let earliestRaceDateByTeamId = new Map<string, string>();
+const loadFoundingDates = async () => {
+  try {
+    const [allRosterEntries, allRounds] = await Promise.all([getAllTeamRosters(supabaseEnv), getAllRounds(supabaseEnv)]);
+    const earliestRoundStartBySeasonId = new Map<string, string>();
+    for (const round of allRounds) {
+      const existing = earliestRoundStartBySeasonId.get(round.season_id);
+      if (!existing || round.start_time < existing) earliestRoundStartBySeasonId.set(round.season_id, round.start_time);
+    }
+    for (const entry of allRosterEntries) {
+      const seasonStart = earliestRoundStartBySeasonId.get(entry.season_id);
+      if (!seasonStart) continue;
+      const existing = earliestRaceDateByTeamId.get(entry.team_id);
+      if (!existing || seasonStart < existing) earliestRaceDateByTeamId.set(entry.team_id, seasonStart);
+    }
+  } catch (err) {
+    console.error('Failed to load team rosters/rounds for founding dates:', err);
+  }
+};
+
+// These three all depend on `selectedSeason`/`seasons` resolved just above
+// (loadFoundingDates doesn't, strictly, but is kept alongside its two
+// siblings here for the same "independent, run together" reasoning), but
+// not on each other, so they still run concurrently rather than in series.
+await Promise.all([loadSeasonRoster(), loadSeasonLogos(), loadFoundingDates()]);
+
+function foundedDateFor(team: Team): string {
+  const earliestRaceDate = earliestRaceDateByTeamId.get(team.id);
+  return earliestRaceDate && earliestRaceDate < team.created_at ? earliestRaceDate : team.created_at;
+}
+
+function ordinalSuffix(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return 'th';
+  if (n % 10 === 1) return 'st';
+  if (n % 10 === 2) return 'nd';
+  if (n % 10 === 3) return 'rd';
+  return 'th';
+}
+
+/** "MMM DDth, YYYY" (e.g. "Jan 3rd, 2024") — read off the UTC calendar date so a date stored as e.g. `2023-01-05` (midnight UTC) never shifts a day depending on the visitor's timezone. */
+function formatFoundedDate(iso: string): string {
+  const d = new Date(iso);
+  const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  const day = d.getUTCDate();
+  const year = d.getUTCFullYear();
+  return `${month} ${day}${ordinalSuffix(day)}, ${year}`;
+}
+
+/**
+ * Splits a display name into its first token and everything after it, so
+ * the mobile roster columns below can stack a driver's first name above
+ * their last (or "middle last", for a 3-part name — this only ever splits
+ * once, on the FIRST space) rather than letting the whole name wrap
+ * mid-word in a column this narrow. Desktop keeps the normal single-line
+ * "First Last #Number" — this is mobile-only, per Logan.
+ */
+function splitFirstName(fullName: string): { first: string; rest: string } {
+  const trimmed = fullName.trim();
+  const spaceIdx = trimmed.indexOf(' ');
+  if (spaceIdx === -1) return { first: trimmed, rest: '' };
+  return { first: trimmed.slice(0, spaceIdx), rest: trimmed.slice(spaceIdx + 1) };
+}
+
+// Only teams with drivers on the roster for the selected season are shown.
+// A team's "active" status is no longer a separate stored flag an admin sets
+// by hand (see admin/teams/[id].astro) — having at least one driver on the
+// CURRENT season's roster now IS the definition of active, so the single
+// roster-membership filter below already does double duty: for the current
+// season it's exactly "active teams only" (an inactive team simply has no
+// current-season roster entry, so it drops out here on its own), and for a
+// PAST season it correctly leaves every team that actually raced that season
+// in, regardless of whether they're still fielding cars today — that's a
+// fixed historical fact, not something "active" should retroactively hide.
+// Once loaded, clicking a column header (src/scripts/sortable-table.ts)
+// re-sorts the whole table client-side.
+const sortedTeams = teams
+  .filter((team) => (rosterByTeamId.get(team.id)?.length ?? 0) > 0)
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+// Whether any team's roster for the selected season has a 4th driver
+// (rulebook cap of 3 loosened in some historical seasons — see the roster
+// loader's doc comment above).
+const showFourthDriverColumn = [...rosterByTeamId.values()].some((list) => list.length >= 4);
+const driverColumnCount = showFourthDriverColumn ? 4 : 3;
+---
+
+    {loadError && (
+      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load teams right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && (
+      <div class="reveal mt-8 flex flex-wrap items-end gap-4" style="transition-delay: 80ms">
+        <div class="max-w-sm flex-1">
+          <input
+            type="search"
+            id="team-search"
+            placeholder="Search teams or drivers…"
+            class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+          />
+        </div>
+        {seasons.length > 0 && (
+          <form method="GET">
+            <label class="flex flex-col gap-1.5 text-sm">
+              <span class="text-white/60">Season</span>
+              <select
+                name="season"
+                onchange="this.form.submit()"
+                class="h-10 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+              >
+                {seasons.map((s) => (
+                  <option value={s.id} selected={s.id === selectedSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+                ))}
+              </select>
+            </label>
+          </form>
+        )}
+      </div>
+    )}
+
+    {!loadError && (
+      <div class="mt-4 rounded-xl border border-white/10" data-sticky-thead>
+        <table class="w-full border-collapse" data-sortable>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
+              {/* Founded is now shown at every width — on mobile it
+                  REPLACES the driver columns below (hidden there instead,
+                  per Logan — see those columns' own comment). Still gated
+                  on !isPastSeason exactly as before. */}
+              {!isPastSeason && <th class="py-3 pr-4 font-medium" data-sort-key="founded">Founded</th>}
+              {/* Mobile: hidden (sm:table-cell) — a driver list is instead
+                  reached by tapping a row to expand it (chevron +
+                  [data-expand-row]/[data-detail-row], src/scripts/
+                  expandRows.ts). Desktop renders these exactly as before. */}
+              <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 1</th>
+              <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 2</th>
+              <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 3</th>
+              {showFourthDriverColumn && <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 4</th>}
+            </tr>
+          </thead>
+          <tbody id="team-list">
+            {sortedTeams.map((team) => {
+              const members = memberNamesByTeamName.get(team.name) ?? [];
+              const roster = rosterByTeamId.get(team.id) ?? [];
+              const orgName = orgNameByTeamId.get(team.id);
+              const logoUrl = logoOverrideByTeamId.get(team.id) ?? team.logo_url;
+              const founded = foundedDateFor(team);
+              const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
+              return (
+                <>
+                <tr
+                  data-expand-row
+                  tabindex="0"
+                  role="button"
+                  aria-expanded="false"
+                  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04] sm:cursor-default"
+                  data-search={searchText}
+                >
+                  <td class="py-2.5 pl-4 pr-3" data-col="name">
+                    <div class="flex items-center gap-3">
+                      <span
+                        data-chevron
+                        class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150 sm:hidden"
+                        aria-hidden="true"
+                      >
+                        &#9654;
+                      </span>
+                      <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" />
+                      <div class="flex flex-col justify-center">
+                        <span class="font-semibold leading-tight">{team.name}</span>
+                        {/* Organization subtitle, hidden on mobile entirely (not just the invisible height-placeholder desktop still uses when a team has no org, per Logan). */}
+                        <span class={`hidden text-[11px] leading-tight text-white/40 sm:block ${orgName ? '' : 'sm:invisible'}`}>{orgName ?? ' '}</span>
+                      </div>
+                    </div>
+                  </td>
+                  {!isPastSeason && (
+                    <td class="py-2.5 pr-4 text-white/70" data-col="founded" data-sort-value={founded}>
+                      {formatFoundedDate(founded)}
+                    </td>
+                  )}
+                  {Array.from({ length: driverColumnCount }, (_, i) => i).map((i) => {
+                    const driver = roster[i];
+                    const fullName = driver ? displayDriverName(driver.name) : '';
+                    const { first, rest } = splitFirstName(fullName);
+                    return (
+                      <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell">
+                        {driver ? (
+                          <>
+                            {/* Mobile: first name stacked above the rest of
+                                the name, no car number (Logan) — desktop
+                                keeps the original single-line "Name #Number". */}
+                            <span class="flex flex-col leading-tight sm:hidden">
+                              <span>{first}</span>
+                              {rest && <span>{rest}</span>}
+                            </span>
+                            <span class="hidden sm:inline">
+                              {fullName}
+                              {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
+                            </span>
+                          </>
+                        ) : (
+                          <span class="text-white/25">—</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {/* Mobile-only driver list, reached by tapping the row above
+                    -- replaces the always-visible driver columns there (see
+                    those columns' own comment). `sm:hidden` here is
+                    permanent (unlike the `hidden` class, which
+                    expandRows.ts toggles on click) -- it stacks with
+                    `hidden` so that even if this row's aria-expanded state
+                    were ever toggled true at a desktop width, it still can
+                    never actually render at sm+, no matter what. */}
+                <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs sm:hidden">
+                  <td colspan={!isPastSeason ? 2 : 1} class="px-4 py-4">
+                    <div class="text-[10px] uppercase tracking-wide text-white/30">Drivers</div>
+                    <table class="mt-1 w-full max-w-xs">
+                      <tbody>
+                        {roster.map((driver, i) => (
+                          <tr class="border-b border-white/5 last:border-0">
+                            <td class="py-1 text-white/50">Driver {i + 1}</td>
+                            <td class="py-1 text-right font-semibold text-white/90">
+                              {displayDriverName(driver.name)}
+                              {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+                </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    {!loadError && <p id="team-search-empty" class="mt-4 hidden text-white/60">No results.</p>}
