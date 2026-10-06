@@ -123,7 +123,7 @@ export const FORMAT_CARD_CLASSES: Record<EventFormat, string> = {
 export const CATEGORY_CARD_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'border-white/10 bg-white/[0.03]',
-  exhibition: 'border-white/10 bg-gradient-to-r from-brand-blue/10 via-brand-pink/10 to-brand-gold/10',
+  exhibition: 'border-white/10 bg-gradient-to-r from-[color:var(--card-blue)] via-[color:var(--card-pink)] to-[color:var(--card-gold)]',
   holiday: 'border-white/10 bg-white/[0.03]',
   iracing: 'border-white/10 bg-white/[0.03]',
 };
@@ -151,7 +151,7 @@ export const CATEGORY_CARD_HOVER_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]',
   exhibition:
-    'border-white/10 bg-gradient-to-r from-brand-blue/10 via-brand-pink/10 to-brand-gold/10 hover:from-brand-blue/20 hover:via-brand-pink/20 hover:to-brand-gold/20',
+    'border-white/10 bg-gradient-to-r from-[color:var(--card-blue)] via-[color:var(--card-pink)] to-[color:var(--card-gold)] hover:from-[color:var(--card-blue-h)] hover:via-[color:var(--card-pink-h)] hover:to-[color:var(--card-gold-h)]',
   holiday: 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]',
   iracing: 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.06]',
 };

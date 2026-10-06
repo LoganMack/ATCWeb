@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Opaque Preview</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:Roboto,system-ui,sans-serif;background:#0b0b0e;color:#fff;padding:24px}
+h1{font-size:22px;margin:0 0 4px}p.n{color:#ffffff99;font-size:13px;margin:0 0 20px;max-width:760px;line-height:1.5}
+.theme{border-radius:4px;padding:20px;margin-bottom:24px}
+.dark{background:#0b0b0e;color:#fff;border:1px solid #ffffff22;--o-field:#17171a;--o-field-h:#232326;--o-test:#121215;--o-test-h:#1a1a1c;--o-end:#111425;--o-end-h:#161e3c;--o-sp:#221018;--o-sp-h:#3a1621;--o-spr:#221e13;--o-spr-h:#3a3018;--o-panel:#0b0b0e;--t:255 255 255;--bw:rgb(255 255 255/.15)}
+.light{background:#f7f7f9;color:#111114;border:1px solid #11111433;--o-field:#ececee;--o-field-h:#e0e0e2;--o-test:#f0f0f2;--o-test-h:#e9e9eb;--o-end:#e5e9f9;--o-end-h:#d3dbf8;--o-sp:#f7e5eb;--o-sp-h:#f7d3dd;--o-spr:#f7f2e7;--o-spr-h:#f7edd4;--o-panel:#f7f7f9;--t:17 17 20;--bw:rgb(17 17 20/.15)}
+.theme>h2{margin:0 0 14px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.6}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}@media(max-width:760px){.cols{grid-template-columns:1fr}}
+.col h3{font-size:12px;margin:0 0 8px;opacity:.7;font-weight:500}
+/* backdrop that shows what translucency does: a banner/gradient behind the element */
+.stage{border-radius:4px;padding:14px;background:linear-gradient(120deg,#4369F5 0%,#F5426E 55%,#F5C642 100%);display:flex;flex-direction:column;gap:10px}
+.field{border:1px solid var(--bw);border-radius:3px;padding:8px 12px;font-size:14px;display:flex;justify-content:space-between;width:100%;max-width:260px}
+.t .field{background:rgb(var(--t)/.05)}.o .field{background:var(--o-field)}
+.panel{border:1px solid var(--bw);border-radius:3px;padding:6px;font-size:14px;max-width:260px;box-shadow:0 8px 20px #0006}
+.t .panel{background:var(--o-panel)}.o .panel{background:var(--o-panel)}
+.panel div{padding:6px 8px;border-radius:2px}.panel div.sel{background:rgb(var(--t)/.1)}
+.card{border:1px solid;border-radius:4px;padding:12px 14px;font-size:14px;display:flex;justify-content:space-between;gap:10px}
+.card small{opacity:.65}
+.t .end{border-color:rgb(67 105 245/.4);background:rgb(67 105 245/.1)}.o .end{border-color:rgb(67 105 245/.4);background:var(--o-end)}
+.t .sp{border-color:rgb(245 66 110/.4);background:rgb(245 66 110/.1)}.o .sp{border-color:rgb(245 66 110/.4);background:var(--o-sp)}
+.t .spr{border-color:rgb(245 198 66/.4);background:rgb(245 198 66/.1)}.o .spr{border-color:rgb(245 198 66/.4);background:var(--o-spr)}
+.t .test{border-color:var(--bw);background:rgb(var(--t)/.03)}.o .test{border-color:var(--bw);background:var(--o-test)}
+.o .end:hover{background:var(--o-end-h)}.o .sp:hover{background:var(--o-sp-h)}.o .spr:hover{background:var(--o-spr-h)}.o .test:hover{background:var(--o-test-h)}
+.t .end:hover{background:rgb(67 105 245/.2)}.t .sp:hover{background:rgb(245 66 110/.2)}.t .spr:hover{background:rgb(245 198 66/.2)}.t .test:hover{background:rgb(var(--t)/.06)}
+.flat{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
+.flat .card{flex:1;min-width:140px;flex-direction:column;gap:2px}
+.flat .card{background:var(--o-end)}
+.plain{padding:14px;border-radius:4px}
+.plain .stack{display:flex;flex-direction:column;gap:10px}
+.tag{font-size:12px;opacity:.65;margin:14px 0 6px}
+</style></head><body>
+<h1>Opaque dropdowns and cards — preview</h1>
+<p class="n">Preview only: nothing in the site has changed. Left = today (translucent tints). Right = proposed opaque (the same colors flattened onto the page background, so they look identical on a plain page but stop showing whatever is behind them). The gradient behind each sample stands in for anything the element can overlap, such as a page banner or a sticky row, to make the difference obvious. Hover the cards to see the hover tint, which is also flattened.</p>
+<div class="theme dark"><h2>Dark theme</h2><div class="cols"><div class="col t"><h3>Today (translucent)</h3><div class="stage">
+<div class="field"><span>Season 12 — Spring</span><span>▾</span></div>
+<div class="panel"><div class="sel">Season 12 — Spring</div><div>Season 11 — Winter</div><div>Exhibition Rounds</div></div>
+<div class="card end"><span>Endurance · Spa 6h</span><small>Sat 8:00 PM</small></div>
+<div class="card sp"><span>Special · Nürburgring</span><small>Sun 7:00 PM</small></div>
+<div class="card spr"><span>Sprint · Monza</span><small>Wed 9:00 PM</small></div>
+<div class="card test"><span>Test · Open practice</span><small>Fri 8:00 PM</small></div>
+</div></div><div class="col o"><h3>Proposed (opaque)</h3><div class="stage">
+<div class="field"><span>Season 12 — Spring</span><span>▾</span></div>
+<div class="panel"><div class="sel">Season 12 — Spring</div><div>Season 11 — Winter</div><div>Exhibition Rounds</div></div>
+<div class="card end"><span>Endurance · Spa 6h</span><small>Sat 8:00 PM</small></div>
+<div class="card sp"><span>Special · Nürburgring</span><small>Sun 7:00 PM</small></div>
+<div class="card spr"><span>Sprint · Monza</span><small>Wed 9:00 PM</small></div>
+<div class="card test"><span>Test · Open practice</span><small>Fri 8:00 PM</small></div>
+</div></div></div></div><div class="theme light"><h2>Light theme</h2><div class="cols"><div class="col t"><h3>Today (translucent)</h3><div class="stage">
+<div class="field"><span>Season 12 — Spring</span><span>▾</span></div>
+<div class="panel"><div class="sel">Season 12 — Spring</div><div>Season 11 — Winter</div><div>Exhibition Rounds</div></div>
+<div class="card end"><span>Endurance · Spa 6h</span><small>Sat 8:00 PM</small></div>
+<div class="card sp"><span>Special · Nürburgring</span><small>Sun 7:00 PM</small></div>
+<div class="card spr"><span>Sprint · Monza</span><small>Wed 9:00 PM</small></div>
+<div class="card test"><span>Test · Open practice</span><small>Fri 8:00 PM</small></div>
+</div></div><div class="col o"><h3>Proposed (opaque)</h3><div class="stage">
+<div class="field"><span>Season 12 — Spring</span><span>▾</span></div>
+<div class="panel"><div class="sel">Season 12 — Spring</div><div>Season 11 — Winter</div><div>Exhibition Rounds</div></div>
+<div class="card end"><span>Endurance · Spa 6h</span><small>Sat 8:00 PM</small></div>
+<div class="card sp"><span>Special · Nürburgring</span><small>Sun 7:00 PM</small></div>
+<div class="card spr"><span>Sprint · Monza</span><small>Wed 9:00 PM</small></div>
+<div class="card test"><span>Test · Open practice</span><small>Fri 8:00 PM</small></div>
+</div></div></div></div><p class="n">What would change in the code if you approve: the closed-select fields (<code>bg-white/5</code>) and the event card tints in src/lib/eventFormatting.ts become solid colors per theme; the open dropdown panels are already solid (<code>bg-brand-ink</code>) so they stay as is. Cards that sit on the plain page background will look the same as today. Any other translucent card-like surfaces (admin panels, news cards) can be included too if you want a fully sitewide sweep.</p>
+</body></html>

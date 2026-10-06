@@ -116,10 +116,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       widget.querySelectorAll<HTMLElement>('[data-incidents-tab]').forEach((t) => {
         const active = t === tab;
         t.setAttribute('aria-selected', active ? 'true' : 'false');
-        t.classList.toggle('bg-brand-primary', active);
-        t.classList.toggle('text-white', active);
-        t.classList.toggle('bg-white/5', !active);
-        t.classList.toggle('text-white/60', !active);
+        t.dataset.active = active ? 'true' : 'false'; // .btn[data-active] styles the selected tab (global.css)
       });
       widget.querySelectorAll<HTMLElement>('[data-incidents-panel]').forEach((panel) => {
         panel.classList.toggle('hidden', panel.dataset.incidentsPanel !== key);

@@ -1,0 +1,201 @@
+---
+export const prerender = false;
+
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName } from '../../lib/supabase';
+import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions } from '../../lib/results';
+import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
+import SeasonLogo from '../../components/SeasonLogo.astro';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let loadError = false;
+try {
+  seasons = await getSeasons(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load results page seasons:', err);
+  loadError = true;
+}
+
+// Any season whose name doesn't follow the "ATCxx" championship-naming
+// format is a non-points-paying/for-fun exhibition — split the picker so
+// it's obvious which is which, rather than mixing them into one list.
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
+
+// Individually-flagged exhibition/test rounds (round_overrides) — as of
+// Logan's latest request these no longer show inline inside a real
+// championship season's own round list (they used to, with an opt-in "hide"
+// checkbox — see the git history for that older shape). They're hidden
+// there unconditionally now, and only reachable through these two pooled,
+// cross-season entries in the same season <select> below. Whole exhibition
+// SEASONS (the "Exhibitions" optgroup above) are unaffected by any of
+// this — selecting one of those already is its own filter, nothing of
+// its own to hide.
+const POOLED_FILTERS = ['exhibition-rounds', 'test-sessions'] as const;
+type PooledFilter = (typeof POOLED_FILTERS)[number];
+const requestedSeasonParam = Astro.url.searchParams.get('season');
+const activePooledFilter: PooledFilter | null = (POOLED_FILTERS as readonly string[]).includes(requestedSeasonParam ?? '')
+  ? (requestedSeasonParam as PooledFilter)
+  : null;
+
+const activeSeason = activePooledFilter
+  ? null
+  : seasons.find((s) => String(s.number) === requestedSeasonParam) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+
+// The exact `season` query value that reproduces whatever's currently
+// showing — threaded onto every round link below so the round detail
+// page's own "Back to Race Results" link (src/pages/results/[subsessionId].astro)
+// can return here to the same season/filter, not just whatever's current.
+const currentSeasonParam = activePooledFilter ?? (activeSeason ? String(activeSeason.number) : '');
+
+let rounds: Awaited<ReturnType<typeof getRoundsForSeason>> = [];
+let exhibitionRoundIds: Set<number> = new Set();
+let testRoundIds: Set<number> = new Set();
+// Only meaningful (and only computed) for a real season's own round list —
+// pooled cross-season filters below don't have a single season to number
+// rounds within, so they render each round's own season label instead.
+let displayRoundNumbers: Map<number, number | null> = new Map();
+// Each round's own curated_rounds.layout text (admin-filled, may be unset)
+// — shown alongside the track name below ("Round 2: Track Name, Layout"),
+// same raw values getRoundLayoutsForSubsessions returns everywhere else on
+// the site (calendar.astro, results/[subsessionId].astro's layoutCorners
+// lookup); formatted for display with displayLayoutName() at render time.
+let layoutBySubsession: Map<number, string | null> = new Map();
+
+if (!loadError && (activeSeason || activePooledFilter)) {
+  try {
+    [exhibitionRoundIds, testRoundIds] = await Promise.all([getExhibitionRoundIds(supabaseEnv), getTestRoundIds(supabaseEnv)]);
+    if (activePooledFilter) {
+      const allRounds = await getAllRounds(supabaseEnv);
+      const pooledIds = activePooledFilter === 'exhibition-rounds' ? exhibitionRoundIds : testRoundIds;
+      rounds = allRounds.filter((r) => pooledIds.has(r.subsession_id));
+    } else if (activeSeason) {
+      const seasonRounds = await getRoundsForSeason(supabaseEnv, activeSeason.id);
+      // Numbered off the FULL season list (before the exhibition/test round
+      // filter below removes anything) so hiding those rounds doesn't shift
+      // every later championship round's own number.
+      displayRoundNumbers = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds);
+      rounds = isChampionshipSeason(activeSeason.name)
+        ? seasonRounds.filter((r) => !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id))
+        : seasonRounds; // a whole exhibition season: every round already belongs there, nothing to hide
+    }
+    layoutBySubsession = await getRoundLayoutsForSubsessions(
+      supabaseEnv,
+      rounds.map((r) => r.subsession_id)
+    );
+  } catch (err) {
+    console.error('Failed to load rounds:', err);
+    loadError = true;
+  }
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+    {loadError && (
+      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+        Couldn't load results right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
+      </p>
+    )}
+
+    {!loadError && (
+      <form method="GET" class="mt-8 max-w-xs">
+        <label class="flex flex-col gap-1.5 text-sm">
+          <span class="text-white/60">Season</span>
+          <div class="flex items-center gap-2">
+            <select
+              name="season"
+              onchange="this.form.submit()"
+              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            >
+              <optgroup label="Championships" class="bg-brand-ink text-white">
+                {championshipSeasons.map((s) => (
+                  <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+                ))}
+              </optgroup>
+              {exhibitionSeasons.length > 0 && (
+                <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                  {exhibitionSeasons.map((s) => (
+                    <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Other Rounds" class="bg-brand-ink text-white">
+                <option value="exhibition-rounds" selected={activePooledFilter === 'exhibition-rounds'} class="bg-brand-ink text-white">
+                  Exhibition Rounds
+                </option>
+                <option value="test-sessions" selected={activePooledFilter === 'test-sessions'} class="bg-brand-ink text-white">
+                  Test Sessions
+                </option>
+              </optgroup>
+            </select>
+            <SeasonLogo darkUrl={activeSeason?.logo_url ?? null} lightUrl={activeSeason?.logo_url_light} />
+          </div>
+        </label>
+        {activePooledFilter && (
+          <p class="mt-2 text-xs text-white/40">
+            {activePooledFilter === 'exhibition-rounds'
+              ? 'Every round flagged as a non-points exhibition, across every season — none of these count toward standings.'
+              : 'Every round flagged as a test session, across every season — none of these count toward standings.'}
+          </p>
+        )}
+      </form>
+    )}
+
+    {!loadError && rounds.length === 0 && (
+      <p class="mt-10 text-white/60">No results.</p>
+    )}
+
+    {!loadError && rounds.length > 0 && (
+      <div class="mt-8 divide-y divide-white/10 rounded-xl border border-white/10">
+        {rounds.map((round) => {
+          const displayNumber = displayRoundNumbers.get(round.subsession_id) ?? null;
+          const isExhibition = activePooledFilter ? exhibitionRoundIds.has(round.subsession_id) : displayNumber === null;
+          const isTest = testRoundIds.has(round.subsession_id);
+          const titlePrefix = activePooledFilter
+            ? `${round.season_label ?? 'Exhibition'}: `
+            : isExhibition
+              ? 'Exhibition: '
+              : `Round ${displayNumber}: `;
+          // "Round 2: Track Name, Track Layout" — layout only appended when
+          // this round actually has one on file (curated_rounds.layout is
+          // admin-filled, often unset for older/imported rounds), formatted
+          // through displayLayoutName() same as everywhere else layout names
+          // are shown (turns the "N/A" single-configuration sentinel into
+          // "Full Course").
+          const layoutRaw = layoutBySubsession.get(round.subsession_id) ?? null;
+          const trackLabel = layoutRaw ? `${round.track_name}, ${displayLayoutName(layoutRaw)}` : round.track_name;
+          return (
+          <a
+            href={`/results/${round.subsession_id}${currentSeasonParam ? `?season=${encodeURIComponent(currentSeasonParam)}` : ''}`}
+            class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
+          >
+            <div>
+              <p class="font-semibold">
+                {titlePrefix}{trackLabel}
+              </p>
+              <p class="text-sm text-white/50">
+                {formatDate(round.start_time)}
+                {round.format && ` · ${round.format === 'endurance' ? 'Endurance' : 'Sprint'}`}
+              </p>
+            </div>
+            <div class="flex items-center gap-3 text-sm text-white/50">
+              {activePooledFilter === 'test-sessions' && isExhibition && (
+                <span class={`${EVENT_TAG_CLASSES} bg-brand-pink/15 text-brand-pink`}>
+                  Exhibition
+                </span>
+              )}
+              {isTest && (
+                <span class={`${EVENT_TAG_CLASSES} bg-white/10 text-white/60`}>
+                  Test
+                </span>
+              )}
+              {round.num_drivers !== null && <span class="hidden sm:inline">Grid {round.num_drivers}</span>}
+              {round.strength_of_field !== null && <span class="hidden sm:inline">SoF {round.strength_of_field}</span>}
+            </div>
+          </a>
+          );
+        })}
+      </div>
+    )}

@@ -628,7 +628,8 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="seasons"
             aria-selected="true"
-            class="btn btn-primary"
+            data-active="true"
+            class="btn btn-neutral"
           >
             {/* No separate color class on this count — it inherits whatever
                 color the tab-switch script gives its parent button (white
@@ -641,6 +642,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="races"
             aria-selected="false"
+            data-active="false"
             class="btn btn-neutral"
           >
             Races <span>({raceHistory.length})</span>
@@ -650,6 +652,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="splits"
             aria-selected="false"
+            data-active="false"
             class="btn btn-neutral"
           >
             Splits
@@ -659,6 +662,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="bests"
             aria-selected="false"
+            data-active="false"
             class="btn btn-neutral"
           >
             Bests <span>({layoutBests.length})</span>
@@ -668,6 +672,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="incidents"
             aria-selected="false"
+            data-active="false"
             class="btn btn-neutral"
           >
             Incidents <span>({driverIncidents.length})</span>

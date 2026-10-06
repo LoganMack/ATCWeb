@@ -2,201 +2,28 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import DriverRow from '../components/DriverRow.astro';
 import PageBanner from '../components/PageBanner.astro';
-import {
-  getDrivers,
-  getEvents,
-  getPageBanners,
-  getSiteSettings,
-  resolveSupabaseEnv,
-  getAllDriverLastRaces,
-  buildInactivityNote,
-  roundsSinceDate,
-  getSeasons,
-  getTeamRosterWithTeamsForSeason,
-} from '../lib/supabase';
-import { getOfficialRoundStartTimes } from '../lib/results';
-import { isOnProbationNow } from '../lib/penalties';
+import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
 import { bannerUrlFor } from '../lib/pageBanners';
-import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../lib/siteSettings';
-import { countryName } from '../lib/countries';
 
+// Shell-then-skeleton split (same pattern as champions.astro / incidents.astro):
+// this file only fetches the page banner and paints the heading plus a loading
+// skeleton right away; the roster itself (drivers, current teams, probation and
+// inactivity status — several Supabase round trips) lives in
+// roster/fragment.astro and is fetched client-side by the loader script below.
+// The roster's own filter/search/row-link scripts also live here, since a
+// <script> inside fetched HTML never executes — they bind to the fragment's
+// elements when its astro:page-load re-dispatch fires.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Probation's own length is admin-editable (0041_driver_settings.sql) — a
-// failed load just falls back to siteSettingInt's built-in defaults (the
-// rulebook's original 45 days / 4 rounds), same fallback isOnProbationNow's
-// own default params use, so a hiccup here never silently changes anyone's
-// probation status. Inactivity thresholds ride along in the same fetch —
-// they back the Status column's hover tooltip below (see buildInactivityNote).
-let probationDays = 45;
-let probationRounds = 4;
-let inactivityDays = 90;
-let inactivityRounds = 12;
-const loadDriverSettings = async () => {
-  try {
-    const settings = await getSiteSettings(supabaseEnv);
-    probationDays = siteSettingInt(settings, PROBATION_DAYS_KEY);
-    probationRounds = siteSettingInt(settings, PROBATION_ROUNDS_KEY);
-    inactivityDays = siteSettingInt(settings, INACTIVITY_DAYS_KEY);
-    inactivityRounds = siteSettingInt(settings, INACTIVITY_ROUNDS_KEY);
-  } catch (err) {
-    console.error('Failed to load driver settings for probation/inactivity thresholds:', err);
-  }
-};
-
-let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
-let loadError: string | null = null;
-const loadDrivers = async () => {
-  try {
-    drivers = await getDrivers(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load drivers:', err);
-    loadError = err instanceof Error ? err.message : String(err);
-  }
-};
-
-// isOnProbationNow() needs the calendar to know how many rounds have passed
-// since a driver's probation started (rule 61) — a separate, best-effort
-// fetch so a hiccup loading events doesn't take down the whole roster (every
-// driver would just fall back to "not on probation" instead).
-let events: Awaited<ReturnType<typeof getEvents>> = [];
-const loadEvents = async () => {
-  try {
-    events = await getEvents(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load events for probation status:', err);
-  }
-};
-
-// roundsSinceDate() (for the inactivity tooltip below) needs the same
-// "rounds since date X" count sync_driver_statuses() itself uses for a
-// never-raced driver — real officially-scored rounds, NOT the calendar
-// events fetched just above for probation's own (deliberately different)
-// clock. See roundsSinceDate's own doc comment in lib/supabase.ts for why
-// reusing `events` here used to make this tooltip overstate progress.
-let officialRounds: Awaited<ReturnType<typeof getOfficialRoundStartTimes>> = [];
-const loadOfficialRounds = async () => {
-  try {
-    officialRounds = await getOfficialRoundStartTimes(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load official round dates for inactivity status tooltips:', err);
-  }
-};
-
-// Status hover tooltip — the same buildInactivityNote() breakdown the admin
-// Drivers list shows next to each driver's status pill, reused verbatim
-// here so the public roster's tooltip never drifts out of sync with what
-// the admin page (and the DB's own sync_driver_statuses()) actually mean by
-// each status. Best-effort like the events fetch above — a hiccup here just
-// means no tooltip, not a broken roster.
-let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
-const loadLastRaces = async () => {
-  try {
-    const lastRaces = await getAllDriverLastRaces(supabaseEnv);
-    lastRaceByDriverId = new Map(lastRaces.map((r) => [r.driver_id, r]));
-  } catch (err) {
-    console.error('Failed to load driver last-race data for status tooltips:', err);
-  }
-};
-
 let bannerUrl: string | null = null;
-const loadBanner = async () => {
-  try {
-    bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'roster');
-  } catch (err) {
-    console.error('Failed to load page banner:', err);
-  }
-};
-
-// The Team column has to reflect whoever's actually on a team's roster for
-// the CURRENT season (team_rosters), not each driver's own team_id field —
-// see getTeamRosterWithTeamsForSeason's doc comment in lib/supabase.ts for
-// why those two can drift. A driver with no team_rosters entry for the
-// current season shows as unassigned (teams: null) rather than falling back
-// to whatever stale team_id they still have on file — same call teams.astro
-// already makes for its own roster section.
-let currentTeamByDriverId = new Map<string, { name: string; primary_color_hex: string | null; logo_url: string | null }>();
-const loadCurrentTeams = async () => {
-  try {
-    const seasons = await getSeasons(supabaseEnv);
-    const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
-    if (!currentSeason) return;
-    const entries = await getTeamRosterWithTeamsForSeason(supabaseEnv, currentSeason.id);
-    for (const entry of entries) {
-      if (entry.teams) currentTeamByDriverId.set(entry.driver_id, entry.teams);
-    }
-  } catch (err) {
-    console.error('Failed to load current-season team rosters:', err);
-  }
-};
-
-// These seven Supabase reads are all independent of each other — the only
-// real dependency in this file is the synchronous derivation right below
-// (onProbationNowByDriverId needs `drivers`, `events`, and the probation
-// settings, all fully resolved), so there's no reason to pay for 7
-// sequential round-trips one after another when running them together costs
-// about as much as the single slowest one. Each keeps its own try/catch
-// exactly as before, so one failing still doesn't take the others down.
-await Promise.all([
-  loadDriverSettings(),
-  loadDrivers(),
-  loadEvents(),
-  loadOfficialRounds(),
-  loadLastRaces(),
-  loadBanner(),
-  loadCurrentTeams(),
-]);
-
-// Override each driver's embedded `teams` (drivers.team_id, via getDrivers)
-// with their real current-season team_rosters assignment computed above.
-for (const driver of drivers) {
-  driver.teams = currentTeamByDriverId.get(driver.id) ?? null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'roster');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
 }
-
-const onProbationNowByDriverId = new Map(
-  drivers.map((d) => [d.id, isOnProbationNow(d, events, new Date(), probationDays, probationRounds)])
-);
-
-// Nationality dropdown options — restricted to only codes that actually
-// appear on at least one current driver (nationality_1 OR nationality_2),
-// not the full COUNTRIES list, per Logan's request. Sorted by display name
-// so the dropdown reads alphabetically rather than by code.
-const nationalityCodes = new Set<string>();
-for (const driver of drivers) {
-  if (driver.nationality_1) nationalityCodes.add(driver.nationality_1.toLowerCase());
-  if (driver.nationality_2) nationalityCodes.add(driver.nationality_2.toLowerCase());
-}
-const nationalityOptions = Array.from(nationalityCodes)
-  .map((code) => ({ code, name: countryName(code) }))
-  .sort((a, b) => a.name.localeCompare(b.name));
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-
-const classes = ['All', 'Alpha', 'Gamma', 'Delta'];
-// "Active" here is a quick filter, not the literal driver_statuses.name —
-// it covers Active, Veteran, and New (i.e. everyone who isn't Inactive).
-// See ACTIVE_STATUSES in the filter script below. "Unassigned" is a
-// different kind of filter entirely — it cuts across status (an unassigned
-// driver can be Active, Inactive, whatever) and instead shows every driver
-// with no current car number, period (car_number null — see
-// DriverRow.astro's data-unassigned attribute and statusMatches() below).
-// Per Logan: a numberless driver is fine to still show up under the Active
-// filter, but should never show under Inactive specifically — Unassigned
-// is meant to be its own catch-all, not something Inactive also duplicates.
-const statuses = ['All', 'Active', 'Inactive', 'Unassigned'];
-
-// Experience filter — a THIRD, independent quick-filter group, alongside
-// (not instead of) the Active/Inactive/Unassigned status group above. "New"
-// and "Veteran" are real driver_statuses.name values (the same two
-// ACTIVE_STATUSES already treats as "active-ish" — see below); "Rookie"
-// isn't a status at all, it's the separate is_rookie boolean DriverRow
-// already shows its own badge for (re-derived from career history — see
-// sync_rookie_status() in supabase.ts) — hence experienceMatches() in the
-// filter script below needing a special case for it, same shape as
-// Unassigned cutting across status in the group above.
-const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
 ---
 
 <Layout title="Roster" description="The current Alpha Touring Challenge driver roster.">
@@ -204,331 +31,231 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Driver Roster</h1>
 
-    {loadError && (
-      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load the roster right now. If this mentions a missing column, drivers likely still needs the
-        sign_up_date/status/class columns from <code>supabase/migrations/0011_driver_signup_date.sql</code>
-        (and earlier migrations) — they have to be run manually in the Supabase SQL editor. If instead this
-        mentions PUBLIC_SUPABASE_URL or PUBLIC_SUPABASE_ANON_KEY, check that those are set.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
-
-    <!--
-      Search + nationality share a top 2-column line; the Class / Activity /
-      Status dropdowns sit in one 3-column row below. "Activity" is the
-      Active/Inactive/Unassigned/All filter (state.status in the script) and
-      "Status" is the New/Rookie/Veteran filter (state.experience — see
-      experienceLevels above for why "Rookie" belongs in it).
-    -->
-    <div class="reveal relative z-30 mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-4" style="transition-delay: 100ms">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <input
-          type="search"
-          id="roster-search"
-          placeholder="Search drivers, numbers, or teams…"
-          class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
-        />
-        <!--
-          Multi-select nationality filter (per Logan — checking both US and
-          UK should show drivers from either). A native <select multiple>
-          is highlight-based, not check-based, and is awkward without
-          ctrl/cmd-click, so this is a custom button + checkbox panel
-          instead, following the same open/closed disclosure idea as the
-          <details> dropdowns used elsewhere on the site. `state.nationality`
-          becomes a Set below (empty = "All", same as before); the trigger
-          button's own label text updates to reflect the current selection
-          (see updateNationalityLabel() in the script).
-        -->
-        <div class="relative" data-nationality-dropdown>
-          <button
-            type="button"
-            id="roster-nationality-toggle"
-            aria-haspopup="true"
-            aria-expanded="false"
-            class="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-white/5 px-3 text-left text-white outline-none focus:border-brand-primary"
-          >
-            <span id="roster-nationality-label" class="truncate">All Nationalities</span>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="flex-none text-white/40" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
-          <div
-            id="roster-nationality-panel"
-            class="absolute right-0 z-10 mt-1 hidden max-h-64 w-full min-w-[14rem] overflow-y-auto rounded-md border border-white/15 bg-brand-ink p-1.5 shadow-lg"
-          >
-            {nationalityOptions.map((n) => (
-              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-white/80 hover:bg-white/10">
-                <input type="checkbox" class="roster-nationality-checkbox" value={n.code} data-nat-name={n.name} />
-                {n.name}
-              </label>
-            ))}
-          </div>
+    <div data-roster-results data-fragment-url="/roster/fragment">
+      <div class="mt-8 flex flex-col gap-5" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading roster…</span>
+        <div class="flex flex-wrap items-end gap-4">
+          <div class="h-10 w-full animate-pulse rounded-md border border-white/10 bg-white/[0.03] sm:w-64"></div>
+          <div class="h-10 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-10 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-10 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
         </div>
-      </div>
-      <!--
-        Class / Activity / Status filters — dropdowns at every screen size
-        now (they used to be button groups on desktop, with these same
-        selects mobile-only). All three share one 3-column row with
-        identical left-aligned labels, one control height (h-10, same as the
-        search box and nationality dropdown above), and one gap, so the
-        labels and controls line up cleanly under each other.
-      -->
-      <div class="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
-        <label class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-          <select id="roster-class-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
-            {classes.map((c) => (
-              <option value={c} selected={c === 'All'} class="bg-brand-ink text-white">{c}</option>
-            ))}
-          </select>
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
-          <select id="roster-status-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
-            {statuses.map((s) => (
-              <option value={s} selected={s === 'Active'} class="bg-brand-ink text-white">{s}</option>
-            ))}
-          </select>
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
-          <select id="roster-experience-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
-            {experienceLevels.map((x) => (
-              <option value={x} selected={x === 'All'} class="bg-brand-ink text-white">{x}</option>
-            ))}
-          </select>
-        </label>
+        <div class="h-[32rem] animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
       </div>
     </div>
-
-    <!--
-      A dense table instead of a card grid — maximizes how many drivers are
-      visible on screen at once. Less critical columns progressively drop
-      off on narrower viewports (signed-up at lg, status at
-      md, team name at sm) rather than shrinking everything down to
-      unreadable. No Car column here on purpose — a driver can swap cars
-      once per season without penalty, so "current car" doesn't mean much
-      in this roster-wide context (it still shows per-race on Race Results).
-    -->
-    <!--
-      Deliberately NOT using the .reveal scroll-in animation here — with a
-      roster this long, the table starts at or below the fold on most
-      screens, and IntersectionObserver (threshold 0.15) never fires until
-      it's scrolled into view. That made the whole table look like it
-      wasn't loading. It should just be visible immediately.
-    -->
-    <!-- data-sortable + each th's data-sort-key wire up src/scripts/sortable-table.ts;
-         click (or Enter/Space) any header to sort by that column. -->
-    <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-      <table class="w-full border-collapse" data-sortable>
-        <thead>
-          <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-            <th class="whitespace-nowrap py-3 pl-4 pr-2 font-medium" data-sort-key="number">#</th>
-            <th class="whitespace-nowrap py-3 pr-3 font-medium" data-sort-key="name">Driver</th>
-            <th colspan="2" class="whitespace-nowrap py-3 pr-3 font-medium" data-sort-key="class">Class</th>
-            <th class="hidden whitespace-nowrap py-3 pr-3 font-medium sm:table-cell" data-sort-key="team">Team</th>
-            <th class="hidden whitespace-nowrap py-3 pr-3 font-medium md:table-cell" data-sort-key="status">Status</th>
-            <th class="hidden whitespace-nowrap py-3 pr-4 font-medium lg:table-cell" data-sort-key="signup">Signed Up</th>
-          </tr>
-        </thead>
-        <tbody id="roster-body">
-          {drivers.map((driver, i) => (
-            <DriverRow
-              driver={driver}
-              index={i}
-              onProbation={onProbationNowByDriverId.get(driver.id) ?? false}
-              statusTooltip={buildInactivityNote(
-                driver.driver_statuses?.name ?? null,
-                lastRaceByDriverId.get(driver.id),
-                inactivityDays,
-                inactivityRounds,
-                driver.sign_up_date,
-                driver.sign_up_date ? roundsSinceDate(officialRounds, driver.sign_up_date) : null
-              ) ?? undefined}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
-    <p id="roster-search-empty" class="mt-4 hidden text-white/60">No results.</p>
   </section>
+</Layout>
 
-  <script>
-    // "Active" is a quick filter, not a literal driver_statuses.name match —
-    // it covers Active, Veteran, and New (everyone who isn't Inactive).
-    const ACTIVE_STATUSES = ['Active', 'Veteran', 'New'];
+<script>
+  // "Active" is a quick filter, not a literal driver_statuses.name match —
+  // it covers Active, Veteran, and New (everyone who isn't Inactive).
+  const ACTIVE_STATUSES = ['Active', 'Veteran', 'New'];
 
-    function initRosterFilters() {
-      const body = document.getElementById('roster-body');
-      const searchInput = document.getElementById('roster-search') as HTMLInputElement | null;
-      const nationalityDropdown = document.querySelector<HTMLElement>('[data-nationality-dropdown]');
-      const nationalityToggle = document.getElementById('roster-nationality-toggle');
-      const nationalityPanel = document.getElementById('roster-nationality-panel');
-      const nationalityLabel = document.getElementById('roster-nationality-label');
-      const nationalityCheckboxes = Array.from(
-        document.querySelectorAll<HTMLInputElement>('.roster-nationality-checkbox')
-      );
-      const empty = document.getElementById('roster-search-empty');
-      if (!body) return;
+  function initRosterFilters() {
+    const body = document.getElementById('roster-body');
+    const searchInput = document.getElementById('roster-search') as HTMLInputElement | null;
+    const nationalityDropdown = document.querySelector<HTMLElement>('[data-nationality-dropdown]');
+    const nationalityToggle = document.getElementById('roster-nationality-toggle');
+    const nationalityPanel = document.getElementById('roster-nationality-panel');
+    const nationalityLabel = document.getElementById('roster-nationality-label');
+    const nationalityCheckboxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>('.roster-nationality-checkbox')
+    );
+    const empty = document.getElementById('roster-search-empty');
+    if (!body) return;
 
-      // Defaults match the <select>s' initially-selected options in the markup:
-      // all classes, active-ish drivers only, any experience level, any
-      // nationality (empty Set — see below), empty search.
-      const state: { class: string; status: string; experience: string; nationality: Set<string>; search: string } = {
-        class: 'All',
-        status: 'Active',
-        experience: 'All',
-        nationality: new Set<string>(),
-        search: '',
-      };
+    // Defaults match the <select>s' initially-selected options in the markup:
+    // all classes, active-ish drivers only, any experience level, any
+    // nationality (empty Set — see below), empty search.
+    const state: { class: string; status: string; experience: string; nationality: Set<string>; search: string } = {
+      class: 'All',
+      status: 'Active',
+      experience: 'All',
+      nationality: new Set<string>(),
+      search: '',
+    };
 
-      // A driver can hold up to two nationalities (data-nationalities is a
-      // comma-joined lowercase pair from DriverRow.astro) — a row matches
-      // if EITHER of its own nationalities is checked (an empty Set, "All
-      // Nationalities," matches everyone).
-      function nationalityMatches(row: HTMLElement) {
-        if (state.nationality.size === 0) return true;
-        const rowNationalities = (row.dataset.nationalities ?? '').split(',');
-        return rowNationalities.some((code) => state.nationality.has(code));
+    // A driver can hold up to two nationalities (data-nationalities is a
+    // comma-joined lowercase pair from DriverRow.astro) — a row matches
+    // if EITHER of its own nationalities is checked (an empty Set, "All
+    // Nationalities," matches everyone).
+    function nationalityMatches(row: HTMLElement) {
+      if (state.nationality.size === 0) return true;
+      const rowNationalities = (row.dataset.nationalities ?? '').split(',');
+      return rowNationalities.some((code) => state.nationality.has(code));
+    }
+
+    function updateNationalityLabel() {
+      if (!nationalityLabel) return;
+      if (state.nationality.size === 0) {
+        nationalityLabel.textContent = 'All Nationalities';
+      } else if (state.nationality.size === 1) {
+        const code = Array.from(state.nationality)[0];
+        const checkbox = nationalityCheckboxes.find((c) => c.value === code);
+        nationalityLabel.textContent = checkbox?.dataset.natName ?? code.toUpperCase();
+      } else {
+        nationalityLabel.textContent = `${state.nationality.size} Nationalities`;
       }
+    }
 
-      function updateNationalityLabel() {
-        if (!nationalityLabel) return;
-        if (state.nationality.size === 0) {
-          nationalityLabel.textContent = 'All Nationalities';
-        } else if (state.nationality.size === 1) {
-          const code = Array.from(state.nationality)[0];
-          const checkbox = nationalityCheckboxes.find((c) => c.value === code);
-          nationalityLabel.textContent = checkbox?.dataset.natName ?? code.toUpperCase();
-        } else {
-          nationalityLabel.textContent = `${state.nationality.size} Nationalities`;
-        }
-      }
+    function statusMatches(row: HTMLElement) {
+      // Unassigned cuts across actual status entirely — it's asking "does
+      // this driver have no current number," full stop, not "what's their
+      // driver_statuses value."
+      if (state.status === 'Unassigned') return row.dataset.unassigned === 'true';
+      if (state.status === 'All') return true;
+      if (state.status === 'Active') return ACTIVE_STATUSES.includes(row.dataset.status ?? '');
+      // Inactive is the one status Unassigned deliberately does NOT also
+      // show up under — a numberless driver belongs to the Unassigned
+      // catch-all, not duplicated into Inactive too, even if their actual
+      // driver_statuses value is literally "Inactive".
+      if (state.status === 'Inactive') return row.dataset.status === 'Inactive' && row.dataset.unassigned !== 'true';
+      return row.dataset.status === state.status;
+    }
 
-      function statusMatches(row: HTMLElement) {
-        // Unassigned cuts across actual status entirely — it's asking "does
-        // this driver have no current number," full stop, not "what's their
-        // driver_statuses value."
-        if (state.status === 'Unassigned') return row.dataset.unassigned === 'true';
-        if (state.status === 'All') return true;
-        if (state.status === 'Active') return ACTIVE_STATUSES.includes(row.dataset.status ?? '');
-        // Inactive is the one status Unassigned deliberately does NOT also
-        // show up under — a numberless driver belongs to the Unassigned
-        // catch-all, not duplicated into Inactive too, even if their actual
-        // driver_statuses value is literally "Inactive".
-        if (state.status === 'Inactive') return row.dataset.status === 'Inactive' && row.dataset.unassigned !== 'true';
-        return row.dataset.status === state.status;
-      }
+    // A separate, independent quick-filter from status above — "New" and
+    // "Veteran" match driver_statuses.name same as the status group would,
+    // but "Rookie" isn't a status at all, it's the separate is_rookie
+    // boolean (data-rookie, see DriverRow.astro), so it needs its own
+    // branch rather than a plain data-status comparison.
+    function experienceMatches(row: HTMLElement) {
+      if (state.experience === 'All') return true;
+      if (state.experience === 'Rookie') return row.dataset.rookie === 'true';
+      return row.dataset.status === state.experience;
+    }
 
-      // A separate, independent quick-filter from status above — "New" and
-      // "Veteran" match driver_statuses.name same as the status group would,
-      // but "Rookie" isn't a status at all, it's the separate is_rookie
-      // boolean (data-rookie, see DriverRow.astro), so it needs its own
-      // branch rather than a plain data-status comparison.
-      function experienceMatches(row: HTMLElement) {
-        if (state.experience === 'All') return true;
-        if (state.experience === 'Rookie') return row.dataset.rookie === 'true';
-        return row.dataset.status === state.experience;
-      }
+    function searchMatches(row: HTMLElement) {
+      if (!state.search) return true;
+      return (row.dataset.search ?? '').includes(state.search);
+    }
 
-      function searchMatches(row: HTMLElement) {
-        if (!state.search) return true;
-        return (row.dataset.search ?? '').includes(state.search);
-      }
-
-      function applyFilters() {
-        const rows = body!.querySelectorAll<HTMLElement>('[data-class]');
-        let visibleCount = 0;
-        rows.forEach((row) => {
-          const classMatch = state.class === 'All' || row.dataset.class === state.class;
-          const visible = classMatch && statusMatches(row) && experienceMatches(row) && nationalityMatches(row) && searchMatches(row);
-          row.style.display = visible ? '' : 'none';
-          if (visible) visibleCount += 1;
-        });
-        if (empty) empty.classList.toggle('hidden', visibleCount > 0);
-      }
-
-      // The three filter <select>s drive `state`/applyFilters directly.
-      function setFilter(key: 'class' | 'status' | 'experience', value: string) {
-        state[key] = value;
-        applyFilters();
-      }
-
-      const classSelect = document.getElementById('roster-class-select') as HTMLSelectElement | null;
-      const statusSelect = document.getElementById('roster-status-select') as HTMLSelectElement | null;
-      const experienceSelect = document.getElementById('roster-experience-select') as HTMLSelectElement | null;
-      classSelect?.addEventListener('change', () => setFilter('class', classSelect.value));
-      statusSelect?.addEventListener('change', () => setFilter('status', statusSelect.value));
-      experienceSelect?.addEventListener('change', () => setFilter('experience', experienceSelect.value));
-
-      searchInput?.addEventListener('input', () => {
-        state.search = searchInput.value.trim().toLowerCase();
-        applyFilters();
+    function applyFilters() {
+      const rows = body!.querySelectorAll<HTMLElement>('[data-class]');
+      let visibleCount = 0;
+      rows.forEach((row) => {
+        const classMatch = state.class === 'All' || row.dataset.class === state.class;
+        const visible = classMatch && statusMatches(row) && experienceMatches(row) && nationalityMatches(row) && searchMatches(row);
+        row.style.display = visible ? '' : 'none';
+        if (visible) visibleCount += 1;
       });
+      if (empty) empty.classList.toggle('hidden', visibleCount > 0);
+    }
 
-      nationalityCheckboxes.forEach((checkbox) => {
-        checkbox.addEventListener('change', () => {
-          if (checkbox.checked) state.nationality.add(checkbox.value);
-          else state.nationality.delete(checkbox.value);
-          updateNationalityLabel();
-          applyFilters();
-        });
-      });
-
-      // Plain toggle (not <details>/<summary>) so outside-click can close
-      // it below — <details> has no built-in "close when you click
-      // elsewhere on the page" behavior, and a checkbox panel left open
-      // after you've clicked away would be an easy miss.
-      nationalityToggle?.addEventListener('click', () => {
-        const isOpen = !nationalityPanel?.classList.contains('hidden');
-        nationalityPanel?.classList.toggle('hidden');
-        nationalityToggle.setAttribute('aria-expanded', String(!isOpen));
-      });
-
-      document.addEventListener('click', (e) => {
-        if (!nationalityDropdown || !nationalityPanel || nationalityPanel.classList.contains('hidden')) return;
-        if (nationalityDropdown.contains(e.target as Node)) return;
-        nationalityPanel.classList.add('hidden');
-        nationalityToggle?.setAttribute('aria-expanded', 'false');
-      });
-
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && !nationalityPanel?.classList.contains('hidden')) {
-          nationalityPanel?.classList.add('hidden');
-          nationalityToggle?.setAttribute('aria-expanded', 'false');
-        }
-      });
-
-      // Apply the default filter state immediately — otherwise every row is
-      // visible (no inline style yet) until the visitor clicks a button.
+    // The three filter <select>s drive `state`/applyFilters directly.
+    function setFilter(key: 'class' | 'status' | 'experience', value: string) {
+      state[key] = value;
       applyFilters();
     }
 
-    // Clicking (or Enter/Space-ing, for keyboard users tabbing through the
-    // table — see DriverRow.astro's tabindex/role="link") anywhere on a
-    // roster row opens that driver's profile page. Event delegation on the
-    // whole table body rather than one listener per row, same reasoning
-    // sortable-table.ts's own header click handling uses.
-    function initRosterRowLinks() {
-      const body = document.getElementById('roster-body');
-      if (!body) return;
+    const classSelect = document.getElementById('roster-class-select') as HTMLSelectElement | null;
+    const statusSelect = document.getElementById('roster-status-select') as HTMLSelectElement | null;
+    const experienceSelect = document.getElementById('roster-experience-select') as HTMLSelectElement | null;
+    classSelect?.addEventListener('change', () => setFilter('class', classSelect.value));
+    statusSelect?.addEventListener('change', () => setFilter('status', statusSelect.value));
+    experienceSelect?.addEventListener('change', () => setFilter('experience', experienceSelect.value));
 
-      body.addEventListener('click', (e) => {
-        const row = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-link]');
-        if (row) window.location.href = row.dataset.driverLink!;
+    searchInput?.addEventListener('input', () => {
+      state.search = searchInput.value.trim().toLowerCase();
+      applyFilters();
+    });
+
+    nationalityCheckboxes.forEach((checkbox) => {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) state.nationality.add(checkbox.value);
+        else state.nationality.delete(checkbox.value);
+        updateNationalityLabel();
+        applyFilters();
       });
+    });
 
-      body.addEventListener('keydown', (e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return;
-        const row = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-link]');
-        if (!row) return;
-        e.preventDefault(); // stop Space from also scrolling the page
-        window.location.href = row.dataset.driverLink!;
+    // Plain toggle (not <details>/<summary>) so outside-click can close
+    // it below — <details> has no built-in "close when you click
+    // elsewhere on the page" behavior, and a checkbox panel left open
+    // after you've clicked away would be an easy miss.
+    nationalityToggle?.addEventListener('click', () => {
+      const isOpen = !nationalityPanel?.classList.contains('hidden');
+      nationalityPanel?.classList.toggle('hidden');
+      nationalityToggle.setAttribute('aria-expanded', String(!isOpen));
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!nationalityDropdown || !nationalityPanel || nationalityPanel.classList.contains('hidden')) return;
+      if (nationalityDropdown.contains(e.target as Node)) return;
+      nationalityPanel.classList.add('hidden');
+      nationalityToggle?.setAttribute('aria-expanded', 'false');
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !nationalityPanel?.classList.contains('hidden')) {
+        nationalityPanel?.classList.add('hidden');
+        nationalityToggle?.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // Apply the default filter state immediately — otherwise every row is
+    // visible (no inline style yet) until the visitor clicks a button.
+    applyFilters();
+  }
+
+  // Clicking (or Enter/Space-ing, for keyboard users tabbing through the
+  // table — see DriverRow.astro's tabindex/role="link") anywhere on a
+  // roster row opens that driver's profile page. Event delegation on the
+  // whole table body rather than one listener per row, same reasoning
+  // sortable-table.ts's own header click handling uses.
+  function initRosterRowLinks() {
+    const body = document.getElementById('roster-body');
+    if (!body) return;
+
+    body.addEventListener('click', (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-link]');
+      if (row) window.location.href = row.dataset.driverLink!;
+    });
+
+    body.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-link]');
+      if (!row) return;
+      e.preventDefault(); // stop Space from also scrolling the page
+      window.location.href = row.dataset.driverLink!;
+    });
+  }
+
+  document.addEventListener('astro:page-load', initRosterFilters);
+  document.addEventListener('astro:page-load', initRosterRowLinks);
+</script>
+
+<script>
+  // Shell-then-skeleton: fetches /roster/fragment (the expensive data work) client-side
+  // once this shell has already painted — same pattern as champions.astro /
+  // incidents.astro; see roster/fragment.astro for the full explanation.
+  function initRosterResults() {
+    const container = document.querySelector<HTMLElement>('[data-roster-results]');
+    const url = container?.dataset.fragmentUrl;
+    if (!container || !url) return;
+    // Cleared immediately so the synthetic astro:page-load dispatched below
+    // doesn't see this same data-fragment-url and fetch it all over again.
+    delete container.dataset.fragmentUrl;
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`roster fragment request failed (${res.status})`);
+        return res.text();
+      })
+      .then((html) => {
+        container.innerHTML = html;
+        // reveal.ts only observes `.reveal` elements present at page-load
+        // time; this content lands later, so mark it visible right away.
+        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+        // Sortable tables, row expanders and this page's own filter/slider
+        // scripts bind against whatever exists at astro:page-load, so
+        // re-dispatch it now that the real content is in place.
+        document.dispatchEvent(new Event('astro:page-load'));
+      })
+      .catch((err) => {
+        console.error('Failed to load roster:', err);
+        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
       });
-    }
+  }
 
-    document.addEventListener('astro:page-load', initRosterFilters);
-    document.addEventListener('astro:page-load', initRosterRowLinks);
-  </script>
-</Layout>
+  document.addEventListener('astro:page-load', initRosterResults);
+</script>

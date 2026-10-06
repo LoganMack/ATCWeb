@@ -40,7 +40,7 @@ export function classBadgeLetter(className: string): string {
  * Full literal class strings (Tailwind's JIT only sees names verbatim in
  * source).
  */
-const CLASS_TAG_BASE = 'inline-flex flex-none items-center justify-center py-0.5 font-bold uppercase tracking-wide';
+const CLASS_TAG_BASE = 'inline-flex flex-none items-center justify-start py-0.5 font-bold uppercase tracking-wide';
 
 /** Full-name class pill ("ALPHA") — pair with the class's own name as the text. */
 export function classTagFull(className: string): string {

@@ -574,3 +574,94 @@ input[type="file"]:hover::file-selector-button {
   color: rgb(17 17 20 / 1);
   background-color: rgb(17 17 20 / 0.12);
 }
+
+/* ============================================================
+   Opaque surfaces
+   Every translucent tint used for a card, field, dropdown or chip
+   background is replaced here with the solid color it produced on the
+   plain page background (ink in dark mode, paper in light mode), so
+   nothing behind a card (banner art, a sticky row, another card) shows
+   through. On a plain page the result looks identical to the old tint.
+   This block is deliberately last and unlayered so it wins over the
+   utility classes; the class names in markup stay as they were. To
+   change a surface color, edit the value here (and add new tints to
+   this list), not the markup.
+   Not touched on purpose: black scrims (modal backdrops, image fades),
+   the blurred sticky nav, progress-bar fills and toggle tracks.
+   ============================================================ */
+:root {
+  --card-blue: rgb(17 20 37);
+  --card-pink: rgb(34 16 24);
+  --card-gold: rgb(34 30 19);
+  --card-blue-h: rgb(22 30 60);
+  --card-pink-h: rgb(58 22 33);
+  --card-gold-h: rgb(58 48 24);
+}
+.light {
+  --card-blue: rgb(229 233 249);
+  --card-pink: rgb(247 229 235);
+  --card-gold: rgb(247 242 231);
+  --card-blue-h: rgb(211 219 248);
+  --card-pink-h: rgb(247 211 221);
+  --card-gold-h: rgb(247 237 212);
+}
+
+[class~="bg-white/5"] { background-color: rgb(23 23 26); }
+[class~="hover:bg-white/5"]:hover { background-color: rgb(23 23 26); }
+[class~="bg-white/[0.02]"] { background-color: rgb(16 16 19); }
+[class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(16 16 19); }
+[class~="bg-white/[0.03]"] { background-color: rgb(18 18 21); }
+[class~="hover:bg-white/[0.03]"]:hover { background-color: rgb(18 18 21); }
+[class~="hover:bg-white/[0.04]"]:hover { background-color: rgb(21 21 24); }
+[class~="bg-white/[0.05]"] { background-color: rgb(23 23 26); }
+[class~="hover:bg-white/[0.06]"]:hover { background-color: rgb(26 26 28); }
+[class~="bg-white/10"] { background-color: rgb(35 35 38); }
+[class~="hover:bg-white/10"]:hover { background-color: rgb(35 35 38); }
+[class~="bg-brand-blue/10"] { background-color: rgb(17 20 37); }
+[class~="bg-brand-blue/15"] { background-color: rgb(19 25 49); }
+[class~="bg-brand-blue/20"] { background-color: rgb(22 30 60); }
+[class~="hover:bg-brand-blue/20"]:hover { background-color: rgb(22 30 60); }
+[class~="bg-brand-pink/10"] { background-color: rgb(34 16 24); }
+[class~="bg-brand-pink/15"] { background-color: rgb(46 19 28); }
+[class~="bg-brand-pink/20"] { background-color: rgb(58 22 33); }
+[class~="hover:bg-brand-pink/20"]:hover { background-color: rgb(58 22 33); }
+[class~="bg-brand-gold/5"] { background-color: rgb(23 20 17); }
+[class~="bg-brand-gold/10"] { background-color: rgb(34 30 19); }
+[class~="bg-brand-gold/15"] { background-color: rgb(46 39 22); }
+[class~="bg-brand-gold/20"] { background-color: rgb(58 48 24); }
+[class~="hover:bg-brand-gold/20"]:hover { background-color: rgb(58 48 24); }
+[class~="bg-brand-primary/10"] { background-color: rgb(17 20 37); }
+[class~="bg-brand-primary/15"] { background-color: rgb(19 25 49); }
+[class~="bg-brand-primary/20"] { background-color: rgb(22 30 60); }
+[class~="hover:bg-brand-primary/20"]:hover { background-color: rgb(22 30 60); }
+[class~="bg-brand-tertiary/10"] { background-color: rgb(34 30 19); }
+
+.light [class~="bg-white/5"] { background-color: rgb(236 236 238); }
+.light [class~="hover:bg-white/5"]:hover { background-color: rgb(236 236 238); }
+.light [class~="bg-white/[0.02]"] { background-color: rgb(242 242 244); }
+.light [class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(242 242 244); }
+.light [class~="bg-white/[0.03]"] { background-color: rgb(240 240 242); }
+.light [class~="hover:bg-white/[0.03]"]:hover { background-color: rgb(240 240 242); }
+.light [class~="hover:bg-white/[0.04]"]:hover { background-color: rgb(238 238 240); }
+.light [class~="bg-white/[0.05]"] { background-color: rgb(236 236 238); }
+.light [class~="hover:bg-white/[0.06]"]:hover { background-color: rgb(233 233 235); }
+.light [class~="bg-white/10"] { background-color: rgb(224 224 226); }
+.light [class~="hover:bg-white/10"]:hover { background-color: rgb(224 224 226); }
+.light [class~="bg-brand-blue/10"] { background-color: rgb(229 233 249); }
+.light [class~="bg-brand-blue/15"] { background-color: rgb(220 226 248); }
+.light [class~="bg-brand-blue/20"] { background-color: rgb(211 219 248); }
+.light [class~="hover:bg-brand-blue/20"]:hover { background-color: rgb(211 219 248); }
+.light [class~="bg-brand-pink/10"] { background-color: rgb(247 229 235); }
+.light [class~="bg-brand-pink/15"] { background-color: rgb(247 220 228); }
+.light [class~="bg-brand-pink/20"] { background-color: rgb(247 211 221); }
+.light [class~="hover:bg-brand-pink/20"]:hover { background-color: rgb(247 211 221); }
+.light [class~="bg-brand-gold/5"] { background-color: rgb(247 245 240); }
+.light [class~="bg-brand-gold/10"] { background-color: rgb(247 242 231); }
+.light [class~="bg-brand-gold/15"] { background-color: rgb(247 240 222); }
+.light [class~="bg-brand-gold/20"] { background-color: rgb(247 237 212); }
+.light [class~="hover:bg-brand-gold/20"]:hover { background-color: rgb(247 237 212); }
+.light [class~="bg-brand-primary/10"] { background-color: rgb(229 233 249); }
+.light [class~="bg-brand-primary/15"] { background-color: rgb(220 226 248); }
+.light [class~="bg-brand-primary/20"] { background-color: rgb(211 219 248); }
+.light [class~="hover:bg-brand-primary/20"]:hover { background-color: rgb(211 219 248); }
+.light [class~="bg-brand-tertiary/10"] { background-color: rgb(247 242 231); }
