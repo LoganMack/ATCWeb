@@ -24,8 +24,7 @@ interface Props {
 }
 const { state, incidentsHref, closesAtIso = null } = Astro.props;
 
-const btn =
-  'flex h-9 items-center rounded-lg bg-brand-gold/15 px-4 text-sm font-semibold text-brand-gold ring-1 ring-brand-gold/30 transition hover:bg-brand-gold/25';
+const btn = 'btn btn-gold';
 const tip =
   'pointer-events-none absolute right-0 top-full z-30 mt-1.5 w-max max-w-[16rem] rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100';
 const closes = closesAtIso ? new Date(closesAtIso) : null;
@@ -37,7 +36,7 @@ const closes = closesAtIso ? new Date(closesAtIso) : null;
 
 {state === 'report' && (
   <span class="group relative">
-    <button type="button" data-open-report-dialog class={`${btn} cursor-pointer`}>Report Incident</button>
+    <button type="button" data-open-report-dialog class={btn}>Report Incident</button>
     <span class={tip} role="tooltip" data-incident-countdown data-closes-at={closesAtIso ?? undefined}>
       {closes ? reportingCountdownText(closes) : 'Incident reporting is open.'}
     </span>
@@ -50,7 +49,7 @@ const closes = closesAtIso ? new Date(closesAtIso) : null;
       type="button"
       disabled
       aria-disabled="true"
-      class="btn btn-neutral flex cursor-not-allowed items-center"
+      class="btn btn-neutral"
     >
       Incident Report
     </button>
