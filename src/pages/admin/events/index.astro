@@ -3,9 +3,44 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
 import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+// --- Link an orphaned round to a season/event ------------------------------
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (String(form.get('intent') ?? '') === 'associate-round') {
+    const accessToken = Astro.locals.session!.accessToken;
+    const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+    const back = (params: Record<string, string>) => {
+      const url = new URL(Astro.url);
+      url.search = '';
+      for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+      return Astro.redirect(`${url.pathname}${url.search}#orphaned-rounds`, 302);
+    };
+    const subsessionId = Number(form.get('subsession_id'));
+    const seasonId = String(form.get('season_id') ?? '') || null;
+    const eventId = String(form.get('event_id') ?? '') || null;
+    if (!Number.isFinite(subsessionId)) return back({ linked: 'error', detail: 'Unknown round.' });
+    try {
+      const result = await associateRound(supabaseEnv, accessToken, { subsessionId, seasonId, eventId });
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'round',
+        entity_label: `Linked orphaned round — ${result.label}`,
+      });
+      if (result.scoreError) return back({ linked: 'unscored', detail: result.scoreError });
+      if (result.rowsScored === 0) return back({ linked: 'zero' });
+      return back({ linked: 'ok', ...(result.rowsScored !== null ? { rows: String(result.rowsScored) } : {}) });
+    } catch (err) {
+      console.error('Failed to link orphaned round:', err);
+      return back({ linked: 'error', detail: err instanceof Error ? err.message : 'Failed to link the round.' });
+    }
+  }
+}
 
 let events: Awaited<ReturnType<typeof getEvents>> = [];
 let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
@@ -16,6 +51,43 @@ try {
   console.error('Failed to load events for admin:', err);
   loadError = true;
 }
+
+let orphans: OrphanRound[] = [];
+let picker: OrphanPickerData = { seasons: [], availableEvents: [] };
+let orphanLoadError = false;
+try {
+  [orphans, picker] = await Promise.all([getOrphanedRounds(supabaseEnv), getOrphanPickerData(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load orphaned rounds:', err);
+  orphanLoadError = true;
+}
+const seasonById = new Map(picker.seasons.map((s) => [s.id, s]));
+const seasonByName = new Map(picker.seasons.map((s) => [s.name.toLowerCase(), s]));
+// Two imported rounds can sit on the same circuit + date (e.g. a second split
+// or session), but an event can only be claimed by ONE round — so when more
+// than one orphan matches the same event, nothing is pre-selected for any of
+// them and the row says so; pick deliberately.
+const suggestionByRound = new Map<number, ReturnType<typeof suggestEvent>>();
+const suggestionCount = new Map<string, number>();
+for (const r of orphans) {
+  if (r.event_id) continue;
+  const sug = suggestEvent(r, picker.availableEvents);
+  suggestionByRound.set(r.subsession_id, sug);
+  if (sug) suggestionCount.set(sug.id, (suggestionCount.get(sug.id) ?? 0) + 1);
+}
+const eventOptions = picker.availableEvents.map((e) => {
+  const season = e.season_id ? seasonById.get(e.season_id) : null;
+  const name = e.title ?? e.circuits?.name ?? 'Event';
+  return {
+    id: e.id,
+    seasonId: e.season_id,
+    label: `${name}${e.layout ? ` — ${e.layout}` : ''} · ${formatEventDate(e.event_date)}${season ? ` · ${season.name}${e.round_number !== null ? ` R${e.round_number}` : ''}` : ''}`,
+  };
+});
+
+const flash = Astro.url.searchParams.get('linked');
+const flashDetail = Astro.url.searchParams.get('detail');
+const flashRows = Astro.url.searchParams.get('rows');
 ---
 
 <AdminLayout title="Events">
@@ -30,6 +102,116 @@ try {
       </a>
     </div>
   </div>
+
+  {(orphans.length > 0 || orphanLoadError || flash) && (
+    <section id="orphaned-rounds" class="reveal mt-8" style="transition-delay: 40ms">
+      <h2 class="font-semibold">
+        Orphaned Rounds
+        {orphans.length > 0 && <span class="ml-2 text-sm font-normal text-white/40">{orphans.length}</span>}
+      </h2>
+      <p class="mt-1 max-w-3xl text-sm text-white/50">
+        Imported rounds that aren't fully connected yet. A round with no season doesn't show on the Results page at all
+        and can't be scored; a round with no event isn't tied to the calendar. Pick a season and/or event and press
+        Link — the round is saved to that season/event and scored right away.
+      </p>
+
+      {flash === 'ok' && (
+        <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
+          Round linked{flashRows ? ` and scored (${flashRows} result rows)` : ''}.
+        </p>
+      )}
+      {flash === 'zero' && (
+        <p class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80">
+          Round linked, but scoring produced no rows — none of its drivers matched the roster. Check that each driver has their iRacing Customer ID set, then re-score from Admin &rarr; Seasons.
+        </p>
+      )}
+      {flash === 'unscored' && (
+        <p class="mt-4 break-words rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80">
+          Round linked, but it couldn't be scored yet: {flashDetail}
+        </p>
+      )}
+      {flash === 'error' && (
+        <p class="mt-4 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{flashDetail ?? "Couldn't link that round."}</p>
+      )}
+      {orphanLoadError && (
+        <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">Couldn't load orphaned rounds.</p>
+      )}
+
+      {orphans.length > 0 && (
+        <div class="mt-4 rounded-xl border border-white/10" data-sticky-thead>
+          <table class="w-full border-collapse">
+            <thead>
+              <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                <th class="py-3 pl-6 pr-3 font-medium">Round</th>
+                <th class="py-3 pr-3 font-medium">Status</th>
+                <th class="py-3 pr-3 font-medium">Season</th>
+                <th class="py-3 pr-3 font-medium">Event</th>
+                <th class="py-3 pr-6 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {orphans.map((r) => {
+                const rawSuggestion = suggestionByRound.get(r.subsession_id) ?? null;
+                const sharedSuggestion = rawSuggestion !== null && (suggestionCount.get(rawSuggestion.id) ?? 0) > 1;
+                const suggested = sharedSuggestion ? null : rawSuggestion;
+                const labelSeason = r.season_label ? seasonByName.get(r.season_label.toLowerCase()) : undefined;
+                const preSeasonId = r.season_id ?? rawSuggestion?.season_id ?? labelSeason?.id ?? '';
+                const formId = `orphan-form-${r.subsession_id}`;
+                const selectClass = 'w-full rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary';
+                return (
+                  <tr class="border-b border-white/5 align-top text-sm" data-orphan-row>
+                    <td class="py-3 pl-6 pr-3">
+                      <p class="font-semibold">{r.track_name}{r.layout ? <span class="font-normal text-white/50"> — {r.layout}</span> : null}</p>
+                      <p class="text-xs text-white/40">{formatEventDate(r.localDate)}{r.season_label ? ` · ${r.season_label}` : ''} · #{r.subsession_id}</p>
+                    </td>
+                    <td class="py-3 pr-3">
+                      <div class="flex flex-wrap gap-1.5">
+                        {!r.season_id && <span class="rounded bg-brand-pink/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-pink" title="Not on the Results page and can't be scored until it has a season.">No season</span>}
+                        {!r.event_id && <span class="rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold">No event</span>}
+                        {!r.scored && <span class="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/50" title="No points have been calculated for this round yet.">Not scored</span>}
+                      </div>
+                    </td>
+                    <td class="py-3 pr-3">
+                      <select name="season_id" form={formId} data-orphan-season class={selectClass} aria-label="Season">
+                        <option value="" class="bg-brand-ink text-white">Select season…</option>
+                        {picker.seasons.map((s) => (
+                          <option value={s.id} selected={s.id === preSeasonId} class="bg-brand-ink text-white">{s.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td class="py-3 pr-3">
+                      {r.event_id ? (
+                        <span class="text-xs text-white/40">Already linked</span>
+                      ) : (
+                        <>
+                          <select name="event_id" form={formId} data-orphan-event data-selected={suggested?.id ?? ''} class={selectClass} aria-label="Event">
+                            <option value="" class="bg-brand-ink text-white">No event</option>
+                          </select>
+                          {sharedSuggestion && (
+                            <p class="mt-1 text-[11px] text-brand-gold/80">
+                              Another imported round is on this same track and date — only one round can be linked to an event, so pick which one.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td class="py-3 pr-6 text-right">
+                      <form id={formId} method="POST" data-astro-reload>
+                        <input type="hidden" name="intent" value="associate-round" />
+                        <input type="hidden" name="subsession_id" value={r.subsession_id} />
+                        <button type="submit" class="rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-semibold transition hover:brightness-110">Link</button>
+                      </form>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <script type="application/json" id="orphan-events" set:html={JSON.stringify(eventOptions)} />
+    </section>
+  )}
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -109,3 +291,48 @@ try {
     </div>
   )}
 </AdminLayout>
+
+<script>
+  // Orphaned Rounds pickers: each row's Event list only offers events from the
+  // season picked in that row (plus season-less one-offs), pre-selects the
+  // server's suggested match (same circuit + date), and choosing an event
+  // that belongs to a season sets the Season picker to match.
+  function initOrphanPickers() {
+    const dataEl = document.getElementById('orphan-events');
+    if (!dataEl) return;
+    const events: { id: string; seasonId: string | null; label: string }[] = JSON.parse(dataEl.textContent || '[]');
+    document.querySelectorAll<HTMLElement>('[data-orphan-row]').forEach((row) => {
+      const seasonSel = row.querySelector<HTMLSelectElement>('[data-orphan-season]');
+      const eventSel = row.querySelector<HTMLSelectElement>('[data-orphan-event]');
+      if (!seasonSel || !eventSel || row.dataset.pickerReady === 'true') return;
+      row.dataset.pickerReady = 'true';
+      const fill = (keep: string) => {
+        const seasonId = seasonSel.value;
+        eventSel.replaceChildren();
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = 'No event';
+        none.className = 'bg-brand-ink text-white';
+        eventSel.append(none);
+        for (const e of events) {
+          if (seasonId && e.seasonId && e.seasonId !== seasonId) continue;
+          const opt = document.createElement('option');
+          opt.value = e.id;
+          opt.textContent = e.label;
+          opt.className = 'bg-brand-ink text-white';
+          eventSel.append(opt);
+        }
+        eventSel.value = keep;
+        if (eventSel.value !== keep) eventSel.value = '';
+      };
+      fill(eventSel.dataset.selected ?? '');
+      seasonSel.addEventListener('change', () => fill(eventSel.value));
+      eventSel.addEventListener('change', () => {
+        const picked = events.find((e) => e.id === eventSel.value);
+        if (picked?.seasonId && seasonSel.value !== picked.seasonId) seasonSel.value = picked.seasonId;
+      });
+    });
+  }
+  initOrphanPickers();
+  document.addEventListener('astro:page-load', initOrphanPickers);
+</script>
