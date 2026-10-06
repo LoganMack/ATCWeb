@@ -416,11 +416,11 @@ const rosterDriversOnTeam = rosterDrivers
         type="submit"
         name="intent"
         value="save"
-        class="rounded-lg bg-brand-primary px-6 py-3 font-semibold transition hover:brightness-110"
+        class="btn btn-primary btn-lg"
       >
         {isNew ? 'Create Team' : 'Save Changes'}
       </button>
-      <a href="/admin/teams" class="rounded-lg bg-white/5 px-6 py-3 font-semibold ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/teams" class="btn btn-neutral btn-lg">
         Cancel
       </a>
     </div>
@@ -492,7 +492,7 @@ const rosterDriversOnTeam = rosterDrivers
           </label>
           <button
             type="submit"
-            class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+            class="btn btn-neutral"
           >
             Save logo for season
           </button>
@@ -553,7 +553,7 @@ const rosterDriversOnTeam = rosterDrivers
               <button
                 type="submit"
                 data-confirm={`Copy that season's roster onto ${selectedSeasonName}? This overwrites the current roster for ${selectedSeasonName}.`}
-                class="rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition hover:bg-white/10"
+                class="btn btn-neutral"
               >
                 Copy Roster
               </button>
@@ -615,7 +615,7 @@ const rosterDriversOnTeam = rosterDrivers
                 <div class="mt-1 flex items-center gap-3">
                   <button
                     type="submit"
-                    class="rounded-lg bg-brand-primary px-5 py-2.5 text-sm font-semibold transition hover:brightness-110"
+                    class="btn btn-primary"
                   >
                     Save Roster
                   </button>
@@ -637,7 +637,7 @@ const rosterDriversOnTeam = rosterDrivers
       <button
         type="submit"
         data-confirm="Delete this team? Drivers still assigned to it, and its season rosters, will need reassigning first."
-        class="rounded-lg bg-brand-pink/10 px-5 py-2.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20"
+        class="btn btn-danger"
       >
         Delete Team
       </button>

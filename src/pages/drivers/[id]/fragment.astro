@@ -628,7 +628,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="seasons"
             aria-selected="true"
-            class="rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-semibold text-white transition"
+            class="btn btn-primary"
           >
             {/* No separate color class on this count — it inherits whatever
                 color the tab-switch script gives its parent button (white
@@ -641,7 +641,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="races"
             aria-selected="false"
-            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+            class="btn btn-neutral"
           >
             Races <span>({raceHistory.length})</span>
           </button>
@@ -650,7 +650,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="splits"
             aria-selected="false"
-            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+            class="btn btn-neutral"
           >
             Splits
           </button>
@@ -659,7 +659,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="bests"
             aria-selected="false"
-            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+            class="btn btn-neutral"
           >
             Bests <span>({layoutBests.length})</span>
           </button>
@@ -668,7 +668,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
             role="tab"
             data-driver-tab="incidents"
             aria-selected="false"
-            class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+            class="btn btn-neutral"
           >
             Incidents <span>({driverIncidents.length})</span>
           </button>

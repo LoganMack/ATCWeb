@@ -81,7 +81,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         role="tab"
         data-incidents-tab="all"
         aria-selected="true"
-        class="rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-semibold text-white transition"
+        class="btn btn-primary"
       >
         All Incidents ({data.all.length})
       </button>
@@ -90,7 +90,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         role="tab"
         data-incidents-tab="byDriver"
         aria-selected="false"
-        class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+        class="btn btn-neutral"
       >
         By Driver ({data.byDriver.length})
       </button>
@@ -99,7 +99,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         role="tab"
         data-incidents-tab="byOffense"
         aria-selected="false"
-        class="rounded-lg bg-white/5 px-4 py-1.5 text-sm font-semibold text-white/60 transition hover:bg-white/10 hover:text-white"
+        class="btn btn-neutral"
       >
         By Offense ({data.byOffense.length})
       </button>

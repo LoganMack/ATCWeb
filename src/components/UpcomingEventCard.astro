@@ -120,7 +120,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
     <div class="mt-4 flex flex-wrap items-center gap-2">
       <a
         href={`/briefing/${event.id}`}
-        class="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20 hover:text-white"
+        class="btn btn-neutral btn-sm flex items-center gap-1.5"
       >
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
           <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -135,7 +135,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
           data-ics-download
           data-ics-event={icsBlock}
           data-ics-filename={icsFilename}
-          class="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20 hover:text-white"
+          class="btn btn-neutral btn-sm flex items-center gap-1.5"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
             <rect x="3" y="4" width="18" height="18" rx="2" />

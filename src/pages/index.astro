@@ -584,7 +584,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                         {rowClassName}
                                       </span>
                                     )}
-                                    <span class="flex-none text-sm text-white/60">{row.metricLabel}</span>
+                                    <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.metricLabel}</span>
                                   </li>
                                 );
                               })
@@ -594,7 +594,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                   <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
                                   <TeamLogo name={row.teamName} logoUrl={row.teamLogoUrl} size="h-6 w-6" />
                                   <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
-                                  <span class="flex-none text-sm text-white/60">{row.points} pts</span>
+                                  <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.points} pts</span>
                                 </li>
                               ))
                             )}
@@ -689,7 +689,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                               {rowClassName}
                             </span>
                           )}
-                          <span class="flex-none text-sm text-white/60">{row.totalPoints} pts</span>
+                          <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.totalPoints} pts</span>
                         </li>
                       );
                     })
@@ -699,7 +699,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
                         <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
                         <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
-                        <span class="flex-none text-sm text-white/60">{row.totalPoints} pts</span>
+                        <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.totalPoints} pts</span>
                       </li>
                     ))
                   )}

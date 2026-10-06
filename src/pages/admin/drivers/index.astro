@@ -144,7 +144,7 @@ const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all
         <button
           type="submit"
           data-confirm="Re-derive every driver's status (New/Active/Inactive) and rookie flag from race activity and sign-up dates right now, instead of waiting for the next time this page happens to load it in the background. Continue?"
-          class="rounded-lg bg-white/5 px-5 py-2.5 font-semibold text-white/80 ring-1 ring-white/10 transition hover:bg-white/10"
+          class="btn btn-neutral"
         >
           Sync Statuses
         </button>
@@ -154,12 +154,12 @@ const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all
         <button
           type="submit"
           data-confirm="Scan every real (non-exhibition) race result on file for drivers who raced but have no matching roster entry, and either link them onto an existing same-named driver or create a new roster entry for them. Exhibition rounds/seasons are skipped, so AI and one-off exhibition drivers won't get synced in. Continue?"
-          class="rounded-lg bg-white/5 px-5 py-2.5 font-semibold text-white/80 ring-1 ring-white/10 transition hover:bg-white/10"
+          class="btn btn-neutral"
         >
           Sync Results with Roster
         </button>
       </form>
-      <a href="/admin/drivers/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      <a href="/admin/drivers/new" class="btn btn-primary">
         New Driver
       </a>
     </div>
@@ -212,13 +212,13 @@ const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all
   <div class="reveal mt-8 flex flex-wrap gap-1.5" style="transition-delay: 40ms">
     <a
       href="/admin/drivers"
-      class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${activeFilter === 'all' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      class={`btn btn-sm ${activeFilter === 'all' ? 'btn-active' : 'btn-neutral'}`}
     >
       All
     </a>
     <a
       href="/admin/drivers?filter=ai"
-      class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${activeFilter === 'ai' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+      class={`btn btn-sm ${activeFilter === 'ai' ? 'btn-active' : 'btn-neutral'}`}
     >
       AI
     </a>

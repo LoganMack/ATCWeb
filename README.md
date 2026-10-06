@@ -198,6 +198,8 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes to `main` 
 
 - **Brand colors:** blue `#4369F5`, red `#F5426E`, gold `#F5C642`.
 - **Fonts:** Teko and Roboto; see the licence note in `src/styles/global.css`.
+- **Buttons:** use the shared `.btn` classes (`btn btn-primary|danger|gold|neutral`, optional `btn-sm`/`btn-lg`) defined in `src/styles/global.css`, not one-off styling.
+- **Corners:** the whole site uses a "slightly rounded" radius scale set in `tailwind.config.mjs`; change it there, not per element.
 - **Themes:** light and dark are both supported.
 - **Data access** goes through `src/lib`, not directly from pages.
 - **Security belongs in the database** (RLS and `SECURITY DEFINER` functions), never only in the UI.

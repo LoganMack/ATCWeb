@@ -248,7 +248,7 @@ function eventLabel(ev: EventResultCoverage): string {
                 data-kind="race-results"
                 data-event-id={ev.eventId}
                 data-event-label={eventLabel(ev)}
-                class="rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+                class="btn btn-primary btn-sm"
               >
                 Race
               </button>
@@ -260,7 +260,7 @@ function eventLabel(ev: EventResultCoverage): string {
                 data-kind="qualifying-results"
                 data-event-id={ev.eventId}
                 data-event-label={eventLabel(ev)}
-                class="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20"
+                class="btn btn-neutral btn-sm"
               >
                 Qualifying
               </button>
@@ -272,7 +272,7 @@ function eventLabel(ev: EventResultCoverage): string {
                 data-kind="practice-results"
                 data-event-id={ev.eventId}
                 data-event-label={eventLabel(ev)}
-                class="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/20"
+                class="btn btn-neutral btn-sm"
               >
                 Practice
               </button>
@@ -303,7 +303,7 @@ function eventLabel(ev: EventResultCoverage): string {
         data-dialog-template-link
         href="#"
         download
-        class="inline-block self-start rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/20"
+        class="btn btn-neutral btn-sm inline-block self-start"
       >
         Download CSV template
       </a>
@@ -317,7 +317,7 @@ function eventLabel(ev: EventResultCoverage): string {
           required
           class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
         />
-        <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+        <button type="submit" class="btn btn-primary btn-sm self-start">
           Upload
         </button>
       </form>

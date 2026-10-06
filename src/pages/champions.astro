@@ -119,27 +119,21 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         {visibleClasses.map((c) => (
           <a
             href={`/champions?class=${encodeURIComponent(c.name)}`}
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              !activeTeamView && c.id === activeClass?.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
+            class={`btn ${!activeTeamView && c.id === activeClass?.id ? 'btn-active' : 'btn-neutral'}`}
           >
             {c.name}
           </a>
         ))}
         <a
           href="/champions?team=alpha"
-          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-            activeTeamView === 'alpha' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-          }`}
+          class={`btn ${activeTeamView === 'alpha' ? 'btn-active' : 'btn-neutral'}`}
         >
           Alpha Team
         </a>
         {deltaEnabledAnySeason && (
           <a
             href="/champions?team=delta"
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              activeTeamView === 'delta' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
+            class={`btn ${activeTeamView === 'delta' ? 'btn-active' : 'btn-neutral'}`}
           >
             Delta Team
           </a>

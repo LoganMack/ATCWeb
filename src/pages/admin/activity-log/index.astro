@@ -100,14 +100,14 @@ function formatTimestamp(iso: string): string {
     <div class="flex flex-wrap gap-1.5">
       <a
         href={buildHref(null, selectedCategory)}
-        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!selectedAction ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        class={`btn btn-sm ${!selectedAction ? 'btn-active' : 'btn-neutral'}`}
       >
         All
       </a>
       {ACTIONS.map((a) => (
         <a
           href={buildHref(a, selectedCategory)}
-          class={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${selectedAction === a ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+          class={`btn btn-sm capitalize ${selectedAction === a ? 'btn-active' : 'btn-neutral'}`}
         >
           {a}
         </a>
@@ -117,31 +117,31 @@ function formatTimestamp(iso: string): string {
     <div class="flex flex-wrap gap-1.5">
       <a
         href={buildHref(selectedAction, null)}
-        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!selectedCategory ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        class={`btn btn-sm ${!selectedCategory ? 'btn-active' : 'btn-neutral'}`}
       >
         All
       </a>
       <a
         href={buildHref(selectedAction, 'imports')}
-        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'imports' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        class={`btn btn-sm ${selectedCategory === 'imports' ? 'btn-active' : 'btn-neutral'}`}
       >
         Imports
       </a>
       <a
         href={buildHref(selectedAction, 'incidents')}
-        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'incidents' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        class={`btn btn-sm ${selectedCategory === 'incidents' ? 'btn-active' : 'btn-neutral'}`}
       >
         Incident Reports
       </a>
       <a
         href={buildHref(selectedAction, 'drivers')}
-        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'drivers' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        class={`btn btn-sm ${selectedCategory === 'drivers' ? 'btn-active' : 'btn-neutral'}`}
       >
         Drivers
       </a>
       <a
         href={buildHref(selectedAction, 'teams')}
-        class={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${selectedCategory === 'teams' ? 'bg-brand-primary text-white' : 'bg-white/5 text-white/60 ring-1 ring-white/10 hover:bg-white/10'}`}
+        class={`btn btn-sm ${selectedCategory === 'teams' ? 'btn-active' : 'btn-neutral'}`}
       >
         Teams
       </a>

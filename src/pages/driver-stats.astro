@@ -64,18 +64,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <div class="mt-8 flex flex-wrap gap-2">
         <a
           href="/driver-stats"
-          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-            !activeClass ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-          }`}
+          class={`btn ${!activeClass ? 'btn-active' : 'btn-neutral'}`}
         >
           Overall
         </a>
         {classes.map((c) => (
           <a
             href={`/driver-stats?class=${encodeURIComponent(c.name)}`}
-            class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-              activeClass?.id === c.id ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-            }`}
+            class={`btn ${activeClass?.id === c.id ? 'btn-active' : 'btn-neutral'}`}
           >
             {c.name}
           </a>

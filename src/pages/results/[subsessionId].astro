@@ -466,6 +466,10 @@ const reportingWindow =
   !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time, reportingHours) : null;
 const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
 const incidentButtonState: 'report' | 'view' | 'closed' = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : 'closed';
+// Admins normally only see the "Incident Report" link, but while reporting
+// is still open they also get the Report Incident button (placed between the
+// Race Links and Incident Report buttons) so they can file one themselves.
+const showReportButton = reportingOpen && (incidentButtonState === 'report' || isAdmin);
 // Reporting is open to signed-out visitors too; a signed-in reporter's
 // identity is attached server-side (submit_incident_report reads their JWT).
 const reportSession = Astro.locals.session;
@@ -672,11 +676,14 @@ Astro.response.headers.set(
           </select>
           <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
             <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} />
+            {isAdmin && showReportButton && (
+              <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
+            )}
             <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
           </div>
         </div>
 
-        {incidentButtonState === 'report' && (
+        {showReportButton && (
           <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} />
         )}
 

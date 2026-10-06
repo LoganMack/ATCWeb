@@ -6,16 +6,16 @@
  * column the same way instead of re-implementing the mapping.
  */
 export const CLASS_BADGE_COLOR: Record<string, string> = {
-  Alpha: 'text-brand-blue border-brand-blue/40',
-  Gamma: 'text-brand-pink border-brand-pink/40',
-  Delta: 'text-brand-gold border-brand-gold/40',
+  Alpha: 'text-brand-blue',
+  Gamma: 'text-brand-pink',
+  Delta: 'text-brand-gold',
 };
 
 export function classBadgeClasses(className: string): string {
-  return CLASS_BADGE_COLOR[className] ?? 'text-white/70 border-white/20';
+  return CLASS_BADGE_COLOR[className] ?? 'text-white/70';
 }
 
-/** Just the text-color portion of classBadgeClasses (no border) — for an element like a trophy icon that only needs the class's color via `currentColor`, not the badge's border/background treatment. */
+/** Just the text-color portion of classBadgeClasses — for an element like a trophy icon that only needs the class's color via `currentColor`. */
 export function classTextColorClass(className: string): string {
   return CLASS_BADGE_COLOR[className]?.split(' ')[0] ?? 'text-white/70';
 }
@@ -32,7 +32,7 @@ export function classBadgeLetter(className: string): string {
 }
 
 /**
- * Shared shape for every class pill on the site, so they can never drift
+ * Shared shape for every class tag on the site (plain bold text — no border or fill, per Logan), so they can never drift
  * apart again: always bold + uppercase, and a FIXED width per variant —
  * every full-name pill ("ALPHA"/"GAMMA"/"DELTA") is the same width as every
  * other full-name pill, and every one-letter pill ("A"/"G"/"D") is the same
@@ -40,7 +40,7 @@ export function classBadgeLetter(className: string): string {
  * Full literal class strings (Tailwind's JIT only sees names verbatim in
  * source).
  */
-const CLASS_TAG_BASE = 'inline-flex flex-none items-center justify-center rounded-lg border py-0.5 font-bold uppercase tracking-wide';
+const CLASS_TAG_BASE = 'inline-flex flex-none items-center justify-center py-0.5 font-bold uppercase tracking-wide';
 
 /** Full-name class pill ("ALPHA") — pair with the class's own name as the text. */
 export function classTagFull(className: string): string {

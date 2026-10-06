@@ -197,7 +197,7 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
                 data-user-label={label}
                 disabled={profile.id === currentUserId}
                 title={profile.id === currentUserId ? "You can't delete your own account" : undefined}
-                class="rounded-lg bg-brand-pink/10 px-4 py-1.5 text-sm font-semibold text-brand-pink ring-1 ring-brand-pink/30 transition hover:bg-brand-pink/20 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-brand-pink/10"
+                class="btn btn-danger"
               >
                 Delete
               </button>
@@ -220,8 +220,8 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
       <span data-delete-user-label class="mt-1 block font-semibold text-white"></span>
     </p>
     <div class="flex justify-end gap-2">
-      <button type="button" data-delete-user-cancel class="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/20">Cancel</button>
-      <button type="submit" class="rounded-lg bg-brand-pink px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110">Delete</button>
+      <button type="button" data-delete-user-cancel class="btn btn-neutral">Cancel</button>
+      <button type="submit" class="btn btn-danger">Delete</button>
     </div>
   </form>
 </dialog>

@@ -94,10 +94,10 @@ const flashRows = Astro.url.searchParams.get('rows');
   <div class="reveal flex flex-wrap items-center justify-between gap-3">
     <h1 class="font-display text-4xl">Events</h1>
     <div class="flex items-center gap-2">
-      <a href="/admin/import" class="rounded-lg bg-white/5 px-4 py-2.5 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
+      <a href="/admin/import" class="btn btn-neutral">
         Import from CSV
       </a>
-      <a href="/admin/events/new" class="rounded-lg bg-brand-primary px-5 py-2.5 font-semibold transition hover:brightness-110">
+      <a href="/admin/events/new" class="btn btn-primary">
         New Event
       </a>
     </div>
@@ -199,7 +199,7 @@ const flashRows = Astro.url.searchParams.get('rows');
                       <form id={formId} method="POST" data-astro-reload>
                         <input type="hidden" name="intent" value="associate-round" />
                         <input type="hidden" name="subsession_id" value={r.subsession_id} />
-                        <button type="submit" class="rounded-lg bg-brand-primary px-4 py-1.5 text-sm font-semibold transition hover:brightness-110">Link</button>
+                        <button type="submit" class="btn btn-primary">Link</button>
                       </form>
                     </td>
                   </tr>

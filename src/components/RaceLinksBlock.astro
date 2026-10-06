@@ -39,7 +39,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
     <button
       type="button"
       data-open-race-links={dialogId}
-      class="flex h-9 cursor-pointer items-center rounded-lg bg-brand-primary/15 px-4 text-sm font-semibold text-brand-primary ring-1 ring-brand-primary/30 transition hover:bg-brand-primary/25"
+      class="btn btn-primary flex items-center"
     >
       Race Links
     </button>
@@ -64,7 +64,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
               href={iracingResultsUrl(iracingSubsessionId)}
               target="_blank"
               rel="noopener noreferrer"
-              class="rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110"
+              class="btn btn-primary text-center"
             >
               iRacing Results
             </a>
@@ -74,7 +74,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
               href={links.replay_url}
               target="_blank"
               rel="noopener noreferrer"
-              class="hidden rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110 sm:block"
+              class="btn btn-primary hidden text-center sm:block"
             >
               Download Replay
             </a>
@@ -84,7 +84,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
               href={links.broadcast_url}
               target="_blank"
               rel="noopener noreferrer"
-              class="rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110"
+              class="btn btn-primary text-center"
             >
               Watch Broadcast
             </a>
@@ -94,7 +94,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
               href={links.photo_album_url}
               target="_blank"
               rel="noopener noreferrer"
-              class="rounded-lg bg-brand-primary px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-110"
+              class="btn btn-primary text-center"
             >
               Photo Album
             </a>
@@ -138,7 +138,7 @@ const dialogId = `race-links-dialog-${subsessionId}`;
               </label>
               <button
                 type="submit"
-                class="mt-1 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110"
+                class="btn btn-primary btn-sm mt-1"
               >
                 Save
               </button>

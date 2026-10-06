@@ -31,6 +31,21 @@ export default {
       colors: {
         brand,
       },
+      // Site-wide corner style: "slightly rounded". Every rounded-* utility in
+      // the markup resolves through this scale, so changing the whole site's
+      // corners (e.g. back to rounder or fully square) is a one-place edit.
+      // `rounded-full` is left alone on purpose: it's only used for things
+      // that must stay circular (progress bars, the avatar photo, the Posted
+      // switch, the car-logo "+" badge).
+      borderRadius: {
+        sm: '2px',
+        DEFAULT: '3px',
+        md: '3px',
+        lg: '3px',
+        xl: '4px',
+        '2xl': '4px',
+        '3xl': '4px',
+      },
       fontFamily: {
         // `display` is for headlines/titles/numbers. Using Teko (open-source,
         // condensed/technical, same family of feel as Cuatra/Bison/Russo One)

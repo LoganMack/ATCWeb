@@ -425,7 +425,11 @@ if (isAdmin && postForm) {
         file_name: uploadedFile.name,
       });
     }
-    return Astro.redirect(`${Astro.url.pathname}?imported=${imported}&skipped=${skipped}`, 302);
+    // Keep the page's existing params (e.g. ?season=) alongside the result counts.
+    const back = new URLSearchParams(Astro.url.search);
+    back.set('imported', String(imported));
+    back.set('skipped', String(skipped));
+    return Astro.redirect(`${Astro.url.pathname}?${back}`, 302);
   }
 }
 
@@ -570,6 +574,55 @@ if (isAdmin) {
     console.error('Failed to load incident reports:', err);
   }
 }
+
+// Chronological: Practice → Qualifying → Race 1 → Race 2 → Race 3, then lap,
+// then turn. `turn` is free text ("3", "10b", "back straight"), so it's a
+// natural sort — 3 before 10 before 10b, with wordy turns after numbered ones.
+function reportSessionRank(session: string): number {
+  const [type, num] = session.split(':');
+  if (type === 'practice') return 0;
+  if (type === 'qualifying') return 1;
+  if (type === 'race') return 2 + (Number(num) || 0);
+  return Number.MAX_SAFE_INTEGER;
+}
+incidentReports.sort(
+  (a, b) =>
+    reportSessionRank(a.session) - reportSessionRank(b.session) ||
+    a.lap - b.lap ||
+    a.turn.localeCompare(b.turn, undefined, { numeric: true, sensitivity: 'base' }) ||
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+);
+
+// Flag reports that probably describe the same incident: same session, lap
+// and turn, plus at least one car in common — reporters often leave cars out,
+// so "04 and 11" and "04" still match. Turn is free text, so case and a
+// leading "T"/"Turn" are ignored ("10", "T10", "turn 10" all match).
+function normalizeTurn(turn: string): string {
+  return turn.trim().toLowerCase().replace(/^(turn|t)\s*(?=\d)/, '').replace(/\s+/g, ' ');
+}
+const possibleDuplicateReportIds = new Set<string>();
+for (let i = 0; i < incidentReports.length; i++) {
+  for (let j = i + 1; j < incidentReports.length; j++) {
+    const a = incidentReports[i];
+    const b = incidentReports[j];
+    if (
+      a.session === b.session &&
+      a.lap === b.lap &&
+      normalizeTurn(a.turn) === normalizeTurn(b.turn) &&
+      a.driver_ids.some((id) => b.driver_ids.includes(id))
+    ) {
+      possibleDuplicateReportIds.add(a.id);
+      possibleDuplicateReportIds.add(b.id);
+    }
+  }
+}
+// Admin → Incident Reporting links here two ways: "View Incidents"
+// (?view=reports) shows the driver-submitted reports queue, "Edit Report"
+// (no param) shows the not-yet-posted notice and the + Add Incident To
+// Report / Import incidents from CSV controls instead. Every POST on this page
+// redirects back to its own pathname + search, so the mode survives a
+// Dismiss/Reopen/Log incident round trip.
+const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
 const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
 
 // Appeals (0093_incident_appeals.sql) — admin-only queue, shown beneath the
@@ -678,6 +731,10 @@ const skippedCount = Astro.url.searchParams.get('skipped');
 // still knows where to return to.
 const seasonParam = Astro.url.searchParams.get('season');
 const backToRoundHref = `/results/${subsessionId}${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
+// Links between this page's two admin views (see viewReports), carrying
+// ?season= along for the same reason as backToRoundHref.
+const editReportHref = `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
+const viewReportsHref = `/results/${subsessionId}/incidents?${seasonParam ? `season=${encodeURIComponent(seasonParam)}&` : ''}view=reports`;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
@@ -724,7 +781,16 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           {formatDate(round.start_time)}
         </p>
 
-        {isAdmin && !roundPosted && (
+        {isAdmin && (
+          <a
+            href={viewReports ? editReportHref : viewReportsHref}
+            class="btn btn-neutral mt-4"
+          >
+            {viewReports ? 'Go to Edit Report' : 'Go to View Incidents'} &rarr;
+          </a>
+        )}
+
+        {isAdmin && !roundPosted && !viewReports && (
           <p class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80">
             This incident report isn't posted yet, so only admins can see it. Post it from
             <a href="/admin/incident-reporting" class="ml-1 underline">Admin &rarr; Incident Reporting</a>.
@@ -744,8 +810,12 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           </p>
         )}
 
-        {isAdmin && incidentReports.length > 0 && (
-          <details class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
+        {viewReports && incidentReports.length === 0 && (
+          <p class="mt-6 text-white/60">No submitted incidents for this round.</p>
+        )}
+
+        {viewReports && incidentReports.length > 0 && (
+          <details open class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
             <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
               <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
               <h2 class="font-display text-xl text-brand-gold">
@@ -761,6 +831,9 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <p class="font-semibold text-white/80">
                       {sessionLabelByValue.get(r.session) ?? r.session} · Lap {r.lap} · Turn {r.turn}
+                      {possibleDuplicateReportIds.has(r.id) && (
+                        <span class="ml-1 font-normal text-brand-gold">(possible duplicate)</span>
+                      )}
                     </p>
                     <div class="flex flex-wrap items-center gap-2">
                       {r.status === 'open' && (
@@ -768,7 +841,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                           type="button"
                           data-log-report
                           data-report={JSON.stringify({ id: r.id, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
-                          class="rounded-lg bg-brand-primary px-3 py-1 text-xs font-semibold transition hover:brightness-110"
+                          class="btn btn-primary btn-sm"
                         >
                           Log incident
                         </button>
@@ -777,7 +850,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                         <input type="hidden" name="intent" value="set-report-status" />
                         <input type="hidden" name="report_id" value={r.id} />
                         <input type="hidden" name="status" value={r.status === 'open' ? 'dismissed' : 'open'} />
-                        <button type="submit" class="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/20">
+                        <button type="submit" class="btn btn-neutral btn-sm">
                           {r.status === 'open' ? 'Dismiss' : 'Reopen'}
                         </button>
                       </form>
@@ -830,14 +903,14 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                             <input type="hidden" name="intent" value="set-appeal-status" />
                             <input type="hidden" name="appeal_id" value={a.id} />
                             <input type="hidden" name="status" value="reviewed" />
-                            <button type="submit" class="rounded-lg bg-brand-primary px-3 py-1 text-xs font-semibold transition hover:brightness-110">Mark reviewed</button>
+                            <button type="submit" class="btn btn-primary btn-sm">Mark reviewed</button>
                           </form>
                         )}
                         <form method="POST" data-astro-reload>
                           <input type="hidden" name="intent" value="set-appeal-status" />
                           <input type="hidden" name="appeal_id" value={a.id} />
                           <input type="hidden" name="status" value={a.status === 'open' ? 'dismissed' : 'open'} />
-                          <button type="submit" class="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold text-white/70 transition hover:bg-white/20">
+                          <button type="submit" class="btn btn-neutral btn-sm">
                             {a.status === 'open' ? 'Dismiss' : 'Reopen'}
                           </button>
                         </form>
@@ -852,7 +925,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                           return (
                             <li>
                               {url ? (
-                                <a href={url} target="_blank" rel="noopener noreferrer" class="inline-block rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-brand-primary hover:bg-white/20">{label}</a>
+                                <a href={url} target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm inline-block">{label}</a>
                               ) : (
                                 <span class="inline-block rounded-md bg-white/5 px-2 py-1 text-xs text-white/40" title="Couldn't create a download link">{label}</span>
                               )}
@@ -872,25 +945,25 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           </details>
         )}
 
-        {isAdmin && (
+        {isAdmin && !viewReports && (
           <div class="mt-6 flex flex-wrap items-center gap-2">
             <button
               type="button"
               data-open-incident-dialog
-              class="rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110"
+              class="btn btn-primary"
             >
-              + Add Incident
+              + Add Incident To Report
             </button>
 
             <details class="relative">
-              <summary class="cursor-pointer list-none rounded-lg bg-white/5 px-4 py-2 text-sm font-semibold text-white/60 ring-1 ring-white/10 transition hover:bg-white/10">
-                Import from CSV
+              <summary class="btn btn-neutral list-none">
+                Import incidents from CSV
               </summary>
               <div class="absolute left-0 z-10 mt-2 flex w-80 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
                 <a
                   href="/incident-report-template.csv"
                   download
-                  class="self-start rounded-lg bg-white/10 px-3 py-1.5 font-semibold text-white/70 transition hover:bg-white/20"
+                  class="btn btn-neutral self-start"
                 >
                   Download CSV template
                 </a>
@@ -903,7 +976,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                     required
                     class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
                   />
-                  <button type="submit" class="self-start rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold transition hover:brightness-110">
+                  <button type="submit" class="btn btn-primary btn-sm self-start">
                     Upload
                   </button>
                 </form>
@@ -916,7 +989,24 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
           </div>
         )}
 
-        {sortedPenalties.length === 0 && <p class="mt-10 text-white/60">No incidents logged for this round.</p>}
+        {sortedPenalties.length === 0 && (
+          <div class="mt-10 flex flex-wrap items-center gap-3">
+            {/* Edit Report (admin, no ?view=reports) shows just the button instead; View Incidents only
+                shows it when there are no submitted reports either, so it doesn't read as "nothing here"
+                underneath a list of reports still waiting to be logged. */}
+            {(!isAdmin || (viewReports && incidentReports.length === 0)) && (
+              <p class="text-white/60">No incidents logged for this round.</p>
+            )}
+            {isAdmin && !viewReports && (
+              <a
+                href={viewReportsHref}
+                class="btn btn-neutral"
+              >
+                To view submitted incidents, click here
+              </a>
+            )}
+          </div>
+        )}
 
         {sessionKeysWithIncidents.map((key) => (
           <div class="mt-10">
@@ -1218,7 +1308,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
               <button
                 type="submit"
                 data-incident-save-button
-                class="mt-1 rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+                class="btn btn-primary mt-1"
               >
                 Save Incident
               </button>
@@ -1308,7 +1398,7 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
                 data-appeal-open={appealOpen ? 'true' : 'false'}
                 disabled={!appealOpen}
                 title={appealOpen ? 'Appeal this incident.' : 'The appeal window for this incident has closed.'}
-                class="rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-brand-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+                class="btn btn-gold"
               >
                 Submit Appeal
               </button>
@@ -1352,8 +1442,8 @@ const incidentCountDescription = `${sortedPenalties.length} incident${sortedPena
             </label>
             <p data-appeal-error class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90"></p>
             <div class="flex justify-end gap-2">
-              <button type="button" data-close-appeal-dialog class="rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/20">Cancel</button>
-              <button type="submit" class="rounded-lg bg-brand-gold px-4 py-2 text-sm font-semibold text-brand-ink transition hover:brightness-110">Submit Appeal</button>
+              <button type="button" data-close-appeal-dialog class="btn btn-neutral">Cancel</button>
+              <button type="submit" class="btn btn-gold">Submit Appeal</button>
             </div>
           </form>
         </dialog>

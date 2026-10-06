@@ -57,17 +57,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <div class="flex gap-2">
         <a
           href="/team-stats?view=overall"
-          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-            view === 'overall' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-          }`}
+          class={`btn ${view === 'overall' ? 'btn-active' : 'btn-neutral'}`}
         >
           Overall
         </a>
         <a
           href="/team-stats?view=delta"
-          class={`rounded-lg px-4 py-1.5 text-sm font-semibold ring-1 ring-white/15 transition ${
-            view === 'delta' ? 'bg-white text-brand-ink' : 'text-white/80 hover:bg-white/10'
-          }`}
+          class={`btn ${view === 'delta' ? 'btn-active' : 'btn-neutral'}`}
         >
           Delta
         </a>
