@@ -2,8 +2,8 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv } from '../../../lib/supabase';
-import { getAllProfiles, getProfile, setProfileRole } from '../../../lib/auth';
+import { resolveSupabaseEnv, getDrivers } from '../../../lib/supabase';
+import { getAllProfiles, setProfileRole, setProfileDriver, userDisplayName } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -13,43 +13,82 @@ const actor = { id: currentUserId, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;
 
-if (Astro.request.method === 'POST') {
+let profiles: Awaited<ReturnType<typeof getAllProfiles>> = [];
+let drivers: Awaited<ReturnType<typeof getDrivers>> = [];
+let loadError = false;
+async function load() {
+  try {
+    [profiles, drivers] = await Promise.all([getAllProfiles(supabaseEnv, accessToken), getDrivers(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to load users:', err);
+    loadError = true;
+  }
+}
+await load();
+
+if (Astro.request.method === 'POST' && !loadError) {
   const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? 'set-role');
   const profileId = String(form.get('profile_id') ?? '');
-  const role = form.get('role') === 'admin' ? 'admin' : 'driver';
-  if (profileId) {
+  const target = profiles.find((p) => p.id === profileId);
+  if (target) {
+    // Name shown in the activity log: the user's linked driver, else their display name.
+    const targetName = userDisplayName(target, null) === 'Unknown' ? `User ${profileId.slice(0, 8)}` : userDisplayName(target, null);
     try {
-      const targetProfile = await getProfile(supabaseEnv, accessToken, profileId);
-      await setProfileRole(supabaseEnv, accessToken, profileId, role);
-      await logActivity(supabaseEnv, accessToken, actor, {
-        action: 'edit',
-        entity_type: 'user',
-        entity_label: targetProfile?.display_name || `User ${profileId.slice(0, 8)}`,
-        entity_id: profileId,
-        details: `Role set to ${role}`,
-      });
+      if (intent === 'set-driver') {
+        const driverId = String(form.get('driver_id') ?? '') || null;
+        const driver = driverId ? drivers.find((d) => d.id === driverId) : null;
+        if (driverId && !driver) {
+          error = 'That driver is no longer on the roster.';
+        } else if (driverId && profiles.some((p) => p.driver_id === driverId && p.id !== profileId)) {
+          error = `${driver!.name} is already linked to another user.`;
+        } else {
+          await setProfileDriver(supabaseEnv, accessToken, profileId, driverId);
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'user',
+            entity_label: driver?.name ?? targetName,
+            entity_id: profileId,
+            details: driver ? `Linked to driver ${driver.name}` : `Unlinked from driver ${target.driver_name ?? ''}`.trim(),
+          });
+        }
+      } else {
+        const role = form.get('role') === 'admin' ? 'admin' : 'driver';
+        await setProfileRole(supabaseEnv, accessToken, profileId, role);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'user',
+          entity_label: targetName,
+          entity_id: profileId,
+          details: `Role set to ${role}`,
+        });
+      }
     } catch (err) {
-      console.error('Failed to update role:', err);
-      error = 'Failed to update that user’s role.';
+      console.error('Failed to update user:', err);
+      error = intent === 'set-driver' ? 'Failed to link that driver.' : 'Failed to update that user’s role.';
+    }
+    // Re-read so the table below shows what was just saved.
+    if (!error) {
+      loadError = false;
+      await load();
     }
   }
 }
 
-let profiles: Awaited<ReturnType<typeof getAllProfiles>> = [];
-let loadError = false;
-try {
-  profiles = await getAllProfiles(supabaseEnv, accessToken);
-} catch (err) {
-  console.error('Failed to load profiles:', err);
-  loadError = true;
-}
+// Roster drivers no login is linked to yet — each user's Driver dropdown offers
+// these, plus whichever driver that user is already linked to.
+const linkedDriverIds = new Set(profiles.map((p) => p.driver_id).filter((id): id is string => Boolean(id)));
+const unlinkedDrivers = drivers
+  .filter((d) => !linkedDriverIds.has(d.id))
+  .sort((a, b) => a.name.localeCompare(b.name));
+const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
 ---
 
 <AdminLayout title="Users">
   <h1 class="reveal font-display text-4xl">Users</h1>
   <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
-    Anyone who has signed in has an account here. Promote trusted people to admin so they can use these tools too —
-    this list is also where a future "Login with iRacing" identity would show up once that integration exists.
+    Anyone who has signed in has an account here. Promote trusted people to admin so they can use these tools too, and
+    link each login to its roster driver — once linked, the driver's name is shown wherever the site names that user.
   </p>
 
   {error && (
@@ -66,8 +105,8 @@ try {
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
           <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="name">User</th>
-          <th class="py-3 pr-3 font-medium" data-sort-key="role">Role</th>
-          <th class="py-3 pr-6 font-medium">Assign</th>
+          <th class="py-3 pr-3 font-medium">Role</th>
+          <th class="py-3 pr-6 font-medium">Driver</th>
         </tr>
       </thead>
       <tbody>
@@ -75,14 +114,14 @@ try {
           <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
             <td class="py-3 pl-6 pr-3" data-col="name">
               <p class="font-semibold">
-                {profile.display_name || `User ${profile.id.slice(0, 8)}`}
+                {userDisplayName(profile) === 'Unknown' ? `User ${profile.id.slice(0, 8)}` : userDisplayName(profile)}
                 {profile.id === currentUserId && <span class="ml-2 text-xs text-white/40">(you)</span>}
               </p>
               <p class="text-sm text-white/50">{profile.iracing_name ? `iRacing: ${profile.iracing_name}` : profile.id}</p>
             </td>
-            <td class="py-3 pr-3 text-white/60" data-col="role" data-sort-value={profile.role}>{profile.role}</td>
-            <td class="py-3 pr-6">
-              <form method="POST" data-astro-reload class="flex items-center justify-end gap-2">
+            <td class="py-3 pr-3">
+              <form method="POST" data-astro-reload class="flex items-center gap-2">
+                <input type="hidden" name="intent" value="set-role" />
                 <input type="hidden" name="profile_id" value={profile.id} />
                 <select
                   name="role"
@@ -97,6 +136,31 @@ try {
                 >
                   Update
                 </button>
+              </form>
+            </td>
+            <td class="py-3 pr-6">
+              {/* Saves as soon as a driver is picked. "No driver" unlinks. */}
+              <form method="POST" data-astro-reload>
+                <input type="hidden" name="intent" value="set-driver" />
+                <input type="hidden" name="profile_id" value={profile.id} />
+                <select
+                  name="driver_id"
+                  onchange="this.form.submit()"
+                  aria-label="Linked driver"
+                  class="w-56 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                >
+                  <option value="" selected={!profile.driver_id} class="bg-brand-ink text-white">
+                    {profile.driver_id ? 'No driver (unlink)' : 'Select driver…'}
+                  </option>
+                  {profile.driver_id && !unlinkedDrivers.some((d) => d.id === profile.driver_id) && (
+                    <option value={profile.driver_id} selected class="bg-brand-ink text-white">
+                      {driverNameById.get(profile.driver_id) ?? profile.driver_name ?? 'Linked driver'}
+                    </option>
+                  )}
+                  {unlinkedDrivers.map((d) => (
+                    <option value={d.id} class="bg-brand-ink text-white">{d.name}</option>
+                  ))}
+                </select>
               </form>
             </td>
           </tr>

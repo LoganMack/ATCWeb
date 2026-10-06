@@ -40,6 +40,30 @@ export interface Profile {
   driver_id: string | null;
   iracing_cust_id: number | null;
   iracing_name: string | null;
+  /** Name of the roster driver this login is linked to (profiles.driver_id), or null when unlinked. Wherever the site shows "who" a user is, this wins over display_name — see userDisplayName. */
+  driver_name: string | null;
+}
+
+/** Raw PostgREST row: the embedded `driver:drivers!driver_id(name)` join, before it's flattened into `driver_name`. */
+type ProfileRow = Omit<Profile, 'driver_name'> & { driver: { name: string } | null };
+
+const PROFILE_SELECT_PLAIN = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
+const PROFILE_SELECT = `${PROFILE_SELECT_PLAIN},driver:drivers!driver_id(name)`;
+
+function toProfile({ driver, ...rest }: ProfileRow): Profile {
+  return { ...rest, driver_name: driver?.name ?? null };
+}
+
+/**
+ * The name to show for a user anywhere the site says who someone is — the
+ * linked roster driver's name when they're linked to one (Admin > Users >
+ * Driver), else their display name, iRacing name, or finally their email.
+ */
+export function userDisplayName(
+  profile: { driver_name?: string | null; display_name?: string | null; iracing_name?: string | null } | null | undefined,
+  email?: string | null
+): string {
+  return profile?.driver_name || profile?.display_name || profile?.iracing_name || email || 'Unknown';
 }
 
 function authHeaders(env: SupabaseEnv, accessToken?: string) {
@@ -274,23 +298,42 @@ export async function getProfile(
   accessToken: string,
   userId: string
 ): Promise<Profile | null> {
-  const select = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
-  const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=${select}`, {
-    headers: authHeaders(env, accessToken),
-  });
+  const fetchRows = (select: string) =>
+    fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=${encodeURIComponent(select)}`, {
+      headers: authHeaders(env, accessToken),
+    });
+  let res = await fetchRows(PROFILE_SELECT);
+  // Every request in the app resolves the session through here, so if the
+  // driver-name join ever fails, fall back to the plain columns rather than
+  // treating a signed-in user as having no profile (which would lock admins out).
+  if (!res.ok) res = await fetchRows(PROFILE_SELECT_PLAIN);
   if (!res.ok) return null;
-  const rows = (await res.json()) as Profile[];
-  return rows[0] ?? null;
+  const rows = (await res.json()) as Partial<ProfileRow>[];
+  return rows[0] ? toProfile({ driver: null, ...rows[0] } as ProfileRow) : null;
 }
 
 /** All profiles, for the admin "assign roles" screen. Requires an admin's access token (RLS-enforced). */
 export async function getAllProfiles(env: SupabaseEnv, accessToken: string): Promise<Profile[]> {
-  const select = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
-  const res = await fetch(`${env.url}/rest/v1/profiles?select=${select}&order=created_at.asc`, {
+  const res = await fetch(`${env.url}/rest/v1/profiles?select=${encodeURIComponent(PROFILE_SELECT)}&order=created_at.asc`, {
     headers: authHeaders(env, accessToken),
   });
   if (!res.ok) throw new Error(`Failed to load profiles (${res.status}): ${await res.text()}`);
-  return res.json() as Promise<Profile[]>;
+  return ((await res.json()) as ProfileRow[]).map(toProfile);
+}
+
+/** Links a login to a roster driver (or clears the link with `null`). Requires an admin's access token — RLS rejects this otherwise. */
+export async function setProfileDriver(
+  env: SupabaseEnv,
+  accessToken: string,
+  profileId: string,
+  driverId: string | null
+): Promise<void> {
+  const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(env, accessToken), Prefer: 'return=minimal' },
+    body: JSON.stringify({ driver_id: driverId }),
+  });
+  if (!res.ok) throw new Error(`Failed to link driver (${res.status}): ${await res.text()}`);
 }
 
 /** Update a profile's role. Requires an admin's access token — RLS rejects this otherwise. */

@@ -16,11 +16,12 @@ import {
 } from '../../../lib/supabase';
 import { getAllRounds } from '../../../lib/results';
 import { slugify } from '../../../lib/slug';
+import { userDisplayName } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
-const displayName = Astro.locals.session!.profile?.display_name || Astro.locals.session!.user.email || '';
+const displayName = userDisplayName(Astro.locals.session!.profile, Astro.locals.session!.user.email);
 const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
 
 let error: string | null = null;

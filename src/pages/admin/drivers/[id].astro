@@ -489,7 +489,7 @@ let profileNameById = new Map<string, string>();
 if (!isNew && driver && (driver.created_by || driver.updated_by)) {
   try {
     const profiles = await getAllProfiles(supabaseEnv, accessToken);
-    profileNameById = new Map(profiles.map((p) => [p.id, p.display_name || p.iracing_name || 'Unknown admin']));
+    profileNameById = new Map(profiles.map((p) => [p.id, p.driver_name || p.display_name || p.iracing_name || 'Unknown admin']));
   } catch (err) {
     console.error('Failed to load profiles for driver audit info:', err);
   }

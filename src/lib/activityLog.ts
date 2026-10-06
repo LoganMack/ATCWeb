@@ -18,6 +18,7 @@
  * succeeding) the real action underneath it.
  */
 import { restPost, type SupabaseEnv } from './supabase';
+import { userDisplayName } from './auth';
 
 export type ActivityAction = 'add' | 'edit' | 'delete';
 
@@ -55,8 +56,11 @@ export interface LogActivityInput {
  * an activity_log row reads as the same name the admin sees for themselves
  * everywhere else in the panel.
  */
-export function actorNameFor(session: { profile?: { display_name: string | null } | null; user: { email: string | null } }): string {
-  return session.profile?.display_name || session.user.email || 'Unknown';
+export function actorNameFor(session: {
+  profile?: { display_name: string | null; driver_name?: string | null; iracing_name?: string | null } | null;
+  user: { email: string | null };
+}): string {
+  return userDisplayName(session.profile, session.user.email);
 }
 
 /**

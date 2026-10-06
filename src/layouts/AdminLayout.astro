@@ -4,6 +4,7 @@
 // /login before this layout ever renders), so this component can safely
 // assume Astro.locals.session is a signed-in admin.
 import Layout from './Layout.astro';
+import { userDisplayName } from '../lib/auth';
 
 interface Props {
   title: string;
@@ -46,7 +47,7 @@ const links = [
         ))}
       </nav>
       <div class="flex items-center gap-3 text-sm text-white/60">
-        <span>{session?.profile?.display_name || session?.user.email}</span>
+        <span>{userDisplayName(session?.profile, session?.user.email)}</span>
         <form method="POST" data-astro-reload action="/api/logout">
           <button
             type="submit"

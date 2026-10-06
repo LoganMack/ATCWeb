@@ -73,8 +73,9 @@ begin
   if v_subsession is null then raise exception 'unknown incident'; end if;
 
   if v_uid is not null then
-    select coalesce(p.display_name, u.email) into v_name
-    from auth.users u left join profiles p on p.id = u.id
+    -- A login linked to a roster driver (Admin > Users > Driver) is named after that driver.
+    select coalesce(d.name, p.display_name, u.email) into v_name
+    from auth.users u left join profiles p on p.id = u.id left join drivers d on d.id = p.driver_id
     where u.id = v_uid;
   end if;
 
