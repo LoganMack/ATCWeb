@@ -127,7 +127,7 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
 <AdminLayout title="Incident Reporting">
   <h1 class="reveal font-display text-4xl">Incident Reporting</h1>
   <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Driver-submitted incident reports for each round. Log or dismiss reports from a round's Edit page, then switch
+    Driver-submitted incident reports for each round. Log or dismiss reports from a round's Edit Report page, then switch
     <strong class="font-semibold text-white/80">Posted</strong> on to make the round's incident report public and re-enable its
     Incident Report button.
   </p>
@@ -137,7 +137,7 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
   )}
 
   <div class="reveal mt-8 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
-    <table class="w-full min-w-[720px] text-left text-sm">
+    <table class="w-full min-w-[880px] text-left text-sm">
       <thead class="bg-white/5 text-xs uppercase tracking-wide text-white/50">
         <tr>
           <th class="px-4 py-3 font-semibold">Round</th>
@@ -176,8 +176,10 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
                 </button>
               </form>
             </td>
-            <td class="px-4 py-3 text-right">
-              <a href={`/results/${r.subsessionId}/incidents`} class="font-semibold text-brand-primary hover:underline">Edit</a>
+            <td class="whitespace-nowrap px-4 py-3 text-right">
+              {/* ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
+              <a href={`/results/${r.subsessionId}/incidents?view=reports`} class="font-semibold text-brand-primary hover:underline">View Incidents</a>
+              <a href={`/results/${r.subsessionId}/incidents`} class="ml-4 font-semibold text-brand-primary hover:underline">Edit Report</a>
             </td>
           </tr>
         ))}
