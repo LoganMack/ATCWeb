@@ -252,7 +252,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
               {broadcastVideos.map((v) => {
                 const thumb = youtubeThumbnailUrl(v.broadcast_url);
                 return (
-                  <a href={v.broadcast_url} target="_blank" rel="noopener noreferrer" data-search={v.track_name.toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={v.broadcast_url} target="_blank" rel="noopener noreferrer" data-search={v.track_name.toLowerCase()} class="group overflow-hidden rounded-xl bg-brand-ink ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -285,7 +285,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
               {trackGuidesForLayout.map((tg) => {
                 const thumb = youtubeThumbnailUrl(tg.url);
                 return (
-                  <a href={tg.url} target="_blank" rel="noopener noreferrer" data-search={(tg.title ?? '').toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={tg.url} target="_blank" rel="noopener noreferrer" data-search={(tg.title ?? '').toLowerCase()} class="group overflow-hidden rounded-xl bg-brand-ink ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -309,7 +309,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
               {trackGuideLayouts.map((tg) => {
                 const thumb = youtubeThumbnailUrl(tg.firstUrl);
                 return (
-                  <a href={`/media?tab=videos&filter=trackguide&layout=${encodeURIComponent(tg.layoutId)}`} data-search={`${tg.circuitName} ${tg.layoutName}`.toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={`/media?tab=videos&filter=trackguide&layout=${encodeURIComponent(tg.layoutId)}`} data-search={`${tg.circuitName} ${tg.layoutName}`.toLowerCase()} class="group overflow-hidden rounded-xl bg-brand-ink ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -336,7 +336,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
               {categoryVideos.map((v) => {
                 const thumb = youtubeThumbnailUrl(v.youtube_url);
                 return (
-                  <a href={v.youtube_url} target="_blank" rel="noopener noreferrer" data-search={v.title.toLowerCase()} class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50">
+                  <a href={v.youtube_url} target="_blank" rel="noopener noreferrer" data-search={v.title.toLowerCase()} class="group overflow-hidden rounded-xl bg-brand-ink ring-1 ring-white/10 transition hover:ring-brand-primary/50">
                     {thumb ? (
                       <img src={thumb} alt="" class="aspect-video w-full object-cover transition group-hover:brightness-110" />
                     ) : (
@@ -371,7 +371,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
               href={p.photo_album_url}
               target="_blank"
               rel="noopener noreferrer"
-              class="group overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:ring-brand-primary/50"
+              class="group overflow-hidden rounded-xl bg-brand-ink ring-1 ring-white/10 transition hover:ring-brand-primary/50"
             >
               <div class="aspect-video w-full bg-white/10" data-album-thumb data-album-url={p.photo_album_url}></div>
               <div class="p-3">
@@ -401,7 +401,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
                 data-lightbox-src={g.image_url}
                 data-lightbox-alt={g.title}
                 data-search={g.title.toLowerCase()}
-                class="group overflow-hidden rounded-xl bg-white/5 text-left ring-1 ring-white/10 transition hover:ring-brand-primary/50"
+                class="group overflow-hidden rounded-xl bg-brand-ink text-left ring-1 ring-white/10 transition hover:ring-brand-primary/50"
               >
                 <img
                   src={resizedImageUrl(g.image_url, { width: 400 })}

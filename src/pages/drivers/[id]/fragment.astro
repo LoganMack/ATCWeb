@@ -621,7 +621,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
            internal Overall/Class radio toggle and per-split-type <details>
            are untouched by this — only the outer "three separate cards"
            shell became "one card, tab-selected panels." -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4" data-driver-tabs>
+      <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4" data-driver-tabs>
         <div class="mb-3 flex flex-wrap gap-2" role="tablist">
           <button
             type="button"
@@ -943,7 +943,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
 
               <div class="mt-3 flex w-full flex-col gap-3 peer-checked/class:hidden" data-splits-rows="overall">
               {splitGroupsOverall.map((g) => (
-                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]" data-split-name={g.name}>
+                <details class="group/split rounded-lg border border-white/10 bg-brand-ink" data-split-name={g.name}>
                   <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
                     <span class="flex items-center gap-2">
                       {g.name}
@@ -1003,7 +1003,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
 
             <div class="mt-3 hidden w-full flex-col gap-3 peer-checked/class:flex" data-splits-rows="class">
               {splitGroupsClass.map((g) => (
-                <details class="group/split rounded-lg border border-white/10 bg-white/[0.02]" data-split-name={g.name}>
+                <details class="group/split rounded-lg border border-white/10 bg-brand-ink" data-split-name={g.name}>
                   <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-white/80">
                     <span class="flex items-center gap-2">
                       {g.name}
@@ -1173,7 +1173,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
 
     <div class="flex flex-col gap-8">
       <!-- Awards (Hall of Fame pinned at the top, if applicable) -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
@@ -1235,7 +1235,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
       </div>
 
       <!-- Career Moves -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">
@@ -1286,7 +1286,7 @@ const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
       <!-- Class Moves: same shape as Career Moves, but diffing each season's
            class instead of primary team — see this file's frontmatter for
            why the driver's debut season never gets an entry here. -->
-      <div class="reveal rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4">
         <details class="group">
           <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
             <span class="flex items-center gap-2">

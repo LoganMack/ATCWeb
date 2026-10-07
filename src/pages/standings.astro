@@ -107,6 +107,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const table = document.getElementById('standings-table') as HTMLTableElement | null;
     if (!slider || slider.dataset.bound === 'true') return;
     slider.dataset.bound = 'true';
+    // Position the floating round tag and the filled part of the track (CSS in
+    // global.css under .round-slider reads --p / --steps from the wrapper).
+    const sliderBox = slider.parentElement;
+    const placeSlider = () => {
+      const min = Number(slider.min);
+      const max = Number(slider.max);
+      const p = max > min ? (Number(slider.value) - min) / (max - min) : 1;
+      sliderBox?.style.setProperty('--p', `${p * 100}%`);
+      sliderBox?.style.setProperty('--f', String(p));
+      sliderBox?.style.setProperty('--steps', String(Math.max(1, max - min)));
+    };
+    slider.addEventListener('input', placeSlider);
+    placeSlider();
     if (!table) {
       // Graph view has no table — the graph script listens to the slider itself;
       // this just keeps the label and the carried-over `round` param current.
@@ -116,7 +129,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const gApply = () => {
         const gn = Number(slider.value);
         const text = String(gCols[gn - 1]?.r ?? gn);
-        if (gLabel) gLabel.textContent = `Round ${text}`;
+        if (gLabel) gLabel.textContent = `R${text}`;
         if (gInput) {
           gInput.disabled = gn >= gCols.length;
           gInput.value = text;
@@ -263,7 +276,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const n = Number(slider!.value);
       const atMax = n >= maxN;
       const roundText = String(cols[n - 1]?.r ?? n);
-      if (label) label.textContent = `Round ${roundText}`;
+      if (label) label.textContent = `R${roundText}`;
       if (roundInput) {
         roundInput.disabled = atMax;
         roundInput.value = roundText;

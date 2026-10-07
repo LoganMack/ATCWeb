@@ -671,3 +671,135 @@ input[type="file"]:hover::file-selector-button {
 .light [class~="bg-brand-primary/20"] { background-color: rgb(211 219 248); }
 .light [class~="hover:bg-brand-primary/20"]:hover { background-color: rgb(211 219 248); }
 .light [class~="bg-brand-tertiary/10"] { background-color: rgb(247 242 231); }
+
+
+/* ============================================================
+   STANDINGS BY ROUND SLIDER (ticks + floating round tag)
+   ============================================================
+   Geometry inside a 36px row (the site's standard control height): the
+   round tag takes the top 16px, the track + pill thumb sit centered at 27px
+   below it, so nothing overflows the row and the labels above line up with
+   the neighboring dropdowns. --p (0-100%), --f (0-1) and --steps (rounds - 1) are set
+   on .round-slider by the server markup and by the slider script in
+   standings.astro. */
+.round-slider {
+  --rs-track: rgba(255, 255, 255, 0.15);
+  --rs-tick: rgba(255, 255, 255, 0.28);
+  --rs-thumb: #fff;
+  position: relative;
+  height: 36px;
+  width: 18rem;
+  max-width: 100%;
+}
+.light .round-slider {
+  --rs-track: rgba(17, 17, 20, 0.15);
+  --rs-tick: rgba(17, 17, 20, 0.3);
+  --rs-thumb: #fff;
+}
+.round-slider input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 15px;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.round-slider input[type='range']:focus-visible {
+  outline: none;
+}
+.round-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #4369f5 var(--p), var(--rs-track) var(--p));
+}
+.round-slider input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rs-track);
+}
+.round-slider input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: #4369f5;
+}
+.round-slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 4px;
+  background: var(--rs-thumb);
+  border: 3px solid #4369f5;
+  box-sizing: border-box;
+}
+.round-slider input[type='range']::-moz-range-thumb {
+  width: 8px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--rs-thumb);
+  border: 3px solid #4369f5;
+}
+.round-slider input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(67, 105, 245, 0.45);
+}
+.round-slider input[type='range']:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(67, 105, 245, 0.45);
+}
+.round-slider-ticks {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 21px;
+  height: 12px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rs-tick) 0 1px,
+    transparent 1px calc((100% - 1px) / var(--steps, 1))
+  );
+}
+.round-slider-tag {
+  position: absolute;
+  top: 0;
+  left: calc(7px + (100% - 14px) * var(--f, 0));
+  transform: translateX(-50%);
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #4369f5;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+
+/* ============================================================
+   PHOTO BANNER OVERLAY (src/components/PageBanner.astro + home hero)
+   ============================================================
+   Three stacked layers over the banner photo: a vignette that darkens the
+   edges toward the page color, a fine diagonal carbon-fiber texture, and a
+   fade to the solid page color along the bottom so the band blends into the
+   page. --banner-ink is the page background (dark ink / light paper) as bare
+   RGB channels so the same rule works in both themes. */
+:root {
+  --banner-ink: 11 11 14;
+  --banner-tex: rgba(0, 0, 0, 0.25);
+}
+.light {
+  --banner-ink: 247 247 249;
+  --banner-tex: rgba(255, 255, 255, 0.2);
+}
+.banner-overlay {
+  background:
+    radial-gradient(ellipse at 50% 30%, transparent 25%, rgb(var(--banner-ink)) 95%),
+    repeating-linear-gradient(45deg, var(--banner-tex) 0 2px, transparent 2px 5px),
+    linear-gradient(to bottom, transparent 45%, rgb(var(--banner-ink)));
+}
