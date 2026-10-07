@@ -1334,6 +1334,17 @@ const nextIncidentNumber =
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Driver at Fault
+                  {/* Narrows the dropdown below as you type (see the incident dialog
+                      script's filterDriverOptions in incidents.astro) — data-driver-search
+                      only for the shared Enter-doesn't-submit guard in driverPickerSearch.ts. */}
+                  <input
+                    type="search"
+                    data-incident-driver-search
+                    data-driver-search
+                    placeholder="Search by car number or name…"
+                    aria-label="Search drivers"
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  />
                   <select
                     name="driver_id"
                     data-incident-driver-field
@@ -1343,7 +1354,11 @@ const nextIncidentNumber =
                     <option value="" selected disabled hidden class="bg-brand-ink text-white">Select driver…</option>
                     <option value="racing_incident" class="bg-brand-ink text-white">Racing Incident (no driver at fault)</option>
                     {roundDrivers.map((d) => (
-                      <option value={d.id} class="bg-brand-ink text-white">
+                      <option
+                        value={d.id}
+                        data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+                        class="bg-brand-ink text-white"
+                      >
                         {d.car_number !== null ? `#${d.car_number} — ` : ''}
                         {d.name}
                       </option>

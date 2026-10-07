@@ -66,16 +66,24 @@ const fieldClass =
       <textarea name="description" rows="3" maxlength="2000" class={fieldClass}></textarea>
     </label>
 
-    <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
+    <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-driver-picker>
       <legend class="mb-1">Cars Involved</legend>
+      {drivers.length > 0 && (
+        <input type="search" data-driver-search placeholder="Search by car number or name…" aria-label="Search drivers" class={fieldClass} />
+      )}
       <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-3">
         {drivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
         {drivers.map((d) => (
-          <label class="flex items-center gap-2 text-xs text-white/70">
+          <label
+            class="flex items-center gap-2 text-xs text-white/70"
+            data-driver-option
+            data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+          >
             <input type="checkbox" name="involved_driver_ids" value={d.id} />
             {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {shortName(d.name)}
           </label>
         ))}
+        <p data-driver-search-empty class="col-span-full hidden text-white/30">No matches.</p>
       </div>
     </fieldset>
 
