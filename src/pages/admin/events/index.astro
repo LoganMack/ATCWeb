@@ -2,6 +2,7 @@
 export const prerender = false;
 
 import { safeJson } from '../../../lib/security';
+import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
@@ -173,10 +174,10 @@ const flashRows = Astro.url.searchParams.get('rows');
                       </div>
                     </td>
                     <td class="py-3 pr-3">
-                      <select name="season_id" form={formId} data-orphan-season class={selectClass} aria-label="Season">
+                      <select name="season_id" form={formId} data-orphan-season data-logo-select class={selectClass} aria-label="Season">
                         <option value="" class="bg-brand-ink text-white">Select season…</option>
                         {picker.seasons.map((s) => (
-                          <option value={s.id} selected={s.id === preSeasonId} class="bg-brand-ink text-white">{s.name}</option>
+                          <option value={s.id} selected={s.id === preSeasonId} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
                         ))}
                       </select>
                     </td>
@@ -330,7 +331,11 @@ const flashRows = Astro.url.searchParams.get('rows');
       seasonSel.addEventListener('change', () => fill(eventSel.value));
       eventSel.addEventListener('change', () => {
         const picked = events.find((e) => e.id === eventSel.value);
-        if (picked?.seasonId && seasonSel.value !== picked.seasonId) seasonSel.value = picked.seasonId;
+        if (picked?.seasonId && seasonSel.value !== picked.seasonId) {
+          seasonSel.value = picked.seasonId;
+          // Lets the logo dropdown redraw itself (and re-filters this row's events, keeping the pick).
+          seasonSel.dispatchEvent(new Event('change'));
+        }
       });
     });
   }

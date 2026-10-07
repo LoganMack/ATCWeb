@@ -10,12 +10,11 @@ import {
   getAllTeamSeasonLogos,
   displayDriverName,
   resolveSupabaseEnv,
-  getOrganizations,
-  getAllOrganizationTeamSeasons,
   type Season,
   type Team,
 } from '../../lib/supabase';
-import { driversSelect, getAllRounds, type DriverBasic } from '../../lib/results';
+import { driversSelect, getAllRounds, isChampionshipSeason, type DriverBasic } from '../../lib/results';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import TeamLogo from '../../components/TeamLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -42,29 +41,6 @@ const loadSeasons = async () => {
     seasons = await getSeasons(supabaseEnv);
   } catch (err) {
     console.error('Failed to load seasons:', err);
-  }
-};
-
-// Team -> organization name, for the small subtitle under a renamed team's
-// name (see 0043_organizations.sql). organization_team_seasons links a team
-// to an org per-season, but in practice a given team_id only ever
-// represents one era of one organization (a rename creates a brand-new
-// team_id, it doesn't re-link an existing one) — so any one link found for
-// a team_id is enough here; there's no need to pick a specific season the
-// way computeTeamCareerStats does. A team with no link at all (the common
-// case — most teams have never been renamed) just has no entry.
-let orgNameByTeamId = new Map<string, string>();
-const loadOrgNames = async () => {
-  try {
-    const [organizations, orgTeamSeasons] = await Promise.all([getOrganizations(supabaseEnv), getAllOrganizationTeamSeasons(supabaseEnv)]);
-    const orgNameById = new Map(organizations.map((o) => [o.id, o.name]));
-    for (const link of orgTeamSeasons) {
-      if (orgNameByTeamId.has(link.team_id)) continue;
-      const orgName = orgNameById.get(link.organization_id);
-      if (orgName) orgNameByTeamId.set(link.team_id, orgName);
-    }
-  } catch (err) {
-    console.error('Failed to load organizations for team subtitles:', err);
   }
 };
 
@@ -103,7 +79,7 @@ const loadDriversBasic = async () => {
 // These six blocks don't read each other's results, so they run
 // concurrently rather than as 6 sequential round-trips — each keeps its own
 // try/catch exactly as before, isolated from the others.
-await Promise.all([loadTeams(), loadSeasons(), loadOrgNames(), loadMemberNames(), loadDriversBasic()]);
+await Promise.all([loadTeams(), loadSeasons(), loadMemberNames(), loadDriversBasic()]);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
@@ -111,6 +87,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 // the <select> below, GET-submitted so the whole page re-renders server-side
 // same as the admin team editor's identical season picker) falling back to
 // whichever season is marked current.
+// Same Championships / Exhibitions split as the Race Results season picker.
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
 const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0] ?? null;
 const requestedSeasonId = Astro.url.searchParams.get('season');
 const selectedSeason = (requestedSeasonId ? seasons.find((s) => s.id === requestedSeasonId) : undefined) ?? currentSeason;
@@ -272,36 +251,46 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
     )}
 
     {!loadError && (
-      <div class="reveal mt-8 flex flex-wrap items-end gap-4" style="transition-delay: 80ms">
-        <div class="max-w-sm flex-1">
+      <div class="reveal mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 80ms">
+        <div class="flex flex-wrap items-end gap-3">
           <input
             type="search"
             id="team-search"
             placeholder="Search teams or drivers…"
-            class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+            class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
           />
+          {seasons.length > 0 && (
+            <form method="GET" class="sm:w-44">
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+                <select
+                  name="season"
+                  data-logo-select
+                  onchange="this.form.submit()"
+                  class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+                >
+                  <optgroup label="Championships" class="bg-brand-ink text-white">
+                    {championshipSeasons.map((s) => (
+                      <option value={s.id} selected={s.id === selectedSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
+                    ))}
+                  </optgroup>
+                  {exhibitionSeasons.length > 0 && (
+                    <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                      {exhibitionSeasons.map((s) => (
+                        <option value={s.id} selected={s.id === selectedSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+            </form>
+          )}
         </div>
-        {seasons.length > 0 && (
-          <form method="GET">
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Season</span>
-              <select
-                name="season"
-                onchange="this.form.submit()"
-                class="h-10 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
-              >
-                {seasons.map((s) => (
-                  <option value={s.id} selected={s.id === selectedSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-                ))}
-              </select>
-            </label>
-          </form>
-        )}
       </div>
     )}
 
     {!loadError && (
-      <div class="mt-4 rounded-xl border border-white/10" data-sticky-thead>
+      <div class="mt-6 rounded-xl border border-white/10" data-sticky-thead>
         <table class="w-full border-collapse" data-sortable>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -325,7 +314,6 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
             {sortedTeams.map((team) => {
               const members = memberNamesByTeamName.get(team.name) ?? [];
               const roster = rosterByTeamId.get(team.id) ?? [];
-              const orgName = orgNameByTeamId.get(team.id);
               const logoUrl = logoOverrideByTeamId.get(team.id) ?? team.logo_url;
               const founded = foundedDateFor(team);
               const searchText = [team.name, ...members, ...roster.map((d) => displayDriverName(d.name))].join(' ').toLowerCase();
@@ -351,8 +339,6 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                       <TeamLogo name={team.name} logoUrl={logoUrl} size="h-8 w-8" />
                       <div class="flex flex-col justify-center">
                         <span class="font-semibold leading-tight">{team.name}</span>
-                        {/* Organization subtitle, hidden on mobile entirely (not just the invisible height-placeholder desktop still uses when a team has no org, per Logan). */}
-                        <span class={`hidden text-[11px] leading-tight text-white/40 sm:block ${orgName ? '' : 'sm:invisible'}`}>{orgName ?? ' '}</span>
                       </div>
                     </div>
                   </td>

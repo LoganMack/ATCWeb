@@ -178,27 +178,23 @@ const upcomingIcsBundle = upcoming
   .join('\n');
 ---
 
-    <div class="reveal mt-6 flex flex-wrap items-center justify-between gap-3" style="transition-delay: 100ms">
-      <div class="flex flex-wrap items-center gap-2" data-view-toggle>
-        <button
-          type="button"
-          data-view-value="list"
-          data-active="true"
-          class="btn btn-neutral"
-        >
-          List
-        </button>
-        <button
-          type="button"
-          data-view-value="calendar"
-          data-active="false"
-          class="btn btn-neutral"
-        >
-          Calendar
-        </button>
+    <div class="reveal mt-6 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 100ms">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div class="flex flex-wrap items-end gap-3">
+        <label class="flex flex-col gap-1.5 sm:w-44">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
+          <select
+            aria-label="View"
+            data-view-toggle
+            class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          >
+            <option value="list" selected class="bg-brand-ink text-white">List</option>
+            <option value="calendar" class="bg-brand-ink text-white">Calendar</option>
+          </select>
+        </label>
 
         {past.length > 0 && (
-          <label class="ml-2 flex items-center gap-2 text-sm text-white/60">
+          <label class="flex h-9 items-center gap-2 text-sm text-white/60">
             <input
               type="checkbox"
               id="hide-past-events"
@@ -215,7 +211,7 @@ const upcomingIcsBundle = upcoming
           data-ics-download
           data-ics-event={upcomingIcsBundle}
           data-ics-filename="atc-upcoming-events.ics"
-          class="btn btn-neutral btn-sm flex items-center gap-1.5"
+          class="btn btn-neutral flex items-center gap-1.5"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
             <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -229,6 +225,7 @@ const upcomingIcsBundle = upcoming
         </button>
       )}
     </div>
+    </div>
 
     {loadError && (
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -241,7 +238,7 @@ const upcomingIcsBundle = upcoming
     {!loadError && events.length > 0 && (
       <div data-view-panel="list">
         {upcoming.length > 0 && (
-          <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
@@ -258,7 +255,7 @@ const upcomingIcsBundle = upcoming
     )}
 
     {!loadError && events.length > 0 && (
-      <div data-view-panel="calendar" class="hidden mt-10" data-events={JSON.stringify(calendarEvents)}>
+      <div data-view-panel="calendar" class="hidden mt-6" data-events={JSON.stringify(calendarEvents)}>
         <div class="flex items-center justify-between gap-3">
           <button
             type="button"
@@ -273,7 +270,7 @@ const upcomingIcsBundle = upcoming
             <button
               type="button"
               id="cal-today"
-              class="btn btn-neutral btn-sm"
+              class="btn btn-neutral"
             >
               Today
             </button>

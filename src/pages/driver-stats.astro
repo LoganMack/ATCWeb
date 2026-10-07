@@ -61,32 +61,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="mt-8 flex flex-wrap gap-2">
-        <a
-          href="/driver-stats"
-          class={`btn ${!activeClass ? 'btn-active' : 'btn-neutral'}`}
-        >
-          Overall
-        </a>
-        {classes.map((c) => (
-          <a
-            href={`/driver-stats?class=${encodeURIComponent(c.name)}`}
-            class={`btn ${activeClass?.id === c.id ? 'btn-active' : 'btn-neutral'}`}
-          >
-            {c.name}
-          </a>
-        ))}
-      </div>
-    )}
-
-    {!loadError && (
-      <div class="mt-4 max-w-sm">
+      <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+       <div class="flex flex-wrap items-end gap-3">
         <input
           type="search"
           id="driver-stats-search"
           placeholder="Search drivers…"
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
         />
+        {/* Each option's value is its destination URL; onchange just navigates there. */}
+        <label class="flex flex-col gap-1.5 sm:w-44">
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+        <select aria-label="Class" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+          <option value="/driver-stats" selected={!activeClass} class="bg-brand-ink text-white">Overall</option>
+          {classes.map((c) => (
+            <option value={`/driver-stats?class=${encodeURIComponent(c.name)}`} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
+          ))}
+        </select>
+        </label>
+       </div>
       </div>
     )}
 
@@ -94,7 +87,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <div data-driver-stats-results data-fragment-url={`/driver-stats/fragment${Astro.url.search}`}>
         <div class="mt-6 flex flex-col gap-2" aria-live="polite" aria-busy="true">
           <span class="sr-only">Loading driver stats…</span>
-          <div class="h-10 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
           <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
         </div>
       </div>

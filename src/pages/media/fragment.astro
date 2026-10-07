@@ -184,17 +184,55 @@ const meetupPins = meetups
   }));
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+
+// The per-tab search box lives in the filter card at the top (it used to be a
+// separate block above each tab's list). Only tabs that actually have items to
+// search get one; the ids are what the client search script already binds to.
+const searchBox: { id: string; placeholder: string } | null = loadError
+  ? null
+  : tab === 'videos'
+    ? { id: 'media-search-videos', placeholder: 'Search…' }
+    : tab === 'posters' && graphics.length > 0
+      ? { id: 'media-search-posters', placeholder: 'Search posters…' }
+      : tab === 'replays' && replays.length > 0
+        ? { id: 'media-search-replays', placeholder: 'Search replays…' }
+        : tab === 'meetups' && meetupPins.length > 0
+          ? { id: 'media-search-meetups', placeholder: 'Search meetups…' }
+          : null;
 ---
 
-    <div class="reveal mb-8 mt-8 flex flex-wrap gap-2" style="transition-delay: 40ms">
-      {TABS.map((t) => (
-        <a
-          href={tabHref(t)}
-          class={`btn ${tab === t ? 'btn-active' : 'btn-neutral'}`}
-        >
-          {TAB_LABELS[t]}
-        </a>
-      ))}
+    {/* Section and (on Videos) category pickers — each option's value is its destination URL; onchange just navigates there. */}
+    <div class="reveal mb-6 mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 40ms">
+      <div class="flex flex-wrap items-end gap-3">
+        {searchBox && (
+          <input
+            type="search"
+            id={searchBox.id}
+            placeholder={searchBox.placeholder}
+            class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          />
+        )}
+        <div class={`flex flex-wrap items-end gap-3 ${searchBox ? 'sm:ml-auto sm:justify-end' : ''}`}>
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Section</span>
+            <select aria-label="Section" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+              {TABS.map((t) => (
+                <option value={tabHref(t)} selected={tab === t} class="bg-brand-ink text-white">{TAB_LABELS[t]}</option>
+              ))}
+            </select>
+          </label>
+          {!loadError && tab === 'videos' && (
+            <label class="flex flex-col gap-1.5 sm:w-44">
+              <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Category</span>
+              <select aria-label="Video category" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+                {VIDEO_FILTERS.map((f) => (
+                  <option value={filterHref(f)} selected={filter === f} class="bg-brand-ink text-white">{FILTER_LABELS[f]}</option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      </div>
     </div>
 
     {loadError && (
@@ -205,25 +243,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && tab === 'videos' && (
       <>
-        <div class="reveal mb-8 flex flex-wrap gap-2" style="transition-delay: 60ms">
-          {VIDEO_FILTERS.map((f) => (
-            <a
-              href={filterHref(f)}
-              class={`btn btn-sm ${filter === f ? 'btn-active' : 'btn-neutral'}`}
-            >
-              {FILTER_LABELS[f]}
-            </a>
-          ))}
-        </div>
-
-        <div class="reveal mb-6 max-w-sm" style="transition-delay: 70ms">
-          <input
-            type="search"
-            id="media-search-videos"
-            placeholder="Search…"
-            class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-        </div>
 
         {filter === 'broadcasts' && (
           broadcastVideos.length === 0 ? (
@@ -374,14 +393,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No posters on file yet.</p>
       ) : (
         <>
-          <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
-            <input
-              type="search"
-              id="media-search-posters"
-              placeholder="Search posters…"
-              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </div>
           <div id="media-posters-grid" class="reveal grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4" style="transition-delay: 70ms">
             {graphics.map((g) => (
               <button
@@ -412,14 +423,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No replays on file yet.</p>
       ) : (
         <>
-          <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
-            <input
-              type="search"
-              id="media-search-replays"
-              placeholder="Search replays…"
-              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </div>
           <div id="media-replays-list" class="reveal flex flex-col divide-y divide-white/10 rounded-xl border border-white/10" style="transition-delay: 70ms">
             {replays.map((r) => (
               <a
@@ -451,14 +454,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No meetups on file yet.</p>
       ) : (
         <>
-          <div class="reveal mb-6 max-w-sm" style="transition-delay: 60ms">
-            <input
-              type="search"
-              id="media-search-meetups"
-              placeholder="Search meetups…"
-              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            />
-          </div>
           <div class="reveal overflow-hidden rounded-xl ring-1 ring-white/10" style="transition-delay: 70ms">
             <div id="meetup-map" class="h-[520px] w-full bg-white/5"></div>
           </div>

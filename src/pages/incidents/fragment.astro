@@ -75,41 +75,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 {!loadError && (
   <div data-incidents-widget>
-    <div class="mt-8 flex flex-wrap gap-2" role="tablist">
-      <button
-        type="button"
-        role="tab"
-        data-incidents-tab="all"
-        aria-selected="true"
-        data-active="true"
-        class="btn btn-neutral"
-      >
-        All Incidents ({data.all.length})
-      </button>
-      <button
-        type="button"
-        role="tab"
-        data-incidents-tab="byDriver"
-        aria-selected="false"
-        data-active="false"
-        class="btn btn-neutral"
-      >
-        By Driver ({data.byDriver.length})
-      </button>
-      <button
-        type="button"
-        role="tab"
-        data-incidents-tab="byOffense"
-        aria-selected="false"
-        data-active="false"
-        class="btn btn-neutral"
-      >
-        By Offense ({data.byOffense.length})
-      </button>
+    <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+      <label class="flex flex-col gap-1.5 sm:w-56">
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
+        <select aria-label="View" data-incidents-select class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5">
+          <option value="all" selected class="bg-brand-ink text-white">All Incidents ({data.all.length})</option>
+          <option value="byDriver" class="bg-brand-ink text-white">By Driver ({data.byDriver.length})</option>
+          <option value="byOffense" class="bg-brand-ink text-white">By Offense ({data.byOffense.length})</option>
+        </select>
+      </label>
     </div>
 
     <!-- ================= All Incidents ================= -->
-    <div data-incidents-panel="all" class="mt-4">
+    <div data-incidents-panel="all" class="mt-6">
       {data.all.length === 0 ? (
         <p class="mt-6 text-white/60">No incidents logged yet.</p>
       ) : (
@@ -207,7 +185,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     </div>
 
     <!-- ================= By Driver ================= -->
-    <div data-incidents-panel="byDriver" class="mt-4 hidden">
+    <div data-incidents-panel="byDriver" class="mt-6 hidden">
       {data.byDriver.length === 0 ? (
         <p class="mt-6 text-white/60">No incidents logged yet.</p>
       ) : (
@@ -302,7 +280,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     </div>
 
     <!-- ================= By Offense ================= -->
-    <div data-incidents-panel="byOffense" class="mt-4 hidden">
+    <div data-incidents-panel="byOffense" class="mt-6 hidden">
       {data.byOffense.length === 0 ? (
         <p class="mt-6 text-white/60">No incidents logged yet.</p>
       ) : (

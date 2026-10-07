@@ -115,35 +115,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="flex flex-wrap gap-2">
-        {visibleClasses.map((c) => (
-          <a
-            href={`/champions?class=${encodeURIComponent(c.name)}`}
-            class={`btn ${!activeTeamView && c.id === activeClass?.id ? 'btn-active' : 'btn-neutral'}`}
-          >
-            {c.name}
-          </a>
-        ))}
-        <a
-          href="/champions?team=alpha"
-          class={`btn ${activeTeamView === 'alpha' ? 'btn-active' : 'btn-neutral'}`}
-        >
-          Alpha Team
-        </a>
-        {deltaEnabledAnySeason && (
-          <a
-            href="/champions?team=delta"
-            class={`btn ${activeTeamView === 'delta' ? 'btn-active' : 'btn-neutral'}`}
-          >
-            Delta Team
-          </a>
-        )}
+      <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+       <div class="flex flex-wrap items-end gap-3">
+        {/* Each option's value is its destination URL; onchange just navigates there. */}
+        <label class="flex flex-col gap-1.5 sm:w-44">
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+        <select aria-label="Class or team" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+          {visibleClasses.map((c) => (
+            <option value={`/champions?class=${encodeURIComponent(c.name)}`} selected={!activeTeamView && c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
+          ))}
+          <option value="/champions?team=alpha" selected={activeTeamView === 'alpha'} class="bg-brand-ink text-white">Alpha Team</option>
+          {deltaEnabledAnySeason && (
+            <option value="/champions?team=delta" selected={activeTeamView === 'delta'} class="bg-brand-ink text-white">Delta Team</option>
+          )}
+        </select>
+        </label>
+       </div>
       </div>
     )}
 
     {!loadError && (
       <div data-champions-results data-fragment-url={`/champions/fragment${Astro.url.search}`}>
-        <div class="mt-8 flex flex-col gap-5" aria-live="polite" aria-busy="true">
+        <div class="mt-6 flex flex-col gap-5" aria-live="polite" aria-busy="true">
           <span class="sr-only">Loading champions…</span>
           <div class="h-40 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
           <div class="h-40 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
