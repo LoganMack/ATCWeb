@@ -1,4 +1,4 @@
--- 0096_security_hardening.sql
+-- 0097_security_hardening.sql
 -- Findings from the pre-sign-up-growth security audit. Every change here is
 -- additive/tightening and keeps the app's existing flows working:
 --
