@@ -784,22 +784,33 @@ input[type="file"]:hover::file-selector-button {
 /* ============================================================
    PHOTO BANNER OVERLAY (src/components/PageBanner.astro + home hero)
    ============================================================
-   Three stacked layers over the banner photo: a vignette that darkens the
-   edges toward the page color, a fine diagonal carbon-fiber texture, and a
-   fade to the solid page color along the bottom so the band blends into the
-   page. --banner-ink is the page background (dark ink / light paper) as bare
+   Three layers over the banner photo: a vignette that darkens the
+   edges toward the page color, a fade to the solid page color along the
+   bottom, and a film-grain texture on top (::after) that fades out toward
+   the bottom so the band blends into the page. --banner-ink is the page background (dark ink / light paper) as bare
    RGB channels so the same rule works in both themes. */
 :root {
   --banner-ink: 11 11 14;
-  --banner-tex: rgba(0, 0, 0, 0.25);
+  --banner-grain: 0.4;
 }
 .light {
   --banner-ink: 247 247 249;
-  --banner-tex: rgba(255, 255, 255, 0.2);
+  --banner-grain: 0.28;
 }
 .banner-overlay {
   background:
-    radial-gradient(ellipse at 50% 30%, transparent 25%, rgb(var(--banner-ink)) 95%),
-    repeating-linear-gradient(45deg, var(--banner-tex) 0 2px, transparent 2px 5px),
-    linear-gradient(to bottom, transparent 45%, rgb(var(--banner-ink)));
+    linear-gradient(to bottom, transparent 45%, rgb(var(--banner-ink))),
+    radial-gradient(ellipse at 50% 30%, transparent 25%, rgb(var(--banner-ink)) 95%);
+}
+/* Film grain: self-stitching noise tile, so there are no seams at any width.
+   Masked out toward the bottom so the banner still blends into the page. */
+.banner-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url('data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22200%22%20height=%22200%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%22.85%22%20numOctaves=%222%22%20stitchTiles=%22stitch%22/%3E%3CfeColorMatrix%20type=%22saturate%22%20values=%220%22/%3E%3C/filter%3E%3Crect%20width=%22200%22%20height=%22200%22%20filter=%22url%28%23n%29%22%20opacity=%22.55%22/%3E%3C/svg%3E');
+  background-size: 200px 200px;
+  opacity: var(--banner-grain);
+  -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 95%);
+  mask-image: linear-gradient(to bottom, #000 35%, transparent 95%);
 }
