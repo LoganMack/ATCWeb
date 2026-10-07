@@ -36,8 +36,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <div class="mt-6" aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading calendar…</span>
         <div class="flex flex-wrap items-center gap-2">
-          <div class="h-9 w-20 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-28 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-28 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
         </div>
         <div class="mt-6 flex flex-col gap-4">
           <div class="h-32 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
@@ -140,21 +139,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     }
 
     function initViewToggle() {
-      const toggleGroup = document.querySelector<HTMLElement>('[data-view-toggle]');
+      const select = document.querySelector<HTMLSelectElement>('select[data-view-toggle]');
       const panels = document.querySelectorAll<HTMLElement>('[data-view-panel]');
-      if (!toggleGroup || panels.length === 0) return;
+      if (!select || panels.length === 0) return;
 
-      toggleGroup.querySelectorAll<HTMLButtonElement>('button').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const value = btn.dataset.viewValue;
-          toggleGroup.querySelectorAll<HTMLButtonElement>('button').forEach((b) => {
-            b.dataset.active = String(b === btn);
-          });
-          panels.forEach((p) => {
-            p.classList.toggle('hidden', p.dataset.viewPanel !== value);
-          });
+      const showPanel = () => {
+        panels.forEach((p) => {
+          p.classList.toggle('hidden', p.dataset.viewPanel !== select.value);
         });
-      });
+      };
+      select.addEventListener('change', showPanel);
+      showPanel();
     }
 
     function initCalendarGrid() {

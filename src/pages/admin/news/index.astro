@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsPosts, getNewsPostViewCounts, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getAllNewsPosts, getNewsPostViewCounts } from '../../../lib/supabase';
+import { formatMonthDayYear } from '../../../lib/roundLabels';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -73,19 +74,19 @@ const viewsByPath = new Map<string, number>((viewCounts ?? []).map((v) => [v.pat
             const views = viewsByPath.get(`/news/${post.slug}`) ?? 0;
             return (
             <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
-              <td class="py-3 pl-6 pr-3 font-semibold" data-col="title">{post.title}</td>
-              <td class="py-3 pr-3 text-white/60" data-col="season" data-sort-value={post.season_label ?? ''}>
+              <td class="w-full max-w-0 truncate py-3 pl-6 pr-3 font-semibold" data-col="title" title={post.title}>{post.title}</td>
+              <td class="whitespace-nowrap py-3 pr-3 text-white/60" data-col="season" data-sort-value={post.season_label ?? ''}>
                 {post.season_label ?? '—'}
               </td>
-              <td class="py-3 pr-3 text-white/60" data-col="author">{post.author_name}</td>
+              <td class="whitespace-nowrap py-3 pr-3 text-white/60" data-col="author">{post.author_name}</td>
               <td
-                class="py-3 pr-3 text-white/60"
+                class="whitespace-nowrap py-3 pr-3 text-white/60"
                 data-col="date"
                 data-sort-value={new Date(post.published_at).getTime()}
               >
-                {formatDate(post.published_at)}
+                {formatMonthDayYear(post.published_at)}
               </td>
-              <td class="py-3 pr-3" data-col="status" data-sort-value={post.status}>
+              <td class="whitespace-nowrap py-3 pr-3" data-col="status" data-sort-value={post.status}>
                 <span
                   class={`rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
                     post.status === 'published' ? 'bg-brand-blue/15 text-brand-blue' : 'bg-white/10 text-white/60'

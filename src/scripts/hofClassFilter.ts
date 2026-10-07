@@ -1,9 +1,9 @@
 /**
- * Hall of Fame's per-card Overall/Alpha/Gamma/Delta stat filter (per
+ * Hall of Fame's per-card Overall/Alpha/Gamma/Delta stat dropdown (per
  * Logan) — hall-of-fame/fragment.astro renders all four class variants of
  * each member's stat block server-side (data-hof-stats-panel="Overall" |
  * "Alpha" | "Gamma" | "Delta"), with only the default one visible; this
- * just shows/hides them on click, scoped to whichever card's own
+ * just shows/hides them when the card's dropdown changes, scoped to whichever card's own
  * [data-hof-card] ancestor the clicked button lives in, so one card's
  * filter never affects another's.
  *
@@ -21,9 +21,8 @@
 let hofClassFilterInitialized = false;
 
 function applyHofClassFilter(card: HTMLElement, key: string) {
-  card.querySelectorAll<HTMLButtonElement>('[data-hof-class-btn]').forEach((btn) => {
-    btn.dataset.active = String(btn.dataset.hofClassValue === key);
-  });
+  const select = card.querySelector<HTMLSelectElement>('[data-hof-class-select]');
+  if (select && select.value !== key) select.value = key;
   card.querySelectorAll<HTMLElement>('[data-hof-stats-panel]').forEach((panel) => {
     panel.classList.toggle('hidden', panel.dataset.hofStatsPanel !== key);
   });
@@ -33,13 +32,12 @@ function initHofClassFilter() {
   if (hofClassFilterInitialized) return;
   hofClassFilterInitialized = true;
 
-  document.addEventListener('click', (e) => {
-    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-hof-class-btn]');
-    if (!btn) return;
-    const card = btn.closest<HTMLElement>('[data-hof-card]');
-    const key = btn.dataset.hofClassValue;
-    if (!card || !key) return;
-    applyHofClassFilter(card, key);
+  document.addEventListener('change', (e) => {
+    const select = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-hof-class-select]');
+    if (!select) return;
+    const card = select.closest<HTMLElement>('[data-hof-card]');
+    if (!card) return;
+    applyHofClassFilter(card, select.value);
   });
 }
 

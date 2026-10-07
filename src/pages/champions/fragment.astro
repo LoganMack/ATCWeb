@@ -141,7 +141,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 {!loadError && activeTeamView && teamChampions.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
 
 {!loadError && activeTeamView && teamChampions.length > 0 && (
-  <div class="mt-8 flex flex-col gap-5">
+  <div class="mt-6 flex flex-col gap-5">
     {teamChampions.map((entry, i) => (
       <TeamChampionCard entry={entry} roster={rosterByTeamChampion.get(entry.season.id) ?? []} index={i} />
     ))}
@@ -151,7 +151,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 {!loadError && !activeTeamView && champions.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
 
 {!loadError && !activeTeamView && champions.length > 0 && (
-  <div class="mt-8 flex flex-col gap-5">
+  <div class="mt-6 flex flex-col gap-5">
     {champions.map((entry, i) => (
       <ChampionCard
         entry={entry}

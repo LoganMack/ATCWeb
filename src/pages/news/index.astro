@@ -34,7 +34,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <div class="h-[4.5rem] w-64 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
           <div class="h-[4.5rem] w-40 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
         </div>
-        <div class="mt-10 h-72 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        <div class="mt-6 h-72 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
         <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
           <div class="h-64 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
@@ -80,4 +80,64 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   }
 
   document.addEventListener('astro:page-load', initNewsResults);
+
+  // Live filtering: the search box (once typing pauses) and the Season dropdown
+  // re-fetch the fragment and swap only the post list, so there's no Search
+  // button and the box keeps focus. Delegated listeners on `document`, bound
+  // once per JS context with a module-scoped guard (the loader above re-fires
+  // astro:page-load, so a per-load bind would double up).
+  let newsFilterBound = false;
+  let newsFilterRequest = 0;
+  let newsFilterTimer: number | undefined;
+
+  async function applyNewsFilters(form: HTMLFormElement) {
+    const q = (form.elements.namedItem('q') as HTMLInputElement | null)?.value.trim() ?? '';
+    const season = (form.elements.namedItem('season') as HTMLSelectElement | null)?.value ?? '';
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (season) params.set('season', season);
+    const search = params.toString() ? `?${params.toString()}` : '';
+    history.replaceState(null, '', `/news${search}`);
+
+    const request = ++newsFilterRequest;
+    try {
+      const res = await fetch(`/news/fragment${search}`);
+      if (!res.ok) throw new Error(`news fragment request failed (${res.status})`);
+      const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+      const next = doc.querySelector('[data-news-list]');
+      const current = document.querySelector('[data-news-list]');
+      // A newer keystroke already started another request — drop this stale answer.
+      if (request !== newsFilterRequest || !next || !current) return;
+      current.innerHTML = next.innerHTML;
+      current.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
+    } catch (err) {
+      console.error('Failed to update news filters:', err);
+    }
+  }
+
+  function initNewsFilters() {
+    if (newsFilterBound) return;
+    newsFilterBound = true;
+    document.addEventListener('input', (e) => {
+      const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-news-filter] input[name="q"]');
+      const form = input?.closest<HTMLFormElement>('[data-news-filter]');
+      if (!form) return;
+      window.clearTimeout(newsFilterTimer);
+      newsFilterTimer = window.setTimeout(() => applyNewsFilters(form), 350);
+    });
+    document.addEventListener('change', (e) => {
+      const select = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-news-filter] select[name="season"]');
+      const form = select?.closest<HTMLFormElement>('[data-news-filter]');
+      if (form) applyNewsFilters(form);
+    });
+    // Enter in the search box: filter right away instead of reloading the page.
+    document.addEventListener('submit', (e) => {
+      const form = (e.target as HTMLElement).closest<HTMLFormElement>('[data-news-filter]');
+      if (!form) return;
+      e.preventDefault();
+      window.clearTimeout(newsFilterTimer);
+      applyNewsFilters(form);
+    });
+  }
+  initNewsFilters();
 </script>

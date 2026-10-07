@@ -33,14 +33,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <div data-media-results data-fragment-url={`/media/fragment${Astro.url.search}`}>
       <div class="mt-8" aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading media…</span>
-        <div class="flex flex-wrap gap-2">
-          <div class="h-9 w-24 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-28 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-24 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-24 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-24 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+        <div class="flex flex-wrap gap-3">
+          <div class="h-9 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
         </div>
-        <div class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           <div class="aspect-video animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
           <div class="aspect-video animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
           <div class="aspect-video animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
