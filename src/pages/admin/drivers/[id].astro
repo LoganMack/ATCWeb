@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { safeJson } from '../../../lib/security';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
@@ -833,7 +834,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
   )}
 </AdminLayout>
 
-<script type="application/json" id="car-number-lookup-data" set:html={JSON.stringify(numberLookup)} />
+<script type="application/json" id="car-number-lookup-data" set:html={safeJson(numberLookup)} />
 <script>
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {

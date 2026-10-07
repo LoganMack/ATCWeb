@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { safeJson } from '../../../lib/security';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
@@ -209,7 +210,7 @@ const flashRows = Astro.url.searchParams.get('rows');
           </table>
         </div>
       )}
-      <script type="application/json" id="orphan-events" set:html={JSON.stringify(eventOptions)} />
+      <script type="application/json" id="orphan-events" set:html={safeJson(eventOptions)} />
     </section>
   )}
 

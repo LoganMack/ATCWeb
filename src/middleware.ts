@@ -105,6 +105,61 @@ function forBrowser(response: Response): Response {
   return response;
 }
 
+/**
+ * Canonical form of a request path for access-control decisions: fully
+ * percent-decoded, backslashes treated as slashes, duplicate slashes
+ * collapsed, trailing slash dropped, lowercased. Returns null when the path
+ * has invalid encoding (callers should fail closed).
+ */
+function normalisePath(pathname: string): string | null {
+  let p = pathname;
+  try {
+    for (let i = 0; i < 5; i++) {
+      const decoded = decodeURIComponent(p);
+      if (decoded === p) break;
+      p = decoded;
+    }
+  } catch {
+    return null;
+  }
+  p = p.replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase();
+  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  return p;
+}
+
+/**
+ * Baseline security headers for every response.
+ *
+ * The CSP here is intentionally NOT a full script-src lockdown: Astro emits
+ * inline <script>/<style> blocks and the pages use inline handlers/styles in
+ * several places, so a strict script-src would break the site. What it does
+ * enforce are the directives that are safe and high value: no framing by
+ * other sites (clickjacking), no plugins, no <base> hijacking, forms may only
+ * post back to this site, and everything upgraded to https.
+ */
+const SECURITY_HEADERS: Record<string, string> = {
+  'Content-Security-Policy':
+    "frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+  'Strict-Transport-Security': 'max-age=31536000',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+};
+
+function withSecurityHeaders(response: Response): Response {
+  try {
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) response.headers.set(k, v);
+  } catch {
+    // Immutable headers (e.g. a passthrough of a fetched Response) — rebuild.
+    const copy = new Response(response.body, response);
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) copy.headers.set(k, v);
+    return copy;
+  }
+  return response;
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
 
@@ -148,12 +203,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (cache && isCacheableMethod && !hasAuthCookies && !broadcasterMode) {
     const cached = await cache.match(context.request);
     if (cached) {
-      return forBrowser(
-        new Response(cached.body, {
-          status: cached.status,
-          statusText: cached.statusText,
-          headers: cached.headers,
-        })
+      return withSecurityHeaders(
+        forBrowser(
+          new Response(cached.body, {
+            status: cached.status,
+            statusText: cached.statusText,
+            headers: cached.headers,
+          })
+        )
       );
     }
   }
@@ -218,8 +275,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.viewAsVisitor = context.locals.isRealAdmin && context.cookies.get(VIEW_MODE_COOKIE)?.value === 'visitor';
 
   const pathname = context.url.pathname;
-  const isAdminRoute = pathname.startsWith(ADMIN_PREFIX);
-  const isPublicAdminPath = PUBLIC_ADMIN_PATHS.has(pathname);
+  // SECURITY: gate on a NORMALISED path, not the raw one. Astro's router
+  // percent-decodes the URL before matching a route, so /%61dmin (= /admin)
+  // used to sail past a plain `startsWith('/admin')` check and render admin
+  // pages with no login. Decode (repeatedly, in case of double-encoding),
+  // lowercase, and collapse slashes/backslashes before comparing. If the path
+  // can't be decoded at all, treat it as an admin path (fail closed).
+  const normalisedPath = normalisePath(pathname);
+  const isAdminRoute = normalisedPath === null || normalisedPath.startsWith(ADMIN_PREFIX);
+  const isPublicAdminPath = normalisedPath !== null && PUBLIC_ADMIN_PATHS.has(normalisedPath);
 
   // Was a bare `return` for the redirect case, with a second `return next();`
   // below covering everything else — rewritten to funnel both outcomes
@@ -281,6 +345,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   // Only now — the clone above already captured the edge-cache header.
   forBrowser(response);
+  response = withSecurityHeaders(response);
 
   // --- Site analytics (0077_page_views.sql, 0080_page_views_status_and_stats.sql) ---
   //
@@ -302,7 +367,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (
     context.locals.runtime &&
     context.request.method === 'GET' &&
-    !pathname.startsWith(ADMIN_PREFIX) &&
+    !isAdminRoute &&
     !pathname.startsWith('/api') &&
     // Shell-then-skeleton pages fetch a /…/fragment URL right after their own load; counting those too would double every view.
     !pathname.endsWith('/fragment') &&

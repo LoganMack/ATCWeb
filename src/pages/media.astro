@@ -230,15 +230,20 @@ function initMeetupMap() {
         // click listener is delegated to <body>, so it picks up this
         // popup's markup fine even though Leaflet injects it into the
         // DOM long after astro:page-load already fired.
+        // Everything interpolated below is escaped — pin fields come from
+        // the database (admin-entered, but still data, never markup).
+        const esc = (v: unknown) =>
+          String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        const safePhoto = typeof pin.photoUrl === 'string' && /^https?:\/\//i.test(pin.photoUrl) ? pin.photoUrl : '';
         const popupHtml = `
           <div style="min-width:160px">
-            ${pin.photoUrl ? `<img src="${pin.photoUrl}" alt="${pin.title}" data-lightbox data-lightbox-src="${pin.photoUrl}" data-lightbox-alt="${pin.title}" style="width:100%;height:100px;object-fit:cover;border-radius:3px;margin-bottom:6px;cursor:zoom-in" />` : ''}
-            <strong>${pin.title}</strong>
-            ${pin.locationLabel || pin.date ? `<div style="font-size:12px;opacity:0.7;margin-top:2px">${[pin.locationLabel, pin.date].filter(Boolean).join(' · ')}</div>` : ''}
+            ${safePhoto ? `<img src="${esc(safePhoto)}" alt="${esc(pin.title)}" data-lightbox data-lightbox-src="${esc(safePhoto)}" data-lightbox-alt="${esc(pin.title)}" style="width:100%;height:100px;object-fit:cover;border-radius:3px;margin-bottom:6px;cursor:zoom-in" />` : ''}
+            <strong>${esc(pin.title)}</strong>
+            ${pin.locationLabel || pin.date ? `<div style="font-size:12px;opacity:0.7;margin-top:2px">${esc([pin.locationLabel, pin.date].filter(Boolean).join(' · '))}</div>` : ''}
             ${pin.drivers.length > 0 ? `
               <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin-top:8px">Attended</div>
               <ul style="margin:2px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.5">
-                ${pin.drivers.map((name: string) => `<li>${name}</li>`).join('')}
+                ${pin.drivers.map((name: string) => `<li>${esc(name)}</li>`).join('')}
               </ul>
             ` : ''}
           </div>

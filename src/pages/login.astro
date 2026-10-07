@@ -3,6 +3,7 @@ export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/supabase';
+import { safeNext } from '../lib/security';
 import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
 
 // The one sign-in page for every account — admin or driver. There's no
@@ -13,7 +14,8 @@ import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCook
 // thin redirect here for old bookmarks.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const next = Astro.url.searchParams.get('next') || '/';
+// Validated: `next` is attacker-controllable, so only same-site paths pass (open-redirect fix).
+const next = safeNext(Astro.url.searchParams.get('next'), '/');
 const session = Astro.locals.session;
 
 // Signed in already, but landed here anyway (e.g. followed an old

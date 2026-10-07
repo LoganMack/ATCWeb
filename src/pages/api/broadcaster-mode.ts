@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { BROADCASTER_COOKIE, authCookieOptions } from '../../lib/auth';
 
+import { safeNext } from '../../lib/security';
+
 export const prerender = false;
 
 /**
@@ -14,7 +16,7 @@ export const POST: APIRoute = async ({ cookies, request, redirect }) => {
   const form = await request.formData();
   const rawNext = String(form.get('next') ?? '/');
   // Same-site relative paths only — `next` is user-controllable input.
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/';
+  const next = safeNext(rawNext, '/');
 
   if (String(form.get('mode') ?? '') === 'on') {
     cookies.set(BROADCASTER_COOKIE, '1', {

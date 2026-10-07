@@ -78,7 +78,16 @@ export const GET: APIRoute = async ({ url }) => {
       });
     }
     const data = (await res.json()) as { thumbnail_url?: string };
-    return new Response(JSON.stringify({ thumbnailUrl: data.thumbnail_url ?? null }), {
+    // Only hand back https URLs on Flickr's own image hosts — the value ends
+    // up in an <img src>, so never pass through anything else.
+    let thumb: string | null = null;
+    try {
+      const t = new URL(String(data.thumbnail_url ?? ''));
+      if (t.protocol === 'https:' && /(^|\.)(staticflickr|flickr)\.com$/i.test(t.hostname)) thumb = t.toString();
+    } catch {
+      thumb = null;
+    }
+    return new Response(JSON.stringify({ thumbnailUrl: thumb }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
