@@ -58,7 +58,20 @@ import {
   type AppealFileMeta,
   type IncidentAppeal,
 } from '../../../../lib/incidentAppeals';
-import { getIncidentReportsForSubsession, setIncidentReportStatus, isRoundPosted, type IncidentReport } from '../../../../lib/incidentReports';
+import {
+  getIncidentReportsForSubsession,
+  setIncidentReportStatus,
+  isRoundPosted,
+  getVisibleReviewsForSubsession,
+  getReviewCountsForSubsession,
+  saveIncidentReportReview,
+  reviewAgreement,
+  reviewPenaltyLabel,
+  REVIEW_PENALTIES,
+  REVIEW_AGREEMENT_MIN,
+  type IncidentReport,
+  type IncidentReportReview,
+} from '../../../../lib/incidentReports';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
@@ -248,6 +261,36 @@ if (isAdmin && postForm) {
         await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status);
       } catch (err) {
         console.error('Failed to update incident report status:', err);
+      }
+    }
+    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
+  }
+
+  // Steward review of a driver-submitted report (0096) — the database
+  // enforces admin-only, one review per admin, and the lock once logged.
+  if (intent === 'save-review') {
+    const reportId = String(form.get('report_id') ?? '');
+    const driverRaw = String(form.get('driver_id') ?? '');
+    const penaltyRaw = String(form.get('penalty') ?? '');
+    const explanation = String(form.get('explanation') ?? '').trim();
+    const penalty = REVIEW_PENALTIES.find((p) => p === penaltyRaw);
+    if (reportId && driverRaw && penalty && explanation) {
+      try {
+        await saveIncidentReportReview(supabaseEnv, accessToken, {
+          report_id: reportId,
+          driver_id: driverRaw === 'racing_incident' ? null : driverRaw,
+          penalty,
+          explanation,
+        });
+        // No verdict in the log entry — that would undo the blind voting.
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'incident_report',
+          entity_label: `${roundLabel} — steward review`,
+          entity_id: reportId,
+        });
+      } catch (err) {
+        console.error('Failed to save incident report review:', err);
       }
     }
     return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
@@ -606,6 +649,10 @@ function normalizeTurn(turn: string): string {
   return turn.trim().toLowerCase().replace(/^(turn|t)\s*(?=\d)/, '').replace(/\s+/g, ' ');
 }
 const possibleDuplicateReportIds = new Set<string>();
+// Stewards review the first-submitted report of a duplicate group; a later
+// duplicate maps to the earliest report it matches, for the "review that one
+// instead" note.
+const duplicateOriginalById = new Map<string, IncidentReport>();
 for (let i = 0; i < incidentReports.length; i++) {
   for (let j = i + 1; j < incidentReports.length; j++) {
     const a = incidentReports[i];
@@ -618,8 +665,25 @@ for (let i = 0; i < incidentReports.length; i++) {
     ) {
       possibleDuplicateReportIds.add(a.id);
       possibleDuplicateReportIds.add(b.id);
+      const [earlier, later] = a.created_at <= b.created_at ? [a, b] : [b, a];
+      const current = duplicateOriginalById.get(later.id);
+      if (!current || earlier.created_at < current.created_at) duplicateOriginalById.set(later.id, earlier);
     }
   }
+}
+// The first-submitted report a later duplicate points to may itself be a
+// later duplicate of something earlier still — follow the chain to the start.
+for (const [id, original] of duplicateOriginalById) {
+  let root = original;
+  const seen = new Set([id]);
+  while (duplicateOriginalById.has(root.id) && !seen.has(root.id)) {
+    seen.add(root.id);
+    root = duplicateOriginalById.get(root.id)!;
+  }
+  duplicateOriginalById.set(id, root);
+}
+function reportLabel(r: IncidentReport): string {
+  return `${sessionLabelByValue.get(r.session) ?? r.session} · Lap ${r.lap} · Turn ${r.turn}`;
 }
 // Admin → Incident Reporting links here two ways: "View Incidents"
 // (?view=reports) shows the driver-submitted reports queue, "Edit Report"
@@ -628,6 +692,40 @@ for (let i = 0; i < incidentReports.length; i++) {
 // redirects back to its own pathname + search, so the mode survives a
 // Dismiss/Reopen/Log incident round trip.
 const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
+
+// Steward reviews (0096), View Incidents only. RLS hands back only what this
+// admin may see — their own review, plus everyone else's on reports they've
+// already reviewed (or that are logged) — and the counts RPC says how many
+// exist in total.
+const myUserId = Astro.locals.session?.user.id ?? null;
+const reviewsByReport = new Map<string, IncidentReportReview[]>();
+let reviewCounts = new Map<string, number>();
+if (viewReports && incidentReports.length > 0) {
+  try {
+    const token = Astro.locals.session!.accessToken;
+    const [reviews, counts] = await Promise.all([
+      getVisibleReviewsForSubsession(supabaseEnv, token, subsessionId),
+      getReviewCountsForSubsession(supabaseEnv, token, subsessionId),
+    ]);
+    for (const review of reviews) {
+      if (!reviewsByReport.has(review.report_id)) reviewsByReport.set(review.report_id, []);
+      reviewsByReport.get(review.report_id)!.push(review);
+    }
+    reviewCounts = counts;
+  } catch (err) {
+    console.error('Failed to load incident report reviews:', err);
+  }
+}
+const agreementStyles = {
+  all: { item: 'border-emerald-400/60 bg-emerald-400/10', text: 'text-emerald-400', label: 'All stewards agree' },
+  driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same driver, different penalties' },
+  split: { item: 'border-brand-pink/60 bg-brand-pink/10', text: 'text-brand-pink', label: 'Stewards disagree on fault' },
+} as const;
+function reviewDriverLabel(driverId: string | null): string {
+  if (!driverId) return 'Racing Incident';
+  const d = driverById.get(driverId);
+  return d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown driver';
+}
 const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
 
 // Appeals (0093_incident_appeals.sql) — admin-only queue, shown beneath the
@@ -822,11 +920,22 @@ const nextIncidentNumber =
               </h2>
             </summary>
             <ul class="mt-3 flex flex-col gap-2">
-              {incidentReports.map((r) => (
-                <li class={`rounded-lg border border-white/10 bg-white/5 p-3 text-sm ${r.status === 'open' ? '' : 'opacity-50'}`}>
+              {incidentReports.map((r) => {
+                const visibleReviews = reviewsByReport.get(r.id) ?? [];
+                const myReview = visibleReviews.find((v) => v.reviewer_id === myUserId) ?? null;
+                const reviewCount = reviewCounts.get(r.id) ?? visibleReviews.length;
+                const reviewsLocked = r.status === 'logged';
+                // Others' reviews (and the colour) only once you've voted, or once
+                // the report is logged and voting is over — otherwise it would leak the outcome.
+                const canSeeReviews = Boolean(myReview) || reviewsLocked;
+                const agreement = canSeeReviews ? reviewAgreement(visibleReviews) : null;
+                const style = agreement ? agreementStyles[agreement] : null;
+                const duplicateOriginal = duplicateOriginalById.get(r.id);
+                return (
+                <li class={`rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-white/5'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <p class="font-semibold text-white/80">
-                      {sessionLabelByValue.get(r.session) ?? r.session} · Lap {r.lap} · Turn {r.turn}
+                      {reportLabel(r)}
                       {possibleDuplicateReportIds.has(r.id) && (
                         <span class="ml-1 font-normal text-brand-gold">(possible duplicate)</span>
                       )}
@@ -859,8 +968,67 @@ const nextIncidentNumber =
                   <p class="mt-1 text-[11px] text-white/30">
                     Reported {new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
                   </p>
+
+                  <div class="mt-3 border-t border-white/10 pt-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <p class="text-xs text-white/50">
+                        Steward reviews: {reviewCount}
+                        {style && <span class={`ml-2 font-semibold ${style.text}`}>{style.label}</span>}
+                        {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
+                          <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
+                        )}
+                      </p>
+                      {reviewsLocked ? (
+                        <span class="text-xs text-white/40">Reviews locked — incident logged</span>
+                      ) : (
+                        <button
+                          type="button"
+                          data-open-review-dialog
+                          data-review={JSON.stringify({
+                            report_id: r.id,
+                            label: reportLabel(r),
+                            driver_id: myReview ? (myReview.driver_id ?? 'racing_incident') : '',
+                            penalty: myReview?.penalty ?? '',
+                            explanation: myReview?.explanation ?? '',
+                          })}
+                          class="btn btn-gold btn-sm"
+                        >
+                          {myReview ? 'Edit my review' : 'Review'}
+                        </button>
+                      )}
+                    </div>
+
+                    {duplicateOriginal && (
+                      <p class="mt-2 text-xs text-brand-gold">
+                        Possible duplicate of an earlier report ({reportLabel(duplicateOriginal)}) — review that one instead.
+                      </p>
+                    )}
+
+                    {canSeeReviews && visibleReviews.length > 0 ? (
+                      <ul class="mt-2 flex flex-col gap-2">
+                        {visibleReviews.map((v) => (
+                          <li class="rounded-md bg-white/5 p-2 text-xs">
+                            <p class="font-semibold text-white/80">
+                              {v.reviewer_id === myUserId ? 'You' : (v.reviewer_name ?? 'Unknown steward')}
+                              <span class="font-normal text-white/50">
+                                {' · '}{reviewDriverLabel(v.driver_id)}
+                                {v.driver_id && ` · ${reviewPenaltyLabel(v.penalty)}`}
+                              </span>
+                              {v.edited_at && <span class="ml-1 font-normal italic text-white/40">(edited)</span>}
+                            </p>
+                            <p class="mt-1 whitespace-pre-line text-white/70">{v.explanation}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      reviewCount > 0 && !reviewsLocked && (
+                        <p class="mt-2 text-xs text-white/40">Submit your own review to see the other stewards'.</p>
+                      )
+                    )}
+                  </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </details>
         )}
@@ -1443,5 +1611,83 @@ const nextIncidentNumber =
             </div>
           </form>
         </dialog>
+
+        {viewReports && (
+          <dialog
+            data-review-dialog
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+              <input type="hidden" name="intent" value="save-review" />
+              <input type="hidden" name="report_id" data-review-report-id />
+              <div class="flex items-center justify-between gap-3">
+                <h4 class="font-display text-lg">Steward Review <span data-review-label class="text-white/50"></span></h4>
+                <button type="button" data-close-review-dialog class="text-white/40 hover:text-white">✕</button>
+              </div>
+              {/* A searchable radio list rather than a <select>: dropdown options can't be
+                  filtered reliably across browsers (see src/scripts/driverPickerSearch.ts). */}
+              <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-driver-picker data-review-driver>
+                <legend class="mb-1">Driver at Fault</legend>
+                <label class="flex items-center gap-2 text-xs text-white/70">
+                  <input type="radio" name="driver_id" value="racing_incident" required />
+                  Racing Incident (no driver at fault)
+                </label>
+                <input
+                  type="search"
+                  data-driver-search
+                  placeholder="Search by car number or name…"
+                  aria-label="Search drivers"
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                />
+                <div class="grid max-h-48 grid-cols-1 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-2 sm:gap-x-4">
+                  {roundDrivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
+                  {roundDrivers.map((d) => (
+                    <label
+                      class="flex items-center gap-2 text-xs text-white/70"
+                      data-driver-option
+                      data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+                    >
+                      <input type="radio" name="driver_id" value={d.id} />
+                      {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+                    </label>
+                  ))}
+                  <p data-driver-search-empty class="col-span-full hidden text-white/30">No matches.</p>
+                </div>
+              </fieldset>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50" data-review-penalty-field>
+                Penalty
+                <select
+                  name="penalty"
+                  data-review-penalty
+                  required
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                >
+                  <option value="" selected disabled hidden class="bg-brand-ink text-white">Select penalty…</option>
+                  {REVIEW_PENALTIES.map((p) => (
+                    <option value={p} class="bg-brand-ink text-white">{reviewPenaltyLabel(p)}</option>
+                  ))}
+                </select>
+              </label>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Explanation
+                <textarea
+                  name="explanation"
+                  data-review-explanation
+                  required
+                  rows="5"
+                  maxlength="4000"
+                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
+                ></textarea>
+              </label>
+              <p class="text-[11px] text-white/30">
+                Only admins ever see reviews. You'll see the other stewards' reviews once you've submitted yours.
+              </p>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-close-review-dialog class="btn btn-neutral">Cancel</button>
+                <button type="submit" class="btn btn-gold">Save Review</button>
+              </div>
+            </form>
+          </dialog>
+        )}
       </>
     )}

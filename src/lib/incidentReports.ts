@@ -276,3 +276,107 @@ export async function setIncidentReportStatus(
 ): Promise<void> {
   await restPatch(env, accessToken, `incident_reports?id=eq.${encodeURIComponent(reportId)}`, { status });
 }
+
+// --- Steward reviews (0096_incident_report_reviews.sql) --------------------
+
+/** 'none' | 'warning' | '1'..'7' — the Log incident dialog's PP choices. */
+export type ReviewPenalty = 'none' | 'warning' | '1' | '2' | '3' | '4' | '5' | '6' | '7';
+export const REVIEW_PENALTIES: ReviewPenalty[] = ['none', 'warning', '1', '2', '3', '4', '5', '6', '7'];
+
+export interface IncidentReportReview {
+  id: string;
+  report_id: string;
+  reviewer_id: string;
+  reviewer_name: string | null;
+  /** Null = Racing Incident (no driver at fault). */
+  driver_id: string | null;
+  penalty: ReviewPenalty;
+  explanation: string;
+  created_at: string;
+  /** Set once the review has been changed after it was first submitted. */
+  edited_at: string | null;
+}
+
+export function reviewPenaltyLabel(penalty: ReviewPenalty): string {
+  if (penalty === 'none') return 'No penalty';
+  if (penalty === 'warning') return 'Warning';
+  return `${penalty} PP`;
+}
+
+/**
+ * Reviews of one round's reports that this admin may see. RLS does the
+ * blind-voting filter: the caller's own review always comes back, everyone
+ * else's only for reports the caller has already reviewed.
+ */
+export async function getVisibleReviewsForSubsession(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number
+): Promise<IncidentReportReview[]> {
+  const rows = await restGetAuthed<(IncidentReportReview & { incident_reports: unknown })[]>(
+    env,
+    accessToken,
+    `incident_report_reviews?select=*,incident_reports!inner(subsession_id)&incident_reports.subsession_id=eq.${subsessionId}&order=created_at.asc`
+  );
+  return rows.map(({ incident_reports: _, ...r }) => r);
+}
+
+/** report_id -> total number of reviews, including ones the caller can't read yet. */
+export async function getReviewCountsForSubsession(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number
+): Promise<Map<string, number>> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/incident_report_review_counts`, {
+    method: 'POST',
+    headers: {
+      apikey: env.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_subsession_id: subsessionId }),
+  });
+  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on incident_report_review_counts: ${await res.text()}`);
+  const rows = (await res.json()) as { report_id: string; review_count: number }[];
+  return new Map(rows.map((r) => [r.report_id, r.review_count]));
+}
+
+/** Creates or replaces the caller's own review (0096 enforces admin-only, one per admin, and the logged lock). */
+export async function saveIncidentReportReview(
+  env: SupabaseEnv,
+  accessToken: string,
+  input: { report_id: string; driver_id: string | null; penalty: ReviewPenalty; explanation: string }
+): Promise<void> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/save_incident_report_review`, {
+    method: 'POST',
+    headers: {
+      apikey: env.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      p_report_id: input.report_id,
+      p_driver_id: input.driver_id,
+      p_penalty: input.penalty,
+      p_explanation: input.explanation,
+    }),
+  });
+  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on save_incident_report_review: ${await res.text()}`);
+}
+
+/** Minimum number of reviews before a report gets an agreement colour. */
+export const REVIEW_AGREEMENT_MIN = 5;
+
+/**
+ * How much the reviews of one report agree, once at least
+ * REVIEW_AGREEMENT_MIN are in: 'all' (same driver and penalty), 'driver'
+ * (same driver, different penalties) or 'split' (different drivers, or fault
+ * vs. Racing Incident). Null below the minimum.
+ */
+export function reviewAgreement(reviews: Pick<IncidentReportReview, 'driver_id' | 'penalty'>[]): 'all' | 'driver' | 'split' | null {
+  if (reviews.length < REVIEW_AGREEMENT_MIN) return null;
+  const drivers = new Set(reviews.map((r) => r.driver_id ?? 'racing_incident'));
+  if (drivers.size > 1) return 'split';
+  const penalties = new Set(reviews.map((r) => r.penalty));
+  return penalties.size === 1 ? 'all' : 'driver';
+}

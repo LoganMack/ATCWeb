@@ -465,6 +465,8 @@ th[data-sort-key][data-sort-dir='desc']::after {
 .light .hover\:text-brand-pink:hover { color: rgb(232 12 66 / 1); }
 .light .text-brand-gold { color: rgb(148 111 8 / 1); }
 .light .text-brand-gold\/80 { color: rgb(148 111 8 / 0.8); }
+/* Steward reviews' "all stewards agree" green (incident report View Incidents). */
+.light .text-emerald-400 { color: rgb(4 120 87 / 1); }
 .light .text-red-300 { color: rgb(185 28 28 / 1); }
 
 /* ---- solid blue buttons: text stays white in light mode ----
@@ -660,6 +662,7 @@ input[type="file"]:hover::file-selector-button {
 .light [class~="bg-brand-gold/15"] { background-color: rgb(247 240 222); }
 .light [class~="bg-brand-gold/20"] { background-color: rgb(247 237 212); }
 .light [class~="hover:bg-brand-gold/20"]:hover { background-color: rgb(247 237 212); }
+.light [class~="bg-emerald-400/10"] { background-color: rgb(231 245 239); }
 .light [class~="bg-brand-primary/10"] { background-color: rgb(229 233 249); }
 .light [class~="bg-brand-primary/15"] { background-color: rgb(220 226 248); }
 .light [class~="bg-brand-primary/20"] { background-color: rgb(211 219 248); }
