@@ -95,7 +95,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       } else if (state.nationality.size === 1) {
         const code = Array.from(state.nationality)[0];
         const checkbox = nationalityCheckboxes.find((c) => c.value === code);
-        nationalityLabel.textContent = checkbox?.dataset.natName ?? code.toUpperCase();
+        // The one selected country shows its flag in front of the name, like the options in the list.
+        const flag = document.createElement('img');
+        flag.src = `https://flagcdn.com/w80/${code}.png`;
+        flag.alt = '';
+        flag.className = 'mr-2 inline-block h-4 w-6 rounded-sm object-cover align-[-3px]';
+        nationalityLabel.replaceChildren(flag, document.createTextNode(checkbox?.dataset.natName ?? code.toUpperCase()));
       } else {
         nationalityLabel.textContent = `${state.nationality.size} selected`;
       }
