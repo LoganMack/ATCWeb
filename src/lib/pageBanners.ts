@@ -20,25 +20,38 @@ export interface BannerPageDef {
   key: string;
   label: string;
   description: string;
+  /**
+   * Width in px of the page's content column (its <section>'s max-w), which
+   * is how wide the banner actually renders on desktop — PageBanner is
+   * absolutely positioned inside that section, not the full window. The
+   * admin crop frame is sized from this so what you crop is what shows.
+   * 1024 = max-w-5xl, 1152 = max-w-6xl. Omit for 'home' (full-width hero).
+   */
+  width?: number;
 }
+
+/** Desktop banner strip height in px (PageBanner's sm:h-56). */
+export const BANNER_STRIP_HEIGHT = 224;
+/** Phone banner strip: full width of a ~390px phone by h-40 (160px). */
+export const BANNER_PHONE_ASPECT = 390 / 160;
 
 export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'home', label: 'Home', description: 'The hero section behind the "Alpha Touring Challenge" headline.' },
-  { key: 'standings', label: 'Standings', description: '/standings' },
-  { key: 'team-standings', label: 'Team Standings', description: '/team-standings' },
-  { key: 'roster', label: 'Driver Roster', description: '/roster' },
-  { key: 'calendar', label: 'Calendar', description: '/calendar' },
-  { key: 'champions', label: 'Champions', description: '/champions' },
-  { key: 'teams', label: 'Teams', description: '/teams' },
-  { key: 'news', label: 'News', description: '/news' },
-  { key: 'circuits', label: 'Circuits', description: '/circuits' },
-  { key: 'results', label: 'Race Results', description: '/results' },
-  { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats' },
-  { key: 'team-stats', label: 'Team Stats', description: '/team-stats' },
-  { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame' },
-  { key: 'awards', label: 'Awards', description: '/awards' },
-  { key: 'media', label: 'Media', description: '/media' },
-  { key: 'incidents', label: 'Incidents', description: '/incidents' },
+  { key: 'standings', label: 'Standings', description: '/standings', width: 1152 },
+  { key: 'team-standings', label: 'Team Standings', description: '/team-standings', width: 1152 },
+  { key: 'roster', label: 'Driver Roster', description: '/roster', width: 1152 },
+  { key: 'calendar', label: 'Calendar', description: '/calendar', width: 1024 },
+  { key: 'champions', label: 'Champions', description: '/champions', width: 1024 },
+  { key: 'teams', label: 'Teams', description: '/teams', width: 1152 },
+  { key: 'news', label: 'News', description: '/news', width: 1152 },
+  { key: 'circuits', label: 'Circuits', description: '/circuits', width: 1024 },
+  { key: 'results', label: 'Race Results', description: '/results', width: 1024 },
+  { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats', width: 1152 },
+  { key: 'team-stats', label: 'Team Stats', description: '/team-stats', width: 1152 },
+  { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame', width: 1024 },
+  { key: 'awards', label: 'Awards', description: '/awards', width: 1024 },
+  { key: 'media', label: 'Media', description: '/media', width: 1024 },
+  { key: 'incidents', label: 'Incidents', description: '/incidents', width: 1152 },
 ];
 
 import { resizedImageUrl } from './supabase';

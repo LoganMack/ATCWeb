@@ -43,7 +43,7 @@ import {
   displayDriverName,
   type PenaltyOffense,
 } from '../../../lib/supabase';
-import { BANNER_PAGES } from '../../../lib/pageBanners';
+import { BANNER_PAGES, BANNER_STRIP_HEIGHT, BANNER_PHONE_ASPECT } from '../../../lib/pageBanners';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getSiteSettings, upsertSiteSetting } from '../../../lib/supabase';
 import { INCIDENT_REPORT_PERIOD_HOURS_KEY, INCIDENT_APPEAL_PERIOD_HOURS_KEY, siteSettingInt } from '../../../lib/siteSettings';
@@ -519,8 +519,8 @@ if (activeTab === 'settings') {
               data-astro-reload
               enctype="multipart/form-data"
               data-banner-form
-              data-crop-aspect={page.key === 'home' ? '2.2857' : '7'}
-              data-crop-phone={page.key === 'home' ? '0.76' : '2.44'}
+              data-crop-aspect={page.key === 'home' ? '2.2857' : String(Math.round(((page.width ?? 1152) / BANNER_STRIP_HEIGHT) * 1000) / 1000)}
+              data-crop-phone={page.key === 'home' ? '0.76' : String(Math.round(BANNER_PHONE_ASPECT * 1000) / 1000)}
               class="flex flex-wrap items-center gap-2"
             >
               <input type="hidden" name="form_section" value="banner" />
