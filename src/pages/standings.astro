@@ -390,9 +390,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 <script>
   // Graph view: cumulative points per driver/team (a running sum of each
-  // round's points — drop weeks are NOT applied here, so lines can end above
-  // the Total shown in List/Matrix). Hand-drawn SVG, no chart library. The
-  // "Standings by Round" slider trims the x-axis to the first N rounds.
+  // round's points). By default drop weeks are NOT applied, so lines can end
+  // above the Total shown in List/Matrix; ticking "Drop Weeks" re-totals every
+  // point with the driver's worst rounds dropped (from round 5 on), matching
+  // List/Matrix. Hand-drawn SVG, no chart library. The "Standings by Round"
+  // slider trims the x-axis to the first N rounds.
   function initStandingsGraph() {
     const root = document.getElementById('standings-graph');
     const dataEl = document.getElementById('graph-data');
@@ -401,8 +403,45 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     if (!root || !dataEl || !plot || !legend || root.dataset.bound === 'true') return;
     root.dataset.bound = 'true';
 
-    type Series = { id: string; name: string; short: string; tag: string; cum: (number | null)[] };
-    const data = JSON.parse(dataEl.textContent ?? '{}') as { cols: { r: number | null; t: string; k: string }[]; series: Series[] };
+    type Series = { id: string; name: string; full: string; short: string; tag: string; cum: (number | null)[]; pts: (number | null)[] };
+    const data = JSON.parse(dataEl.textContent ?? '{}') as {
+      cols: { r: number | null; t: string; k: string }[];
+      series: Series[];
+      drops: number;
+      minDropRounds: number;
+      canDropFinal: boolean;
+    };
+    const dropBox = document.getElementById('graph-drop-weeks') as HTMLInputElement | null;
+    let dropOn = false;
+
+    // Same rule as totalAsOf() in the Standings by Round slider script above:
+    // after n rounds, drop the worst `drops` (only once n >= minDropRounds),
+    // never dropping the latest round unless the ruleset allows it, and always
+    // keeping at least one round.
+    function totalWithDrops(points: (number | null)[], n: number) {
+      const pool = points.slice(0, n).map((p, i) => ({ i, p: p ?? 0 }));
+      const totalDrops = n >= data.minDropRounds ? data.drops : 0;
+      if (!data.canDropFinal && n >= 1) {
+        const finalPts = pool[n - 1].p;
+        const rest = pool.slice(0, n - 1).sort((a, b) => b.p - a.p || a.i - b.i);
+        const dropCount = Math.min(totalDrops, Math.max(0, n - 1));
+        return finalPts + rest.slice(0, rest.length - dropCount).reduce((s, r) => s + r.p, 0);
+      }
+      const ranked = [...pool].sort((a, b) => b.p - a.p || a.i - b.i);
+      const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
+      return ranked.slice(0, ranked.length - dropCount).reduce((s, r) => s + r.p, 0);
+    }
+    const dropCache = new Map<string, (number | null)[]>();
+    // The value plotted for series `s` at round index `i` under the current Drop Weeks setting.
+    function val(s: Series, i: number): number | null {
+      if (!dropOn) return s.cum[i];
+      let arr = dropCache.get(s.id);
+      if (!arr) {
+        arr = s.cum.map((c, k) => (c === null ? null : totalWithDrops(s.pts, k + 1)));
+        dropCache.set(s.id, arr);
+      }
+      return arr[i];
+    }
     const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
     const SVG = 'http://www.w3.org/2000/svg';
     const TOP = 8;
@@ -438,7 +477,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const visible = data.series.map((s, idx) => ({ s, idx })).filter((x) => shown.has(x.s.id));
       const pool = visible.length ? visible : data.series.map((s, idx) => ({ s, idx }));
       let ymax = 10;
-      for (const { s } of pool) for (let i = 0; i < n; i++) ymax = Math.max(ymax, s.cum[i] ?? 0);
+      for (const { s } of pool) for (let i = 0; i < n; i++) ymax = Math.max(ymax, val(s, i) ?? 0);
       const step = niceStep(ymax / 5);
       const top = Math.ceil(ymax / step) * step;
       const X = (i: number) => m.l + (n > 1 ? (i / (n - 1)) * iw : iw / 2);
@@ -464,14 +503,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       // Lines — muted (beyond the 8 named hues) first so coloured ones sit on top
       const ordered = [...visible].sort((a, b) => Number(b.idx >= TOP) - Number(a.idx >= TOP));
       const paths = new Map<string, SVGPathElement>();
+      const groups = new Map<string, SVGGElement>();
       for (const { s, idx } of ordered) {
         let d = '';
         for (let i = 0; i < n; i++) {
-          const v = s.cum[i];
+          const v = val(s, i);
           if (v === null) continue;
           d += `${d ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`;
         }
         if (!d) continue;
+        const g = el('g', { opacity: highlight && highlight !== s.id ? 0.35 : 1 });
         const p = el('path', {
           d,
           fill: 'none',
@@ -479,26 +520,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           'stroke-width': highlight === s.id ? 3.5 : 2,
           'stroke-linejoin': 'round',
           'stroke-linecap': 'round',
-          opacity: highlight && highlight !== s.id ? 0.35 : 1,
         });
         paths.set(s.id, p);
-        svg.appendChild(p);
-        // end marker with a surface ring
-        const last = (() => {
-          for (let i = n - 1; i >= 0; i--) if (s.cum[i] !== null) return i;
-          return -1;
-        })();
-        if (last >= 0) svg.appendChild(el('circle', { cx: X(last), cy: Y(s.cum[last] as number), r: 3.5, fill: colorOf(idx), stroke: 'var(--g-surface)', 'stroke-width': 2 }));
+        groups.set(s.id, g);
+        g.appendChild(p);
+        // a node at every data point, ringed in the surface colour so it stays readable on top of the line
+        let last = -1;
+        for (let i = 0; i < n; i++) {
+          const v = val(s, i);
+          if (v === null) continue;
+          last = i;
+          g.appendChild(el('circle', { cx: X(i), cy: Y(v), r: 2.75, fill: colorOf(idx), stroke: 'var(--g-surface)', 'stroke-width': 1.5 }));
+        }
+        // the final point is drawn a little larger
+        if (last >= 0) g.appendChild(el('circle', { cx: X(last), cy: Y(val(s, last) as number), r: 4, fill: colorOf(idx), stroke: 'var(--g-surface)', 'stroke-width': 2 }));
+        svg.appendChild(g);
       }
       // Direct labels on the four leaders (only where there's room on the right)
       if (m.r > 60) {
         const leaders = visible
-          .filter((x) => x.s.cum[n - 1] !== null)
-          .sort((a, b) => (b.s.cum[n - 1] as number) - (a.s.cum[n - 1] as number))
+          .filter((x) => val(x.s, n - 1) !== null)
+          .sort((a, b) => (val(b.s, n - 1) as number) - (val(a.s, n - 1) as number))
           .slice(0, 4);
         let lastY = -99;
         for (const { s } of leaders) {
-          const y = Math.max(Y(s.cum[n - 1] as number) + 4, lastY + 13);
+          const y = Math.max(Y(val(s, n - 1) as number) + 4, lastY + 13);
           lastY = y;
           const t = el('text', { x: w - m.r + 8, y, fill: 'var(--g-ink)', 'font-size': 11 });
           t.textContent = s.short.length > 14 ? `${s.short.slice(0, 13)}…` : s.short;
@@ -522,7 +568,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         let near: string | null = null;
         let best = 28;
         const rows = visible
-          .map(({ s, idx }) => ({ s, idx, v: s.cum[i] }))
+          .map(({ s, idx }) => ({ s, idx, v: val(s, i) }))
           .filter((r): r is { s: Series; idx: number; v: number } => r.v !== null);
         for (const r of rows) {
           const dist = Math.abs(Y(r.v) - py);
@@ -533,10 +579,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         }
         if (near !== highlight) {
           highlight = near;
-          paths.forEach((p, id) => {
-            p.setAttribute('stroke-width', id === highlight ? '3.5' : '2');
-            p.setAttribute('opacity', highlight && id !== highlight ? '0.35' : '1');
-          });
+          paths.forEach((p, id) => p.setAttribute('stroke-width', id === highlight ? '3.5' : '2'));
+          groups.forEach((g, id) => g.setAttribute('opacity', highlight && id !== highlight ? '0.35' : '1'));
         }
         rows.sort((a, b) => b.v - a.v);
         tip.replaceChildren();
@@ -576,10 +620,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         tip.classList.add('hidden');
         if (highlight) {
           highlight = null;
-          paths.forEach((p) => {
-            p.setAttribute('stroke-width', '2');
-            p.setAttribute('opacity', '1');
-          });
+          paths.forEach((p) => p.setAttribute('stroke-width', '2'));
+          groups.forEach((g) => g.setAttribute('opacity', '1'));
         }
       });
       plot!.insertBefore(svg, tip);
@@ -597,6 +639,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         key.style.cssText = `display:inline-block;width:14px;height:3px;border-radius:2px;flex:none;background:${colorOf(idx)}`;
         const name = document.createElement('span');
         name.textContent = s.name;
+        b.title = s.full;
         b.append(key, name);
         b.addEventListener('click', () => {
           if (shown.has(s.id)) shown.delete(s.id);
@@ -617,6 +660,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         renderLegend();
         render();
       });
+    });
+
+    dropBox?.addEventListener('change', () => {
+      dropOn = dropBox.checked;
+      render();
     });
 
     slider?.addEventListener('input', () => {

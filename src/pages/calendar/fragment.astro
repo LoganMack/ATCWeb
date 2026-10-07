@@ -5,6 +5,7 @@ import EventDetailCard from '../../components/EventDetailCard.astro';
 import {
   getEvents,
   getCircuits,
+  getCircuitCoordinates,
   getAllCircuitLayouts,
   resolveSupabaseEnv,
   eventImageUrl,
@@ -66,6 +67,8 @@ let layoutRoundsCountByEventId = new Map<string, number | null>();
 // rather than issuing one more REST call per event on a page that can list
 // several dozen of them.
 let linkedRoundByEventId = new Map<string, RoundSummary | null>();
+// Circuit latitude/longitude for the Map view — tolerant of the columns not existing yet (returns []), so it can never take the page down.
+const coordsPromise = getCircuitCoordinates(supabaseEnv);
 const bulkFetchPromise = (async () => {
   try {
     return await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getAllRounds(supabaseEnv)]);
@@ -94,7 +97,15 @@ const rulesetsFetchPromise = (async () => {
   }
 })();
 
-const [events, bulkResult, rulesetsResult] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise]);
+const [events, bulkResult, rulesetsResult, circuitCoords] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise, coordsPromise]);
+const circuitInfoById = new Map<string, { location: string | null; lat: number | null; lng: number | null }>();
+for (const c of bulkResult?.[0] ?? []) circuitInfoById.set(c.id, { location: c.location, lat: null, lng: null });
+for (const c of circuitCoords) {
+  const info = circuitInfoById.get(c.id) ?? { location: null, lat: null, lng: null };
+  info.lat = c.latitude;
+  info.lng = c.longitude;
+  circuitInfoById.set(c.id, info);
+}
 
 if (bulkResult) {
   const [circuits, layoutsResult, allRounds] = bulkResult;
@@ -160,7 +171,14 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
 // data attribute (same JSON-in-a-data-attribute pattern the Incident Report
 // page uses for data-edit-incident) rather than fetched again client-side.
 const calendarEvents = events.map((e) => ({
+  id: e.id,
   date: e.event_date,
+  cid: e.circuit_id,
+  lat: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.lat) ?? null,
+  lng: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.lng) ?? null,
+  loc: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.location) || null,
+  round: e.round_number,
+  season: e.seasons?.name ?? null,
   circuit: e.title ?? e.circuits?.name ?? 'TBA',
   logoUrl: eventImageUrl(e, e.circuits, layouts),
   layout: e.layout,
@@ -190,6 +208,7 @@ const upcomingIcsBundle = upcoming
           >
             <option value="list" selected class="bg-brand-ink text-white">List</option>
             <option value="calendar" class="bg-brand-ink text-white">Calendar</option>
+            <option value="map" class="bg-brand-ink text-white">Map</option>
           </select>
         </label>
 
@@ -198,6 +217,7 @@ const upcomingIcsBundle = upcoming
             <input
               type="checkbox"
               id="hide-past-events"
+              checked
               class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Hide past events
@@ -237,6 +257,9 @@ const upcomingIcsBundle = upcoming
 
     {!loadError && events.length > 0 && (
       <div data-view-panel="list">
+        {upcoming.length === 0 && past.length > 0 && (
+          <p id="no-upcoming-note" class="mt-6 text-white/60">No upcoming events. Untick “Hide past events” to see past ones.</p>
+        )}
         {upcoming.length > 0 && (
           <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
@@ -244,7 +267,7 @@ const upcomingIcsBundle = upcoming
         )}
 
         {past.length > 0 && (
-          <div id="past-events-block">
+          <div id="past-events-block" class="hidden">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 grid grid-cols-1 gap-4 opacity-70 sm:grid-cols-2">
               {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
@@ -288,5 +311,23 @@ const upcomingIcsBundle = upcoming
         <div id="cal-grid" class="mt-4 grid grid-cols-7 gap-1.5"></div>
 
         <div id="cal-day-detail" class="hidden mt-8 border-t border-white/10 pt-6"></div>
+      </div>
+    )}
+
+    {!loadError && events.length > 0 && (
+      <div data-view-panel="map" class="hidden mt-6">
+        <div class="dot-map" data-cal-map>
+          <svg data-cal-map-svg role="img" aria-label="Map of event locations"></svg>
+          <div class="absolute right-2.5 top-2.5 flex flex-col gap-1.5">
+            <button type="button" class="cm-ctl" data-map-zoom="in" aria-label="Zoom in">+</button>
+            <button type="button" class="cm-ctl" data-map-zoom="out" aria-label="Zoom out">&minus;</button>
+            <button type="button" class="cm-ctl" data-map-zoom="fit" aria-label="Fit all events" title="Fit all events">&#9678;</button>
+          </div>
+          <div class="cm-legend" data-map-legend></div>
+          <div class="cm-hint">Drag to move · Ctrl + scroll to zoom</div>
+          <div class="cm-tip hidden" data-map-tip></div>
+        </div>
+        <p class="mt-2 text-xs text-white/40" data-map-note></p>
+        <div data-map-detail class="hidden mt-8 border-t border-white/10 pt-6"></div>
       </div>
     )}

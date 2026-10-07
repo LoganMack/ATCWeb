@@ -454,8 +454,18 @@ const searchBox: { id: string; placeholder: string } | null = loadError
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No meetups on file yet.</p>
       ) : (
         <>
-          <div class="reveal overflow-hidden rounded-xl ring-1 ring-white/10" style="transition-delay: 70ms">
-            <div id="meetup-map" class="h-[520px] w-full bg-white/5"></div>
+          <div class="reveal" style="transition-delay: 70ms">
+            <div id="meetup-map" class="dot-map">
+              <svg data-meetup-svg role="img" aria-label="Map of meetups"></svg>
+              <div class="absolute right-2.5 top-2.5 flex flex-col gap-1.5">
+                <button type="button" class="cm-ctl" data-map-zoom="in" aria-label="Zoom in">+</button>
+                <button type="button" class="cm-ctl" data-map-zoom="out" aria-label="Zoom out">&minus;</button>
+                <button type="button" class="cm-ctl" data-map-zoom="fit" aria-label="Fit all meetups" title="Fit all meetups">&#9678;</button>
+              </div>
+              <div class="cm-hint">Drag to move · Ctrl + scroll to zoom</div>
+              <div class="cm-tip hidden" data-meetup-tip></div>
+            </div>
+            <div id="meetup-detail" class="mt-6 hidden"></div>
           </div>
         </>
       )

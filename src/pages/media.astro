@@ -53,7 +53,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // exists on a given page load, since `tab` is a real server-side query
     // param, not a client-side toggle), so this is just show/hide filtering,
     // same pattern as driver-stats.astro's own search box. Meetups gets its
-    // own handler (see the Leaflet script below) since map markers can't be
+    // own handler (see the dot-map script below) since map pins can't be
     // hidden with a CSS class the way a grid/list item can.
     function initGridSearch(inputId: string, gridId: string, emptyId: string | null) {
       const input = document.getElementById(inputId) as HTMLInputElement | null;
@@ -114,166 +114,170 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </script>
 
   <script>
-
-// (This used to be a define:vars script, which is why it was plain JS only. It now lives in a normal module script and reads its pins from the fragment's #meetup-pins JSON element, so TypeScript is fine again.)
-// formerly: PLAIN JAVASCRIPT ONLY BELOW — no type annotations, no `as Foo`
-// casts, no other TypeScript-only syntax. `define:vars` scripts are
-// inlined verbatim (that's how `meetupPins` gets into the browser at
-// all) rather than run through Astro/Vite's TS-stripping step the way
-// a normal <script> tag is, so any TS syntax here ships raw to the
-// browser and throws a SyntaxError on load — which was the actual
-// cause of "the Meetups map never loads" (found via a real page
-// load's console: `SyntaxError: Missing initializer in const
-// declaration`, from `const markerEntries: {...}[] = []` and
-// `... as HTMLInputElement | null` below, both fixed to plain JS). A
-// parse error here means the WHOLE script never runs — including the
-// astro:page-load listener at the bottom — so the map silently just
-// never initializes; there's no console error visible to a normal
-// visitor, only in devtools.
-//
-// Leaflet is loaded dynamically from here, NOT via a static
-// <link>/<script src> pair sitting in the page markup — this tab's
-// whole block (including those tags) only ever exists in the DOM
-// while `tab=meetups`, and the site navigates between tabs through
-// Astro's client router (ViewTransitions) rather than a hard page
-// load. A router-driven swap inserts new content via the DOM rather
-// than the browser's native HTML parser, and a DYNAMICALLY inserted
-// <script src> always loads asynchronously with no guaranteed
-// ordering relative to a plain inline script right after it — so the
-// old static <script src="leaflet.min.js"> next to this inline
-// script had no guarantee of having finished (or even started) by
-// the time this ran, `typeof L` could easily still be 'undefined',
-// and initMeetupMap silently bailed with nothing to retry it — the
-// exact "endlessly loading, never loads" bug this replaced. Loading
-// it explicitly here and awaiting its real `load` event removes that
-// race entirely; the browser still caches/dedupes the request itself,
-// so this is a no-op over the network on every visit after the
-// first.
-interface MeetupPin {
-  title: string;
-  locationLabel: string | null;
-  date: string | null;
-  photoUrl: string | null;
-  lat: number;
-  lng: number;
-  drivers: string[];
-}
-
-let leafletLoadPromise: Promise<void> | undefined;
-function loadLeaflet() {
-  // @ts-ignore - global the Leaflet script defines once loaded
-  if (typeof L !== 'undefined') return Promise.resolve();
-  if (leafletLoadPromise) return leafletLoadPromise;
-  leafletLoadPromise = new Promise<void>((resolve, reject) => {
-    if (!document.querySelector('link[data-leaflet-css]')) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
-      link.dataset.leafletCss = 'true';
-      document.head.appendChild(link);
+    // Meetups map: the shared dot-matrix world map (src/scripts/dotMap.ts), the
+    // same one the Calendar's Map view uses — no tile server or third-party script.
+    // Pins come from the fragment's #meetup-pins JSON element. Hovering a pin shows
+    // a short tooltip; clicking one lists its meetup(s) under the map (photo,
+    // location and date, who attended). The search box above filters the pins.
+    //
+    // This tab's content is swapped in by the client router, so binding happens on
+    // astro:page-load and is guarded per element; a failed attempt releases the
+    // guard so the next page-load can retry.
+    interface MeetupPin {
+      title: string;
+      locationLabel: string | null;
+      date: string | null;
+      photoUrl: string | null;
+      lat: number;
+      lng: number;
+      drivers: string[];
     }
-    const existing = document.querySelector('script[data-leaflet-js]');
-    if (existing) {
-      // Already requested by an earlier visit to this tab — if it's
-      // still mid-flight, ride its own load/error events; if it
-      // already finished, `L` is set and the check above would have
-      // returned already, so reaching here means it's still pending.
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Failed to load Leaflet')));
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-    script.dataset.leafletJs = 'true';
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Leaflet'));
-    document.head.appendChild(script);
-  });
-  return leafletLoadPromise;
-}
 
-// Pure client-side rendering of server-provided pin data once Leaflet
-// is ready — no network call of its own beyond that, so (per
-// pageProgress.ts's own convention) this doesn't drive the global
-// loading bar; the page navigation that got here already did.
-function initMeetupMap() {
-  const el = document.getElementById('meetup-map');
-  const pinsEl = document.getElementById('meetup-pins');
-  if (!el || !pinsEl || el.dataset.mapInit === 'true') return;
-  el.dataset.mapInit = 'true';
-  const meetupPins: MeetupPin[] = JSON.parse(pinsEl.textContent ?? '[]');
+    function initMeetupMap() {
+      const box = document.getElementById('meetup-map');
+      const pinsEl = document.getElementById('meetup-pins');
+      const svg = box?.querySelector<SVGSVGElement>('[data-meetup-svg]');
+      const tip = box?.querySelector<HTMLElement>('[data-meetup-tip]');
+      const detail = document.getElementById('meetup-detail');
+      if (!box || !pinsEl || !svg || !tip || !detail || box.dataset.mapInit === 'true') return;
+      box.dataset.mapInit = 'true';
 
-  loadLeaflet()
-    .then(() => {
-      // @ts-ignore
-      const map = L.map(el).setView([39.8283, -98.5795], 4); // continental-US center
-      // @ts-ignore
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 18,
-      }).addTo(map);
-
-      // Kept alongside each pin's own searchable text so the search
-      // box below can add/remove markers from the map on the fly —
-      // Leaflet markers have no built-in show/hide, so filtering
-      // means literally adding/removing them from the map rather
-      // than toggling a CSS class the way the plain-grid search
-      // (initGridSearch, further down this file) does for
-      // Videos/Graphics.
-      const markerEntries: { marker: any; searchText: string }[] = [];
-      meetupPins.forEach((pin) => {
-        // The image is a lightbox trigger (see src/scripts/
-        // lightbox.ts) rather than a plain <img> — that script's
-        // click listener is delegated to <body>, so it picks up this
-        // popup's markup fine even though Leaflet injects it into the
-        // DOM long after astro:page-load already fired.
-        // Everything interpolated below is escaped — pin fields come from
-        // the database (admin-entered, but still data, never markup).
-        const esc = (v: unknown) =>
-          String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-        const safePhoto = typeof pin.photoUrl === 'string' && /^https?:\/\//i.test(pin.photoUrl) ? pin.photoUrl : '';
-        const popupHtml = `
-          <div style="min-width:160px">
-            ${safePhoto ? `<img src="${esc(safePhoto)}" alt="${esc(pin.title)}" data-lightbox data-lightbox-src="${esc(safePhoto)}" data-lightbox-alt="${esc(pin.title)}" style="width:100%;height:100px;object-fit:cover;border-radius:3px;margin-bottom:6px;cursor:zoom-in" />` : ''}
-            <strong>${esc(pin.title)}</strong>
-            ${pin.locationLabel || pin.date ? `<div style="font-size:12px;opacity:0.7;margin-top:2px">${esc([pin.locationLabel, pin.date].filter(Boolean).join(' · '))}</div>` : ''}
-            ${pin.drivers.length > 0 ? `
-              <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin-top:8px">Attended</div>
-              <ul style="margin:2px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.5">
-                ${pin.drivers.map((name: string) => `<li>${esc(name)}</li>`).join('')}
-              </ul>
-            ` : ''}
-          </div>
-        `;
-        // @ts-ignore
-        const marker = L.marker([pin.lat, pin.lng]).addTo(map).bindPopup(popupHtml);
-        markerEntries.push({ marker, searchText: `${pin.title} ${pin.locationLabel ?? ''}`.toLowerCase() });
-      });
-
+      const pins: MeetupPin[] = JSON.parse(pinsEl.textContent ?? '[]');
       const searchInput = document.getElementById('media-search-meetups') as HTMLInputElement | null;
-      if (searchInput && !searchInput.dataset.meetupSearchBound) {
-        searchInput.dataset.meetupSearchBound = 'true';
-        searchInput.addEventListener('input', () => {
-          const term = searchInput.value.trim().toLowerCase();
-          markerEntries.forEach(({ marker, searchText }) => {
-            const matches = !term || searchText.includes(term);
-            const onMap = map.hasLayer(marker);
-            if (matches && !onMap) marker.addTo(map);
-            if (!matches && onMap) map.removeLayer(marker);
-          });
-        });
-      }
-    })
-    .catch((err) => {
-      // Allow a later retry (e.g. the next time this tab loads) rather
-      // than permanently latching the "already initialized" guard on
-      // a failed attempt.
-      el.dataset.mapInit = 'false';
-      console.error('Failed to load meetup map:', err);
-    });
-}
+      const matches = (p: MeetupPin) => {
+        const term = searchInput?.value.trim().toLowerCase() ?? '';
+        return !term || `${p.title} ${p.locationLabel ?? ''}`.toLowerCase().includes(term);
+      };
+      const sub = (p: MeetupPin) => [p.locationLabel, p.date].filter(Boolean).join(' · ');
+      let selected: string[] | null = null;
+      let map: import('../scripts/dotMap').DotMap | null = null;
 
-document.addEventListener('astro:page-load', initMeetupMap);
+      function showDetail() {
+        const chosen = pins.map((p, i) => ({ p, i })).filter(({ p, i }) => selected?.includes(String(i)) && matches(p));
+        detail!.replaceChildren();
+        if (chosen.length === 0) {
+          selected = null;
+          map?.setSelected(null);
+          detail!.classList.add('hidden');
+          return;
+        }
+        detail!.classList.remove('hidden');
+        const list = document.createElement('div');
+        list.className = 'grid gap-4 sm:grid-cols-2';
+        for (const { p } of chosen) {
+          const card = document.createElement('article');
+          card.className = 'overflow-hidden rounded-xl border border-white/10 bg-brand-ink';
+          // The image is a lightbox trigger (see src/scripts/lightbox.ts); its click listener is delegated to <body>, so it works on nodes added later.
+          if (typeof p.photoUrl === 'string' && /^https?:\/\//i.test(p.photoUrl)) {
+            const img = document.createElement('img');
+            img.src = p.photoUrl;
+            img.alt = p.title;
+            img.loading = 'lazy';
+            img.className = 'h-44 w-full cursor-zoom-in object-cover';
+            img.setAttribute('data-lightbox', '');
+            img.dataset.lightboxSrc = p.photoUrl;
+            img.dataset.lightboxAlt = p.title;
+            card.appendChild(img);
+          }
+          const body = document.createElement('div');
+          body.className = 'p-4';
+          const h = document.createElement('h3');
+          h.className = 'font-semibold';
+          h.textContent = p.title;
+          body.appendChild(h);
+          if (sub(p)) {
+            const s = document.createElement('p');
+            s.className = 'mt-1 text-sm text-white/50';
+            s.textContent = sub(p);
+            body.appendChild(s);
+          }
+          if (p.drivers.length > 0) {
+            const l = document.createElement('p');
+            l.className = 'mt-3 text-xs font-semibold uppercase tracking-wide text-white/40';
+            l.textContent = 'Attended';
+            const ul = document.createElement('ul');
+            ul.className = 'mt-1 text-sm text-white/70';
+            p.drivers.forEach((name) => {
+              const li = document.createElement('li');
+              li.textContent = name;
+              ul.appendChild(li);
+            });
+            body.append(l, ul);
+          }
+          card.appendChild(body);
+          list.appendChild(card);
+        }
+        detail!.appendChild(list);
+      }
+
+      import('../scripts/dotMap')
+        .then(({ createDotMap }) =>
+          createDotMap<number>({
+            box,
+            svg,
+            tip,
+            getItems: () =>
+              pins
+                .map((p, i) => ({ p, i }))
+                .filter(({ p }) => matches(p))
+                .map(({ p, i }) => ({ id: String(i), lat: p.lat, lng: p.lng, weight: 1, color: 'var(--m-pin-endurance)', data: i })),
+            tooltip: (c, el) => {
+              const head = document.createElement('div');
+              head.className = 'font-semibold';
+              head.textContent = c.items.length > 1 ? `${c.items.length} meetups` : pins[c.items[0].data].title;
+              el.appendChild(head);
+              if (c.items.length === 1) {
+                if (sub(pins[c.items[0].data])) {
+                  const s = document.createElement('div');
+                  s.style.opacity = '0.6';
+                  s.textContent = sub(pins[c.items[0].data]);
+                  el.appendChild(s);
+                }
+              } else {
+                const list = document.createElement('div');
+                list.style.marginTop = '4px';
+                c.items.slice(0, 5).forEach((it) => {
+                  const line = document.createElement('div');
+                  line.textContent = pins[it.data].title;
+                  list.appendChild(line);
+                });
+                if (c.items.length > 5) {
+                  const more = document.createElement('div');
+                  more.style.opacity = '0.6';
+                  more.textContent = `+${c.items.length - 5} more`;
+                  list.appendChild(more);
+                }
+                el.appendChild(list);
+              }
+            },
+            onActivate: (c) => {
+              const ids = c.items.map((i) => i.id);
+              const same = selected && selected.length === ids.length && ids.every((x) => selected!.includes(x));
+              selected = same ? null : ids;
+              map?.setSelected(selected);
+              showDetail();
+              if (selected) detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            },
+          })
+        )
+        .then((m) => {
+          map = m;
+          if (searchInput && !searchInput.dataset.meetupSearchBound) {
+            searchInput.dataset.meetupSearchBound = 'true';
+            searchInput.addEventListener('input', () => {
+              map?.refresh();
+              if (selected) showDetail();
+            });
+          }
+        })
+        .catch((err) => {
+          // Allow a later retry rather than permanently latching the guard on a failed attempt.
+          box.dataset.mapInit = 'false';
+          console.error('Failed to load meetup map:', err);
+        });
+    }
+
+    document.addEventListener('astro:page-load', initMeetupMap);
   </script>
 </Layout>
 
