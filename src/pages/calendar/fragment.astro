@@ -16,11 +16,13 @@ import {
 } from '../../lib/supabase';
 import {
   getAllRounds,
+  isChampionshipSeason,
   getRoundLayoutsForSubsessions,
   buildLayoutRoundCounter,
   type RoundSummary,
 } from '../../lib/results';
 import { buildEventIcsBlock } from '../../lib/ics';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -97,7 +99,27 @@ const rulesetsFetchPromise = (async () => {
   }
 })();
 
-const [events, bulkResult, rulesetsResult, circuitCoords] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise, coordsPromise]);
+const [allEvents, bulkResult, rulesetsResult, circuitCoords] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise, coordsPromise]);
+
+// Season picker: the page shows ONE season's events at a time (the current season
+// unless ?season=<number> says otherwise, or "all"), always including its past
+// events. An event belongs to a season by its season_id; an event with no season
+// (Holiday / iRacing / test) belongs to the season whose start/end dates contain it.
+const seasons = rulesetsResult?.[0] ?? [];
+const requestedSeason = Astro.url.searchParams.get('season');
+const showAllSeasons = requestedSeason === 'all';
+const activeSeason = showAllSeasons
+  ? null
+  : (seasons.find((s) => String(s.number) === requestedSeason) ?? seasons.find((s) => s.is_current) ?? null);
+const events = activeSeason
+  ? allEvents.filter((e) =>
+      e.season_id !== null
+        ? e.season_id === activeSeason.id
+        : !!activeSeason.start_date && e.event_date >= activeSeason.start_date && (!activeSeason.end_date || e.event_date <= activeSeason.end_date)
+    )
+  : allEvents;
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
 const circuitInfoById = new Map<string, { location: string | null; lat: number | null; lng: number | null }>();
 for (const c of bulkResult?.[0] ?? []) circuitInfoById.set(c.id, { location: c.location, lat: null, lng: null });
 for (const c of circuitCoords) {
@@ -199,6 +221,33 @@ const upcomingIcsBundle = upcoming
     <div class="reveal mt-6 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 100ms">
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div class="flex flex-wrap items-end gap-3">
+        {seasons.length > 0 && (
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+            <select
+              aria-label="Season"
+              data-logo-select
+              onchange="window.location.href='/calendar?season=' + encodeURIComponent(this.value)"
+              class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+            >
+              <optgroup label="Championships" class="bg-brand-ink text-white">
+                {championshipSeasons.map((sn) => (
+                  <option value={sn.number} selected={sn.id === activeSeason?.id} {...seasonOptionAttrs(sn)} class="bg-brand-ink text-white">{sn.name}</option>
+                ))}
+              </optgroup>
+              {exhibitionSeasons.length > 0 && (
+                <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                  {exhibitionSeasons.map((sn) => (
+                    <option value={sn.number} selected={sn.id === activeSeason?.id} {...seasonOptionAttrs(sn)} class="bg-brand-ink text-white">{sn.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Everything" class="bg-brand-ink text-white">
+                <option value="all" selected={showAllSeasons} class="bg-brand-ink text-white">All Seasons</option>
+              </optgroup>
+            </select>
+          </label>
+        )}
         <label class="flex flex-col gap-1.5 sm:w-44">
           <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
           <select
@@ -211,18 +260,6 @@ const upcomingIcsBundle = upcoming
             <option value="map" class="bg-brand-ink text-white">Map</option>
           </select>
         </label>
-
-        {past.length > 0 && (
-          <label class="flex h-9 items-center gap-2 text-sm text-white/60">
-            <input
-              type="checkbox"
-              id="hide-past-events"
-              checked
-              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
-            />
-            Hide past events
-          </label>
-        )}
       </div>
 
       {upcomingIcsBundle && (
@@ -258,7 +295,7 @@ const upcomingIcsBundle = upcoming
     {!loadError && events.length > 0 && (
       <div data-view-panel="list">
         {upcoming.length === 0 && past.length > 0 && (
-          <p id="no-upcoming-note" class="mt-6 text-white/60">No upcoming events. Untick “Hide past events” to see past ones.</p>
+          <p class="mt-6 text-white/60">No upcoming events in this season.</p>
         )}
         {upcoming.length > 0 && (
           <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -267,7 +304,7 @@ const upcomingIcsBundle = upcoming
         )}
 
         {past.length > 0 && (
-          <div id="past-events-block" class="hidden">
+          <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 grid grid-cols-1 gap-4 opacity-70 sm:grid-cols-2">
               {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}

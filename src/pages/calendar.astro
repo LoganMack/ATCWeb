@@ -187,6 +187,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       // month due to day-of-month overflow (e.g. Jan 31 + 1 month -> Mar 3).
       let current = new Date();
       current.setDate(1);
+      // The page only holds the chosen season's events. If none fall in the current
+      // month (e.g. an older season), open on the month of the next event, or the
+      // last one, instead of an empty grid.
+      {
+        const monthKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+        const thisMonth = monthKey(current);
+        if (allEvents.length > 0 && !allEvents.some((ev) => ev.date.startsWith(thisMonth))) {
+          const todayStr = `${current.getFullYear()}-${pad(current.getMonth() + 1)}-${pad(new Date().getDate())}`;
+          const dates = allEvents.map((ev) => ev.date).sort();
+          const target = dates.find((d) => d >= todayStr) ?? dates[dates.length - 1];
+          current = parseDateOnly(target);
+          current.setDate(1);
+        }
+      }
 
       // Shows the SAME full event card(s) the List view renders for this
       // day — not a second, cut-down summary built from the lean
@@ -581,32 +595,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       });
     }
 
-    // Pure client-side show/hide, same as the search-box filters elsewhere
-    // on the site — the Past Events block is already fully rendered in the
-    // DOM (see the template above), so this never needs a server round
-    // trip and correctly doesn't trigger the pageProgress.ts loading bar.
-    // The box ships checked (past events hidden by default), so the block is
-    // also server-rendered `hidden`; apply() just keeps the two in sync.
-    function initHidePastEventsToggle() {
-      const checkbox = document.getElementById('hide-past-events') as HTMLInputElement | null;
-      const block = document.getElementById('past-events-block');
-      if (!checkbox || !block || checkbox.dataset.bound === 'true') return;
-      checkbox.dataset.bound = 'true';
-
-      // Shown only while past events are hidden AND there is nothing upcoming to look at.
-      const note = document.getElementById('no-upcoming-note');
-      const apply = () => {
-        block.classList.toggle('hidden', checkbox.checked);
-        note?.classList.toggle('hidden', !checkbox.checked);
-      };
-      checkbox.addEventListener('change', apply);
-      apply();
-    }
-
     // ---- Map view -------------------------------------------------------
     // The shared dot-matrix world map (src/scripts/dotMap.ts). One pin per circuit
     // that has coordinates (latitude/longitude on the circuit,
-    // 0098_circuit_coordinates.sql); pins respect the "Hide past events" box;
+    // 0098_circuit_coordinates.sql); past events are drawn faded;
     // click one to list that circuit's event cards under the map. The map code
     // and world data are loaded the first time Map is chosen, so they cost nothing
     // for everyone who stays on List.
@@ -630,7 +622,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const legend = panel.querySelector<HTMLElement>('[data-map-legend]')!;
       const note = panel.querySelector<HTMLElement>('[data-map-note]')!;
       const detail = panel.querySelector<HTMLElement>('[data-map-detail]')!;
-      const hidePastBox = document.getElementById('hide-past-events') as HTMLInputElement | null;
 
       let events: CalendarEventLite[] = [];
       try {
@@ -640,7 +631,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       }
       const todayIso = new Date().toISOString().slice(0, 10);
       const nextUpcoming = events.filter((e) => e.date >= todayIso).sort((a, b) => a.date.localeCompare(b.date))[0];
-      const shown = (evs: CalendarEventLite[]) => (hidePastBox?.checked ? evs.filter((e) => e.date >= todayIso) : evs);
 
       // One group per circuit that has coordinates.
       type Group = { cid: string; lat: number; lng: number; evs: CalendarEventLite[] };
@@ -659,11 +649,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       let selectedCids: string[] | null = null;
 
       const eventsOf = (c: { items: { data: Group }[] }) =>
-        c.items.flatMap((i) => shown(i.data.evs)).sort((a, b) => a.date.localeCompare(b.date));
+        c.items.flatMap((i) => i.data.evs).sort((a, b) => a.date.localeCompare(b.date));
 
       function updateNote() {
-        const missing = events.filter((e) => e.cid && (e.lat === null || e.lng === null) && (!hidePastBox?.checked || e.date >= todayIso)).length;
-        const plotted = groups.reduce((n, g) => n + shown(g.evs).length, 0);
+        const missing = events.filter((e) => e.cid && (e.lat === null || e.lng === null)).length;
+        const plotted = groups.reduce((n, g) => n + g.evs.length, 0);
         const bits: string[] = [];
         if (plotted === 0) bits.push('No events to show on the map right now.');
         if (missing > 0) bits.push(`${missing} event${missing === 1 ? ' is' : 's are'} not shown because ${missing === 1 ? 'its circuit has' : 'their circuits have'} no map position yet.`);
@@ -672,7 +662,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
       function showDetail() {
         const gs = groups.filter((g) => selectedCids?.includes(g.cid));
-        const evs = gs.flatMap((g) => shown(g.evs)).sort((a, b) => a.date.localeCompare(b.date));
+        const evs = gs.flatMap((g) => g.evs).sort((a, b) => a.date.localeCompare(b.date));
         detail.replaceChildren();
         if (evs.length === 0) {
           selectedCids = null;
@@ -717,9 +707,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           legend,
           getItems: () =>
             groups
-              .filter((g) => shown(g.evs).length > 0)
+              .filter((g) => g.evs.length > 0)
               .map((g) => {
-                const evs = shown(g.evs);
+                const evs = g.evs;
                 const rep = evs.find((e) => e.date >= todayIso) ?? evs[evs.length - 1];
                 return {
                   id: g.cid,
@@ -784,13 +774,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         updateNote();
       }
 
-      hidePastBox?.addEventListener('change', () => {
-        updateNote();
-        if (!map) return;
-        map.refresh();
-        if (selectedCids) showDetail();
-      });
-
       const onViewChange = () => {
         if (select.value !== 'map') return;
         if (!map) void build();
@@ -803,7 +786,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     function initCalendarPage() {
       initViewToggle();
       initCalendarGrid();
-      initHidePastEventsToggle();
       initCalendarMap();
       initRoundRecaps();
       initLayoutRounds();

@@ -703,13 +703,13 @@ Astro.response.headers.set(
         <div class="mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
         <div class="flex flex-wrap items-end gap-3">
           {roundPickerGroups.length > 0 && (
-            <label class="flex w-full flex-col gap-1.5 sm:w-80">
+            <label class="flex w-full flex-col gap-1.5 sm:w-72">
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Round</span>
               <select aria-label="Round" class={selectClass} onchange="window.location.href=this.value">
                 {roundPickerGroups.map((g) => (
                   <optgroup label={g.label} class="bg-brand-ink text-white">
                     {g.rounds.map((r) => (
-                      <option value={roundHref(r)} selected={r.subsession_id === subsessionId} class="bg-brand-ink text-white">{roundOptionLabel(r)}</option>
+                      <option value={roundHref(r)} selected={r.subsession_id === subsessionId} class="bg-brand-ink text-white">{roundOptionLabel(r, 20)}</option>
                     ))}
                   </optgroup>
                 ))}

@@ -275,6 +275,7 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
                 {nationalityOptions.map((n) => (
                   <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-white/80 hover:bg-white/10">
                     <input type="checkbox" class="roster-nationality-checkbox" value={n.code} data-nat-name={n.name} />
+                    <img src={`https://flagcdn.com/w80/${n.code}.png`} alt="" loading="lazy" class="h-4 w-6 flex-none rounded-sm object-cover" />
                     {n.name}
                   </label>
                 ))}
