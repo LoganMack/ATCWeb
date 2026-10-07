@@ -17,13 +17,39 @@
 --   * One review per admin per report. Saving again replaces it, and any
 --     real change stamps edited_at, so an edit after seeing everyone else's
 --     votes is visible.
---   * Locked once the report is logged to the incident report
---     (incident_reports.status = 'logged'). Dismissed reports can be
---     reopened, so they stay reviewable.
+--   * Locked for good once the report is first logged to the incident
+--     report. Logging stamps incident_reports.reviews_closed_at (section 0
+--     below), which can never be cleared — so Reopening a logged report
+--     brings back Log/Dismiss but NOT voting: by then every admin has been
+--     able to read every verdict, so a "blind" vote after a reopen wouldn't
+--     be. Dismissed-but-never-logged reports stay reviewable.
 --
 -- Writes go through save_incident_report_review() (SECURITY DEFINER) rather
 -- than table policies, so the lock and the one-per-admin upsert live in one
 -- place. The table itself grants no insert/update/delete to anyone.
+
+-- 0. When voting closed --------------------------------------------------------
+-- Set the first time a report becomes 'logged' and sticky from then on: the
+-- trigger keeps any existing value, so neither a Reopen nor a direct PATCH
+-- from an admin token can clear it.
+alter table incident_reports add column if not exists reviews_closed_at timestamptz;
+
+update incident_reports set reviews_closed_at = now() where status = 'logged' and reviews_closed_at is null;
+
+create or replace function public.stamp_incident_report_reviews_closed()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.reviews_closed_at := coalesce(old.reviews_closed_at, case when new.status = 'logged' then now() end);
+  return new;
+end;
+$$;
+
+drop trigger if exists incident_reports_stamp_reviews_closed on incident_reports;
+create trigger incident_reports_stamp_reviews_closed
+  before update on incident_reports
+  for each row execute function public.stamp_incident_report_reviews_closed();
 
 -- 1. The reviews ---------------------------------------------------------------
 create table if not exists incident_report_reviews (
@@ -78,8 +104,8 @@ create policy "admin read incident_report_reviews" on incident_report_reviews
     is_admin() and (
       reviewer_id = (select auth.uid())
       or has_reviewed_incident_report(report_id)
-      -- Once logged, voting is over: the reviews are a record every admin can read.
-      or exists (select 1 from incident_reports r where r.id = report_id and r.status = 'logged')
+      -- Once voting has closed, the reviews are a record every admin can read.
+      or exists (select 1 from incident_reports r where r.id = report_id and r.reviews_closed_at is not null)
     )
   );
 
@@ -122,16 +148,18 @@ set search_path = public
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_status text;
+  v_found boolean;
+  v_closed timestamptz;
   v_name text;
 begin
   if v_uid is null or not public.is_admin() then
     raise exception 'admins only';
   end if;
 
-  select status into v_status from incident_reports where id = p_report_id;
-  if v_status is null then raise exception 'unknown incident report'; end if;
-  if v_status = 'logged' then raise exception 'this incident has already been logged; reviews are locked'; end if;
+  select true, reviews_closed_at into v_found, v_closed from incident_reports where id = p_report_id;
+  if v_found is null then raise exception 'unknown incident report'; end if;
+  -- The app matches on "reviews are locked" to tell the steward why the save failed.
+  if v_closed is not null then raise exception 'this incident has already been logged; reviews are locked'; end if;
 
   if p_penalty is null or p_penalty not in ('none', 'warning', '1', '2', '3', '4', '5', '6', '7') then
     raise exception 'invalid penalty';

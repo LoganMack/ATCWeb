@@ -213,6 +213,8 @@ export interface IncidentReport {
   reporter_name: string | null;
   status: 'open' | 'logged' | 'dismissed';
   created_at: string;
+  /** When steward voting closed — stamped the first time the report is logged, never cleared, even by a Reopen (0096). */
+  reviews_closed_at: string | null;
   driver_ids: string[];
 }
 

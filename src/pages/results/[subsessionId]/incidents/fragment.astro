@@ -274,26 +274,35 @@ if (isAdmin && postForm) {
     const penaltyRaw = String(form.get('penalty') ?? '');
     const explanation = String(form.get('explanation') ?? '').trim();
     const penalty = REVIEW_PENALTIES.find((p) => p === penaltyRaw);
-    if (reportId && driverRaw && penalty && explanation) {
-      try {
-        await saveIncidentReportReview(supabaseEnv, accessToken, {
-          report_id: reportId,
-          driver_id: driverRaw === 'racing_incident' ? null : driverRaw,
-          penalty,
-          explanation,
-        });
-        // No verdict in the log entry — that would undo the blind voting.
-        await logActivity(supabaseEnv, accessToken, actor, {
-          action: 'edit',
-          entity_type: 'incident_report',
-          entity_label: `${roundLabel} — steward review`,
-          entity_id: reportId,
-        });
-      } catch (err) {
-        console.error('Failed to save incident report review:', err);
-      }
+    // ?review=<code> drives the message above the reports (reviewFlash below);
+    // a successful save clears any code left over from an earlier failure.
+    const back = (code: 'locked' | 'invalid' | 'failed' | null) => {
+      const url = new URL(Astro.url);
+      if (code) url.searchParams.set('review', code);
+      else url.searchParams.delete('review');
+      return Astro.redirect(`${shellPath}${url.search}`, 302);
+    };
+    if (!reportId || !driverRaw || !penalty || !explanation) return back('invalid');
+    try {
+      await saveIncidentReportReview(supabaseEnv, accessToken, {
+        report_id: reportId,
+        driver_id: driverRaw === 'racing_incident' ? null : driverRaw,
+        penalty,
+        explanation,
+      });
+    } catch (err) {
+      console.error('Failed to save incident report review:', err);
+      // Expected when another admin logs the report mid-review — see 0096's save function.
+      return back(err instanceof Error && err.message.includes('reviews are locked') ? 'locked' : 'failed');
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
+    // No verdict in the log entry — that would undo the blind voting.
+    await logActivity(supabaseEnv, accessToken, actor, {
+      action: 'edit',
+      entity_type: 'incident_report',
+      entity_label: `${roundLabel} — steward review`,
+      entity_id: reportId,
+    });
+    return back(null);
   }
 
   if (intent === 'set-appeal-status') {
@@ -761,6 +770,14 @@ let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   else if (flash === 'badtype') appealFlash = { kind: 'error', message: 'Attachments must be images, PDFs, videos (MP4/WebM/MOV) or text files.' };
   else if (flash === 'failed') appealFlash = { kind: 'error', message: "Couldn't save your appeal right now. Please try again." };
 }
+// Same idea for a steward review that didn't save (?review=, set by the save-review handler).
+let reviewFlash: string | null = null;
+if (viewReports) {
+  const flash = Astro.url.searchParams.get('review');
+  if (flash === 'locked') reviewFlash = "Couldn't save your review — this incident was logged while you were writing it, so reviews are closed.";
+  else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs a driver (or Racing Incident), a penalty and an explanation.";
+  else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
+}
 
 // Every loggable session for this round's dialog/grouping — every real race,
 // plus Qualifying and Practice (session_type sentinel race_number 0, see
@@ -897,6 +914,10 @@ const nextIncidentNumber =
           </p>
         )}
 
+        {reviewFlash && (
+          <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
+        )}
+
         {importedCount !== null && (
           <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
             Imported {importedCount} incident{importedCount === '1' ? '' : 's'}.
@@ -924,7 +945,8 @@ const nextIncidentNumber =
                 const visibleReviews = reviewsByReport.get(r.id) ?? [];
                 const myReview = visibleReviews.find((v) => v.reviewer_id === myUserId) ?? null;
                 const reviewCount = reviewCounts.get(r.id) ?? visibleReviews.length;
-                const reviewsLocked = r.status === 'logged';
+                // Closed for good once first logged — a Reopen doesn't reopen voting (0096).
+                const reviewsLocked = Boolean(r.reviews_closed_at);
                 // Others' reviews (and the colour) only once you've voted, or once
                 // the report is logged and voting is over — otherwise it would leak the outcome.
                 const canSeeReviews = Boolean(myReview) || reviewsLocked;
@@ -979,7 +1001,7 @@ const nextIncidentNumber =
                         )}
                       </p>
                       {reviewsLocked ? (
-                        <span class="text-xs text-white/40">Reviews locked — incident logged</span>
+                        <span class="text-xs text-white/40">Reviews closed — incident was logged</span>
                       ) : (
                         <button
                           type="button"
