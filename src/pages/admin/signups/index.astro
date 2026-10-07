@@ -55,10 +55,10 @@ if (Astro.request.method === 'POST') {
         await logActivity(supabaseEnv, accessToken, actor, {
           action: driverId ? 'edit' : 'add',
           entity_type: 'driver',
-          entity_label: `${name} — ${driverId ? 'returning driver reactivated' : 'new driver'} from Discord sign-up (#${result.car_number})`,
+          entity_label: `${result.driver_name} — ${driverId ? 'returning driver reactivated' : 'new driver'} from Discord sign-up (#${result.car_number})`,
           entity_id: result.driver_id,
         });
-        return Astro.redirect(`/admin/signups?approved=${encodeURIComponent(`${name} #${result.car_number}`)}`, 302);
+        return Astro.redirect(`/admin/signups?approved=${encodeURIComponent(`${result.driver_name} #${result.car_number}`)}`, 302);
       } catch (err) {
         console.error('Failed to approve sign-up:', err);
         actionError = err instanceof Error ? err.message : 'Could not approve this sign-up.';

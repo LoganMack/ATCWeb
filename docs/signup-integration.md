@@ -21,17 +21,17 @@ Design for routing driver sign-ups from the ATC Discord bot into the website, so
    - `name`: driver name (required)
    - `numbers`: 1–3 car numbers in order of preference (required)
    - `iracing_id`: iRacing customer ID (optional; admins can look it up)
-2. **The bot calls `POST /api/bot/signups`.** The website checks the numbers in order, using the same rule as `set_driver_car_number()`: a number is free unless its holder's status is anything other than Inactive.
+2. **The bot calls `POST /api/bot/signups`.** The website checks the numbers in order, using the same rule as `set_driver_car_number()`: a number is free unless its holder's status is anything other than Inactive. A number held by the person signing up doesn't count as taken (same iRacing ID, or the same name when either side has no iRacing ID), so a current driver can re-sign with their own number. Each Discord user has at most one pending sign-up: signing up again replaces it (`replaced_previous: true`).
    - **At least one is free:** the request is saved as `pending`. The response names the number they'd get, plus who holds any earlier choices that are taken. The bot relays this to the driver (ephemeral reply).
    - **All are taken:** nothing is saved. The response lists each number and its holder, and the bot tells the driver to pick different numbers.
    - **Staff verification:** as today, the bot also posts the sign-up embed in the staff channel. It then reacts to that embed with 🤖 once the website has saved the request, or ❌ if it wasn't saved (all numbers taken, invalid input, or the website couldn't be reached). The embed gains a line saying which, e.g. "Website: pending, #2" or "Website: not saved, all numbers taken".
 3. **An admin reviews it** at **Admin → Sign-ups**.
    - Each pending request shows the name, numbers, iRacing ID, Discord user and submission time.
-   - **Returning drivers** are spotted by matching iRacing ID, or case-insensitive name if no ID was given. The page shows "Looks like returning driver X (status, current number)".
+   - **Returning drivers** are spotted by matching iRacing ID, or case-insensitive name when either side has no iRacing ID (two different IDs are two different people). The page shows "Looks like returning driver X (status, current number)".
    - **Number clashes** with other pending requests are flagged ("#33 is also requested by another pending sign-up").
    - **Approve:** the admin can correct the name and iRacing ID and picks a class (default Alpha).
      - **New driver:** a roster entry is created with today's `sign_up_date`, the rookie flag, and the first of their requested numbers that is free *at approval time*.
-     - **Returning driver:** the existing entry is reactivated. Their original `sign_up_date` is left alone. They keep their current number if they still hold one; otherwise they get the first free number from this request.
+     - **Returning driver:** the existing entry is reactivated: Active if they've raced before, New if not, and Veterans stay Veteran. Their original `sign_up_date` is left alone. They keep their current number if they still hold one; otherwise they get the first free number from this request. An existing iRacing ID is never replaced; if the sign-up gives a different one, approval stops and asks the admin to check.
      - **Either way,** `last_signed_up_at` is set to now (see "Change to automatic status").
      - **If none of their numbers is free any more,** Approve is blocked and the admin rejects instead.
    - **Reject:** the admin picks a reason ("Your number choices are no longer available", "Duplicate sign-up", …) or writes one.
@@ -59,7 +59,7 @@ Responses:
 
 ```json
 { "status": "pending", "request_id": "…", "assigned_number": 2,
-  "taken": [{ "number": 1, "holder": "John Smith" }] }
+  "taken": [{ "number": 1, "holder": "John Smith" }], "replaced_previous": false }
 ```
 
 ```json
@@ -67,7 +67,7 @@ Responses:
   "taken": [{ "number": 1, "holder": "John Smith" }, { "number": 2, "holder": "…" }, { "number": 3, "holder": "…" }] }
 ```
 
-`assigned_number` is the number they'd get if approved now. It isn't reserved: it's re-checked at approval. A `400` with a message covers invalid input (no name, no valid numbers, more than 3, and so on).
+`assigned_number` is the number they'd get if approved now. It isn't reserved: it's re-checked at approval. A `400` with a message covers invalid input (no name, no valid numbers, more than 3, `discord_user_id` not sent as a string, and so on). `discord_user_id` must be a JSON string: Discord IDs are too large for JSON numbers.
 
 ### `GET /api/bot/signups/decisions`
 

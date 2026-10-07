@@ -11,7 +11,7 @@
  *     admin write (RLS / is_admin() do the gating).
  */
 
-import { resolveSupabaseEnv, restGet, restGetAuthed, type SupabaseEnv } from './supabase';
+import { resolveSupabaseEnv, restGetAll, restGetAuthed, type SupabaseEnv } from './supabase';
 
 // --- Bot API side ------------------------------------------------------------
 
@@ -89,7 +89,7 @@ export async function serviceRpc<T>(env: BotApiEnv, fn: string, args: Record<str
 }
 
 export type SubmitSignupResult =
-  | { status: 'pending'; request_id: string; assigned_number: number; taken: { number: number; holder: string }[] }
+  | { status: 'pending'; request_id: string; assigned_number: number; taken: { number: number; holder: string }[]; replaced_previous: boolean }
   | { status: 'all_taken'; taken: { number: number; holder: string }[] };
 
 export interface PendingRejection {
@@ -163,7 +163,7 @@ export function approveSignupRequest(
   env: SupabaseEnv,
   accessToken: string,
   input: { request_id: string; name: string; iracing_cust_id: number | null; class_id: number; driver_id: string | null }
-): Promise<{ driver_id: string; car_number: number }> {
+): Promise<{ driver_id: string; driver_name: string; car_number: number }> {
   return adminRpc(env, accessToken, 'approve_signup_request', {
     p_request_id: input.request_id,
     p_name: input.name,
@@ -189,7 +189,9 @@ export interface SignupRosterDriver {
 
 export function getSignupRoster(env: SupabaseEnv): Promise<SignupRosterDriver[]> {
   const select = 'id,name,car_number,iracing_cust_id,class_id,driver_statuses(name)';
-  return restGet<SignupRosterDriver[]>(env, `drivers?select=${encodeURIComponent(select)}&is_ai=eq.false`);
+  // restGetAll pages past PostgREST's 1000-row cap, so a big roster can't
+  // silently hide a number holder or a returning driver.
+  return restGetAll<SignupRosterDriver>(env, `drivers?select=${encodeURIComponent(select)}&is_ai=eq.false&order=id.asc`);
 }
 
 /**
@@ -206,12 +208,18 @@ export function numberHolder(roster: SignupRosterDriver[], number: number, exclu
   );
 }
 
-/** Likely existing roster entries for a sign-up: same iRacing ID, or same name ignoring case. */
+/**
+ * Likely existing roster entries for a sign-up: same iRacing ID, or the same
+ * name (ignoring case) when either side has no iRacing ID. Two different IDs
+ * mean two different people, even with the same name. Mirrors the "same
+ * person" test in submit_signup_request() (0098).
+ */
 export function returningCandidates(roster: SignupRosterDriver[], request: Pick<SignupRequest, 'name' | 'iracing_cust_id'>) {
   const name = request.name.trim().toLowerCase();
   return roster.filter(
     (d) =>
-      (request.iracing_cust_id !== null && d.iracing_cust_id === request.iracing_cust_id) || d.name.trim().toLowerCase() === name
+      (request.iracing_cust_id !== null && d.iracing_cust_id === request.iracing_cust_id) ||
+      (d.name.trim().toLowerCase() === name && (request.iracing_cust_id === null || d.iracing_cust_id === null))
   );
 }
 

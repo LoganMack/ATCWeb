@@ -57,6 +57,11 @@ create table if not exists public.signup_requests (
 
 create index if not exists signup_requests_status_idx on public.signup_requests (status, created_at);
 
+-- At most one pending sign-up per Discord user (submit_signup_request()
+-- replaces it); this is the backstop if two arrive at the same moment.
+create unique index if not exists signup_requests_one_pending_per_user
+  on public.signup_requests (discord_user_id) where status = 'pending';
+
 alter table public.signup_requests enable row level security;
 
 drop policy if exists "admin read signup_requests" on public.signup_requests;
@@ -89,7 +94,7 @@ revoke all on function public.car_number_holder(integer, uuid) from public, anon
 -- 4. Bot API functions (service role only) --------------------------------------
 -- Validates and saves a sign-up, or reports that every requested number is
 -- taken (in which case nothing is saved). Returns:
---   { "status": "pending", "request_id": ..., "assigned_number": N, "taken": [...] }
+--   { "status": "pending", "request_id": ..., "assigned_number": N, "taken": [...], "replaced_previous": bool }
 --   { "status": "all_taken", "taken": [{ "number": N, "holder": "Name" }, ...] }
 -- Invalid input raises an exception whose message starts with "invalid:",
 -- which the API turns into a 400.
@@ -132,23 +137,52 @@ begin
   end if;
 
   foreach v_number in array p_numbers loop
-    v_holder := public.car_number_holder(v_number);
+    -- Same rule as car_number_holder(), except a number held by the person
+    -- signing up doesn't block them: a returning driver re-signing with
+    -- their own number. "Same person" = same iRacing ID, or the same name
+    -- when either side has no iRacing ID (the same test Admin > Sign-ups
+    -- uses to suggest a returning driver).
+    select d.name into v_holder
+    from public.drivers d
+    join public.driver_statuses ds on ds.id = d.status_id
+    where d.car_number = v_number
+      and ds.name <> 'Inactive'
+      and not (
+        (p_iracing_cust_id is not null and d.iracing_cust_id = p_iracing_cust_id)
+        or (lower(d.name) = lower(v_name) and (p_iracing_cust_id is null or d.iracing_cust_id is null))
+      )
+    limit 1;
     if v_holder is null then
       v_assigned := v_number;
       exit;
     end if;
     v_taken := v_taken || jsonb_build_object('number', v_number, 'holder', v_holder);
+    v_holder := null;
   end loop;
 
   if v_assigned is null then
     return jsonb_build_object('status', 'all_taken', 'taken', v_taken);
   end if;
 
-  insert into public.signup_requests (discord_user_id, discord_username, name, iracing_cust_id, requested_numbers)
-  values (p_discord_user_id, nullif(btrim(coalesce(p_discord_username, '')), ''), v_name, p_iracing_cust_id, p_numbers)
+  -- One pending sign-up per Discord user: signing up again replaces the
+  -- pending one instead of queueing a duplicate.
+  update public.signup_requests
+  set discord_username = nullif(btrim(coalesce(p_discord_username, '')), ''),
+      name = v_name,
+      iracing_cust_id = p_iracing_cust_id,
+      requested_numbers = p_numbers,
+      created_at = now()
+  where discord_user_id = p_discord_user_id and status = 'pending'
   returning id into v_id;
 
-  return jsonb_build_object('status', 'pending', 'request_id', v_id, 'assigned_number', v_assigned, 'taken', v_taken);
+  if v_id is null then
+    insert into public.signup_requests (discord_user_id, discord_username, name, iracing_cust_id, requested_numbers)
+    values (p_discord_user_id, nullif(btrim(coalesce(p_discord_username, '')), ''), v_name, p_iracing_cust_id, p_numbers)
+    returning id into v_id;
+    return jsonb_build_object('status', 'pending', 'request_id', v_id, 'assigned_number', v_assigned, 'taken', v_taken, 'replaced_previous', false);
+  end if;
+
+  return jsonb_build_object('status', 'pending', 'request_id', v_id, 'assigned_number', v_assigned, 'taken', v_taken, 'replaced_previous', true);
 end;
 $$;
 
@@ -196,7 +230,7 @@ grant execute on function public.ack_signup_rejections(uuid[]) to service_role;
 -- returning driver to reactivate. The admin's corrected name / iRacing ID and
 -- chosen class are applied. Raises with a message fit to show the admin when
 -- the request isn't pending, or none of its numbers is free any more.
--- Returns { "driver_id": ..., "car_number": N }.
+-- Returns { "driver_id": ..., "driver_name": ..., "car_number": N }.
 create or replace function public.approve_signup_request(
   p_request_id uuid,
   p_name text,
@@ -217,6 +251,9 @@ declare
   v_n integer;
   v_has_raced boolean;
   v_status_id integer;
+  v_current_status text;
+  v_existing_cust_id bigint;
+  v_driver_name text;
 begin
   if not is_admin() then
     raise exception 'Only an admin can approve sign-ups' using errcode = 'insufficient_privilege';
@@ -277,17 +314,33 @@ begin
     values (v_name, p_class_id, v_status_id, true, p_iracing_cust_id, current_date, now())
     returning id into v_driver_id;
   else
-    -- Back to Active if they've raced before, New if they never have — the
+    -- Never silently replace an iRacing ID: it's what links the driver to
+    -- their results.
+    select iracing_cust_id, name into v_existing_cust_id, v_driver_name from public.drivers where id = v_driver_id;
+    if p_iracing_cust_id is not null and v_existing_cust_id is not null and p_iracing_cust_id <> v_existing_cust_id then
+      raise exception '% already has iRacing ID %, but this sign-up says % — check which is right, and clear the iRacing ID field to keep theirs',
+        v_driver_name, v_existing_cust_id, p_iracing_cust_id;
+    end if;
+
+    -- Veterans stay Veteran (they're exempt from inactivity). Anyone else goes
+    -- back to Active if they've raced before, New if they never have — the
     -- same split sync_driver_statuses() uses.
-    select lr.last_race_at is not null into v_has_raced
-    from public.driver_last_race lr where lr.driver_id = v_driver_id;
-    select id into v_status_id from public.driver_statuses
-    where name = case when coalesce(v_has_raced, false) then 'Active' else 'New' end;
+    select ds.name into v_current_status
+    from public.drivers d join public.driver_statuses ds on ds.id = d.status_id
+    where d.id = v_driver_id;
+    if v_current_status = 'Veteran' then
+      select status_id into v_status_id from public.drivers where id = v_driver_id;
+    else
+      select lr.last_race_at is not null into v_has_raced
+      from public.driver_last_race lr where lr.driver_id = v_driver_id;
+      select id into v_status_id from public.driver_statuses
+      where name = case when coalesce(v_has_raced, false) then 'Active' else 'New' end;
+    end if;
 
     update public.drivers
     set status_id = v_status_id,
         class_id = p_class_id,
-        iracing_cust_id = coalesce(p_iracing_cust_id, iracing_cust_id),
+        iracing_cust_id = coalesce(iracing_cust_id, p_iracing_cust_id),
         last_signed_up_at = now()
     where id = v_driver_id;
   end if;
@@ -304,7 +357,9 @@ begin
       decided_at = now()
   where id = p_request_id;
 
-  return jsonb_build_object('driver_id', v_driver_id, 'car_number', v_number);
+  -- The roster name, which for a returning driver can differ from the sign-up's.
+  select name into v_driver_name from public.drivers where id = v_driver_id;
+  return jsonb_build_object('driver_id', v_driver_id, 'driver_name', v_driver_name, 'car_number', v_number);
 end;
 $$;
 

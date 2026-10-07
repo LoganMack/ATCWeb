@@ -32,19 +32,31 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Shape checks only — the database function does the real validation.
-  const numbers = Array.isArray(body.numbers) ? body.numbers.map((n) => Number(n)) : [];
-  if (numbers.length === 0 || numbers.some((n) => !Number.isInteger(n))) {
+  // Discord IDs must arrive as strings: as JSON numbers they exceed JS's safe
+  // integer range and would silently round to someone else's ID.
+  if (typeof body.discord_user_id !== 'string') {
+    return json({ error: 'discord_user_id must be a string' }, 400);
+  }
+  // Strictly whole numbers (or digit strings) — Number() would turn null, ''
+  // or true into 0/1 and save a sign-up for the wrong car.
+  const toWholeNumber = (v: unknown): number | null => {
+    if (typeof v === 'number') return Number.isSafeInteger(v) ? v : null;
+    if (typeof v === 'string' && /^\d{1,15}$/.test(v.trim())) return Number(v.trim());
+    return null;
+  };
+  const numbers = Array.isArray(body.numbers) ? body.numbers.map(toWholeNumber) : [];
+  if (numbers.length === 0 || numbers.some((n) => n === null)) {
     return json({ error: 'numbers must be a list of whole numbers' }, 400);
   }
   const iracingRaw = body.iracing_id;
-  const iracingId = iracingRaw === undefined || iracingRaw === null || iracingRaw === '' ? null : Number(iracingRaw);
-  if (iracingId !== null && !Number.isSafeInteger(iracingId)) {
+  const iracingId = iracingRaw === undefined || iracingRaw === null || iracingRaw === '' ? null : toWholeNumber(iracingRaw);
+  if (iracingId === null && !(iracingRaw === undefined || iracingRaw === null || iracingRaw === '')) {
     return json({ error: 'iracing_id must be a whole number' }, 400);
   }
 
   try {
     const result = await serviceRpc<SubmitSignupResult>(env, 'submit_signup_request', {
-      p_discord_user_id: String(body.discord_user_id ?? ''),
+      p_discord_user_id: body.discord_user_id,
       p_discord_username: typeof body.discord_username === 'string' ? body.discord_username : null,
       p_name: typeof body.name === 'string' ? body.name : '',
       p_numbers: numbers,
