@@ -250,6 +250,36 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // fields make sense to show).
     const isDriverSelected = (value: string) => value !== '';
     const isFaultDriver = (value: string) => value !== '' && value !== 'racing_incident';
+
+    // Driver search: rebuilds the Driver at Fault dropdown's options from the
+    // full list rather than hiding <option>s (hidden options aren't honored
+    // in every browser). The placeholder, Racing Incident and whatever's
+    // currently selected always stay. If the search narrows it to one driver
+    // and nothing's chosen yet, that driver is picked — dispatching `change`
+    // so every listener below (fault-only fields, Involved sync, validity)
+    // runs exactly as if it had been picked by hand.
+    const driverSearch = dialog.querySelector<HTMLInputElement>('[data-incident-driver-search]')!;
+    const allDriverOptions = [...driverField.options];
+    const filterDriverOptions = () => {
+      const term = driverSearch.value.trim().toLowerCase();
+      const selected = driverField.value;
+      const matches = allDriverOptions.filter((o) => o.dataset.search !== undefined && (!term || o.dataset.search.includes(term)));
+      driverField.replaceChildren(
+        ...allDriverOptions.filter((o) => o.dataset.search === undefined || o.value === selected || matches.includes(o))
+      );
+      driverField.value = selected;
+      if (term && matches.length === 1 && selected === '') {
+        driverField.value = matches[0].value;
+        driverField.dispatchEvent(new Event('change'));
+      }
+    };
+    driverSearch.addEventListener('input', filterDriverOptions);
+    // Every way of opening the dialog calls this FIRST, so the driver it's
+    // about to pre-select is back in the list.
+    const resetDriverSearch = () => {
+      driverSearch.value = '';
+      filterDriverOptions();
+    };
     function faultFieldsShouldBeVisible() {
       return isFaultDriver(driverField.value);
     }
@@ -342,6 +372,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     document.querySelectorAll<HTMLButtonElement>('[data-open-incident-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        resetDriverSearch();
         form.reset();
         intentField.value = 'add-incident';
         idField.value = '';
@@ -365,6 +396,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     document.querySelectorAll<HTMLButtonElement>('[data-edit-incident]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!btn.dataset.incident) return;
+        resetDriverSearch();
         const p = JSON.parse(btn.dataset.incident);
         intentField.value = 'update-incident';
         idField.value = p.id;
@@ -436,6 +468,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     document.querySelectorAll<HTMLButtonElement>('[data-log-report]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!btn.dataset.report) return;
+        resetDriverSearch();
         const r = JSON.parse(btn.dataset.report);
         form.reset();
         intentField.value = 'add-incident';
@@ -462,6 +495,68 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   }
 
   document.addEventListener('astro:page-load', initIncidentPage);
+
+  // Steward review popup (View Incidents only): one shared <dialog>, filled
+  // from the clicked report's data-review (pre-filled with the admin's own
+  // review when editing). A Racing Incident has nobody to penalize, so the
+  // penalty is fixed to "No penalty" and the field hidden. Like
+  // initIncidentPage, this bails until the fragment's dialog exists and binds
+  // on the loader's astro:page-load re-dispatch.
+  function initReviewDialog() {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-review-dialog]');
+    if (!dialog) return;
+    const reportIdField = dialog.querySelector<HTMLInputElement>('[data-review-report-id]')!;
+    const labelEl = dialog.querySelector<HTMLElement>('[data-review-label]')!;
+    const driverPicker = dialog.querySelector<HTMLElement>('[data-review-driver]')!;
+    const driverRadios = driverPicker.querySelectorAll<HTMLInputElement>('input[name="driver_id"]');
+    const driverSearch = driverPicker.querySelector<HTMLInputElement>('[data-driver-search]')!;
+    const penaltyField = dialog.querySelector<HTMLSelectElement>('[data-review-penalty]')!;
+    const penaltyWrapper = dialog.querySelector<HTMLElement>('[data-review-penalty-field]')!;
+    const explanationField = dialog.querySelector<HTMLTextAreaElement>('[data-review-explanation]')!;
+
+    const selectedDriver = () => [...driverRadios].find((r) => r.checked)?.value ?? '';
+    // Racing Incident forces "No penalty"; switching back to a driver clears
+    // that forced value so the steward has to choose a penalty deliberately.
+    let wasRacingIncident = false;
+    const syncPenaltyVisibility = () => {
+      const racingIncident = selectedDriver() === 'racing_incident';
+      penaltyWrapper.classList.toggle('hidden', racingIncident);
+      if (racingIncident) penaltyField.value = 'none';
+      else if (wasRacingIncident) penaltyField.value = '';
+      wasRacingIncident = racingIncident;
+    };
+    driverPicker.addEventListener('change', syncPenaltyVisibility);
+
+    document.querySelectorAll<HTMLButtonElement>('[data-open-review-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const data = JSON.parse(btn.dataset.review ?? '{}') as {
+          report_id: string;
+          label: string;
+          driver_id: string;
+          penalty: string;
+          explanation: string;
+        };
+        reportIdField.value = data.report_id;
+        labelEl.textContent = `— ${data.label}`;
+        driverRadios.forEach((r) => (r.checked = r.value === data.driver_id));
+        penaltyField.value = data.penalty;
+        // Fresh tracking for this report, so a saved "driver + No penalty" review isn't cleared on open.
+        wasRacingIncident = data.driver_id === 'racing_incident';
+        explanationField.value = data.explanation;
+        // Clear any search left over from the last report and re-filter (driverPickerSearch.ts).
+        driverSearch.value = '';
+        driverSearch.dispatchEvent(new Event('input', { bubbles: true }));
+        syncPenaltyVisibility();
+        dialog.showModal();
+      });
+    });
+
+    dialog.querySelectorAll<HTMLButtonElement>('[data-close-review-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => dialog.close());
+    });
+  }
+
+  document.addEventListener('astro:page-load', initReviewDialog);
 </script>
 
 <script>
