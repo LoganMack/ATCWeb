@@ -13,6 +13,8 @@ if (session) {
   return Astro.redirect('/', 302);
 }
 
+const MIN_PASSWORD_LENGTH = 10;
+
 let error: string | null = null;
 let checkEmail = false;
 let submittedEmail = '';
@@ -22,13 +24,27 @@ if (Astro.request.method === 'POST') {
   const email = String(form.get('email') ?? '').trim();
   const password = String(form.get('password') ?? '');
   const confirmPassword = String(form.get('confirm_password') ?? '');
-  const displayName = String(form.get('display_name') ?? '').trim();
-  submittedEmail = email;
+  // Control characters stripped and length capped — this value is stored in
+  // the profile and shown on the site, so it should never be unbounded.
+  // eslint-disable-next-line no-control-regex
+  const displayName = String(form.get('display_name') ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60);
+  // Honeypot: a hidden field real people never see or fill in. Bots that
+  // auto-fill every input trip it; they get the same "check your email"
+  // screen as everyone else, but no account is created.
+  const honeypot = String(form.get('website') ?? '').trim();
+  submittedEmail = email.slice(0, 254);
 
-  if (!email || !password) {
+  if (honeypot) {
+    checkEmail = true;
+  } else if (!email || !password) {
     error = 'Enter an email and a password.';
-  } else if (password.length < 8) {
-    error = 'Password must be at least 8 characters.';
+  } else if (email.length > 254) {
+    error = 'That email address is too long.';
+  } else if (password.length < MIN_PASSWORD_LENGTH) {
+    error = `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+  } else if (password.length > 72) {
+    // bcrypt (what Supabase Auth uses) silently ignores everything past 72 bytes.
+    error = 'Password must be 72 characters or fewer.';
   } else if (password !== confirmPassword) {
     error = "Passwords don't match.";
   } else {
@@ -87,11 +103,15 @@ if (Astro.request.method === 'POST') {
 
     {!checkEmail && (
       <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 120ms">
+        <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden">
+          <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off" /></label>
+        </div>
         <label class="flex flex-col gap-1.5 text-sm">
           <span class="text-white/70">Display name</span>
           <input
             type="text"
             name="display_name"
+            maxlength="60"
             autocomplete="name"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
@@ -102,6 +122,7 @@ if (Astro.request.method === 'POST') {
             type="email"
             name="email"
             required
+            maxlength="254"
             autocomplete="email"
             value={submittedEmail}
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
@@ -113,7 +134,7 @@ if (Astro.request.method === 'POST') {
             type="password"
             name="password"
             required
-            minlength="8"
+            minlength={MIN_PASSWORD_LENGTH} maxlength="72"
             autocomplete="new-password"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
@@ -124,7 +145,7 @@ if (Astro.request.method === 'POST') {
             type="password"
             name="confirm_password"
             required
-            minlength="8"
+            minlength={MIN_PASSWORD_LENGTH} maxlength="72"
             autocomplete="new-password"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />

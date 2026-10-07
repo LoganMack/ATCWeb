@@ -30,18 +30,7 @@ const showAdminLink = isAdminView(Astro.locals);
 
 <footer class="border-t border-white/10 py-10">
   <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 text-sm text-white/50 sm:flex-row sm:justify-between">
-    <p>&copy; {year} Alpha Touring Challenge</p>
-    <div class="flex flex-wrap items-center justify-center gap-6">
-      <a
-        href="https://paypal.me/loganmckinzie?country.x=US&locale.x=en_US"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="hover:text-white/80"
-      >
-        Donate
-      </a>
-      <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
-      <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
+    <div class="flex items-center gap-3">
       <button
         type="button"
         data-theme-toggle
@@ -57,6 +46,19 @@ const showAdminLink = isAdminView(Astro.locals);
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
       </button>
+      <p>&copy; {year} Alpha Touring Challenge</p>
+    </div>
+    <div class="flex flex-wrap items-center justify-center gap-6">
+      <a
+        href="https://paypal.me/loganmckinzie?country.x=US&locale.x=en_US"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-white/80"
+      >
+        Donate
+      </a>
+      <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
+      <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
       {isSignedIn ? (
         <form method="POST" action="/api/logout" data-astro-reload>
           <button type="submit" class="cursor-pointer border-0 bg-transparent p-0 text-inherit hover:text-white/80">Logout</button>

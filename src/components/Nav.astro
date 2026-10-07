@@ -198,6 +198,12 @@ const links: { href: string; label: string; external?: boolean }[] = [
     const iconOpen = document.getElementById('icon-open');
     const iconClose = document.getElementById('icon-close');
     if (!toggle || !panel || !iconOpen || !iconClose) return;
+    // astro:page-load fires a second time on every page that loads its content
+    // as a fragment (the loader scripts re-dispatch it), and without this
+    // guard the toggle got a second click listener — two toggles per tap, so
+    // the menu opened and instantly closed again.
+    if (toggle.dataset.navInit === 'true') return;
+    toggle.dataset.navInit = 'true';
 
     function setOpen(open: boolean) {
       panel!.classList.toggle('hidden', !open);

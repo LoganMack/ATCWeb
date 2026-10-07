@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { VIEW_MODE_COOKIE, authCookieOptions } from '../../lib/auth';
 
+import { safeNext } from '../../lib/security';
+
 export const prerender = false;
 
 /**
@@ -15,7 +17,7 @@ export const POST: APIRoute = async ({ locals, cookies, request, redirect }) => 
   // Only ever redirect back to a same-site relative path — a `next` value
   // from a form field is still user-controllable input, and an absolute
   // URL there would be an open redirect.
-  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/';
+  const next = safeNext(rawNext, '/');
 
   if (locals.isRealAdmin) {
     const mode = String(form.get('mode') ?? '');

@@ -9,6 +9,9 @@ import cloudflare from '@astrojs/cloudflare';
 // or deploy needed.
 export default defineConfig({
   output: 'hybrid',
+  // Rejects cross-origin POST/PUT/PATCH/DELETE form submissions (CSRF defence
+  // on top of the SameSite=Lax cookies) — Astro compares the Origin header.
+  security: { checkOrigin: true },
   adapter: cloudflare({
     // We only use plain <img> tags (no Astro <Image />/<Picture /> anywhere),
     // so there's no image pipeline to run — 'passthrough' avoids pulling in

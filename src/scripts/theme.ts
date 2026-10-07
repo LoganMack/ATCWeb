@@ -20,6 +20,11 @@ function isLight(): boolean {
 function initThemeToggle() {
   const btn = document.querySelector<HTMLButtonElement>('[data-theme-toggle]');
   if (!btn) return;
+  // astro:page-load fires again on pages that load their content as a
+  // fragment (the loader scripts re-dispatch it); without this guard the
+  // button got a second click listener and every click toggled twice.
+  if (btn.dataset.themeInit === 'true') return;
+  btn.dataset.themeInit = 'true';
 
   function updateButton() {
     const light = isLight();

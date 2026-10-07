@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { safeJson } from '../../../../lib/security';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
@@ -237,7 +238,7 @@ const mentionDriversJson = JSON.stringify(
         shows up in their profile's Related News section.
       </span>
     </div>
-    <script type="application/json" id="mention-drivers-data" set:html={mentionDriversJson} />
+    <script type="application/json" id="mention-drivers-data" set:html={safeJson(JSON.parse(mentionDriversJson))} />
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div class="flex flex-col gap-1.5 text-sm">
         <span class="text-white/70">Cover image</span>
