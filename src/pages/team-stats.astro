@@ -44,8 +44,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     <HistoryTabs active="teamStats" />
 
-    <div class="mt-8 flex flex-wrap items-end justify-between gap-4">
-      <div class="max-w-sm flex-1">
+    <div class="flex flex-wrap items-center gap-3">
+      <div class="w-full max-w-sm">
         <input
           type="search"
           id="team-stats-search"
@@ -54,20 +54,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         />
       </div>
 
-      <div class="flex gap-2">
-        <a
-          href="/team-stats?view=overall"
-          class={`btn ${view === 'overall' ? 'btn-active' : 'btn-neutral'}`}
-        >
-          Overall
-        </a>
-        <a
-          href="/team-stats?view=delta"
-          class={`btn ${view === 'delta' ? 'btn-active' : 'btn-neutral'}`}
-        >
-          Delta
-        </a>
-      </div>
+      {/* Each option's value is its destination URL; onchange just navigates there. */}
+      <select aria-label="View" class="h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary" onchange="window.location.href=this.value">
+        <option value="/team-stats?view=overall" selected={view === 'overall'} class="bg-brand-ink text-white">Overall</option>
+        <option value="/team-stats?view=delta" selected={view === 'delta'} class="bg-brand-ink text-white">Delta</option>
+      </select>
     </div>
 
     <div data-team-stats-results data-fragment-url={`/team-stats/fragment?view=${view}`}>

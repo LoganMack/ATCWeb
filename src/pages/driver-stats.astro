@@ -61,32 +61,22 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="mt-8 flex flex-wrap gap-2">
-        <a
-          href="/driver-stats"
-          class={`btn ${!activeClass ? 'btn-active' : 'btn-neutral'}`}
-        >
-          Overall
-        </a>
-        {classes.map((c) => (
-          <a
-            href={`/driver-stats?class=${encodeURIComponent(c.name)}`}
-            class={`btn ${activeClass?.id === c.id ? 'btn-active' : 'btn-neutral'}`}
-          >
-            {c.name}
-          </a>
-        ))}
-      </div>
-    )}
-
-    {!loadError && (
-      <div class="mt-4 max-w-sm">
-        <input
-          type="search"
-          id="driver-stats-search"
-          placeholder="Search drivers…"
-          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-        />
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="w-full max-w-sm">
+          <input
+            type="search"
+            id="driver-stats-search"
+            placeholder="Search drivers…"
+            class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+          />
+        </div>
+        {/* Each option's value is its destination URL; onchange just navigates there. */}
+        <select aria-label="Class" class="h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary" onchange="window.location.href=this.value">
+          <option value="/driver-stats" selected={!activeClass} class="bg-brand-ink text-white">Overall</option>
+          {classes.map((c) => (
+            <option value={`/driver-stats?class=${encodeURIComponent(c.name)}`} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
+          ))}
+        </select>
       </div>
     )}
 

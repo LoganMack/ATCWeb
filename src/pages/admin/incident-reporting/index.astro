@@ -64,7 +64,7 @@ let rows: Row[] = [];
 let totalRounds = 0;
 let loadError: string | null = null;
 try {
-  const [rounds, excluded, postedIds, reports] = await Promise.all([
+  const [allRoundRows, excluded, postedIds, reports] = await Promise.all([
     getAllRounds(supabaseEnv),
     getStandingsExcludedRoundIds(supabaseEnv),
     getPostedSubsessionIds(supabaseEnv),
@@ -75,6 +75,11 @@ try {
       'incident_reports?select=subsession_id,status&limit=10000'
     ),
   ]);
+
+  // Same set the public Race Results page lists: it only shows rounds that
+  // belong to a season, so a round still waiting to be linked to one (an
+  // "orphan" — see lib/orphanRounds.ts) is left out here too.
+  const rounds = allRoundRows.filter((r) => r.season_id);
 
   const counts = new Map<number, { open: number; logged: number; dismissed: number }>();
   for (const r of reports) {

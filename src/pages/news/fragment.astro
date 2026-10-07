@@ -58,7 +58,9 @@ await Promise.all([loadAllPosts(), loadSeasonLogos(), loadTags()]);
 // derived straight from the posts themselves (already fetched in full, no
 // extra query needed) rather than from curated_rounds, since a post can be
 // tagged with a season no round is linked to at all.
-const seasonOptions = [...new Set(allPosts.map((p) => p.season_label).filter((s): s is string => Boolean(s)))].sort();
+const seasonOptions = [...new Set(allPosts.map((p) => p.season_label).filter((s): s is string => Boolean(s)))]
+  // Most recent season first (ATC18 before ATC9 — numeric-aware), right after "All seasons".
+  .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
 
 const q = Astro.url.searchParams.get('q')?.trim() ?? '';
 const seasonFilter = Astro.url.searchParams.get('season') ?? '';
@@ -79,7 +81,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" class="reveal mt-8 flex flex-wrap items-end gap-3" style="transition-delay: 40ms">
+      <form method="GET" data-news-filter class="reveal mt-8 flex flex-wrap items-end gap-3" style="transition-delay: 40ms">
         <label class="flex flex-col gap-1.5 text-sm">
           <span class="text-white/60">Search titles</span>
           <input
@@ -94,7 +96,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <span class="text-white/60">Season</span>
           <select
             name="season"
-            onchange="this.form.submit()"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             <option value="" class="bg-brand-ink text-white">All seasons</option>
@@ -103,29 +104,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             ))}
           </select>
         </label>
-        <button
-          type="submit"
-          class="btn btn-neutral"
-        >
-          Search
-        </button>
-        {(q || seasonFilter) && (
-          <a href="/news" class="text-sm text-white/40 hover:text-white/70">Clear</a>
-        )}
       </form>
     )}
 
-    {!loadError && posts.length === 0 && (
-      <p class="mt-8 text-white/60">No results.</p>
-    )}
+    {/* Only this block is swapped when the filters change (see news/index.astro's script), so the search box keeps focus while typing. */}
+    <div data-news-list>
+      {!loadError && posts.length === 0 && (
+        <p class="mt-6 text-white/60">No results.</p>
+      )}
 
-    {posts.length > 0 && (
-      <div class="mt-10">
-        <NewsCard post={posts[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
-        {posts.length > 1 && (
-          <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />)}
-          </div>
-        )}
-      </div>
-    )}
+      {posts.length > 0 && (
+        <div class="mt-6">
+          <NewsCard post={posts[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
+          {posts.length > 1 && (
+            <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>

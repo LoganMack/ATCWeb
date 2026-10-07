@@ -52,13 +52,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       exist yet when this script first runs.
     -->
     <div data-incidents-results data-fragment-url="/incidents/fragment">
-      <div class="mt-8 flex flex-wrap gap-2" aria-live="polite" aria-busy="true">
+      <div aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading incidents…</span>
-        <div class="h-9 w-40 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-        <div class="h-9 w-32 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
-        <div class="h-9 w-36 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
+        <div class="h-9 w-48 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
       </div>
-      <div class="mt-4 h-96 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+      <div class="mt-6 h-96 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
     </div>
   </section>
 
@@ -99,27 +97,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     document.addEventListener('astro:page-load', initIncidentsResults);
 
-    // The All Incidents / By Driver / By Offense tab switch — see this
+    // The All Incidents / By Driver / By Offense dropdown switch — see this
     // file's markup comment above for why this has to be a delegated
     // listener living in the shell rather than a script inside the
     // fragment itself. Bound once (module scripts run at most once per
     // page load, soft navigations included — see expandRows.ts's own doc
     // comment on this exact pattern), so no re-init guard is needed here
     // the way per-element setup functions need one.
-    document.addEventListener('click', (e) => {
-      const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-incidents-tab]');
-      if (!tab) return;
-      const widget = tab.closest<HTMLElement>('[data-incidents-widget]');
+    document.addEventListener('change', (e) => {
+      const select = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-incidents-select]');
+      if (!select) return;
+      const widget = select.closest<HTMLElement>('[data-incidents-widget]');
       if (!widget) return;
-      const key = tab.dataset.incidentsTab;
-
-      widget.querySelectorAll<HTMLElement>('[data-incidents-tab]').forEach((t) => {
-        const active = t === tab;
-        t.setAttribute('aria-selected', active ? 'true' : 'false');
-        t.dataset.active = active ? 'true' : 'false'; // .btn[data-active] styles the selected tab (global.css)
-      });
       widget.querySelectorAll<HTMLElement>('[data-incidents-panel]').forEach((panel) => {
-        panel.classList.toggle('hidden', panel.dataset.incidentsPanel !== key);
+        panel.classList.toggle('hidden', panel.dataset.incidentsPanel !== select.value);
       });
     });
   </script>

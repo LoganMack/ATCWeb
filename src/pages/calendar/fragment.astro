@@ -179,26 +179,18 @@ const upcomingIcsBundle = upcoming
 ---
 
     <div class="reveal mt-6 flex flex-wrap items-center justify-between gap-3" style="transition-delay: 100ms">
-      <div class="flex flex-wrap items-center gap-2" data-view-toggle>
-        <button
-          type="button"
-          data-view-value="list"
-          data-active="true"
-          class="btn btn-neutral"
+      <div class="flex flex-wrap items-center gap-3">
+        <select
+          aria-label="View"
+          data-view-toggle
+          class="h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary"
         >
-          List
-        </button>
-        <button
-          type="button"
-          data-view-value="calendar"
-          data-active="false"
-          class="btn btn-neutral"
-        >
-          Calendar
-        </button>
+          <option value="list" selected class="bg-brand-ink text-white">List</option>
+          <option value="calendar" class="bg-brand-ink text-white">Calendar</option>
+        </select>
 
         {past.length > 0 && (
-          <label class="ml-2 flex items-center gap-2 text-sm text-white/60">
+          <label class="flex items-center gap-2 text-sm text-white/60">
             <input
               type="checkbox"
               id="hide-past-events"
@@ -241,7 +233,7 @@ const upcomingIcsBundle = upcoming
     {!loadError && events.length > 0 && (
       <div data-view-panel="list">
         {upcoming.length > 0 && (
-          <div class="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
@@ -258,7 +250,7 @@ const upcomingIcsBundle = upcoming
     )}
 
     {!loadError && events.length > 0 && (
-      <div data-view-panel="calendar" class="hidden mt-10" data-events={JSON.stringify(calendarEvents)}>
+      <div data-view-panel="calendar" class="hidden mt-6" data-events={JSON.stringify(calendarEvents)}>
         <div class="flex items-center justify-between gap-3">
           <button
             type="button"

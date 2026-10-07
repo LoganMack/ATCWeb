@@ -69,7 +69,7 @@ function initExpandRows() {
     // row open/closed underneath. Each one's own listener still fires
     // normally; this only stops it from ALSO reaching this one.
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
-    if ((e.target as HTMLElement).closest('[data-hof-class-btn]')) return;
+    if ((e.target as HTMLElement).closest('[data-hof-class-select]')) return;
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-expand-row]');
     if (row) toggleExpandRow(row);
   });
@@ -77,7 +77,7 @@ function initExpandRows() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
-    if ((e.target as HTMLElement).closest('[data-hof-class-btn]')) return;
+    if ((e.target as HTMLElement).closest('[data-hof-class-select]')) return;
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-expand-row]');
     if (!row) return;
     e.preventDefault();

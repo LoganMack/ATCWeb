@@ -7,7 +7,6 @@ import {
   resolveSupabaseEnv,
   createNewsPost,
   uploadToStorage,
-  formatDate,
   displayDriverName,
   getAllNewsTags,
   setPostTags,
@@ -16,6 +15,7 @@ import {
   extractMentionedDriverIds,
 } from '../../../lib/supabase';
 import { getAllRounds } from '../../../lib/results';
+import { groupRoundsBySeason, roundOptionLabel } from '../../../lib/roundLabels';
 import { slugify } from '../../../lib/slug';
 import { userDisplayName } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
@@ -59,12 +59,7 @@ try {
 } catch (err) {
   console.error('Failed to load rounds for the news editor:', err);
 }
-const roundsBySeasonLabel = new Map<string, typeof allRounds>();
-for (const r of allRounds) {
-  const key = r.season_label ?? 'Unlabeled';
-  if (!roundsBySeasonLabel.has(key)) roundsBySeasonLabel.set(key, []);
-  roundsBySeasonLabel.get(key)!.push(r);
-}
+const roundGroups = groupRoundsBySeason(allRounds);
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -249,11 +244,11 @@ const mentionDriversJson = JSON.stringify(
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       >
         <option value="" class="bg-brand-ink text-white">— No linked round —</option>
-        {[...roundsBySeasonLabel.entries()].map(([seasonLabel, rounds]) => (
+        {roundGroups.map(({ label: seasonLabel, rounds }) => (
           <optgroup label={seasonLabel} class="bg-brand-ink text-white">
             {rounds.map((r) => (
               <option value={r.subsession_id} class="bg-brand-ink text-white">
-                {formatDate(r.start_time)} — {r.track_name}
+                {roundOptionLabel(r)}
               </option>
             ))}
           </optgroup>

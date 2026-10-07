@@ -179,19 +179,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     also toggle the card's season-table row open/closed
                     underneath it, same as it already does for PhotoGrid's
                     lightbox buttons nested the same way. */}
-                <div class="ml-auto flex flex-wrap gap-1.5">
+                <select
+                  aria-label="Stats class"
+                  data-hof-class-select
+                  class="ml-auto h-8 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+                >
                   {HOF_CLASS_KEYS.map((key) => (
-                    <button
-                      type="button"
-                      data-hof-class-btn
-                      data-hof-class-value={key}
-                      class="btn btn-neutral btn-sm"
-                      data-active={key === hof.defaultClass ? 'true' : 'false'}
-                    >
-                      {key}
-                    </button>
+                    <option value={key} selected={key === hof.defaultClass} class="bg-brand-ink text-white">{key}</option>
                   ))}
-                </div>
+                </select>
               </div>
 
               {entry.bio && <p class="mt-3 max-w-2xl text-sm text-white/70">{entry.bio}</p>}
