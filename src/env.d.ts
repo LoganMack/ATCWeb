@@ -6,6 +6,9 @@ interface ImportMetaEnv {
   readonly PUBLIC_SUPABASE_ANON_KEY: string;
   readonly PUBLIC_DISCORD_URL: string;
   readonly PUBLIC_REDBUBBLE_URL: string;
+  /** Server-only secrets for the Discord bot API (src/lib/signups.ts). Optional: unset just disables those endpoints. */
+  readonly BOT_API_TOKEN?: string;
+  readonly SUPABASE_SERVICE_ROLE_KEY?: string;
 }
 
 interface ImportMeta {
@@ -21,6 +24,9 @@ type CloudflareRuntimeEnv = {
   PUBLIC_SUPABASE_ANON_KEY: string;
   PUBLIC_DISCORD_URL: string;
   PUBLIC_REDBUBBLE_URL: string;
+  // Cloudflare secrets (`wrangler secret put`), not wrangler.jsonc vars.
+  BOT_API_TOKEN?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
 };
 
 type Runtime = import('@astrojs/cloudflare').Runtime<CloudflareRuntimeEnv>;

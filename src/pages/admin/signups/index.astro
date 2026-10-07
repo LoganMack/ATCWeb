@@ -1,0 +1,315 @@
+---
+export const prerender = false;
+
+// Admin → Sign-ups: Discord /atcsignup requests waiting for a decision
+// (0098_signup_requests.sql, docs/signup-integration.md). Approve creates the
+// roster entry — or reactivates a returning driver — with the first requested
+// number that's free at that moment; Reject records a reason the bot DMs to
+// the driver. Both go through database functions that re-check everything,
+// so the number previews here are informational only.
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, getDriverClasses } from '../../../lib/supabase';
+import {
+  getSignupRequests,
+  getSignupRoster,
+  approveSignupRequest,
+  rejectSignupRequest,
+  numberHolder,
+  returningCandidates,
+  SIGNUP_REJECTION_REASONS,
+  type SignupRequest,
+  type SignupRosterDriver,
+} from '../../../lib/signups';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+
+// A failed approve/reject re-renders the page with the database's message
+// (written to be shown to the admin) instead of redirecting it away.
+let actionError: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+  const requestId = String(form.get('request_id') ?? '');
+
+  if (intent === 'approve' && requestId) {
+    const name = String(form.get('name') ?? '').trim();
+    const iracingRaw = String(form.get('iracing_cust_id') ?? '').trim();
+    const iracingId = iracingRaw === '' ? null : Number(iracingRaw);
+    const classId = Number(form.get('class_id'));
+    const driverId = String(form.get('driver_id') ?? '') || null;
+    if (iracingId !== null && (!Number.isSafeInteger(iracingId) || iracingId <= 0)) {
+      actionError = 'The iRacing ID must be a positive whole number.';
+    } else {
+      try {
+        const result = await approveSignupRequest(supabaseEnv, accessToken, {
+          request_id: requestId,
+          name,
+          iracing_cust_id: iracingId,
+          class_id: classId,
+          driver_id: driverId,
+        });
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: driverId ? 'edit' : 'add',
+          entity_type: 'driver',
+          entity_label: `${name} — ${driverId ? 'returning driver reactivated' : 'new driver'} from Discord sign-up (#${result.car_number})`,
+          entity_id: result.driver_id,
+        });
+        return Astro.redirect(`/admin/signups?approved=${encodeURIComponent(`${name} #${result.car_number}`)}`, 302);
+      } catch (err) {
+        console.error('Failed to approve sign-up:', err);
+        actionError = err instanceof Error ? err.message : 'Could not approve this sign-up.';
+      }
+    }
+  } else if (intent === 'reject' && requestId) {
+    // A typed reason wins over the preset dropdown.
+    const reason = String(form.get('custom_reason') ?? '').trim() || String(form.get('preset_reason') ?? '').trim();
+    try {
+      await rejectSignupRequest(supabaseEnv, accessToken, requestId, reason);
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'signup',
+        entity_label: `Rejected Discord sign-up — ${String(form.get('request_name') ?? '')}`,
+        entity_id: requestId,
+      });
+      return Astro.redirect('/admin/signups?rejected=1', 302);
+    } catch (err) {
+      console.error('Failed to reject sign-up:', err);
+      actionError = err instanceof Error ? err.message : 'Could not reject this sign-up.';
+    }
+  }
+}
+
+let pending: SignupRequest[] = [];
+let decided: SignupRequest[] = [];
+let roster: SignupRosterDriver[] = [];
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let loadError: string | null = null;
+try {
+  const [requests, rosterRows, classRows] = await Promise.all([
+    getSignupRequests(supabaseEnv, accessToken),
+    getSignupRoster(supabaseEnv),
+    getDriverClasses(supabaseEnv),
+  ]);
+  pending = requests.pending;
+  decided = requests.decided;
+  roster = rosterRows;
+  classes = classRows;
+} catch (err) {
+  console.error('Failed to load sign-ups:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+const approvedFlash = Astro.url.searchParams.get('approved');
+const rejectedFlash = Astro.url.searchParams.get('rejected') === '1';
+
+const defaultClassId = classes.find((c) => c.name === 'Alpha')?.id ?? classes[0]?.id;
+
+// How many pending sign-ups ask for each number — flags clashes.
+const pendingRequestsByNumber = new Map<number, number>();
+for (const r of pending) {
+  for (const n of r.requested_numbers) pendingRequestsByNumber.set(n, (pendingRequestsByNumber.get(n) ?? 0) + 1);
+}
+
+/** The number approval would give right now: a returning driver keeps theirs, otherwise the first free choice. */
+function previewNumber(r: SignupRequest, driver: SignupRosterDriver | null): number | null {
+  if (driver?.car_number != null) return driver.car_number;
+  return r.requested_numbers.find((n) => !numberHolder(roster, n, driver?.id ?? null)) ?? null;
+}
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return '—';
+  return `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET`;
+}
+
+const fieldClass =
+  'rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary';
+---
+
+<AdminLayout title="Sign-ups">
+  <h1 class="reveal font-display text-4xl">Sign-ups</h1>
+  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+    Driver sign-ups from Discord's <code>/atcsignup</code>. Approving adds the driver to the roster (or reactivates a
+    returning driver) with the first of their numbers that's free at that moment. Rejecting sends the driver your reason
+    by Discord DM.
+  </p>
+
+  {actionError && (
+    <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{actionError}</p>
+  )}
+  {approvedFlash && (
+    <p class="mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">Approved {approvedFlash}.</p>
+  )}
+  {rejectedFlash && (
+    <p class="mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
+      Rejected. The bot will DM the driver your reason.
+    </p>
+  )}
+  {loadError && (
+    <p class="mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load sign-ups. {loadError}
+    </p>
+  )}
+
+  <h2 class="reveal mt-10 font-display text-2xl" style="transition-delay: 80ms">
+    Pending <span class="ml-1 text-base text-white/40">{pending.length}</span>
+  </h2>
+
+  {!loadError && pending.length === 0 && <p class="mt-4 text-sm text-white/50">No sign-ups waiting.</p>}
+
+  <ul class="mt-4 flex flex-col gap-4">
+    {pending.map((r) => {
+      const candidates = returningCandidates(roster, r);
+      const defaultDriver = candidates[0] ?? null;
+      const newDriverNumber = previewNumber(r, null);
+      return (
+        <li class="rounded-xl border border-white/10 bg-white/[0.03] p-5 text-sm">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <p class="font-display text-xl">{r.name}</p>
+            <p class="text-xs text-white/40">Submitted {formatTimestamp(r.created_at)}</p>
+          </div>
+          <p class="mt-1 text-xs text-white/50">
+            Discord: {r.discord_username ?? 'unknown'} ({r.discord_user_id}) · iRacing ID: {r.iracing_cust_id ?? 'not given'}
+          </p>
+
+          <ul class="mt-3 flex flex-col gap-1 text-xs">
+            {r.requested_numbers.map((n, i) => {
+              const holder = numberHolder(roster, n, defaultDriver?.id ?? null);
+              const otherPending = (pendingRequestsByNumber.get(n) ?? 1) - 1;
+              return (
+                <li>
+                  <span class="font-semibold text-white/80">Choice {i + 1}: #{n}</span>
+                  {holder ? (
+                    <span class="ml-2 text-brand-pink">taken by {holder.name} ({holder.driver_statuses?.name ?? 'unknown status'})</span>
+                  ) : (
+                    <span class="ml-2 text-white/50">free</span>
+                  )}
+                  {otherPending > 0 && (
+                    <span class="ml-2 text-brand-gold">
+                      also requested by {otherPending} other pending sign-up{otherPending === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+
+          {candidates.map((d) => (
+            <p class="mt-3 rounded-md border border-brand-gold/30 bg-brand-gold/10 p-2 text-xs text-white/80">
+              Looks like returning driver <strong>{d.name}</strong> ({d.driver_statuses?.name ?? 'unknown status'},{' '}
+              {d.car_number != null ? `currently #${d.car_number}` : 'no current number'}
+              {d.iracing_cust_id != null && r.iracing_cust_id === d.iracing_cust_id ? ', same iRacing ID' : ', same name'}).
+            </p>
+          ))}
+
+          {newDriverNumber === null && candidates.every((d) => d.car_number == null) && (
+            <p class="mt-3 text-xs text-brand-pink">None of their numbers is free any more — reject this sign-up instead.</p>
+          )}
+
+          <div class="mt-4 grid gap-4 lg:grid-cols-2">
+            <form method="POST" data-astro-reload class="flex flex-col gap-2 rounded-lg border border-white/10 p-3">
+              <input type="hidden" name="intent" value="approve" />
+              <input type="hidden" name="request_id" value={r.id} />
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Approve as
+                <select name="driver_id" class={fieldClass}>
+                  {candidates.map((d) => (
+                    <option value={d.id} selected={d.id === defaultDriver?.id} class="bg-brand-ink text-white">
+                      Returning: {d.name} — gets #{previewNumber(r, d) ?? '?'}
+                    </option>
+                  ))}
+                  <option value="" selected={!defaultDriver} class="bg-brand-ink text-white">
+                    New driver — gets #{newDriverNumber ?? '?'}
+                  </option>
+                </select>
+              </label>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Name (new drivers)
+                  <input type="text" name="name" value={r.name} maxlength="80" class={fieldClass} />
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  iRacing ID
+                  <input type="text" name="iracing_cust_id" value={r.iracing_cust_id ?? ''} inputmode="numeric" class={fieldClass} />
+                </label>
+              </div>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Class
+                <select name="class_id" class={fieldClass}>
+                  {classes.map((c) => (
+                    <option value={c.id} selected={c.id === (defaultDriver?.class_id ?? defaultClassId)} class="bg-brand-ink text-white">
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit" class="btn btn-primary btn-sm self-start">Approve</button>
+            </form>
+
+            <form method="POST" data-astro-reload class="flex flex-col gap-2 rounded-lg border border-white/10 p-3">
+              <input type="hidden" name="intent" value="reject" />
+              <input type="hidden" name="request_id" value={r.id} />
+              <input type="hidden" name="request_name" value={r.name} />
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Reason (sent to the driver)
+                <select name="preset_reason" class={fieldClass}>
+                  {SIGNUP_REJECTION_REASONS.map((reason) => (
+                    <option value={reason} class="bg-brand-ink text-white">{reason}</option>
+                  ))}
+                </select>
+              </label>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Or type your own (used instead when filled in)
+                <textarea name="custom_reason" rows="2" maxlength="500" class={fieldClass}></textarea>
+              </label>
+              <button type="submit" class="btn btn-danger btn-sm self-start">Reject</button>
+            </form>
+          </div>
+        </li>
+      );
+    })}
+  </ul>
+
+  <h2 class="mt-12 font-display text-2xl">Recent decisions</h2>
+  {!loadError && decided.length === 0 && <p class="mt-4 text-sm text-white/50">No decisions yet.</p>}
+  {decided.length > 0 && (
+    <div class="mt-4 overflow-x-auto rounded-xl border border-white/10">
+      <table class="w-full min-w-[720px] text-left text-sm">
+        <thead class="bg-white/5 text-xs uppercase tracking-wide text-white/50">
+          <tr>
+            <th class="px-4 py-3 font-semibold">Name</th>
+            <th class="px-3 py-3 font-semibold">Numbers</th>
+            <th class="px-3 py-3 font-semibold">Decision</th>
+            <th class="px-3 py-3 font-semibold">Decided</th>
+          </tr>
+        </thead>
+        <tbody>
+          {decided.map((r) => (
+            <tr class="border-t border-white/5 align-top">
+              <td class="px-4 py-3">
+                <div class="font-semibold text-white">{r.name}</div>
+                <div class="text-xs text-white/40">{r.discord_username ?? r.discord_user_id}</div>
+              </td>
+              <td class="px-3 py-3 tabular-nums text-white/70">{r.requested_numbers.map((n) => `#${n}`).join(', ')}</td>
+              <td class="px-3 py-3">
+                {r.status === 'approved' ? (
+                  <span class="font-semibold text-brand-primary">Approved</span>
+                ) : (
+                  <>
+                    <span class="font-semibold text-brand-pink">Rejected</span>
+                    <span class="ml-2 text-xs text-white/40">{r.notified_at ? 'driver DM’d' : 'DM pending'}</span>
+                    {r.reason && <p class="mt-1 text-xs text-white/60">{r.reason}</p>}
+                  </>
+                )}
+              </td>
+              <td class="px-3 py-3 text-xs text-white/50">{formatTimestamp(r.decided_at)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</AdminLayout>
