@@ -2055,6 +2055,23 @@ export function getCircuits(env: SupabaseEnv) {
   return restGet<Circuit[]>(env, `circuits?select=${CIRCUIT_SELECT}&order=name.asc`);
 }
 
+/**
+ * Latitude/longitude per circuit (0098_circuit_coordinates.sql) for the
+ * Calendar's Map view. Deliberately a separate, failure-tolerant query rather
+ * than part of CIRCUIT_SELECT: that select feeds the whole site, and adding
+ * columns to it would break every page if this code were ever deployed before
+ * the migration is applied. Returns an empty list in that case, so the map just
+ * shows "no locations yet" instead of anything else breaking.
+ */
+export async function getCircuitCoordinates(env: SupabaseEnv): Promise<{ id: string; latitude: number | null; longitude: number | null }[]> {
+  try {
+    return await restGet<{ id: string; latitude: number | null; longitude: number | null }[]>(env, 'circuits?select=id,latitude,longitude');
+  } catch (err) {
+    console.error('Failed to load circuit coordinates (is 0098_circuit_coordinates.sql applied?):', err);
+    return [];
+  }
+}
+
 export async function getCircuitById(env: SupabaseEnv, id: string) {
   const circuits = await restGet<Circuit[]>(
     env,
@@ -2063,11 +2080,11 @@ export async function getCircuitById(env: SupabaseEnv, id: string) {
   return circuits[0] ?? null;
 }
 
-export function createCircuit(env: SupabaseEnv, accessToken: string, data: Partial<Circuit>) {
+export function createCircuit(env: SupabaseEnv, accessToken: string, data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null }) {
   return restPost<Circuit>(env, accessToken, 'circuits', data);
 }
 
-export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Circuit>) {
+export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null }) {
   return restPatch<Circuit>(env, accessToken, `circuits?id=eq.${encodeURIComponent(id)}`, data);
 }
 

@@ -1042,25 +1042,41 @@ if (activeTab === 'settings') {
     document.addEventListener('pointercancel', endDrag);
     window.addEventListener('resize', render);
 
-    document.addEventListener('submit', async (e) => {
-      const form = e.target as HTMLFormElement;
-      if (!form.matches?.('[data-banner-form]') || !state || state.form !== form) return;
-      const p = panel();
-      if (!p || p.hidden) return;
-      const skip = p.querySelector<HTMLInputElement>('[data-crop-skip]');
-      if (skip?.checked) return; // upload the original file as chosen
-      e.preventDefault();
-      const blob = await cropToBlob(state, p);
-      if (!blob) {
-        // Couldn't render a crop; fall back to the original rather than losing the upload.
-        form.submit();
-        return;
-      }
-      const dt = new DataTransfer();
-      dt.items.add(new File([blob], 'banner.jpg', { type: 'image/jpeg' }));
-      state.input.files = dt.files;
-      form.submit();
-    });
+    // Runs in the CAPTURE phase on purpose. hard-form-submit.ts (loaded on every
+    // page) binds its own submit listener directly on each POST form and builds
+    // its FormData right away, which would send the original, uncropped file
+    // before a bubble-phase listener ever ran. Capturing here lets us swap in the
+    // cropped file first, then re-fire the submit so that handler sends it.
+    let recropping = false;
+    document.addEventListener(
+      'submit',
+      async (e) => {
+        const form = e.target as HTMLFormElement;
+        if (recropping) {
+          recropping = false;
+          return;
+        }
+        if (!form.matches?.('[data-banner-form]') || !state || state.form !== form) return;
+        const p = panel();
+        if (!p || p.hidden) return;
+        const skip = p.querySelector<HTMLInputElement>('[data-crop-skip]');
+        if (skip?.checked) return; // upload the original file as chosen
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const submitter = (e as SubmitEvent).submitter as HTMLElement | null;
+        const blob = await cropToBlob(state, p);
+        if (blob) {
+          const dt = new DataTransfer();
+          dt.items.add(new File([blob], 'banner.jpg', { type: 'image/jpeg' }));
+          state.input.files = dt.files;
+        }
+        // If a crop couldn't be rendered, fall through with the original file
+        // rather than losing the upload.
+        recropping = true;
+        form.requestSubmit(submitter ?? undefined);
+      },
+      true
+    );
   }
 
   initBannerCropper();

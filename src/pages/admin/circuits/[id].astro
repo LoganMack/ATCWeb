@@ -5,6 +5,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
   getCircuitById,
+  getCircuitCoordinates,
   createCircuit,
   updateCircuit,
   deleteCircuit,
@@ -180,16 +181,37 @@ if (Astro.request.method === 'POST') {
     const location = String(form.get('location') ?? '').trim() || null;
     const logoFile = form.get('logo');
 
+    // Map coordinates (0098_circuit_coordinates.sql). Only sent when something is
+    // being set or cleared, so saving other fields never touches these columns.
+    const latRaw = String(form.get('latitude') ?? '').trim();
+    const lngRaw = String(form.get('longitude') ?? '').trim();
+    const hadCoords = form.get('had_coords') === '1';
+    let coords: { latitude: number | null; longitude: number | null } | null = null;
+    let coordsError: string | null = null;
+    if (latRaw || lngRaw) {
+      const lat = Number(latRaw);
+      const lng = Number(lngRaw);
+      if (!latRaw || !lngRaw || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        coordsError = 'Latitude and longitude must both be numbers (latitude -90 to 90, longitude -180 to 180), or both left empty.';
+      } else {
+        coords = { latitude: lat, longitude: lng };
+      }
+    } else if (hadCoords) {
+      coords = { latitude: null, longitude: null };
+    }
+
     if (!name) {
       error = 'Circuit name is required.';
+    } else if (coordsError) {
+      error = coordsError;
     } else {
       try {
         let circuitId = isNew ? null : id!;
         if (isNew) {
-          const created = await createCircuit(supabaseEnv, accessToken, { name, location });
+          const created = await createCircuit(supabaseEnv, accessToken, { name, location, ...(coords ?? {}) });
           circuitId = created.id;
         } else {
-          await updateCircuit(supabaseEnv, accessToken, circuitId!, { name, location });
+          await updateCircuit(supabaseEnv, accessToken, circuitId!, { name, location, ...(coords ?? {}) });
         }
 
         if (logoFile instanceof File && logoFile.size > 0) {
@@ -221,6 +243,10 @@ if (!isNew && id) {
 }
 
 const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null, location: null };
+let coordsRow: { latitude: number | null; longitude: number | null } | null = null;
+if (!isNew && id) {
+  coordsRow = (await getCircuitCoordinates(supabaseEnv)).find((r) => r.id === id) ?? null;
+}
 
 let layouts: CircuitLayout[] = [];
 let trackGuidesByLayoutId = new Map<string, TrackGuide[]>();
@@ -264,6 +290,32 @@ if (!isNew && id) {
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
+
+    <div class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Map position <span class="text-white/40">(optional — used by the Calendar's Map view)</span></span>
+      <div class="flex gap-3">
+        <input
+          type="text"
+          inputmode="decimal"
+          name="latitude"
+          placeholder="Latitude, e.g. 50.4372"
+          aria-label="Latitude"
+          value={coordsRow?.latitude ?? ''}
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+        <input
+          type="text"
+          inputmode="decimal"
+          name="longitude"
+          placeholder="Longitude, e.g. 5.9714"
+          aria-label="Longitude"
+          value={coordsRow?.longitude ?? ''}
+          class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+        />
+      </div>
+      <input type="hidden" name="had_coords" value={coordsRow?.latitude != null ? '1' : '0'} />
+      <span class="text-xs text-white/40">Without these, this circuit's events don't appear on the map. To find them, right-click the track on Google Maps and click the numbers at the top of the menu to copy them.</span>
+    </div>
 
     <div class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Logo</span>

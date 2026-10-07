@@ -814,3 +814,179 @@ input[type="file"]:hover::file-selector-button {
   -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 95%);
   mask-image: linear-gradient(to bottom, #000 35%, transparent 95%);
 }
+
+/* ============================================================
+   DOT-MATRIX WORLD MAP (src/scripts/dotMap.ts)
+   ============================================================
+   Used by the Calendar's Map view and the Media page's Meetups map. A
+   self-drawn SVG world (src/lib/worldMap.ts) whose land is filled with a grid of
+   dots (the #cm-dots pattern dotMap.ts defines in the SVG, coloured from
+   --m-dot here) — no tile server or API key. Light mode flips to dark dots on a
+   pale background. */
+.dot-map {
+  --m-bg: #0b0b0e;
+  --m-border: rgba(255, 255, 255, 0.1);
+  --m-dot: rgba(255, 255, 255, 0.34);
+  --m-ring: #0b0b0e;
+  --m-ink: rgba(255, 255, 255, 0.85);
+  --m-muted: rgba(255, 255, 255, 0.45);
+  --m-ctl-bg: rgba(11, 11, 14, 0.85);
+  --m-ctl-ink: rgba(255, 255, 255, 0.8);
+  --m-pin-endurance: #4369f5;
+  --m-pin-sprint: #f5c642;
+  --m-pin-special: #f5426e;
+  --m-pin-other: #9aa0b4;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg);
+  height: clamp(260px, 46vw, 520px);
+  touch-action: none;
+  user-select: none;
+}
+.light .dot-map {
+  --m-bg: #f1f1f4;
+  --m-border: rgba(17, 17, 20, 0.12);
+  --m-dot: rgba(17, 17, 20, 0.3);
+  --m-ring: #f7f7f9;
+  --m-ink: rgba(17, 17, 20, 0.85);
+  --m-muted: rgba(17, 17, 20, 0.5);
+  --m-ctl-bg: rgba(247, 247, 249, 0.9);
+  --m-ctl-ink: rgba(17, 17, 20, 0.8);
+  --m-pin-sprint: #e0a800;
+}
+.dot-map svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+.dot-map.is-dragging svg {
+  cursor: grabbing;
+}
+.cm-land {
+  fill: url(#cm-dots);
+  stroke: none;
+}
+.cm-dot {
+  fill: var(--m-dot);
+}
+.cm-pin {
+  cursor: pointer;
+  outline: none;
+}
+.cm-pin .cm-pin-body {
+  fill: var(--pin, var(--m-pin-other));
+  stroke: var(--m-ring);
+  stroke-width: 2;
+  transition: transform 0.12s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.cm-pin:hover .cm-pin-body,
+.cm-pin:focus-visible .cm-pin-body,
+.cm-pin.is-selected .cm-pin-body {
+  transform: scale(1.25);
+}
+.cm-pin-sel {
+  fill: none;
+  stroke: var(--m-ink);
+  stroke-width: 1.5;
+  opacity: 0;
+}
+.cm-pin.is-selected .cm-pin-sel {
+  opacity: 1;
+}
+.cm-pin.is-past {
+  opacity: 0.5;
+}
+.cm-pin-count {
+  fill: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.cm-pulse {
+  fill: none;
+  stroke: var(--pin);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cm-pulse 2.2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes cm-pulse {
+  from {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
+.cm-ctl {
+  display: flex;
+  height: 30px;
+  width: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+  background: var(--m-ctl-bg);
+  color: var(--m-ctl-ink);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cm-ctl:hover {
+  filter: brightness(1.25);
+}
+.cm-tip {
+  pointer-events: none;
+  position: absolute;
+  z-index: 5;
+  max-width: 17rem;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-ctl-bg);
+  color: var(--m-ink);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.cm-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--m-muted);
+}
+.cm-legend i {
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.cm-hint {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  color: var(--m-muted);
+}
