@@ -14,6 +14,7 @@ import {
   type Team,
 } from '../../lib/supabase';
 import { driversSelect, getAllRounds, isChampionshipSeason, type DriverBasic } from '../../lib/results';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import TeamLogo from '../../components/TeamLogo.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -250,40 +251,41 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
     )}
 
     {!loadError && (
-      <div class="reveal mt-8 flex flex-wrap items-end gap-4" style="transition-delay: 80ms">
-        <div class="max-w-sm flex-1">
+      <div class="reveal mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 80ms">
+        <div class="flex flex-wrap items-end gap-3">
           <input
             type="search"
             id="team-search"
             placeholder="Search teams or drivers…"
-            class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+            class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
           />
-        </div>
-        {seasons.length > 0 && (
-          <form method="GET">
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Season</span>
-              <select
-                name="season"
-                onchange="this.form.submit()"
-                class="h-10 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
-              >
-                <optgroup label="Championships" class="bg-brand-ink text-white">
-                  {championshipSeasons.map((s) => (
-                    <option value={s.id} selected={s.id === selectedSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-                  ))}
-                </optgroup>
-                {exhibitionSeasons.length > 0 && (
-                  <optgroup label="Exhibitions" class="bg-brand-ink text-white">
-                    {exhibitionSeasons.map((s) => (
-                      <option value={s.id} selected={s.id === selectedSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+          {seasons.length > 0 && (
+            <form method="GET" class="sm:w-44">
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+                <select
+                  name="season"
+                  data-logo-select
+                  onchange="this.form.submit()"
+                  class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+                >
+                  <optgroup label="Championships" class="bg-brand-ink text-white">
+                    {championshipSeasons.map((s) => (
+                      <option value={s.id} selected={s.id === selectedSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
                     ))}
                   </optgroup>
-                )}
-              </select>
-            </label>
-          </form>
-        )}
+                  {exhibitionSeasons.length > 0 && (
+                    <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                      {exhibitionSeasons.map((s) => (
+                        <option value={s.id} selected={s.id === selectedSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+            </form>
+          )}
+        </div>
       </div>
     )}
 

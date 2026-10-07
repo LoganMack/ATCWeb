@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
@@ -474,10 +475,11 @@ const rosterDriversOnTeam = rosterDrivers
             <span class="text-white/60">Season</span>
             <select
               name="logo_season_id"
+              data-logo-select
               class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
             >
               {seasons.map((s) => (
-                <option value={s.id} class="bg-brand-ink text-white">{s.name}</option>
+                <option value={s.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
               ))}
             </select>
           </label>
@@ -523,11 +525,12 @@ const rosterDriversOnTeam = rosterDrivers
               <span class="text-white/60">Season</span>
               <select
                 name="season"
+                data-logo-select
                 onchange="this.form.submit()"
                 class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
               >
                 {seasons.map((s) => (
-                  <option value={s.id} selected={s.id === selectedSeasonId} class="bg-brand-ink text-white">{s.name}</option>
+                  <option value={s.id} selected={s.id === selectedSeasonId} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
                 ))}
               </select>
             </label>
@@ -541,12 +544,13 @@ const rosterDriversOnTeam = rosterDrivers
                 <span class="text-white/60">Copy roster from</span>
                 <select
                   name="source_season_id"
+                  data-logo-select
                   class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
                 >
                   {seasons
                     .filter((s) => s.id !== selectedSeasonId)
                     .map((s) => (
-                      <option value={s.id} class="bg-brand-ink text-white">{s.name}</option>
+                      <option value={s.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
                     ))}
                 </select>
               </label>

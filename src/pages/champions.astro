@@ -115,9 +115,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="flex flex-wrap items-center gap-3">
+      <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+       <div class="flex flex-wrap items-end gap-3">
         {/* Each option's value is its destination URL; onchange just navigates there. */}
-        <select aria-label="Class or team" class="h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary" onchange="window.location.href=this.value">
+        <label class="flex flex-col gap-1.5 sm:w-44">
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+        <select aria-label="Class or team" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
           {visibleClasses.map((c) => (
             <option value={`/champions?class=${encodeURIComponent(c.name)}`} selected={!activeTeamView && c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
           ))}
@@ -126,6 +129,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <option value="/champions?team=delta" selected={activeTeamView === 'delta'} class="bg-brand-ink text-white">Delta Team</option>
           )}
         </select>
+        </label>
+       </div>
       </div>
     )}
 

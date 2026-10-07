@@ -61,3 +61,5 @@ function init() {
 }
 
 init();
+
+export {};

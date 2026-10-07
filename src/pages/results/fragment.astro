@@ -4,7 +4,7 @@ export const prerender = false;
 import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName } from '../../lib/supabase';
 import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions } from '../../lib/results';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
-import SeasonLogo from '../../components/SeasonLogo.astro';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -100,41 +100,41 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" class="mt-8 max-w-xs">
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Season</span>
-          <div class="flex items-center gap-2">
-            <select
-              name="season"
-              onchange="this.form.submit()"
-              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-            >
-              <optgroup label="Championships" class="bg-brand-ink text-white">
-                {championshipSeasons.map((s) => (
-                  <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
+      <form method="GET" class="mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
+       <div class="flex flex-wrap items-end gap-3">
+        <label class="flex flex-col gap-1.5 sm:w-44">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+          <select
+            name="season"
+            data-logo-select
+            onchange="this.form.submit()"
+            class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          >
+            <optgroup label="Championships" class="bg-brand-ink text-white">
+              {championshipSeasons.map((s) => (
+                <option value={s.number} selected={s.id === activeSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
+              ))}
+            </optgroup>
+            {exhibitionSeasons.length > 0 && (
+              <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                {exhibitionSeasons.map((s) => (
+                  <option value={s.number} selected={s.id === activeSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
                 ))}
               </optgroup>
-              {exhibitionSeasons.length > 0 && (
-                <optgroup label="Exhibitions" class="bg-brand-ink text-white">
-                  {exhibitionSeasons.map((s) => (
-                    <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-                  ))}
-                </optgroup>
-              )}
-              <optgroup label="Other Rounds" class="bg-brand-ink text-white">
-                <option value="exhibition-rounds" selected={activePooledFilter === 'exhibition-rounds'} class="bg-brand-ink text-white">
-                  Exhibition Rounds
-                </option>
-                <option value="test-sessions" selected={activePooledFilter === 'test-sessions'} class="bg-brand-ink text-white">
-                  Test Sessions
-                </option>
-              </optgroup>
-            </select>
-            <SeasonLogo darkUrl={activeSeason?.logo_url ?? null} lightUrl={activeSeason?.logo_url_light} />
-          </div>
+            )}
+            <optgroup label="Other Rounds" class="bg-brand-ink text-white">
+              <option value="exhibition-rounds" selected={activePooledFilter === 'exhibition-rounds'} class="bg-brand-ink text-white">
+                Exhibition Rounds
+              </option>
+              <option value="test-sessions" selected={activePooledFilter === 'test-sessions'} class="bg-brand-ink text-white">
+                Test Sessions
+              </option>
+            </optgroup>
+          </select>
         </label>
+       </div>
         {activePooledFilter && (
-          <p class="mt-2 text-xs text-white/40">
+          <p class="mt-3 text-xs text-white/40">
             {activePooledFilter === 'exhibition-rounds'
               ? 'Every round flagged as a non-points exhibition, across every season — none of these count toward standings.'
               : 'Every round flagged as a test session, across every season — none of these count toward standings.'}

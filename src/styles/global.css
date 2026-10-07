@@ -390,6 +390,7 @@ th[data-sort-key][data-sort-dir='desc']::after {
 .light .bg-white\/\[0\.02\] { background-color: rgb(17 17 20 / 0.02); }
 .light .bg-white\/\[0\.03\] { background-color: rgb(17 17 20 / 0.03); }
 .light .hover\:bg-white\/5:hover { background-color: rgb(17 17 20 / 0.05); }
+.light .focus\:bg-white\/5:focus { background-color: rgb(17 17 20 / 0.05); }
 .light .hover\:bg-white\/10:hover { background-color: rgb(17 17 20 / 0.1); }
 .light .hover\:bg-white\/20:hover { background-color: rgb(17 17 20 / 0.2); }
 .light .hover\:bg-white\/\[0\.02\]:hover { background-color: rgb(17 17 20 / 0.02); }
@@ -610,6 +611,7 @@ input[type="file"]:hover::file-selector-button {
 
 [class~="bg-white/5"] { background-color: rgb(23 23 26); }
 [class~="hover:bg-white/5"]:hover { background-color: rgb(23 23 26); }
+[class~="focus:bg-white/5"]:focus { background-color: rgb(23 23 26); }
 [class~="bg-white/[0.02]"] { background-color: rgb(16 16 19); }
 [class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(16 16 19); }
 [class~="bg-white/[0.03]"] { background-color: rgb(18 18 21); }
@@ -640,6 +642,7 @@ input[type="file"]:hover::file-selector-button {
 
 .light [class~="bg-white/5"] { background-color: rgb(236 236 238); }
 .light [class~="hover:bg-white/5"]:hover { background-color: rgb(236 236 238); }
+.light [class~="focus:bg-white/5"]:focus { background-color: rgb(236 236 238); }
 .light [class~="bg-white/[0.02]"] { background-color: rgb(242 242 244); }
 .light [class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(242 242 244); }
 .light [class~="bg-white/[0.03]"] { background-color: rgb(240 240 242); }

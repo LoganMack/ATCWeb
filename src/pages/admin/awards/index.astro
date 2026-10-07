@@ -7,6 +7,7 @@ export const prerender = false;
 // and src/pages/awards/fragment.astro's own two new sections for how these
 // two get merged in alongside those). This page is the only place either
 // one is ever set — there's no "recalculate" for a manual pick.
+import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   resolveSupabaseEnv,
@@ -156,11 +157,12 @@ for (const a of seasonAwards) {
           <span class="text-white/60">Season</span>
           <select
             name="season"
+            data-logo-select
             onchange="this.form.submit()"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             {seasons.map((s) => (
-              <option value={s.id} selected={s.id === selectedSeasonId} class="bg-brand-ink text-white">{s.name}</option>
+              <option value={s.id} selected={s.id === selectedSeasonId} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
             ))}
           </select>
         </label>

@@ -34,11 +34,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <div data-roster-results data-fragment-url="/roster/fragment">
       <div class="mt-8 flex flex-col gap-5" aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading roster…</span>
-        <div class="flex flex-wrap items-end gap-4">
-          <div class="h-10 w-full animate-pulse rounded-md border border-white/10 bg-white/[0.03] sm:w-64"></div>
-          <div class="h-10 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-10 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-10 w-36 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+        <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="h-9 min-w-[14rem] flex-1 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+            <div class="hidden h-[3.625rem] w-44 animate-pulse rounded-md border border-white/10 bg-white/[0.03] sm:block"></div>
+            <div class="hidden h-[3.625rem] w-44 animate-pulse rounded-md border border-white/10 bg-white/[0.03] sm:block"></div>
+            <div class="hidden h-[3.625rem] w-44 animate-pulse rounded-md border border-white/10 bg-white/[0.03] sm:block"></div>
+            <div class="hidden h-[3.625rem] w-44 animate-pulse rounded-md border border-white/10 bg-white/[0.03] sm:block"></div>
+          </div>
         </div>
         <div class="h-[32rem] animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
       </div>
@@ -88,13 +91,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     function updateNationalityLabel() {
       if (!nationalityLabel) return;
       if (state.nationality.size === 0) {
-        nationalityLabel.textContent = 'All Nationalities';
+        nationalityLabel.textContent = 'All';
       } else if (state.nationality.size === 1) {
         const code = Array.from(state.nationality)[0];
         const checkbox = nationalityCheckboxes.find((c) => c.value === code);
         nationalityLabel.textContent = checkbox?.dataset.natName ?? code.toUpperCase();
       } else {
-        nationalityLabel.textContent = `${state.nationality.size} Nationalities`;
+        nationalityLabel.textContent = `${state.nationality.size} selected`;
       }
     }
 
