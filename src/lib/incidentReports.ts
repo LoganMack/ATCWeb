@@ -308,7 +308,8 @@ export function reviewPenaltyLabel(penalty: ReviewPenalty): string {
 /**
  * Reviews of one round's reports that this admin may see. RLS does the
  * blind-voting filter: the caller's own review always comes back, everyone
- * else's only for reports the caller has already reviewed.
+ * else's only for reports the caller has already reviewed, or was involved
+ * in and so can't review (0099).
  */
 export async function getVisibleReviewsForSubsession(
   env: SupabaseEnv,

@@ -276,7 +276,7 @@ if (isAdmin && postForm) {
     const penalty = REVIEW_PENALTIES.find((p) => p === penaltyRaw);
     // ?review=<code> drives the message above the reports (reviewFlash below);
     // a successful save clears any code left over from an earlier failure.
-    const back = (code: 'locked' | 'invalid' | 'failed' | null) => {
+    const back = (code: 'locked' | 'involved' | 'invalid' | 'failed' | null) => {
       const url = new URL(Astro.url);
       if (code) url.searchParams.set('review', code);
       else url.searchParams.delete('review');
@@ -292,8 +292,10 @@ if (isAdmin && postForm) {
       });
     } catch (err) {
       console.error('Failed to save incident report review:', err);
-      // Expected when another admin logs the report mid-review — see 0096's save function.
-      return back(err instanceof Error && err.message.includes('reviews are locked') ? 'locked' : 'failed');
+      // Expected when another admin logs the report mid-review — see 0096's save function —
+      // or when the steward was one of the report's drivers (0099).
+      const message = err instanceof Error ? err.message : '';
+      return back(message.includes('reviews are locked') ? 'locked' : message.includes('involved in this incident') ? 'involved' : 'failed');
     }
     // No verdict in the log entry — that would undo the blind voting.
     await logActivity(supabaseEnv, accessToken, actor, {
@@ -704,9 +706,12 @@ const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
 
 // Steward reviews (0096), View Incidents only. RLS hands back only what this
 // admin may see — their own review, plus everyone else's on reports they've
-// already reviewed (or that are logged) — and the counts RPC says how many
-// exist in total.
+// already reviewed (or that are logged, or that they were involved in) — and
+// the counts RPC says how many exist in total.
 const myUserId = Astro.locals.session?.user.id ?? null;
+// A steward linked to one of a report's drivers can't review it, but can read
+// everyone else's reviews of it (0099).
+const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
 const reviewsByReport = new Map<string, IncidentReportReview[]>();
 let reviewCounts = new Map<string, number>();
 if (viewReports && incidentReports.length > 0) {
@@ -775,6 +780,7 @@ let reviewFlash: string | null = null;
 if (viewReports) {
   const flash = Astro.url.searchParams.get('review');
   if (flash === 'locked') reviewFlash = "Couldn't save your review — this incident was logged while you were writing it, so reviews are closed.";
+  else if (flash === 'involved') reviewFlash = "Couldn't save your review — you were involved in this incident, so you can't review it.";
   else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs a driver (or Racing Incident), a penalty and an explanation.";
   else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
 }
@@ -947,9 +953,11 @@ const nextIncidentNumber =
                 const reviewCount = reviewCounts.get(r.id) ?? visibleReviews.length;
                 // Closed for good once first logged — a Reopen doesn't reopen voting (0096).
                 const reviewsLocked = Boolean(r.reviews_closed_at);
+                const involved = myDriverId !== null && r.driver_ids.includes(myDriverId);
                 // Others' reviews (and the colour) only once you've voted, or once
                 // the report is logged and voting is over — otherwise it would leak the outcome.
-                const canSeeReviews = Boolean(myReview) || reviewsLocked;
+                // An involved steward can't vote, so there's no vote to keep blind.
+                const canSeeReviews = Boolean(myReview) || reviewsLocked || involved;
                 const agreement = canSeeReviews ? reviewAgreement(visibleReviews) : null;
                 const style = agreement ? agreementStyles[agreement] : null;
                 const duplicateOriginal = duplicateOriginalById.get(r.id);
@@ -1002,6 +1010,8 @@ const nextIncidentNumber =
                       </p>
                       {reviewsLocked ? (
                         <span class="text-xs text-white/40">Reviews closed — incident was logged</span>
+                      ) : involved ? (
+                        <span class="text-xs text-white/40">You were involved — can't review</span>
                       ) : (
                         <button
                           type="button"
