@@ -223,12 +223,12 @@ function eventLabel(ev: EventResultCoverage): string {
 
   <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 80ms">
     {missingEvents.length === 0 ? (
-      <p class="rounded-xl border border-white/10 bg-white/[0.03] p-6 text-sm text-white/50">
+      <p class="rounded-xl border border-white/10 bg-brand-ink p-6 text-sm text-white/50">
         Every finished event has race, qualifying, and practice results on file (that it's scheduled to have).
       </p>
     ) : (
       missingEvents.map((ev) => (
-        <div class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 bg-brand-ink p-5">
           <div class="min-w-0">
             <h3 class="truncate font-display text-xl">
               {ev.circuitName}

@@ -451,7 +451,7 @@ const rosterDriversOnTeam = rosterDrivers
                 (seasons.find((s) => s.id === a.season_id)?.number ?? 0)
             )
             .map((logo) => (
-              <li class="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
+              <li class="flex items-center justify-between gap-3 rounded-md bg-brand-ink px-3 py-2 text-sm ring-1 ring-white/10">
                 <span class="flex items-center gap-3">
                   <img src={logo.logo_url} alt="" class="h-8 w-8 rounded object-contain ring-1 ring-white/10" />
                   {seasons.find((s) => s.id === logo.season_id)?.name ?? 'Unknown season'}

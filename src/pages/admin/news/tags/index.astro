@@ -76,7 +76,7 @@ try {
       <ul class="reveal mt-8 flex max-w-md flex-col gap-2" style="transition-delay: 60ms">
         {tags.length === 0 && <li class="text-sm text-white/40">No tags yet.</li>}
         {tags.map((tag) => (
-          <li class="flex items-center justify-between gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+          <li class="flex items-center justify-between gap-3 rounded-lg bg-brand-ink p-3 text-sm ring-1 ring-white/10">
             <span class="font-semibold">{tag.name}</span>
             <form method="POST" data-astro-reload>
               <input type="hidden" name="intent" value="delete-tag" />

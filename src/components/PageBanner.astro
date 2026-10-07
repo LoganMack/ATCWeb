@@ -9,9 +9,10 @@
 // Deliberately only covers the top band of the section (a fixed height,
 // not the whole section) — most of these pages have a lot of content below
 // the header, and this is meant to decorate the header gap, not become a
-// full-page background image. The gradient fades the image out to solid
-// ink by the bottom of that band so it blends into the rest of the (black)
-// page rather than hard-cutting off.
+// full-page background image. The overlay (.banner-overlay in global.css:
+// darkened vignette edges, a fine diagonal carbon-fiber texture, and a fade
+// to solid ink by the bottom of the band) blends the image into the rest of
+// the page rather than hard-cutting off. The homepage hero uses the same class.
 //
 // Usage: add `relative` to the page's <section> (needed so the two
 // absolutely-positioned divs below anchor to it), then drop
@@ -54,6 +55,6 @@ const { imageUrl } = Astro.props;
       style={`background-image: url('${imageUrl}')`}
     >
     </div>
-    <div class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-40 bg-gradient-to-b from-brand-ink/30 via-brand-ink/80 to-brand-ink sm:h-56"></div>
+    <div class="banner-overlay pointer-events-none absolute inset-x-0 top-0 -z-10 h-40 sm:h-56"></div>
   </>
 )}

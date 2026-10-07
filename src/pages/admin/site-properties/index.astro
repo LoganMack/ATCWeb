@@ -14,6 +14,11 @@ export const prerender = false;
 // /admin/car-logos, and /admin/penalty-offenses still exist as thin
 // redirects here for anyone with an old bookmark; /admin/champions is now
 // one too (see that file).
+//
+// The page is split into tabs (?tab=settings|banners|car-logos|offenses|
+// champions) and only the active tab's data is fetched — the Champions tab in
+// particular runs the whole champions computation, which used to delay every
+// visit to this page even when you only wanted to change a setting.
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
@@ -50,6 +55,26 @@ const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.loca
 
 let error: string | null = null;
 
+const TABS = [
+  { key: 'settings', label: 'Incident Windows' },
+  { key: 'banners', label: 'Page Banners' },
+  { key: 'car-logos', label: 'Car Logos' },
+  { key: 'offenses', label: 'Penalty Offenses' },
+  { key: 'champions', label: 'Champions & Hall of Fame' },
+] as const;
+type TabKey = (typeof TABS)[number]['key'];
+// Which tab each POST form lives on, so saving lands you back on it.
+const SECTION_TAB: Record<string, TabKey> = {
+  'incident-reporting': 'settings',
+  'incident-appeal': 'settings',
+  banner: 'banners',
+  'car-logo': 'car-logos',
+  'penalty-offense': 'offenses',
+};
+const requestedTab = Astro.url.searchParams.get('tab');
+let activeTab: TabKey =
+  TABS.find((t) => t.key === requestedTab)?.key ?? (Astro.url.searchParams.has('class') ? 'champions' : 'settings');
+
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop();
   if (fromName && fromName.length <= 5) return fromName.toLowerCase();
@@ -73,6 +98,8 @@ function slugify(name: string): string {
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const section = String(form.get('form_section') ?? '');
+  activeTab = SECTION_TAB[section] ?? activeTab;
+  const tabUrl = `/admin/site-properties?tab=${activeTab}`;
 
   if (section === 'incident-appeal') {
     const hours = Math.round(Number(String(form.get('period_hours') ?? '').trim()));
@@ -86,7 +113,7 @@ if (Astro.request.method === 'POST') {
           entity_type: 'site_property',
           entity_label: `Incident appeal window — ${hours}h`,
         });
-        return Astro.redirect('/admin/site-properties', 302);
+        return Astro.redirect(tabUrl, 302);
       } catch (err) {
         console.error('Failed to save incident appeal window:', err);
         error = err instanceof Error ? err.message : 'Failed to save the appeal window.';
@@ -104,7 +131,7 @@ if (Astro.request.method === 'POST') {
           entity_type: 'site_property',
           entity_label: `Incident reporting window — ${hours}h`,
         });
-        return Astro.redirect('/admin/site-properties', 302);
+        return Astro.redirect(tabUrl, 302);
       } catch (err) {
         console.error('Failed to save incident reporting period:', err);
         error = err instanceof Error ? err.message : 'Failed to save the reporting window.';
@@ -128,7 +155,7 @@ if (Astro.request.method === 'POST') {
           error = 'Failed to remove that logo.';
         }
       }
-      if (!error) return Astro.redirect('/admin/site-properties', 302);
+      if (!error) return Astro.redirect(tabUrl, 302);
     } else {
       const carName = String(form.get('car_name') ?? '').trim();
       const logoUrlField = String(form.get('logo_url') ?? '').trim();
@@ -153,7 +180,7 @@ if (Astro.request.method === 'POST') {
               entity_type: 'site_property',
               entity_label: `Car logo — ${carName}`,
             });
-            return Astro.redirect('/admin/site-properties', 302);
+            return Astro.redirect(tabUrl, 302);
           }
         } catch (err) {
           console.error('Failed to save car logo:', err);
@@ -180,7 +207,7 @@ if (Astro.request.method === 'POST') {
           error = 'Failed to remove that offense.';
         }
       }
-      if (!error) return Astro.redirect('/admin/site-properties', 302);
+      if (!error) return Astro.redirect(tabUrl, 302);
     } else {
       const id = String(form.get('id') ?? '');
       const name = String(form.get('name') ?? '').trim();
@@ -208,7 +235,7 @@ if (Astro.request.method === 'POST') {
               entity_id: created?.id,
             });
           }
-          return Astro.redirect('/admin/site-properties', 302);
+          return Astro.redirect(tabUrl, 302);
         } catch (err) {
           console.error('Failed to save penalty offense:', err);
           error = err instanceof Error ? err.message : 'Failed to save this offense.';
@@ -234,7 +261,7 @@ if (Astro.request.method === 'POST') {
         console.error('Failed to remove page banner:', err);
         error = 'Failed to remove that banner.';
       }
-      if (!error) return Astro.redirect('/admin/site-properties', 302);
+      if (!error) return Astro.redirect(tabUrl, 302);
     } else {
       const imageUrlField = String(form.get('image_url') ?? '').trim();
       const imageFile = form.get('image');
@@ -254,7 +281,7 @@ if (Astro.request.method === 'POST') {
             entity_type: 'site_property',
             entity_label: `Page banner — ${pageKey}`,
           });
-          return Astro.redirect('/admin/site-properties', 302);
+          return Astro.redirect(tabUrl, 302);
         }
       } catch (err) {
         console.error('Failed to save page banner:', err);
@@ -265,21 +292,25 @@ if (Astro.request.method === 'POST') {
 }
 
 let configured: Awaited<ReturnType<typeof getPageBanners>> = [];
-try {
-  configured = await getPageBanners(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load page banners:', err);
-  if (!error) error = 'Failed to load page banners.';
+if (activeTab === 'banners') {
+  try {
+    configured = await getPageBanners(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load page banners:', err);
+    if (!error) error = 'Failed to load page banners.';
+  }
 }
 const bannerByKey = new Map(configured.map((b) => [b.page_key, b.image_url]));
 
 let configuredCarLogos: Awaited<ReturnType<typeof getCarLogos>> = [];
 let driverCarNames: string[] = [];
-try {
-  [configuredCarLogos, driverCarNames] = await Promise.all([getCarLogos(supabaseEnv), getDistinctDriverCarNames(supabaseEnv)]);
-} catch (err) {
-  console.error('Failed to load car logos:', err);
-  if (!error) error = 'Failed to load car logos.';
+if (activeTab === 'car-logos') {
+  try {
+    [configuredCarLogos, driverCarNames] = await Promise.all([getCarLogos(supabaseEnv), getDistinctDriverCarNames(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to load car logos:', err);
+    if (!error) error = 'Failed to load car logos.';
+  }
 }
 const logoByCarName = new Map(configuredCarLogos.map((c) => [c.car_name, c.logo_url]));
 // Every car name worth showing a row for: currently-configured logos, plus
@@ -289,11 +320,13 @@ const logoByCarName = new Map(configuredCarLogos.map((c) => [c.car_name, c.logo_
 const allCarNames = [...new Set([...logoByCarName.keys(), ...driverCarNames])].sort((a, b) => a.localeCompare(b));
 
 let offenses: PenaltyOffense[] = [];
-try {
-  offenses = await getPenaltyOffenses(supabaseEnv);
-} catch (err) {
-  console.error('Failed to load penalty offenses:', err);
-  if (!error) error = 'Failed to load penalty offenses.';
+if (activeTab === 'offenses') {
+  try {
+    offenses = await getPenaltyOffenses(supabaseEnv);
+  } catch (err) {
+    console.error('Failed to load penalty offenses:', err);
+    if (!error) error = 'Failed to load penalty offenses.';
+  }
 }
 
 // --- Champions & Hall of Fame (formerly /admin/champions, "Photo Management") ---
@@ -307,11 +340,13 @@ try {
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 let championsLoadError: string | null = null;
-try {
-  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
-} catch (err) {
-  console.error('Failed to load admin champions filters:', err);
-  championsLoadError = err instanceof Error ? err.message : String(err);
+if (activeTab === 'champions') {
+  try {
+    [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+  } catch (err) {
+    console.error('Failed to load admin champions filters:', err);
+    championsLoadError = err instanceof Error ? err.message : String(err);
+  }
 }
 
 // Hall of Fame members section — separate from the season/class champion
@@ -319,29 +354,31 @@ try {
 // per-season/class; see hall_of_fame_photos vs champion_photos).
 let hofError: string | null = null;
 let hofMembers: { id: string; name: string; photoCount: number }[] = [];
-try {
-  const [hofDrivers, allDrivers, hofPhotos] = await Promise.all([
-    getHallOfFameDrivers(supabaseEnv),
-    driversSelect(supabaseEnv),
-    getAllHallOfFamePhotos(supabaseEnv),
-  ]);
-  const driverById = new Map(allDrivers.map((d) => [d.id, d]));
-  const photoCountByDriver = new Map<string, number>();
-  for (const photo of hofPhotos) {
-    photoCountByDriver.set(photo.driver_id, (photoCountByDriver.get(photo.driver_id) ?? 0) + 1);
+if (activeTab === 'champions') {
+  try {
+    const [hofDrivers, allDrivers, hofPhotos] = await Promise.all([
+      getHallOfFameDrivers(supabaseEnv),
+      driversSelect(supabaseEnv),
+      getAllHallOfFamePhotos(supabaseEnv),
+    ]);
+    const driverById = new Map(allDrivers.map((d) => [d.id, d]));
+    const photoCountByDriver = new Map<string, number>();
+    for (const photo of hofPhotos) {
+      photoCountByDriver.set(photo.driver_id, (photoCountByDriver.get(photo.driver_id) ?? 0) + 1);
+    }
+    hofMembers = hofDrivers
+      .map((h) => {
+        const driver = driverById.get(h.id);
+        return driver
+          ? { id: driver.id, name: displayDriverName(driver.name), photoCount: photoCountByDriver.get(driver.id) ?? 0 }
+          : null;
+      })
+      .filter((m): m is { id: string; name: string; photoCount: number } => m !== null)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error('Failed to load Hall of Fame members for admin:', err);
+    hofError = err instanceof Error ? err.message : String(err);
   }
-  hofMembers = hofDrivers
-    .map((h) => {
-      const driver = driverById.get(h.id);
-      return driver
-        ? { id: driver.id, name: displayDriverName(driver.name), photoCount: photoCountByDriver.get(driver.id) ?? 0 }
-        : null;
-    })
-    .filter((m): m is { id: string; name: string; photoCount: number } => m !== null)
-    .sort((a, b) => a.name.localeCompare(b.name));
-} catch (err) {
-  console.error('Failed to load Hall of Fame members for admin:', err);
-  hofError = err instanceof Error ? err.message : String(err);
 }
 
 // Gamma/Delta didn't exist for every season (seasons.gamma_enabled/
@@ -358,7 +395,7 @@ const activeClass = classes.find((c) => c.name === requestedClassName) ?? classe
 
 let champions: Awaited<ReturnType<typeof getChampions>> = [];
 let photoCountBySeason = new Map<string, number>();
-if (!championsLoadError && activeClass) {
+if (activeTab === 'champions' && !championsLoadError && activeClass) {
   try {
     const eligibleSeasons = seasons.filter((s) => classIsEnabledFor(activeClass.name, s));
     const [championsResult, photos] = await Promise.all([
@@ -376,12 +413,14 @@ if (!championsLoadError && activeClass) {
 }
 let incidentPeriodHours = 24;
 let incidentAppealHours = 24;
-try {
-  const settings = await getSiteSettings(supabaseEnv);
-  incidentPeriodHours = siteSettingInt(settings, INCIDENT_REPORT_PERIOD_HOURS_KEY);
-  incidentAppealHours = siteSettingInt(settings, INCIDENT_APPEAL_PERIOD_HOURS_KEY);
-} catch (err) {
-  console.error('Failed to load incident reporting period:', err);
+if (activeTab === 'settings') {
+  try {
+    const settings = await getSiteSettings(supabaseEnv);
+    incidentPeriodHours = siteSettingInt(settings, INCIDENT_REPORT_PERIOD_HOURS_KEY);
+    incidentAppealHours = siteSettingInt(settings, INCIDENT_APPEAL_PERIOD_HOURS_KEY);
+  } catch (err) {
+    console.error('Failed to load incident reporting period:', err);
+  }
 }
 ---
 
@@ -395,6 +434,15 @@ try {
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
+  <nav class="reveal mt-8 flex flex-wrap gap-2" aria-label="Site properties sections" style="transition-delay: 45ms">
+    {TABS.map((t) => (
+      <a href={`/admin/site-properties?tab=${t.key}`} class={`btn ${t.key === activeTab ? 'btn-active' : 'btn-neutral'}`} aria-current={t.key === activeTab ? 'page' : undefined}>
+        {t.label}
+      </a>
+    ))}
+  </nav>
+
+  {activeTab === 'settings' && (
   <section class="reveal mt-8" style="transition-delay: 50ms">
     <h2 class="font-semibold">Incident Reporting Window</h2>
     <p class="mt-1 max-w-2xl text-sm text-white/50">
@@ -440,20 +488,23 @@ try {
       <button type="submit" class="btn btn-primary">Save</button>
     </form>
   </section>
+  )}
 
+  {activeTab === 'banners' && (
   <section class="reveal mt-8" style="transition-delay: 60ms">
     <h2 class="font-semibold">Page Banners</h2>
     <p class="mt-1 max-w-2xl text-xs text-white/40">
       An optional background image for the space between the top nav and each page's own header — the Home entry is
       the homepage's larger hero section instead. Leave a page unset and it just renders plain black, same as before
-      any of this existed.
+      any of this existed. When you choose a file, a crop tool opens: drag the photo to reposition it and use the zoom
+      slider, and only the framed area is saved. (An image URL is used as-is, uncropped.)
     </p>
 
     <div class="mt-4 flex flex-col gap-3">
       {BANNER_PAGES.map((page) => {
         const imageUrl = bannerByKey.get(page.key) ?? null;
         return (
-          <div class="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-3 ring-1 ring-white/10">
+          <div class="flex flex-wrap items-center gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10">
             {imageUrl ? (
               <img src={imageUrl} alt="" class="h-10 w-16 flex-none rounded object-cover" />
             ) : (
@@ -463,7 +514,15 @@ try {
               <p class="font-semibold">{page.label}</p>
               <p class="text-xs text-white/40">{page.description}</p>
             </div>
-            <form method="POST" data-astro-reload enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
+            <form
+              method="POST"
+              data-astro-reload
+              enctype="multipart/form-data"
+              data-banner-form
+              data-crop-aspect={page.key === 'home' ? '2.2857' : '7'}
+              data-crop-phone={page.key === 'home' ? '0.76' : '2.44'}
+              class="flex flex-wrap items-center gap-2"
+            >
               <input type="hidden" name="form_section" value="banner" />
               <input type="hidden" name="intent" value="save" />
               <input type="hidden" name="page_key" value={page.key} />
@@ -476,6 +535,7 @@ try {
               <input
                 type="file"
                 name="image"
+                data-banner-file
                 accept="image/png,image/jpeg,image/webp"
                 class="w-56 text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
               />
@@ -498,8 +558,37 @@ try {
         );
       })}
     </div>
-  </section>
+    {/* One shared crop panel; the script below moves it into whichever banner row you pick a file for. */}
+    <div id="banner-cropper" hidden class="w-full basis-full rounded-lg border border-white/10 bg-brand-ink p-3">
+      <p class="text-xs text-white/50">
+        Drag the photo to reposition it, and use the slider to zoom. Everything inside the frame is saved.
+        <span data-crop-phone-note>The dashed lines show roughly what a phone shows.</span>
+      </p>
+      <div
+        data-crop-frame
+        class="relative mt-2 w-full cursor-grab touch-none select-none overflow-hidden rounded-md bg-black active:cursor-grabbing"
+        style="aspect-ratio: 7 / 1"
+      >
+        <img data-crop-img alt="" draggable="false" class="pointer-events-none absolute left-0 top-0 max-w-none select-none" />
+        <div data-crop-guide class="pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 border-x border-dashed border-white/70"></div>
+      </div>
+      <div class="mt-3 flex flex-wrap items-center gap-3 text-xs text-white/60">
+        <label class="flex items-center gap-2">
+          Zoom
+          <input type="range" data-crop-zoom min="1" max="4" step="0.01" value="1" class="w-48 accent-brand-primary" />
+        </label>
+        <button type="button" data-crop-reset class="btn btn-neutral btn-sm">Reset</button>
+        <label class="flex items-center gap-1.5">
+          <input type="checkbox" data-crop-skip class="h-3.5 w-3.5 accent-brand-primary" />
+          Upload the original, no crop
+        </label>
+      </div>
+    </div>
 
+  </section>
+  )}
+
+  {activeTab === 'car-logos' && (
   <section class="reveal mt-8" style="transition-delay: 100ms">
     <h2 class="font-semibold">Car Logos</h2>
     <p class="mt-1 max-w-2xl text-xs text-white/40">
@@ -513,7 +602,7 @@ try {
       {allCarNames.map((carName) => {
         const logoUrl = logoByCarName.get(carName) ?? null;
         return (
-          <div class="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-3 ring-1 ring-white/10">
+          <div class="flex flex-wrap items-center gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10">
             {logoUrl ? (
               <img src={logoUrl} alt="" class="h-10 w-10 flex-none rounded object-contain" />
             ) : (
@@ -598,7 +687,9 @@ try {
       </form>
     </details>
   </section>
+  )}
 
+  {activeTab === 'offenses' && (
   <section class="reveal mt-8" style="transition-delay: 120ms">
     <h2 class="font-semibold">Penalty Offenses</h2>
     <p class="mt-1 max-w-2xl text-xs text-white/40">
@@ -611,7 +702,7 @@ try {
     <div class="mt-4 flex flex-col gap-2">
       {offenses.length === 0 && <p class="text-sm text-white/40">No results.</p>}
       {offenses.map((o) => (
-        <div class="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-3 ring-1 ring-white/10">
+        <div class="flex flex-wrap items-center gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10">
           <form method="POST" data-astro-reload class="flex flex-1 flex-wrap items-center gap-2">
             <input type="hidden" name="form_section" value="penalty-offense" />
             <input type="hidden" name="intent" value="save" />
@@ -655,7 +746,7 @@ try {
       <summary class="btn btn-neutral list-none">
         Add an offense
       </summary>
-      <form method="POST" data-astro-reload class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+      <form method="POST" data-astro-reload class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-4">
         <input type="hidden" name="form_section" value="penalty-offense" />
         <input type="hidden" name="intent" value="save" />
         <label class="flex flex-col gap-1.5 text-sm">
@@ -691,7 +782,9 @@ try {
       </form>
     </details>
   </section>
+  )}
 
+  {activeTab === 'champions' && (
   <section id="champions" class="reveal mt-8" style="transition-delay: 140ms">
     <h2 class="font-semibold">Champions &amp; Hall of Fame Photos</h2>
     <p class="mt-1 max-w-2xl text-xs text-white/40">
@@ -739,7 +832,7 @@ try {
       <div class="reveal mt-3 flex flex-wrap gap-2">
         {classes.map((c) => (
           <a
-            href={`/admin/site-properties?class=${encodeURIComponent(c.name)}#champions`}
+            href={`/admin/site-properties?tab=champions&class=${encodeURIComponent(c.name)}`}
             class={`btn ${c.id === activeClass?.id ? 'btn-active' : 'btn-neutral'}`}
           >
             {c.name}
@@ -767,4 +860,211 @@ try {
       </div>
     )}
   </section>
+  )}
 </AdminLayout>
+
+<script>
+  // Banner crop tool. The chosen file is shown in a banner-shaped frame; you
+  // drag to reposition and zoom, and on submit the framed region is rendered to
+  // a 1600px-wide JPEG that replaces the file in the form before it's sent.
+  // Delegated listeners, bound once (this page is swapped in by the client
+  // router, so inline scripts must not assume a fresh document each visit).
+  let cropBound = false;
+
+  type CropState = {
+    form: HTMLFormElement;
+    input: HTMLInputElement;
+    img: HTMLImageElement;
+    nw: number;
+    nh: number;
+    zoom: number;
+    ox: number;
+    oy: number;
+    aspect: number;
+    url: string;
+  };
+  let state: CropState | null = null;
+
+  const panel = () => document.getElementById('banner-cropper') as HTMLElement | null;
+
+  function frameSize(p: HTMLElement) {
+    const frame = p.querySelector<HTMLElement>('[data-crop-frame]')!;
+    const r = frame.getBoundingClientRect();
+    return { frame, fw: r.width, fh: r.height };
+  }
+
+  function baseScale(fw: number, fh: number, st: CropState) {
+    return Math.max(fw / st.nw, fh / st.nh);
+  }
+
+  function clamp(st: CropState, fw: number, fh: number) {
+    const scale = baseScale(fw, fh, st) * st.zoom;
+    st.ox = Math.min(0, Math.max(fw - st.nw * scale, st.ox));
+    st.oy = Math.min(0, Math.max(fh - st.nh * scale, st.oy));
+  }
+
+  function render() {
+    const p = panel();
+    if (!p || !state) return;
+    const { fw, fh } = frameSize(p);
+    clamp(state, fw, fh);
+    const scale = baseScale(fw, fh, state) * state.zoom;
+    const img = state.img;
+    img.style.width = `${state.nw * scale}px`;
+    img.style.height = `${state.nh * scale}px`;
+    img.style.transform = `translate(${state.ox}px, ${state.oy}px)`;
+  }
+
+  function resetView() {
+    const p = panel();
+    if (!p || !state) return;
+    const { fw, fh } = frameSize(p);
+    state.zoom = 1;
+    const scale = baseScale(fw, fh, state);
+    state.ox = (fw - state.nw * scale) / 2;
+    state.oy = (fh - state.nh * scale) / 2;
+    const zoom = p.querySelector<HTMLInputElement>('[data-crop-zoom]');
+    if (zoom) zoom.value = '1';
+    render();
+  }
+
+  function closeCropper() {
+    const p = panel();
+    if (state) URL.revokeObjectURL(state.url);
+    state = null;
+    if (p) p.hidden = true;
+  }
+
+  function openCropper(input: HTMLInputElement, file: File) {
+    const p = panel();
+    const form = input.closest<HTMLFormElement>('[data-banner-form]');
+    if (!p || !form) return;
+    // A previous row's pending file would otherwise be uploaded uncropped.
+    if (state && state.input !== input) state.input.value = '';
+    if (state) URL.revokeObjectURL(state.url);
+
+    const aspect = Number(form.dataset.cropAspect) || 7;
+    const phoneAspect = Number(form.dataset.cropPhone) || 2.44;
+    const row = form.parentElement!;
+    row.appendChild(p);
+    p.hidden = false;
+    const frame = p.querySelector<HTMLElement>('[data-crop-frame]')!;
+    frame.style.aspectRatio = `${aspect} / 1`;
+    const guide = p.querySelector<HTMLElement>('[data-crop-guide]')!;
+    guide.style.width = `${Math.min(1, phoneAspect / aspect) * 100}%`;
+    guide.style.display = phoneAspect / aspect >= 0.98 ? 'none' : '';
+    const skip = p.querySelector<HTMLInputElement>('[data-crop-skip]');
+    if (skip) skip.checked = false;
+
+    const url = URL.createObjectURL(file);
+    const img = p.querySelector<HTMLImageElement>('[data-crop-img]')!;
+    img.onload = () => {
+      state = { form, input, img, nw: img.naturalWidth, nh: img.naturalHeight, zoom: 1, ox: 0, oy: 0, aspect, url };
+      resetView();
+    };
+    img.src = url;
+  }
+
+  async function cropToBlob(st: CropState, p: HTMLElement): Promise<Blob | null> {
+    const { fw, fh } = frameSize(p);
+    const scale = baseScale(fw, fh, st) * st.zoom;
+    const sx = -st.ox / scale;
+    const sy = -st.oy / scale;
+    const sw = fw / scale;
+    const sh = fh / scale;
+    const outW = Math.min(1600, Math.round(sw));
+    const outW2 = Math.max(outW, 800);
+    const outH = Math.round(outW2 / st.aspect);
+    const canvas = document.createElement('canvas');
+    canvas.width = outW2;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, outW2, outH);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(st.img, sx, sy, sw, sh, 0, 0, outW2, outH);
+    return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9));
+  }
+
+  function initBannerCropper() {
+    if (cropBound) return;
+    cropBound = true;
+
+    document.addEventListener('change', (e) => {
+      const t = e.target as HTMLElement;
+      if (t instanceof HTMLInputElement && t.matches('[data-banner-file]')) {
+        const file = t.files?.[0];
+        if (file) openCropper(t, file);
+        else closeCropper();
+      } else if (t instanceof HTMLInputElement && t.matches('[data-crop-zoom]') && state) {
+        const p = panel();
+        if (!p) return;
+        const { fw, fh } = frameSize(p);
+        const old = baseScale(fw, fh, state) * state.zoom;
+        const cx = (fw / 2 - state.ox) / old;
+        const cy = (fh / 2 - state.oy) / old;
+        state.zoom = Number(t.value);
+        const next = baseScale(fw, fh, state) * state.zoom;
+        state.ox = fw / 2 - cx * next;
+        state.oy = fh / 2 - cy * next;
+        render();
+      }
+    });
+    // The zoom slider should follow the thumb live, not only on release.
+    document.addEventListener('input', (e) => {
+      const t = e.target as HTMLElement;
+      if (t instanceof HTMLInputElement && t.matches('[data-crop-zoom]')) t.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    document.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-crop-reset]')) resetView();
+    });
+
+    let drag: { x: number; y: number; ox: number; oy: number } | null = null;
+    document.addEventListener('pointerdown', (e) => {
+      const frame = (e.target as HTMLElement).closest('[data-crop-frame]');
+      if (!frame || !state) return;
+      drag = { x: e.clientX, y: e.clientY, ox: state.ox, oy: state.oy };
+      (frame as HTMLElement).setPointerCapture(e.pointerId);
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!drag || !state) return;
+      state.ox = drag.ox + (e.clientX - drag.x);
+      state.oy = drag.oy + (e.clientY - drag.y);
+      render();
+    });
+    const endDrag = () => {
+      drag = null;
+    };
+    document.addEventListener('pointerup', endDrag);
+    document.addEventListener('pointercancel', endDrag);
+    window.addEventListener('resize', render);
+
+    document.addEventListener('submit', async (e) => {
+      const form = e.target as HTMLFormElement;
+      if (!form.matches?.('[data-banner-form]') || !state || state.form !== form) return;
+      const p = panel();
+      if (!p || p.hidden) return;
+      const skip = p.querySelector<HTMLInputElement>('[data-crop-skip]');
+      if (skip?.checked) return; // upload the original file as chosen
+      e.preventDefault();
+      const blob = await cropToBlob(state, p);
+      if (!blob) {
+        // Couldn't render a crop; fall back to the original rather than losing the upload.
+        form.submit();
+        return;
+      }
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], 'banner.jpg', { type: 'image/jpeg' }));
+      state.input.files = dt.files;
+      form.submit();
+    });
+  }
+
+  initBannerCropper();
+  document.addEventListener('astro:page-load', initBannerCropper);
+
+  export {};
+</script>

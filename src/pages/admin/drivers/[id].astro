@@ -502,7 +502,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
     <h1 class="font-display text-4xl">{isNew ? 'New Driver' : d.name}</h1>
     {!isNew && (
       <div class="flex flex-col items-end gap-1 text-right">
-        <div class="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm font-semibold text-white/80">
+        <div class="rounded-md border border-white/10 bg-brand-ink px-3 py-1.5 text-sm font-semibold text-white/80">
           {statusName ?? '—'}
         </div>
         {inactivityNote && <span class="max-w-xs text-xs text-white/40">{inactivityNote}</span>}
@@ -676,7 +676,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
 
         <div class="flex flex-col gap-1.5 text-sm sm:col-span-2">
           <span class="text-white/70">Career stats</span>
-          <div class="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-white/70 sm:grid-cols-5">
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border border-white/10 bg-brand-ink px-3 py-2 text-white/70 sm:grid-cols-5">
             <div><span class="text-white/40">Appearances</span> <span class="font-semibold text-white/90">{d.appearances}</span></div>
             <div><span class="text-white/40">Starts</span> <span class="font-semibold text-white/90">{d.starts}</span></div>
             <div><span class="text-white/40">Seasons</span> <span class="font-semibold text-white/90">{d.seasons_count}</span></div>
@@ -733,7 +733,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
               const hasOverride = seasonClassOverrideBySeasonId.has(season.id);
               const effectiveClassId = seasonClassOverrideBySeasonId.get(season.id) ?? d.class_id;
               return (
-                <li class="flex flex-wrap items-center gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
+                <li class="flex flex-wrap items-center gap-3 rounded-md bg-brand-ink px-3 py-2 text-sm ring-1 ring-white/10">
                   <span class="min-w-[8rem] font-semibold">{season.name}</span>
                   <form method="POST" data-astro-reload class="flex flex-wrap items-center gap-3">
                     <input type="hidden" name="intent" value="set-season-class" />
@@ -788,7 +788,7 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
               const hasOverride = seasonNumberOverrideBySeasonId.has(season.id);
               const effectiveNumber = seasonNumberOverrideBySeasonId.get(season.id) ?? d.car_number ?? '';
               return (
-                <li class="flex flex-wrap items-center gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
+                <li class="flex flex-wrap items-center gap-3 rounded-md bg-brand-ink px-3 py-2 text-sm ring-1 ring-white/10">
                   <span class="min-w-[8rem] font-semibold">{season.name}</span>
                   <form method="POST" data-astro-reload class="flex flex-wrap items-center gap-2">
                     <input type="hidden" name="intent" value="set-season-number" />

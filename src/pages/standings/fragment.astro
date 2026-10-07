@@ -439,7 +439,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {matrixColumns.length > 1 && (
               <div class="group relative flex flex-col gap-1.5">
                 <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Standings by Round</span>
-                <div class="flex h-9 items-center gap-3">
+                {/* Ticks + floating round tag (styles: .round-slider in global.css). The tag is the live
+                    readout — standings.astro's slider script writes its text and the --p / --steps vars. */}
+                <div class="round-slider" style={`--p: ${matrixColumns.length > 1 ? ((sliderValue - 1) / (matrixColumns.length - 1)) * 100 : 100}%; --f: ${matrixColumns.length > 1 ? (sliderValue - 1) / (matrixColumns.length - 1) : 1}; --steps: ${Math.max(1, matrixColumns.length - 1)}`}>
+                  <div class="round-slider-ticks" aria-hidden="true"></div>
                   <input
                     type="range"
                     id="timeline-slider"
@@ -449,10 +452,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     value={sliderValue}
                     aria-label="Standings by Round"
                     data-cols={JSON.stringify(sliderCols)}
-                    class="w-40 accent-brand-primary"
                   />
-                  <span id="timeline-slider-value" class="min-w-[4.5rem] text-white/70">
-                    Round {sliderCols[sliderValue - 1]?.r ?? sliderValue}
+                  <span id="timeline-slider-value" class="round-slider-tag" aria-live="polite">
+                    R{sliderCols[sliderValue - 1]?.r ?? sliderValue}
                   </span>
                 </div>
                 <span
@@ -892,7 +894,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   ) : (
                     <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3" data-roster>
                       {roster.map((driverStanding) => (
-                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2" data-roster-driver={driverStanding.driver.id} data-orig-pos={driverStanding.position}>
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-brand-ink px-3 py-2" data-roster-driver={driverStanding.driver.id} data-orig-pos={driverStanding.position}>
                           <span class="flex items-center gap-1.5 font-semibold text-white/90">
                             <span class="hidden sm:contents">
                               <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />

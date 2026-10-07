@@ -190,7 +190,7 @@ for (const a of seasonAwards) {
                     {winners.map((w) => {
                       const driver = driverById.get(w.driver_id);
                       return (
-                        <li class="flex items-center justify-between gap-3 rounded-md bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10">
+                        <li class="flex items-center justify-between gap-3 rounded-md bg-brand-ink px-3 py-2 text-sm ring-1 ring-white/10">
                           <span>
                             {driver?.name ?? 'Unknown driver'}
                             {driver?.car_number != null && <span class="text-white/40"> #{driver.car_number}</span>}

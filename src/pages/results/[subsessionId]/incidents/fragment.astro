@@ -962,7 +962,7 @@ const nextIncidentNumber =
                 const style = agreement ? agreementStyles[agreement] : null;
                 const duplicateOriginal = duplicateOriginalById.get(r.id);
                 return (
-                <li class={`rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-white/5'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
+                <li class={`rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-brand-ink'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <p class="font-semibold text-white/80">
                       {reportLabel(r)}
@@ -1081,7 +1081,7 @@ const nextIncidentNumber =
                 const appealed = penalties.find((p) => p.id === a.penalty_id);
                 const appealedDriver = appealed?.driver_id ? driverById.get(appealed.driver_id) : undefined;
                 return (
-                  <li class={`rounded-lg border border-white/10 bg-white/5 p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}>
+                  <li class={`rounded-lg border border-white/10 bg-brand-ink p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}>
                     <div class="flex flex-wrap items-center justify-between gap-2">
                       <p class="font-semibold text-white/80">
                         {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
@@ -1460,7 +1460,7 @@ const nextIncidentNumber =
                   Appealed
                 </label>
 
-                <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-white/5 p-3">
+                <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-brand-ink p-3">
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
                     Appeal result
                     <textarea
