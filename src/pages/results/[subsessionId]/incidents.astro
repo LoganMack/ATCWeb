@@ -595,6 +595,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         // against whatever exists at astro:page-load, so re-dispatch it now
         // that the real content is in place.
         document.dispatchEvent(new Event('astro:page-load'));
+        // The browser's own jump to #hash happened before this content existed
+        // (e.g. #reported-incidents after saving a review), so do it now — then
+        // drop the hash, or every later refresh would yank the steward back here.
+        if (location.hash) {
+          try {
+            document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+          } catch {
+            // Malformed hash — not worth losing the page over.
+          }
+          history.replaceState(history.state, '', location.pathname + location.search);
+        }
       })
       .catch((err) => {
         console.error('Failed to load incident:', err);
