@@ -82,7 +82,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" data-news-filter class="reveal mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 40ms">
+      <form method="GET" data-news-filter class="reveal relative z-30 mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 40ms">
        <div class="flex flex-wrap items-end gap-3">
         <input
           type="search"

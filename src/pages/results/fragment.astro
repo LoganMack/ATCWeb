@@ -1,8 +1,9 @@
 ---
 export const prerender = false;
 
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName } from '../../lib/supabase';
-import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions } from '../../lib/results';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName, getCircuits } from '../../lib/supabase';
+import TeamLogo from '../../components/TeamLogo.astro';
+import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions, normalizeTrackOrLayoutName } from '../../lib/results';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
 
@@ -62,6 +63,8 @@ let displayRoundNumbers: Map<number, number | null> = new Map();
 // the site (calendar.astro, results/[subsessionId].astro's layoutCorners
 // lookup); formatted for display with displayLayoutName() at render time.
 let layoutBySubsession: Map<number, string | null> = new Map();
+// Track logo per round (circuit matched by track name, same as the Standings matrix headers); a track without one gets TeamLogo's initials tile.
+let trackLogoByName: Map<string, string | null> = new Map();
 
 if (!loadError && (activeSeason || activePooledFilter)) {
   try {
@@ -84,6 +87,12 @@ if (!loadError && (activeSeason || activePooledFilter)) {
       supabaseEnv,
       rounds.map((r) => r.subsession_id)
     );
+    try {
+      const circuits = await getCircuits(supabaseEnv);
+      trackLogoByName = new Map(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c.logo_url ?? null]));
+    } catch (err) {
+      console.error('Failed to load circuits for results logos:', err);
+    }
   } catch (err) {
     console.error('Failed to load rounds:', err);
     loadError = true;
@@ -100,7 +109,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" class="mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
+      <form method="GET" class="relative z-30 mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
        <div class="flex flex-wrap items-end gap-3">
         <label class="flex flex-col gap-1.5 sm:w-44">
           <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
@@ -171,7 +180,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             href={`/results/${round.subsession_id}${currentSeasonParam ? `?season=${encodeURIComponent(currentSeasonParam)}` : ''}`}
             class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
           >
-            <div>
+            <div class="flex min-w-0 items-center gap-4">
+              <TeamLogo name={round.track_name} logoUrl={trackLogoByName.get(normalizeTrackOrLayoutName(round.track_name)) ?? null} size="h-10 w-10" tint />
+              <div>
               <p class="font-semibold">
                 {titlePrefix}{trackLabel}
               </p>
@@ -179,6 +190,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 {formatDate(round.start_time)}
                 {round.format && ` · ${round.format === 'endurance' ? 'Endurance' : 'Sprint'}`}
               </p>
+              </div>
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
               {activePooledFilter === 'test-sessions' && isExhibition && (

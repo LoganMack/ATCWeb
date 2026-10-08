@@ -276,7 +276,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const n = Number(slider!.value);
       const atMax = n >= maxN;
       const roundText = String(cols[n - 1]?.r ?? n);
-      if (label) label.textContent = `R${roundText}`;
+      if (label) label.textContent = `Round ${roundText}`;
       if (roundInput) {
         roundInput.disabled = atMax;
         roundInput.value = roundText;
@@ -403,7 +403,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     if (!root || !dataEl || !plot || !legend || root.dataset.bound === 'true') return;
     root.dataset.bound = 'true';
 
-    type Series = { id: string; name: string; full: string; short: string; tag: string; cum: (number | null)[]; pts: (number | null)[] };
+    type Series = { id: string; name: string; full: string; short: string; tag: string; logo?: string; cum: (number | null)[]; pts: (number | null)[] };
     const data = JSON.parse(dataEl.textContent ?? '{}') as {
       cols: { r: number | null; t: string; k: string }[];
       series: Series[];
@@ -541,9 +541,21 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         const leaders = visible
           .filter((x) => val(x.s, n - 1) !== null)
           .sort((a, b) => (val(b.s, n - 1) as number) - (val(a.s, n - 1) as number))
-          .slice(0, 4);
+          .slice(0, visible.some((x) => x.s.logo) ? 8 : 4);
         let lastY = -99;
         for (const { s } of leaders) {
+          if (s.logo) {
+            // Team championship: the team's logo sits at the line end instead of its name.
+            const size = 24;
+            const y = Math.max(Y(val(s, n - 1) as number) - size / 2, lastY + size + 2);
+            lastY = y;
+            const img = el('image', { x: w - m.r + 8, y, width: size, height: size, href: s.logo, preserveAspectRatio: 'xMidYMid meet' });
+            const title = el('title', {});
+            title.textContent = s.full;
+            img.appendChild(title);
+            svg.appendChild(img);
+            continue;
+          }
           const y = Math.max(Y(val(s, n - 1) as number) + 4, lastY + 13);
           lastY = y;
           const t = el('text', { x: w - m.r + 8, y, fill: 'var(--g-ink)', 'font-size': 11 });
