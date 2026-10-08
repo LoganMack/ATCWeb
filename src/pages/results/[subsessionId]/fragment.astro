@@ -543,6 +543,8 @@ const practice = await practicePromise;
 const seasonParam = Astro.url.searchParams.get('season');
 const seasonQuerySuffix = seasonParam ? `&season=${encodeURIComponent(seasonParam)}` : '';
 const incidentsHref = `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
+// The round's public highlights page (0101_kudos.sql) — always available, no window.
+const kudosHref = `/results/${subsessionId}/kudos${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
 
 /** Destination URL for a session/class combination (the two dropdowns' option values) — keeps the season filter this round was opened from. */
 function resultsHref(session: string, cls: string): string {
@@ -739,6 +741,7 @@ Astro.response.headers.set(
               <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
             )}
             <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
+            <a href={kudosHref} class="btn btn-primary">Kudos</a>
           </div>
         </div>
         </div>
