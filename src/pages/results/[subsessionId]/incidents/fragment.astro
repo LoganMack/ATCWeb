@@ -1122,24 +1122,34 @@ const nextIncidentNumber =
                       </p>
                     )}
 
+                    {/* Collapsed by default, like the Dismissed group — every action on
+                        this page reloads it, so a list that started open would undo
+                        any hiding. The count and agreement colour above stay visible. */}
                     {canSeeReviews && visibleReviews.length > 0 ? (
-                      <ul class="mt-2 flex flex-col gap-2">
-                        {visibleReviews.map((v) => (
-                          <li class="rounded-md bg-white/5 p-2 text-xs">
-                            <p class="font-semibold text-white/80">
-                              {v.reviewer_id === myUserId ? 'You' : (v.reviewer_name ?? 'Unknown steward')}
-                              <span class="font-normal text-white/50">
-                                {' · '}
-                                {v.faults.length === 0
-                                  ? 'Racing Incident'
-                                  : v.faults.map((f) => `${reviewDriverLabel(f.driver_id)} · ${reviewPenaltyLabel(f.penalty)}`).join(', ')}
-                              </span>
-                              {v.edited_at && <span class="ml-1 font-normal italic text-white/40">(edited)</span>}
-                            </p>
-                            <p class="mt-1 whitespace-pre-line text-white/70">{v.explanation}</p>
-                          </li>
-                        ))}
-                      </ul>
+                      <details class="group/reviews mt-2">
+                        <summary class="flex cursor-pointer list-none items-center gap-2 text-xs text-white/50 hover:text-white/70 [&::-webkit-details-marker]:hidden">
+                          <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/reviews:rotate-90" aria-hidden="true">&#9654;</span>
+                          <span class="group-open/reviews:hidden">Show reviews ({visibleReviews.length})</span>
+                          <span class="hidden group-open/reviews:inline">Hide reviews</span>
+                        </summary>
+                        <ul class="mt-1.5 flex flex-col gap-2">
+                          {visibleReviews.map((v) => (
+                            <li class="rounded-md bg-white/5 p-2 text-xs">
+                              <p class="font-semibold text-white/80">
+                                {v.reviewer_id === myUserId ? 'You' : (v.reviewer_name ?? 'Unknown steward')}
+                                <span class="font-normal text-white/50">
+                                  {' · '}
+                                  {v.faults.length === 0
+                                    ? 'Racing Incident'
+                                    : v.faults.map((f) => `${reviewDriverLabel(f.driver_id)} · ${reviewPenaltyLabel(f.penalty)}`).join(', ')}
+                                </span>
+                                {v.edited_at && <span class="ml-1 font-normal italic text-white/40">(edited)</span>}
+                              </p>
+                              <p class="mt-1 whitespace-pre-line text-white/70">{v.explanation}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     ) : (
                       reviewCount > 0 && !reviewsLocked && (
                         <p class="mt-2 text-xs text-white/40">Submit your own review to see the other stewards'.</p>
