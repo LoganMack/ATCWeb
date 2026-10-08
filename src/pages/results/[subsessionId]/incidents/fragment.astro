@@ -79,6 +79,10 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // handlers below — while previewing.
 const isAdmin = isAdminView(Astro.locals);
 const subsessionId = Number(Astro.params.subsessionId);
+// id of the Reported Incidents panel. Dismiss/Reopen and saving a review
+// redirect to it, so the steward lands back on their review queue instead of
+// the top of the page; the shell scrolls to it once the fragment is in.
+const REPORTS_ANCHOR = 'reported-incidents';
 // Where this report's visible page lives — every POST below redirects back to it, not to this fragment URL.
 const shellPath = `/results/${Astro.params.subsessionId}/incidents`;
 // The fragment owns the POST handling, so its forms post here and carry the page's query string along (the redirect lands back on the same view).
@@ -250,7 +254,9 @@ if (isAdmin && postForm) {
     } catch (err) {
       console.error('Failed to save incident:', err);
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
+    // Logged from the Reported Incidents panel → back to it, like Dismiss/Reopen below.
+    const fromReport = intent === 'add-incident' && Boolean(form.get('from_report_id'));
+    return Astro.redirect(`${shellPath}${Astro.url.search}${fromReport ? `#${REPORTS_ANCHOR}` : ''}`, 302);
   }
 
   if (intent === 'set-report-status') {
@@ -263,7 +269,11 @@ if (isAdmin && postForm) {
         console.error('Failed to update incident report status:', err);
       }
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
+    // Back to the top of the reports list (see REPORTS_ANCHOR), not the top of
+    // the page, without a ?review= failure left over from an earlier save.
+    const url = new URL(Astro.url);
+    url.searchParams.delete('review');
+    return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
   }
 
   // Steward review of a driver-submitted report (0096) — the database
@@ -280,7 +290,7 @@ if (isAdmin && postForm) {
       const url = new URL(Astro.url);
       if (code) url.searchParams.set('review', code);
       else url.searchParams.delete('review');
-      return Astro.redirect(`${shellPath}${url.search}`, 302);
+      return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
     };
     if (!reportId || !driverRaw || !penalty || !explanation) return back('invalid');
     try {
@@ -656,6 +666,8 @@ incidentReports.sort(
 // and turn, plus at least one car in common — reporters often leave cars out,
 // so "04 and 11" and "04" still match. Turn is free text, so case and a
 // leading "T"/"Turn" are ignored ("10", "T10", "turn 10" all match).
+// Dismissed reports are left out: once a duplicate is dismissed, the report it
+// duplicated stops being flagged (and is flagged again if it's Reopened).
 function normalizeTurn(turn: string): string {
   return turn.trim().toLowerCase().replace(/^(turn|t)\s*(?=\d)/, '').replace(/\s+/g, ' ');
 }
@@ -664,10 +676,11 @@ const possibleDuplicateReportIds = new Set<string>();
 // duplicate maps to the earliest report it matches, for the "review that one
 // instead" note.
 const duplicateOriginalById = new Map<string, IncidentReport>();
-for (let i = 0; i < incidentReports.length; i++) {
-  for (let j = i + 1; j < incidentReports.length; j++) {
-    const a = incidentReports[i];
-    const b = incidentReports[j];
+const duplicateCandidates = incidentReports.filter((r) => r.status !== 'dismissed');
+for (let i = 0; i < duplicateCandidates.length; i++) {
+  for (let j = i + 1; j < duplicateCandidates.length; j++) {
+    const a = duplicateCandidates[i];
+    const b = duplicateCandidates[j];
     if (
       a.session === b.session &&
       a.lap === b.lap &&
@@ -712,8 +725,12 @@ const myUserId = Astro.locals.session?.user.id ?? null;
 // A steward linked to one of a report's drivers can't review it, but can read
 // everyone else's reviews of it (0099).
 const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+function isInvolved(r: IncidentReport): boolean {
+  return myDriverId !== null && r.driver_ids.includes(myDriverId);
+}
 const reviewsByReport = new Map<string, IncidentReportReview[]>();
 let reviewCounts = new Map<string, number>();
+let reviewsLoadFailed = false;
 if (viewReports && incidentReports.length > 0) {
   try {
     const token = Astro.locals.session!.accessToken;
@@ -728,8 +745,36 @@ if (viewReports && incidentReports.length > 0) {
     reviewCounts = counts;
   } catch (err) {
     console.error('Failed to load incident report reviews:', err);
+    reviewsLoadFailed = true;
   }
 }
+function myReviewOf(reportId: string): IncidentReportReview | null {
+  return reviewsByReport.get(reportId)?.find((v) => v.reviewer_id === myUserId) ?? null;
+}
+// The reports split into three groups, each still in chronological order, so
+// the next report this steward hasn't reviewed is always first in the list:
+// Needs your review (not dismissed, voting still open, no review from you yet),
+// Reviewed (you've reviewed it, it was logged and voting is over, or you were
+// involved and can't review it), and
+// Dismissed (collapsed at the bottom). If the reviews didn't load there's no
+// telling what this steward has reviewed, so everything not dismissed goes in
+// one ungrouped list instead of a wrong queue (with a warning above it).
+interface ReportGroup { title: string; empty: string | null; collapsed: boolean; reports: IncidentReport[] }
+const needsReviewGroup: ReportGroup = { title: 'Needs your review', empty: "You're all caught up — nothing left for you to review.", collapsed: false, reports: [] };
+const reviewedGroup: ReportGroup = { title: 'Reviewed', empty: null, collapsed: false, reports: [] };
+const notDismissedGroup: ReportGroup = { title: 'Open and logged', empty: null, collapsed: false, reports: [] };
+const dismissedGroup: ReportGroup = { title: 'Dismissed', empty: null, collapsed: true, reports: [] };
+for (const r of incidentReports) {
+  const group =
+    r.status === 'dismissed' ? dismissedGroup
+    : reviewsLoadFailed ? notDismissedGroup
+    : myReviewOf(r.id) || r.reviews_closed_at || isInvolved(r) ? reviewedGroup
+    : needsReviewGroup;
+  group.reports.push(r);
+}
+const reportGroups = reviewsLoadFailed
+  ? [notDismissedGroup, dismissedGroup]
+  : [needsReviewGroup, reviewedGroup, dismissedGroup];
 const agreementStyles = {
   all: { item: 'border-emerald-400/60 bg-emerald-400/10', text: 'text-emerald-400', label: 'All stewards agree' },
   driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same driver, different penalties' },
@@ -920,10 +965,6 @@ const nextIncidentNumber =
           </p>
         )}
 
-        {reviewFlash && (
-          <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
-        )}
-
         {importedCount !== null && (
           <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
             Imported {importedCount} incident{importedCount === '1' ? '' : 's'}.
@@ -936,24 +977,43 @@ const nextIncidentNumber =
         )}
 
         {viewReports && incidentReports.length > 0 && (
-          <details open class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
+          <details open id={REPORTS_ANCHOR} class="group mt-6 scroll-mt-[var(--sticky-header-offset)] rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
             <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
               <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
               <h2 class="font-display text-xl text-brand-gold">
                 Reported Incidents
                 <span class="ml-2 text-sm text-white/40">
-                  {incidentReports.filter((r) => r.status === 'open').length} open
+                  {!reviewsLoadFailed && `${needsReviewGroup.reports.length} to review · `}{incidentReports.filter((r) => r.status === 'open').length} open
                 </span>
               </h2>
             </summary>
-            <ul class="mt-3 flex flex-col gap-2">
-              {incidentReports.map((r) => {
+            {/* Inside the panel, not above it: a failed save lands back here at #reported-incidents. */}
+            {reviewFlash && (
+              <p class="mt-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
+            )}
+            {reviewsLoadFailed && (
+              <p class="mt-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
+                Couldn't load the steward reviews, so the reports aren't sorted by what you've reviewed. Try refreshing.
+              </p>
+            )}
+            {reportGroups.map((g) => (g.reports.length === 0 && !g.empty) ? null : (
+            <details open={!g.collapsed} class="group/reports mt-4">
+              <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+                <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/reports:rotate-90" aria-hidden="true">&#9654;</span>
+                <h3 class="text-sm font-semibold uppercase tracking-wide text-white/60">
+                  {g.title}
+                  <span class="ml-1 font-normal normal-case tracking-normal text-white/40">({g.reports.length})</span>
+                </h3>
+              </summary>
+            {g.reports.length === 0 && <p class="mt-2 text-xs text-white/40">{g.empty}</p>}
+            <ul class="mt-2 flex flex-col gap-2">
+              {g.reports.map((r) => {
                 const visibleReviews = reviewsByReport.get(r.id) ?? [];
-                const myReview = visibleReviews.find((v) => v.reviewer_id === myUserId) ?? null;
+                const myReview = myReviewOf(r.id);
                 const reviewCount = reviewCounts.get(r.id) ?? visibleReviews.length;
                 // Closed for good once first logged — a Reopen doesn't reopen voting (0096).
                 const reviewsLocked = Boolean(r.reviews_closed_at);
-                const involved = myDriverId !== null && r.driver_ids.includes(myDriverId);
+                const involved = isInvolved(r);
                 // Others' reviews (and the colour) only once you've voted, or once
                 // the report is logged and voting is over — otherwise it would leak the outcome.
                 // An involved steward can't vote, so there's no vote to keep blind.
@@ -1009,7 +1069,11 @@ const nextIncidentNumber =
                         )}
                       </p>
                       {reviewsLocked ? (
-                        <span class="text-xs text-white/40">Reviews closed — incident was logged</span>
+                        <span class="text-xs text-white/40">
+                          {r.status === 'open'
+                            ? 'Reopened after logging — reviews stay closed; log or dismiss it'
+                            : 'Reviews closed — incident was logged'}
+                        </span>
                       ) : involved ? (
                         <span class="text-xs text-white/40">You were involved — can't review</span>
                       ) : (
@@ -1062,6 +1126,8 @@ const nextIncidentNumber =
                 );
               })}
             </ul>
+            </details>
+            ))}
           </details>
         )}
 
