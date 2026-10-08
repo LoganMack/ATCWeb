@@ -555,7 +555,20 @@ let roundPickerGroups: RoundGroup<RoundSummary>[] = [];
 const seasonNumberById = new Map<string, number>();
 try {
   const [everyRound, everySeason] = await Promise.all([getAllRounds(supabaseEnv), getSeasons(supabaseEnv)]);
-  roundPickerGroups = groupRoundsBySeason(everyRound);
+  const seasonById = new Map(everySeason.map((s) => [s.id, s]));
+  // Same criteria as the Race Results list: a round must belong to a season,
+  // and in a championship season the individually-flagged exhibition/test
+  // rounds are left out (they only appear under the list's pooled "Exhibition
+  // Rounds" / "Test Sessions" entries). A round in a whole exhibition season
+  // is listed. The round being viewed always stays in, so the dropdown can show it.
+  const listedRounds = everyRound.filter((r) => {
+    if (r.subsession_id === subsessionId) return true;
+    const season = seasonById.get(r.season_id);
+    if (!season) return false;
+    if (!isChampionshipSeason(season.name)) return true;
+    return !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id);
+  });
+  roundPickerGroups = groupRoundsBySeason(listedRounds);
   for (const s of everySeason) seasonNumberById.set(s.id, s.number);
 } catch (err) {
   console.error('Failed to load rounds for the round picker:', err);
@@ -568,7 +581,7 @@ function roundHref(target: { subsession_id: number; season_id: string | null }):
   return `/results/${target.subsession_id}?class=${classKey}${season ? `&season=${encodeURIComponent(season)}` : ''}`;
 }
 const selectClass =
-  'h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary';
+  'h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5';
 const sessionChoices: { key: string; label: string }[] = [
   { key: 'practice', label: 'Practice' },
   { key: 'qualifying', label: 'Qualifying' },
@@ -687,29 +700,39 @@ Astro.response.headers.set(
             the left (each option's value is the full destination URL;
             onchange just navigates there, same as a plain link would), the
             blue Race Links button and yellow incident button on the right. */}
-        <div class="mt-8 flex flex-wrap items-center gap-3">
+        <div class="mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
+        <div class="flex flex-wrap items-end gap-3">
           {roundPickerGroups.length > 0 && (
-            <select aria-label="Round" class={`${selectClass} max-w-full sm:max-w-sm`} onchange="window.location.href=this.value">
-              {roundPickerGroups.map((g) => (
-                <optgroup label={g.label} class="bg-brand-ink text-white">
-                  {g.rounds.map((r) => (
-                    <option value={roundHref(r)} selected={r.subsession_id === subsessionId} class="bg-brand-ink text-white">{roundOptionLabel(r)}</option>
-                  ))}
-                </optgroup>
+            <label class="flex w-full flex-col gap-1.5 sm:w-72">
+              <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Round</span>
+              <select aria-label="Round" class={selectClass} onchange="window.location.href=this.value">
+                {roundPickerGroups.map((g) => (
+                  <optgroup label={g.label} class="bg-brand-ink text-white">
+                    {g.rounds.map((r) => (
+                      <option value={roundHref(r)} selected={r.subsession_id === subsessionId} class="bg-brand-ink text-white">{roundOptionLabel(r, 20)}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Session</span>
+            <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
+              {sessionChoices.map((o) => (
+                <option value={resultsHref(o.key, classKey)} selected={o.key === sessionKey} class="bg-brand-ink text-white">{o.label}</option>
               ))}
             </select>
-          )}
-          <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
-            {sessionChoices.map((o) => (
-              <option value={resultsHref(o.key, classKey)} selected={o.key === sessionKey} class="bg-brand-ink text-white">{o.label}</option>
-            ))}
-          </select>
-          <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
-            <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
-            {classes.map((c) => (
-              <option value={resultsHref(sessionKey, c.name.toLowerCase())} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
-            ))}
-          </select>
+          </label>
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+            <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
+              <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
+              {classes.map((c) => (
+                <option value={resultsHref(sessionKey, c.name.toLowerCase())} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
+              ))}
+            </select>
+          </label>
           <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
             <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} />
             {isAdmin && showReportButton && (
@@ -717,6 +740,7 @@ Astro.response.headers.set(
             )}
             <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
           </div>
+        </div>
         </div>
 
         {showReportButton && (

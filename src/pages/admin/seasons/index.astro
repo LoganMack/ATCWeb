@@ -223,7 +223,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
     {seasons.length === 0 && <p class="text-sm text-white/40">No results.</p>}
     {seasons.map((season) => (
       <>
-      <div class="flex flex-wrap items-center gap-3 rounded-lg bg-white/5 p-3 ring-1 ring-white/10">
+      <div class="flex flex-wrap items-center gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10">
         <div class="flex flex-none items-center gap-1.5">
           <div class="flex flex-col items-center gap-0.5">
             {season.logo_url ? (
@@ -395,7 +395,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
         const failures = recalcResult.results.filter((r) => r.error_message !== null);
         const successes = recalcResult.results.filter((r) => r.error_message === null);
         return (
-          <div class="ml-1 flex flex-col gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] p-3 text-xs">
+          <div class="ml-1 flex flex-col gap-1.5 rounded-lg border border-white/10 bg-brand-ink p-3 text-xs">
             <p class={failures.length === 0 ? 'font-semibold text-brand-primary' : 'font-semibold text-brand-gold'}>
               Recalculated {recalcResult.results.length} round{recalcResult.results.length === 1 ? '' : 's'} —{' '}
               {successes.length} succeeded{failures.length > 0 && `, ${failures.length} failed`}.

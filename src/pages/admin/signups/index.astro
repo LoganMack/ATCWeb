@@ -166,7 +166,7 @@ const fieldClass =
       const defaultDriver = candidates[0] ?? null;
       const newDriverNumber = previewNumber(r, null);
       return (
-        <li class="rounded-xl border border-white/10 bg-white/[0.03] p-5 text-sm">
+        <li class="rounded-xl border border-white/10 bg-brand-ink p-5 text-sm">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
             <p class="font-display text-xl">{r.name}</p>
             <p class="text-xs text-white/40">Submitted {formatTimestamp(r.created_at)}</p>
@@ -278,7 +278,7 @@ const fieldClass =
   {decided.length > 0 && (
     <div class="mt-4 overflow-x-auto rounded-xl border border-white/10">
       <table class="w-full min-w-[720px] text-left text-sm">
-        <thead class="bg-white/5 text-xs uppercase tracking-wide text-white/50">
+        <thead class="bg-brand-ink text-xs uppercase tracking-wide text-white/50">
           <tr>
             <th class="px-4 py-3 font-semibold">Name</th>
             <th class="px-3 py-3 font-semibold">Numbers</th>

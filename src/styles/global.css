@@ -390,6 +390,7 @@ th[data-sort-key][data-sort-dir='desc']::after {
 .light .bg-white\/\[0\.02\] { background-color: rgb(17 17 20 / 0.02); }
 .light .bg-white\/\[0\.03\] { background-color: rgb(17 17 20 / 0.03); }
 .light .hover\:bg-white\/5:hover { background-color: rgb(17 17 20 / 0.05); }
+.light .focus\:bg-white\/5:focus { background-color: rgb(17 17 20 / 0.05); }
 .light .hover\:bg-white\/10:hover { background-color: rgb(17 17 20 / 0.1); }
 .light .hover\:bg-white\/20:hover { background-color: rgb(17 17 20 / 0.2); }
 .light .hover\:bg-white\/\[0\.02\]:hover { background-color: rgb(17 17 20 / 0.02); }
@@ -610,6 +611,7 @@ input[type="file"]:hover::file-selector-button {
 
 [class~="bg-white/5"] { background-color: rgb(23 23 26); }
 [class~="hover:bg-white/5"]:hover { background-color: rgb(23 23 26); }
+[class~="focus:bg-white/5"]:focus { background-color: rgb(23 23 26); }
 [class~="bg-white/[0.02]"] { background-color: rgb(16 16 19); }
 [class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(16 16 19); }
 [class~="bg-white/[0.03]"] { background-color: rgb(18 18 21); }
@@ -640,6 +642,7 @@ input[type="file"]:hover::file-selector-button {
 
 .light [class~="bg-white/5"] { background-color: rgb(236 236 238); }
 .light [class~="hover:bg-white/5"]:hover { background-color: rgb(236 236 238); }
+.light [class~="focus:bg-white/5"]:focus { background-color: rgb(236 236 238); }
 .light [class~="bg-white/[0.02]"] { background-color: rgb(242 242 244); }
 .light [class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(242 242 244); }
 .light [class~="bg-white/[0.03]"] { background-color: rgb(240 240 242); }
@@ -668,3 +671,322 @@ input[type="file"]:hover::file-selector-button {
 .light [class~="bg-brand-primary/20"] { background-color: rgb(211 219 248); }
 .light [class~="hover:bg-brand-primary/20"]:hover { background-color: rgb(211 219 248); }
 .light [class~="bg-brand-tertiary/10"] { background-color: rgb(247 242 231); }
+
+
+/* ============================================================
+   STANDINGS BY ROUND SLIDER (ticks + floating round tag)
+   ============================================================
+   Geometry inside a 36px row (the site's standard control height): the
+   round tag takes the top 16px, the track + pill thumb sit centered at 27px
+   below it, so nothing overflows the row and the labels above line up with
+   the neighboring dropdowns. --p (0-100%), --f (0-1) and --steps (rounds - 1) are set
+   on .round-slider by the server markup and by the slider script in
+   standings.astro. */
+.round-slider {
+  --rs-track: rgba(255, 255, 255, 0.15);
+  --rs-tick: rgba(255, 255, 255, 0.28);
+  --rs-thumb: #fff;
+  position: relative;
+  height: 36px;
+  width: 18rem;
+  max-width: 100%;
+}
+.light .round-slider {
+  --rs-track: rgba(17, 17, 20, 0.15);
+  --rs-tick: rgba(17, 17, 20, 0.3);
+  --rs-thumb: #fff;
+}
+.round-slider input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 15px;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.round-slider input[type='range']:focus-visible {
+  outline: none;
+}
+.round-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #4369f5 var(--p), var(--rs-track) var(--p));
+}
+.round-slider input[type='range']::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rs-track);
+}
+.round-slider input[type='range']::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: #4369f5;
+}
+.round-slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 18px;
+  margin-top: -7px;
+  border-radius: 4px;
+  background: var(--rs-thumb);
+  border: 3px solid #4369f5;
+  box-sizing: border-box;
+}
+.round-slider input[type='range']::-moz-range-thumb {
+  width: 8px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--rs-thumb);
+  border: 3px solid #4369f5;
+}
+.round-slider input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(67, 105, 245, 0.45);
+}
+.round-slider input[type='range']:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(67, 105, 245, 0.45);
+}
+.round-slider-ticks {
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  top: 21px;
+  height: 12px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rs-tick) 0 1px,
+    transparent 1px calc((100% - 1px) / var(--steps, 1))
+  );
+}
+.round-slider-tag {
+  position: absolute;
+  top: 0;
+  left: calc(7px + (100% - 14px) * var(--f, 0));
+  transform: translateX(-50%);
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #4369f5;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+
+/* ============================================================
+   PHOTO BANNER OVERLAY (src/components/PageBanner.astro + home hero)
+   ============================================================
+   Three layers over the banner photo: a vignette that darkens the
+   edges toward the page color, a fade to the solid page color along the
+   bottom, and a film-grain texture on top (::after) that fades out toward
+   the bottom so the band blends into the page. --banner-ink is the page background (dark ink / light paper) as bare
+   RGB channels so the same rule works in both themes. */
+:root {
+  --banner-ink: 11 11 14;
+  --banner-grain: 0.4;
+}
+.light {
+  --banner-ink: 247 247 249;
+  --banner-grain: 0.28;
+}
+.banner-overlay {
+  background:
+    linear-gradient(to bottom, transparent 45%, rgb(var(--banner-ink))),
+    radial-gradient(ellipse at 50% 30%, transparent 25%, rgb(var(--banner-ink)) 95%);
+}
+/* Film grain: self-stitching noise tile, so there are no seams at any width.
+   Masked out toward the bottom so the banner still blends into the page. */
+.banner-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url('data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22200%22%20height=%22200%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%22.85%22%20numOctaves=%222%22%20stitchTiles=%22stitch%22/%3E%3CfeColorMatrix%20type=%22saturate%22%20values=%220%22/%3E%3C/filter%3E%3Crect%20width=%22200%22%20height=%22200%22%20filter=%22url%28%23n%29%22%20opacity=%22.55%22/%3E%3C/svg%3E');
+  background-size: 200px 200px;
+  opacity: var(--banner-grain);
+  -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 95%);
+  mask-image: linear-gradient(to bottom, #000 35%, transparent 95%);
+}
+
+/* ============================================================
+   DOT-MATRIX WORLD MAP (src/scripts/dotMap.ts)
+   ============================================================
+   Used by the Calendar's Map view and the Media page's Meetups map. A
+   self-drawn SVG world (src/lib/worldMap.ts) whose land is filled with a grid of
+   dots (the #cm-dots pattern dotMap.ts defines in the SVG, coloured from
+   --m-dot here) — no tile server or API key. Light mode flips to dark dots on a
+   pale background. */
+.dot-map {
+  --m-bg: #0b0b0e;
+  --m-border: rgba(255, 255, 255, 0.1);
+  --m-dot: rgba(255, 255, 255, 0.34);
+  --m-ring: #0b0b0e;
+  --m-ink: rgba(255, 255, 255, 0.85);
+  --m-muted: rgba(255, 255, 255, 0.45);
+  --m-ctl-bg: rgba(11, 11, 14, 0.85);
+  --m-ctl-ink: rgba(255, 255, 255, 0.8);
+  --m-pin-endurance: #4369f5;
+  --m-pin-sprint: #f5c642;
+  --m-pin-special: #f5426e;
+  --m-pin-other: #9aa0b4;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--m-border);
+  border-radius: 12px;
+  background: var(--m-bg);
+  height: clamp(260px, 46vw, 520px);
+  touch-action: none;
+  user-select: none;
+}
+.light .dot-map {
+  --m-bg: #f1f1f4;
+  --m-border: rgba(17, 17, 20, 0.12);
+  --m-dot: rgba(17, 17, 20, 0.3);
+  --m-ring: #f7f7f9;
+  --m-ink: rgba(17, 17, 20, 0.85);
+  --m-muted: rgba(17, 17, 20, 0.5);
+  --m-ctl-bg: rgba(247, 247, 249, 0.9);
+  --m-ctl-ink: rgba(17, 17, 20, 0.8);
+  --m-pin-sprint: #e0a800;
+}
+.dot-map svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+.dot-map.is-dragging svg {
+  cursor: grabbing;
+}
+.cm-land {
+  fill: url(#cm-dots);
+  stroke: none;
+}
+.cm-dot {
+  fill: var(--m-dot);
+}
+.cm-pin {
+  cursor: pointer;
+  outline: none;
+}
+.cm-pin .cm-pin-body {
+  fill: var(--pin, var(--m-pin-other));
+  stroke: var(--m-ring);
+  stroke-width: 2;
+  transition: transform 0.12s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.cm-pin:hover .cm-pin-body,
+.cm-pin:focus-visible .cm-pin-body,
+.cm-pin.is-selected .cm-pin-body {
+  transform: scale(1.25);
+}
+.cm-pin-sel {
+  fill: none;
+  stroke: var(--m-ink);
+  stroke-width: 1.5;
+  opacity: 0;
+}
+.cm-pin.is-selected .cm-pin-sel {
+  opacity: 1;
+}
+.cm-pin.is-past {
+  opacity: 0.5;
+}
+.cm-pin-count {
+  fill: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+.cm-pulse {
+  fill: none;
+  stroke: var(--pin);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cm-pulse 2.2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes cm-pulse {
+  from {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
+.cm-ctl {
+  display: flex;
+  height: 30px;
+  width: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--m-border);
+  border-radius: 6px;
+  background: var(--m-ctl-bg);
+  color: var(--m-ctl-ink);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.cm-ctl:hover {
+  filter: brightness(1.25);
+}
+.cm-tip {
+  pointer-events: none;
+  position: absolute;
+  z-index: 5;
+  max-width: 17rem;
+  border: 1px solid var(--m-border);
+  border-radius: 8px;
+  background: var(--m-ctl-bg);
+  color: var(--m-ink);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+.cm-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--m-muted);
+}
+.cm-legend i {
+  display: inline-block;
+  height: 8px;
+  width: 8px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.cm-hint {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  color: var(--m-muted);
+}

@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import EventSessionFields from '../../../components/EventSessionFields.astro';
 import {
@@ -383,11 +384,12 @@ const d: Partial<EventRecord> = event ?? {
           <span class="text-white/70">Season</span>
           <select
             name="season_id"
+            data-logo-select
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             <option value="" selected={!d.season_id} class="bg-brand-ink text-white">Not set yet</option>
             {seasons.map((s) => (
-              <option value={s.id} selected={s.id === d.season_id} class="bg-brand-ink text-white">{s.name}</option>
+              <option value={s.id} selected={s.id === d.season_id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
             ))}
           </select>
         </label>

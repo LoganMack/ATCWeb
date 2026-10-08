@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { logoPairOptionAttrs } from '../../lib/seasonSelect';
 import NewsCard from '../../components/NewsCard.astro';
 import { getNewsPosts, getSeasons, resolveSupabaseEnv, getAllNewsPostTags, type NewsTag, type SeasonLogoPair } from '../../lib/supabase';
 
@@ -81,29 +82,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <form method="GET" data-news-filter class="reveal mt-8 flex flex-wrap items-end gap-3" style="transition-delay: 40ms">
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Search titles</span>
-          <input
-            type="search"
-            name="q"
-            value={q}
-            placeholder="Search news..."
-            class="w-64 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
-          />
-        </label>
-        <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/60">Season</span>
+      <form method="GET" data-news-filter class="reveal mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 40ms">
+       <div class="flex flex-wrap items-end gap-3">
+        <input
+          type="search"
+          name="q"
+          value={q}
+          placeholder="Search titles…"
+          aria-label="Search titles"
+          class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+        />
+        <label class="flex flex-col gap-1.5 sm:w-44">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
           <select
             name="season"
-            class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+            data-logo-select
+            class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
           >
             <option value="" class="bg-brand-ink text-white">All seasons</option>
             {seasonOptions.map((label) => (
-              <option value={label} selected={label === seasonFilter} class="bg-brand-ink text-white">{label}</option>
+              <option value={label} selected={label === seasonFilter} {...logoPairOptionAttrs(logoBySeasonLabel.get(label))} class="bg-brand-ink text-white">{label}</option>
             ))}
           </select>
         </label>
+       </div>
       </form>
     )}
 

@@ -286,7 +286,7 @@ if (isAdmin && postForm) {
     const penalty = REVIEW_PENALTIES.find((p) => p === penaltyRaw);
     // ?review=<code> drives the message above the reports (reviewFlash below);
     // a successful save clears any code left over from an earlier failure.
-    const back = (code: 'locked' | 'invalid' | 'failed' | null) => {
+    const back = (code: 'locked' | 'involved' | 'invalid' | 'failed' | null) => {
       const url = new URL(Astro.url);
       if (code) url.searchParams.set('review', code);
       else url.searchParams.delete('review');
@@ -302,8 +302,10 @@ if (isAdmin && postForm) {
       });
     } catch (err) {
       console.error('Failed to save incident report review:', err);
-      // Expected when another admin logs the report mid-review — see 0096's save function.
-      return back(err instanceof Error && err.message.includes('reviews are locked') ? 'locked' : 'failed');
+      // Expected when another admin logs the report mid-review — see 0096's save function —
+      // or when the steward was one of the report's drivers (0099).
+      const message = err instanceof Error ? err.message : '';
+      return back(message.includes('reviews are locked') ? 'locked' : message.includes('involved in this incident') ? 'involved' : 'failed');
     }
     // No verdict in the log entry — that would undo the blind voting.
     await logActivity(supabaseEnv, accessToken, actor, {
@@ -717,9 +719,15 @@ const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
 
 // Steward reviews (0096), View Incidents only. RLS hands back only what this
 // admin may see — their own review, plus everyone else's on reports they've
-// already reviewed (or that are logged) — and the counts RPC says how many
-// exist in total.
+// already reviewed (or that are logged, or that they were involved in) — and
+// the counts RPC says how many exist in total.
 const myUserId = Astro.locals.session?.user.id ?? null;
+// A steward linked to one of a report's drivers can't review it, but can read
+// everyone else's reviews of it (0099).
+const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+function isInvolved(r: IncidentReport): boolean {
+  return myDriverId !== null && r.driver_ids.includes(myDriverId);
+}
 const reviewsByReport = new Map<string, IncidentReportReview[]>();
 let reviewCounts = new Map<string, number>();
 let reviewsLoadFailed = false;
@@ -746,7 +754,8 @@ function myReviewOf(reportId: string): IncidentReportReview | null {
 // The reports split into three groups, each still in chronological order, so
 // the next report this steward hasn't reviewed is always first in the list:
 // Needs your review (not dismissed, voting still open, no review from you yet),
-// Reviewed (you've reviewed it, or it was logged and voting is over), and
+// Reviewed (you've reviewed it, it was logged and voting is over, or you were
+// involved and can't review it), and
 // Dismissed (collapsed at the bottom). If the reviews didn't load there's no
 // telling what this steward has reviewed, so everything not dismissed goes in
 // one ungrouped list instead of a wrong queue (with a warning above it).
@@ -759,7 +768,7 @@ for (const r of incidentReports) {
   const group =
     r.status === 'dismissed' ? dismissedGroup
     : reviewsLoadFailed ? notDismissedGroup
-    : myReviewOf(r.id) || r.reviews_closed_at ? reviewedGroup
+    : myReviewOf(r.id) || r.reviews_closed_at || isInvolved(r) ? reviewedGroup
     : needsReviewGroup;
   group.reports.push(r);
 }
@@ -816,6 +825,7 @@ let reviewFlash: string | null = null;
 if (viewReports) {
   const flash = Astro.url.searchParams.get('review');
   if (flash === 'locked') reviewFlash = "Couldn't save your review — this incident was logged while you were writing it, so reviews are closed.";
+  else if (flash === 'involved') reviewFlash = "Couldn't save your review — you were involved in this incident, so you can't review it.";
   else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs a driver (or Racing Incident), a penalty and an explanation.";
   else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
 }
@@ -1003,14 +1013,16 @@ const nextIncidentNumber =
                 const reviewCount = reviewCounts.get(r.id) ?? visibleReviews.length;
                 // Closed for good once first logged — a Reopen doesn't reopen voting (0096).
                 const reviewsLocked = Boolean(r.reviews_closed_at);
+                const involved = isInvolved(r);
                 // Others' reviews (and the colour) only once you've voted, or once
                 // the report is logged and voting is over — otherwise it would leak the outcome.
-                const canSeeReviews = Boolean(myReview) || reviewsLocked;
+                // An involved steward can't vote, so there's no vote to keep blind.
+                const canSeeReviews = Boolean(myReview) || reviewsLocked || involved;
                 const agreement = canSeeReviews ? reviewAgreement(visibleReviews) : null;
                 const style = agreement ? agreementStyles[agreement] : null;
                 const duplicateOriginal = duplicateOriginalById.get(r.id);
                 return (
-                <li class={`rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-white/5'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
+                <li class={`rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-brand-ink'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
                   <div class="flex flex-wrap items-center justify-between gap-2">
                     <p class="font-semibold text-white/80">
                       {reportLabel(r)}
@@ -1062,6 +1074,8 @@ const nextIncidentNumber =
                             ? 'Reopened after logging — reviews stay closed; log or dismiss it'
                             : 'Reviews closed — incident was logged'}
                         </span>
+                      ) : involved ? (
+                        <span class="text-xs text-white/40">You were involved — can't review</span>
                       ) : (
                         <button
                           type="button"
@@ -1133,7 +1147,7 @@ const nextIncidentNumber =
                 const appealed = penalties.find((p) => p.id === a.penalty_id);
                 const appealedDriver = appealed?.driver_id ? driverById.get(appealed.driver_id) : undefined;
                 return (
-                  <li class={`rounded-lg border border-white/10 bg-white/5 p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}>
+                  <li class={`rounded-lg border border-white/10 bg-brand-ink p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}>
                     <div class="flex flex-wrap items-center justify-between gap-2">
                       <p class="font-semibold text-white/80">
                         {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
@@ -1512,7 +1526,7 @@ const nextIncidentNumber =
                   Appealed
                 </label>
 
-                <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-white/5 p-3">
+                <div data-appeal-fields class="hidden flex-col gap-3 rounded-md border border-white/10 bg-brand-ink p-3">
                   <label class="flex flex-col gap-1 text-[11px] text-white/50">
                     Appeal result
                     <textarea

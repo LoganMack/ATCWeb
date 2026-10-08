@@ -196,90 +196,93 @@ const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
     )}
 
     <!--
-      Search + nationality share a top 2-column line; the Class / Activity /
-      Status dropdowns sit in one 3-column row below. "Activity" is the
-      Active/Inactive/Unassigned/All filter (state.status in the script) and
-      "Status" is the New/Rookie/Veteran filter (state.experience — see
-      experienceLevels above for why "Rookie" belongs in it).
+      One-row filter card: the search box sits left-aligned and stretches to
+      fill the row; Class / Activity / Status / Nationality sit together on
+      the right, all the same width (w-44) and the same height (h-9) as the
+      search box. When the row runs out of room the search box takes a line
+      of its own and the dropdowns stay right-aligned beneath it; on phones
+      the four dropdowns become a 2-column grid.
+
+      "Activity" is the Active/Inactive/Unassigned/All filter (state.status
+      in the script) and "Status" is the New/Rookie/Veteran filter
+      (state.experience — see experienceLevels above for why "Rookie"
+      belongs in it).
+
+      Card surface is `bg-brand-ink` — the exact black the table below it
+      uses — instead of a translucent white wash (which read as grey).
     -->
-    <div class="reveal relative z-30 mt-8 rounded-xl border border-white/10 bg-white/[0.03] p-4" style="transition-delay: 100ms">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div class="reveal relative z-30 mt-8 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 100ms">
+      <div class="flex flex-wrap items-end gap-3">
         <input
           type="search"
           id="roster-search"
           placeholder="Search drivers, numbers, or teams…"
-          class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+          class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
         />
-        <!--
-          Multi-select nationality filter (per Logan — checking both US and
-          UK should show drivers from either). A native <select multiple>
-          is highlight-based, not check-based, and is awkward without
-          ctrl/cmd-click, so this is a custom button + checkbox panel
-          instead, following the same open/closed disclosure idea as the
-          <details> dropdowns used elsewhere on the site. `state.nationality`
-          becomes a Set below (empty = "All", same as before); the trigger
-          button's own label text updates to reflect the current selection
-          (see updateNationalityLabel() in the script).
-        -->
-        <div class="relative" data-nationality-dropdown>
-          <button
-            type="button"
-            id="roster-nationality-toggle"
-            aria-haspopup="true"
-            aria-expanded="false"
-            class="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-white/5 px-3 text-left text-white outline-none focus:border-brand-primary"
-          >
-            <span id="roster-nationality-label" class="truncate">All Nationalities</span>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="flex-none text-white/40" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
-          <div
-            id="roster-nationality-panel"
-            class="absolute right-0 z-10 mt-1 hidden max-h-64 w-full min-w-[14rem] overflow-y-auto rounded-md border border-white/15 bg-brand-ink p-1.5 shadow-lg"
-          >
-            {nationalityOptions.map((n) => (
-              <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-white/80 hover:bg-white/10">
-                <input type="checkbox" class="roster-nationality-checkbox" value={n.code} data-nat-name={n.name} />
-                {n.name}
-              </label>
-            ))}
+        <div class="grid w-full grid-cols-2 gap-3 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
+            <select id="roster-class-select" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5">
+              {classes.map((c) => (
+                <option value={c} selected={c === 'All'} class="bg-brand-ink text-white">{c}</option>
+              ))}
+            </select>
+          </label>
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
+            <select id="roster-status-select" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5">
+              {statuses.map((s) => (
+                <option value={s} selected={s === 'Active'} class="bg-brand-ink text-white">{s}</option>
+              ))}
+            </select>
+          </label>
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
+            <select id="roster-experience-select" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5">
+              {experienceLevels.map((x) => (
+                <option value={x} selected={x === 'All'} class="bg-brand-ink text-white">{x}</option>
+              ))}
+            </select>
+          </label>
+          <!--
+            Multi-select nationality filter (per Logan — checking both US and
+            UK should show drivers from either). A native <select multiple>
+            is highlight-based, not check-based, and is awkward without
+            ctrl/cmd-click, so this is a custom button + checkbox panel
+            instead. `state.nationality` is a Set in the script (empty =
+            "All"); the trigger's label text reflects the current selection
+            (see updateNationalityLabel() in the script).
+          -->
+          <div class="flex flex-col gap-1.5 sm:w-44" data-nationality-dropdown>
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Nationality</span>
+            <div class="relative">
+              <button
+                type="button"
+                id="roster-nationality-toggle"
+                aria-haspopup="true"
+                aria-expanded="false"
+                class="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-white/15 bg-transparent px-3 text-left text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+              >
+                <span id="roster-nationality-label" class="truncate">All</span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" class="flex-none text-white/40" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              <div
+                id="roster-nationality-panel"
+                class="absolute right-0 z-10 mt-1 hidden max-h-64 w-full min-w-[14rem] overflow-y-auto rounded-md border border-white/15 bg-brand-ink p-1.5 shadow-lg"
+              >
+                {nationalityOptions.map((n) => (
+                  <label class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-white/80 hover:bg-white/10">
+                    <input type="checkbox" class="roster-nationality-checkbox" value={n.code} data-nat-name={n.name} />
+                    <img src={`https://flagcdn.com/w80/${n.code}.png`} alt="" loading="lazy" class="h-4 w-6 flex-none rounded-sm object-cover" />
+                    {n.name}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-      <!--
-        Class / Activity / Status filters — dropdowns at every screen size
-        now (they used to be button groups on desktop, with these same
-        selects mobile-only). All three share one 3-column row with
-        identical left-aligned labels, one control height (h-10, same as the
-        search box and nationality dropdown above), and one gap, so the
-        labels and controls line up cleanly under each other.
-      -->
-      <div class="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
-        <label class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-          <select id="roster-class-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
-            {classes.map((c) => (
-              <option value={c} selected={c === 'All'} class="bg-brand-ink text-white">{c}</option>
-            ))}
-          </select>
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Activity</span>
-          <select id="roster-status-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
-            {statuses.map((s) => (
-              <option value={s} selected={s === 'Active'} class="bg-brand-ink text-white">{s}</option>
-            ))}
-          </select>
-        </label>
-        <label class="flex flex-col gap-1.5">
-          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Status</span>
-          <select id="roster-experience-select" class="h-10 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary">
-            {experienceLevels.map((x) => (
-              <option value={x} selected={x === 'All'} class="bg-brand-ink text-white">{x}</option>
-            ))}
-          </select>
-        </label>
       </div>
     </div>
 

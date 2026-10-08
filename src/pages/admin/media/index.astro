@@ -272,7 +272,7 @@ const racePhotoRows = rounds
           {videos.map((v) => {
             const thumb = youtubeThumbnailUrl(v.youtube_url);
             return (
-              <li class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+              <li class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-brand-ink p-3 text-sm ring-1 ring-white/10">
                 <div class="flex items-center gap-3">
                   {thumb ? (
                     <img src={thumb} alt="" class="h-10 w-16 flex-none rounded object-cover" />
@@ -303,7 +303,7 @@ const racePhotoRows = rounds
           <summary class="btn btn-neutral list-none">
             Add a video
           </summary>
-          <form method="POST" data-astro-reload class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+          <form method="POST" data-astro-reload class="mt-3 flex max-w-md flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-4">
             <input type="hidden" name="intent" value="add-video" />
             <label class="flex flex-col gap-1.5 text-sm">
               <span class="text-white/60">Category</span>
@@ -356,7 +356,7 @@ const racePhotoRows = rounds
               type="search"
               id="admin-race-photos-search"
               placeholder="Search rounds…"
-              class="w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+              class="h-9 w-full rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary"
             />
           </div>
 
@@ -367,7 +367,7 @@ const racePhotoRows = rounds
                 method="POST"
                 data-astro-reload
                 data-search={`${r.track_name} ${r.season_label ?? ''}`.toLowerCase()}
-                class="flex flex-wrap items-center gap-2 rounded-lg bg-white/5 p-2.5 text-sm ring-1 ring-white/10"
+                class="flex flex-wrap items-center gap-2 rounded-lg bg-brand-ink p-2.5 text-sm ring-1 ring-white/10"
               >
                 <input type="hidden" name="intent" value="save-race-photo" />
                 <input type="hidden" name="subsession_id" value={r.subsession_id} />
@@ -416,7 +416,7 @@ const racePhotoRows = rounds
           <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
             {graphics.length === 0 && <p class="col-span-full text-sm text-white/40">No results.</p>}
             {graphics.map((g) => (
-              <div class="flex flex-col gap-2 rounded-lg bg-white/5 p-2 text-sm ring-1 ring-white/10">
+              <div class="flex flex-col gap-2 rounded-lg bg-brand-ink p-2 text-sm ring-1 ring-white/10">
                 <img src={g.image_url} alt="" class="h-24 w-full rounded object-cover" />
                 <p class="truncate text-xs font-semibold" title={g.title}>{g.title}</p>
                 <form method="POST" data-astro-reload>
@@ -468,7 +468,7 @@ const racePhotoRows = rounds
           {meetups.map((m) => {
             const { attendees, availableToAttach } = meetupAttendeeInfo.get(m.id) ?? { attendees: [], availableToAttach: [] };
             return (
-              <li class="flex flex-col gap-3 rounded-lg bg-white/5 p-3 text-sm ring-1 ring-white/10">
+              <li class="flex flex-col gap-3 rounded-lg bg-brand-ink p-3 text-sm ring-1 ring-white/10">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div class="flex items-center gap-3">
                     {m.photo_url ? (

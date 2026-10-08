@@ -61,9 +61,17 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // hard-form-submit.ts imports), so pulling it in doesn't violate that
     // convention.
     import { showProgress, hideProgress } from '../scripts/pageProgress';
+    import type { DotMap } from '../scripts/dotMap';
 
     interface CalendarEventLite {
+      id: string;
       date: string; // 'YYYY-MM-DD'
+      cid: string | null; // circuit id (null for Holiday/iRacing events)
+      lat: number | null; // circuit coordinates, for the Map view
+      lng: number | null;
+      loc: string | null; // circuit's free-text location
+      round: number | null;
+      season: string | null;
       circuit: string;
       logoUrl: string | null;
       layout: string | null;
@@ -108,9 +116,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       sprint: 'border-brand-gold/40 bg-brand-gold/10 hover:bg-brand-gold/20',
     };
     const CATEGORY_ONLY_CARD_CLASSES: Record<string, string> = {
-      test: 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
-      holiday: 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
-      iracing: 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
+      test: 'border-white/10 bg-brand-ink hover:bg-white/[0.03]',
+      holiday: 'border-white/10 bg-brand-ink hover:bg-white/[0.03]',
+      iracing: 'border-white/10 bg-brand-ink hover:bg-white/[0.03]',
     };
 
     function dayCardClasses(ev: CalendarEventLite): string {
@@ -179,6 +187,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       // month due to day-of-month overflow (e.g. Jan 31 + 1 month -> Mar 3).
       let current = new Date();
       current.setDate(1);
+      // The page only holds the chosen season's events. If none fall in the current
+      // month (e.g. an older season), open on the month of the next event, or the
+      // last one, instead of an empty grid.
+      {
+        const monthKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+        const thisMonth = monthKey(current);
+        if (allEvents.length > 0 && !allEvents.some((ev) => ev.date.startsWith(thisMonth))) {
+          const todayStr = `${current.getFullYear()}-${pad(current.getMonth() + 1)}-${pad(new Date().getDate())}`;
+          const dates = allEvents.map((ev) => ev.date).sort();
+          const target = dates.find((d) => d >= todayStr) ?? dates[dates.length - 1];
+          current = parseDateOnly(target);
+          current.setDate(1);
+        }
+      }
 
       // Shows the SAME full event card(s) the List view renders for this
       // day — not a second, cut-down summary built from the lean
@@ -261,7 +283,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           cell.type = 'button';
           cell.className = [
             'flex min-h-[64px] flex-col items-start gap-1 rounded-lg border p-1.5 text-left transition',
-            hasEvents ? `${dayCardClasses(dayEvents[0])} cursor-pointer` : 'border-white/10 bg-white/[0.02] cursor-default',
+            hasEvents ? `${dayCardClasses(dayEvents[0])} cursor-pointer` : 'border-white/10 bg-brand-ink cursor-default',
             isToday ? 'ring-1 ring-brand-primary' : '',
           ].join(' ');
           if (!hasEvents) cell.disabled = true;
@@ -527,7 +549,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       rounds.forEach((r) => {
         const details = document.createElement('details');
         details.dataset.roundRecap = String(r.subsessionId);
-        details.className = 'rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2';
+        details.className = 'rounded-lg border border-white/10 bg-brand-ink px-3 py-2';
 
         const summary = document.createElement('summary');
         summary.className = 'cursor-pointer list-none text-xs font-semibold text-white/60 transition hover:text-white';
@@ -573,24 +595,198 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       });
     }
 
-    // Pure client-side show/hide, same as the search-box filters elsewhere
-    // on the site — the Past Events block is already fully rendered in the
-    // DOM (see the template above), so this never needs a server round
-    // trip and correctly doesn't trigger the pageProgress.ts loading bar.
-    function initHidePastEventsToggle() {
-      const checkbox = document.getElementById('hide-past-events') as HTMLInputElement | null;
-      const block = document.getElementById('past-events-block');
-      if (!checkbox || !block) return;
+    // ---- Map view -------------------------------------------------------
+    // The shared dot-matrix world map (src/scripts/dotMap.ts). One pin per circuit
+    // that has coordinates (latitude/longitude on the circuit,
+    // 0098_circuit_coordinates.sql); past events are drawn faded;
+    // click one to list that circuit's event cards under the map. The map code
+    // and world data are loaded the first time Map is chosen, so they cost nothing
+    // for everyone who stays on List.
+    const PIN_VARS: Record<string, string> = {
+      endurance: 'var(--m-pin-endurance)',
+      sprint: 'var(--m-pin-sprint)',
+      special: 'var(--m-pin-special)',
+      other: 'var(--m-pin-other)',
+    };
 
-      checkbox.addEventListener('change', () => {
-        block.classList.toggle('hidden', checkbox.checked);
-      });
+    function initCalendarMap() {
+      const panel = document.querySelector<HTMLElement>('[data-view-panel="map"]');
+      const dataEl = document.querySelector<HTMLElement>('[data-view-panel="calendar"]');
+      const select = document.querySelector<HTMLSelectElement>('select[data-view-toggle]');
+      if (!panel || !dataEl || !select || panel.dataset.bound === 'true') return;
+      panel.dataset.bound = 'true';
+
+      const box = panel.querySelector<HTMLElement>('[data-cal-map]')!;
+      const svg = panel.querySelector<SVGSVGElement>('[data-cal-map-svg]')!;
+      const tip = panel.querySelector<HTMLElement>('[data-map-tip]')!;
+      const legend = panel.querySelector<HTMLElement>('[data-map-legend]')!;
+      const note = panel.querySelector<HTMLElement>('[data-map-note]')!;
+      const detail = panel.querySelector<HTMLElement>('[data-map-detail]')!;
+
+      let events: CalendarEventLite[] = [];
+      try {
+        events = JSON.parse(dataEl.dataset.events ?? '[]');
+      } catch {
+        events = [];
+      }
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const nextUpcoming = events.filter((e) => e.date >= todayIso).sort((a, b) => a.date.localeCompare(b.date))[0];
+
+      // One group per circuit that has coordinates.
+      type Group = { cid: string; lat: number; lng: number; evs: CalendarEventLite[] };
+      const byCircuit = new Map<string, Group>();
+      for (const e of events) {
+        if (!e.cid || e.lat === null || e.lng === null) continue;
+        let g = byCircuit.get(e.cid);
+        if (!g) byCircuit.set(e.cid, (g = { cid: e.cid, lat: e.lat, lng: e.lng, evs: [] }));
+        g.evs.push(e);
+      }
+      const groups = [...byCircuit.values()];
+      groups.forEach((g) => g.evs.sort((a, b) => a.date.localeCompare(b.date)));
+
+      let map: DotMap | null = null;
+      let building = false;
+      let selectedCids: string[] | null = null;
+
+      const eventsOf = (c: { items: { data: Group }[] }) =>
+        c.items.flatMap((i) => i.data.evs).sort((a, b) => a.date.localeCompare(b.date));
+
+      function updateNote() {
+        const missing = events.filter((e) => e.cid && (e.lat === null || e.lng === null)).length;
+        const plotted = groups.reduce((n, g) => n + g.evs.length, 0);
+        const bits: string[] = [];
+        if (plotted === 0) bits.push('No events to show on the map right now.');
+        if (missing > 0) bits.push(`${missing} event${missing === 1 ? ' is' : 's are'} not shown because ${missing === 1 ? 'its circuit has' : 'their circuits have'} no map position yet.`);
+        note.textContent = bits.join(' ');
+      }
+
+      function showDetail() {
+        const gs = groups.filter((g) => selectedCids?.includes(g.cid));
+        const evs = gs.flatMap((g) => g.evs).sort((a, b) => a.date.localeCompare(b.date));
+        detail.replaceChildren();
+        if (evs.length === 0) {
+          selectedCids = null;
+          map?.setSelected(null);
+          detail.classList.add('hidden');
+          return;
+        }
+        detail.classList.remove('hidden');
+        const heading = document.createElement('h3');
+        heading.className = 'font-display text-xl';
+        heading.textContent = gs.length > 1 ? `${evs.length} events at ${gs.length} nearby circuits` : evs[0].circuit;
+        detail.appendChild(heading);
+        if (gs.length === 1 && gs[0].evs[0].loc) {
+          const sub = document.createElement('p');
+          sub.className = 'mt-1 text-sm text-white/50';
+          sub.textContent = gs[0].evs[0].loc;
+          detail.appendChild(sub);
+        }
+        const list = document.createElement('div');
+        list.className = 'mt-3 flex flex-col gap-3';
+        evs.forEach((ev) => {
+          const original = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(ev.id)}"]`);
+          if (!original) return;
+          const clone = original.cloneNode(true) as HTMLElement;
+          clone.classList.add('is-visible');
+          list.appendChild(clone);
+        });
+        detail.appendChild(list);
+        // Same re-bind the Calendar view does for its cloned cards' collapsibles.
+        initRoundRecaps();
+        initLayoutRounds();
+      }
+
+      async function build() {
+        if (map || building) return;
+        building = true;
+        const { createDotMap } = await import('../scripts/dotMap');
+        map = await createDotMap<Group>({
+          box,
+          svg,
+          tip,
+          legend,
+          getItems: () =>
+            groups
+              .filter((g) => g.evs.length > 0)
+              .map((g) => {
+                const evs = g.evs;
+                const rep = evs.find((e) => e.date >= todayIso) ?? evs[evs.length - 1];
+                return {
+                  id: g.cid,
+                  lat: g.lat,
+                  lng: g.lng,
+                  weight: evs.length,
+                  color: PIN_VARS[usesFormatBadge(rep.category) ? rep.format : 'other'] ?? PIN_VARS.other,
+                  dim: rep.date < todayIso,
+                  pulse: !!nextUpcoming && evs.some((e) => e.id === nextUpcoming.id),
+                  data: g,
+                };
+              }),
+          legendFor: (its) => {
+            const keys = new Set(its.map((i) => Object.keys(PIN_VARS).find((k) => PIN_VARS[k] === i.color) ?? 'other'));
+            return ['endurance', 'sprint', 'special', 'other']
+              .filter((k) => keys.has(k))
+              .map((k) => ({ label: k === 'other' ? 'Other' : (FORMAT_LABELS[k] ?? k), color: PIN_VARS[k] }));
+          },
+          tooltip: (c, el) => {
+            const evs = eventsOf(c);
+            const title = document.createElement('div');
+            title.className = 'font-semibold';
+            title.textContent = c.items.length > 1 ? `${evs.length} events at ${c.items.length} circuits` : evs[0].circuit;
+            el.appendChild(title);
+            if (c.items.length === 1 && evs[0].loc) {
+              const loc = document.createElement('div');
+              loc.style.opacity = '0.6';
+              loc.textContent = evs[0].loc;
+              el.appendChild(loc);
+            }
+            const list = document.createElement('div');
+            list.style.marginTop = '4px';
+            evs.slice(0, 5).forEach((e) => {
+              const line = document.createElement('div');
+              const parts = [parseDateOnly(e.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })];
+              if (c.items.length > 1) parts.push(e.circuit);
+              else {
+                if (e.round !== null && e.season) parts.push(`${e.season} R${e.round}`);
+                if (usesFormatBadge(e.category)) parts.push(FORMAT_LABELS[e.format] ?? e.format);
+              }
+              line.textContent = parts.join(' · ');
+              list.appendChild(line);
+            });
+            if (evs.length > 5) {
+              const more = document.createElement('div');
+              more.style.opacity = '0.6';
+              more.textContent = `+${evs.length - 5} more`;
+              list.appendChild(more);
+            }
+            el.appendChild(list);
+          },
+          onActivate: (c) => {
+            const cids = c.items.map((i) => i.id);
+            const same = selectedCids && selectedCids.length === cids.length && cids.every((x) => selectedCids!.includes(x));
+            selectedCids = same ? null : cids;
+            map?.setSelected(selectedCids);
+            showDetail();
+            if (selectedCids) detail.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          },
+        });
+        building = false;
+        updateNote();
+      }
+
+      const onViewChange = () => {
+        if (select.value !== 'map') return;
+        if (!map) void build();
+        else map.resize();
+      };
+      select.addEventListener('change', onViewChange);
+      onViewChange();
     }
 
     function initCalendarPage() {
       initViewToggle();
       initCalendarGrid();
-      initHidePastEventsToggle();
+      initCalendarMap();
       initRoundRecaps();
       initLayoutRounds();
     }

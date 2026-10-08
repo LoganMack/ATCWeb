@@ -5,6 +5,7 @@ import EventDetailCard from '../../components/EventDetailCard.astro';
 import {
   getEvents,
   getCircuits,
+  getCircuitCoordinates,
   getAllCircuitLayouts,
   resolveSupabaseEnv,
   eventImageUrl,
@@ -15,11 +16,13 @@ import {
 } from '../../lib/supabase';
 import {
   getAllRounds,
+  isChampionshipSeason,
   getRoundLayoutsForSubsessions,
   buildLayoutRoundCounter,
   type RoundSummary,
 } from '../../lib/results';
 import { buildEventIcsBlock } from '../../lib/ics';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -66,6 +69,8 @@ let layoutRoundsCountByEventId = new Map<string, number | null>();
 // rather than issuing one more REST call per event on a page that can list
 // several dozen of them.
 let linkedRoundByEventId = new Map<string, RoundSummary | null>();
+// Circuit latitude/longitude for the Map view — tolerant of the columns not existing yet (returns []), so it can never take the page down.
+const coordsPromise = getCircuitCoordinates(supabaseEnv);
 const bulkFetchPromise = (async () => {
   try {
     return await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getAllRounds(supabaseEnv)]);
@@ -94,7 +99,35 @@ const rulesetsFetchPromise = (async () => {
   }
 })();
 
-const [events, bulkResult, rulesetsResult] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise]);
+const [allEvents, bulkResult, rulesetsResult, circuitCoords] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise, coordsPromise]);
+
+// Season picker: the page shows ONE season's events at a time (the current season
+// unless ?season=<number> says otherwise, or "all"), always including its past
+// events. An event belongs to a season by its season_id; an event with no season
+// (Holiday / iRacing / test) belongs to the season whose start/end dates contain it.
+const seasons = rulesetsResult?.[0] ?? [];
+const requestedSeason = Astro.url.searchParams.get('season');
+const showAllSeasons = requestedSeason === 'all';
+const activeSeason = showAllSeasons
+  ? null
+  : (seasons.find((s) => String(s.number) === requestedSeason) ?? seasons.find((s) => s.is_current) ?? null);
+const events = activeSeason
+  ? allEvents.filter((e) =>
+      e.season_id !== null
+        ? e.season_id === activeSeason.id
+        : !!activeSeason.start_date && e.event_date >= activeSeason.start_date && (!activeSeason.end_date || e.event_date <= activeSeason.end_date)
+    )
+  : allEvents;
+const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
+const circuitInfoById = new Map<string, { location: string | null; lat: number | null; lng: number | null }>();
+for (const c of bulkResult?.[0] ?? []) circuitInfoById.set(c.id, { location: c.location, lat: null, lng: null });
+for (const c of circuitCoords) {
+  const info = circuitInfoById.get(c.id) ?? { location: null, lat: null, lng: null };
+  info.lat = c.latitude;
+  info.lng = c.longitude;
+  circuitInfoById.set(c.id, info);
+}
 
 if (bulkResult) {
   const [circuits, layoutsResult, allRounds] = bulkResult;
@@ -160,7 +193,14 @@ const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
 // data attribute (same JSON-in-a-data-attribute pattern the Incident Report
 // page uses for data-edit-incident) rather than fetched again client-side.
 const calendarEvents = events.map((e) => ({
+  id: e.id,
   date: e.event_date,
+  cid: e.circuit_id,
+  lat: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.lat) ?? null,
+  lng: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.lng) ?? null,
+  loc: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.location) || null,
+  round: e.round_number,
+  season: e.seasons?.name ?? null,
   circuit: e.title ?? e.circuits?.name ?? 'TBA',
   logoUrl: eventImageUrl(e, e.circuits, layouts),
   layout: e.layout,
@@ -178,27 +218,48 @@ const upcomingIcsBundle = upcoming
   .join('\n');
 ---
 
-    <div class="reveal mt-6 flex flex-wrap items-center justify-between gap-3" style="transition-delay: 100ms">
-      <div class="flex flex-wrap items-center gap-3">
-        <select
-          aria-label="View"
-          data-view-toggle
-          class="h-9 rounded-md border border-white/15 bg-white/5 px-3 text-sm text-white outline-none focus:border-brand-primary"
-        >
-          <option value="list" selected class="bg-brand-ink text-white">List</option>
-          <option value="calendar" class="bg-brand-ink text-white">Calendar</option>
-        </select>
-
-        {past.length > 0 && (
-          <label class="flex items-center gap-2 text-sm text-white/60">
-            <input
-              type="checkbox"
-              id="hide-past-events"
-              class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary"
-            />
-            Hide past events
+    <div class="reveal mt-6 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 100ms">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div class="flex flex-wrap items-end gap-3">
+        {seasons.length > 0 && (
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+            <select
+              aria-label="Season"
+              data-logo-select
+              onchange="window.location.href='/calendar?season=' + encodeURIComponent(this.value)"
+              class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+            >
+              <optgroup label="Championships" class="bg-brand-ink text-white">
+                {championshipSeasons.map((sn) => (
+                  <option value={sn.number} selected={sn.id === activeSeason?.id} {...seasonOptionAttrs(sn)} class="bg-brand-ink text-white">{sn.name}</option>
+                ))}
+              </optgroup>
+              {exhibitionSeasons.length > 0 && (
+                <optgroup label="Exhibitions" class="bg-brand-ink text-white">
+                  {exhibitionSeasons.map((sn) => (
+                    <option value={sn.number} selected={sn.id === activeSeason?.id} {...seasonOptionAttrs(sn)} class="bg-brand-ink text-white">{sn.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Everything" class="bg-brand-ink text-white">
+                <option value="all" selected={showAllSeasons} class="bg-brand-ink text-white">All Seasons</option>
+              </optgroup>
+            </select>
           </label>
         )}
+        <label class="flex flex-col gap-1.5 sm:w-44">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
+          <select
+            aria-label="View"
+            data-view-toggle
+            class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          >
+            <option value="list" selected class="bg-brand-ink text-white">List</option>
+            <option value="calendar" class="bg-brand-ink text-white">Calendar</option>
+            <option value="map" class="bg-brand-ink text-white">Map</option>
+          </select>
+        </label>
       </div>
 
       {upcomingIcsBundle && (
@@ -207,7 +268,7 @@ const upcomingIcsBundle = upcoming
           data-ics-download
           data-ics-event={upcomingIcsBundle}
           data-ics-filename="atc-upcoming-events.ics"
-          class="btn btn-neutral btn-sm flex items-center gap-1.5"
+          class="btn btn-neutral flex items-center gap-1.5"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="1em" height="1em" aria-hidden="true">
             <rect x="3" y="4" width="18" height="18" rx="2" />
@@ -221,6 +282,7 @@ const upcomingIcsBundle = upcoming
         </button>
       )}
     </div>
+    </div>
 
     {loadError && (
       <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
@@ -232,6 +294,9 @@ const upcomingIcsBundle = upcoming
 
     {!loadError && events.length > 0 && (
       <div data-view-panel="list">
+        {upcoming.length === 0 && past.length > 0 && (
+          <p class="mt-6 text-white/60">No upcoming events in this season.</p>
+        )}
         {upcoming.length > 0 && (
           <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
@@ -265,7 +330,7 @@ const upcomingIcsBundle = upcoming
             <button
               type="button"
               id="cal-today"
-              class="btn btn-neutral btn-sm"
+              class="btn btn-neutral"
             >
               Today
             </button>
@@ -283,5 +348,23 @@ const upcomingIcsBundle = upcoming
         <div id="cal-grid" class="mt-4 grid grid-cols-7 gap-1.5"></div>
 
         <div id="cal-day-detail" class="hidden mt-8 border-t border-white/10 pt-6"></div>
+      </div>
+    )}
+
+    {!loadError && events.length > 0 && (
+      <div data-view-panel="map" class="hidden mt-6">
+        <div class="dot-map" data-cal-map>
+          <svg data-cal-map-svg role="img" aria-label="Map of event locations"></svg>
+          <div class="absolute right-2.5 top-2.5 flex flex-col gap-1.5">
+            <button type="button" class="cm-ctl" data-map-zoom="in" aria-label="Zoom in">+</button>
+            <button type="button" class="cm-ctl" data-map-zoom="out" aria-label="Zoom out">&minus;</button>
+            <button type="button" class="cm-ctl" data-map-zoom="fit" aria-label="Fit all events" title="Fit all events">&#9678;</button>
+          </div>
+          <div class="cm-legend" data-map-legend></div>
+          <div class="cm-hint">Drag to move · Ctrl + scroll to zoom</div>
+          <div class="cm-tip hidden" data-map-tip></div>
+        </div>
+        <p class="mt-2 text-xs text-white/40" data-map-note></p>
+        <div data-map-detail class="hidden mt-8 border-t border-white/10 pt-6"></div>
       </div>
     )}

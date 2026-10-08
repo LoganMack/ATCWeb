@@ -143,7 +143,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const hof = hofExtrasByDriverId.get(entry.driver.id)!;
       return (
         <div
-          class="reveal overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]"
+          class="reveal overflow-hidden rounded-xl border border-white/10 bg-brand-ink"
           style={`transition-delay: ${Math.min(i, 4) * 30}ms`}
           data-hof-card
         >
@@ -182,7 +182,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 <select
                   aria-label="Stats class"
                   data-hof-class-select
-                  class="ml-auto h-8 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
+                  class="ml-auto h-9 rounded-md border border-white/15 bg-white/5 px-2 text-sm text-white outline-none focus:border-brand-primary"
                 >
                   {HOF_CLASS_KEYS.map((key) => (
                     <option value={key} selected={key === hof.defaultClass} class="bg-brand-ink text-white">{key}</option>

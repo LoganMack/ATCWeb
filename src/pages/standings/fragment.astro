@@ -5,7 +5,7 @@ import { safeJson } from '../../lib/security';
 import CarLogos from '../../components/CarLogos.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
-import SeasonLogo from '../../components/SeasonLogo.astro';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
@@ -357,12 +357,14 @@ const graphSeries = (
   championship === 'drivers'
     ? standings.map((row) => ({
         id: row.driver.id,
-        name: displayDriverName(row.driver.name),
+        // Graph view shows drivers as "F. Lastname" everywhere (legend, tooltip, end labels) to save space; the full name is kept for hover titles.
+        name: shortDriverName(row.driver.name),
+        full: displayDriverName(row.driver.name),
         short: shortDriverName(row.driver.name),
         tag: row.classId !== undefined ? (classNameById.get(row.classId) ?? '') : '',
         cells: row.roundCells,
       }))
-    : teamStandings.map((row) => ({ id: row.teamId, name: row.teamName, short: row.teamName, tag: '', cells: row.roundCells }))
+    : teamStandings.map((row) => ({ id: row.teamId, name: row.teamName, full: row.teamName, short: row.teamName, tag: '', cells: row.roundCells }))
 ).map((e) => {
   let run = 0;
   let started = false;
@@ -374,11 +376,17 @@ const graphSeries = (
     }
     return started ? run : null;
   });
-  return { id: e.id, name: e.name, short: e.short, tag: e.tag, cum };
+  // Per-round points (null = didn't race that round), for the Drop Weeks checkbox, which re-totals each point with the worst rounds dropped.
+  const pts = matrixColumns.map((col) => e.cells.get(col.subsessionId)?.points ?? null);
+  return { id: e.id, name: e.name, full: e.full, short: e.short, tag: e.tag, cum, pts };
 });
 const graphJson = JSON.stringify({
   cols: matrixColumns.map((c) => ({ r: c.roundNumber, t: c.startTime, k: matrixColumnTitle(c.trackName, c.format) })),
   series: graphSeries,
+  // Same drop rules the List/Matrix totals use (see totalAsOf in standings.astro): drivers drop their worst N rounds once the season has run MIN_ROUNDS_FOR_DROPS rounds; teams never drop.
+  drops: championship === 'drivers' ? driverDropWeeks : 0,
+  minDropRounds: MIN_ROUNDS_FOR_DROPS,
+  canDropFinal: matrixCanDropFinalRound,
 });
 
 // CSV export filename — reflects whichever view is actually on screen
@@ -418,30 +426,31 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="relative z-30 mt-8">
+      <div class="relative z-30 mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
         <form method="GET" class="flex flex-wrap items-end justify-between gap-x-4 gap-y-4">
           {/* Carries the Standings by Round slider across dropdown changes (the slider keeps this up to date; the Season dropdown disables it so a new season starts at all rounds). */}
           <input type="hidden" name="round" id="timeline-round" value={sliderCols[sliderValue - 1]?.r ?? ''} disabled={sliderValue >= matrixColumns.length} />
-          <label class="flex flex-col gap-1.5 text-sm">
-            <span class="text-white/60">Season</span>
-            <div class="flex items-center gap-2">
-              <select
-                name="season"
-                onchange="var r = this.form.elements.round; if (r) r.disabled = true; this.form.submit()"
-                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
-              >
-                {championshipSeasons.map((s) => (
-                  <option value={s.number} selected={s.id === activeSeason?.id} class="bg-brand-ink text-white">{s.name}</option>
-                ))}
-              </select>
-              <SeasonLogo darkUrl={activeSeason?.logo_url ?? null} lightUrl={activeSeason?.logo_url_light} />
-            </div>
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+            <select
+              name="season"
+              data-logo-select
+              onchange="var r = this.form.elements.round; if (r) r.disabled = true; this.form.submit()"
+              class="w-44 h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+            >
+              {championshipSeasons.map((s) => (
+                <option value={s.number} selected={s.id === activeSeason?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
+              ))}
+            </select>
           </label>
           <div class="flex flex-wrap items-end gap-4 sm:ml-auto">
             {matrixColumns.length > 1 && (
-              <div class="group relative flex flex-col gap-1.5 text-sm">
-                <span class="text-white/60">Standings by Round</span>
-                <div class="flex h-10 items-center gap-3">
+              <div class="group relative flex flex-col gap-1.5">
+                <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Standings by Round</span>
+                {/* Ticks + floating round tag (styles: .round-slider in global.css). The tag is the live
+                    readout — standings.astro's slider script writes its text and the --p / --steps vars. */}
+                <div class="round-slider" style={`--p: ${matrixColumns.length > 1 ? ((sliderValue - 1) / (matrixColumns.length - 1)) * 100 : 100}%; --f: ${matrixColumns.length > 1 ? (sliderValue - 1) / (matrixColumns.length - 1) : 1}; --steps: ${Math.max(1, matrixColumns.length - 1)}`}>
+                  <div class="round-slider-ticks" aria-hidden="true"></div>
                   <input
                     type="range"
                     id="timeline-slider"
@@ -451,10 +460,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     value={sliderValue}
                     aria-label="Standings by Round"
                     data-cols={JSON.stringify(sliderCols)}
-                    class="w-40 accent-brand-primary"
                   />
-                  <span id="timeline-slider-value" class="min-w-[4.5rem] text-white/70">
-                    Round {sliderCols[sliderValue - 1]?.r ?? sliderValue}
+                  <span id="timeline-slider-value" class="round-slider-tag" aria-live="polite">
+                    R{sliderCols[sliderValue - 1]?.r ?? sliderValue}
                   </span>
                 </div>
                 <span
@@ -465,35 +473,35 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </span>
               </div>
             )}
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">View</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
               <select
                 name="mode"
                 onchange="this.form.submit()"
-                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+                class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
                 <option value="matrix" selected={mode === 'matrix'} class="bg-brand-ink text-white">Matrix</option>
                 <option value="graph" selected={mode === 'graph'} class="bg-brand-ink text-white">Graph</option>
               </select>
             </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Championship</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Championship</span>
               <select
                 name="championship"
                 onchange="this.form.submit()"
-                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+                class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 <option value="drivers" selected={championship === 'drivers'} class="bg-brand-ink text-white">Drivers</option>
                 <option value="teams" selected={championship === 'teams'} class="bg-brand-ink text-white">Teams</option>
               </select>
             </label>
-            <label class="flex flex-col gap-1.5 text-sm">
-              <span class="text-white/60">Class</span>
+            <label class="flex flex-col gap-1.5">
+              <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
               <select
                 name="class"
                 onchange="this.form.submit()"
-                class="h-10 w-44 rounded-md border border-white/15 bg-white/5 px-3 text-white outline-none focus:border-brand-primary"
+                class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 {championship === 'drivers' ? (
                   <>
@@ -527,15 +535,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       <div id="standings-graph" class="graph-root mt-8 rounded-xl border border-white/10 p-4 sm:p-5">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="font-semibold">Cumulative points</h2>
-          <div class="flex gap-2 text-xs">
+          <div class="flex flex-wrap items-center gap-3 text-xs">
+            {championship === 'drivers' && driverDropWeeks > 0 && (
+              <label class="flex h-7 items-center gap-2 text-white/70" title={`Re-totals every point on the graph with each driver's worst ${driverDropWeeks} rounds dropped, starting at round ${MIN_ROUNDS_FOR_DROPS}`}>
+                <input type="checkbox" id="graph-drop-weeks" class="h-4 w-4 rounded border-white/20 bg-white/5 accent-brand-primary" />
+                Drop Weeks
+              </label>
+            )}
+            <div class="flex gap-2">
             <button type="button" data-graph-preset="top" class="btn btn-neutral btn-sm">Top 8</button>
             <button type="button" data-graph-preset="all" class="btn btn-neutral btn-sm">All</button>
             <button type="button" data-graph-preset="none" class="btn btn-neutral btn-sm">None</button>
+            </div>
           </div>
         </div>
         <div id="graph-plot" class="relative mt-3 w-full"></div>
         <p class="mt-2 text-xs text-white/40">
-          Running total of each round's points — drop weeks aren't applied here. The top 8 are drawn in colour; click any name below to add or remove a line.
+          Running total of each round's points — drop weeks only count when "Drop Weeks" is checked. The top 8 are drawn in colour; click any name below to add or remove a line.
         </p>
         <div id="graph-legend" class="mt-3 flex max-h-40 flex-wrap gap-x-2 gap-y-1 overflow-y-auto text-xs"></div>
         <script type="application/json" id="graph-data" set:html={safeJson(JSON.parse(graphJson))} />
@@ -894,7 +910,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   ) : (
                     <div class="grid gap-x-4 gap-y-2 sm:grid-cols-2 lg:grid-cols-3" data-roster>
                       {roster.map((driverStanding) => (
-                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2" data-roster-driver={driverStanding.driver.id} data-orig-pos={driverStanding.position}>
+                        <div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-brand-ink px-3 py-2" data-roster-driver={driverStanding.driver.id} data-orig-pos={driverStanding.position}>
                           <span class="flex items-center gap-1.5 font-semibold text-white/90">
                             <span class="hidden sm:contents">
                               <DriverFlag nationality1={driverStanding.driver.nationality_1} nationality2={driverStanding.driver.nationality_2} />

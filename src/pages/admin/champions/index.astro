@@ -5,5 +5,5 @@
 // ([seasonId]/[classId].astro, hall-of-fame/[driverId].astro) are unchanged
 // and still live under /admin/champions/.
 export const prerender = false;
-return Astro.redirect('/admin/site-properties#champions', 301);
+return Astro.redirect('/admin/site-properties?tab=champions', 301);
 ---
