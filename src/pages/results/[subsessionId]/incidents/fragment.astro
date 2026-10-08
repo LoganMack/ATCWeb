@@ -676,6 +676,12 @@ incidentReports.sort(
     a.turn.localeCompare(b.turn, undefined, { numeric: true, sensitivity: 'base' }) ||
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
 );
+// "INC n", numbered in that chronological order across every group below.
+// Dismissed reports get no number and close the gap, so dismissing or
+// reopening one renumbers the reports after it.
+const reportNumberById = new Map(
+  incidentReports.filter((r) => r.status !== 'dismissed').map((r, i) => [r.id, i + 1])
+);
 
 // Flag reports that probably describe the same incident: same session, lap
 // and turn, plus at least one car in common — reporters often leave cars out,
@@ -722,7 +728,8 @@ for (const [id, original] of duplicateOriginalById) {
   duplicateOriginalById.set(id, root);
 }
 function reportLabel(r: IncidentReport): string {
-  return `${sessionLabelByValue.get(r.session) ?? r.session} · Lap ${r.lap} · Turn ${r.turn}`;
+  const n = reportNumberById.get(r.id);
+  return `${n ? `INC ${n} · ` : ''}${sessionLabelByValue.get(r.session) ?? r.session} · Lap ${r.lap} · Turn ${r.turn}`;
 }
 // Admin → Incident Reporting links here two ways: "View Incidents"
 // (?view=reports) shows the driver-submitted reports queue, "Edit Report"
@@ -1050,7 +1057,7 @@ const nextIncidentNumber =
                         <button
                           type="button"
                           data-log-report
-                          data-report={JSON.stringify({ id: r.id, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
+                          data-report={JSON.stringify({ id: r.id, number: reportNumberById.get(r.id) ?? null, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
                           class="btn btn-primary btn-sm"
                         >
                           Log incident
@@ -1430,6 +1437,7 @@ const nextIncidentNumber =
             id="incident-dialog"
             data-incident-dialog
             data-next-incident-number={nextIncidentNumber}
+            data-used-incident-numbers={JSON.stringify([...new Set(penalties.map((p) => p.incident_number).filter(Boolean))])}
             class="w-full max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
           >
             <form method="POST" action={formAction} data-astro-reload class="flex max-h-[85vh] flex-col gap-3 overflow-y-auto p-5">
@@ -1466,6 +1474,10 @@ const nextIncidentNumber =
                   <input type="number" name="lap" data-incident-lap-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
               </div>
+              {/* Shown when the Incident # is already used by a logged incident this round. A warning only — saving is still allowed. */}
+              <p data-incident-number-warning class="hidden rounded-md border border-brand-gold/40 bg-brand-gold/10 px-3 py-2 text-xs text-brand-gold">
+                ⚠ Incident #<span data-incident-number-warning-value></span> is already logged this round. Double-check the number before saving.
+              </p>
 
               {/* Cars at fault (src/scripts/faultCards.ts): tick every car at fault
                   and each gets its own card with its own PP/Warning, time penalty,

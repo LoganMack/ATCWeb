@@ -294,6 +294,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       restEl.classList.toggle('flex', isValid);
       saveButton.disabled = !isValid;
       missingFieldsEl.textContent = isValid ? '' : `Still needed: ${missing.join(', ')}`;
+      updateNumberWarning();
+    }
+
+    // Yellow note (not a block) when the Incident # matches one already logged
+    // this round — e.g. a report's INC number pre-filled over hand-added or
+    // imported incidents. "3", "#3", "# 3" and "03" all match, the same as the
+    // incidents list's numeric sort. When editing, the incident's own number
+    // doesn't count (its other cars' rows share it).
+    const numberWarning = dialog.querySelector<HTMLElement>('[data-incident-number-warning]')!;
+    const numberWarningValue = dialog.querySelector<HTMLElement>('[data-incident-number-warning-value]')!;
+    const stripHash = (n: string) => n.trim().replace(/^#/, '').trim();
+    const normalizeIncidentNumber = (n: string) => {
+      const v = stripHash(n);
+      return /^\d+$/.test(v) ? String(Number(v)) : v.toLowerCase();
+    };
+    const usedIncidentNumbers = new Set<string>(
+      (JSON.parse(dialog.dataset.usedIncidentNumbers ?? '[]') as string[]).map(normalizeIncidentNumber)
+    );
+    let ownIncidentNumber = '';
+    function updateNumberWarning() {
+      const n = normalizeIncidentNumber(numberField.value);
+      const duplicate = n !== '' && n !== ownIncidentNumber && usedIncidentNumbers.has(n);
+      numberWarning.classList.toggle('hidden', !duplicate);
+      numberWarningValue.textContent = stripHash(numberField.value);
     }
 
     // Ticking a car at fault also ticks that car in the Involved list — per
@@ -338,6 +362,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       idField.value = '';
       originalDriverField.value = '';
       fromReportField.value = fromReportId;
+      ownIncidentNumber = '';
       heading.textContent = 'Add Incident';
       numberField.value = dialog!.dataset.nextIncidentNumber ?? '';
       setMode('add');
@@ -370,6 +395,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           if (el) el.value = value;
         };
         set('incident_number', p.incident_number ?? '');
+        ownIncidentNumber = normalizeIncidentNumber(p.incident_number ?? '');
         set('lap', p.lap ?? '');
         set('description', p.description ?? '');
         set('appeal_result', p.appeal_result ?? '');
@@ -415,14 +441,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     // "Log incident" on a driver-submitted report: opens the normal Add
     // Incident dialog pre-filled from the report (session, lap, involved
-    // cars, and the next Incident # — the description is deliberately left
-    // blank). The steward still ticks the car(s) at fault; saving marks the
-    // report as logged (from_report_id).
+    // cars, and the report's INC number as the Incident # — still editable;
+    // the description is deliberately left blank). The steward still ticks
+    // the car(s) at fault; saving marks the report as logged (from_report_id).
     document.querySelectorAll<HTMLButtonElement>('[data-log-report]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!btn.dataset.report) return;
         const r = JSON.parse(btn.dataset.report);
         resetForAdd(r.id);
+        // The report's own INC number, in place of the next-number default.
+        if (r.number != null) numberField.value = String(r.number);
         sessionField.value = r.session;
         lapField.value = String(r.lap);
         dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
