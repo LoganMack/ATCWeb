@@ -39,6 +39,12 @@ const [liveBanner, currentSeason] = await Promise.all([liveBannerPromise, curren
 const navLogoDarkUrl = currentSeason?.logo_url ?? '/logos/atc18-white.png';
 const navLogoLightUrl = currentSeason?.logo_url ? (currentSeason.logo_url_light ?? null) : null;
 
+// Top-right button: a signed-in driver has already joined the league, so the
+// Discord "Sign-Up" link becomes a link to their own driver page instead. A
+// login that isn't linked to a roster driver (Admin > Users > Driver) may not
+// have joined yet, so it still gets Sign-Up.
+const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+
 const links: { href: string; label: string; external?: boolean }[] = [
   { href: '/news', label: 'News' },
   { href: '/calendar', label: 'Calendar' },
@@ -81,14 +87,20 @@ const links: { href: string; label: string; external?: boolean }[] = [
     </nav>
 
     <div class="flex items-center gap-2 sm:gap-3">
-      <a
-        href={discordUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        class="btn btn-primary"
-      >
-        Sign-Up
-      </a>
+      {myDriverId ? (
+        <a href={`/drivers/${myDriverId}`} class="btn btn-primary">
+          My Profile
+        </a>
+      ) : (
+        <a
+          href={discordUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn-primary"
+        >
+          Sign-Up
+        </a>
+      )}
 
       <button
         type="button"
