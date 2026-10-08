@@ -1,0 +1,104 @@
+---
+export const prerender = false;
+
+// A champion's race-by-race season — fetched client-side, once, the first time a
+// champion card on /champions is expanded (see the script in champions.astro; this
+// is the same lazy-detail pattern /circuits uses). Returns a bare HTML fragment, dropped
+// into the card's detail row via innerHTML. Same table shape as the Hall of Fame
+// card's season table, but one row per race in that champion's winning season
+// instead of one row per season.
+//
+// Reuses getDriverRaceHistory (the driver profile page's Races table) and narrows it to
+// one season, so the numbers here (class-relative finish, penalty-adjusted positions,
+// margin, incidents) always match the profile page.
+import TeamLogo from '../../../../components/TeamLogo.astro';
+import { resolveSupabaseEnv, formatDateShort } from '../../../../lib/supabase';
+import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../../../../lib/results';
+
+const { seasonId = '', driverId = '' } = Astro.params;
+const classId = Number(Astro.url.searchParams.get('class'));
+
+let rows: DriverRaceHistoryRow[] = [];
+let loadError: string | null = null;
+try {
+  const history = await getDriverRaceHistory(resolveSupabaseEnv(Astro.locals), driverId);
+  rows = history
+    .filter((r) => r.season?.id === seasonId && (!Number.isFinite(classId) || classId <= 0 || r.classId === classId))
+    .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.raceNumber - b.raceNumber);
+} catch (err) {
+  console.error('Failed to load champion season results:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+// "(Race N)" only on rounds that ran more than one race.
+const raceCountBySubsession = new Map<number, number>();
+for (const r of rows) raceCountBySubsession.set(r.subsessionId, (raceCountBySubsession.get(r.subsessionId) ?? 0) + 1);
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+---
+
+{loadError && <p class="text-xs text-white/40">Couldn't load this season's results right now.</p>}
+
+{!loadError && rows.length === 0 && <p class="text-xs text-white/40">No race results on file for this season.</p>}
+
+{!loadError && rows.length > 0 && (
+  <div data-sticky-thead>
+    <table class="w-full min-w-[720px] border-collapse text-xs">
+      <thead>
+        <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
+          <th class="py-2 pr-3 font-medium">Round</th>
+          <th class="py-2 pr-3 font-medium">Car</th>
+          <th class="py-2 pr-3 font-medium">Team</th>
+          <th class="py-2 pr-3 text-center font-medium">Start</th>
+          <th class="py-2 pr-3 text-center font-medium">Finish</th>
+          <th class="py-2 pr-3 text-center font-medium">Margin</th>
+          <th class="py-2 pr-3 text-center font-medium">Inc</th>
+          <th class="py-2 pr-3 text-center font-medium">Laps</th>
+          <th class="py-2 pr-3 text-center font-medium">Led</th>
+          <th class="py-2 pr-3 text-center font-medium">Points</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr class="border-b border-white/5">
+            <td class="py-2 pr-3">
+              <a href={`/results/${r.subsessionId}`} class="font-semibold text-brand-primary hover:underline">
+                {r.displayRoundNumber !== null ? `Round ${r.displayRoundNumber}` : r.trackName}
+                {(raceCountBySubsession.get(r.subsessionId) ?? 1) > 1 && ` (Race ${r.raceNumber})`}
+              </a>
+              <div class="text-[10px] text-white/40">
+                {r.displayRoundNumber !== null ? `${r.trackName} · ` : ''}{formatDateShort(r.startTime.slice(0, 10))}
+              </div>
+            </td>
+            <td class="py-2 pr-3">
+              {r.car ? <TeamLogo name={r.car.name} logoUrl={r.car.logoUrl} size="h-5 w-5" tint /> : <span class="text-white/30">—</span>}
+            </td>
+            <td class="py-2 pr-3">
+              {r.team ? <TeamLogo name={r.team.name} logoUrl={r.team.logoUrl} size="h-5 w-5" title={r.team.name} /> : <span class="text-white/30">N/A</span>}
+            </td>
+            <td class="py-2 pr-3 text-center text-white/70">{r.classStartingPosition ?? r.startingPosition ?? '—'}</td>
+            <td class="py-2 pr-3 text-center text-white/90">
+              {/* Asterisk is taken out of flow so it never shifts the number's centering — same trick as the driver profile's Races table. */}
+              <span class="relative inline-block">
+                {r.dsq ? <span class="text-brand-pink">DSQ</span> : (r.classPosition ?? r.finishPosition)}
+                {r.wasAdjusted && (
+                  <sup
+                    class={`absolute left-full top-0 ml-0.5 font-sans text-[10px] ${r.gainedPositions ? 'text-brand-blue' : 'text-brand-pink'}`}
+                    title={r.gainedPositions ? 'Gained position(s) by penalty' : 'Adjusted by penalty'}
+                  >
+                    *
+                  </sup>
+                )}
+              </span>
+            </td>
+            <td class="py-2 pr-3 text-center text-white/70">{r.margin}</td>
+            <td class="py-2 pr-3 text-center text-white/70">{r.incidents ?? '—'}</td>
+            <td class="py-2 pr-3 text-center text-white/70">{r.laps ?? '—'}</td>
+            <td class="py-2 pr-3 text-center text-white/70">{r.lapsLed ?? '—'}</td>
+            <td class="py-2 pr-3 text-center font-semibold text-white/90">{r.totalPoints}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)}

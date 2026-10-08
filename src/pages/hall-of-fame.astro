@@ -34,7 +34,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Hall of Fame</h1>
 
-    <HistoryTabs active="hallOfFame" />
+    <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="hallOfFame" />
+      </div>
+    </div>
 
     <div data-hof-results data-fragment-url="/hall-of-fame/fragment">
       <div class="mt-8 flex flex-col gap-5" aria-live="polite" aria-busy="true">

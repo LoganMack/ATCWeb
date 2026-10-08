@@ -33,8 +33,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Incidents</h1>
 
-    <HistoryTabs active="incidents" />
-
     <!--
       The three-way All Incidents / By Driver / By Offense switch — plain
       radio-less tab buttons toggling `hidden` on sibling panels, same shape
@@ -52,9 +50,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       exist yet when this script first runs.
     -->
     <div data-incidents-results data-fragment-url="/incidents/fragment">
-      <div aria-live="polite" aria-busy="true">
+      <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading incidents…</span>
-        <div class="h-9 w-48 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+        <div class="flex flex-wrap items-end gap-3">
+          <HistoryTabs active="incidents" />
+          <div class="flex flex-col gap-1.5 sm:w-56">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
+            <div class="h-9 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          </div>
+        </div>
       </div>
       <div class="mt-6 h-96 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
     </div>

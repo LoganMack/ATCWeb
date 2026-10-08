@@ -51,8 +51,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Driver Stats</h1>
 
-    <HistoryTabs active="driverStats" />
-
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load driver stats right now.
@@ -61,8 +59,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+      <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
        <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="driverStats" />
         <input
           type="search"
           id="driver-stats-search"

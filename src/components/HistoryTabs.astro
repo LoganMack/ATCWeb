@@ -1,20 +1,22 @@
 ---
-// Shared sub-nav for the series-history pages. Kept as its own small tab
-// bar rather than separate top-level Nav.astro links, since the main nav
-// is already fairly full — Nav.astro only links to /champions ("History").
+// The series-history pages' section picker. It used to be a row of tabs under the page
+// title; it's now a dropdown that lives inside each page's filter card, always as the
+// card's left-most control (render it first inside the card's flex row). Kept as its own
+// small component so all seven pages stay in sync — Nav.astro only links to /champions
+// ("History"), and this is how a visitor gets to the rest.
 //
-// Race Results, Standings, and Team Standings used to be tabs here too, but
-// they've been promoted to their own top-level Nav.astro links (Results,
-// Standings) and are no longer reachable from this History sub-nav — see
-// results.astro/standings.astro/team-standings.astro, which now render
-// StandingsTabs.astro (or nothing, for Results) instead of this component.
+// Each option's value is its destination URL; onchange just navigates there (same pattern
+// as the other filter dropdowns on these pages).
+//
+// Race Results, Standings, and Team Standings used to be tabs here too, but they've been
+// promoted to their own top-level Nav.astro links and aren't part of this picker.
 interface Props {
   active: 'champions' | 'driverStats' | 'teamStats' | 'hallOfFame' | 'awards' | 'circuits' | 'incidents';
 }
 
 const { active } = Astro.props;
 
-const tabs: { key: Props['active']; href: string; label: string }[] = [
+const sections: { key: Props['active']; href: string; label: string }[] = [
   { key: 'champions', href: '/champions', label: 'Champions' },
   { key: 'driverStats', href: '/driver-stats', label: 'Driver Stats' },
   { key: 'teamStats', href: '/team-stats', label: 'Team Stats' },
@@ -25,19 +27,15 @@ const tabs: { key: Props['active']; href: string; label: string }[] = [
 ];
 ---
 
-<!-- mt-12 gives clear breathing room above the tabs regardless of what
-     precedes them (a bare h1, or a round's date/format subtitle line). -->
-<div class="reveal mb-8 mt-12 flex gap-1 border-b border-white/10">
-  {tabs.map((tab) => (
-    <a
-      href={tab.href}
-      class={`-mb-px rounded-t-md border-b-2 px-4 py-2.5 text-sm font-semibold transition ${
-        tab.key === active
-          ? 'border-brand-primary text-white'
-          : 'border-transparent text-white/50 hover:text-white'
-      }`}
-    >
-      {tab.label}
-    </a>
-  ))}
-</div>
+<label class="flex flex-col gap-1.5 sm:w-44">
+  <span class="text-xs font-semibold uppercase tracking-wide text-white/40">History</span>
+  <select
+    aria-label="History section"
+    class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+    onchange="window.location.href=this.value"
+  >
+    {sections.map((s) => (
+      <option value={s.href} selected={s.key === active} class="bg-brand-ink text-white">{s.label}</option>
+    ))}
+  </select>
+</label>

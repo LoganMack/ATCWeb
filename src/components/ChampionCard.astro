@@ -15,9 +15,11 @@ interface Props {
   photos: ChampionPhoto[];
   extras?: DriverSeasonExtras;
   index?: number;
+  /** Class this champion won — passed on to the season-results fetch so a driver who raced two classes in a season only sees the winning one's races. */
+  classId?: number;
 }
 
-const { entry, photos, extras, index = 0 } = Astro.props;
+const { entry, photos, extras, index = 0, classId } = Astro.props;
 const { season, standing: d } = entry;
 const driverName = displayDriverName(d.driver.name);
 
@@ -30,12 +32,21 @@ function raceWord(n: number): string {
   class="reveal overflow-hidden rounded-xl border border-white/10 bg-brand-ink"
   style={`transition-delay: ${Math.min(index, 4) * 30}ms`}
 >
-  <div class="grid sm:grid-cols-[264px_1fr]">
+  {/* Click the card to open this champion's race-by-race season (fetched on first open by the script in champions.astro; the open/close itself is expandRows.ts). */}
+  <div
+    data-expand-row
+    data-season-results-url={`/champions/season-results/${season.id}/${d.driver.id}${classId ? `?class=${classId}` : ''}`}
+    tabindex="0"
+    role="button"
+    aria-expanded="false"
+    class="grid cursor-pointer transition hover:bg-white/[0.02] sm:grid-cols-[264px_1fr]"
+  >
     <PhotoGrid photos={photos} altText={`${driverName} — ${season.name}`} />
 
     <div class="p-6">
       <div>
         <p class="flex items-center gap-1.5 text-xs uppercase tracking-widest text-white/50">
+          <span data-chevron class="inline-block shrink-0 text-[9px] text-white/30 transition-transform duration-150" aria-hidden="true">&#9654;</span>
           <SeasonLogo
             darkUrl={resizedImageUrl(season.logo_url, { width: 32 })}
             lightUrl={resizedImageUrl(season.logo_url_light, { width: 32 })}
@@ -72,6 +83,12 @@ function raceWord(n: number): string {
         <StatBlock label="Starts" value={d.starts} sub="races" />
         <StatBlock label="Appearances" value={d.appearances} sub="rounds" />
       </dl>
+    </div>
+  </div>
+
+  <div data-detail-row class="hidden border-t border-white/10 bg-white/[0.02] p-4">
+    <div data-season-results-body>
+      <p class="text-xs text-white/40">Loading…</p>
     </div>
   </div>
 </article>

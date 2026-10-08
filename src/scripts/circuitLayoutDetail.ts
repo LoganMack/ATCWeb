@@ -23,13 +23,11 @@
  * keydown handlers, not a modification of them — expandRows.ts stays
  * generic (just toggles visibility for ANY [data-expand-row]/
  * [data-detail-row] pair site-wide) and knows nothing about fetching.
- * Relies on this script's own <script> tag coming AFTER expandRows.ts's in
- * Layout.astro: both listeners are bound to `document` for the same
- * `click`/`keydown` events, and same-target listeners for the same event
- * type run in registration order, so by the time this one runs,
- * expandRows.ts's handler has already flipped the row's aria-expanded
- * attribute to its new (post-click) value — this only has to read that
- * value, not compute it itself.
+ * Doesn't depend on which of the two listeners runs first: it reads the
+ * row's aria-expanded after the event has finished (see maybeLoad), by which
+ * point expandRows.ts has flipped it. (An earlier version assumed this
+ * script was registered second; the production bundle reorders them, so the
+ * first click read a stale value and the row sat on "Loading…" forever.)
  */
 let circuitLayoutDetailInitialized = false;
 
@@ -57,7 +55,12 @@ async function loadLayoutDetail(row: HTMLElement) {
 }
 
 function maybeLoad(row: HTMLElement) {
-  if (row.getAttribute('aria-expanded') === 'true') loadLayoutDetail(row);
+  // Wait for the current event to finish before reading aria-expanded: expandRows.ts flips it in its own
+  // listener on the same event, and the production bundler doesn't keep the two scripts in document order,
+  // so this listener can run FIRST and would otherwise see the stale (still-collapsed) value and never load.
+  setTimeout(() => {
+    if (row.getAttribute('aria-expanded') === 'true') loadLayoutDetail(row);
+  }, 0);
 }
 
 function initCircuitLayoutDetail() {

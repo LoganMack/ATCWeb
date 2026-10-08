@@ -42,10 +42,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Team Stats</h1>
 
-    <HistoryTabs active="teamStats" />
-
-    <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+    <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
       <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="teamStats" />
         <input
           type="search"
           id="team-stats-search"
