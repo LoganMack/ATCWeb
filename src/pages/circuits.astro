@@ -85,8 +85,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Circuits</h1>
 
-    <HistoryTabs active="circuits" />
-
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load circuits right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
@@ -96,13 +94,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     {!loadError && sortedLayouts.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
 
     {!loadError && sortedLayouts.length > 0 && (
-      <div class="reveal mt-8 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 80ms">
+      <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 80ms">
+       <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="circuits" />
         <input
           type="search"
           id="circuit-search"
           placeholder="Search circuits or layouts…"
-          class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          class="h-9 min-w-[14rem] flex-1 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
         />
+       </div>
       </div>
     )}
 

@@ -103,8 +103,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Champions</h1>
 
-    <HistoryTabs active="champions" />
-
     {loadError && (
       <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
         Couldn't load champions right now. If this mentions permission/RLS, race_scores or curated_race_results
@@ -115,8 +113,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
 
     {!loadError && (
-      <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+      <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
        <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="champions" />
         {/* Each option's value is its destination URL; onchange just navigates there. */}
         <label class="flex flex-col gap-1.5 sm:w-44">
         <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
@@ -183,4 +182,36 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   }
 
   document.addEventListener('astro:page-load', initChampionsResults);
+
+  // Opening a champion card loads that champion's race-by-race season (the open/close
+  // toggle itself is expandRows.ts). Delegated and bound once, since the cards only
+  // exist after the fragment above lands, and a script inside the fragment never runs.
+  // Same lazy-detail approach as circuitLayoutDetail.ts, including waiting a tick to read
+  // aria-expanded so it doesn't matter which script's click listener runs first.
+  async function loadSeasonResults(row: HTMLElement) {
+    const url = row.dataset.seasonResultsUrl;
+    const body = row.nextElementSibling?.querySelector<HTMLElement>('[data-season-results-body]');
+    if (!url || !body || row.dataset.resultsLoaded === 'true') return;
+    row.dataset.resultsLoaded = 'true';
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      body.innerHTML = await res.text();
+    } catch (err) {
+      console.error('Failed to load champion season results:', err);
+      body.innerHTML = '<p class="text-xs text-white/40">Couldn’t load this season’s results right now.</p>';
+      row.dataset.resultsLoaded = 'false'; // let the next open retry
+    }
+  }
+  function maybeLoadSeasonResults(target: EventTarget | null) {
+    const row = (target as HTMLElement | null)?.closest<HTMLElement>('[data-expand-row][data-season-results-url]');
+    if (!row) return;
+    setTimeout(() => {
+      if (row.getAttribute('aria-expanded') === 'true') void loadSeasonResults(row);
+    }, 0);
+  }
+  document.addEventListener('click', (e) => maybeLoadSeasonResults(e.target));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') maybeLoadSeasonResults(e.target);
+  });
 </script>
