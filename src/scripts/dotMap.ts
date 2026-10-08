@@ -7,7 +7,7 @@
  *
  * Callers hand over the markup pieces (box, svg, tooltip, legend) and a
  * `getItems()` that returns whatever should be on the map right now; this module
- * does the rest: projection, pan/zoom (drag, buttons, Ctrl+scroll), merging
+ * does the rest: projection, pan/zoom (drag, buttons, scroll wheel, touch pinch), merging
  * nearby pins into numbered clusters that split apart as you zoom in, hover
  * tooltips, keyboard access, and resize handling. What a tooltip says and what
  * a click does are the caller's business (`tooltip` / `onActivate`).
@@ -264,42 +264,88 @@ export async function createDotMap<T>(opts: DotMapOptions<T>): Promise<DotMap> {
     placePins();
   }
 
-  // Drag to pan. Window-level listeners (not pointer capture) so a plain click still reaches the pin under the cursor.
-  svg.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    moved = false;
-    const start = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y };
-    const s = size();
-    const onMove = (m: PointerEvent) => {
-      const dx = m.clientX - start.x;
-      const dy = m.clientY - start.y;
-      if (!moved && Math.hypot(dx, dy) < 4) return;
-      moved = true;
-      hideTip();
-      box.classList.add('is-dragging');
-      vb.x = start.vx - (dx * vb.w) / s.w;
-      vb.y = start.vy - (dy * vb.w) / s.w;
+  // Drag to pan (one pointer) and pinch to zoom (two pointers, touch). Window-level move/up listeners
+  // (not pointer capture) so a plain click still reaches the pin under the cursor.
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pan: { x: number; y: number; vx: number; vy: number } | null = null;
+  let pinch: { dist: number; vb: { x: number; y: number; w: number; h: number }; mx: number; my: number } | null = null;
+
+  const startPan = () => {
+    const [p] = [...pointers.values()];
+    pan = p ? { x: p.x, y: p.y, vx: vb.x, vy: vb.y } : null;
+    pinch = null;
+  };
+  const startPinch = () => {
+    const [a, b] = [...pointers.values()];
+    pan = null;
+    pinch = { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), vb: { ...vb }, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    moved = true; // a pinch is never a click
+    hideTip();
+  };
+  const onMove = (m: PointerEvent) => {
+    const p = pointers.get(m.pointerId);
+    if (!p) return;
+    p.x = m.clientX;
+    p.y = m.clientY;
+    const r = svg.getBoundingClientRect();
+    if (pointers.size >= 2 && pinch) {
+      const [a, b] = [...pointers.values()];
+      const dist = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      // Keep the map point that started under the fingers' midpoint under their current midpoint.
+      const px = pinch.vb.x + ((pinch.mx - r.left) / r.width) * pinch.vb.w;
+      const py = pinch.vb.y + ((pinch.my - r.top) / r.height) * pinch.vb.h;
+      vb.w = pinch.vb.w / (dist / pinch.dist);
+      vb.h = vb.w * aspect();
+      vb.x = px - ((mx - r.left) / r.width) * vb.w;
+      vb.y = py - ((my - r.top) / r.height) * vb.h;
       applyView();
-    };
-    const onUp = () => {
+      return;
+    }
+    if (!pan) return;
+    const dx = m.clientX - pan.x;
+    const dy = m.clientY - pan.y;
+    if (!moved && Math.hypot(dx, dy) < 4) return;
+    moved = true;
+    hideTip();
+    box.classList.add('is-dragging');
+    vb.x = pan.vx - (dx * vb.w) / r.width;
+    vb.y = pan.vy - (dy * vb.w) / r.width;
+    applyView();
+  };
+  const onUp = (u: PointerEvent) => {
+    if (!pointers.delete(u.pointerId)) return;
+    if (pointers.size === 0) {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
       box.classList.remove('is-dragging');
+      pan = null;
+      pinch = null;
       // `moved` is cleared on the next pointerdown, after the click event has had its chance to read it.
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
+    } else if (pointers.size === 1) startPan(); // one finger lifted mid-pinch: carry on panning with the other
+  };
+  svg.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (pointers.size === 0) {
+      moved = false;
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
+    }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) startPan();
+    else if (pointers.size === 2) startPinch();
   });
-  // Ctrl/Cmd + wheel zooms toward the cursor; a plain wheel still scrolls the page.
+  // Scroll wheel (and a trackpad pinch, which browsers report as Ctrl + wheel) zooms toward the cursor.
   svg.addEventListener(
     'wheel',
     (e) => {
-      if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const r = svg.getBoundingClientRect();
-      zoomAt(Math.exp(-e.deltaY * 0.0015), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+      const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+      zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
     },
     { passive: false }
   );
