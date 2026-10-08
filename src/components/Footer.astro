@@ -3,7 +3,6 @@ import { resolveSiteLinks } from '../lib/links';
 import { isAdminView } from '../lib/auth';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
-const year = new Date().getFullYear();
 
 // "View as Visitor" — lets a real admin preview the site with all
 // admin-only UI hidden, without actually signing out, to assess how a
@@ -29,8 +28,15 @@ const showAdminLink = isAdminView(Astro.locals);
 ---
 
 <footer class="border-t border-white/10 py-10">
-  <div class="mx-auto flex max-w-6xl flex-col items-center gap-4 px-6 text-sm text-white/50 sm:flex-row sm:justify-between">
-    <div class="flex items-center gap-3">
+  <div class="mx-auto max-w-6xl px-6 text-sm text-white/50">
+    {/* Line 1: the league's name, centered. */}
+    <p class="text-center">
+      <span class="font-display text-base uppercase tracking-widest text-white/70">Alpha Touring Challenge</span>
+      <span class="mt-1 block text-xs text-white/40">An iRacing league</span>
+    </p>
+    {/* Line 2: buttons on the left, links on the right. */}
+    <div class="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex flex-wrap items-center gap-3">
       <button
         type="button"
         data-theme-toggle
@@ -46,32 +52,6 @@ const showAdminLink = isAdminView(Astro.locals);
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
       </button>
-      <p>&copy; {year} Alpha Touring Challenge</p>
-    </div>
-    <div class="flex flex-wrap items-center justify-center gap-6">
-      <a
-        href="https://paypal.me/loganmckinzie?country.x=US&locale.x=en_US"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="hover:text-white/80"
-      >
-        Donate
-      </a>
-      <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
-      <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
-      {isSignedIn ? (
-        <form method="POST" action="/api/logout" data-astro-reload>
-          <button type="submit" class="cursor-pointer border-0 bg-transparent p-0 text-inherit hover:text-white/80">Logout</button>
-        </form>
-      ) : (
-        <>
-          <a href="/login" class="hover:text-white/80">Login</a>
-          <a href="/signup" class="hover:text-white/80">Sign Up</a>
-        </>
-      )}
-      {showAdminLink && (
-        <a href="/admin" class="hover:text-white/80">Admin Panel</a>
-      )}
       <form method="POST" action="/api/broadcaster-mode" data-astro-reload>
         <input type="hidden" name="next" value={currentPath} />
         <input type="hidden" name="mode" value={broadcasterMode ? 'off' : 'on'} />
@@ -100,6 +80,32 @@ const showAdminLink = isAdminView(Astro.locals);
           </button>
         </form>
       )}
+      </div>
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-2 sm:justify-end">
+      <a
+        href="https://paypal.me/loganmckinzie?country.x=US&locale.x=en_US"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-white/80"
+      >
+        Donate
+      </a>
+      <a href={discordUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Discord</a>
+      <a href={redbubbleUrl} target="_blank" rel="noopener noreferrer" class="hover:text-white/80">Redbubble</a>
+      {isSignedIn ? (
+        <form method="POST" action="/api/logout" data-astro-reload>
+          <button type="submit" class="cursor-pointer border-0 bg-transparent p-0 text-inherit hover:text-white/80">Logout</button>
+        </form>
+      ) : (
+        <>
+          <a href="/login" class="hover:text-white/80">Login</a>
+          <a href="/signup" class="hover:text-white/80">Sign Up</a>
+        </>
+      )}
+      {showAdminLink && (
+        <a href="/admin" class="hover:text-white/80">Admin Panel</a>
+      )}
+      </div>
     </div>
   </div>
   <p class="mx-auto mt-4 max-w-6xl px-6 text-center text-xs text-white/30">
