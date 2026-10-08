@@ -1,0 +1,91 @@
+---
+/**
+ * Share Kudos dialog — opened by any [data-open-kudos-dialog] button on the
+ * round's Kudos page. Same layout as ReportIncidentDialog.astro (Session /
+ * Lap / Turn on one row on sm+, then Description, Clip link and Cars
+ * Involved), plus an optional clip link. Posts to the Kudos fragment
+ * (`intent=submit-kudos`), which re-validates everything server-side.
+ * Only rendered for signed-in users.
+ */
+interface Props {
+  sessionOptions: { value: string; label: string }[];
+  drivers: { id: string; name: string; car_number: number | null }[];
+  /** Where the form POSTs (the Kudos fragment, which owns the POST handling). */
+  action: string;
+}
+const { sessionOptions, drivers, action } = Astro.props;
+/** "Logan Mack" -> "L. Mack"; anything after the first word is kept as the last name. A single-word name is left as-is. */
+function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return name.trim();
+  return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(' ')}`;
+}
+const fieldClass =
+  'rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary';
+---
+
+<dialog
+  data-kudos-dialog
+  class="w-full max-w-xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+>
+  <form method="POST" action={action} data-astro-reload data-kudos-form class="flex flex-col gap-3 p-5">
+    <input type="hidden" name="intent" value="submit-kudos" />
+    <div class="flex items-center justify-between">
+      <h4 class="font-display text-xl">Share Kudos</h4>
+      <button type="button" data-close-kudos-dialog class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+    </div>
+
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Session
+        <select name="session" required class={fieldClass}>
+          <option value="" selected disabled hidden class="bg-brand-ink text-white">Select session…</option>
+          {sessionOptions.map((o) => <option value={o.value} class="bg-brand-ink text-white">{o.label}</option>)}
+        </select>
+      </label>
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Lap
+        <input type="number" name="lap" required min="0" max="10000" step="1" inputmode="numeric" class={fieldClass} />
+      </label>
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Turn
+        <input type="text" name="turn" required maxlength="80" class={fieldClass} />
+      </label>
+    </div>
+
+    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+      What happened? (optional)
+      <textarea name="description" rows="3" maxlength="2000" placeholder="Side by side through the esses for two laps…" class={fieldClass}></textarea>
+    </label>
+
+    <label class="flex flex-col gap-1 text-[11px] text-white/50">
+      Clip link (optional)
+      <input type="url" name="clip_url" maxlength="500" placeholder="https://youtube.com/…" class={fieldClass} />
+    </label>
+
+    <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-driver-picker>
+      <legend class="mb-1">Cars Involved</legend>
+      {drivers.length > 0 && (
+        <input type="search" data-driver-search placeholder="Search by car number or name…" aria-label="Search drivers" class={fieldClass} />
+      )}
+      <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-3">
+        {drivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
+        {drivers.map((d) => (
+          <label
+            class="flex items-center gap-2 text-xs text-white/70"
+            data-driver-option
+            data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+          >
+            <input type="checkbox" name="involved_driver_ids" value={d.id} />
+            {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {shortName(d.name)}
+          </label>
+        ))}
+        <p data-driver-search-empty class="col-span-full hidden text-white/30">No matches.</p>
+      </div>
+    </fieldset>
+
+    <button type="submit" data-kudos-submit disabled class="btn btn-primary mt-1">Share Kudos</button>
+  </form>
+</dialog>
+
+{/* Client behavior lives in src/scripts/kudosDialog.ts (loaded by the Kudos page shell — the markup here arrives via a fetched fragment, and scripts inside fetched HTML never run). */}

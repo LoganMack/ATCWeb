@@ -1,0 +1,265 @@
+---
+export const prerender = false;
+
+import KudosDialog from '../../../../components/KudosDialog.astro';
+import { resolveSupabaseEnv, formatDate } from '../../../../lib/supabase';
+import { getRoundBySubsessionId, getRoundResults, type DriverBasic, type RoundSummary, type RoundResults } from '../../../../lib/results';
+import {
+  getKudosForSubsession,
+  createKudos,
+  deleteKudos,
+  normalizeClipUrl,
+  truncateChars,
+  KUDOS_MAX_LAP,
+  type Kudos,
+} from '../../../../lib/kudos';
+import { isAdminView } from '../../../../lib/auth';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+// isAdminView so "View as Visitor" also hides the admin Delete buttons.
+const isAdmin = isAdminView(Astro.locals);
+const session = Astro.locals.session;
+const subsessionId = Number(Astro.params.subsessionId);
+// Where this page lives — every POST below redirects back to it, not to this fragment URL.
+const shellPath = `/results/${Astro.params.subsessionId}/kudos`;
+// The page's query string minus any ?kudos= banner code, so a form post or a
+// sign-in round trip doesn't carry an old banner along.
+const cleanSearch = (() => {
+  const params = new URLSearchParams(Astro.url.search);
+  params.delete('kudos');
+  const s = params.toString();
+  return s ? `?${s}` : '';
+})();
+const formAction = `${shellPath}/fragment${cleanSearch}`;
+
+let round: RoundSummary | null = null;
+let results: RoundResults | null = null;
+let kudos: Kudos[] = [];
+let loadError: string | null = null;
+if (Number.isFinite(subsessionId)) {
+  try {
+    [round, results, kudos] = await Promise.all([
+      getRoundBySubsessionId(supabaseEnv, subsessionId),
+      getRoundResults(supabaseEnv, subsessionId),
+      getKudosForSubsession(supabaseEnv, subsessionId),
+    ]);
+  } catch (err) {
+    console.error('Failed to load kudos:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+if (!loadError && !round) {
+  // The shell's loader follows X-Redirect-To (a plain redirect here would be
+  // followed by fetch() and the destination page pasted into the container).
+  return new Response(null, { status: 404, headers: { 'X-Redirect-To': '/results' } });
+}
+
+// Every rostered driver in the round, by car number — the dialog's "Cars
+// Involved" picker and the list's car labels. notInRoster rows are left out:
+// their id isn't a real drivers.id, so kudos_drivers couldn't store it.
+const driverById = new Map<string, DriverBasic>();
+for (const rows of results?.overall.values() ?? []) {
+  for (const row of rows) if (!row.notInRoster) driverById.set(row.driver.id, row.driver);
+}
+const roundDrivers = [...driverById.values()].sort(
+  (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
+);
+const raceNumbers = [...(results?.overall.keys() ?? [])].sort((a, b) => a - b);
+const sessionOptions: { value: string; label: string }[] = [
+  ...raceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
+  { value: 'qualifying:0', label: 'Qualifying' },
+  { value: 'practice:0', label: 'Practice' },
+];
+const sessionLabelByValue = new Map(sessionOptions.map((o) => [o.value, o.label]));
+
+// --- Share / delete --------------------------------------------------------
+// Keeps the page's own query string (e.g. ?season=) and swaps in the banner code.
+const back = (code: string) => {
+  const url = new URL(Astro.url);
+  url.searchParams.set('kudos', code);
+  return Astro.redirect(`${shellPath}${url.search}`, 302);
+};
+if (Astro.request.method === 'POST') {
+  // The form navigates to this fragment URL, so every outcome must redirect
+  // back to the shell — including a failed load, or the browser would show
+  // this bare fragment as the page.
+  if (!round) return back('failed');
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+  if (!session) return back('signin');
+
+  if (intent === 'submit-kudos') {
+    const sessionValue = String(form.get('session') ?? '');
+    const lapRaw = String(form.get('lap') ?? '').trim();
+    const lap = /^\d{1,5}$/.test(lapRaw) && Number(lapRaw) <= KUDOS_MAX_LAP ? Number(lapRaw) : NaN;
+    const turn = truncateChars(String(form.get('turn') ?? '').trim(), 80);
+    const description = truncateChars(String(form.get('description') ?? '').trim(), 2000) || null;
+    const involved = [...new Set(form.getAll('involved_driver_ids').map(String))].filter((id) => driverById.has(id));
+    let clipUrl: string | null;
+    try {
+      clipUrl = normalizeClipUrl(String(form.get('clip_url') ?? ''));
+    } catch {
+      return back('badclip');
+    }
+    if (!sessionLabelByValue.has(sessionValue) || !Number.isFinite(lap) || !turn || involved.length === 0) {
+      return back('invalid');
+    }
+    try {
+      await createKudos(supabaseEnv, session.accessToken, {
+        subsession_id: subsessionId,
+        session: sessionValue,
+        lap,
+        turn,
+        description,
+        clip_url: clipUrl,
+        driver_ids: involved,
+      });
+    } catch (err) {
+      console.error('Failed to save kudos:', err);
+      return back('failed');
+    }
+    return back('ok');
+  }
+
+  if (intent === 'delete-kudos') {
+    // RLS (0101) only lets the author or an admin delete; anything else deletes nothing.
+    let deleted: boolean;
+    try {
+      deleted = await deleteKudos(supabaseEnv, session.accessToken, subsessionId, String(form.get('kudos_id') ?? ''));
+    } catch (err) {
+      console.error('Failed to delete kudos:', err);
+      return back('failed');
+    }
+    return back(deleted ? 'deleted' : 'notdeleted');
+  }
+  return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
+}
+
+let flash: { kind: 'ok' | 'error'; message: string } | null = null;
+{
+  const code = Astro.url.searchParams.get('kudos');
+  if (code === 'ok') flash = { kind: 'ok', message: 'Thanks — your kudos has been shared.' };
+  else if (code === 'deleted') flash = { kind: 'ok', message: 'Kudos deleted.' };
+  else if (code === 'notdeleted') flash = { kind: 'error', message: 'That kudos couldn’t be deleted — it may already be gone, or it isn’t yours.' };
+  else if (code === 'signin') flash = { kind: 'error', message: 'Sign in to share kudos.' };
+  else if (code === 'badclip') flash = { kind: 'error', message: 'That clip link isn’t a valid web address — it should start with https://.' };
+  else if (code === 'invalid') flash = { kind: 'error', message: 'Your kudos was missing a required field — please fill in Session, Lap, Turn and at least one car.' };
+  else if (code === 'failed') flash = { kind: 'error', message: 'Couldn’t save that right now. Please try again.' };
+}
+
+// Chronological, like the Incident Report queue: Practice → Qualifying →
+// Race 1 → Race 2 → …, then lap, then turn (free text, so a natural sort —
+// 3 before 10 before 10b), then when it was shared.
+function sessionRank(value: string): number {
+  const [type, num] = value.split(':');
+  if (type === 'practice') return 0;
+  if (type === 'qualifying') return 1;
+  if (type === 'race') return 2 + (Number(num) || 0);
+  return Number.MAX_SAFE_INTEGER;
+}
+kudos.sort(
+  (a, b) =>
+    sessionRank(a.session) - sessionRank(b.session) ||
+    a.lap - b.lap ||
+    a.turn.localeCompare(b.turn, undefined, { numeric: true, sensitivity: 'base' }) ||
+    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+);
+
+function carsLabel(k: Kudos): string {
+  return k.driver_ids
+    .map((id) => driverById.get(id))
+    .sort((a, b) => (a?.car_number ?? Infinity) - (b?.car_number ?? Infinity))
+    .map((d) => (d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown driver'))
+    .join(', ');
+}
+/** "youtube.com" — just the host, for the clip link's label. */
+function clipHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'clip';
+  }
+}
+const signInHref = `/login?next=${encodeURIComponent(`${shellPath}${cleanSearch}`)}`;
+
+// A render carrying a confirmation/error banner (?kudos=…) must never land in
+// the shared edge cache, or every visitor would see it.
+Astro.response.headers.set('Cache-Control', flash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+{loadError && (
+  <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+    Couldn't load this round's kudos right now.
+  </p>
+)}
+
+{round && !loadError && (
+  <>
+    <span hidden data-page-title={`Kudos: ${round.track_name}`}></span>
+    <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
+      Kudos
+      <span class="hidden sm:inline"> — </span>
+      <span class="mt-1 block font-body text-lg not-italic sm:mt-0 sm:inline sm:font-display sm:text-5xl sm:italic">{round.track_name}</span>
+    </h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
+      {formatDate(round.start_time)} · Good racing and highlights shared by the grid. Find them in the replay by session, lap and turn.
+    </p>
+
+    {flash && (
+      <p class={`mt-4 rounded-lg border p-3 text-sm ${flash.kind === 'ok' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-brand-pink/30 bg-brand-pink/10 text-white/80'}`}>
+        {flash.message}
+      </p>
+    )}
+
+    <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-white/60">
+        Highlights <span class="ml-1 font-normal normal-case tracking-normal text-white/40">({kudos.length})</span>
+      </h2>
+      {session ? (
+        <button type="button" data-open-kudos-dialog class="btn btn-primary">Share Kudos</button>
+      ) : (
+        <a href={signInHref} class="btn btn-neutral">Sign in to share kudos</a>
+      )}
+    </div>
+
+    {kudos.length === 0 ? (
+      <p class="mt-4 rounded-lg border border-white/10 bg-brand-ink p-6 text-center text-sm text-white/50">
+        No kudos yet for this round. Saw some great racing? Be the first to share it.
+      </p>
+    ) : (
+      <ul class="mt-3 flex flex-col gap-2">
+        {kudos.map((k) => (
+          <li class="rounded-lg border border-white/10 bg-brand-ink p-3 text-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="font-semibold text-white/80">
+                {sessionLabelByValue.get(k.session) ?? k.session} · Lap {k.lap} · Turn {k.turn}
+              </p>
+              <div class="flex flex-wrap items-center gap-2">
+                {k.clip_url && (
+                  <a href={k.clip_url} target="_blank" rel="noopener noreferrer nofollow ugc" class="btn btn-gold btn-sm">
+                    Watch clip ({clipHost(k.clip_url)}) ↗
+                  </a>
+                )}
+                {session && (isAdmin || k.author_id === session.user.id) && (
+                  <form method="POST" action={formAction} data-astro-reload onsubmit="return confirm('Delete this kudos?')">
+                    <input type="hidden" name="intent" value="delete-kudos" />
+                    <input type="hidden" name="kudos_id" value={k.id} />
+                    <button type="submit" class="btn btn-neutral btn-sm">Delete</button>
+                  </form>
+                )}
+              </div>
+            </div>
+            <p class="mt-1 text-xs text-white/50">Cars: {carsLabel(k)}</p>
+            {k.description && <p class="mt-1 whitespace-pre-line text-white/70">{k.description}</p>}
+            <p class="mt-1 text-[11px] text-white/30">
+              Shared by {k.author_name ?? 'a member'} · {new Date(k.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
+            </p>
+          </li>
+        ))}
+      </ul>
+    )}
+
+    {session && <KudosDialog sessionOptions={sessionOptions} drivers={roundDrivers} action={formAction} />}
+  </>
+)}
