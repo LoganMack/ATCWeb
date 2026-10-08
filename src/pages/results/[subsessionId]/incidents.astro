@@ -72,19 +72,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //     [data-close-incident-dialog]) — same pattern as before, just no
   //     longer scoped to one race's row since this dialog picks its own
   //     session/driver.
-  //   - [data-fault-only] — the offenses fieldset and the PP(/Warning)/time/
-  //     points penalty inputs, hidden (and cleared) whenever the Driver
-  //     field's "Racing Incident" option is selected (see
-  //     0020_penalty_racing_incident.sql) — there's no one to penalize.
-  //     Available for every session type now: a qualifying/practice
-  //     incident's penalty always applies to Race 1 (see scoringRaceNumber
-  //     in src/lib/penalties.ts), it just isn't tied to a specific race
-  //     number the way a real race's incident is.
-  //   - Selecting a Driver also auto-checks that same car in the Involved
-  //     list (a driver at fault is, at minimum, involved in their own
-  //     incident) — see syncInvolvedWithDriver below. Only ever touches the
-  //     checkbox IT checked; anything the admin checked by hand is left
-  //     alone even if the Driver field changes again afterward.
+  //   - Cars at fault ([data-incident-faults], src/scripts/faultCards.ts) —
+  //     tick every car at fault and each gets its own card (PP/Warning, time
+  //     penalty, points penalty, offenses); saving creates one penalty row
+  //     per car. Racing Incident (0020_penalty_racing_incident.sql) has no
+  //     card — there's no one to penalize. Editing is one row, so one car.
+  //     Penalties are available for every session type: a qualifying/practice
+  //     incident's penalty always applies to Race 1 (see scoringRaceNumber in
+  //     src/lib/penalties.ts).
+  //   - Ticking a car at fault also ticks it in the Involved list (a driver
+  //     at fault is, at minimum, involved in their own incident) — see
+  //     syncInvolvedWithFaults below. Only ever unticks a box IT ticked;
+  //     anything the admin ticked by hand is left alone.
+  import { initFaultPicker, setCardField } from '../../../scripts/faultCards';
+
   function initIncidentPage() {
     // "Incident Details" popup for [data-incident-row] — opened by clicking
     // (or pressing Enter/Space on) any incident row, on every screen size.
@@ -223,70 +224,50 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const form = dialog.querySelector('form')!;
     const intentField = dialog.querySelector<HTMLInputElement>('[data-incident-intent-field]')!;
     const idField = dialog.querySelector<HTMLInputElement>('[data-incident-id-field]')!;
+    const originalDriverField = dialog.querySelector<HTMLInputElement>('[data-incident-original-driver-field]')!;
     const fromReportField = dialog.querySelector<HTMLInputElement>('[data-incident-from-report-field]')!;
     const sessionField = dialog.querySelector<HTMLSelectElement>('[data-incident-session-field]')!;
-    const driverField = dialog.querySelector<HTMLSelectElement>('[data-incident-driver-field]')!;
     const heading = dialog.querySelector('[data-incident-heading]')!;
     const appealCheckbox = dialog.querySelector<HTMLInputElement>('[data-appeal-checkbox]')!;
     const appealFields = dialog.querySelector<HTMLElement>('[data-appeal-fields]')!;
-    // Everything that only makes sense when a specific driver is actually
-    // at fault — offenses (rulebook section 5) and the penalty inputs
-    // (PP/Warning, time penalty, points penalty) — hidden once "Racing
-    // Incident" (the driver select's "racing_incident" sentinel option, see
-    // 0020_penalty_racing_incident.sql) is picked. Available regardless of
-    // which session is chosen — a qualifying/practice incident's penalty is
-    // just as real as a race incident's, it always applies to Race 1 (see
-    // scoringRaceNumber in src/lib/penalties.ts).
-    const faultOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-fault-only]');
-    // The blank placeholder option ("Select driver…") is disabled/unselectable
-    // once the user has interacted with the field — only used as the default
-    // so nothing is pre-selected. "racing_incident" (Racing Incident, no
-    // driver at fault, 0020_penalty_racing_incident.sql) is a fully valid,
-    // deliberate choice — it just isn't a FAULT driver. Two separate checks:
-    // isDriverSelected (anything but the blank placeholder — used for the
-    // core-fields validity check below, so picking Racing Incident correctly
-    // counts as "Driver" being filled in) and isFaultDriver (excludes
-    // "racing_incident" too — used only to decide whether the fault-only
-    // fields make sense to show).
-    const isDriverSelected = (value: string) => value !== '';
-    const isFaultDriver = (value: string) => value !== '' && value !== 'racing_incident';
+    const editOnlyFields = dialog.querySelectorAll<HTMLElement>('[data-incident-edit-only]');
+    const faultLegend = dialog.querySelector<HTMLElement>('[data-incident-fault-legend]')!;
+    const faultSearch = dialog.querySelector<HTMLInputElement>('[data-incident-faults] [data-driver-search]')!;
 
-    // Driver search: rebuilds the Driver at Fault dropdown's options from the
-    // full list rather than hiding <option>s (hidden options aren't honored
-    // in every browser). The placeholder, Racing Incident and whatever's
-    // currently selected always stay. If the search narrows it to one driver
-    // and nothing's chosen yet, that driver is picked — dispatching `change`
-    // so every listener below (fault-only fields, Involved sync, validity)
-    // runs exactly as if it had been picked by hand.
-    const driverSearch = dialog.querySelector<HTMLInputElement>('[data-incident-driver-search]')!;
-    const allDriverOptions = [...driverField.options];
-    const filterDriverOptions = () => {
-      const term = driverSearch.value.trim().toLowerCase();
-      const selected = driverField.value;
-      const matches = allDriverOptions.filter((o) => o.dataset.search !== undefined && (!term || o.dataset.search.includes(term)));
-      driverField.replaceChildren(
-        ...allDriverOptions.filter((o) => o.dataset.search === undefined || o.value === selected || matches.includes(o))
-      );
-      driverField.value = selected;
-      if (term && matches.length === 1 && selected === '') {
-        driverField.value = matches[0].value;
-        driverField.dispatchEvent(new Event('change'));
-      }
-    };
-    driverSearch.addEventListener('input', filterDriverOptions);
-    // Every way of opening the dialog calls this FIRST, so the driver it's
-    // about to pre-select is back in the list.
+    // Cars at fault: a checklist where every ticked car gets its own card
+    // (PP/Warning, time penalty, points penalty, offenses) — see
+    // src/scripts/faultCards.ts and the dialog markup in incidents/fragment.astro.
+    // Racing Incident (no driver at fault, 0020_penalty_racing_incident.sql)
+    // has no card: nobody to penalize. Available regardless of which session
+    // is chosen — a qualifying/practice incident's penalty is just as real as
+    // a race incident's, it always applies to Race 1 (see scoringRaceNumber in
+    // src/lib/penalties.ts).
+    const faultRoot = dialog.querySelector<HTMLElement>('[data-incident-faults]')!;
+    const faults = initFaultPicker(faultRoot);
+
+    // Clears the search box and re-filters (driverPickerSearch.ts), so a car
+    // about to be pre-ticked isn't hidden by a search left over from last time.
     const resetDriverSearch = () => {
-      driverSearch.value = '';
-      filterDriverOptions();
+      faultSearch.value = '';
+      faultSearch.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    function faultFieldsShouldBeVisible() {
-      return isFaultDriver(driverField.value);
+
+    // Adding can create several penalties at once (one per car); editing is
+    // one existing penalty row, so one car only — and that's where an appeal
+    // is recorded.
+    function setMode(mode: 'add' | 'edit') {
+      faults.setSingle(mode === 'edit');
+      faultLegend.textContent = mode === 'edit' ? 'Car at fault' : 'Cars at fault — tick every car at fault';
+      editOnlyFields.forEach((el) => el.classList.toggle('hidden', mode !== 'edit'));
+      if (mode === 'add') {
+        appealCheckbox.checked = false;
+        setAppealFieldsVisible(false);
+      }
     }
 
-    // The four "core" fields that must be filled in before the rest of the
-    // form is even shown — Session is always required now (a real race,
-    // Qualifying, or Practice must always be explicitly chosen).
+    // The "core" fields that must be filled in before the rest of the form is
+    // even shown — Session is always required (a real race, Qualifying, or
+    // Practice must always be explicitly chosen).
     const numberField = dialog.querySelector<HTMLInputElement>('[data-incident-number-field]')!;
     const lapField = dialog.querySelector<HTMLInputElement>('[data-incident-lap-field]')!;
     const missingFieldsEl = dialog.querySelector<HTMLElement>('[data-incident-missing-fields]')!;
@@ -298,32 +279,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       appealFields.classList.toggle('flex', visible);
     }
 
-    function setFaultFieldsVisible(visible: boolean) {
-      faultOnlyFields.forEach((el) => el.classList.toggle('hidden', !visible));
-      if (!visible) {
-        // Clear rather than just hide, so switching to Racing Incident
-        // never leaves a hidden offense/penalty value silently in the
-        // submitted form data.
-        dialog.querySelectorAll<HTMLInputElement>('[name="offense_ids"]').forEach((cb) => (cb.checked = false));
-        const clear = (name: string) => {
-          const el = dialog.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${name}"]`);
-          if (el) el.value = '';
-        };
-        // penalty_points_choice's blank option ("0") is what this resets to —
-        // same "no PP/warning assigned" default as a fresh Add.
-        clear('penalty_points_choice');
-        clear('time_penalty_seconds');
-        clear('points_penalty');
-      }
-    }
-
-    // Session, Driver, Incident #, and Lap are the "core" fields — until all
-    // of them are filled in, the rest of the form stays hidden and Save
-    // stays disabled, with a message telling the user what's still missing.
+    // Session, a car at fault (or Racing Incident), Incident # and Lap are the
+    // "core" fields — until all of them are filled in, the rest of the form
+    // stays hidden and Save stays disabled, with a message saying what's missing.
     function updateFormValidity() {
       const missing: string[] = [];
       if (!sessionField.value) missing.push('Session');
-      if (!isDriverSelected(driverField.value)) missing.push('Driver at Fault');
+      if (!faults.isRacingIncident() && faults.selected().length === 0) missing.push('Car at fault (or Racing Incident)');
       if (!numberField.value.trim()) missing.push('Incident #');
       if (!lapField.value.trim()) missing.push('Lap');
 
@@ -332,62 +294,85 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       restEl.classList.toggle('flex', isValid);
       saveButton.disabled = !isValid;
       missingFieldsEl.textContent = isValid ? '' : `Still needed: ${missing.join(', ')}`;
+      updateNumberWarning();
     }
 
-    // Selecting a Driver also auto-checks that same car in the Involved
-    // list — per Logan, a driver at fault is, at minimum, involved in their
-    // own incident, so this saves re-ticking the box they just picked above.
-    // Only ever touches the ONE checkbox this function itself last checked
-    // (tracked via autoSelectedInvolvedId): switching the Driver field away
-    // unchecks that box again (unless the admin has since unchecked it
-    // themselves, in which case there's nothing to undo), but anything the
-    // admin checked by hand — including the same car, checked independently
-    // of this auto-behavior — is never touched.
-    let autoSelectedInvolvedId: string | null = null;
-    function syncInvolvedWithDriver() {
-      if (autoSelectedInvolvedId) {
-        const prevCheckbox = dialog.querySelector<HTMLInputElement>(
-          `[name="involved_driver_ids"][value="${autoSelectedInvolvedId}"]`
-        );
-        if (prevCheckbox && prevCheckbox.checked) prevCheckbox.checked = false;
-        autoSelectedInvolvedId = null;
+    // Yellow note (not a block) when the Incident # matches one already logged
+    // this round — e.g. a report's INC number pre-filled over hand-added or
+    // imported incidents. "3", "#3", "# 3" and "03" all match, the same as the
+    // incidents list's numeric sort. When editing, the incident's own number
+    // doesn't count (its other cars' rows share it).
+    const numberWarning = dialog.querySelector<HTMLElement>('[data-incident-number-warning]')!;
+    const numberWarningValue = dialog.querySelector<HTMLElement>('[data-incident-number-warning-value]')!;
+    const stripHash = (n: string) => n.trim().replace(/^#/, '').trim();
+    const normalizeIncidentNumber = (n: string) => {
+      const v = stripHash(n);
+      return /^\d+$/.test(v) ? String(Number(v)) : v.toLowerCase();
+    };
+    const usedIncidentNumbers = new Set<string>(
+      (JSON.parse(dialog.dataset.usedIncidentNumbers ?? '[]') as string[]).map(normalizeIncidentNumber)
+    );
+    let ownIncidentNumber = '';
+    function updateNumberWarning() {
+      const n = normalizeIncidentNumber(numberField.value);
+      const duplicate = n !== '' && n !== ownIncidentNumber && usedIncidentNumbers.has(n);
+      numberWarning.classList.toggle('hidden', !duplicate);
+      numberWarningValue.textContent = stripHash(numberField.value);
+    }
+
+    // Ticking a car at fault also ticks that car in the Involved list — per
+    // Logan, a driver at fault is, at minimum, involved in their own incident.
+    // Only ever unticks a box this function itself ticked (autoInvolvedIds),
+    // when that car stops being at fault — anything the admin ticked by hand,
+    // including the same car, is never touched.
+    const autoInvolvedIds = new Set<string>();
+    function syncInvolvedWithFaults() {
+      const atFault = new Set(faults.selected());
+      for (const id of [...autoInvolvedIds]) {
+        if (atFault.has(id)) continue;
+        const checkbox = dialog!.querySelector<HTMLInputElement>(`[name="involved_driver_ids"][value="${id}"]`);
+        if (checkbox) checkbox.checked = false;
+        autoInvolvedIds.delete(id);
       }
-      const value = driverField.value;
-      if (!isFaultDriver(value)) return;
-      const checkbox = dialog.querySelector<HTMLInputElement>(`[name="involved_driver_ids"][value="${value}"]`);
-      if (checkbox && !checkbox.checked) {
-        checkbox.checked = true;
-        autoSelectedInvolvedId = value;
+      for (const id of atFault) {
+        const checkbox = dialog!.querySelector<HTMLInputElement>(`[name="involved_driver_ids"][value="${id}"]`);
+        if (checkbox && !checkbox.checked) {
+          checkbox.checked = true;
+          autoInvolvedIds.add(id);
+        }
       }
     }
 
     appealCheckbox.addEventListener('change', () => setAppealFieldsVisible(appealCheckbox.checked));
-    driverField.addEventListener('change', () => setFaultFieldsVisible(faultFieldsShouldBeVisible()));
-    driverField.addEventListener('change', syncInvolvedWithDriver);
-    sessionField.addEventListener('change', () => setFaultFieldsVisible(faultFieldsShouldBeVisible()));
+    faultRoot.addEventListener('fault-change', syncInvolvedWithFaults);
+    faultRoot.addEventListener('fault-change', updateFormValidity);
     sessionField.addEventListener('change', updateFormValidity);
-    driverField.addEventListener('change', updateFormValidity);
     numberField.addEventListener('input', updateFormValidity);
     lapField.addEventListener('input', updateFormValidity);
 
+    // Every way of opening the dialog starts from this blank Add state.
+    function resetForAdd(fromReportId: string) {
+      form.reset();
+      resetDriverSearch();
+      faults.clear();
+      // Fresh dialog, fresh tracking — clear() above already ran the sync, so
+      // nothing is auto-ticked yet.
+      autoInvolvedIds.clear();
+      intentField.value = 'add-incident';
+      idField.value = '';
+      originalDriverField.value = '';
+      fromReportField.value = fromReportId;
+      ownIncidentNumber = '';
+      heading.textContent = 'Add Incident';
+      numberField.value = dialog!.dataset.nextIncidentNumber ?? '';
+      setMode('add');
+    }
+
     document.querySelectorAll<HTMLButtonElement>('[data-open-incident-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        resetDriverSearch();
-        form.reset();
-        intentField.value = 'add-incident';
-        idField.value = '';
-        fromReportField.value = '';
-        heading.textContent = 'Add Incident';
-        numberField.value = dialog.dataset.nextIncidentNumber ?? '';
-        setAppealFieldsVisible(false);
-        // Fresh dialog, fresh tracking — nothing auto-selected yet.
-        autoSelectedInvolvedId = null;
-        // form.reset() restores the blank placeholder (its `selected`
-        // attribute) — Driver and Session both start unselected on every new
-        // Add, per Logan.
-        setFaultFieldsVisible(faultFieldsShouldBeVisible());
-        // Nothing is filled in yet on a fresh Add — form starts collapsed
-        // with Save disabled until Session/Driver/Incident #/Lap are set.
+        // Session and cars at fault start unselected on every new Add, per
+        // Logan — the form starts collapsed with Save disabled.
+        resetForAdd('');
         updateFormValidity();
         dialog.showModal();
       });
@@ -396,94 +381,81 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     document.querySelectorAll<HTMLButtonElement>('[data-edit-incident]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!btn.dataset.incident) return;
-        resetDriverSearch();
         const p = JSON.parse(btn.dataset.incident);
+        resetForAdd('');
         intentField.value = 'update-incident';
         idField.value = p.id;
-        fromReportField.value = '';
+        originalDriverField.value = p.driver_id ?? '';
         heading.textContent = 'Edit Incident';
-        // Fresh tracking for this edit — the checkboxes below are about to
-        // be set straight from this incident's own stored data, not via a
-        // simulated Driver-field change, so syncInvolvedWithDriver never
-        // fires for this initial load.
-        autoSelectedInvolvedId = null;
+        setMode('edit');
         sessionField.value = p.session;
-        driverField.value = p.driver_id ?? 'racing_incident';
 
         const set = (name: string, value: string) => {
           const el = dialog.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`);
           if (el) el.value = value;
         };
         set('incident_number', p.incident_number ?? '');
+        ownIncidentNumber = normalizeIncidentNumber(p.incident_number ?? '');
         set('lap', p.lap ?? '');
         set('description', p.description ?? '');
-        set('time_penalty_seconds', p.time_penalty_seconds ?? '');
-        set('points_penalty', p.points_penalty ?? '');
         set('appeal_result', p.appeal_result ?? '');
         set('appeal_time_penalty_seconds', p.appeal_time_penalty_seconds ?? '');
         set('appeal_points_penalty', p.appeal_points_penalty ?? '');
         set('appeal_penalty_points', p.appeal_penalty_points ?? '');
 
-        // Derived from the same two underlying columns as before
-        // (is_warning/penalty_points) — is_warning wins outright if set,
-        // otherwise a 1-7 penalty_points maps straight to that option, and
-        // anything else (0, or an old warning+PP combo predating
-        // 0059_penalty_points_warning_dropdown.sql) falls back to the blank
-        // "0" option rather than guessing.
-        const ppField = dialog.querySelector<HTMLSelectElement>('[data-incident-pp-field]');
-        if (ppField) {
-          if (p.is_warning) {
-            ppField.value = 'warning';
-          } else if (Number(p.penalty_points) >= 1 && Number(p.penalty_points) <= 7) {
-            ppField.value = String(p.penalty_points);
-          } else {
-            ppField.value = '';
-          }
-        }
-
-        appealCheckbox.checked = Boolean(p.is_appealed);
-        setAppealFieldsVisible(Boolean(p.is_appealed));
-
-        dialog.querySelectorAll<HTMLInputElement>('[name="offense_ids"]').forEach((cb) => {
-          cb.checked = (p.offense_ids ?? []).includes(cb.value);
-        });
+        // Involved first, straight from the stored row — the car ticked below
+        // is already in it, so the auto-tick sync has nothing to add.
         dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
           cb.checked = (p.involved_driver_ids ?? []).includes(cb.value);
         });
 
-        setFaultFieldsVisible(faultFieldsShouldBeVisible());
-        // Existing incidents already have their core fields filled in, so
-        // this should immediately expand the rest of the form and enable Save.
-        updateFormValidity();
+        if (p.driver_id) {
+          const card = faults.addDriver(p.driver_id);
+          if (card) {
+            // PP dropdown derived from the same two columns as always
+            // (is_warning/penalty_points): is_warning wins outright, a 1-7
+            // penalty_points maps straight to that option, and anything else
+            // (0, or an old warning+PP combo predating
+            // 0059_penalty_points_warning_dropdown.sql) falls back to "0".
+            const pp = Number(p.penalty_points);
+            setCardField(card, 'penalty_points_choice', p.is_warning ? 'warning' : pp >= 1 && pp <= 7 ? String(pp) : '');
+            setCardField(card, 'time_penalty_seconds', p.time_penalty_seconds != null ? String(p.time_penalty_seconds) : '');
+            setCardField(card, 'points_penalty', p.points_penalty ? String(p.points_penalty) : '');
+            setCardField(card, 'offense_ids', p.offense_ids ?? []);
+          }
+        } else {
+          faults.setRacingIncident(true);
+        }
+        // Whatever the sync just did, nothing in this stored row was auto-ticked.
+        autoInvolvedIds.clear();
 
+        appealCheckbox.checked = Boolean(p.is_appealed);
+        setAppealFieldsVisible(Boolean(p.is_appealed));
+
+        // Existing incidents already have their core fields filled in, so
+        // this immediately expands the rest of the form and enables Save.
+        updateFormValidity();
         dialog.showModal();
       });
     });
 
     // "Log incident" on a driver-submitted report: opens the normal Add
     // Incident dialog pre-filled from the report (session, lap, involved
-    // cars, and the next Incident # — the description is deliberately left
-    // blank). The steward still picks the driver at fault; saving marks the
-    // report as logged (from_report_id).
+    // cars, and the report's INC number as the Incident # — still editable;
+    // the description is deliberately left blank). The steward still ticks
+    // the car(s) at fault; saving marks the report as logged (from_report_id).
     document.querySelectorAll<HTMLButtonElement>('[data-log-report]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!btn.dataset.report) return;
-        resetDriverSearch();
         const r = JSON.parse(btn.dataset.report);
-        form.reset();
-        intentField.value = 'add-incident';
-        idField.value = '';
-        fromReportField.value = r.id;
-        heading.textContent = 'Add Incident';
-        numberField.value = dialog.dataset.nextIncidentNumber ?? '';
-        setAppealFieldsVisible(false);
-        autoSelectedInvolvedId = null;
+        resetForAdd(r.id);
+        // The report's own INC number, in place of the next-number default.
+        if (r.number != null) numberField.value = String(r.number);
         sessionField.value = r.session;
         lapField.value = String(r.lap);
         dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
           cb.checked = (r.driver_ids ?? []).includes(cb.value);
         });
-        setFaultFieldsVisible(faultFieldsShouldBeVisible());
         updateFormValidity();
         dialog.showModal();
       });
@@ -498,55 +470,55 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
   // Steward review popup (View Incidents only): one shared <dialog>, filled
   // from the clicked report's data-review (pre-filled with the admin's own
-  // review when editing). A Racing Incident has nobody to penalize, so the
-  // penalty is fixed to "No penalty" and the field hidden. Like
-  // initIncidentPage, this bails until the fragment's dialog exists and binds
-  // on the loader's astro:page-load re-dispatch.
+  // review when editing). Every car ticked at fault gets its own suggested
+  // penalty (src/scripts/faultCards.ts, 0100); Racing Incident has none.
+  // Like initIncidentPage, this bails until the fragment's dialog exists and
+  // binds on the loader's astro:page-load re-dispatch.
   function initReviewDialog() {
     const dialog = document.querySelector<HTMLDialogElement>('[data-review-dialog]');
     if (!dialog) return;
+    const form = dialog.querySelector('form')!;
     const reportIdField = dialog.querySelector<HTMLInputElement>('[data-review-report-id]')!;
     const labelEl = dialog.querySelector<HTMLElement>('[data-review-label]')!;
-    const driverPicker = dialog.querySelector<HTMLElement>('[data-review-driver]')!;
-    const driverRadios = driverPicker.querySelectorAll<HTMLInputElement>('input[name="driver_id"]');
-    const driverSearch = driverPicker.querySelector<HTMLInputElement>('[data-driver-search]')!;
-    const penaltyField = dialog.querySelector<HTMLSelectElement>('[data-review-penalty]')!;
-    const penaltyWrapper = dialog.querySelector<HTMLElement>('[data-review-penalty-field]')!;
+    const faultRoot = dialog.querySelector<HTMLElement>('[data-review-faults]')!;
+    const faultSearch = faultRoot.querySelector<HTMLInputElement>('[data-driver-search]')!;
+    const faultsMissing = faultRoot.querySelector<HTMLElement>('[data-review-faults-missing]')!;
     const explanationField = dialog.querySelector<HTMLTextAreaElement>('[data-review-explanation]')!;
+    const faults = initFaultPicker(faultRoot);
 
-    const selectedDriver = () => [...driverRadios].find((r) => r.checked)?.value ?? '';
-    // Racing Incident forces "No penalty"; switching back to a driver clears
-    // that forced value so the steward has to choose a penalty deliberately.
-    let wasRacingIncident = false;
-    const syncPenaltyVisibility = () => {
-      const racingIncident = selectedDriver() === 'racing_incident';
-      penaltyWrapper.classList.toggle('hidden', racingIncident);
-      if (racingIncident) penaltyField.value = 'none';
-      else if (wasRacingIncident) penaltyField.value = '';
-      wasRacingIncident = racingIncident;
-    };
-    driverPicker.addEventListener('change', syncPenaltyVisibility);
+    // Checkboxes can't be `required` as a group, so the browser won't stop a
+    // save with nothing ticked — do it here (the server checks too).
+    const hasVerdict = () => faults.isRacingIncident() || faults.selected().length > 0;
+    faultRoot.addEventListener('fault-change', () => {
+      if (hasVerdict()) faultsMissing.classList.add('hidden');
+    });
+    form.addEventListener('submit', (e) => {
+      if (hasVerdict()) return;
+      e.preventDefault();
+      faultsMissing.classList.remove('hidden');
+    });
 
     document.querySelectorAll<HTMLButtonElement>('[data-open-review-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const data = JSON.parse(btn.dataset.review ?? '{}') as {
           report_id: string;
           label: string;
-          driver_id: string;
-          penalty: string;
+          faults: { driver_id: string; penalty: string }[] | null;
           explanation: string;
         };
         reportIdField.value = data.report_id;
         labelEl.textContent = `— ${data.label}`;
-        driverRadios.forEach((r) => (r.checked = r.value === data.driver_id));
-        penaltyField.value = data.penalty;
-        // Fresh tracking for this report, so a saved "driver + No penalty" review isn't cleared on open.
-        wasRacingIncident = data.driver_id === 'racing_incident';
-        explanationField.value = data.explanation;
         // Clear any search left over from the last report and re-filter (driverPickerSearch.ts).
-        driverSearch.value = '';
-        driverSearch.dispatchEvent(new Event('input', { bubbles: true }));
-        syncPenaltyVisibility();
+        faultSearch.value = '';
+        faultSearch.dispatchEvent(new Event('input', { bubbles: true }));
+        faults.clear();
+        if (data.faults && data.faults.length === 0) faults.setRacingIncident(true);
+        for (const f of data.faults ?? []) {
+          const card = faults.addDriver(f.driver_id);
+          if (card) setCardField(card, 'penalty', f.penalty);
+        }
+        faultsMissing.classList.add('hidden');
+        explanationField.value = data.explanation;
         dialog.showModal();
       });
     });
