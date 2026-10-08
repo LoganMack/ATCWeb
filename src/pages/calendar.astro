@@ -231,7 +231,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           // only reveals on scroll, and this clone can appear well before
           // that happens if List view was never scrolled through) — force
           // it visible rather than risk an invisible/stuck-at-opacity-0 card.
-          clone.classList.add('is-visible');
+          clone.classList.add('is-visible', 'rounded-xl', 'border', 'border-white/10', 'bg-brand-ink');
           list.appendChild(clone);
         });
         detailPanel!.appendChild(list);
@@ -687,7 +687,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           const original = document.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(ev.id)}"]`);
           if (!original) return;
           const clone = original.cloneNode(true) as HTMLElement;
-          clone.classList.add('is-visible');
+          clone.classList.add('is-visible', 'rounded-xl', 'border', 'border-white/10', 'bg-brand-ink');
           list.appendChild(clone);
         });
         detail.appendChild(list);

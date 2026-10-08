@@ -778,6 +778,14 @@ input[type="file"]:hover::file-selector-button {
   line-height: 16px;
   white-space: nowrap;
   pointer-events: none;
+  /* Hover / focus / drag only — the text ("Round 7") follows the thumb. */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.round-slider:hover .round-slider-tag,
+.round-slider:focus-within .round-slider-tag,
+.round-slider:active .round-slider-tag {
+  opacity: 1;
 }
 
 

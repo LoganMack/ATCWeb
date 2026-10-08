@@ -107,6 +107,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     document.addEventListener('astro:page-load', () => {
       initGridSearch('media-search-videos', 'media-search-grid', 'media-search-empty-videos');
+      initGridSearch('media-search-race-photos', 'media-photo-albums-grid', 'media-search-empty-race-photos');
       initGridSearch('media-search-posters', 'media-posters-grid', 'media-search-empty-posters');
       initGridSearch('media-search-replays', 'media-replays-list', 'media-search-empty-replays');
       initAlbumThumbnails();

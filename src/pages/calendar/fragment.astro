@@ -218,7 +218,7 @@ const upcomingIcsBundle = upcoming
   .join('\n');
 ---
 
-    <div class="reveal mt-6 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 100ms">
+    <div class="reveal mt-6 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 100ms">
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div class="flex flex-wrap items-end gap-3">
         {seasons.length > 0 && (
@@ -298,16 +298,16 @@ const upcomingIcsBundle = upcoming
           <p class="mt-6 text-white/60">No upcoming events in this season.</p>
         )}
         {upcoming.length > 0 && (
-          <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {upcoming.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
+          <div class="mt-6 divide-y divide-white/10 rounded-xl border border-white/10 bg-brand-ink">
+            {upcoming.map((event, i) => <EventDetailCard variant="row" event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
           </div>
         )}
 
         {past.length > 0 && (
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
-            <div class="mt-6 grid grid-cols-1 gap-4 opacity-70 sm:grid-cols-2">
-              {past.map((event, i) => <EventDetailCard event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
+            <div class="mt-6 divide-y divide-white/10 rounded-xl border border-white/10 bg-brand-ink opacity-70">
+              {past.map((event, i) => <EventDetailCard variant="row" event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
             </div>
           </div>
         )}

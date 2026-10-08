@@ -362,9 +362,10 @@ const graphSeries = (
         full: displayDriverName(row.driver.name),
         short: shortDriverName(row.driver.name),
         tag: row.classId !== undefined ? (classNameById.get(row.classId) ?? '') : '',
+        logo: '',
         cells: row.roundCells,
       }))
-    : teamStandings.map((row) => ({ id: row.teamId, name: row.teamName, full: row.teamName, short: row.teamName, tag: '', cells: row.roundCells }))
+    : teamStandings.map((row) => ({ id: row.teamId, name: row.teamName, full: row.teamName, short: row.teamName, tag: '', logo: row.logoUrl ?? '', cells: row.roundCells }))
 ).map((e) => {
   let run = 0;
   let started = false;
@@ -378,7 +379,7 @@ const graphSeries = (
   });
   // Per-round points (null = didn't race that round), for the Drop Weeks checkbox, which re-totals each point with the worst rounds dropped.
   const pts = matrixColumns.map((col) => e.cells.get(col.subsessionId)?.points ?? null);
-  return { id: e.id, name: e.name, full: e.full, short: e.short, tag: e.tag, cum, pts };
+  return { id: e.id, name: e.name, full: e.full, short: e.short, tag: e.tag, logo: e.logo, cum, pts };
 });
 const graphJson = JSON.stringify({
   cols: matrixColumns.map((c) => ({ r: c.roundNumber, t: c.startTime, k: matrixColumnTitle(c.trackName, c.format) })),
@@ -447,7 +448,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {matrixColumns.length > 1 && (
               <div class="group relative flex flex-col gap-1.5">
                 <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Standings by Round</span>
-                {/* Ticks + floating round tag (styles: .round-slider in global.css). The tag is the live
+                {/* Ticks + hover-only round tag (styles: .round-slider in global.css). The tag is the live
                     readout — standings.astro's slider script writes its text and the --p / --steps vars. */}
                 <div class="round-slider" style={`--p: ${matrixColumns.length > 1 ? ((sliderValue - 1) / (matrixColumns.length - 1)) * 100 : 100}%; --f: ${matrixColumns.length > 1 ? (sliderValue - 1) / (matrixColumns.length - 1) : 1}; --steps: ${Math.max(1, matrixColumns.length - 1)}`}>
                   <div class="round-slider-ticks" aria-hidden="true"></div>
@@ -462,15 +463,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     data-cols={JSON.stringify(sliderCols)}
                   />
                   <span id="timeline-slider-value" class="round-slider-tag" aria-live="polite">
-                    R{sliderCols[sliderValue - 1]?.r ?? sliderValue}
+                    Round {sliderCols[sliderValue - 1]?.r ?? sliderValue}
                   </span>
                 </div>
-                <span
-                  role="tooltip"
-                  class="pointer-events-none absolute left-0 top-full z-40 mt-1 hidden w-64 rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-xs text-white/80 shadow-lg group-hover:block group-focus-within:block"
-                >
-                  Move this slider to view the standings as they were, round-by-round.
-                </span>
               </div>
             )}
             <label class="flex flex-col gap-1.5">
@@ -550,9 +545,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </div>
         </div>
         <div id="graph-plot" class="relative mt-3 w-full"></div>
-        <p class="mt-2 text-xs text-white/40">
-          Running total of each round's points — drop weeks only count when "Drop Weeks" is checked. The top 8 are drawn in colour; click any name below to add or remove a line.
-        </p>
         <div id="graph-legend" class="mt-3 flex max-h-40 flex-wrap gap-x-2 gap-y-1 overflow-y-auto text-xs"></div>
         <script type="application/json" id="graph-data" set:html={safeJson(JSON.parse(graphJson))} />
       </div>

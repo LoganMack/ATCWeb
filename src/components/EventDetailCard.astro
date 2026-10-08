@@ -79,9 +79,11 @@ interface Props {
    * (the old behavior) if a caller doesn't have this on hand.
    */
   layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
+  /** 'row' = a bare row meant to sit inside a divided list (the Calendar List view wraps them in one bordered container); 'card' = the standalone bordered card. */
+  variant?: 'card' | 'row';
 }
 
-const { event, index = 0, layoutRoundsCount, linkedRound = null, incidentLimit = null, layouts = [] } = Astro.props;
+const { event, index = 0, layoutRoundsCount, linkedRound = null, incidentLimit = null, layouts = [], variant = 'card' } = Astro.props;
 const sessions = getEventSessions(event);
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 96 });
 
@@ -95,7 +97,7 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
 ---
 
 <article
-  class="reveal rounded-xl border border-white/10 bg-brand-ink p-6"
+  class={variant === 'row' ? 'reveal px-6 py-5' : 'reveal rounded-xl border border-white/10 bg-brand-ink p-6'}
   style={`transition-delay: ${Math.min(index, 4) * 30}ms`}
   data-event-date={event.event_date}
   data-event-id={event.id}
