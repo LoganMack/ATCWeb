@@ -172,54 +172,27 @@ if (isAdmin && postForm) {
       sessionTypeRaw === 'qualifying' || sessionTypeRaw === 'practice' ? sessionTypeRaw : 'race';
     const raceNumber = sessionType === 'race' ? Number(raceNumberRaw) : 0;
     const isRaceSession = sessionType === 'race';
-    // The Driver field's default option is a disabled blank placeholder
-    // (value="") so a driver must always be actively chosen — "racing_incident"
-    // is the sentinel for the "Racing Incident (no driver at fault)" choice,
-    // stored as a real null per 0020_penalty_racing_incident.sql. An empty
-    // string here shouldn't normally reach the server (the placeholder is
-    // disabled + the field is `required`), but falls back to null (same as
-    // Racing Incident) rather than erroring if it ever does.
-    const driverIdRaw = String(form.get('driver_id') ?? '');
-    const driverId = driverIdRaw && driverIdRaw !== 'racing_incident' ? driverIdRaw : null;
-    // Offenses/warning describe a specific driver's fault — force them
-    // empty/off server-side for a Racing Incident regardless of what the
-    // form actually submitted (the dialog hides and clears both once
-    // "Racing Incident" is picked, but this is the authoritative guard).
-    const offenseIds = driverId ? form.getAll('offense_ids').map(String) : [];
+    // Cars at fault (fault_driver_ids — the incident dialog's checklist, see
+    // src/scripts/faultCards.ts): one penalty row per car, each with its own
+    // PP/Warning, time penalty, points penalty and offenses (the fields named
+    // "<field>:<driver id>"); session, #, lap, description and involved cars
+    // are shared. Nothing ticked is a Racing Incident: one row with no driver
+    // (0020_penalty_racing_incident.sql) and, server-side regardless of what
+    // was submitted, no penalty or offenses. An edit updates one existing row,
+    // so only the first car counts there (the dialog only allows one).
+    const faultDriverIds = [...new Set(form.getAll('fault_driver_ids').map(String).filter(Boolean))];
+    const penalizedDriverIds = intent === 'update-incident' ? faultDriverIds.slice(0, 1) : faultDriverIds;
     const involvedDriverIds = form.getAll('involved_driver_ids').map(String);
-    // Penalty points and the warning flag now come from one dropdown
-    // (data-incident-pp-field) instead of a separate number input + "is a
-    // warning" checkbox — "warning" is the sentinel for the Warning entry
-    // (rulebook: 2 warnings escalates to +1 PP, hence no numeric PP value of
-    // its own — stored as penalty_points 0), a blank value is "no PP/warning
-    // assigned" (also stored as 0, matching the old field's blank-means-0
-    // default), and 1-7 is a literal PP award. The two are still stored as
-    // the same is_warning/penalty_points columns as before this change —
-    // see 0059_penalty_points_warning_dropdown.sql for the one-time cleanup
-    // that made every existing is_warning row's penalty_points exactly 0, so
-    // this mutually-exclusive reading is safe for every pre-existing row too.
-    const penaltyPointsChoice = String(form.get('penalty_points_choice') ?? '');
-    const isWarningChoice = penaltyPointsChoice === 'warning';
-    const penaltyPointsValue = isWarningChoice ? 0 : Number(penaltyPointsChoice) || 0;
 
-    const data: PenaltyInput = {
+    const shared = {
       subsession_id: subsessionId,
       race_number: raceNumber,
       session_type: sessionType,
-      driver_id: driverId,
       incident_number: strOrNullField(form, 'incident_number'),
       lap: numOrNullField(form, 'lap'),
       description: strOrNullField(form, 'description'),
-      // Qualifying/practice incidents can carry a real penalty too — per
-      // Logan, it always applies to Race 1 (see scoringRaceNumber in
-      // src/lib/penalties.ts, which every recalculation pass reads instead
-      // of the raw race_number sentinel stored below). session_type no
-      // longer gates these fields — only whether a fault driver is actually
-      // selected does (a Racing Incident has nobody to penalize).
-      time_penalty_seconds: numOrNullField(form, 'time_penalty_seconds'),
-      points_penalty: numOrZeroField(form, 'points_penalty'),
-      penalty_points: penaltyPointsValue,
-      is_warning: driverId ? isWarningChoice : false,
+      // Appeals are edit-only in the dialog (they're about one car's existing
+      // penalty), so these are blank on every Add.
       is_appealed: form.get('is_appealed') === 'on',
       appeal_result: strOrNullField(form, 'appeal_result'),
       appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
@@ -227,19 +200,56 @@ if (isAdmin && postForm) {
       appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
     };
 
+    // PP and the warning flag come from one dropdown per car: "warning" is a
+    // Warning (rulebook: 2 warnings escalates to +1 PP, so it has no PP value
+    // of its own — stored as penalty_points 0, see
+    // 0059_penalty_points_warning_dropdown.sql), blank is "no PP/warning"
+    // (also 0), and 1-7 is a literal PP award. Qualifying/practice incidents
+    // can carry a real penalty too — per Logan, it always applies to Race 1
+    // (see scoringRaceNumber in src/lib/penalties.ts).
+    function penaltyFor(driverId: string | null): { data: PenaltyInput; offenseIds: string[] } {
+      if (!driverId) {
+        return {
+          data: { ...shared, driver_id: null, time_penalty_seconds: null, points_penalty: 0, penalty_points: 0, is_warning: false },
+          offenseIds: [],
+        };
+      }
+      const ppChoice = String(form.get(`penalty_points_choice:${driverId}`) ?? '');
+      return {
+        data: {
+          ...shared,
+          driver_id: driverId,
+          time_penalty_seconds: numOrNullField(form, `time_penalty_seconds:${driverId}`),
+          points_penalty: numOrZeroField(form, `points_penalty:${driverId}`),
+          penalty_points: ppChoice === 'warning' ? 0 : Number(ppChoice) || 0,
+          is_warning: ppChoice === 'warning',
+        },
+        offenseIds: form.getAll(`offense_ids:${driverId}`).map(String),
+      };
+    }
+
     try {
-      let savedPenaltyId: string | null = null;
+      const savedPenaltyIds: string[] = [];
       if (intent === 'add-incident' && Number.isFinite(raceNumber)) {
-        const created = await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
-        savedPenaltyId = created?.id ?? null;
+        for (const driverId of penalizedDriverIds.length > 0 ? penalizedDriverIds : [null]) {
+          const { data, offenseIds } = penaltyFor(driverId);
+          const created = await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
+          if (created?.id) savedPenaltyIds.push(created.id);
+        }
       } else if (intent === 'update-incident') {
         const penaltyId = String(form.get('penalty_id') ?? '');
         if (penaltyId) {
+          const { data, offenseIds } = penaltyFor(penalizedDriverIds[0] ?? null);
           await updatePenalty(supabaseEnv, accessToken, penaltyId, data, offenseIds, involvedDriverIds);
-          savedPenaltyId = penaltyId;
+          savedPenaltyIds.push(penaltyId);
         }
       }
-      if (driverId) await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
+      // Re-tally every car whose season PP may have changed — on an edit that
+      // moved the penalty to a different car, the car it was taken off too.
+      const originalDriverId = intent === 'update-incident' ? String(form.get('original_driver_id') ?? '') : '';
+      for (const driverId of new Set([...penalizedDriverIds, originalDriverId].filter(Boolean))) {
+        await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
+      }
       // Logged from a driver's incident report ("Log incident" in the
       // Reported Incidents panel) — mark that report as handled.
       const fromReportId = String(form.get('from_report_id') ?? '');
@@ -248,8 +258,8 @@ if (isAdmin && postForm) {
       await logActivity(supabaseEnv, accessToken, actor, {
         action: intent === 'add-incident' ? 'add' : 'edit',
         entity_type: 'incident',
-        entity_label: `${roundLabel} — ${sessionLabel}${data.incident_number ? ` #${data.incident_number}` : ''}`,
-        entity_id: savedPenaltyId,
+        entity_label: `${roundLabel} — ${sessionLabel}${shared.incident_number ? ` #${shared.incident_number}` : ''}${savedPenaltyIds.length > 1 ? ` (${savedPenaltyIds.length} cars at fault)` : ''}`,
+        entity_id: savedPenaltyIds[0] ?? null,
       });
     } catch (err) {
       console.error('Failed to save incident:', err);
@@ -280,10 +290,15 @@ if (isAdmin && postForm) {
   // enforces admin-only, one review per admin, and the lock once logged.
   if (intent === 'save-review') {
     const reportId = String(form.get('report_id') ?? '');
-    const driverRaw = String(form.get('driver_id') ?? '');
-    const penaltyRaw = String(form.get('penalty') ?? '');
     const explanation = String(form.get('explanation') ?? '').trim();
-    const penalty = REVIEW_PENALTIES.find((p) => p === penaltyRaw);
+    // Every ticked car with its own suggested penalty ("penalty:<driver id>",
+    // src/scripts/faultCards.ts), or explicitly Racing Incident with none (0100).
+    const racingIncident = form.get('racing_incident') === 'on';
+    const faultDriverIds = [...new Set(form.getAll('fault_driver_ids').map(String).filter(Boolean))];
+    const faults = faultDriverIds.map((driver_id) => ({
+      driver_id,
+      penalty: REVIEW_PENALTIES.find((p) => p === String(form.get(`penalty:${driver_id}`) ?? '')),
+    }));
     // ?review=<code> drives the message above the reports (reviewFlash below);
     // a successful save clears any code left over from an earlier failure.
     const back = (code: 'locked' | 'involved' | 'invalid' | 'failed' | null) => {
@@ -292,12 +307,12 @@ if (isAdmin && postForm) {
       else url.searchParams.delete('review');
       return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
     };
-    if (!reportId || !driverRaw || !penalty || !explanation) return back('invalid');
+    const validFaults = racingIncident ? faults.length === 0 : faults.length > 0 && faults.every((f) => f.penalty);
+    if (!reportId || !validFaults || !explanation) return back('invalid');
     try {
       await saveIncidentReportReview(supabaseEnv, accessToken, {
         report_id: reportId,
-        driver_id: driverRaw === 'racing_incident' ? null : driverRaw,
-        penalty,
+        faults: faults.map((f) => ({ driver_id: f.driver_id, penalty: f.penalty! })),
         explanation,
       });
     } catch (err) {
@@ -661,6 +676,12 @@ incidentReports.sort(
     a.turn.localeCompare(b.turn, undefined, { numeric: true, sensitivity: 'base' }) ||
     new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
 );
+// "INC n", numbered in that chronological order across every group below.
+// Dismissed reports get no number and close the gap, so dismissing or
+// reopening one renumbers the reports after it.
+const reportNumberById = new Map(
+  incidentReports.filter((r) => r.status !== 'dismissed').map((r, i) => [r.id, i + 1])
+);
 
 // Flag reports that probably describe the same incident: same session, lap
 // and turn, plus at least one car in common — reporters often leave cars out,
@@ -707,7 +728,8 @@ for (const [id, original] of duplicateOriginalById) {
   duplicateOriginalById.set(id, root);
 }
 function reportLabel(r: IncidentReport): string {
-  return `${sessionLabelByValue.get(r.session) ?? r.session} · Lap ${r.lap} · Turn ${r.turn}`;
+  const n = reportNumberById.get(r.id);
+  return `${n ? `INC ${n} · ` : ''}${sessionLabelByValue.get(r.session) ?? r.session} · Lap ${r.lap} · Turn ${r.turn}`;
 }
 // Admin → Incident Reporting links here two ways: "View Incidents"
 // (?view=reports) shows the driver-submitted reports queue, "Edit Report"
@@ -777,7 +799,7 @@ const reportGroups = reviewsLoadFailed
   : [needsReviewGroup, reviewedGroup, dismissedGroup];
 const agreementStyles = {
   all: { item: 'border-emerald-400/60 bg-emerald-400/10', text: 'text-emerald-400', label: 'All stewards agree' },
-  driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same driver, different penalties' },
+  driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same cars at fault, different penalties' },
   split: { item: 'border-brand-pink/60 bg-brand-pink/10', text: 'text-brand-pink', label: 'Stewards disagree on fault' },
 } as const;
 function reviewDriverLabel(driverId: string | null): string {
@@ -826,7 +848,7 @@ if (viewReports) {
   const flash = Astro.url.searchParams.get('review');
   if (flash === 'locked') reviewFlash = "Couldn't save your review — this incident was logged while you were writing it, so reviews are closed.";
   else if (flash === 'involved') reviewFlash = "Couldn't save your review — you were involved in this incident, so you can't review it.";
-  else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs a driver (or Racing Incident), a penalty and an explanation.";
+  else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs the car(s) at fault (or Racing Incident), a penalty for each car, and an explanation.";
   else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
 }
 
@@ -1035,7 +1057,7 @@ const nextIncidentNumber =
                         <button
                           type="button"
                           data-log-report
-                          data-report={JSON.stringify({ id: r.id, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
+                          data-report={JSON.stringify({ id: r.id, number: reportNumberById.get(r.id) ?? null, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
                           class="btn btn-primary btn-sm"
                         >
                           Log incident
@@ -1083,8 +1105,8 @@ const nextIncidentNumber =
                           data-review={JSON.stringify({
                             report_id: r.id,
                             label: reportLabel(r),
-                            driver_id: myReview ? (myReview.driver_id ?? 'racing_incident') : '',
-                            penalty: myReview?.penalty ?? '',
+                            // Null = not reviewed yet; [] = a Racing Incident review.
+                            faults: myReview ? myReview.faults : null,
                             explanation: myReview?.explanation ?? '',
                           })}
                           class="btn btn-gold btn-sm"
@@ -1116,8 +1138,10 @@ const nextIncidentNumber =
                               <p class="font-semibold text-white/80">
                                 {v.reviewer_id === myUserId ? 'You' : (v.reviewer_name ?? 'Unknown steward')}
                                 <span class="font-normal text-white/50">
-                                  {' · '}{reviewDriverLabel(v.driver_id)}
-                                  {v.driver_id && ` · ${reviewPenaltyLabel(v.penalty)}`}
+                                  {' · '}
+                                  {v.faults.length === 0
+                                    ? 'Racing Incident'
+                                    : v.faults.map((f) => `${reviewDriverLabel(f.driver_id)} · ${reviewPenaltyLabel(f.penalty)}`).join(', ')}
                                 </span>
                                 {v.edited_at && <span class="ml-1 font-normal italic text-white/40">(edited)</span>}
                               </p>
@@ -1423,11 +1447,14 @@ const nextIncidentNumber =
             id="incident-dialog"
             data-incident-dialog
             data-next-incident-number={nextIncidentNumber}
+            data-used-incident-numbers={JSON.stringify([...new Set(penalties.map((p) => p.incident_number).filter(Boolean))])}
             class="w-full max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
           >
             <form method="POST" action={formAction} data-astro-reload class="flex max-h-[85vh] flex-col gap-3 overflow-y-auto p-5">
               <input type="hidden" name="intent" data-incident-intent-field value="add-incident" />
               <input type="hidden" name="penalty_id" data-incident-id-field value="" />
+              {/* Edit only: the car the row belonged to before this edit, so its PP is re-tallied if the edit moves the penalty to another car. */}
+              <input type="hidden" name="original_driver_id" data-incident-original-driver-field value="" />
               <input type="hidden" name="from_report_id" data-incident-from-report-field value="" />
 
               <div class="flex items-center justify-between">
@@ -1435,47 +1462,11 @@ const nextIncidentNumber =
                 <button type="button" data-close-incident-dialog class="text-white/40 hover:text-white">✕</button>
               </div>
 
-              <div class="grid grid-cols-2 gap-3">
+              <div class="grid grid-cols-3 gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Incident #
                   <input type="text" name="incident_number" data-incident-number-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
-                <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Driver at Fault
-                  {/* Narrows the dropdown below as you type (see the incident dialog
-                      script's filterDriverOptions in incidents.astro) — data-driver-search
-                      only for the shared Enter-doesn't-submit guard in driverPickerSearch.ts. */}
-                  <input
-                    type="search"
-                    data-incident-driver-search
-                    data-driver-search
-                    placeholder="Search by car number or name…"
-                    aria-label="Search drivers"
-                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                  />
-                  <select
-                    name="driver_id"
-                    data-incident-driver-field
-                    required
-                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                  >
-                    <option value="" selected disabled hidden class="bg-brand-ink text-white">Select driver…</option>
-                    <option value="racing_incident" class="bg-brand-ink text-white">Racing Incident (no driver at fault)</option>
-                    {roundDrivers.map((d) => (
-                      <option
-                        value={d.id}
-                        data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
-                        class="bg-brand-ink text-white"
-                      >
-                        {d.car_number !== null ? `#${d.car_number} — ` : ''}
-                        {d.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div class="grid grid-cols-2 gap-3">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Session
                   <select
@@ -1493,6 +1484,85 @@ const nextIncidentNumber =
                   <input type="number" name="lap" data-incident-lap-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
               </div>
+              {/* Shown when the Incident # is already used by a logged incident this round. A warning only — saving is still allowed. */}
+              <p data-incident-number-warning class="hidden rounded-md border border-brand-gold/40 bg-brand-gold/10 px-3 py-2 text-xs text-brand-gold">
+                ⚠ Incident #<span data-incident-number-warning-value></span> is already logged this round. Double-check the number before saving.
+              </p>
+
+              {/* Cars at fault (src/scripts/faultCards.ts): tick every car at fault
+                  and each gets its own card with its own PP/Warning, time penalty,
+                  points penalty and offenses. Saving creates one penalty row per
+                  car, all sharing this incident's #, session, lap, description and
+                  involved cars. Racing Incident (no car at fault,
+                  0020_penalty_racing_incident.sql) is one row with no driver.
+                  Editing an existing row is one car only (single mode). */}
+              <div data-fault-root data-incident-faults class="flex flex-col gap-2">
+                <fieldset data-fault-picker data-driver-picker class="flex flex-col gap-1 text-[11px] text-white/50">
+                  <legend class="mb-1" data-incident-fault-legend>Cars at fault</legend>
+                  <input
+                    type="search"
+                    data-driver-search
+                    placeholder="Search by car number or name…"
+                    aria-label="Search drivers"
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  />
+                  <div class="mt-1 grid max-h-40 grid-cols-3 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                    <label class="col-span-3 flex items-center gap-2 text-xs text-white/70">
+                      <input type="checkbox" data-fault-racing-incident />
+                      Racing Incident (no driver at fault)
+                    </label>
+                    {roundDrivers.length === 0 && <span class="col-span-3 text-white/30">No drivers in this round.</span>}
+                    {roundDrivers.map((d) => (
+                      <label
+                        data-driver-option
+                        data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+                        data-fault-label={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`}
+                        class="flex items-center gap-2 text-xs text-white/70"
+                      >
+                        <input type="checkbox" name="fault_driver_ids" value={d.id} />
+                        {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+                      </label>
+                    ))}
+                    <p data-driver-search-empty class="col-span-3 hidden text-white/30">No matches.</p>
+                  </div>
+                </fieldset>
+                <div data-fault-cards class="flex flex-col gap-2"></div>
+                <template data-fault-card-template>
+                  <div class="flex flex-col gap-2 rounded-md border border-white/10 bg-white/[0.03] p-3">
+                    <p data-fault-card-label class="text-xs font-semibold text-white/80"></p>
+                    <div class="grid grid-cols-3 gap-3">
+                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                        Penalty points (PP)
+                        <select name="penalty_points_choice:__ID__" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary">
+                          <option value="" class="bg-brand-ink text-white">0</option>
+                          <option value="warning" class="bg-brand-ink text-white">Warning</option>
+                          {[1, 2, 3, 4, 5, 6, 7].map((n) => <option value={String(n)} class="bg-brand-ink text-white">{n}</option>)}
+                        </select>
+                      </label>
+                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                        Time penalty (seconds)
+                        <input type="number" step="1" placeholder="0" name="time_penalty_seconds:__ID__" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                      </label>
+                      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                        Points penalty
+                        <input type="number" name="points_penalty:__ID__" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                      </label>
+                    </div>
+                    <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
+                      <legend class="mb-1">Offenses (rulebook section 5)</legend>
+                      <div class="grid max-h-32 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
+                        {offenses.length === 0 && <span class="col-span-2 text-white/30">No offenses configured — add some at /admin/site-properties.</span>}
+                        {offenses.map((o) => (
+                          <label class="flex items-center gap-2 text-xs text-white/70">
+                            <input type="checkbox" name="offense_ids:__ID__" value={o.id} />
+                            {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  </div>
+                </template>
+              </div>
 
               <p data-incident-missing-fields class="text-[11px] font-semibold text-brand-gold"></p>
 
@@ -1502,36 +1572,9 @@ const nextIncidentNumber =
                   <textarea name="description" rows="2" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"></textarea>
                 </label>
 
-                <div data-fault-only class="grid grid-cols-3 gap-3">
-                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    Penalty points (PP)
-                    <select
-                      name="penalty_points_choice"
-                      data-incident-pp-field
-                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                    >
-                      <option value="" class="bg-brand-ink text-white">0</option>
-                      <option value="warning" class="bg-brand-ink text-white">Warning</option>
-                      <option value="1" class="bg-brand-ink text-white">1</option>
-                      <option value="2" class="bg-brand-ink text-white">2</option>
-                      <option value="3" class="bg-brand-ink text-white">3</option>
-                      <option value="4" class="bg-brand-ink text-white">4</option>
-                      <option value="5" class="bg-brand-ink text-white">5</option>
-                      <option value="6" class="bg-brand-ink text-white">6</option>
-                      <option value="7" class="bg-brand-ink text-white">7</option>
-                    </select>
-                  </label>
-                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    Time penalty (seconds)
-                    <input type="number" step="1" placeholder="0" name="time_penalty_seconds" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-                  </label>
-                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                    Points penalty
-                    <input type="number" name="points_penalty" placeholder="0" class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
-                  </label>
-                </div>
-
-                <label class="flex items-center gap-2 text-xs text-white/70">
+                {/* Edit only: an appeal is about one car's existing penalty, so it's
+                    never set while adding (which can create several at once). */}
+                <label data-incident-edit-only class="flex items-center gap-2 text-xs text-white/70">
                   <input type="checkbox" name="is_appealed" data-appeal-checkbox />
                   Appealed
                 </label>
@@ -1564,19 +1607,6 @@ const nextIncidentNumber =
                     These values replace the original values, which stay on record but stop being applied.
                   </p>
                 </div>
-
-                <fieldset data-fault-only class="flex flex-col gap-1 text-[11px] text-white/50">
-                  <legend class="mb-1">Offenses (rulebook section 5)</legend>
-                  <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2">
-                    {offenses.length === 0 && <span class="col-span-2 text-white/30">No offenses configured — add some at /admin/site-properties.</span>}
-                    {offenses.map((o) => (
-                      <label class="flex items-center gap-2 text-xs text-white/70">
-                        <input type="checkbox" name="offense_ids" value={o.id} />
-                        {o.name} {o.reference_points && <span class="text-white/30">({o.reference_points})</span>}
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
 
                 <fieldset class="flex flex-col gap-1 text-[11px] text-white/50">
                   <legend class="mb-1">Involved</legend>
@@ -1747,50 +1777,58 @@ const nextIncidentNumber =
                 <h4 class="font-display text-lg">Steward Review <span data-review-label class="text-white/50"></span></h4>
                 <button type="button" data-close-review-dialog class="text-white/40 hover:text-white">✕</button>
               </div>
-              {/* A searchable radio list rather than a <select>: dropdown options can't be
-                  filtered reliably across browsers (see src/scripts/driverPickerSearch.ts). */}
-              <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-driver-picker data-review-driver>
-                <legend class="mb-1">Driver at Fault</legend>
-                <label class="flex items-center gap-2 text-xs text-white/70">
-                  <input type="radio" name="driver_id" value="racing_incident" required />
-                  Racing Incident (no driver at fault)
-                </label>
-                <input
-                  type="search"
-                  data-driver-search
-                  placeholder="Search by car number or name…"
-                  aria-label="Search drivers"
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                />
-                <div class="grid max-h-48 grid-cols-1 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-2 sm:gap-x-4">
-                  {roundDrivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
-                  {roundDrivers.map((d) => (
-                    <label
-                      class="flex items-center gap-2 text-xs text-white/70"
-                      data-driver-option
-                      data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+              {/* Cars at fault (src/scripts/faultCards.ts): a searchable checklist —
+                  dropdown options can't be filtered reliably across browsers (see
+                  src/scripts/driverPickerSearch.ts) — where every ticked car gets
+                  its own suggested penalty. Racing Incident = no car ticked. */}
+              <div data-fault-root data-review-faults class="flex flex-col gap-2">
+                <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-fault-picker data-driver-picker>
+                  <legend class="mb-1">Cars at Fault</legend>
+                  <label class="flex items-center gap-2 text-xs text-white/70">
+                    <input type="checkbox" name="racing_incident" data-fault-racing-incident />
+                    Racing Incident (no driver at fault)
+                  </label>
+                  <input
+                    type="search"
+                    data-driver-search
+                    placeholder="Search by car number or name…"
+                    aria-label="Search drivers"
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  />
+                  <div class="grid max-h-48 grid-cols-1 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-2 sm:gap-x-4">
+                    {roundDrivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
+                    {roundDrivers.map((d) => (
+                      <label
+                        class="flex items-center gap-2 text-xs text-white/70"
+                        data-driver-option
+                        data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+                        data-fault-label={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`}
+                      >
+                        <input type="checkbox" name="fault_driver_ids" value={d.id} />
+                        {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+                      </label>
+                    ))}
+                    <p data-driver-search-empty class="col-span-full hidden text-white/30">No matches.</p>
+                  </div>
+                </fieldset>
+                <div data-fault-cards class="flex flex-col gap-2"></div>
+                <template data-fault-card-template>
+                  <label class="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] text-white/50">
+                    <span data-fault-card-label class="text-xs font-semibold text-white/80"></span>
+                    <select
+                      name="penalty:__ID__"
+                      required
+                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                     >
-                      <input type="radio" name="driver_id" value={d.id} />
-                      {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
-                    </label>
-                  ))}
-                  <p data-driver-search-empty class="col-span-full hidden text-white/30">No matches.</p>
-                </div>
-              </fieldset>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50" data-review-penalty-field>
-                Penalty
-                <select
-                  name="penalty"
-                  data-review-penalty
-                  required
-                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                >
-                  <option value="" selected disabled hidden class="bg-brand-ink text-white">Select penalty…</option>
-                  {REVIEW_PENALTIES.map((p) => (
-                    <option value={p} class="bg-brand-ink text-white">{reviewPenaltyLabel(p)}</option>
-                  ))}
-                </select>
-              </label>
+                      <option value="" selected disabled hidden class="bg-brand-ink text-white">Select penalty…</option>
+                      {REVIEW_PENALTIES.map((p) => (
+                        <option value={p} class="bg-brand-ink text-white">{reviewPenaltyLabel(p)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </template>
+                <p data-review-faults-missing class="hidden text-[11px] font-semibold text-brand-gold">Tick the car(s) at fault, or Racing Incident.</p>
+              </div>
               <label class="flex flex-col gap-1 text-[11px] text-white/50">
                 Explanation
                 <textarea
