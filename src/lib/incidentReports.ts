@@ -279,20 +279,25 @@ export async function setIncidentReportStatus(
   await restPatch(env, accessToken, `incident_reports?id=eq.${encodeURIComponent(reportId)}`, { status });
 }
 
-// --- Steward reviews (0096_incident_report_reviews.sql) --------------------
+// --- Steward reviews (0096_incident_report_reviews.sql, 0100) --------------
 
 /** 'none' | 'warning' | '1'..'7' — the Log incident dialog's PP choices. */
 export type ReviewPenalty = 'none' | 'warning' | '1' | '2' | '3' | '4' | '5' | '6' | '7';
 export const REVIEW_PENALTIES: ReviewPenalty[] = ['none', 'warning', '1', '2', '3', '4', '5', '6', '7'];
+
+/** One car a review blames, with the penalty that steward suggests for it (0100). */
+export interface ReviewFault {
+  driver_id: string;
+  penalty: ReviewPenalty;
+}
 
 export interface IncidentReportReview {
   id: string;
   report_id: string;
   reviewer_id: string;
   reviewer_name: string | null;
-  /** Null = Racing Incident (no driver at fault). */
-  driver_id: string | null;
-  penalty: ReviewPenalty;
+  /** Every car this steward holds at fault, sorted by driver id. Empty = Racing Incident. */
+  faults: ReviewFault[];
   explanation: string;
   created_at: string;
   /** Set once the review has been changed after it was first submitted. */
@@ -316,12 +321,17 @@ export async function getVisibleReviewsForSubsession(
   accessToken: string,
   subsessionId: number
 ): Promise<IncidentReportReview[]> {
-  const rows = await restGetAuthed<(IncidentReportReview & { incident_reports: unknown })[]>(
+  const rows = await restGetAuthed<
+    (Omit<IncidentReportReview, 'faults'> & { incident_reports: unknown; incident_report_review_drivers: ReviewFault[] })[]
+  >(
     env,
     accessToken,
-    `incident_report_reviews?select=*,incident_reports!inner(subsession_id)&incident_reports.subsession_id=eq.${subsessionId}&order=created_at.asc`
+    `incident_report_reviews?select=*,incident_reports!inner(subsession_id),incident_report_review_drivers(driver_id,penalty)&incident_reports.subsession_id=eq.${subsessionId}&order=created_at.asc`
   );
-  return rows.map(({ incident_reports: _, ...r }) => r);
+  return rows.map(({ incident_reports: _, incident_report_review_drivers, ...r }) => ({
+    ...r,
+    faults: [...incident_report_review_drivers].sort((a, b) => a.driver_id.localeCompare(b.driver_id)),
+  }));
 }
 
 /** report_id -> total number of reviews, including ones the caller can't read yet. */
@@ -344,11 +354,15 @@ export async function getReviewCountsForSubsession(
   return new Map(rows.map((r) => [r.report_id, r.review_count]));
 }
 
-/** Creates or replaces the caller's own review (0096 enforces admin-only, one per admin, and the logged lock). */
+/**
+ * Creates or replaces the caller's own review. The database (0096, 0099, 0100)
+ * enforces admin-only, one per admin, the logged lock and no reviewing your
+ * own incident. An empty `faults` is a Racing Incident.
+ */
 export async function saveIncidentReportReview(
   env: SupabaseEnv,
   accessToken: string,
-  input: { report_id: string; driver_id: string | null; penalty: ReviewPenalty; explanation: string }
+  input: { report_id: string; faults: ReviewFault[]; explanation: string }
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/save_incident_report_review`, {
     method: 'POST',
@@ -359,8 +373,7 @@ export async function saveIncidentReportReview(
     },
     body: JSON.stringify({
       p_report_id: input.report_id,
-      p_driver_id: input.driver_id,
-      p_penalty: input.penalty,
+      p_faults: input.faults,
       p_explanation: input.explanation,
     }),
   });
@@ -372,14 +385,15 @@ export const REVIEW_AGREEMENT_MIN = 5;
 
 /**
  * How much the reviews of one report agree, once at least
- * REVIEW_AGREEMENT_MIN are in: 'all' (same driver and penalty), 'driver'
- * (same driver, different penalties) or 'split' (different drivers, or fault
- * vs. Racing Incident). Null below the minimum.
+ * REVIEW_AGREEMENT_MIN are in: 'all' (same cars at fault, each with the same
+ * penalty), 'driver' (same cars, different penalties) or 'split' (different
+ * cars, or fault vs. Racing Incident). Null below the minimum.
  */
-export function reviewAgreement(reviews: Pick<IncidentReportReview, 'driver_id' | 'penalty'>[]): 'all' | 'driver' | 'split' | null {
+export function reviewAgreement(reviews: Pick<IncidentReportReview, 'faults'>[]): 'all' | 'driver' | 'split' | null {
   if (reviews.length < REVIEW_AGREEMENT_MIN) return null;
-  const drivers = new Set(reviews.map((r) => r.driver_id ?? 'racing_incident'));
+  // `faults` is sorted by driver id, so these keys compare as sets.
+  const drivers = new Set(reviews.map((r) => r.faults.map((f) => f.driver_id).join(',') || 'racing_incident'));
   if (drivers.size > 1) return 'split';
-  const penalties = new Set(reviews.map((r) => r.penalty));
+  const penalties = new Set(reviews.map((r) => r.faults.map((f) => `${f.driver_id}:${f.penalty}`).join(',')));
   return penalties.size === 1 ? 'all' : 'driver';
 }
