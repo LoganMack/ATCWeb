@@ -778,25 +778,29 @@ function myReviewOf(reportId: string): IncidentReportReview | null {
 // Needs your review (not dismissed, voting still open, no review from you yet),
 // Reviewed (you've reviewed it, it was logged and voting is over, or you were
 // involved and can't review it), and
-// Dismissed (collapsed at the bottom). If the reviews didn't load there's no
-// telling what this steward has reviewed, so everything not dismissed goes in
-// one ungrouped list instead of a wrong queue (with a warning above it).
+// Dismissed and Logged (both collapsed, in that order at the bottom — a logged
+// report only ever shows up under Logged, whatever its review state). If the
+// reviews didn't load there's no telling what this steward has reviewed, so
+// every open report goes in one ungrouped list instead of a wrong queue (with
+// a warning above it).
 interface ReportGroup { title: string; empty: string | null; collapsed: boolean; reports: IncidentReport[] }
 const needsReviewGroup: ReportGroup = { title: 'Needs your review', empty: "You're all caught up — nothing left for you to review.", collapsed: false, reports: [] };
 const reviewedGroup: ReportGroup = { title: 'Reviewed', empty: null, collapsed: false, reports: [] };
-const notDismissedGroup: ReportGroup = { title: 'Open and logged', empty: null, collapsed: false, reports: [] };
+const openGroup: ReportGroup = { title: 'Open', empty: null, collapsed: false, reports: [] };
 const dismissedGroup: ReportGroup = { title: 'Dismissed', empty: null, collapsed: true, reports: [] };
+const loggedGroup: ReportGroup = { title: 'Logged', empty: null, collapsed: true, reports: [] };
 for (const r of incidentReports) {
   const group =
     r.status === 'dismissed' ? dismissedGroup
-    : reviewsLoadFailed ? notDismissedGroup
+    : r.status === 'logged' ? loggedGroup
+    : reviewsLoadFailed ? openGroup
     : myReviewOf(r.id) || r.reviews_closed_at || isInvolved(r) ? reviewedGroup
     : needsReviewGroup;
   group.reports.push(r);
 }
 const reportGroups = reviewsLoadFailed
-  ? [notDismissedGroup, dismissedGroup]
-  : [needsReviewGroup, reviewedGroup, dismissedGroup];
+  ? [openGroup, dismissedGroup, loggedGroup]
+  : [needsReviewGroup, reviewedGroup, dismissedGroup, loggedGroup];
 const agreementStyles = {
   all: { item: 'border-emerald-400/60 bg-emerald-400/10', text: 'text-emerald-400', label: 'All stewards agree' },
   driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same cars at fault, different penalties' },
@@ -948,15 +952,15 @@ const nextIncidentNumber =
 
     {round && (
       <>
-        <span hidden data-page-title={`Incident Report: ${round.track_name}`}></span>
+        <span hidden data-page-title={`${viewReports ? 'Reported Incidents' : 'Incident Report'}: ${round.track_name}`}></span>
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
-          {/* Mobile: "Incident Report" and the track name stack on two
-              lines, with the track name dropping out of the italic Teko
-              display font into the same Roboto body font as the date line
-              below it, per Logan. Desktop keeps the original single-line
-              "Incident Report — Track Name" in the display font throughout. */}
-          Incident Report
-          <span class="hidden sm:inline"> — </span>
+          {/* Mobile: the title and the track name stack on two lines, with the
+              track name dropping out of the italic Teko display font into the
+              same Roboto body font as the date line below it, per Logan.
+              Desktop keeps it on a single line in the display font throughout.
+              "Reported Incidents" is the steward's View Incidents mode; every
+              other view reads "Incident Report". */}
+          {viewReports ? 'Reported Incidents' : 'Incident Report'}:{' '}
           <span class="mt-1 block font-body text-lg not-italic sm:mt-0 sm:inline sm:font-display sm:text-5xl sm:italic">
             {round.track_name}
           </span>
@@ -970,7 +974,7 @@ const nextIncidentNumber =
             href={viewReports ? editReportHref : viewReportsHref}
             class="btn btn-neutral mt-4"
           >
-            {viewReports ? 'Go to Edit Report' : 'Go to View Incidents'} &rarr;
+            {viewReports ? 'View Report' : 'Go to View Incidents'}{!viewReports && <> &rarr;</>}
           </a>
         )}
 
@@ -999,36 +1003,31 @@ const nextIncidentNumber =
         )}
 
         {viewReports && incidentReports.length > 0 && (
-          <details open id={REPORTS_ANCHOR} class="group mt-6 scroll-mt-[var(--sticky-header-offset)] rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
-            <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-              <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
-              <h2 class="font-display text-xl text-brand-gold">
-                Reported Incidents
-                <span class="ml-2 text-sm text-white/40">
-                  {!reviewsLoadFailed && `${needsReviewGroup.reports.length} to review · `}{incidentReports.filter((r) => r.status === 'open').length} open
-                </span>
-              </h2>
-            </summary>
-            {/* Inside the panel, not above it: a failed save lands back here at #reported-incidents. */}
+          <div id={REPORTS_ANCHOR} class="mt-6 flex scroll-mt-[var(--sticky-header-offset)] flex-col gap-4">
+            {/* Above the cards, not inside one: a failed save lands back here at #reported-incidents. */}
             {reviewFlash && (
-              <p class="mt-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
+              <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
             )}
             {reviewsLoadFailed && (
-              <p class="mt-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
+              <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
                 Couldn't load the steward reviews, so the reports aren't sorted by what you've reviewed. Try refreshing.
               </p>
             )}
             {reportGroups.map((g) => (g.reports.length === 0 && !g.empty) ? null : (
-            <details open={!g.collapsed} class="group/reports mt-4">
-              <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-                <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/reports:rotate-90" aria-hidden="true">&#9654;</span>
-                <h3 class="text-sm font-semibold uppercase tracking-wide text-white/60">
-                  {g.title}
-                  <span class="ml-1 font-normal normal-case tracking-normal text-white/40">({g.reports.length})</span>
-                </h3>
+            <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
+            <details open={!g.collapsed} class="group">
+              {/* Same card header as the driver profile's collapsible sections (Awards, Career Moves…). */}
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+                <span class="flex items-center gap-2">
+                  <h2 class="font-display text-2xl">{g.title}</h2>
+                  <span class="font-display text-2xl text-white/40">{g.reports.length}</span>
+                </span>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
+                  <polyline points="9 6 15 12 9 18" />
+                </svg>
               </summary>
-            {g.reports.length === 0 && <p class="mt-2 text-xs text-white/40">{g.empty}</p>}
-            <ul class="mt-2 flex flex-col gap-2">
+            {g.reports.length === 0 && <p class="mt-3 text-sm text-white/40">{g.empty}</p>}
+            <ul class="mt-3 flex flex-col gap-2">
               {g.reports.map((r) => {
                 const visibleReviews = reviewsByReport.get(r.id) ?? [];
                 const myReview = myReviewOf(r.id);
@@ -1161,8 +1160,9 @@ const nextIncidentNumber =
               })}
             </ul>
             </details>
+            </div>
             ))}
-          </details>
+          </div>
         )}
 
         {isAdmin && incidentAppeals.length > 0 && (
@@ -1285,7 +1285,7 @@ const nextIncidentNumber =
           </div>
         )}
 
-        {sortedPenalties.length === 0 && (
+        {!viewReports && sortedPenalties.length === 0 && (
           <div class="mt-10 flex flex-wrap items-center gap-3">
             {/* Edit Report (admin, no ?view=reports) shows just the button instead; View Incidents only
                 shows it when there are no submitted reports either, so it doesn't read as "nothing here"
@@ -1304,7 +1304,7 @@ const nextIncidentNumber =
           </div>
         )}
 
-        {sessionKeysWithIncidents.map((key) => (
+        {!viewReports && sessionKeysWithIncidents.map((key) => (
           <div class="mt-10">
             <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{sessionLabelByValue.get(key)}</h3>
             <div class="mt-2 rounded-xl border border-white/10" data-sticky-thead>
