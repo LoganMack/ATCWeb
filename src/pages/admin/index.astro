@@ -30,10 +30,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
       </div>
-      <div class="grid gap-4 lg:grid-cols-2">
-        <div class="h-56 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
-        <div class="h-56 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
-      </div>
+      <div class="h-10 w-40 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
@@ -74,5 +71,37 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     }
 
     document.addEventListener('astro:page-load', initAdminDashboard);
+
+    // "Load Analytics" — the button arrives inside the dashboard fragment's
+    // innerHTML (whose own <script>s would never run), so it's handled here
+    // by delegation. Registered once at module level: this bundled script
+    // only executes once per full page load, and a document-level listener
+    // survives view-transition navigations, so re-adding it on every
+    // astro:page-load would stack duplicate handlers.
+    document.addEventListener('click', (event) => {
+      const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-load-analytics]');
+      const container = button?.closest<HTMLElement>('[data-admin-analytics]');
+      const url = container?.dataset.fragmentUrl;
+      if (!button || !container || !url) return;
+
+      button.disabled = true;
+      button.textContent = 'Loading Analytics…';
+      container.setAttribute('aria-busy', 'true');
+
+      fetch(url)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Analytics fragment request failed (${res.status})`);
+          return res.text();
+        })
+        .then((html) => {
+          container.innerHTML = html;
+        })
+        .catch((err) => {
+          console.error('Failed to load analytics:', err);
+          button.disabled = false;
+          button.textContent = 'Retry Loading Analytics';
+        })
+        .finally(() => container.removeAttribute('aria-busy'));
+    });
   </script>
 </AdminLayout>
