@@ -38,7 +38,6 @@
 
 import { defineMiddleware } from 'astro:middleware';
 import { resolveSupabaseEnv, logPageView, restGet } from './lib/supabase';
-import { ServerTiming } from './lib/serverTiming';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
@@ -163,8 +162,6 @@ function withSecurityHeaders(response: Response): Response {
 
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
-  const timing = new ServerTiming();
-  context.locals.serverTiming = timing;
 
   const env = resolveSupabaseEnv(context.locals);
   const accessToken = context.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
@@ -238,14 +235,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (env.url && env.anonKey && (accessToken || refreshToken)) {
     try {
       let activeAccessToken = accessToken;
-      let user = activeAccessToken
-        ? await timing.time('auth-user', getUser(env, activeAccessToken), 'Supabase auth: verify token')
-        : null;
+      let user = activeAccessToken ? await getUser(env, activeAccessToken) : null;
 
       // Access token missing or expired — fall back to the refresh token
       // before treating the visitor as logged out.
       if (!user && refreshToken) {
-        const refreshed = await timing.time('auth-refresh', refreshSession(env, refreshToken), 'Supabase auth: refresh session');
+        const refreshed = await refreshSession(env, refreshToken);
         activeAccessToken = refreshed.accessToken;
         user = refreshed.user;
         const cookieOptions = authCookieOptions(context.url);
@@ -260,7 +255,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
       }
 
       if (user && activeAccessToken) {
-        const profile = await timing.time('auth-profile', getProfile(env, activeAccessToken, user.id), 'profiles lookup (admin role)');
+        const profile = await getProfile(env, activeAccessToken, user.id);
         context.locals.session = { user, profile, accessToken: activeAccessToken };
       }
     } catch (err) {
@@ -300,7 +295,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (!session || session.profile?.role !== 'admin') {
       response = context.redirect(`/login?next=${encodeURIComponent(pathname)}`, 302);
     } else {
-      response = await timing.time('render', next(), 'page frontmatter until headers are sent');
+      response = await next();
     }
   } else {
     response = await next();
@@ -351,13 +346,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // Only now — the clone above already captured the edge-cache header.
   forBrowser(response);
   response = withSecurityHeaders(response);
-
-  // Admins only: never leaks timing detail to visitors, and admin responses
-  // are never edge-cached (see the cache-write conditions above).
-  if (context.locals.isRealAdmin) {
-    const header = timing.header();
-    if (header) response.headers.set('Server-Timing', header);
-  }
 
   // --- Site analytics (0077_page_views.sql, 0080_page_views_status_and_stats.sql) ---
   //

@@ -37,9 +37,6 @@ import {
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
-// One Server-Timing bar per query below (DevTools > Network > fragment >
-// Timing) — see src/lib/serverTiming.ts.
-const timing = Astro.locals.serverTiming;
 
 let driverCount = 0;
 let teamCount = 0;
@@ -65,13 +62,13 @@ let pendingSignupCount = 0;
 async function loadCounts() {
   try {
     const [drivers, teams, news, events, circuits, seasons, organizations] = await Promise.all([
-      timing.time('q-drivers', getDrivers(supabaseEnv)),
-      timing.time('q-teams', getTeams(supabaseEnv)),
-      timing.time('q-news', getAllNewsPosts(supabaseEnv, accessToken)),
-      timing.time('q-events', getEvents(supabaseEnv)),
-      timing.time('q-circuits', getCircuits(supabaseEnv)),
-      timing.time('q-seasons', getSeasons(supabaseEnv)),
-      timing.time('q-organizations', getOrganizations(supabaseEnv)),
+      getDrivers(supabaseEnv),
+      getTeams(supabaseEnv),
+      getAllNewsPosts(supabaseEnv, accessToken),
+      getEvents(supabaseEnv),
+      getCircuits(supabaseEnv),
+      getSeasons(supabaseEnv),
+      getOrganizations(supabaseEnv),
     ]);
     driverCount = drivers.length;
     teamCount = teams.length;
@@ -90,21 +87,21 @@ async function loadCounts() {
 
 const oneDayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-await timing.time('queries-total', Promise.all([
+await Promise.all([
   loadCounts(),
-  timing.time('q-missing-results', getMissingRaceResultsCount(supabaseEnv))
+  getMissingRaceResultsCount(supabaseEnv)
     .then((count) => (missingRaceResultsCount = count))
     .catch((err) => console.error('Failed to load missing race results count:', err)),
-  timing.time('q-signups', restGetAuthed<{ id: string }[]>(supabaseEnv, accessToken, 'signup_requests?select=id&status=eq.pending'))
+  restGetAuthed<{ id: string }[]>(supabaseEnv, accessToken, 'signup_requests?select=id&status=eq.pending')
     .then((rows) => (pendingSignupCount = rows.length))
     .catch((err) => console.error('Failed to load pending sign-up count:', err)),
-  timing.time('q-incidents', restGetAuthed<{ id: string }[]>(supabaseEnv, accessToken, 'incident_reports?select=id&status=eq.open'))
+  restGetAuthed<{ id: string }[]>(supabaseEnv, accessToken, 'incident_reports?select=id&status=eq.open')
     .then((rows) => (openIncidentReportCount = rows.length))
     .catch((err) => console.error('Failed to load open incident report count:', err)),
-  timing.time('q-activity-log', getActivityLogCountSince(supabaseEnv, accessToken, oneDayAgoIso))
+  getActivityLogCountSince(supabaseEnv, accessToken, oneDayAgoIso)
     .then((count) => (activityLogCount24h = count))
     .catch((err) => console.error('Failed to load activity log count:', err)),
-]), 'all dashboard queries, in parallel');
+]);
 
 interface DashboardCard {
   href: string;

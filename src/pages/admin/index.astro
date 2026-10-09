@@ -49,6 +49,23 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     // champions.astro/team-stats.astro — see admin/fragment.astro's own
     // top-of-file comment for the full reasoning (reveal.ts re-dispatch
     // included).
+
+    // Reads a fragment response's HTML. If the admin session expired (or the
+    // user lost admin) while this page sat open, middleware answers the
+    // fragment request with a 302 to /login, which fetch() follows silently —
+    // so a "successful" response would be the entire login page, dropped
+    // into the dashboard. Reload instead: middleware then redirects this
+    // real page to /login?next=/admin. The never-settling promise stops the
+    // caller's .then/.catch from flashing anything while the reload happens.
+    function fragmentHtml(res: Response, label: string): Promise<string> {
+      if (res.redirected) {
+        window.location.reload();
+        return new Promise<never>(() => {});
+      }
+      if (!res.ok) throw new Error(`${label} fragment request failed (${res.status})`);
+      return res.text();
+    }
+
     function initAdminDashboard() {
       const container = document.querySelector<HTMLElement>('[data-admin-dashboard]');
       const url = container?.dataset.fragmentUrl;
@@ -56,10 +73,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       delete container.dataset.fragmentUrl;
 
       fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Admin dashboard fragment request failed (${res.status})`);
-          return res.text();
-        })
+        .then((res) => fragmentHtml(res, 'Admin dashboard'))
         .then((html) => {
           container.innerHTML = html;
           document.dispatchEvent(new Event('astro:page-load'));
@@ -87,12 +101,10 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       button.disabled = true;
       button.textContent = 'Loading Analytics…';
       container.setAttribute('aria-busy', 'true');
+      container.querySelector('[data-analytics-error]')?.remove();
 
       fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Analytics fragment request failed (${res.status})`);
-          return res.text();
-        })
+        .then((res) => fragmentHtml(res, 'Analytics'))
         .then((html) => {
           container.innerHTML = html;
         })
@@ -100,6 +112,11 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
           console.error('Failed to load analytics:', err);
           button.disabled = false;
           button.textContent = 'Retry Loading Analytics';
+          const message = document.createElement('p');
+          message.dataset.analyticsError = '';
+          message.className = 'mt-3 text-sm text-white/50';
+          message.textContent = 'Couldn’t load analytics — the query failed or timed out. Try again, or check the server log for the exact error.';
+          container.append(message);
         })
         .finally(() => container.removeAttribute('aria-busy'));
     });

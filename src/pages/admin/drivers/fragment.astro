@@ -115,12 +115,12 @@ async function loadOfficialRounds() {
 // admin/drivers/index.astro's sync-statuses POST branch).
 async function opportunisticSync() {
   try {
-    await Astro.locals.serverTiming.time('sync-driver-statuses', syncDriverStatuses(supabaseEnv, accessToken));
+    await syncDriverStatuses(supabaseEnv, accessToken);
   } catch (err) {
     console.error('Failed to sync driver statuses:', err);
   }
   try {
-    await Astro.locals.serverTiming.time('sync-rookie-status', syncRookieStatus(supabaseEnv, accessToken));
+    await syncRookieStatus(supabaseEnv, accessToken);
   } catch (err) {
     console.error('Failed to sync rookie status:', err);
   }
@@ -128,14 +128,7 @@ async function opportunisticSync() {
 
 // Every independent fetch/RPC this fragment needs, run together — same
 // "named-function + Promise.all" pattern used across the rest of the site.
-const timing = Astro.locals.serverTiming;
-await Promise.all([
-  timing.time('settings', loadSettings()),
-  timing.time('drivers', loadDrivers()),
-  timing.time('last-races', loadLastRaces()),
-  timing.time('official-rounds', loadOfficialRounds()),
-  timing.time('sync-total', opportunisticSync(), 'status + rookie sync, one after the other'),
-]);
+await Promise.all([loadSettings(), loadDrivers(), loadLastRaces(), loadOfficialRounds(), opportunisticSync()]);
 
 function tooltipFor(driver: (typeof drivers)[number]): string | undefined {
   const lastRace = lastRaceByDriverId.get(driver.id);
