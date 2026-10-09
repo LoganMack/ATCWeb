@@ -63,5 +63,7 @@ declare namespace App {
     broadcasterMode: boolean;
     /** Subsession id(s) hidden from every subsession-keyed read while `broadcasterMode` is on (the most recent round). Carried onto SupabaseEnv by resolveSupabaseEnv. */
     broadcasterHiddenSubsessionIds?: number[];
+    /** Per-request step timings, sent as a `Server-Timing` header to admins only — see src/lib/serverTiming.ts. Set once by src/middleware.ts on every request. */
+    serverTiming: import('./lib/serverTiming').ServerTiming;
   }
 }
