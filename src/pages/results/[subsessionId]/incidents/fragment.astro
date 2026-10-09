@@ -18,8 +18,6 @@ import {
   deletePenalty,
   formatDate,
   getDriverClasses,
-  getDriverSeasonCarNumbersForSeason,
-  uploadToStorage,
   restGet,
   getSeasonById,
   getScoringRulesets,
@@ -38,8 +36,6 @@ import {
   scoringRaceNumber,
 } from '../../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../../lib/penaltyActions';
-import { resolveDriverByCarNumberForSeason } from '../../../../lib/raceResultsImport';
-import { parseCsv } from '../../../../lib/csv';
 import { isAdminView } from '../../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';
 import {
@@ -88,7 +84,7 @@ const shellPath = `/results/${Astro.params.subsessionId}/incidents`;
 // The fragment owns the POST handling, so its forms post here and carry the page's query string along (the redirect lands back on the same view).
 const formAction = `${shellPath}/fragment${Astro.url.search}`;
 
-/** Builds a round-wide driver lookup straight from getRoundResults() — shared by both the page render and the CSV importer below, which needs it independently since it runs during POST handling, before the page's own data-loading section. Deliberately excludes notInRoster rows (see results.ts's RaceResultRow.notInRoster) — their driver.id is a synthetic `unrostered:<custId>` string, not a real drivers.id, and penalties.driver_id is a NOT NULL uuid FK into drivers — offering one of these as a pickable "driver at fault" would fail at the database with an invalid-uuid error the moment anyone actually logged a penalty against them. Use the Drivers admin page's "Sync Results with Roster" button to give them a real roster entry first if they need a penalty logged. */
+/** Builds a round-wide driver lookup straight from getRoundResults() — used by the page render. Deliberately excludes notInRoster rows (see results.ts's RaceResultRow.notInRoster) — their driver.id is a synthetic `unrostered:<custId>` string, not a real drivers.id, and penalties.driver_id is a NOT NULL uuid FK into drivers — offering one of these as a pickable "driver at fault" would fail at the database with an invalid-uuid error the moment anyone actually logged a penalty against them. Use the Drivers admin page's "Sync Results with Roster" button to give them a real roster entry first if they need a penalty logged. */
 async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
   const results = await getRoundResults(supabaseEnv, subsessionId);
   const out = new Map<string, DriverBasic>();
@@ -364,155 +360,6 @@ if (isAdmin && postForm) {
     }
     return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
   }
-
-  if (intent === 'import-csv') {
-    let imported = 0;
-    let skipped = 0;
-    let uploadedFile: File | null = null;
-    try {
-      const file = form.get('csv_file');
-      if (file instanceof File) {
-        uploadedFile = file;
-        const [importOffenses, importDriverById, importRound] = await Promise.all([
-          getPenaltyOffenses(supabaseEnv),
-          loadRoundDrivers(),
-          getRoundBySubsessionId(supabaseEnv, subsessionId),
-        ]);
-        const importDrivers = [...importDriverById.values()];
-        // Season-scoped car numbers (0044_driver_season_car_numbers.sql) —
-        // see resolveDriverByCarNumberForSeason's own doc comment for why
-        // matching by a driver's CURRENT car_number alone isn't reliable
-        // for a past round.
-        const seasonCarNumberRows = importRound?.season_id
-          ? await getDriverSeasonCarNumbersForSeason(supabaseEnv, importRound.season_id)
-          : [];
-        const seasonCarNumbers = new Map(seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]));
-        const resolveDriver = (carNumber: number) =>
-          Number.isFinite(carNumber) && importRound?.season_id
-            ? resolveDriverByCarNumberForSeason(importDrivers, seasonCarNumbers, importRound.season_id, carNumber)
-            : importDrivers.find((d) => d.car_number === carNumber);
-        const text = await file.text();
-        const rows = parseCsv(text);
-        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
-        const colIndex = (name: string) => header.indexOf(name);
-        const get = (row: string[], name: string) => {
-          const i = colIndex(name);
-          return i >= 0 ? (row[i] ?? '').trim() : '';
-        };
-        const touchedDriverIds = new Set<string>();
-
-        for (const row of rows.slice(1)) {
-          if (row.every((c) => c.trim() === '')) continue;
-
-          const raceNumber = Number(get(row, 'race_number'));
-          const carNumberRaw = get(row, 'driver_car_number');
-          // "RI" in the driver car number column means nobody's at fault for
-          // this one — the same Racing Incident sentinel (driver_id: null,
-          // 0020_penalty_racing_incident.sql) the manual entry form's own
-          // "Racing Incident (no driver at fault)" option stores, per Logan.
-          const isRacingIncident = carNumberRaw.trim().toUpperCase() === 'RI';
-          const carNumber = Number(carNumberRaw);
-          const driver = isRacingIncident ? null : resolveDriver(carNumber);
-          if (!Number.isFinite(raceNumber) || (!isRacingIncident && !driver)) {
-            skipped++;
-            continue;
-          }
-
-          // Offenses/warning describe a specific driver's fault — force them
-          // empty/off for a Racing Incident row regardless of what the CSV
-          // actually has in those columns, same authoritative-guard reasoning
-          // the manual entry form uses just above in this file.
-          const offenseNames = isRacingIncident
-            ? []
-            : get(row, 'offense_names').split(';').map((s) => s.trim()).filter(Boolean);
-          const offenseIds = offenseNames
-            .map((name) => importOffenses.find((o) => o.name.toLowerCase() === name.toLowerCase())?.id)
-            .filter((id): id is string => Boolean(id));
-
-          const involvedCarNumbers = get(row, 'involved_car_numbers')
-            .split(';')
-            .map((s) => Number(s.trim()))
-            .filter((n) => Number.isFinite(n));
-          const involvedDriverIds = involvedCarNumbers
-            .map((n) => resolveDriver(n)?.id)
-            .filter((id): id is string => Boolean(id));
-
-          const isWarningRaw = get(row, 'is_warning').toLowerCase();
-          const lapRaw = get(row, 'lap');
-          const timeRaw = get(row, 'time_penalty_seconds');
-          const pointsRaw = get(row, 'points_penalty');
-          const ppRaw = get(row, 'penalty_points');
-
-          const data: PenaltyInput = {
-            subsession_id: subsessionId,
-            race_number: raceNumber,
-            // The CSV importer only ever handles real-race incidents today
-            // (its columns are race_number/driver_car_number-based, with no
-            // session-type column) — Logan hasn't asked to extend it to
-            // qualifying/practice, so those stay a form-only path for now.
-            session_type: 'race',
-            // Guarded by the skip check above: reaching here with
-            // isRacingIncident false means driver resolved successfully.
-            driver_id: isRacingIncident ? null : driver!.id,
-            incident_number: get(row, 'incident_number') || null,
-            lap: lapRaw ? Number(lapRaw) : null,
-            description: get(row, 'description') || null,
-            time_penalty_seconds: timeRaw ? Number(timeRaw) : null,
-            points_penalty: pointsRaw ? Number(pointsRaw) : 0,
-            penalty_points: ppRaw ? Number(ppRaw) : 0,
-            is_warning: isRacingIncident ? false : (isWarningRaw === 'true' || isWarningRaw === 'yes' || isWarningRaw === '1'),
-            is_appealed: false,
-            appeal_result: null,
-            appeal_time_penalty_seconds: null,
-            appeal_points_penalty: 0,
-            appeal_penalty_points: 0,
-          };
-
-          try {
-            await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
-            if (driver) touchedDriverIds.add(driver.id);
-            imported++;
-          } catch (err) {
-            console.error('Failed to import an incident row:', err);
-            skipped++;
-          }
-        }
-
-        for (const driverId of touchedDriverIds) {
-          await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import CSV:', err);
-    }
-    if (uploadedFile) {
-      // entity_type: 'incident' (not 'import') so this shows up under the
-      // Activity Log's "Incident Reports" filter, matching this page's own
-      // purpose — the download link still works regardless of entity_type,
-      // since that's driven by file_url being set, not by category.
-      let fileUrl: string | null = null;
-      try {
-        const ext = uploadedFile.name.split('.').pop() || 'csv';
-        const path = `incidents-${subsessionId}-${Date.now()}.${ext}`;
-        fileUrl = await uploadToStorage(supabaseEnv, accessToken, 'imports', path, uploadedFile);
-      } catch (err) {
-        console.error('Failed to store incident import spreadsheet for the activity log:', err);
-      }
-      await logActivity(supabaseEnv, accessToken, actor, {
-        action: 'add',
-        entity_type: 'incident',
-        entity_label: `${roundLabel} — CSV import`,
-        details: `${imported} imported, ${skipped} skipped`,
-        file_url: fileUrl,
-        file_name: uploadedFile.name,
-      });
-    }
-    // Keep the page's existing params (e.g. ?season=) alongside the result counts.
-    const back = new URLSearchParams(Astro.url.search);
-    back.set('imported', String(imported));
-    back.set('skipped', String(skipped));
-    return Astro.redirect(`${shellPath}?${back}`, 302);
-  }
 }
 
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
@@ -734,7 +581,7 @@ function reportLabel(r: IncidentReport): string {
 // Admin → Incident Reporting links here two ways: "View Incidents"
 // (?view=reports) shows the driver-submitted reports queue, "Edit Report"
 // (no param) shows the not-yet-posted notice and the + Add Incident To
-// Report / Import incidents from CSV controls instead. Every POST on this page
+// Report control instead. Every POST on this page
 // redirects back to its own pathname + search, so the mode survives a
 // Dismiss/Reopen/Log incident round trip.
 const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
@@ -918,8 +765,6 @@ for (const p of sortedPenalties) {
 }
 const sessionKeysWithIncidents = sessionOptions.map((o) => o.value).filter((key) => penaltiesBySession.has(key));
 
-const importedCount = Astro.url.searchParams.get('imported');
-const skippedCount = Astro.url.searchParams.get('skipped');
 
 // Whatever `season` the round detail page was showing (itself forwarded
 // from the Race Results list's season/filter dropdown — see
@@ -952,6 +797,13 @@ const nextIncidentNumber =
 
     {round && (
       <>
+        {/* Top of the page, above the title, like the results page's flash messages. */}
+        {isAdmin && !roundPosted && !viewReports && (
+          <p role="status" class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-4 py-3 text-sm text-white/80">
+            This incident report isn't posted yet, so only admins can see it. Post it from
+            <a href="/admin/incident-reporting" class="ml-1 underline">Admin &rarr; Incident Reporting</a>.
+          </p>
+        )}
         <span hidden data-page-title={`${viewReports ? 'Reported Incidents' : 'Incident Report'}: ${round.track_name}`}></span>
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
           {/* Mobile: the title and the track name stack on two lines, with the
@@ -970,31 +822,28 @@ const nextIncidentNumber =
         </p>
 
         {isAdmin && (
-          <a
-            href={viewReports ? editReportHref : viewReportsHref}
-            class="btn btn-neutral mt-4"
-          >
-            {viewReports ? 'View Report' : 'Go to View Incidents'}{!viewReports && <> &rarr;</>}
-          </a>
-        )}
-
-        {isAdmin && !roundPosted && !viewReports && (
-          <p class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80">
-            This incident report isn't posted yet, so only admins can see it. Post it from
-            <a href="/admin/incident-reporting" class="ml-1 underline">Admin &rarr; Incident Reporting</a>.
-          </p>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
+            <a
+              href={viewReports ? editReportHref : viewReportsHref}
+              class="btn btn-neutral"
+            >
+              {viewReports ? 'View Report' : 'View Reported Incidents'}
+            </a>
+            {!viewReports && (
+              <button
+                type="button"
+                data-open-incident-dialog
+                class="btn btn-primary"
+              >
+                Add Incident
+              </button>
+            )}
+          </div>
         )}
 
         {appealFlash && (
           <p class={`mt-4 rounded-lg border p-3 text-sm text-white/80 ${appealFlash.kind === 'ok' ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}>
             {appealFlash.message}
-          </p>
-        )}
-
-        {importedCount !== null && (
-          <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
-            Imported {importedCount} incident{importedCount === '1' ? '' : 's'}.
-            {Number(skippedCount) > 0 && ` ${skippedCount} row${skippedCount === '1' ? '' : 's'} skipped (unrecognized race or driver car number).`}
           </p>
         )}
 
@@ -1239,50 +1088,6 @@ const nextIncidentNumber =
               })}
             </ul>
           </details>
-        )}
-
-        {isAdmin && !viewReports && (
-          <div class="mt-6 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              data-open-incident-dialog
-              class="btn btn-primary"
-            >
-              + Add Incident To Report
-            </button>
-
-            <details class="relative">
-              <summary class="btn btn-neutral list-none">
-                Import incidents from CSV
-              </summary>
-              <div class="absolute left-0 z-10 mt-2 flex w-80 flex-col gap-3 rounded-lg border border-white/10 bg-brand-ink p-4 text-xs text-white/60 shadow-xl">
-                <a
-                  href="/incident-report-template.csv"
-                  download
-                  class="btn btn-neutral self-start"
-                >
-                  Download CSV template
-                </a>
-                <form method="POST" action={formAction} enctype="multipart/form-data" data-astro-reload class="flex flex-col gap-2">
-                  <input type="hidden" name="intent" value="import-csv" />
-                  <input
-                    type="file"
-                    name="csv_file"
-                    accept=".csv"
-                    required
-                    class="text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-brand-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:brightness-110"
-                  />
-                  <button type="submit" class="btn btn-primary btn-sm self-start">
-                    Upload
-                  </button>
-                </form>
-                <p class="text-white/30">
-                  Rows are matched by race number and driver car number — anything unrecognized is skipped rather than
-                  failing the whole import. Use "RI" as the driver car number for a Racing Incident (no driver at fault).
-                </p>
-              </div>
-            </details>
-          </div>
         )}
 
         {!viewReports && sortedPenalties.length === 0 && (

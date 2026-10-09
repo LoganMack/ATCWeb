@@ -2,7 +2,9 @@
 export const prerender = false;
 
 import Layout from '../../../layouts/Layout.astro';
-import { resolveSupabaseEnv, getPenaltiesForSubsession } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getPenaltiesForSubsession, getPageBanners } from '../../../lib/supabase';
+import { bannerUrlFor } from '../../../lib/pageBanners';
+import PageBanner from '../../../components/PageBanner.astro';
 import { getRoundBySubsessionId } from '../../../lib/results';
 import { isRoundPosted } from '../../../lib/incidentReports';
 
@@ -37,6 +39,12 @@ if (Number.isFinite(Number(subsessionId))) {
     console.error('Failed to look up round for page title:', err);
   }
 }
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(resolveSupabaseEnv(Astro.locals)), 'incident-report');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
 const description =
   incidentCount !== null
     ? `${incidentCount} incident${incidentCount === 1 ? '' : 's'} reported.`
@@ -48,7 +56,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title={trackName ? `Incident Report: ${trackName}` : 'Incident Report'} description={description}>
-  <section class="mx-auto max-w-6xl px-6 pb-24 pt-8">
+  <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
+    <PageBanner imageUrl={bannerUrl} />
     <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
 
     <div data-incident-results data-fragment-url={`/results/${subsessionId}/incidents/fragment${Astro.url.search}`}>

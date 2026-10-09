@@ -7,9 +7,9 @@
  * Deliberately scoped to top-level/static pages only — dynamic detail pages
  * (an individual news post, a specific circuit) don't have a single stable
  * "page" to hang one banner off of, so they're left out rather than trying
- * to force a per-record banner into this same simple key-value shape. The one
- * exception is 'round-results': one banner shared by every round's results
- * page (not a per-round banner).
+ * to force a per-record banner into this same simple key-value shape. The only
+ * exceptions are 'round-results' and 'incident-report': one banner shared by
+ * every round's results (or incident report) page, not a per-round banner.
  *
  * 'home' is the one special case: it renders as the full hero section
  * behind the homepage headline (see src/pages/index.astro) rather than the
@@ -48,6 +48,7 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'circuits', label: 'Circuits', description: '/circuits', width: 1024 },
   { key: 'results', label: 'Race Results', description: '/results', width: 1024 },
   { key: 'round-results', label: 'Round Results', description: 'One round\'s results page (/results/…) — shown on every round', width: 1024 },
+  { key: 'incident-report', label: 'Incident Report', description: 'One round\'s incident report page (/results/…/incidents) — shown on every round', width: 1152 },
   { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats', width: 1152 },
   { key: 'team-stats', label: 'Team Stats', description: '/team-stats', width: 1152 },
   { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame', width: 1024 },
