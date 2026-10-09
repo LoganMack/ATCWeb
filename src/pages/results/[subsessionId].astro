@@ -4,6 +4,9 @@ export const prerender = false;
 import Layout from '../../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../../lib/supabase';
 import { getRoundBySubsessionId } from '../../lib/results';
+import { getPageBanners } from '../../lib/supabase';
+import { bannerUrlFor } from '../../lib/pageBanners';
+import PageBanner from '../../components/PageBanner.astro';
 
 // Shell-then-skeleton split (same pattern as results.astro / standings.astro):
 // this file paints the frame, the back link and a loading skeleton right away;
@@ -30,6 +33,12 @@ if (Number.isFinite(Number(subsessionId))) {
     console.error('Failed to look up round for page title:', err);
   }
 }
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(resolveSupabaseEnv(Astro.locals)), 'round-results');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
 const seasonParam = Astro.url.searchParams.get('season');
 const backHref = seasonParam ? `/results?season=${encodeURIComponent(seasonParam)}` : '/results';
 
@@ -37,7 +46,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title={trackName ?? 'Race Results'} description="Race-by-race results for this round.">
-  <section class="mx-auto max-w-5xl px-6 pb-24 pt-8">
+  <section class="relative mx-auto max-w-5xl px-6 pb-24 pt-8">
+    <PageBanner imageUrl={bannerUrl} />
     <a href={backHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
     <div data-race-results data-fragment-url={`/results/${subsessionId}/fragment${Astro.url.search}`}>
@@ -46,12 +56,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <div class="mt-3 h-12 w-72 max-w-full animate-pulse rounded-md bg-white/[0.03]"></div>
         <div class="mt-3 h-5 w-40 animate-pulse rounded bg-white/[0.03]"></div>
         <div class="mt-8 flex flex-wrap items-center gap-3">
-          <div class="h-9 w-64 max-w-full animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-32 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
-          <div class="h-9 w-24 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-60 max-w-full animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-[8.8rem] animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          <div class="h-9 w-[8.8rem] animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
           <div class="flex gap-2 sm:ml-auto">
-            <div class="h-9 w-28 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+            <div class="h-9 w-10 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
             <div class="h-9 w-32 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+            <div class="h-9 w-10 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
           </div>
         </div>
         <div class="mt-6 h-[28rem] animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>

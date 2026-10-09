@@ -47,7 +47,7 @@ import {
   type PracticeRow,
 } from '../../../lib/results';
 import { applyPenaltiesToRoundResults } from '../../../lib/penalties';
-import { groupRoundsBySeason, roundOptionLabel, type RoundGroup } from '../../../lib/roundLabels';
+import { groupRoundsBySeason, roundTrackLabel, type RoundGroup } from '../../../lib/roundLabels';
 import {
   getReportingWindowForRound,
   getReportingPeriodHours,
@@ -632,7 +632,7 @@ for (const [raceNumber, overallRows] of roundResults.overall) {
 // Race links (iRacing Results / Replay / Broadcast / Photo Album) — one set
 // per ROUND, not per race (see RaceLinksBlock.astro's own doc comment).
 // Always saved/read against the round's first race number as the canonical
-// row. Rendered as a blue "Race Links" button in the toolbar above the
+// row. Rendered as an "Event Media" icon button in the toolbar above the
 // results table, which opens a dialog listing them.
 const canonicalRaceNumber = overallRaceNumbers[0] ?? 1;
 const raceLinks = raceLinksByRace.get(canonicalRaceNumber) ?? null;
@@ -701,24 +701,24 @@ Astro.response.headers.set(
         {/* One toolbar for every screen size: Session and Class dropdowns on
             the left (each option's value is the full destination URL;
             onchange just navigates there, same as a plain link would), the
-            blue Race Links button and yellow incident button on the right. */}
+            incident button(s) first, then the Event Media and Kudos icon buttons, on the right. */}
         <div class="mt-8 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
         <div class="flex flex-wrap items-end gap-3">
           {roundPickerGroups.length > 0 && (
-            <label class="flex w-full flex-col gap-1.5 sm:w-72">
+            <label class="flex w-full flex-col gap-1.5 sm:w-60">
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Round</span>
               <select aria-label="Round" class={selectClass} onchange="window.location.href=this.value">
                 {roundPickerGroups.map((g) => (
                   <optgroup label={g.label} class="bg-brand-ink text-white">
                     {g.rounds.map((r) => (
-                      <option value={roundHref(r)} selected={r.subsession_id === subsessionId} class="bg-brand-ink text-white">{roundOptionLabel(r, 20)}</option>
+                      <option value={roundHref(r)} selected={r.subsession_id === subsessionId} class="bg-brand-ink text-white">{roundTrackLabel(r, 25)}</option>
                     ))}
                   </optgroup>
                 ))}
               </select>
             </label>
           )}
-          <label class="flex flex-col gap-1.5 sm:w-44">
+          <label class="flex flex-col gap-1.5 sm:w-[8.8rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Session</span>
             <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
               {sessionChoices.map((o) => (
@@ -726,7 +726,7 @@ Astro.response.headers.set(
               ))}
             </select>
           </label>
-          <label class="flex flex-col gap-1.5 sm:w-44">
+          <label class="flex flex-col gap-1.5 sm:w-[8.8rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
             <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
               <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
@@ -736,12 +736,25 @@ Astro.response.headers.set(
             </select>
           </label>
           <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
-            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} />
             {isAdmin && showReportButton && (
               <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
             )}
             <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
-            <a href={kudosHref} class="btn btn-primary">Kudos</a>
+            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} />
+            {/* Icon-only; the label shows on hover/keyboard focus (same tooltip look as the incident button's). */}
+            <span class="group relative">
+              <a href={kudosHref} class="btn btn-primary !px-2.5" aria-label="Kudos">
+                {/* Thumbs up with a sparkle */}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+                  <g transform="translate(0 1) scale(0.92)">
+                    <path d="M7 10v12" />
+                    <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+                  </g>
+                  <path d="M20 2v4M18 4h4" stroke-width="1.6" />
+                </svg>
+              </a>
+              <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Kudos</span>
+            </span>
           </div>
         </div>
         </div>

@@ -5,10 +5,11 @@
  * fetch (`banners.find((b) => b.page_key === 'standings')`, etc).
  *
  * Deliberately scoped to top-level/static pages only — dynamic detail pages
- * (an individual race result, an individual news post, a specific circuit)
- * don't have a single stable "page" to hang one banner off of, so they're
- * left out rather than trying to force a per-record banner into this same
- * simple key-value shape.
+ * (an individual news post, a specific circuit) don't have a single stable
+ * "page" to hang one banner off of, so they're left out rather than trying
+ * to force a per-record banner into this same simple key-value shape. The one
+ * exception is 'round-results': one banner shared by every round's results
+ * page (not a per-round banner).
  *
  * 'home' is the one special case: it renders as the full hero section
  * behind the homepage headline (see src/pages/index.astro) rather than the
@@ -46,6 +47,7 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'news', label: 'News', description: '/news', width: 1152 },
   { key: 'circuits', label: 'Circuits', description: '/circuits', width: 1024 },
   { key: 'results', label: 'Race Results', description: '/results', width: 1024 },
+  { key: 'round-results', label: 'Round Results', description: 'One round\'s results page (/results/…) — shown on every round', width: 1024 },
   { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats', width: 1152 },
   { key: 'team-stats', label: 'Team Stats', description: '/team-stats', width: 1152 },
   { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame', width: 1024 },
