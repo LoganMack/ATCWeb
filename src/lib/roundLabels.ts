@@ -38,7 +38,7 @@ export function formatMonthDayYear(input: string | null | undefined): string {
 /**
  * "Sep 05, 2026: Track Name" — the label used in every round dropdown. Pass
  * `maxTrackChars` to cut a long track name short with an ellipsis (the Race
- * Results page's narrow round picker uses 20).
+ * Results page's round picker no longer uses this — see roundTrackLabel).
  */
 export function roundOptionLabel(round: { start_time: string; track_name: string }, maxTrackChars?: number): string {
   const track =
@@ -46,6 +46,15 @@ export function roundOptionLabel(round: { start_time: string; track_name: string
       ? `${round.track_name.slice(0, maxTrackChars).trimEnd()}…`
       : round.track_name;
   return `${formatMonthDayYear(round.start_time)}: ${track}`;
+}
+
+/**
+ * Just the track name — "Watkins Glen International" — cut short with an
+ * ellipsis past `maxChars`. Used by the Race Results page's round picker,
+ * where the date is left off so the dropdown can stay narrow.
+ */
+export function roundTrackLabel(round: { track_name: string }, maxChars: number): string {
+  return round.track_name.length > maxChars ? `${round.track_name.slice(0, maxChars).trimEnd()}…` : round.track_name;
 }
 
 export interface RoundGroup<T> {
