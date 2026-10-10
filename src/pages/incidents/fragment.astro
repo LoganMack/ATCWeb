@@ -40,12 +40,7 @@ function roundLabel(row: IncidentRow): string {
   return row.displayRoundNumber !== null ? `Round ${row.displayRoundNumber}` : 'Exhibition';
 }
 
-function driverLabel(row: IncidentRow): string {
-  if (!row.driver) return 'RI';
-  return row.driver.car_number !== null ? `#${row.driver.car_number} ${shortDriverName(row.driver.name)}` : shortDriverName(row.driver.name);
-}
-
-/** All Incidents list's Driver column, collapsed to just the car number (or a short name when there's no number on file, or "RI" for a driverless Racing Incident entry) — the full name is revealed on hover instead (see that cell's `title` attribute below), per Logan: "hide the driver name and only display the number." Distinct from driverLabel above, which stays name-first for every other table (By Driver, and the By Offense/By Driver detail panels) that wasn't part of this request. */
+/** All Incidents list's Driver column, collapsed to just the car number (or a short name when there's no number on file, or "RI" for a driverless Racing Incident entry) — the full name is revealed on hover instead (see that cell's `title` attribute below), per Logan: "hide the driver name and only display the number." Every incident table (All Incidents and the By Driver/By Offense detail panels) uses it. */
 function driverNumberLabel(row: IncidentRow): string {
   if (!row.driver) return 'RI';
   return row.driver.car_number !== null ? `#${row.driver.car_number}` : shortDriverName(row.driver.name);
@@ -56,6 +51,43 @@ function perRace(count: number, races: number): string {
   if (races === 0) return '—';
   return (count / races).toFixed(2);
 }
+
+/** Track names longer than this are cut short with an ellipsis in the All Incidents table (the full name shows on hover). */
+const TRACK_MAX_CHARS = 20;
+function shortTrackName(name: string): string {
+  return name.length > TRACK_MAX_CHARS ? `${name.slice(0, TRACK_MAX_CHARS).trimEnd()}…` : name;
+}
+
+/** Everything the click-to-open "Incident Details" popup shows, keyed by incident id and embedded once as JSON below (the same incident can appear in several tables, so it isn't repeated per row). */
+function incidentSummary(row: IncidentRow) {
+  return {
+    driver: row.driver === null ? 'Racing Incident (no driver at fault)' : `${row.driver.car_number !== null ? `#${row.driver.car_number} ` : ''}${displayDriverName(row.driver.name)}`,
+    season: row.seasonLabel ?? '—',
+    round: roundLabel(row),
+    track: row.trackName,
+    date: formatDateShort(row.startTime),
+    session: sessionLabel(row),
+    incidentNumber: row.incidentNumber ? (row.incidentNumber.startsWith('#') ? row.incidentNumber : `#${row.incidentNumber}`) : '—',
+    lap: row.lap,
+    involved: row.involvedDrivers.map((d) => `${d.car_number !== null ? `#${d.car_number} ` : ''}${shortDriverName(d.name)}`),
+    description: row.description,
+    offenses: row.offenseNames,
+    isWarning: row.isWarning,
+    pp: row.penaltyPoints,
+    time: row.timePenaltySeconds,
+    points: row.pointsPenalty,
+    isAppealed: row.isAppealed,
+    href: `/results/${row.subsessionId}/incidents`,
+    roundHref: `/results/${row.subsessionId}`,
+  };
+}
+const incidentSummaries: Record<string, ReturnType<typeof incidentSummary>> = {};
+{
+  const add = (row: IncidentRow) => { incidentSummaries[row.id] = incidentSummary(row); };
+  data.all.forEach(add);
+}
+// JSON inside a <script> block: "<" is escaped so a description can never close the tag early.
+const incidentSummariesJson = JSON.stringify(incidentSummaries).replace(/</g, '\\u003c');
 
 function involvedLabel(row: IncidentRow): string {
   if (row.involvedDrivers.length === 0) return '—';
@@ -96,91 +128,68 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <p class="mt-6 text-white/60">No incidents logged yet.</p>
       ) : (
         <div class="rounded-xl border border-white/10" data-sticky-thead>
-          <table class="w-full min-w-[1100px] border-collapse" data-sortable>
+          <table class="w-full min-w-[900px] border-collapse" data-sortable>
             <thead>
               <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
                 <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="date">Date</th>
                 <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="season">Season</th>
                 <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="round">Round</th>
-                <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>
                 <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="session">Session</th>
+                <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>
                 <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lap">Lap</th>
                 <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
                 <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="involved">Involved</th>
-                <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="offenses">Offenses</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">PP</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="time">Time</th>
                 <th class="py-3 pr-3 text-center font-medium" data-sort-key="pts">Pts</th>
-                <th class="hidden py-3 pr-4 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
+                <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
+                <th class="py-3 pr-4" aria-hidden="true"></th>
               </tr>
             </thead>
             <tbody>
               {data.all.map((row) => (
-                <>
-                  <tr
-                    data-expand-row
-                    tabindex="0"
-                    role="button"
-                    aria-expanded="false"
-                    class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
-                  >
-                    <td class="py-2.5 pl-4 pr-3 text-white/60" data-col="date" data-sort-value={row.startTime}>
-                      {formatDateShort(row.startTime)}
-                    </td>
-                    <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="season">{row.seasonLabel ?? '—'}</td>
-                    <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="round" data-sort-value={row.displayRoundNumber ?? -1}>
-                      {row.displayRoundNumber !== null ? row.displayRoundNumber : 'Exhibition'}
-                    </td>
-                    <td class="hidden py-2.5 pr-3 font-semibold sm:table-cell" data-col="track">{row.trackName}</td>
-                    <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="session">{sessionLabel(row)}</td>
-                    <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lap">{row.lap ?? '—'}</td>
-                    <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver?.car_number ?? -1}>
-                      <span
-                        class="cursor-help underline decoration-dotted decoration-white/30 underline-offset-2"
-                        title={row.driver === null ? 'Racing Incident — no driver at fault' : displayDriverName(row.driver.name)}
-                      >
-                        {driverNumberLabel(row)}
-                      </span>
-                    </td>
-                    <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
-                    <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell" data-col="offenses">
-                      {row.offenseNames.length > 0 ? (
-                        <div class="flex flex-col gap-0.5">
-                          {row.offenseNames.map((n) => <div>{n}</div>)}
-                        </div>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp" data-sort-value={row.isWarning ? 0 : row.penaltyPoints}>
-                      {/* A warning never carries a PP value of its own (see
-                          results/[subsessionId]/incidents.astro's own
-                          "warning" sentinel comment) — shown here the same
-                          way that page's own PP column shows it, per Logan,
-                          rather than a separate Warn column. */}
-                      {row.isWarning ? (
-                        <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
-                      ) : (
-                        <div>{row.penaltyPoints || '—'}</div>
-                      )}
-                    </td>
-                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="time">
-                      {row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}
-                    </td>
-                    <td class="py-2.5 pr-3 text-center text-white/60" data-col="pts">{row.pointsPenalty || '—'}</td>
-                    <td class="hidden py-2.5 pr-4 text-center text-white/60 xl:table-cell" data-col="appealed" data-sort-value={row.isAppealed ? 1 : 0}>
-                      {row.isAppealed ? 'Yes' : '—'}
-                    </td>
-                  </tr>
-                  <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-sm">
-                    <td colspan={13} class="px-4 py-4 sm:pl-11">
-                      <p class="text-white/70">{row.description || 'No description recorded.'}</p>
-                      <a href={`/results/${row.subsessionId}`} class="mt-2 inline-block text-xs text-white/50 hover:text-white">
-                        View full round result &rarr;
-                      </a>
-                    </td>
-                  </tr>
-                </>
+                <tr
+                  data-history-incident={row.id}
+                  tabindex="0"
+                  role="button"
+                  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04] active:bg-white/5"
+                >
+                  <td class="py-2.5 pl-4 pr-3 text-white/60" data-col="date" data-sort-value={row.startTime}>
+                    {formatDateShort(row.startTime)}
+                  </td>
+                  <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="season">{row.seasonLabel ?? '—'}</td>
+                  <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="round" data-sort-value={row.displayRoundNumber ?? -1}>
+                    {row.displayRoundNumber !== null ? row.displayRoundNumber : 'Exhibition'}
+                  </td>
+                  <td class="hidden whitespace-nowrap py-2.5 pr-3 text-white/60 md:table-cell" data-col="session">{sessionLabel(row)}</td>
+                  <td class="hidden whitespace-nowrap py-2.5 pr-3 font-semibold sm:table-cell" data-col="track" data-sort-value={row.trackName} title={row.trackName}>{shortTrackName(row.trackName)}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lap">{row.lap ?? '—'}</td>
+                  <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver?.car_number ?? -1}>
+                    <span title={row.driver === null ? 'Racing Incident — no driver at fault' : displayDriverName(row.driver.name)}>
+                      {driverNumberLabel(row)}
+                    </span>
+                  </td>
+                  <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
+                  <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp" data-sort-value={row.isWarning ? 0 : row.penaltyPoints}>
+                    {/* A warning never carries a PP value of its own (see
+                        results/[subsessionId]/incidents.astro's own "warning"
+                        sentinel comment) — shown here the same way that
+                        page's own PP column shows it. */}
+                    {row.isWarning ? (
+                      <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
+                    ) : (
+                      <div>{row.penaltyPoints || '—'}</div>
+                    )}
+                  </td>
+                  <td class="py-2.5 pr-3 text-center text-white/60" data-col="time">
+                    {row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}
+                  </td>
+                  <td class="py-2.5 pr-3 text-center text-white/60" data-col="pts">{row.pointsPenalty || '—'}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="appealed" data-sort-value={row.isAppealed ? 1 : 0}>
+                    {row.isAppealed ? 'Yes' : '—'}
+                  </td>
+                  <td class="py-2.5 pr-4 text-right text-lg leading-none text-white/30" aria-hidden="true">&rsaquo;</td>
+                </tr>
               ))}
             </tbody>
           </table>
@@ -239,34 +248,30 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                       <td colspan={7} class="px-4 py-4 sm:pl-11">
                         <div data-sticky-thead>
-                          <table class="w-full min-w-[820px] border-collapse">
+                          <table class="w-full min-w-[640px] border-collapse">
                             <thead>
                               <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
                                 <th class="py-2 pr-3 font-medium">Date</th>
                                 <th class="py-2 pr-3 font-medium">Round</th>
                                 <th class="py-2 pr-3 font-medium">Session</th>
-                                <th class="py-2 pr-3 font-medium">Role</th>
+                                <th class="py-2 pr-3 font-medium">Penalized</th>
                                 <th class="py-2 pr-3 font-medium">Offenses</th>
                                 <th class="py-2 pr-3 text-center font-medium">PP</th>
                                 <th class="py-2 pr-3 text-center font-medium">Time</th>
                                 <th class="py-2 pr-3 text-center font-medium">Pts</th>
-                                <th class="py-2 pr-3 font-medium">Description</th>
                               </tr>
                             </thead>
                             <tbody>
                               {agg.incidents.map((row) => (
-                                <tr class="border-b border-white/5">
+                                <tr data-history-incident={row.id} tabindex="0" role="button" class="cursor-pointer border-b border-white/5 transition hover:bg-white/[0.04]">
                                   <td class="py-2 pr-3 text-white/60">{formatDateShort(row.startTime)}</td>
-                                  <td class="py-2 pr-3 text-white/70">
-                                    {roundLabel(row)} — {row.trackName}
-                                  </td>
+                                  <td class="py-2 pr-3 text-white/70">{roundLabel(row)}</td>
                                   <td class="py-2 pr-3 text-white/60">{sessionLabel(row)}</td>
-                                  <td class="py-2 pr-3 text-white/60">{row.driver?.id === agg.driver.id ? 'Penalized' : 'Involved'}</td>
+                                  <td class={`py-2 pr-3 ${row.driver?.id === agg.driver.id ? 'font-bold text-white' : 'text-white/60'}`} title={row.driver ? displayDriverName(row.driver.name) : 'Racing Incident — no driver at fault'}>{driverNumberLabel(row)}</td>
                                   <td class="py-2 pr-3 text-white/60">{row.offenseNames.length > 0 ? row.offenseNames.join(', ') : '—'}</td>
                                   <td class="py-2 pr-3 text-center text-white/70">{row.penaltyPoints || '—'}</td>
                                   <td class="py-2 pr-3 text-center text-white/70">{row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}</td>
                                   <td class="py-2 pr-3 text-center text-white/70">{row.pointsPenalty || '—'}</td>
-                                  <td class="py-2 pr-3 text-white/50">{row.description || '—'}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -323,32 +328,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                     <td colspan={4} class="px-4 py-4 sm:pl-11">
                       <div data-sticky-thead>
-                        <table class="w-full min-w-[820px] border-collapse">
+                        <table class="w-full min-w-[640px] border-collapse">
                           <thead>
                             <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
                               <th class="py-2 pr-3 font-medium">Date</th>
                               <th class="py-2 pr-3 font-medium">Round</th>
                               <th class="py-2 pr-3 font-medium">Session</th>
-                              <th class="py-2 pr-3 font-medium">Driver</th>
+                              <th class="py-2 pr-3 font-medium">Penalized</th>
                               <th class="py-2 pr-3 text-center font-medium">PP</th>
                               <th class="py-2 pr-3 text-center font-medium">Time</th>
                               <th class="py-2 pr-3 text-center font-medium">Pts</th>
-                              <th class="py-2 pr-3 font-medium">Description</th>
                             </tr>
                           </thead>
                           <tbody>
                             {agg.incidents.map((row) => (
-                              <tr class="border-b border-white/5">
+                              <tr data-history-incident={row.id} tabindex="0" role="button" class="cursor-pointer border-b border-white/5 transition hover:bg-white/[0.04]">
                                 <td class="py-2 pr-3 text-white/60">{formatDateShort(row.startTime)}</td>
-                                <td class="py-2 pr-3 text-white/70">
-                                  {roundLabel(row)} — {row.trackName}
-                                </td>
+                                <td class="py-2 pr-3 text-white/70">{roundLabel(row)}</td>
                                 <td class="py-2 pr-3 text-white/60">{sessionLabel(row)}</td>
-                                <td class="py-2 pr-3 text-white/60">{driverLabel(row)}</td>
+                                <td class="py-2 pr-3 text-white/60" title={row.driver ? displayDriverName(row.driver.name) : 'Racing Incident — no driver at fault'}>{driverNumberLabel(row)}</td>
                                 <td class="py-2 pr-3 text-center text-white/70">{row.penaltyPoints || '—'}</td>
                                 <td class="py-2 pr-3 text-center text-white/70">{row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}</td>
                                 <td class="py-2 pr-3 text-center text-white/70">{row.pointsPenalty || '—'}</td>
-                                <td class="py-2 pr-3 text-white/50">{row.description || '—'}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -363,5 +364,75 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         </div>
       )}
     </div>
+
+    <script type="application/json" data-history-incident-data set:html={incidentSummariesJson}></script>
+
+    {/* "Incident Details" popup — opened by clicking/tapping any incident row in any of the three tables (same card as the Incident Report page's, read-only). The click handling lives in incidents.astro (a <script> in this fetched fragment would never run). */}
+    <dialog
+      data-history-incident-dialog
+      class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
+    >
+      <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+        <div class="flex items-center justify-between">
+          <h4 class="font-display text-lg">Incident Details</h4>
+          <button type="button" data-close-history-incident class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+        </div>
+        <dl class="flex flex-col gap-3 text-sm">
+          <div>
+            <dt class="text-[11px] uppercase tracking-wide text-white/40">Round</dt>
+            <dd data-hi="round" class="mt-0.5 font-semibold"></dd>
+            <dd data-hi="when" class="text-white/60"></dd>
+          </div>
+          <div>
+            <dt class="text-[11px] uppercase tracking-wide text-white/40">Driver</dt>
+            <dd data-hi="driver" class="mt-0.5 font-semibold"></dd>
+          </div>
+          <div class="flex gap-6">
+            <div>
+              <dt class="text-[11px] uppercase tracking-wide text-white/40">Incident #</dt>
+              <dd data-hi="number" class="mt-0.5"></dd>
+            </div>
+            <div>
+              <dt class="text-[11px] uppercase tracking-wide text-white/40">Lap</dt>
+              <dd data-hi="lap" class="mt-0.5"></dd>
+            </div>
+          </div>
+          <div data-hi-row="involved" class="hidden">
+            <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
+            <dd data-hi="involved" class="mt-0.5 text-white/70"></dd>
+          </div>
+          <div data-hi-row="description" class="hidden">
+            <dt class="text-[11px] uppercase tracking-wide text-white/40">Description</dt>
+            <dd data-hi="description" class="mt-0.5 text-white/70"></dd>
+          </div>
+          <div data-hi-row="offenses" class="hidden">
+            <dt class="text-[11px] uppercase tracking-wide text-white/40">Offenses</dt>
+            <dd data-hi="offenses" class="mt-0.5 flex flex-col gap-0.5 text-white/70"></dd>
+          </div>
+          <div class="flex gap-6">
+            <div>
+              <dt class="text-[11px] uppercase tracking-wide text-white/40">PP</dt>
+              <dd data-hi="pp" class="mt-0.5"></dd>
+            </div>
+            <div>
+              <dt class="text-[11px] uppercase tracking-wide text-white/40">Time</dt>
+              <dd data-hi="time" class="mt-0.5"></dd>
+            </div>
+            <div>
+              <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts</dt>
+              <dd data-hi="points" class="mt-0.5"></dd>
+            </div>
+          </div>
+          <div data-hi-row="appealed" class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2">
+            <dt class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Appealed</dt>
+            <dd class="mt-1 text-[13px] text-brand-pink/90">This incident was appealed.</dd>
+          </div>
+        </dl>
+        <div class="flex flex-wrap justify-end gap-2">
+          <a data-hi-link="round" href="#" class="btn btn-neutral btn-sm">Round Results</a>
+          <a data-hi-link="report" href="#" class="btn btn-primary btn-sm">Incident Report</a>
+        </div>
+      </div>
+    </dialog>
   </div>
 )}
