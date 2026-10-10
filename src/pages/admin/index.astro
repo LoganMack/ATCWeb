@@ -30,10 +30,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
       </div>
-      <div class="grid gap-4 lg:grid-cols-2">
-        <div class="h-56 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
-        <div class="h-56 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
-      </div>
+      <div class="h-10 w-40 animate-pulse rounded-lg border border-white/10 bg-white/[0.03]"></div>
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
@@ -52,6 +49,23 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     // champions.astro/team-stats.astro — see admin/fragment.astro's own
     // top-of-file comment for the full reasoning (reveal.ts re-dispatch
     // included).
+
+    // Reads a fragment response's HTML. If the admin session expired (or the
+    // user lost admin) while this page sat open, middleware answers the
+    // fragment request with a 302 to /login, which fetch() follows silently —
+    // so a "successful" response would be the entire login page, dropped
+    // into the dashboard. Reload instead: middleware then redirects this
+    // real page to /login?next=/admin. The never-settling promise stops the
+    // caller's .then/.catch from flashing anything while the reload happens.
+    function fragmentHtml(res: Response, label: string): Promise<string> {
+      if (res.redirected) {
+        window.location.reload();
+        return new Promise<never>(() => {});
+      }
+      if (!res.ok) throw new Error(`${label} fragment request failed (${res.status})`);
+      return res.text();
+    }
+
     function initAdminDashboard() {
       const container = document.querySelector<HTMLElement>('[data-admin-dashboard]');
       const url = container?.dataset.fragmentUrl;
@@ -59,10 +73,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       delete container.dataset.fragmentUrl;
 
       fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Admin dashboard fragment request failed (${res.status})`);
-          return res.text();
-        })
+        .then((res) => fragmentHtml(res, 'Admin dashboard'))
         .then((html) => {
           container.innerHTML = html;
           document.dispatchEvent(new Event('astro:page-load'));
@@ -74,5 +85,40 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
     }
 
     document.addEventListener('astro:page-load', initAdminDashboard);
+
+    // "Load Analytics" — the button arrives inside the dashboard fragment's
+    // innerHTML (whose own <script>s would never run), so it's handled here
+    // by delegation. Registered once at module level: this bundled script
+    // only executes once per full page load, and a document-level listener
+    // survives view-transition navigations, so re-adding it on every
+    // astro:page-load would stack duplicate handlers.
+    document.addEventListener('click', (event) => {
+      const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-load-analytics]');
+      const container = button?.closest<HTMLElement>('[data-admin-analytics]');
+      const url = container?.dataset.fragmentUrl;
+      if (!button || !container || !url) return;
+
+      button.disabled = true;
+      button.textContent = 'Loading Analytics…';
+      container.setAttribute('aria-busy', 'true');
+      container.querySelector('[data-analytics-error]')?.remove();
+
+      fetch(url)
+        .then((res) => fragmentHtml(res, 'Analytics'))
+        .then((html) => {
+          container.innerHTML = html;
+        })
+        .catch((err) => {
+          console.error('Failed to load analytics:', err);
+          button.disabled = false;
+          button.textContent = 'Retry Loading Analytics';
+          const message = document.createElement('p');
+          message.dataset.analyticsError = '';
+          message.className = 'mt-3 text-sm text-white/50';
+          message.textContent = 'Couldn’t load analytics — the query failed or timed out. Try again, or check the server log for the exact error.';
+          container.append(message);
+        })
+        .finally(() => container.removeAttribute('aria-busy'));
+    });
   </script>
 </AdminLayout>

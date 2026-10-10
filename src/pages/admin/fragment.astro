@@ -1,7 +1,6 @@
 ---
 export const prerender = false;
 
-import StatBlock from '../../components/StatBlock.astro';
 import {
   resolveSupabaseEnv,
   getDrivers,
@@ -11,11 +10,9 @@ import {
   getCircuits,
   getSeasons,
   getOrganizations,
-  getPageViewStats,
   getMissingRaceResultsCount,
   getActivityLogCountSince,
   restGetAuthed,
-  type PageViewStats,
 } from '../../lib/supabase';
 
 /**
@@ -26,8 +23,12 @@ import {
  * activity-log count) right in its own frontmatter, blocking the whole
  * dashboard behind however long that round-trip took. Now the shell renders
  * instantly with a loading-cards skeleton and fetches THIS route client-side
- * for the actual counts/cards/analytics, per Logan (admin/index.astro's own
+ * for the actual counts/cards, per Logan (admin/index.astro's own
  * top-of-file comment has the shell side of this).
+ *
+ * Site Analytics is NOT loaded here — it lives in admin/analytics/
+ * fragment.astro and only runs when an admin presses "Load Analytics" (its
+ * RPC alone was taking the full 8s statement timeout on every visit).
  *
  * Returns a bare HTML fragment — no <AdminLayout>, no <html>/<head> — meant
  * only to be dropped into admin/index.astro's dashboard container via
@@ -50,13 +51,12 @@ let missingRaceResultsCount = 0;
 let activityLogCount24h = 0;
 let openIncidentReportCount = 0;
 let pendingSignupCount = 0;
-let pageViewStats: PageViewStats | null = null;
 
 // Every independent fetch this page needs, run together — same
 // "named-function + Promise.all" pattern used across the rest of the site
 // (see roster.astro/standings.astro/etc.) rather than awaiting one after
-// another. getPageViewStats/getMissingRaceResultsCount/getActivityLogCountSince
-// already catch or don't need their own try/catch (see src/lib/supabase.ts),
+// another. getMissingRaceResultsCount/getActivityLogCountSince and the
+// restGetAuthed counts each carry their own .catch below,
 // so they're wired in as their own Promise.all entries below rather than
 // folded into loadCounts()'s try/catch.
 async function loadCounts() {
@@ -89,7 +89,6 @@ const oneDayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
 await Promise.all([
   loadCounts(),
-  getPageViewStats(supabaseEnv, accessToken).then((stats) => (pageViewStats = stats)),
   getMissingRaceResultsCount(supabaseEnv)
     .then((count) => (missingRaceResultsCount = count))
     .catch((err) => console.error('Failed to load missing race results count:', err)),
@@ -193,37 +192,9 @@ const utilities: DashboardCard[] = [
   { href: '/admin/users', label: 'Users', detail: 'Admin access & driver links' },
 ];
 
-// --- Site analytics display helpers --------------------------------------
-
-/** ISO 3166-1 alpha-2 -> readable name via the platform's own locale data (Intl.DisplayNames) — no hardcoded country-name table to maintain. Falls back to the raw code for anything it can't resolve (e.g. Cloudflare's "T1" for Tor exit traffic, or the "Unknown" bucket the RPC already labels itself). */
-function countryName(code: string): string {
-  if (!code || code === 'Unknown') return 'Unknown';
-  try {
-    return new Intl.DisplayNames(['en'], { type: 'region' }).of(code) ?? code;
-  } catch {
-    return code;
-  }
-}
-
-function formatHour(hour: number): string {
-  const period = hour < 12 ? 'AM' : 'PM';
-  const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h12}${period}`;
-}
-
-const topCountries = pageViewStats?.topCountries ?? [];
-const maxCountryVisitors = Math.max(1, ...topCountries.map((c) => c.visitors));
-const hourly = pageViewStats?.hourly ?? [];
-const maxHourlyViews = Math.max(1, ...hourly.map((h) => h.views));
-const hourlyToday = pageViewStats?.hourlyToday ?? [];
-const maxHourlyTodayViews = Math.max(1, ...hourlyToday.map((h) => h.views));
-const topPages = pageViewStats?.topPages ?? [];
-const maxPageViews = Math.max(1, ...topPages.map((p) => p.views));
-const topErrors = pageViewStats?.topErrors ?? [];
-const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
 // No Cache-Control header here, matching every other /admin/* page — none of
 // them opt into the public fragment routes' s-maxage caching, since this one
-// carries per-admin analytics/session-scoped data behind the same auth gate
+// carries per-admin session-scoped data behind the same auth gate
 // as the rest of the admin panel (src/middleware.ts).
 ---
 
@@ -306,158 +277,13 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
 <section class="mt-12">
   <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Site Analytics</h2>
 
-  {pageViewStats ? (
-    <div class="mt-4 space-y-6">
-      <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-        <dl class="grid grid-cols-1 gap-x-4 gap-y-5 sm:grid-cols-3">
-          <StatBlock
-            label="Visitors Today"
-            value={pageViewStats.visitorsToday}
-            sub={`${pageViewStats.viewsToday} page view${pageViewStats.viewsToday === 1 ? '' : 's'}`}
-          />
-          <StatBlock
-            label="Visitors (7 days)"
-            value={pageViewStats.visitors7d}
-            sub={`${pageViewStats.views7d} page views`}
-          />
-          <StatBlock
-            label="Visitors (30 days)"
-            value={pageViewStats.visitors30d}
-            sub={`${pageViewStats.views30d} page views`}
-          />
-        </dl>
-      </div>
-
-      <div class="grid gap-4 lg:grid-cols-2">
-        <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-          <h3 class="text-xs uppercase tracking-wide text-white/40">Top Regions (30 days)</h3>
-          {topCountries.length > 0 ? (
-            <ul class="mt-3 space-y-2.5">
-              {topCountries.map((c) => (
-                <li>
-                  <div class="flex items-center justify-between text-sm">
-                    <span class="text-white/80">{countryName(c.country)}</span>
-                    <span class="text-white/50">{c.visitors}</span>
-                  </div>
-                  <div class="mt-1 h-1.5 rounded-full bg-white/5">
-                    <div
-                      class="h-1.5 rounded-full bg-brand-primary"
-                      style={`width: ${Math.max(4, Math.round((c.visitors / maxCountryVisitors) * 100))}%`}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p class="mt-3 text-sm text-white/40">No visits recorded yet.</p>
-          )}
-        </div>
-
-        <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-          {/* Today's hourly shape stacked directly above the 30-day
-              rollup, in one card — get_page_view_stats()' hourlyToday key
-              (0083_page_views_hourly_today.sql), same bar shape as the
-              30-day chart below it, just scoped to today (America/
-              New_York) so a real-time-ish traffic shape isn't smoothed
-              away by 30 days of averaging. */}
-          <h3 class="text-xs uppercase tracking-wide text-white/40">Traffic by Hour (Today, ET)</h3>
-          <div class="mt-4 flex h-24 items-stretch gap-1">
-            {hourlyToday.map((h) => (
-              <div class="relative h-full flex-1 rounded-t bg-white/5">
-                <div
-                  class="absolute bottom-0 w-full rounded-t bg-brand-primary/70 transition hover:bg-brand-primary"
-                  style={`height: ${Math.round((h.views / maxHourlyTodayViews) * 100)}%`}
-                  title={`${formatHour(h.hour)} ET — ${h.views} view${h.views === 1 ? '' : 's'}`}
-                />
-              </div>
-            ))}
-          </div>
-          <div class="mt-1 flex justify-between text-[10px] text-white/30">
-            <span>12am</span>
-            <span>6am</span>
-            <span>12pm</span>
-            <span>6pm</span>
-            <span>12am</span>
-          </div>
-
-          <h3 class="mt-5 border-t border-white/10 pt-4 text-xs uppercase tracking-wide text-white/40">Traffic by Hour (30 days, ET)</h3>
-          <div class="mt-4 flex h-24 items-stretch gap-1">
-            {hourly.map((h) => (
-              <div class="relative h-full flex-1 rounded-t bg-white/5">
-                <div
-                  class="absolute bottom-0 w-full rounded-t bg-brand-primary/70 transition hover:bg-brand-primary"
-                  style={`height: ${Math.round((h.views / maxHourlyViews) * 100)}%`}
-                  title={`${formatHour(h.hour)} ET — ${h.views} view${h.views === 1 ? '' : 's'}`}
-                />
-              </div>
-            ))}
-          </div>
-          <div class="mt-1 flex justify-between text-[10px] text-white/30">
-            <span>12am</span>
-            <span>6am</span>
-            <span>12pm</span>
-            <span>6pm</span>
-            <span>12am</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid gap-4 lg:grid-cols-2">
-        <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-          <h3 class="text-xs uppercase tracking-wide text-white/40">Most Popular Pages by Views (30 days)</h3>
-          {topPages.length > 0 ? (
-            <ul class="mt-3 space-y-2.5">
-              {topPages.map((p) => (
-                <li>
-                  <div class="flex items-center justify-between gap-3 text-sm">
-                    <span class="truncate text-white/80" title={p.path}>{p.path}</span>
-                    <span class="shrink-0 text-white/50">{p.views}</span>
-                  </div>
-                  <div class="mt-1 h-1.5 rounded-full bg-white/5">
-                    <div
-                      class="h-1.5 rounded-full bg-brand-primary"
-                      style={`width: ${Math.max(4, Math.round((p.views / maxPageViews) * 100))}%`}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p class="mt-3 text-sm text-white/40">No page views recorded yet.</p>
-          )}
-        </div>
-
-        <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-          <h3 class="text-xs uppercase tracking-wide text-white/40">Most Common Errors (30 days)</h3>
-          {topErrors.length > 0 ? (
-            <ul class="mt-3 space-y-2.5">
-              {topErrors.map((e) => (
-                <li>
-                  <div class="flex items-center justify-between gap-3 text-sm">
-                    <span class="truncate text-white/80" title={e.path}>
-                      <span class="mr-1.5 rounded bg-red-500/20 px-1.5 py-0.5 text-xs font-semibold text-red-300">{e.status}</span>
-                      {e.path}
-                    </span>
-                    <span class="shrink-0 text-white/50">{e.occurrences}</span>
-                  </div>
-                  <div class="mt-1 h-1.5 rounded-full bg-white/5">
-                    <div
-                      class="h-1.5 rounded-full bg-red-400/70"
-                      style={`width: ${Math.max(4, Math.round((e.occurrences / maxErrorOccurrences) * 100))}%`}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p class="mt-3 text-sm text-white/40">No errors recorded in the last 30 days.</p>
-          )}
-        </div>
-      </div>
-    </div>
-  ) : (
-    <p class="mt-4 text-sm text-white/50">Analytics aren't available right now.</p>
-  )}
+  {/* Loaded on demand: get_page_view_stats() is slow enough to hit
+      Supabase's statement timeout, so it only runs when an admin presses
+      this button — the click handler in admin/index.astro fetches
+      admin/analytics/fragment.astro into the container below. */}
+  <div class="mt-4" data-admin-analytics data-fragment-url="/admin/analytics/fragment">
+    <button type="button" class="btn btn-neutral" data-load-analytics>Load Analytics</button>
+  </div>
 </section>
 
 <section class="mt-12">
