@@ -14,6 +14,7 @@ import {
   getActivityLogCountSince,
   restGetAuthed,
 } from '../../lib/supabase';
+import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
 
 /**
  * Same shell-then-spinner split as the public site's awards/fragment.astro,
@@ -27,7 +28,7 @@ import {
  * top-of-file comment has the shell side of this).
  *
  * Site Analytics is NOT loaded here — it lives in admin/analytics/
- * fragment.astro and only runs when an admin presses "Load Analytics" (its
+ * fragment.astro and only runs when an admin picks a reporting window (its
  * RPC alone was taking the full 8s statement timeout on every visit).
  *
  * Returns a bare HTML fragment — no <AdminLayout>, no <html>/<head> — meant
@@ -277,12 +278,22 @@ const utilities: DashboardCard[] = [
 <section class="mt-12">
   <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Site Analytics</h2>
 
-  {/* Loaded on demand: get_page_view_stats() is slow enough to hit
-      Supabase's statement timeout, so it only runs when an admin presses
-      this button — the click handler in admin/index.astro fetches
-      admin/analytics/fragment.astro into the container below. */}
-  <div class="mt-4" data-admin-analytics data-fragment-url="/admin/analytics/fragment">
-    <button type="button" class="btn btn-neutral" data-load-analytics>Load Analytics</button>
+  {/* Loaded on demand: get_page_view_stats() is too slow to run on every
+      dashboard visit, so it only runs when an admin picks a reporting
+      window — the click handler in admin/index.astro fetches
+      admin/analytics/fragment.astro?range=<key> into the container below.
+      The buttons live outside that container so they stay put for
+      switching windows after the charts load. */}
+  <div data-analytics-section>
+    <div class="mt-4 flex flex-wrap items-center gap-2">
+      <span class="mr-1 text-sm text-white/50">Load analytics for:</span>
+      {ANALYTICS_RANGES.map((range) => (
+        <button type="button" class="btn btn-sm btn-neutral" data-load-analytics={range.key}>
+          {range.label}
+        </button>
+      ))}
+    </div>
+    <div data-admin-analytics data-fragment-url="/admin/analytics/fragment"></div>
   </div>
 </section>
 
