@@ -1,7 +1,7 @@
 /**
  * The site's dot-matrix world map — shared by the Calendar's Map view and the
  * Media page's Meetups map. A self-drawn SVG (land outline from
- * src/lib/worldMap.ts, filled with a grid of dots): no tile server, no API key,
+ * src/lib/worldMap.ts, solid fill): no tile server, no API key,
  * no third-party requests. Looks live in the `.dot-map` / `.cm-*` rules in
  * global.css.
  *
@@ -75,13 +75,8 @@ export async function createDotMap<T>(opts: DotMapOptions<T>): Promise<DotMap> {
     return e;
   };
 
-  // Static layers: dot pattern, graticule, land.
+  // Static layer: the land, a solid fill (colour comes from --m-land in global.css).
   svg.replaceChildren();
-  const defs = mk('defs');
-  const dots = mk('pattern', { id: 'cm-dots', width: 5, height: 5, patternUnits: 'userSpaceOnUse' });
-  dots.appendChild(mk('circle', { class: 'cm-dot', cx: 2.5, cy: 2.5, r: 1 }));
-  defs.appendChild(dots);
-  svg.appendChild(defs);
   svg.appendChild(mk('path', { class: 'cm-land', d: wm.LAND_PATH }));
   const pinsLayer = mk('g');
   svg.appendChild(pinsLayer);

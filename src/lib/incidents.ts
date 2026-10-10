@@ -27,7 +27,7 @@ export interface IncidentRow {
   id: string;
   subsessionId: number;
   seasonLabel: string | null;
-  /** Null means this round is excluded from standings (exhibition/test round, or a whole non-championship season) — same "Exhibition" display convention as everywhere else on the site that shows a round number (see computeDisplayRoundNumbers). */
+  /** The round's number within its own season. Null means this round is excluded from standings (exhibition/test round, or a whole non-championship season) — same "Exhibition" display convention as everywhere else on the site that shows a round number (see computeDisplayRoundNumbers). */
   displayRoundNumber: number | null;
   trackName: string;
   startTime: string;
@@ -130,7 +130,19 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
   const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
   const driverById = new Map(driversBasic.map((d) => [d.id, d]));
   const offenseById = new Map(offenses.map((o) => [o.id, o]));
-  const displayRoundNumbers = computeDisplayRoundNumbers(rounds, excludedRoundIds, new Set());
+  // Round numbers count within each season (computeDisplayRoundNumbers numbers
+  // whatever list it's handed in one run, so it has to be called once per
+  // season — passing every round at once gave an all-time count).
+  const roundsBySeason = new Map<string, typeof rounds>();
+  for (const r of rounds) {
+    const key = r.season_id ?? r.season_label ?? '';
+    if (!roundsBySeason.has(key)) roundsBySeason.set(key, []);
+    roundsBySeason.get(key)!.push(r);
+  }
+  const displayRoundNumbers = new Map<number, number | null>();
+  for (const seasonRounds of roundsBySeason.values()) {
+    for (const [id, n] of computeDisplayRoundNumbers(seasonRounds, excludedRoundIds, new Set())) displayRoundNumbers.set(id, n);
+  }
 
   const all: IncidentRow[] = [];
   for (const p of penalties) {

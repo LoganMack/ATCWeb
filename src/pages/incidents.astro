@@ -69,6 +69,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // computation) client-side once this shell has already painted — see
     // this file's top-of-file comment and incidents/fragment.astro for the
     // full explanation.
+    // Parsed lazily from the fragment's JSON block on first click, and dropped whenever a new fragment lands.
+    let incidentSummaries: Record<string, any> | null = null;
+
     function initIncidentsResults() {
       const container = document.querySelector<HTMLElement>('[data-incidents-results]');
       const url = container?.dataset.fragmentUrl;
@@ -86,6 +89,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         })
         .then((html) => {
           container.innerHTML = html;
+          incidentSummaries = null;
           // sortable-table.ts and expandRows.ts (both sitewide, delegated/
           // per-element-guarded listeners) only bind against content that
           // exists at astro:page-load time — re-dispatching it here is the
@@ -108,6 +112,79 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // page load, soft navigations included — see expandRows.ts's own doc
     // comment on this exact pattern), so no re-init guard is needed here
     // the way per-element setup functions need one.
+    // "Incident Details" popup for any [data-history-incident] row (All
+    // Incidents, and the incidents listed inside By Driver / By Offense rows).
+    // Delegated for the same reason as the switch below — the rows and the
+    // <dialog> arrive with the fetched fragment. Each row only carries its
+    // incident's id; the details live once in the fragment's JSON block.
+    function openIncidentDetails(row: HTMLElement) {
+      const dialog = document.querySelector<HTMLDialogElement>('[data-history-incident-dialog]');
+      if (!dialog) return;
+      if (!incidentSummaries) {
+        try {
+          incidentSummaries = JSON.parse(document.querySelector('[data-history-incident-data]')?.textContent ?? '{}');
+        } catch {
+          incidentSummaries = {};
+        }
+      }
+      const summary = incidentSummaries?.[row.dataset.historyIncident ?? ''];
+      if (!summary) return;
+      const set = (name: string, text: string) => {
+        const el = dialog.querySelector<HTMLElement>(`[data-hi="${name}"]`);
+        if (el) el.textContent = text;
+      };
+      const show = (name: string, visible: boolean) => {
+        dialog.querySelector<HTMLElement>(`[data-hi-row="${name}"]`)?.classList.toggle('hidden', !visible);
+      };
+      set('round', `${summary.track} · ${summary.round}`);
+      set('when', `${summary.season} · ${summary.session} · ${summary.date}`);
+      set('driver', summary.driver ?? '—');
+      set('number', summary.incidentNumber ?? '—');
+      set('lap', summary.lap != null ? String(summary.lap) : '—');
+      const involved: string[] = summary.involved ?? [];
+      show('involved', involved.length > 0);
+      set('involved', involved.join(', '));
+      show('description', Boolean(summary.description));
+      set('description', summary.description ?? '');
+      const offenses: string[] = summary.offenses ?? [];
+      show('offenses', offenses.length > 0);
+      dialog.querySelector<HTMLElement>('[data-hi="offenses"]')?.replaceChildren(
+        ...offenses.map((name) => {
+          const div = document.createElement('div');
+          div.textContent = name;
+          return div;
+        })
+      );
+      set('pp', summary.isWarning ? 'Warning' : summary.pp ? String(summary.pp) : '—');
+      set('time', summary.time ? `+${summary.time}s` : '—');
+      set('points', summary.points ? String(summary.points) : '—');
+      show('appealed', Boolean(summary.isAppealed));
+      dialog.querySelector<HTMLAnchorElement>('[data-hi-link="round"]')?.setAttribute('href', summary.roundHref);
+      dialog.querySelector<HTMLAnchorElement>('[data-hi-link="report"]')?.setAttribute('href', summary.href);
+      dialog.showModal();
+    }
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const row = target.closest<HTMLElement>('[data-history-incident]');
+      if (row) {
+        openIncidentDetails(row);
+        return;
+      }
+      if (target.closest('[data-close-history-incident]')) {
+        target.closest('dialog')?.close();
+        return;
+      }
+      // Clicking the backdrop (the <dialog> element itself, outside its content) closes it.
+      if (target instanceof HTMLDialogElement && target.hasAttribute('data-history-incident-dialog')) target.close();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const row = (e.target as HTMLElement).closest<HTMLElement>('[data-history-incident]');
+      if (!row) return;
+      e.preventDefault();
+      openIncidentDetails(row);
+    });
+
     document.addEventListener('change', (e) => {
       const select = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-incidents-select]');
       if (!select) return;

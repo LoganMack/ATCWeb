@@ -827,17 +827,16 @@ input[type="file"]:hover::file-selector-button {
 }
 
 /* ============================================================
-   DOT-MATRIX WORLD MAP (src/scripts/dotMap.ts)
+   WORLD MAP (src/scripts/dotMap.ts)
    ============================================================
    Used by the Calendar's Map view and the Media page's Meetups map. A
-   self-drawn SVG world (src/lib/worldMap.ts) whose land is filled with a grid of
-   dots (the #cm-dots pattern dotMap.ts defines in the SVG, coloured from
-   --m-dot here) — no tile server or API key. Light mode flips to dark dots on a
-   pale background. */
+   self-drawn SVG world (src/lib/worldMap.ts) whose land is a solid fill
+   (--m-land here) on the page's background — no tile server or API key. Light
+   mode flips to a darker land on a pale background. */
 .dot-map {
   --m-bg: #0b0b0e;
   --m-border: rgba(255, 255, 255, 0.1);
-  --m-dot: rgba(255, 255, 255, 0.34);
+  --m-land: #2b2d38;
   --m-ring: #0b0b0e;
   --m-ink: rgba(255, 255, 255, 0.85);
   --m-muted: rgba(255, 255, 255, 0.45);
@@ -859,7 +858,7 @@ input[type="file"]:hover::file-selector-button {
 .light .dot-map {
   --m-bg: #f1f1f4;
   --m-border: rgba(17, 17, 20, 0.12);
-  --m-dot: rgba(17, 17, 20, 0.3);
+  --m-land: #d0d0d9;
   --m-ring: #f7f7f9;
   --m-ink: rgba(17, 17, 20, 0.85);
   --m-muted: rgba(17, 17, 20, 0.5);
@@ -879,11 +878,8 @@ input[type="file"]:hover::file-selector-button {
   cursor: grabbing;
 }
 .cm-land {
-  fill: url(#cm-dots);
+  fill: var(--m-land);
   stroke: none;
-}
-.cm-dot {
-  fill: var(--m-dot);
 }
 .cm-pin {
   cursor: pointer;
