@@ -2886,25 +2886,45 @@ export interface PageViewStats {
   views7d: number;
   visitors30d: number;
   views30d: number;
-  /** Last 30 days, most-visited first — see get_page_view_stats() for the exact grouping/limit. */
+  /**
+   * The reporting window's own totals, and its length in days (null = all
+   * time) — added by 0103_page_view_stats_performance.sql along with the
+   * p_days argument. Optional because a database that hasn't run 0103 yet
+   * doesn't return them; callers fall back to visitors30d/views30d.
+   */
+  rangeDays?: number | null;
+  visitorsRange?: number;
+  viewsRange?: number;
+  /** The reporting window (see `rangeDays`), most-visited first — see get_page_view_stats() for the exact grouping/limit. */
   topCountries: { country: string; visitors: number }[];
-  /** Always exactly 24 entries (hour 0-23, America/New_York), last 30 days — see get_page_view_stats() for why every hour is guaranteed present even with zero views. */
+  /** Always exactly 24 entries (hour 0-23, America/New_York), over the reporting window — see get_page_view_stats() for why every hour is guaranteed present even with zero views. */
   hourly: { hour: number; views: number }[];
-  /** Same shape as `hourly` above, scoped to just today's calendar date in America/New_York instead of the last 30 days — see get_page_view_stats() (0083_page_views_hourly_today.sql). */
+  /** Same shape as `hourly` above, scoped to just today's calendar date in America/New_York instead of the reporting window — see get_page_view_stats() (0083_page_views_hourly_today.sql). */
   hourlyToday: { hour: number; views: number }[];
-  /** Last 30 days, successful (200) views only, most-visited first — see get_page_view_stats() (0080_page_views_status_and_stats.sql). */
+  /** The reporting window, successful (200) views only, most-visited first — see get_page_view_stats() (0080_page_views_status_and_stats.sql). */
   topPages: { path: string; views: number }[];
-  /** Last 30 days, status >= 400 only, grouped by path+status so a 404 and a 500 on the same path show separately. */
+  /** The reporting window, status >= 400 only, grouped by path+status so a 404 and a 500 on the same path show separately. */
   topErrors: { path: string; status: number; occurrences: number }[];
 }
 
-/** Reads get_page_view_stats() (0077_page_views.sql) — the admin's own accessToken is what actually gets past that table's admin-only RLS read policy, same as every other admin-only RPC in this file. Returns null (rather than throwing) on any failure so the dashboard can just skip the analytics block instead of failing the whole page. */
-export async function getPageViewStats(env: SupabaseEnv, accessToken: string): Promise<PageViewStats | null> {
+/**
+ * Reads get_page_view_stats() (0077_page_views.sql) — the admin's own accessToken is what actually gets past that table's admin-only RLS read policy, same as every other admin-only RPC in this file. Returns null (rather than throwing) on any failure so the dashboard can just skip the analytics block instead of failing the whole page.
+ *
+ * `days` is the reporting window (null = all time). The default 30 sends no
+ * argument at all, so it works against the function both before and after
+ * 0103_page_view_stats_performance.sql added p_days; any other window
+ * needs 0103 to have been run.
+ */
+export async function getPageViewStats(
+  env: SupabaseEnv,
+  accessToken: string,
+  days: number | null = 30
+): Promise<PageViewStats | null> {
   try {
     const res = await fetch(`${env.url}/rest/v1/rpc/get_page_view_stats`, {
       method: 'POST',
       headers: writeHeaders(env, accessToken),
-      body: JSON.stringify({}),
+      body: JSON.stringify(days === 30 ? {} : { p_days: days }),
     });
     if (!res.ok) throw new Error(await res.text());
     return (await res.json()) as PageViewStats;

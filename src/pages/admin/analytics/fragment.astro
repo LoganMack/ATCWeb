@@ -3,12 +3,14 @@ export const prerender = false;
 
 import StatBlock from '../../../components/StatBlock.astro';
 import { resolveSupabaseEnv, getPageViewStats } from '../../../lib/supabase';
+import { resolveAnalyticsRange } from '../../../lib/analyticsRanges';
 
 /**
  * The dashboard's "Site Analytics" block, split out of admin/fragment.astro
  * so get_page_view_stats() only runs when an admin actually asks for it —
- * the dashboard renders a "Load Analytics" button in its place (wired up in
- * admin/index.astro's script). Before the split, every /admin visit waited
+ * the dashboard renders one button per reporting window (`?range=30|90|365|
+ * all`, see src/lib/analyticsRanges.ts) in its place, wired up in
+ * admin/index.astro's script. Before the split, every /admin visit waited
  * on this RPC, which had grown slow enough to hit Supabase's 8s statement
  * timeout, so the dashboard spent ~8s loading and then showed no analytics.
  *
@@ -20,15 +22,21 @@ import { resolveSupabaseEnv, getPageViewStats } from '../../../lib/supabase';
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
 
-const pageViewStats = await getPageViewStats(supabaseEnv, accessToken);
+const range = resolveAnalyticsRange(Astro.url.searchParams.get('range'));
+const pageViewStats = await getPageViewStats(supabaseEnv, accessToken, range.days);
 
 // getPageViewStats swallows every failure (including the statement timeout)
 // and returns null — answer with a real error status so the dashboard's
-// click handler takes its failure path and offers "Retry Loading Analytics",
-// instead of a 200 that would replace the button with a dead-end message.
+// click handler takes its failure path and shows its "couldn't load" message
+// with the range buttons still there to try again.
 if (!pageViewStats) {
   return new Response('Analytics unavailable', { status: 503 });
 }
+
+// Pre-0103 databases don't return the window totals; at the default 30-day
+// window those are exactly visitors30d/views30d.
+const visitorsInRange = pageViewStats.visitorsRange ?? pageViewStats.visitors30d;
+const viewsInRange = pageViewStats.viewsRange ?? pageViewStats.views30d;
 
 // --- Site analytics display helpers --------------------------------------
 
@@ -78,16 +86,16 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
         sub={`${pageViewStats.views7d} page views`}
       />
       <StatBlock
-        label="Visitors (30 days)"
-        value={pageViewStats.visitors30d}
-        sub={`${pageViewStats.views30d} page views`}
+        label={`Visitors (${range.title})`}
+        value={visitorsInRange}
+        sub={`${viewsInRange} page view${viewsInRange === 1 ? '' : 's'}`}
       />
     </dl>
   </div>
 
   <div class="grid gap-4 lg:grid-cols-2">
     <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-      <h3 class="text-xs uppercase tracking-wide text-white/40">Top Regions (30 days)</h3>
+      <h3 class="text-xs uppercase tracking-wide text-white/40">Top Regions ({range.title})</h3>
       {topCountries.length > 0 ? (
         <ul class="mt-3 space-y-2.5">
           {topCountries.map((c) => (
@@ -111,12 +119,12 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
     </div>
 
     <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-      {/* Today's hourly shape stacked directly above the 30-day
-          rollup, in one card — get_page_view_stats()' hourlyToday key
-          (0083_page_views_hourly_today.sql), same bar shape as the
-          30-day chart below it, just scoped to today (America/
-          New_York) so a real-time-ish traffic shape isn't smoothed
-          away by 30 days of averaging. */}
+      {/* Today's hourly shape stacked directly above the selected
+          window's rollup, in one card — get_page_view_stats()'
+          hourlyToday key (0083_page_views_hourly_today.sql), same bar
+          shape as the window chart below it, just scoped to today
+          (America/New_York) so a real-time-ish traffic shape isn't
+          smoothed away by the window's averaging. */}
       <h3 class="text-xs uppercase tracking-wide text-white/40">Traffic by Hour (Today, ET)</h3>
       <div class="mt-4 flex h-24 items-stretch gap-1">
         {hourlyToday.map((h) => (
@@ -137,7 +145,7 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
         <span>12am</span>
       </div>
 
-      <h3 class="mt-5 border-t border-white/10 pt-4 text-xs uppercase tracking-wide text-white/40">Traffic by Hour (30 days, ET)</h3>
+      <h3 class="mt-5 border-t border-white/10 pt-4 text-xs uppercase tracking-wide text-white/40">Traffic by Hour ({range.title}, ET)</h3>
       <div class="mt-4 flex h-24 items-stretch gap-1">
         {hourly.map((h) => (
           <div class="relative h-full flex-1 rounded-t bg-white/5">
@@ -161,7 +169,7 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
 
   <div class="grid gap-4 lg:grid-cols-2">
     <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-      <h3 class="text-xs uppercase tracking-wide text-white/40">Most Popular Pages by Views (30 days)</h3>
+      <h3 class="text-xs uppercase tracking-wide text-white/40">Most Popular Pages by Views ({range.title})</h3>
       {topPages.length > 0 ? (
         <ul class="mt-3 space-y-2.5">
           {topPages.map((p) => (
@@ -185,7 +193,7 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
     </div>
 
     <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-      <h3 class="text-xs uppercase tracking-wide text-white/40">Most Common Errors (30 days)</h3>
+      <h3 class="text-xs uppercase tracking-wide text-white/40">Most Common Errors ({range.title})</h3>
       {topErrors.length > 0 ? (
         <ul class="mt-3 space-y-2.5">
           {topErrors.map((e) => (
@@ -207,7 +215,7 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
           ))}
         </ul>
       ) : (
-        <p class="mt-3 text-sm text-white/40">No errors recorded in the last 30 days.</p>
+        <p class="mt-3 text-sm text-white/40">No errors recorded {range.emptyErrors}.</p>
       )}
     </div>
   </div>

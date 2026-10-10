@@ -86,39 +86,52 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 
     document.addEventListener('astro:page-load', initAdminDashboard);
 
-    // "Load Analytics" — the button arrives inside the dashboard fragment's
-    // innerHTML (whose own <script>s would never run), so it's handled here
-    // by delegation. Registered once at module level: this bundled script
-    // only executes once per full page load, and a document-level listener
-    // survives view-transition navigations, so re-adding it on every
-    // astro:page-load would stack duplicate handlers.
+    // Site Analytics range buttons (30 Days / 90 Days / 1 Year / All Time) —
+    // they arrive inside the dashboard fragment's innerHTML (whose own
+    // <script>s would never run), so they're handled here by delegation.
+    // Registered once at module level: this bundled script only executes once
+    // per full page load, and a document-level listener survives
+    // view-transition navigations, so re-adding it on every astro:page-load
+    // would stack duplicate handlers.
     document.addEventListener('click', (event) => {
       const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-load-analytics]');
-      const container = button?.closest<HTMLElement>('[data-admin-analytics]');
+      const section = button?.closest<HTMLElement>('[data-analytics-section]');
+      const container = section?.querySelector<HTMLElement>('[data-admin-analytics]');
       const url = container?.dataset.fragmentUrl;
-      if (!button || !container || !url) return;
+      const range = button?.dataset.loadAnalytics;
+      if (!button || !section || !container || !url || !range) return;
 
-      button.disabled = true;
-      button.textContent = 'Loading Analytics…';
+      // All buttons locked while one window loads, so two responses can't
+      // race each other into the container.
+      const buttons = Array.from(section.querySelectorAll<HTMLButtonElement>('[data-load-analytics]'));
+      const label = button.textContent ?? '';
+      buttons.forEach((b) => (b.disabled = true));
+      button.textContent = 'Loading…';
       container.setAttribute('aria-busy', 'true');
-      container.querySelector('[data-analytics-error]')?.remove();
+      container.classList.add('opacity-50');
 
-      fetch(url)
+      fetch(`${url}?range=${encodeURIComponent(range)}`)
         .then((res) => fragmentHtml(res, 'Analytics'))
         .then((html) => {
           container.innerHTML = html;
+          buttons.forEach((b) => (b.dataset.active = String(b === button)));
         })
         .catch((err) => {
           console.error('Failed to load analytics:', err);
-          button.disabled = false;
-          button.textContent = 'Retry Loading Analytics';
+          // Clear any previously loaded window's charts too, rather than
+          // leaving them under a message about a different window failing.
+          buttons.forEach((b) => delete b.dataset.active);
           const message = document.createElement('p');
-          message.dataset.analyticsError = '';
-          message.className = 'mt-3 text-sm text-white/50';
+          message.className = 'mt-4 text-sm text-white/50';
           message.textContent = 'Couldn’t load analytics — the query failed or timed out. Try again, or check the server log for the exact error.';
-          container.append(message);
+          container.replaceChildren(message);
         })
-        .finally(() => container.removeAttribute('aria-busy'));
+        .finally(() => {
+          buttons.forEach((b) => (b.disabled = false));
+          button.textContent = label;
+          container.removeAttribute('aria-busy');
+          container.classList.remove('opacity-50');
+        });
     });
   </script>
 </AdminLayout>
