@@ -216,8 +216,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       };
 
       document.querySelectorAll<HTMLTableRowElement>('[data-incident-row]').forEach((row) => {
-        row.addEventListener('click', () => openDetails(row));
+        // The row's Edit / Remove icons live inside it — pressing one shouldn't also open the details popup.
+        const fromRowAction = (event: Event) => Boolean((event.target as HTMLElement).closest('[data-row-action]'));
+        row.addEventListener('click', (event) => {
+          if (fromRowAction(event)) return;
+          openDetails(row);
+        });
         row.addEventListener('keydown', (event) => {
+          if (fromRowAction(event)) return;
           if (event.key !== 'Enter' && event.key !== ' ') return;
           event.preventDefault();
           openDetails(row);
