@@ -40,6 +40,7 @@ import {
 } from '../../lib/results';
 import { youtubeEmbedUrl } from '../../lib/siteSettings';
 import { classTagFull } from '../../lib/classColors';
+import { getReportingWindowForRound, getReportingPeriodHours, isReportingOpen, isRoundPosted } from '../../lib/incidentReports';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -161,11 +162,28 @@ const loadPreviousBroadcast = async () => {
 // results.ts for why it's nowhere near as expensive as the standings
 // widget below.
 let previousResult: Awaited<ReturnType<typeof getPreviousResultWidget>> = null;
+// The link beside "Full race result": the round's incident report once stewards
+// have posted it, "Submit Incident Report" while the reporting window is still
+// open, and nothing in between (window closed, report not posted yet).
+let previousIncidentLink = null as { href: string; label: string } | null;
 const loadPreviousResult = async () => {
   try {
     previousResult = await getPreviousResultWidget(supabaseEnv);
   } catch (err) {
     console.error('Failed to load previous result widget:', err);
+  }
+  if (!previousResult) return;
+  try {
+    const id = previousResult.subsessionId;
+    if (await isRoundPosted(supabaseEnv, id)) {
+      previousIncidentLink = { href: `/results/${id}/incidents`, label: 'Incident Report' };
+    } else {
+      const hours = await getReportingPeriodHours(supabaseEnv);
+      const window = await getReportingWindowForRound(supabaseEnv, id, previousResult.startTime, hours);
+      if (isReportingOpen(window)) previousIncidentLink = { href: `/results/${id}?submit=incident`, label: 'Submit Incident Report' };
+    }
+  } catch (err) {
+    console.error('Failed to work out the previous result incident link:', err);
   }
 };
 
@@ -538,9 +556,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           )}
 
           {previousResult && (
-            <a href={`/results/${previousResult.subsessionId}`} class="mt-4 inline-block text-sm text-white/60 hover:text-white">
-              Full race result &rarr;
-            </a>
+            <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+              <a href={`/results/${previousResult.subsessionId}`} class="text-white/60 hover:text-white">
+                Full race result &rarr;
+              </a>
+              {previousIncidentLink && (
+                <a href={previousIncidentLink.href} class="text-white/60 hover:text-white">
+                  {previousIncidentLink.label} &rarr;
+                </a>
+              )}
+            </div>
           )}
         </div>
 

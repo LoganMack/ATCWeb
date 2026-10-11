@@ -799,8 +799,8 @@ function myReviewOf(reportId: string): IncidentReportReview | null {
 // reviews didn't load there's no telling what this steward has reviewed, so
 // every open report goes in one ungrouped list instead of a wrong queue (with
 // a warning above it).
-interface ReportGroup { title: string; empty: string | null; collapsed: boolean; reports: IncidentReport[] }
-const needsReviewGroup: ReportGroup = { title: 'Needs your review', empty: "You're all caught up — nothing left for you to review.", collapsed: false, reports: [] };
+interface ReportGroup { title: string; empty: string | null; collapsed: boolean; reports: IncidentReport[]; alwaysShow?: boolean }
+const needsReviewGroup: ReportGroup = { title: 'Needs Review', empty: null, collapsed: false, reports: [], alwaysShow: true };
 const reviewedGroup: ReportGroup = { title: 'Reviewed', empty: null, collapsed: false, reports: [] };
 const openGroup: ReportGroup = { title: 'Open', empty: null, collapsed: false, reports: [] };
 const dismissedGroup: ReportGroup = { title: 'Dismissed', empty: null, collapsed: true, reports: [] };
@@ -1139,13 +1139,18 @@ const nextIncidentNumber =
               {viewReports ? 'View Report' : 'View Reported Incidents'}
             </a>
             {!viewReports && (
-              <button
-                type="button"
-                data-open-incident-dialog
-                class="btn btn-primary"
-              >
-                Add Incident
-              </button>
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  data-open-incident-dialog
+                  class="btn btn-primary"
+                >
+                  Add Incident
+                </button>
+                {roundPenaltyData.available && (
+                  <button type="button" data-add-round-penalty class="btn btn-primary">Add Round Penalty</button>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1171,7 +1176,7 @@ const nextIncidentNumber =
                 Couldn't load the steward reviews, so the reports aren't sorted by what you've reviewed. Try refreshing.
               </p>
             )}
-            {reportGroups.map((g) => (g.reports.length === 0 && !g.empty) ? null : (
+            {reportGroups.map((g) => (g.reports.length === 0 && !g.empty && !g.alwaysShow) ? null : (
             <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
             <details open={!g.collapsed} class="group">
               {/* Same card header as the driver profile's collapsible sections (Awards, Career Moves…). */}
@@ -1644,12 +1649,8 @@ const nextIncidentNumber =
                           );
                         })}
                         <td class="hidden py-2.5 pr-3 text-center md:table-cell">
-                          <div class="font-semibold">{row.roundPP ? `${row.roundPP}PP` : '—'}</div>
-                          {row.roundWarnings > 0 && (
-                            <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">
-                              {row.roundWarnings > 1 ? `${row.roundWarnings} Warnings` : 'Warning'}
-                            </div>
-                          )}
+                          {/* Each warning counts as half a point, same as the Season column. */}
+                          <div class="font-semibold">{row.roundPP + 0.5 * row.roundWarnings ? `${row.roundPP + 0.5 * row.roundWarnings}PP` : '—'}</div>
                         </td>
                         <td class="py-2.5 pr-3 text-center">
                           {row.season ? (
@@ -1657,14 +1658,11 @@ const nextIncidentNumber =
                               {/* Three equal-width slots so the cell is centred on the arrow: the old value hugs it from the left, the new value and the limit from the right. */}
                               <div
                                 class="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-1.5 whitespace-nowrap"
-                                title={`${seasonBefore} going into this round, +${row.season.earned} earned this round${row.season.hitLimit ? ', limit reached so the tally reset' : ''}. Each season warning counts as 0.5.`}
+                                title={`${seasonAfter}PP / ${row.seasonPPMax}PP (1 round ban when limit is reached)`}
                               >
                                 <span class="text-right text-white/50">{seasonBefore}PP</span>
                                 <span class="text-white/30">&rarr;</span>
-                                <span class="text-left">
-                                  <span class="font-semibold">{seasonAfter}PP</span>
-                                  <span class="text-white/40"> / {row.seasonPPMax}PP</span>
-                                </span>
+                                <span class="text-left font-semibold">{seasonAfter}PP</span>
                               </div>
                               {row.season.doubled && (
                                 <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Doubled (probation)</div>
@@ -1837,7 +1835,6 @@ const nextIncidentNumber =
             )}
             {isAdmin && (
               <>
-                <button type="button" data-add-round-penalty class="btn btn-neutral mt-3">Add Round Penalty</button>
                 {/* Shared add/edit popup, same pattern as the incident dialog — filled by
                     initRoundPenaltyDialog in incidents.astro from the clicked row's data-round-penalty. */}
                 <dialog
