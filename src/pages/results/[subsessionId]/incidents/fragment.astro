@@ -46,6 +46,7 @@ import { isAdminView } from '../../../../lib/auth';
 import {
   getRoundPenaltyData,
   createRoundPenalty,
+  getRoundPenaltiesForDriver,
   updateRoundPenalty,
   setRoundPenaltyServed,
   deleteRoundPenalty,
@@ -295,11 +296,20 @@ if (isAdmin && postForm) {
   // Round penalties (0104_round_penalties.sql): log one against a driver for
   // this round, remove one, or mark one (from this or an earlier round)
   // served at this round / owed again.
+  // ?roundpenalty=failed drives the flash at the top of the page (roundPenaltyFlash
+  // below); a successful save clears one left over from an earlier failure.
+  const roundPenaltyBack = (anchor: string, failed: boolean) => {
+    const url = new URL(Astro.url);
+    if (failed) url.searchParams.set('roundpenalty', 'failed');
+    else url.searchParams.delete('roundpenalty');
+    return Astro.redirect(`${shellPath}${url.search}${failed ? '' : `#${anchor}`}`, 302);
+  };
   if (intent === 'add-round-penalty' || intent === 'update-round-penalty') {
     const driverId = String(form.get('driver_id') ?? '');
     const kind = String(form.get('kind') ?? '');
     const note = strOrNullField(form, 'note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
     const id = String(form.get('round_penalty_id') ?? '');
+    let failed = false;
     if (driverId && isRoundPenaltyKind(kind) && (kind !== 'other' || note) && (intent === 'add-round-penalty' || id)) {
       try {
         if (intent === 'add-round-penalty') {
@@ -315,26 +325,28 @@ if (isAdmin && postForm) {
         });
       } catch (err) {
         console.error('Failed to save round penalty:', err);
+        failed = true;
       }
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}#${ROUND_PENALTIES_ANCHOR}`, 302);
+    return roundPenaltyBack(ROUND_PENALTIES_ANCHOR, failed);
   }
 
   // The Round Summary row's Edit: tick boxes for the fixed kinds plus one Other
   // note. Ticked kinds with nothing logged are added, unticked logged ones are
-  // removed; ones left ticked keep their note and served status.
+  // removed; ones left ticked keep their note and served status. Served ones
+  // are never removed from here (their boxes are locked in the popup) — that
+  // would lose where they were served; undo them in the Round Penalties table.
+  // These are separate writes, not one transaction: if one fails partway, the
+  // ones before it stay saved, get logged, and the flash says to check.
   if (intent === 'save-driver-round-penalties') {
     const driverId = String(form.get('driver_id') ?? '');
     const wanted = new Set(form.getAll('kinds').map(String).filter(isRoundPenaltyKind));
     const otherNote = strOrNullField(form, 'other_note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
+    let changes = 0;
+    let failed = false;
     if (driverId) {
       try {
-        const existing = await restGet<RoundPenalty[]>(
-          supabaseEnv,
-          `round_penalties?select=id,subsession_id,driver_id,kind,note,served_subsession_id,created_at` +
-            `&subsession_id=eq.${subsessionId}&driver_id=eq.${encodeURIComponent(driverId)}&order=created_at.asc`
-        );
-        let changes = 0;
+        const existing = await getRoundPenaltiesForDriver(supabaseEnv, subsessionId, driverId);
         for (const kind of ROUND_PENALTY_KINDS) {
           if (kind === 'other') continue;
           const logged = existing.filter((rp) => rp.kind === kind);
@@ -342,7 +354,7 @@ if (isAdmin && postForm) {
             await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note: null, created_by: actor.id });
             changes++;
           } else if (!wanted.has(kind)) {
-            for (const rp of logged) {
+            for (const rp of logged.filter((rp) => rp.served_subsession_id === null)) {
               await deleteRoundPenalty(supabaseEnv, accessToken, rp.id);
               changes++;
             }
@@ -356,27 +368,33 @@ if (isAdmin && postForm) {
         } else if (otherNote && other && other.note !== otherNote) {
           await updateRoundPenalty(supabaseEnv, accessToken, other.id, { driver_id: driverId, kind: 'other', note: otherNote, markOwed: false });
           changes++;
-        } else if (!otherNote && other) {
+        } else if (!otherNote && other && other.served_subsession_id === null) {
           await deleteRoundPenalty(supabaseEnv, accessToken, other.id);
           changes++;
         }
-        if (changes > 0) {
+      } catch (err) {
+        console.error('Failed to save driver round penalties:', err);
+        failed = true;
+      }
+      if (changes > 0) {
+        try {
           await logActivity(supabaseEnv, accessToken, actor, {
             action: 'edit',
             entity_type: 'incident',
-            entity_label: `${roundLabel} — round penalties`,
+            entity_label: `${roundLabel} — round penalties${failed ? ' (partly saved)' : ''}`,
             entity_id: null,
           });
+        } catch (err) {
+          console.error('Failed to log driver round penalties:', err);
         }
-      } catch (err) {
-        console.error('Failed to save driver round penalties:', err);
       }
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}#${ROUND_SUMMARY_ANCHOR}`, 302);
+    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
   }
 
   if (intent === 'delete-round-penalty') {
     const id = String(form.get('round_penalty_id') ?? '');
+    let failed = false;
     if (id) {
       try {
         await deleteRoundPenalty(supabaseEnv, accessToken, id);
@@ -388,14 +406,16 @@ if (isAdmin && postForm) {
         });
       } catch (err) {
         console.error('Failed to delete round penalty:', err);
+        failed = true;
       }
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}#${ROUND_PENALTIES_ANCHOR}`, 302);
+    return roundPenaltyBack(ROUND_PENALTIES_ANCHOR, failed);
   }
 
   if (intent === 'set-round-penalty-served') {
     const id = String(form.get('round_penalty_id') ?? '');
     const served = form.get('served') === '1';
+    let failed = false;
     if (id) {
       try {
         await setRoundPenaltyServed(supabaseEnv, accessToken, id, served ? subsessionId : null);
@@ -407,9 +427,10 @@ if (isAdmin && postForm) {
         });
       } catch (err) {
         console.error('Failed to update round penalty:', err);
+        failed = true;
       }
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}#${OWED_PENALTIES_ANCHOR}`, 302);
+    return roundPenaltyBack(OWED_PENALTIES_ANCHOR, failed);
   }
 
   if (intent === 'set-report-status') {
@@ -840,6 +861,12 @@ let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   else if (flash === 'badtype') appealFlash = { kind: 'error', message: 'Attachments must be images, PDFs, videos (MP4/WebM/MOV) or text files.' };
   else if (flash === 'failed') appealFlash = { kind: 'error', message: "Couldn't save your appeal right now. Please try again." };
 }
+// A round penalty change that didn't (fully) save (?roundpenalty=, set by the round penalty handlers).
+const roundPenaltyFlash =
+  isAdmin && Astro.url.searchParams.get('roundpenalty') === 'failed'
+    ? "Couldn't save all of that round penalty change. Check the Round Summary and Round Penalties below, then try again."
+    : null;
+
 // Same idea for a steward review that didn't save (?review=, set by the save-review handler).
 let reviewFlash: string | null = null;
 if (viewReports) {
@@ -1067,6 +1094,11 @@ const nextIncidentNumber =
     {round && (
       <>
         {/* Top of the page, above the title, like the results page's flash messages. */}
+        {roundPenaltyFlash && (
+          <p role="alert" class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 px-4 py-3 text-sm text-white/80">
+            {roundPenaltyFlash}
+          </p>
+        )}
         {isAdmin && !roundPosted && !viewReports && (
           <p role="status" class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-4 py-3 text-sm text-white/80">
             This incident report isn't posted yet, so only admins can see it. Post it from
@@ -1698,6 +1730,7 @@ const nextIncidentNumber =
                   <p class="text-sm text-white/70" data-driver-round-penalties-label></p>
                   <p class="text-xs text-white/40">
                     Ticked penalties are owed at the next round. Ones the round's PP total calls for start ticked; untick to waive.
+                    Served ones are locked — undo them in the Round Penalties table.
                   </p>
                   <div class="flex flex-col gap-2">
                     {ROUND_PENALTY_KINDS.filter((k) => k !== 'other').map((k) => (
@@ -1813,6 +1846,11 @@ const nextIncidentNumber =
                         {roundDrivers.map((d) => (
                           <option value={d.id}>{d.car_number !== null ? `#${d.car_number} ` : ''}{d.name}</option>
                         ))}
+                        {[...new Set(roundPenaltyData.earnedHere.map((rp) => rp.driver_id))]
+                          .filter((id) => !driverById.has(id))
+                          .map((id) => (
+                            <option value={id}>{driverLabel(id)}</option>
+                          ))}
                       </select>
                     </label>
                     <label class="flex flex-col gap-1 text-xs text-white/50">

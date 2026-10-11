@@ -7,7 +7,7 @@
  * applied to results, points or PP.
  */
 
-import { restGet, type SupabaseEnv } from './supabase';
+import { restGet, restPost, restPatch, restDelete, type SupabaseEnv } from './supabase';
 import { NEXT_ROUND_LABELS } from './ppPenaltyTable';
 
 export type RoundPenaltyKind = 'qualifying_ban' | 'pit_lane_start' | 'race_ban' | 'round_ban' | 'other';
@@ -87,11 +87,13 @@ export async function getRoundPenaltyData(env: SupabaseEnv, round: RoundRef): Pr
         : await restGet<RoundRef[]>(env, `curated_rounds?select=subsession_id,track_name,start_time&subsession_id=in.(${[...ids].join(',')})`);
     const roundById = new Map<number, RoundRef>([[round.subsession_id, round], ...rounds.map((r) => [r.subsession_id, r] as const)]);
 
-    // Only rounds before this one can carry a penalty into it.
+    // Only rounds before this one can carry a penalty into it. One whose round
+    // can't be looked up any more (hidden or removed) is kept rather than
+    // dropped — otherwise it would never be shown anywhere to be served.
     const thisStart = new Date(round.start_time).getTime();
     const carriedIn = owedOrServedHere.filter((p) => {
       const earned = roundById.get(p.subsession_id);
-      return earned !== undefined && new Date(earned.start_time).getTime() < thisStart;
+      return earned === undefined || new Date(earned.start_time).getTime() < thisStart;
     });
 
     return { earnedHere, carriedIn, roundById, available: true };
@@ -101,14 +103,15 @@ export async function getRoundPenaltyData(env: SupabaseEnv, round: RoundRef): Pr
   }
 }
 
-function headers(env: SupabaseEnv, accessToken: string) {
-  return {
-    apikey: env.anonKey,
-    Authorization: `Bearer ${accessToken}`,
-    'Content-Type': 'application/json',
-    Prefer: 'return=minimal',
-  };
+/** One driver's round penalties earned in one round, oldest first. */
+export async function getRoundPenaltiesForDriver(env: SupabaseEnv, subsessionId: number, driverId: string): Promise<RoundPenalty[]> {
+  return restGet<RoundPenalty[]>(
+    env,
+    `round_penalties?select=${SELECT}&subsession_id=eq.${subsessionId}&driver_id=eq.${encodeURIComponent(driverId)}&order=created_at.asc`
+  );
 }
+
+const byId = (id: string) => `round_penalties?id=eq.${encodeURIComponent(id)}`;
 
 /** Admin: log a round penalty against a driver for the round it was earned in. */
 export async function createRoundPenalty(
@@ -116,12 +119,7 @@ export async function createRoundPenalty(
   accessToken: string,
   input: { subsession_id: number; driver_id: string; kind: RoundPenaltyKind; note: string | null; created_by: string }
 ): Promise<void> {
-  const res = await fetch(`${env.url}/rest/v1/round_penalties`, {
-    method: 'POST',
-    headers: headers(env, accessToken),
-    body: JSON.stringify(input),
-  });
-  if (!res.ok) throw new Error(`Supabase insert error ${res.status} on round_penalties: ${await res.text()}`);
+  await restPost(env, accessToken, 'round_penalties', input);
 }
 
 /** Admin: edit a round penalty. `markOwed` clears where it was served; otherwise that's left as it is. */
@@ -131,34 +129,20 @@ export async function updateRoundPenalty(
   id: string,
   input: { driver_id: string; kind: RoundPenaltyKind; note: string | null; markOwed: boolean }
 ): Promise<void> {
-  const res = await fetch(`${env.url}/rest/v1/round_penalties?id=eq.${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: headers(env, accessToken),
-    body: JSON.stringify({
-      driver_id: input.driver_id,
-      kind: input.kind,
-      note: input.note,
-      ...(input.markOwed ? { served_subsession_id: null } : {}),
-      updated_at: new Date().toISOString(),
-    }),
+  await restPatch(env, accessToken, byId(id), {
+    driver_id: input.driver_id,
+    kind: input.kind,
+    note: input.note,
+    ...(input.markOwed ? { served_subsession_id: null } : {}),
+    updated_at: new Date().toISOString(),
   });
-  if (!res.ok) throw new Error(`Supabase update error ${res.status} on round_penalties: ${await res.text()}`);
 }
 
 /** Admin: mark a round penalty served at a round, or owed again (null). */
 export async function setRoundPenaltyServed(env: SupabaseEnv, accessToken: string, id: string, servedSubsessionId: number | null): Promise<void> {
-  const res = await fetch(`${env.url}/rest/v1/round_penalties?id=eq.${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    headers: headers(env, accessToken),
-    body: JSON.stringify({ served_subsession_id: servedSubsessionId, updated_at: new Date().toISOString() }),
-  });
-  if (!res.ok) throw new Error(`Supabase update error ${res.status} on round_penalties: ${await res.text()}`);
+  await restPatch(env, accessToken, byId(id), { served_subsession_id: servedSubsessionId, updated_at: new Date().toISOString() });
 }
 
 export async function deleteRoundPenalty(env: SupabaseEnv, accessToken: string, id: string): Promise<void> {
-  const res = await fetch(`${env.url}/rest/v1/round_penalties?id=eq.${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-    headers: headers(env, accessToken),
-  });
-  if (!res.ok) throw new Error(`Supabase delete error ${res.status} on round_penalties: ${await res.text()}`);
+  await restDelete(env, accessToken, byId(id));
 }

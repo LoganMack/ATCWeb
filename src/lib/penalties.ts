@@ -1432,12 +1432,41 @@ export function computeSeasonPPState(
   penalties: (PenaltyLike & { created_at: string })[],
   events: { event_date: string }[]
 ): SeasonPPState {
-  let state: DriverPPState = {
-    penalty_points: 0,
-    penalty_points_max: driver.penalty_points_max,
-    on_probation: driver.on_probation,
-    probation_started_at: driver.probation_started_at,
-  };
+  return replaySeasonPP(driver, probationSeed(driver, penalties, events), penalties, events);
+}
+
+type ProbationSeed = { on_probation: boolean; probation_started_at: string | null };
+
+/**
+ * The probation a season replay starts from. The stored probation is the
+ * driver's latest one, so when replaying `penalties` from scratch arrives at
+ * that same start date, these penalties produced it and the replay re-derives
+ * it at the right penalty — seeding it as well would double everything logged
+ * before it began (probation_started_at is a date, so isOnProbationNow can't
+ * tell apart penalties logged earlier that same day). Any other stored
+ * probation (a previous season's, or one set by hand on the driver page) is
+ * kept as the seed, per the doc comment above.
+ */
+function probationSeed(
+  driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },
+  penalties: (PenaltyLike & { created_at: string })[],
+  events: { event_date: string }[]
+): ProbationSeed {
+  const stored = { on_probation: driver.on_probation, probation_started_at: driver.probation_started_at };
+  if (!stored.on_probation || !stored.probation_started_at) return stored;
+  const unseeded = replaySeasonPP(driver, { on_probation: false, probation_started_at: null }, penalties, events);
+  return unseeded.on_probation && unseeded.probation_started_at === stored.probation_started_at
+    ? { on_probation: false, probation_started_at: null }
+    : stored;
+}
+
+function replaySeasonPP(
+  driver: { penalty_points_max: number },
+  seed: ProbationSeed,
+  penalties: (PenaltyLike & { created_at: string })[],
+  events: { event_date: string }[]
+): SeasonPPState {
+  let state: DriverPPState = { penalty_points: 0, penalty_points_max: driver.penalty_points_max, ...seed };
 
   const sorted = [...penalties].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
   for (const p of sorted) {
@@ -1481,7 +1510,10 @@ export function computeRoundPPSummary(
   roundPenalties: (PenaltyLike & { created_at: string })[],
   events: { event_date: string }[]
 ): RoundPPSummary {
-  const before = computeSeasonPPState(driver, earlierPenalties, events);
+  // Seed from the season so far (this round included), so a probation this
+  // round triggered isn't also seeded into the replay before it.
+  const seed = probationSeed(driver, [...earlierPenalties, ...roundPenalties], events);
+  const before = replaySeasonPP(driver, seed, earlierPenalties, events);
   let state: DriverPPState = { ...before, penalty_points_max: driver.penalty_points_max };
   let earned = 0;
   let doubled = false;

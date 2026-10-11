@@ -638,6 +638,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           const logged = data.logged.find((l) => l.kind === box.value);
           const flagged = data.flagged.includes(box.value);
           box.checked = Boolean(logged) || flagged;
+          // Served ones can't be removed from here (the server skips them too) — undo in the Round Penalties table.
+          box.disabled = Boolean(logged?.served);
           const hint = dialog.querySelector<HTMLElement>(`[data-driver-round-penalties-hint="${box.value}"]`);
           if (!hint) return;
           // Flagged = the round's PP total calls for it but it hasn't been saved yet.
