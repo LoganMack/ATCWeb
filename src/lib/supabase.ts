@@ -2103,7 +2103,7 @@ export interface CircuitLayout {
   lap_record_seconds: number | null;
   lap_record_holder: string | null;
   lap_record_date: string | null; // 'YYYY-MM-DD'
-  /** This specific layout's own image (e.g. its track map) — see 0021_circuit_layout_image.sql. Falls back to the parent circuit's logo_url when null; use `layoutImageUrl()`. */
+  /** This specific layout's own image (e.g. its track map) — see 0021_circuit_layout_image.sql. Only shown when the parent circuit has no logo_url; use `layoutImageUrl()`. */
   image_url: string | null;
   /** Number of corners on this layout, admin-entered — see 0022_circuit_layout_corners.sql. Powers the Standings page's season "corners per incident" stat (src/lib/results.ts's getSeasonDriverExtendedStats); null until Logan fills it in for a given layout. */
   corners: number | null;
@@ -2131,21 +2131,19 @@ export function displayLayoutName(name: string): string {
   return name === 'N/A' ? 'Full Course' : name;
 }
 
-/** A layout's own image if it has one on file, otherwise the parent circuit's shared logo (or null if neither exists). */
+/** The parent circuit's primary logo; a layout's own image is only a fallback for circuits that have no logo yet (or null if neither exists). */
 export function layoutImageUrl(layout: Pick<CircuitLayout, 'image_url'>, circuit: Pick<Circuit, 'logo_url'> | null): string | null {
-  return layout.image_url ?? circuit?.logo_url ?? null;
+  return circuit?.logo_url ?? layout.image_url ?? null;
 }
 
 /**
- * Same fallback order as layoutImageUrl (a layout's own image first, the
- * parent circuit's shared logo second), but for an *event* rather than a
+ * Same order as layoutImageUrl (the circuit's primary logo first, a
+ * layout's own image only as a fallback), but for an *event* rather than a
  * CircuitLayout row directly — events.layout is a plain text name (no FK to
  * circuit_layouts, see that column's own comment on EventRecord below), so
  * this looks the matching layout up out of a full layouts list by
  * (circuit_id, name) instead of already holding a layout row. Used
- * everywhere an event/calendar card shows a circuit image, so a layout's
- * own track image (once one's on file) takes priority over the circuit's
- * generic logo — same priority the public Circuits page already uses.
+ * everywhere an event/calendar card shows a circuit image.
  */
 export function eventImageUrl(
   event: { circuit_id: string | null; layout: string | null },
@@ -2157,7 +2155,7 @@ export function eventImageUrl(
   // simply never matches any layouts[] row here, so this falls straight
   // through to circuit?.logo_url ?? null, which is also null for them.
   const matchedLayout = event.layout ? layouts.find((l) => l.circuit_id === event.circuit_id && l.name === event.layout) : undefined;
-  return matchedLayout?.image_url ?? circuit?.logo_url ?? null;
+  return circuit?.logo_url ?? matchedLayout?.image_url ?? null;
 }
 
 /**

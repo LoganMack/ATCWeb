@@ -521,7 +521,7 @@ th[data-sort-key][data-sort-dir='desc']::after {
   box-shadow: 0 1px 0 0 rgba(17, 17, 20, 0.1);
 }
 
-/* ---- `.theme-tint`: car logos and track/circuit images. Most of this
+/* ---- `.theme-tint`: car logos. Most of this
    artwork is light-colored (white/light line art or transparent-background
    logos) made to sit on the site's dark background — on light mode's paper
    background it goes faint or invisible. `brightness(0)` turns every
@@ -530,11 +530,28 @@ th[data-sort-key][data-sort-dir='desc']::after {
    not a recolor. Applied via a plain class (not the white/ink transform
    above) since these are raster images, not CSS colors: TeamLogo.astro's
    `tint` prop adds it for car logos specifically (real team logos keep
-   their own colors in both themes), and it's added directly to the track
-   image <img> tags in circuits.astro/briefing/[eventId].astro/
-   UpcomingEventCard.astro/EventDetailCard.astro. */
+   their own colors in both themes). */
 .light .theme-tint {
   filter: brightness(0);
+}
+
+/* ---- Primary track logos (`img[data-contrast-logo]`, see
+   src/scripts/logoContrast.ts). The script marks a logo whose artwork is
+   mostly very dark (`data-tone="dark"`) or very light (`data-tone="light"`);
+   when that would blend into the current theme's background, it gets a
+   contrasting plate behind it. Colourful logos and opaque-background images
+   are never marked, so they stay as-is. ---- */
+img[data-contrast-logo][data-tone="dark"] {
+  background-color: rgb(255 255 255 / 0.92);
+  padding: 2px;
+}
+.light img[data-contrast-logo][data-tone="dark"] {
+  background-color: transparent;
+  padding: 0;
+}
+.light img[data-contrast-logo][data-tone="light"] {
+  background-color: rgb(17 17 20 / 0.9);
+  padding: 2px;
 }
 
 /* ---- buttons: light theme (see the button block at the top of this
