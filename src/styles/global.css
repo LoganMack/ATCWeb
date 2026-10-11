@@ -535,22 +535,16 @@ th[data-sort-key][data-sort-dir='desc']::after {
   filter: brightness(0);
 }
 
-/* ---- Primary track logos (`img[data-contrast-logo]`, see
-   src/scripts/logoContrast.ts). The script marks a logo whose artwork is
-   mostly very dark (`data-tone="dark"`) or very light (`data-tone="light"`);
-   when that would blend into the current theme's background, it gets a
-   contrasting plate behind it. Colourful logos and opaque-background images
-   are never marked, so they stay as-is. ---- */
-img[data-contrast-logo][data-tone="dark"] {
-  background-color: rgb(255 255 255 / 0.92);
+/* ---- Primary track logos (`img[data-logo-bg]`). An admin can pick a light
+   or dark plate per circuit (Logo background on /admin/circuits/<id>) for a
+   logo that would otherwise vanish into the current theme. The same plate
+   shows in both themes, since it's a deliberate choice for that logo. ---- */
+img[data-logo-bg="light"] {
+  background-color: #fff;
   padding: 2px;
 }
-.light img[data-contrast-logo][data-tone="dark"] {
-  background-color: transparent;
-  padding: 0;
-}
-.light img[data-contrast-logo][data-tone="light"] {
-  background-color: rgb(17 17 20 / 0.9);
+img[data-logo-bg="dark"] {
+  background-color: #111114;
   padding: 2px;
 }
 

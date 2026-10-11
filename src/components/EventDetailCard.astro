@@ -1,6 +1,6 @@
 ---
 import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
-import { displayLayoutName, eventImageUrl, resizedImageUrl } from '../lib/supabase';
+import { displayLayoutName, eventImageUrl, logoBgAttrs, resizedImageUrl, type LogoBackground } from '../lib/supabase';
 import {
   formatEventDate,
   formatSessionTime,
@@ -79,11 +79,13 @@ interface Props {
    * (the old behavior) if a caller doesn't have this on hand.
    */
   layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
+  /** Circuit id -> light/dark plate behind the track logo (getCircuitLogoBackgrounds). Optional — no plate if a caller doesn't pass it. */
+  logoBackgrounds?: Record<string, LogoBackground>;
   /** 'row' = a bare row meant to sit inside a divided list (the Calendar List view wraps them in one bordered container); 'card' = the standalone bordered card. */
   variant?: 'card' | 'row';
 }
 
-const { event, index = 0, layoutRoundsCount, linkedRound = null, incidentLimit = null, layouts = [], variant = 'card' } = Astro.props;
+const { event, index = 0, layoutRoundsCount, linkedRound = null, incidentLimit = null, layouts = [], logoBackgrounds = {}, variant = 'card' } = Astro.props;
 const sessions = getEventSessions(event);
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 96 });
 
@@ -105,7 +107,7 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
   <div class="flex flex-wrap items-start justify-between gap-4">
     <div class="flex items-center gap-4">
       {imageUrl && (
-        <img src={imageUrl} alt="" loading="lazy" class="h-12 w-12 flex-none rounded object-contain" data-contrast-logo />
+        <img src={imageUrl} alt="" loading="lazy" class="h-12 w-12 flex-none rounded object-contain" {...logoBgAttrs(event.circuit_id ? logoBackgrounds[event.circuit_id] : null)} />
       )}
       <div>
         <h3 class="font-display text-2xl leading-none">{event.title ?? event.circuits?.name ?? 'TBA'}</h3>

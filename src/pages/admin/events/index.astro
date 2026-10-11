@@ -4,7 +4,7 @@ export const prerender = false;
 import { safeJson } from '../../../lib/security';
 import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl, getCircuitLogoBackgrounds, logoBgAttrs } from '../../../lib/supabase';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
 import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
@@ -46,9 +46,10 @@ if (Astro.request.method === 'POST') {
 
 let events: Awaited<ReturnType<typeof getEvents>> = [];
 let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
+let logoBackgrounds: Awaited<ReturnType<typeof getCircuitLogoBackgrounds>> = {};
 let loadError = false;
 try {
-  [events, layouts] = await Promise.all([getEvents(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
+  [events, layouts, logoBackgrounds] = await Promise.all([getEvents(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
 } catch (err) {
   console.error('Failed to load events for admin:', err);
   loadError = true;
@@ -246,7 +247,7 @@ const flashRows = Astro.url.searchParams.get('rows');
               <td class="py-3 pl-6 pr-3" data-col="circuit">
                 <div class="flex items-center gap-3">
                   {imageUrl && (
-                    <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" data-contrast-logo />
+                    <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" {...logoBgAttrs(event.circuit_id ? logoBackgrounds[event.circuit_id] : null)} />
                   )}
                   <div>
                     <span class="font-semibold">{event.title ?? event.circuits?.name ?? 'TBA'}</span>
