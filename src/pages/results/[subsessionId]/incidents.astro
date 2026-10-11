@@ -94,6 +94,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //     syncInvolvedWithFaults below. Only ever unticks a box IT ticked;
   //     anything the admin ticked by hand is left alone.
   import { initFaultPicker, setCardField } from '../../../scripts/faultCards';
+  import { ppPenaltyTier } from '../../../lib/ppPenaltyTable';
 
   function initIncidentPage() {
     // "Incident Details" popup for [data-incident-row] — opened by clicking
@@ -253,6 +254,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // src/lib/penalties.ts).
     const faultRoot = dialog.querySelector<HTMLElement>('[data-incident-faults]')!;
     const faults = initFaultPicker(faultRoot);
+
+    // Picking a PP fills in that level's time from the rulebook's PP Penalties
+    // table (src/lib/ppPenaltyTable.ts) — only into an empty time box, or one
+    // this filled in itself, so a time the steward typed is never overwritten.
+    // 5PP and up are "+1 lap" rather than seconds, so those clear an
+    // auto-filled time instead.
+    faultRoot.addEventListener('change', (e) => {
+      const select = e.target as HTMLSelectElement;
+      if (!select.name?.startsWith('penalty_points_choice:')) return;
+      const card = select.closest<HTMLElement>('[data-fault-card]');
+      const time = card?.querySelector<HTMLInputElement>('input[name^="time_penalty_seconds:"]');
+      if (!time) return;
+      const wasAuto = time.dataset.autofilled !== undefined && time.dataset.autofilled === time.value;
+      if (time.value !== '' && !wasAuto) return;
+      const tier = ppPenaltyTier(Number(select.value) || 0);
+      time.value = tier?.timeSeconds != null ? String(tier.timeSeconds) : '';
+      time.dataset.autofilled = time.value;
+    });
 
     // Clears the search box and re-filters (driverPickerSearch.ts), so a car
     // about to be pre-ticked isn't hidden by a search left over from last time.
@@ -538,6 +557,104 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   }
 
   document.addEventListener('astro:page-load', initReviewDialog);
+
+  // Round Penalties add/edit popup (admin only, 0104): one shared <dialog>,
+  // blank for "+ Add round penalty", filled from the row's data-round-penalty
+  // for Edit. Bails until the fragment's dialog exists, like the ones above.
+  function initRoundPenaltyDialog() {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-round-penalty-dialog]');
+    if (!dialog) return;
+    const intentField = dialog.querySelector<HTMLInputElement>('[data-round-penalty-intent]')!;
+    const idField = dialog.querySelector<HTMLInputElement>('[data-round-penalty-id]')!;
+    const heading = dialog.querySelector<HTMLElement>('[data-round-penalty-heading]')!;
+    const driverField = dialog.querySelector<HTMLSelectElement>('[data-round-penalty-driver]')!;
+    const kindField = dialog.querySelector<HTMLSelectElement>('[data-round-penalty-kind]')!;
+    const noteField = dialog.querySelector<HTMLInputElement>('[data-round-penalty-note]')!;
+    const noteHint = dialog.querySelector<HTMLElement>('[data-round-penalty-note-hint]')!;
+    const statusWrap = dialog.querySelector<HTMLElement>('[data-round-penalty-status-field]')!;
+    const statusField = dialog.querySelector<HTMLSelectElement>('[data-round-penalty-status]')!;
+    const servedOption = dialog.querySelector<HTMLOptionElement>('[data-round-penalty-served-option]')!;
+
+    // "Other" has nothing to go on but the note, so it's required there (the server checks too).
+    const syncNote = () => {
+      const other = kindField.value === 'other';
+      noteField.required = other;
+      noteHint.textContent = other ? '(required for Other)' : '(optional)';
+    };
+    kindField.addEventListener('change', syncNote);
+
+    const open = (data: { id: string; driver_id: string; kind: string; note: string | null; served_label: string | null } | null) => {
+      intentField.value = data ? 'update-round-penalty' : 'add-round-penalty';
+      idField.value = data?.id ?? '';
+      heading.textContent = data ? 'Edit Round Penalty' : 'Add Round Penalty';
+      driverField.value = data?.driver_id ?? '';
+      kindField.value = data?.kind ?? kindField.options[0].value;
+      noteField.value = data?.note ?? '';
+      // Status only matters for one that's already been served — it can be put back to owed.
+      const served = Boolean(data?.served_label);
+      statusWrap.classList.toggle('hidden', !served);
+      statusWrap.classList.toggle('flex', served);
+      servedOption.textContent = data?.served_label ?? '';
+      statusField.value = 'keep';
+      syncNote();
+      dialog.showModal();
+    };
+
+    document.querySelectorAll<HTMLButtonElement>('[data-add-round-penalty]').forEach((btn) => btn.addEventListener('click', () => open(null)));
+    document.querySelectorAll<HTMLButtonElement>('[data-edit-round-penalty]').forEach((btn) => {
+      btn.addEventListener('click', () => open(JSON.parse(btn.dataset.roundPenalty ?? 'null')));
+    });
+    dialog.querySelectorAll<HTMLButtonElement>('[data-close-round-penalty-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => dialog.close());
+    });
+  }
+
+  document.addEventListener('astro:page-load', initRoundPenaltyDialog);
+
+  // The Round Summary row's Edit: one popup per driver with a checkbox per
+  // round penalty, ticked for the ones already saved and the ones the round's
+  // PP total calls for (Save then records those as owed).
+  function initDriverRoundPenaltiesDialog() {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-driver-round-penalties-dialog]');
+    if (!dialog) return;
+    const driverField = dialog.querySelector<HTMLInputElement>('[data-driver-round-penalties-driver]')!;
+    const label = dialog.querySelector<HTMLElement>('[data-driver-round-penalties-label]')!;
+    const otherField = dialog.querySelector<HTMLInputElement>('[data-driver-round-penalties-other]')!;
+    const boxes = dialog.querySelectorAll<HTMLInputElement>('[data-driver-round-penalties-kind]');
+
+    document.querySelectorAll<HTMLButtonElement>('[data-edit-driver-round-penalties]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const data: {
+          driver_id: string;
+          driver_label: string;
+          logged: { kind: string; served: boolean }[];
+          flagged: string[];
+          other_note: string;
+        } = JSON.parse(btn.dataset.driverRoundPenalties ?? '{}');
+        driverField.value = data.driver_id;
+        label.textContent = data.driver_label;
+        otherField.value = data.other_note;
+        boxes.forEach((box) => {
+          const logged = data.logged.find((l) => l.kind === box.value);
+          const flagged = data.flagged.includes(box.value);
+          box.checked = Boolean(logged) || flagged;
+          // Served ones can't be removed from here (the server skips them too) — undo in the Round Penalties table.
+          box.disabled = Boolean(logged?.served);
+          const hint = dialog.querySelector<HTMLElement>(`[data-driver-round-penalties-hint="${box.value}"]`);
+          if (!hint) return;
+          // Flagged = the round's PP total calls for it but it hasn't been saved yet.
+          hint.textContent = logged?.served ? '· Served' : logged ? '· Owed' : flagged ? '· Due from PP total' : '';
+          hint.className = `text-xs ${logged?.served ? 'text-emerald-400' : 'text-brand-gold'}`;
+        });
+        dialog.showModal();
+      });
+    });
+    dialog.querySelectorAll<HTMLButtonElement>('[data-close-driver-round-penalties-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => dialog.close());
+    });
+  }
+
+  document.addEventListener('astro:page-load', initDriverRoundPenaltiesDialog);
 </script>
 
 <script>

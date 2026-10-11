@@ -12,6 +12,9 @@ export const prerender = false;
 import {
   resolveSupabaseEnv,
   getPenaltiesForSubsession,
+  getPenaltiesForSubsessions,
+  getDrivers,
+  getEvents,
   getPenaltyOffenses,
   createPenalty,
   updatePenalty,
@@ -27,16 +30,36 @@ import {
   type PenaltyInput,
   type ScoringRuleset,
 } from '../../../../lib/supabase';
-import { getRoundBySubsessionId, getRoundResults, type RoundResults, type DriverBasic } from '../../../../lib/results';
+import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, type RoundResults, type DriverBasic } from '../../../../lib/results';
 import {
   applyPenaltiesToRoundResults,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
   scoringRaceNumber,
+  computeRoundPPSummary,
+  countWarnings,
+  type RoundPPSummary,
 } from '../../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../../lib/penaltyActions';
 import { isAdminView } from '../../../../lib/auth';
+import {
+  getRoundPenaltyData,
+  createRoundPenalty,
+  getRoundPenaltiesForDriver,
+  updateRoundPenalty,
+  setRoundPenaltyServed,
+  deleteRoundPenalty,
+  roundPenaltyLabel,
+  isRoundPenaltyKind,
+  ROUND_PENALTY_KINDS,
+  ROUND_PENALTY_LABELS,
+  ROUND_PENALTY_NOTE_MAX_LENGTH,
+  type RoundPenalty,
+  type RoundPenaltyData,
+  type RoundPenaltyKind,
+} from '../../../../lib/roundPenalties';
+import { ppPenaltyTier, describePPPenaltyTier, type PPPenaltyTier } from '../../../../lib/ppPenaltyTable';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';
 import {
   getAppealClosesAt,
@@ -79,6 +102,11 @@ const subsessionId = Number(Astro.params.subsessionId);
 // redirect to it, so the steward lands back on their review queue instead of
 // the top of the page; the shell scrolls to it once the fragment is in.
 const REPORTS_ANCHOR = 'reported-incidents';
+// ids the round-penalty forms redirect back to: the Round Penalties table, the Round Summary and
+// the stewards' owed-penalties box.
+const ROUND_PENALTIES_ANCHOR = 'round-penalties';
+const ROUND_SUMMARY_ANCHOR = 'round-summary';
+const OWED_PENALTIES_ANCHOR = 'owed-penalties';
 // Where this report's visible page lives — every POST below redirects back to it, not to this fragment URL.
 const shellPath = `/results/${Astro.params.subsessionId}/incidents`;
 // The fragment owns the POST handling, so its forms post here and carry the page's query string along (the redirect lands back on the same view).
@@ -263,6 +291,146 @@ if (isAdmin && postForm) {
     // Logged from the Reported Incidents panel → back to it, like Dismiss/Reopen below.
     const fromReport = intent === 'add-incident' && Boolean(form.get('from_report_id'));
     return Astro.redirect(`${shellPath}${Astro.url.search}${fromReport ? `#${REPORTS_ANCHOR}` : ''}`, 302);
+  }
+
+  // Round penalties (0104_round_penalties.sql): log one against a driver for
+  // this round, remove one, or mark one (from this or an earlier round)
+  // served at this round / owed again.
+  // ?roundpenalty=failed drives the flash at the top of the page (roundPenaltyFlash
+  // below); a successful save clears one left over from an earlier failure.
+  const roundPenaltyBack = (anchor: string, failed: boolean) => {
+    const url = new URL(Astro.url);
+    if (failed) url.searchParams.set('roundpenalty', 'failed');
+    else url.searchParams.delete('roundpenalty');
+    return Astro.redirect(`${shellPath}${url.search}${failed ? '' : `#${anchor}`}`, 302);
+  };
+  if (intent === 'add-round-penalty' || intent === 'update-round-penalty') {
+    const driverId = String(form.get('driver_id') ?? '');
+    const kind = String(form.get('kind') ?? '');
+    const note = strOrNullField(form, 'note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
+    const id = String(form.get('round_penalty_id') ?? '');
+    let failed = false;
+    if (driverId && isRoundPenaltyKind(kind) && (kind !== 'other' || note) && (intent === 'add-round-penalty' || id)) {
+      try {
+        if (intent === 'add-round-penalty') {
+          await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note, created_by: actor.id });
+        } else {
+          await updateRoundPenalty(supabaseEnv, accessToken, id, { driver_id: driverId, kind, note, markOwed: form.get('status') === 'owed' });
+        }
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: intent === 'add-round-penalty' ? 'add' : 'edit',
+          entity_type: 'incident',
+          entity_label: `${roundLabel} — round penalty (${ROUND_PENALTY_LABELS[kind]})`,
+          entity_id: null,
+        });
+      } catch (err) {
+        console.error('Failed to save round penalty:', err);
+        failed = true;
+      }
+    }
+    return roundPenaltyBack(ROUND_PENALTIES_ANCHOR, failed);
+  }
+
+  // The Round Summary row's Edit: tick boxes for the fixed kinds plus one Other
+  // note. Ticked kinds with nothing logged are added, unticked logged ones are
+  // removed; ones left ticked keep their note and served status. Served ones
+  // are never removed from here (their boxes are locked in the popup) — that
+  // would lose where they were served; undo them in the Round Penalties table.
+  // These are separate writes, not one transaction: if one fails partway, the
+  // ones before it stay saved, get logged, and the flash says to check.
+  if (intent === 'save-driver-round-penalties') {
+    const driverId = String(form.get('driver_id') ?? '');
+    const wanted = new Set(form.getAll('kinds').map(String).filter(isRoundPenaltyKind));
+    const otherNote = strOrNullField(form, 'other_note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
+    let changes = 0;
+    let failed = false;
+    if (driverId) {
+      try {
+        const existing = await getRoundPenaltiesForDriver(supabaseEnv, subsessionId, driverId);
+        for (const kind of ROUND_PENALTY_KINDS) {
+          if (kind === 'other') continue;
+          const logged = existing.filter((rp) => rp.kind === kind);
+          if (wanted.has(kind) && logged.length === 0) {
+            await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note: null, created_by: actor.id });
+            changes++;
+          } else if (!wanted.has(kind)) {
+            for (const rp of logged.filter((rp) => rp.served_subsession_id === null)) {
+              await deleteRoundPenalty(supabaseEnv, accessToken, rp.id);
+              changes++;
+            }
+          }
+        }
+        // Only the first Other is edited here; any more stay in the Round Penalties table.
+        const other = existing.find((rp) => rp.kind === 'other');
+        if (otherNote && !other) {
+          await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind: 'other', note: otherNote, created_by: actor.id });
+          changes++;
+        } else if (otherNote && other && other.note !== otherNote) {
+          await updateRoundPenalty(supabaseEnv, accessToken, other.id, { driver_id: driverId, kind: 'other', note: otherNote, markOwed: false });
+          changes++;
+        } else if (!otherNote && other && other.served_subsession_id === null) {
+          await deleteRoundPenalty(supabaseEnv, accessToken, other.id);
+          changes++;
+        }
+      } catch (err) {
+        console.error('Failed to save driver round penalties:', err);
+        failed = true;
+      }
+      if (changes > 0) {
+        try {
+          await logActivity(supabaseEnv, accessToken, actor, {
+            action: 'edit',
+            entity_type: 'incident',
+            entity_label: `${roundLabel} — round penalties${failed ? ' (partly saved)' : ''}`,
+            entity_id: null,
+          });
+        } catch (err) {
+          console.error('Failed to log driver round penalties:', err);
+        }
+      }
+    }
+    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
+  }
+
+  if (intent === 'delete-round-penalty') {
+    const id = String(form.get('round_penalty_id') ?? '');
+    let failed = false;
+    if (id) {
+      try {
+        await deleteRoundPenalty(supabaseEnv, accessToken, id);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'incident',
+          entity_label: `${roundLabel} — round penalty`,
+          entity_id: null,
+        });
+      } catch (err) {
+        console.error('Failed to delete round penalty:', err);
+        failed = true;
+      }
+    }
+    return roundPenaltyBack(ROUND_PENALTIES_ANCHOR, failed);
+  }
+
+  if (intent === 'set-round-penalty-served') {
+    const id = String(form.get('round_penalty_id') ?? '');
+    const served = form.get('served') === '1';
+    let failed = false;
+    if (id) {
+      try {
+        await setRoundPenaltyServed(supabaseEnv, accessToken, id, served ? subsessionId : null);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'incident',
+          entity_label: `${roundLabel} — round penalty ${served ? 'served' : 'marked owed'}`,
+          entity_id: null,
+        });
+      } catch (err) {
+        console.error('Failed to update round penalty:', err);
+        failed = true;
+      }
+    }
+    return roundPenaltyBack(OWED_PENALTIES_ANCHOR, failed);
   }
 
   if (intent === 'set-report-status') {
@@ -693,6 +861,12 @@ let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   else if (flash === 'badtype') appealFlash = { kind: 'error', message: 'Attachments must be images, PDFs, videos (MP4/WebM/MOV) or text files.' };
   else if (flash === 'failed') appealFlash = { kind: 'error', message: "Couldn't save your appeal right now. Please try again." };
 }
+// A round penalty change that didn't (fully) save (?roundpenalty=, set by the round penalty handlers).
+const roundPenaltyFlash =
+  isAdmin && Astro.url.searchParams.get('roundpenalty') === 'failed'
+    ? "Couldn't save all of that round penalty change. Check the Round Summary and Round Penalties below, then try again."
+    : null;
+
 // Same idea for a steward review that didn't save (?review=, set by the save-review handler).
 let reviewFlash: string | null = null;
 if (viewReports) {
@@ -765,6 +939,128 @@ for (const p of sortedPenalties) {
 }
 const sessionKeysWithIncidents = sessionOptions.map((o) => o.value).filter((key) => penaltiesBySession.has(key));
 
+// Cumulative summary at the bottom of the report: one row per car penalized
+// this round, with what they got in each race and where that leaves their
+// season PP. Qualifying/practice penalties count against Race 1 (see
+// scoringRaceNumber), so that's the column they're added to.
+interface RaceTally { pp: number; warnings: number; time: number; points: number; fromQualiOrPractice: boolean }
+interface SummaryRow {
+  driverId: string;
+  byRace: Map<number, RaceTally>;
+  roundPP: number;
+  roundWarnings: number;
+  season: RoundPPSummary | null;
+  seasonPPMax: number | null;
+  seasonWarnings: number | null;
+  /** The PP Penalties table row for this round's PP total. */
+  tier: PPPenaltyTier | null;
+  /** Round penalties that total calls for, each with the logged one if stewards have logged it. */
+  due: { kind: RoundPenaltyKind; logged: RoundPenalty | null }[];
+  /** Round penalties stewards logged for this driver here that the total didn't call for (e.g. Other, or a changed kind). */
+  extra: RoundPenalty[];
+}
+const roundPenaltiesByDriver = new Map<string, Penalty[]>();
+for (const p of penalties) {
+  if (!p.driver_id) continue;
+  if (!roundPenaltiesByDriver.has(p.driver_id)) roundPenaltiesByDriver.set(p.driver_id, []);
+  roundPenaltiesByDriver.get(p.driver_id)!.push(p);
+}
+
+// Season context for the PP column: every penalty from this season's earlier
+// rounds (start_time before this one), plus each driver's PP limit and
+// probation state. If any of it fails to load, the table still shows this
+// round's own numbers, just without the season columns. Stewards always get
+// the driver list too, for the names in the owed-penalties box.
+let earlierSeasonPenalties: Penalty[] = [];
+let seasonDriverById = new Map<string, { name: string; car_number: number | null; penalty_points_max: number; on_probation: boolean; probation_started_at: string | null }>();
+let seasonEvents: { event_date: string }[] = [];
+let seasonContextLoaded = false;
+const emptyRoundPenaltyData: RoundPenaltyData = { earnedHere: [], carriedIn: [], roundById: new Map(), available: false };
+const [roundPenaltyData] = await Promise.all([
+  round
+    ? getRoundPenaltyData(supabaseEnv, { subsession_id: subsessionId, track_name: round.track_name, start_time: round.start_time })
+    : Promise.resolve(emptyRoundPenaltyData),
+  (async () => {
+    if (!round || (roundPenaltiesByDriver.size === 0 && !isAdmin)) return;
+    try {
+      const [seasonRounds, drivers, events] = await Promise.all([
+        getRoundsForSeason(supabaseEnv, round.season_id),
+        getDrivers(supabaseEnv),
+        getEvents(supabaseEnv),
+      ]);
+      const roundStart = new Date(round.start_time).getTime();
+      const earlierIds = seasonRounds.filter((r) => new Date(r.start_time).getTime() < roundStart).map((r) => r.subsession_id);
+      seasonDriverById = new Map(drivers.map((d) => [d.id, d]));
+      seasonEvents = events;
+      if (roundPenaltiesByDriver.size > 0) earlierSeasonPenalties = await getPenaltiesForSubsessions(supabaseEnv, earlierIds);
+      seasonContextLoaded = true;
+    } catch (err) {
+      console.error('Failed to load season PP context for incident summary:', err);
+    }
+  })(),
+]);
+
+/** "#14 Jane Doe" — this round's drivers first, then the full roster (owed penalties can be for drivers not in this round). */
+function driverLabel(driverId: string): string {
+  const d = driverById.get(driverId) ?? seasonDriverById.get(driverId);
+  return d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown driver';
+}
+function roundRefLabel(id: number): string {
+  const r = roundPenaltyData.roundById.get(id);
+  return r ? `${r.track_name} (${formatDate(r.start_time)})` : `Round ${id}`;
+}
+/** What an Edit button hands initRoundPenaltyDialog (incidents.astro). */
+function roundPenaltyEditData(rp: RoundPenalty): string {
+  return JSON.stringify({
+    id: rp.id,
+    driver_id: rp.driver_id,
+    kind: rp.kind,
+    note: rp.note,
+    served_label: rp.served_subsession_id !== null ? `Served at ${roundRefLabel(rp.served_subsession_id)}` : null,
+  });
+}
+
+const summaryRows: SummaryRow[] = [...roundPenaltiesByDriver].map(([driverId, driverPenalties]) => {
+  const byRace = new Map<number, RaceTally>();
+  for (const p of driverPenalties) {
+    const race = scoringRaceNumber(p);
+    const t = byRace.get(race) ?? { pp: 0, warnings: 0, time: 0, points: 0, fromQualiOrPractice: false };
+    t.pp += effectivePenaltyPoints(p);
+    if (p.is_warning) t.warnings += 1;
+    t.time += effectiveTimePenaltySeconds(p) ?? 0;
+    t.points += effectivePointsPenalty(p);
+    if (p.session_type !== 'race') t.fromQualiOrPractice = true;
+    byRace.set(race, t);
+  }
+  const seasonDriver = seasonDriverById.get(driverId);
+  const earlier = earlierSeasonPenalties.filter((p) => p.driver_id === driverId);
+  const roundPP = driverPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
+  const season = seasonContextLoaded && seasonDriver ? computeRoundPPSummary(seasonDriver, earlier, driverPenalties, seasonEvents) : null;
+  // The rulebook's PP Penalties table, read at the round total (per Logan):
+  // the parts a finished race can't take are due next round, plus the
+  // 1-round ban for reaching the season limit.
+  const tier = ppPenaltyTier(roundPP);
+  const dueKinds: RoundPenaltyKind[] = [...(tier?.nextRound ?? []), ...(season?.hitLimit ? (['round_ban'] as const) : [])];
+  const driverRoundPenalties = roundPenaltyData.earnedHere.filter((rp) => rp.driver_id === driverId);
+  const due = dueKinds.map((kind) => ({ kind, logged: driverRoundPenalties.find((rp) => rp.kind === kind) ?? null }));
+  return {
+    driverId,
+    byRace,
+    roundPP,
+    roundWarnings: countWarnings(driverPenalties),
+    // AI entrants aren't in getDrivers(), so they get no season columns.
+    season,
+    seasonPPMax: seasonDriver?.penalty_points_max ?? null,
+    seasonWarnings: seasonContextLoaded && seasonDriver ? countWarnings(earlier) + countWarnings(driverPenalties) : null,
+    tier,
+    due,
+    extra: driverRoundPenalties.filter((rp) => !due.some((d) => d.logged === rp)),
+  };
+});
+summaryRows.sort(
+  (a, b) => (driverById.get(a.driverId)?.car_number ?? Infinity) - (driverById.get(b.driverId)?.car_number ?? Infinity)
+);
+
 
 // Whatever `season` the round detail page was showing (itself forwarded
 // from the Race Results list's season/filter dropdown — see
@@ -798,6 +1094,11 @@ const nextIncidentNumber =
     {round && (
       <>
         {/* Top of the page, above the title, like the results page's flash messages. */}
+        {roundPenaltyFlash && (
+          <p role="alert" class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 px-4 py-3 text-sm text-white/80">
+            {roundPenaltyFlash}
+          </p>
+        )}
         {isAdmin && !roundPosted && !viewReports && (
           <p role="status" class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-4 py-3 text-sm text-white/80">
             This incident report isn't posted yet, so only admins can see it. Post it from
@@ -1109,6 +1410,42 @@ const nextIncidentNumber =
           </div>
         )}
 
+        {!viewReports && isAdmin && roundPenaltyData.carriedIn.length > 0 && (
+          <div id={OWED_PENALTIES_ANCHOR} class="mt-10 scroll-mt-24 rounded-xl border border-brand-gold/40 bg-brand-gold/5 p-4">
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-brand-gold">Owed from earlier rounds</h3>
+            <p class="mt-1 text-xs text-white/50">
+              Round penalties not yet served. Mark each one served once it's been applied at this round. Only stewards see this.
+            </p>
+            <ul class="mt-3 divide-y divide-white/5 text-sm">
+              {roundPenaltyData.carriedIn.map((rp) => {
+                const servedHere = rp.served_subsession_id === subsessionId;
+                return (
+                  <li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
+                    <div>
+                      <span class="font-semibold">{driverLabel(rp.driver_id)}</span>
+                      <span class="text-white/80"> — {roundPenaltyLabel(rp)}</span>
+                      {rp.kind !== 'other' && rp.note && <span class="text-white/50"> ({rp.note})</span>}
+                      <div class="text-xs text-white/40">
+                        Earned at{' '}
+                        <a href={`/results/${rp.subsession_id}/incidents`} class="underline hover:text-white">{roundRefLabel(rp.subsession_id)}</a>
+                      </div>
+                    </div>
+                    <form method="POST" action={formAction} data-astro-reload class="flex items-center gap-3">
+                      <input type="hidden" name="intent" value="set-round-penalty-served" />
+                      <input type="hidden" name="round_penalty_id" value={rp.id} />
+                      <input type="hidden" name="served" value={servedHere ? '0' : '1'} />
+                      {servedHere && <span class="text-xs font-semibold uppercase tracking-wide text-emerald-400">Served here</span>}
+                      <button type="submit" class={servedHere ? 'text-xs font-semibold text-white/40 hover:text-white' : 'btn btn-neutral text-xs'}>
+                        {servedHere ? 'Undo' : 'Mark served'}
+                      </button>
+                    </form>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
         {!viewReports && sessionKeysWithIncidents.map((key) => (
           <div class="mt-10">
             <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{sessionLabelByValue.get(key)}</h3>
@@ -1246,6 +1583,313 @@ const nextIncidentNumber =
             </div>
           </div>
         ))}
+
+        {!viewReports && summaryRows.length > 0 && (
+          <div id={ROUND_SUMMARY_ANCHOR} class="mt-12 scroll-mt-24">
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Round Summary</h3>
+            <p class="mt-1 text-xs text-white/40">
+              Every car penalized this round, race by race, and where it leaves their season penalty points.
+              Qualifying and practice penalties count against Race 1. The round's PP total sets the rulebook's PP Penalties
+              level; anything a finished race can't take (bans, pit-lane start) is due at the next round.
+            </p>
+            <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
+              <table class="w-full border-collapse">
+                <thead>
+                  <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                    <th class="py-3 pl-4 pr-3 font-medium">Driver</th>
+                    {raceNumbers.map((n) => (
+                      <th class="py-3 pr-3 text-center font-medium">Race {n}</th>
+                    ))}
+                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Round PP</th>
+                    <th class="py-3 pr-3 text-center font-medium">Season PP</th>
+                    <th class="py-3 pr-4 font-medium">Due Next Round</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryRows.map((row) => {
+                    const driver = driverById.get(row.driverId);
+                    return (
+                      <tr class="border-b border-white/5 text-sm last:border-b-0">
+                        <td class="py-2.5 pl-4 pr-3 font-semibold">
+                          {driver?.car_number != null ? `#${driver.car_number}` : '—'}
+                          <span class="hidden font-normal text-white/60 md:inline"> {driver?.name ?? 'Unknown driver'}</span>
+                          {isAdmin && roundPenaltyData.available && (
+                            <button
+                              type="button"
+                              data-edit-driver-round-penalties
+                              data-driver-round-penalties={JSON.stringify({
+                                driver_id: row.driverId,
+                                driver_label: driverLabel(row.driverId),
+                                logged: roundPenaltyData.earnedHere
+                                  .filter((rp) => rp.driver_id === row.driverId && rp.kind !== 'other')
+                                  .map((rp) => ({ kind: rp.kind, served: rp.served_subsession_id !== null })),
+                                flagged: row.due.filter((d) => !d.logged).map((d) => d.kind),
+                                other_note: roundPenaltyData.earnedHere.find((rp) => rp.driver_id === row.driverId && rp.kind === 'other')?.note ?? '',
+                              })}
+                              class="block text-xs font-semibold text-white/40 hover:text-white"
+                            >
+                              Edit
+                            </button>
+                          )}
+                        </td>
+                        {raceNumbers.map((n) => {
+                          const t = row.byRace.get(n);
+                          if (!t) return <td class="py-2.5 pr-3 text-center text-white/30">—</td>;
+                          return (
+                            <td class="py-2.5 pr-3 text-center text-white/70" title={t.fromQualiOrPractice ? 'Includes a qualifying/practice penalty' : undefined}>
+                              {t.pp > 0 && <div class="font-semibold text-white">{t.pp}PP{t.fromQualiOrPractice ? '*' : ''}</div>}
+                              {t.warnings > 0 && (
+                                <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">
+                                  {t.warnings > 1 ? `${t.warnings} Warnings` : 'Warning'}
+                                </div>
+                              )}
+                              {t.time !== 0 && <div>+{t.time}s</div>}
+                              {t.points !== 0 && <div>-{t.points} pts</div>}
+                              {t.pp === 0 && t.warnings === 0 && t.time === 0 && t.points === 0 && <div class="text-white/30">—</div>}
+                            </td>
+                          );
+                        })}
+                        <td class="hidden py-2.5 pr-3 text-center md:table-cell">
+                          <div class="font-semibold">{row.roundPP || '—'}</div>
+                          {row.tier && <div class="whitespace-nowrap text-[10px] text-white/50">{describePPPenaltyTier(row.tier)}</div>}
+                          {row.roundWarnings > 0 && (
+                            <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">
+                              {row.roundWarnings > 1 ? `${row.roundWarnings} Warnings` : 'Warning'}
+                            </div>
+                          )}
+                        </td>
+                        <td class="py-2.5 pr-3 text-center">
+                          {row.season ? (
+                            <>
+                              <div
+                                class="whitespace-nowrap"
+                                title={`${row.season.before} going into this round, +${row.season.earned} earned this round${row.season.hitLimit ? ', limit reached so the tally reset' : ''}`}
+                              >
+                                <span class="text-white/50">{row.season.before}</span>
+                                <span class="text-white/30"> &rarr; </span>
+                                <span class="font-semibold">{row.season.after}</span>
+                                <span class="text-white/40"> / {row.seasonPPMax}</span>
+                              </div>
+                              {row.season.doubled && (
+                                <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Doubled (probation)</div>
+                              )}
+                              {row.season.hitLimit && (
+                                <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-pink">Limit reached: reset + probation</div>
+                              )}
+                              {row.seasonWarnings !== null && row.seasonWarnings > 0 && (
+                                <div class="text-[10px] text-white/40">
+                                  {row.seasonWarnings} season warning{row.seasonWarnings === 1 ? '' : 's'}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span class="text-white/30">—</span>
+                          )}
+                        </td>
+                        <td class="min-w-[10rem] py-2.5 pr-4">
+                          {row.due.length === 0 && row.extra.length === 0 && !row.tier?.review && <span class="text-white/30">—</span>}
+                          {row.tier?.review && (
+                            <div class="text-xs font-semibold uppercase tracking-wide text-brand-pink">Steward review (8+ PP)</div>
+                          )}
+                          {[
+                            ...row.due.map((d) => ({ kind: d.kind, rp: d.logged })),
+                            ...row.extra.map((rp) => ({ kind: rp.kind, rp })),
+                          ].map(({ kind, rp }) =>
+                            rp ? (
+                              <div class="text-xs">
+                                <span class="font-semibold">{roundPenaltyLabel(rp)}</span>
+                                <span class={rp.served_subsession_id !== null ? 'text-emerald-400' : 'text-brand-gold'}>
+                                  {rp.served_subsession_id !== null ? ' · Served' : ' · Owed'}
+                                </span>
+                              </div>
+                            ) : (
+                              <div class="text-xs">
+                                <span class="font-semibold text-brand-gold">{ROUND_PENALTY_LABELS[kind]}</span>
+                              </div>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {isAdmin && roundPenaltyData.available && (
+              <dialog
+                data-driver-round-penalties-dialog
+                class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+              >
+                <form method="POST" action={formAction} data-astro-reload class="flex flex-col gap-3 p-5">
+                  <input type="hidden" name="intent" value="save-driver-round-penalties" />
+                  <input type="hidden" name="driver_id" value="" data-driver-round-penalties-driver />
+                  <div class="flex items-center justify-between">
+                    <h4 class="font-display text-xl">Round Penalties</h4>
+                    <button type="button" data-close-driver-round-penalties-dialog class="text-white/40 hover:text-white">✕</button>
+                  </div>
+                  <p class="text-sm text-white/70" data-driver-round-penalties-label></p>
+                  <p class="text-xs text-white/40">
+                    Ticked penalties are owed at the next round. Ones the round's PP total calls for start ticked; untick to waive.
+                    Served ones are locked — undo them in the Round Penalties table.
+                  </p>
+                  <div class="flex flex-col gap-2">
+                    {ROUND_PENALTY_KINDS.filter((k) => k !== 'other').map((k) => (
+                      <label class="flex items-center gap-2 text-sm">
+                        <input type="checkbox" name="kinds" value={k} data-driver-round-penalties-kind class="accent-brand-primary" />
+                        {ROUND_PENALTY_LABELS[k]}
+                        <span class="text-xs" data-driver-round-penalties-hint={k}></span>
+                      </label>
+                    ))}
+                  </div>
+                  <label class="flex flex-col gap-1 text-xs text-white/50">
+                    Other (optional)
+                    <input
+                      type="text"
+                      name="other_note"
+                      maxlength={ROUND_PENALTY_NOTE_MAX_LENGTH}
+                      placeholder="Describe the penalty"
+                      data-driver-round-penalties-other
+                      class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                    />
+                  </label>
+                  <div class="flex justify-end gap-2">
+                    <button type="button" data-close-driver-round-penalties-dialog class="btn btn-neutral">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                  </div>
+                </form>
+              </dialog>
+            )}
+          </div>
+        )}
+
+        {!viewReports && roundPenaltyData.available && (isAdmin || roundPenaltyData.earnedHere.length > 0) && (
+          <div id={ROUND_PENALTIES_ANCHOR} class="mt-12 scroll-mt-24">
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Round Penalties</h3>
+            <p class="mt-1 text-xs text-white/40">
+              Penalties for the round as a whole, served at a later round. These don't change results or PP; time and points
+              penalties are logged as incidents above.
+            </p>
+            {roundPenaltyData.earnedHere.length > 0 && (
+              <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                      <th class="py-3 pl-4 pr-3 font-medium">Driver</th>
+                      <th class="py-3 pr-3 font-medium">Penalty</th>
+                      <th class={`py-3 font-medium ${isAdmin ? 'pr-3' : 'pr-4'}`}>Status</th>
+                      {isAdmin && <th class="w-28 py-3 pr-4"><span class="sr-only">Edit or remove</span></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roundPenaltyData.earnedHere.map((rp) => (
+                      <tr class="border-b border-white/5 text-sm last:border-b-0">
+                        <td class="py-2.5 pl-4 pr-3 font-semibold">{driverLabel(rp.driver_id)}</td>
+                        <td class="py-2.5 pr-3">
+                          {roundPenaltyLabel(rp)}
+                          {rp.kind !== 'other' && rp.note && <span class="text-white/50"> ({rp.note})</span>}
+                        </td>
+                        <td class={`py-2.5 ${isAdmin ? 'pr-3' : 'pr-4'}`}>
+                          {rp.served_subsession_id !== null ? (
+                            <span class="text-emerald-400">
+                              Served at{' '}
+                              <a href={`/results/${rp.served_subsession_id}/incidents`} class="underline hover:text-white">
+                                {roundRefLabel(rp.served_subsession_id)}
+                              </a>
+                            </span>
+                          ) : (
+                            <span class="text-brand-gold">Owed</span>
+                          )}
+                        </td>
+                        {isAdmin && (
+                          <td class="whitespace-nowrap py-2.5 pr-4 text-right">
+                            <button
+                              type="button"
+                              data-edit-round-penalty
+                              data-round-penalty={roundPenaltyEditData(rp)}
+                              class="mr-3 text-xs font-semibold text-white/40 hover:text-white"
+                            >
+                              Edit
+                            </button>
+                            <form method="POST" action={formAction} data-astro-reload class="inline">
+                              <input type="hidden" name="intent" value="delete-round-penalty" />
+                              <input type="hidden" name="round_penalty_id" value={rp.id} />
+                              <button type="submit" class="text-xs font-semibold text-white/40 hover:text-brand-pink">Remove</button>
+                            </form>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {isAdmin && (
+              <>
+                <button type="button" data-add-round-penalty class="btn btn-neutral mt-3">+ Add round penalty</button>
+                {/* Shared add/edit popup, same pattern as the incident dialog — filled by
+                    initRoundPenaltyDialog in incidents.astro from the clicked row's data-round-penalty. */}
+                <dialog
+                  data-round-penalty-dialog
+                  class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+                >
+                  <form method="POST" action={formAction} data-astro-reload class="flex flex-col gap-3 p-5">
+                    <input type="hidden" name="intent" value="add-round-penalty" data-round-penalty-intent />
+                    <input type="hidden" name="round_penalty_id" value="" data-round-penalty-id />
+                    <div class="flex items-center justify-between">
+                      <h4 class="font-display text-xl" data-round-penalty-heading>Add Round Penalty</h4>
+                      <button type="button" data-close-round-penalty-dialog class="text-white/40 hover:text-white">✕</button>
+                    </div>
+                    <label class="flex flex-col gap-1 text-xs text-white/50">
+                      Driver
+                      <select name="driver_id" required data-round-penalty-driver class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary">
+                        <option value="">Choose…</option>
+                        {roundDrivers.map((d) => (
+                          <option value={d.id}>{d.car_number !== null ? `#${d.car_number} ` : ''}{d.name}</option>
+                        ))}
+                        {[...new Set(roundPenaltyData.earnedHere.map((rp) => rp.driver_id))]
+                          .filter((id) => !driverById.has(id))
+                          .map((id) => (
+                            <option value={id}>{driverLabel(id)}</option>
+                          ))}
+                      </select>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs text-white/50">
+                      Penalty
+                      <select name="kind" required data-round-penalty-kind class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary">
+                        {ROUND_PENALTY_KINDS.map((k) => (
+                          <option value={k}>{ROUND_PENALTY_LABELS[k]}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs text-white/50">
+                      <span>Note <span data-round-penalty-note-hint>(optional)</span></span>
+                      <input
+                        type="text"
+                        name="note"
+                        maxlength={ROUND_PENALTY_NOTE_MAX_LENGTH}
+                        data-round-penalty-note
+                        class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                      />
+                    </label>
+                    {/* Edit only, and only once it's been served: lets a steward put it back to owed.
+                        Marking one served happens from the owed box on the round it's served at. */}
+                    <label class="hidden flex-col gap-1 text-xs text-white/50" data-round-penalty-status-field>
+                      Status
+                      <select name="status" data-round-penalty-status class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary">
+                        <option value="keep" data-round-penalty-served-option></option>
+                        <option value="owed">Owed</option>
+                      </select>
+                    </label>
+                    <div class="flex justify-end gap-2">
+                      <button type="button" data-close-round-penalty-dialog class="btn btn-neutral">Cancel</button>
+                      <button type="submit" class="btn btn-primary">Save</button>
+                    </div>
+                  </form>
+                </dialog>
+              </>
+            )}
+          </div>
+        )}
 
         {isAdmin && (
           <dialog
