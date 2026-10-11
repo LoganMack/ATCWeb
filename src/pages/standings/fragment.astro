@@ -675,7 +675,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         const title = `Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`;
                         return (
                           <div class="relative flex w-11 flex-col items-center gap-1" data-round-col={i} title={title}>
-                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-5 w-5" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
+                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-10 w-10" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
                             {cell ? (
                               <span
                                 data-cell-points

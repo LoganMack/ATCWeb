@@ -44,6 +44,8 @@ const navLogoLightUrl = currentSeason?.logo_url ? (currentSeason.logo_url_light 
 // login that isn't linked to a roster driver (Admin > Users > Driver) may not
 // have joined yet, so it still gets Sign-Up.
 const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+// On your own driver page the profile icon becomes an Edit button (the page's own script toggles edit mode).
+const onOwnProfile = Boolean(myDriverId) && Astro.url.pathname.replace(/\/+$/, '') === `/drivers/${myDriverId}`;
 
 // `menu` = a hover dropdown on the desktop nav (the mobile nav stays a flat list
 // of the top-level links). `rounds` = the Results menu, whose rounds are fetched
@@ -159,13 +161,22 @@ const links: NavLink[] = [
       {myDriverId ? (
         // Icon-only for a signed-in driver; "My Profile" shows on hover/keyboard focus (same tooltip look as the results page's icon buttons).
         <span class="group relative">
-          <a href={`/drivers/${myDriverId}`} class="btn btn-primary !px-2.5" aria-label="My Profile">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
-              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-          </a>
-          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">My Profile</span>
+          {onOwnProfile ? (
+            <button type="button" data-profile-edit-toggle aria-pressed="false" class="btn btn-primary !px-2.5" aria-label="Edit Profile">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+                <path d="M12 20h9" />
+                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+            </button>
+          ) : (
+            <a href={`/drivers/${myDriverId}`} class="btn btn-primary !px-2.5" aria-label="My Profile">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </a>
+          )}
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">{onOwnProfile ? 'Edit Profile' : 'My Profile'}</span>
         </span>
       ) : (
         <a

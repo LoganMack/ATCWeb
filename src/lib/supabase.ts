@@ -1660,6 +1660,30 @@ export async function uploadToStorage(
   return `${env.url}/storage/v1/object/public/${bucket}/${path}`;
 }
 
+// --- Drivers editing their own profile (0104_driver_self_service_profile.sql) ---
+
+export const DRIVER_BIO_MAX = 500;
+export const DRIVER_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+/** Accepted profile-photo types. SVG is deliberately not allowed for user uploads. */
+export const DRIVER_AVATAR_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+
+/** Uploads a driver's own profile photo to photos/driver-avatars/<driverId>/ (the only place storage policies let them write) and returns its public URL. */
+export async function uploadDriverAvatar(env: SupabaseEnv, accessToken: string, driverId: string, file: File): Promise<string> {
+  const ext = DRIVER_AVATAR_TYPES[file.type];
+  if (!ext) throw new Error('Unsupported image type');
+  return uploadToStorage(env, accessToken, 'photos', `driver-avatars/${driverId}/${Date.now()}.${ext}`, file);
+}
+
+/** Saves the signed-in user's own bio (and photo, when given) through update_my_driver_profile(), which only touches their own linked driver row. */
+export async function updateMyDriverProfile(env: SupabaseEnv, accessToken: string, data: { bio: string | null; photoUrl?: string }): Promise<void> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/update_my_driver_profile`, {
+    method: 'POST',
+    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_bio: data.bio, p_photo_url: data.photoUrl ?? null, p_set_photo: data.photoUrl !== undefined }),
+  });
+  if (!res.ok) throw new Error(`Failed to update profile (${res.status}): ${await res.text()}`);
+}
+
 /**
  * Wraps a Supabase Storage image URL in a Cloudflare Transformations
  * request (`/cdn-cgi/image/...`) so it's resized/re-encoded on Cloudflare's
