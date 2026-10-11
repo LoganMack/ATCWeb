@@ -2,14 +2,15 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getCircuits } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getCircuits, getCircuitLogoBackgrounds, logoBgAttrs } from '../../../lib/supabase';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let circuits: Awaited<ReturnType<typeof getCircuits>> = [];
+let logoBackgrounds: Awaited<ReturnType<typeof getCircuitLogoBackgrounds>> = {};
 let loadError = false;
 try {
-  circuits = await getCircuits(supabaseEnv);
+  [circuits, logoBackgrounds] = await Promise.all([getCircuits(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
 } catch (err) {
   console.error('Failed to load circuits for admin:', err);
   loadError = true;
@@ -56,7 +57,7 @@ try {
               <td class="py-3 pl-6 pr-3" data-col="name">
                 <div class="flex items-center gap-3">
                   {circuit.logo_url ? (
-                    <img src={circuit.logo_url} alt="" class="h-8 w-8 rounded object-contain" />
+                    <img src={circuit.logo_url} alt="" class="h-8 w-8 rounded object-contain" {...logoBgAttrs(logoBackgrounds[circuit.id])} />
                   ) : (
                     <div class="h-8 w-8 rounded bg-white/10"></div>
                   )}

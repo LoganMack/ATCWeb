@@ -193,6 +193,48 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       widget.querySelectorAll<HTMLElement>('[data-incidents-panel]').forEach((panel) => {
         panel.classList.toggle('hidden', panel.dataset.incidentsPanel !== select.value);
       });
+      // Minimum Starts only applies to the By Driver view.
+      const wrap = widget.querySelector<HTMLElement>('[data-min-starts-wrap]');
+      if (wrap) {
+        wrap.classList.toggle('hidden', select.value !== 'byDriver');
+        wrap.classList.toggle('flex', select.value === 'byDriver');
+      }
+    });
+
+    // Minimum Starts: hide By Driver rows (and their open detail rows) for drivers with fewer starts than the chosen value.
+    function applyMinStarts(widget: HTMLElement) {
+      const input = widget.querySelector<HTMLInputElement>('[data-min-starts-input]');
+      if (!input) return;
+      const min = Math.max(0, Math.floor(Number(input.value)) || 0);
+      const panel = widget.querySelector<HTMLElement>('[data-incidents-panel="byDriver"]');
+      if (!panel) return;
+      let visible = 0;
+      let total = 0;
+      panel.querySelectorAll<HTMLElement>('tr[data-expand-row][data-starts]').forEach((row) => {
+        total++;
+        const hide = Number(row.dataset.starts) < min;
+        row.style.display = hide ? 'none' : '';
+        const detail = row.nextElementSibling;
+        if (detail instanceof HTMLElement && detail.hasAttribute('data-detail-row')) detail.style.display = hide ? 'none' : '';
+        if (!hide) visible++;
+      });
+      panel.querySelector<HTMLElement>('[data-min-starts-empty]')?.classList.toggle('hidden', visible > 0 || total === 0);
+      const option = widget.querySelector<HTMLOptionElement>('option[data-label-base]');
+      if (option) option.textContent = `${option.dataset.labelBase} (${visible})`;
+    }
+    document.addEventListener('input', (e) => {
+      const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-min-starts-input]');
+      const widget = input?.closest<HTMLElement>('[data-incidents-widget]');
+      if (widget) applyMinStarts(widget);
+    });
+    document.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-min-starts-step]');
+      const widget = btn?.closest<HTMLElement>('[data-incidents-widget]');
+      const input = widget?.querySelector<HTMLInputElement>('[data-min-starts-input]');
+      if (!btn || !widget || !input) return;
+      const next = Math.max(0, (Math.floor(Number(input.value)) || 0) + Number(btn.dataset.minStartsStep));
+      input.value = String(next);
+      applyMinStarts(widget);
     });
   </script>
 </Layout>

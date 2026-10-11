@@ -367,9 +367,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
              (not a big "Alpha Touring Challenge" headline) is it. Styled to
              match the "Standings" heading below rather than the old small
              uppercase-tracked label. -->
-        <h1 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
-          Featured Story
-        </h1>
+        <h1 class="sr-only">Featured Story</h1>
 
         {featuredNews ? (
           <NewsCard post={featuredNews} index={0} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
@@ -408,9 +406,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       </div>
 
       <div class="min-w-0">
-        <h2 class="reveal mb-4 font-display text-3xl" style="transition-delay: 40ms">
-          Upcoming Events
-        </h2>
+        <h2 class="sr-only">Upcoming Events</h2>
 
         {upcomingEvents.length === 0 && (
           <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">

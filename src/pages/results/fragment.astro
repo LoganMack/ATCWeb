@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName, getCircuits } from '../../lib/supabase';
+import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName, getCircuits, getCircuitLogoBackgrounds, type LogoBackground } from '../../lib/supabase';
 import TeamLogo from '../../components/TeamLogo.astro';
 import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions, normalizeTrackOrLayoutName } from '../../lib/results';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
@@ -65,6 +65,7 @@ let displayRoundNumbers: Map<number, number | null> = new Map();
 let layoutBySubsession: Map<number, string | null> = new Map();
 // Track logo per round (circuit matched by track name, same as the Standings matrix headers); a track without one gets TeamLogo's initials tile.
 let trackLogoByName: Map<string, string | null> = new Map();
+let trackLogoBgByName: Map<string, LogoBackground> = new Map();
 
 if (!loadError && (activeSeason || activePooledFilter)) {
   try {
@@ -88,8 +89,9 @@ if (!loadError && (activeSeason || activePooledFilter)) {
       rounds.map((r) => r.subsession_id)
     );
     try {
-      const circuits = await getCircuits(supabaseEnv);
+      const [circuits, logoBackgrounds] = await Promise.all([getCircuits(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
       trackLogoByName = new Map(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c.logo_url ?? null]));
+      trackLogoBgByName = new Map(circuits.flatMap((c) => (logoBackgrounds[c.id] ? [[normalizeTrackOrLayoutName(c.name), logoBackgrounds[c.id]!] as [string, LogoBackground]] : [])));
     } catch (err) {
       console.error('Failed to load circuits for results logos:', err);
     }
@@ -181,7 +183,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             class="flex flex-wrap items-center justify-between gap-2 px-6 py-4 transition hover:bg-white/[0.03]"
           >
             <div class="flex min-w-0 items-center gap-4">
-              <TeamLogo name={round.track_name} logoUrl={trackLogoByName.get(normalizeTrackOrLayoutName(round.track_name)) ?? null} size="h-10 w-10" tint />
+              <TeamLogo name={round.track_name} logoUrl={trackLogoByName.get(normalizeTrackOrLayoutName(round.track_name)) ?? null} size="h-10 w-10" logoBg={trackLogoBgByName.get(normalizeTrackOrLayoutName(round.track_name)) ?? null} />
               <div>
               <p class="font-semibold">
                 {titlePrefix}{trackLabel}

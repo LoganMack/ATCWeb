@@ -14,6 +14,8 @@ import {
   displayDriverName,
   shortDriverName,
   getCircuits,
+  getCircuitLogoBackgrounds,
+  type LogoBackground,
   getScoringRulesets,
   resolveSeasonRuleset,
   type Circuit,
@@ -117,6 +119,7 @@ let extrasByDriverId: Map<string, DriverSeasonExtras> = new Map();
 let extendedStatsByDriverId: Map<string, DriverSeasonExtendedStats> = new Map();
 let matrixColumns: SeasonStandingsRoundColumn[] = [];
 const matrixLogoBySubsession = new Map<number, string | null>();
+const matrixLogoBgBySubsession = new Map<number, LogoBackground>();
 // Timeline Slider inputs (see the script at the bottom): the drop rules the
 // real standings use, so the client can recompute "as of round N" totals the
 // same way finalizeStandings does.
@@ -285,10 +288,13 @@ if (!loadError && activeSeason && matrixColumns.length > 0) {
 }
 if (!loadError && activeSeason && mode !== 'graph' && (mode === 'matrix' || championship === 'drivers') && matrixColumns.length > 0) {
   try {
-    const circuits = await getCircuits(supabaseEnv);
+    const [circuits, logoBackgrounds] = await Promise.all([getCircuits(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
     const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
     for (const col of matrixColumns) {
-      matrixLogoBySubsession.set(col.subsessionId, circuitByName.get(normalizeTrackOrLayoutName(col.trackName))?.logo_url ?? null);
+      const circuit = circuitByName.get(normalizeTrackOrLayoutName(col.trackName));
+      matrixLogoBySubsession.set(col.subsessionId, circuit?.logo_url ?? null);
+      const bg = circuit ? logoBackgrounds[circuit.id] : undefined;
+      if (bg) matrixLogoBgBySubsession.set(col.subsessionId, bg);
     }
   } catch (err) {
     console.error('Failed to load circuits for standings matrix headers:', err);
@@ -669,7 +675,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         const title = `Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`;
                         return (
                           <div class="relative flex w-11 flex-col items-center gap-1" data-round-col={i} title={title}>
-                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-5 w-5" title={title} tint />
+                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-5 w-5" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
                             {cell ? (
                               <span
                                 data-cell-points
@@ -771,7 +777,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`}
                 >
                   <span class="inline-flex items-center justify-center">
-                    <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-7 w-7" title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`} tint />
+                    <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-7 w-7" title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
                   </span>
                 </th>
               ))}
@@ -955,7 +961,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`}
                 >
                   <span class="inline-flex items-center justify-center">
-                    <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-7 w-7" title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`} tint />
+                    <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-7 w-7" title={`Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
                   </span>
                 </th>
               ))}
