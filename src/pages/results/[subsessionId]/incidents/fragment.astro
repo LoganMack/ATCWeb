@@ -1605,8 +1605,8 @@ const nextIncidentNumber =
                     {raceNumbers.map((n) => (
                       <th class="py-3 pr-3 text-center font-medium">Race {n}</th>
                     ))}
-                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Round PP</th>
-                    <th class="py-3 pr-3 text-center font-medium">Season PP</th>
+                    <th class="hidden py-3 pr-3 text-center font-medium md:table-cell">Round</th>
+                    <th class="py-3 pr-3 text-center font-medium">Season</th>
                     <th class={`py-3 font-medium ${isAdmin && roundPenaltyData.available ? 'pr-3' : 'pr-4'}`}>Due Next Round</th>
                     {isAdmin && roundPenaltyData.available && <th class="w-12 py-3 pr-4"><span class="sr-only">Edit</span></th>}
                   </tr>
@@ -1633,7 +1633,7 @@ const nextIncidentNumber =
                           ].filter(Boolean).join(' · ');
                           return (
                             <td class="py-2.5 pr-3 text-center text-white/70" title={hover || undefined}>
-                              {t.pp > 0 && <div class="font-semibold text-white">{t.pp}PP{t.fromQualiOrPractice ? '*' : ''}</div>}
+                              {t.pp > 0 && <div class="text-white/70">{t.pp}PP{t.fromQualiOrPractice ? '*' : ''}</div>}
                               {t.warnings > 0 && (
                                 <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">
                                   {t.warnings > 1 ? `${t.warnings} Warnings` : 'Warning'}
@@ -1644,7 +1644,7 @@ const nextIncidentNumber =
                           );
                         })}
                         <td class="hidden py-2.5 pr-3 text-center md:table-cell">
-                          <div class="font-semibold">{row.roundPP || '—'}</div>
+                          <div class="font-semibold">{row.roundPP ? `${row.roundPP}PP` : '—'}</div>
                           {row.roundWarnings > 0 && (
                             <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">
                               {row.roundWarnings > 1 ? `${row.roundWarnings} Warnings` : 'Warning'}
@@ -1654,14 +1654,17 @@ const nextIncidentNumber =
                         <td class="py-2.5 pr-3 text-center">
                           {row.season ? (
                             <>
+                              {/* Three equal-width slots so the cell is centred on the arrow: the old value hugs it from the left, the new value and the limit from the right. */}
                               <div
-                                class="whitespace-nowrap"
+                                class="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-1.5 whitespace-nowrap"
                                 title={`${seasonBefore} going into this round, +${row.season.earned} earned this round${row.season.hitLimit ? ', limit reached so the tally reset' : ''}. Each season warning counts as 0.5.`}
                               >
-                                <span class="text-white/50">{seasonBefore}</span>
-                                <span class="text-white/30"> &rarr; </span>
-                                <span class="font-semibold">{seasonAfter}</span>
-                                <span class="text-white/40"> / {row.seasonPPMax}</span>
+                                <span class="text-right text-white/50">{seasonBefore}PP</span>
+                                <span class="text-white/30">&rarr;</span>
+                                <span class="text-left">
+                                  <span class="font-semibold">{seasonAfter}PP</span>
+                                  <span class="text-white/40"> / {row.seasonPPMax}PP</span>
+                                </span>
                               </div>
                               {row.season.doubled && (
                                 <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Doubled (probation)</div>
@@ -1774,11 +1777,6 @@ const nextIncidentNumber =
 
         {!viewReports && roundPenaltyData.available && (isAdmin || roundPenaltyData.earnedHere.length > 0) && (
           <div id={ROUND_PENALTIES_ANCHOR} class="mt-12 scroll-mt-24">
-            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Round Penalties</h3>
-            <p class="mt-1 text-xs text-white/40">
-              Penalties for the round as a whole, served at a later round. These don't change results or PP; time and points
-              penalties are logged as incidents above.
-            </p>
             {roundPenaltyData.earnedHere.length > 0 && (
               <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
                 <table class="w-full border-collapse">
@@ -1839,7 +1837,7 @@ const nextIncidentNumber =
             )}
             {isAdmin && (
               <>
-                <button type="button" data-add-round-penalty class="btn btn-neutral mt-3">+ Add round penalty</button>
+                <button type="button" data-add-round-penalty class="btn btn-neutral mt-3">Add Round Penalty</button>
                 {/* Shared add/edit popup, same pattern as the incident dialog — filled by
                     initRoundPenaltyDialog in incidents.astro from the clicked row's data-round-penalty. */}
                 <dialog
