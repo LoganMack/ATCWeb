@@ -246,7 +246,7 @@ const flashRows = Astro.url.searchParams.get('rows');
               <td class="py-3 pl-6 pr-3" data-col="circuit">
                 <div class="flex items-center gap-3">
                   {imageUrl && (
-                    <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" />
+                    <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" data-contrast-logo />
                   )}
                   <div>
                     <span class="font-semibold">{event.title ?? event.circuits?.name ?? 'TBA'}</span>
