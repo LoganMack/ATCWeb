@@ -115,10 +115,28 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
         <select aria-label="View" data-incidents-select class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5">
           <option value="all" selected class="bg-brand-ink text-white">All Incidents ({data.all.length})</option>
-          <option value="byDriver" class="bg-brand-ink text-white">By Driver ({data.byDriver.length})</option>
+          <option value="byDriver" data-label-base="By Driver" class="bg-brand-ink text-white">By Driver ({data.byDriver.length})</option>
           <option value="byOffense" class="bg-brand-ink text-white">By Offense ({data.byOffense.length})</option>
         </select>
       </label>
+      {/* By Driver only (shown by the view switch in incidents.astro): drivers with fewer starts than this are left out. */}
+      <div class="hidden flex-col gap-1.5" data-min-starts-wrap>
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Minimum Starts</span>
+        <div class="flex h-9 items-stretch overflow-hidden rounded-md border border-white/15 focus-within:border-brand-primary">
+          <button type="button" data-min-starts-step="-1" aria-label="Decrease minimum starts" class="w-9 text-lg leading-none text-white/70 hover:bg-white/5 hover:text-white">&minus;</button>
+          <input
+            type="number"
+            inputmode="numeric"
+            min="0"
+            step="1"
+            value="0"
+            data-min-starts-input
+            aria-label="Minimum Starts"
+            class="w-14 border-x border-white/15 bg-transparent px-1 text-center text-sm text-white outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+          />
+          <button type="button" data-min-starts-step="1" aria-label="Increase minimum starts" class="w-9 text-lg leading-none text-white/70 hover:bg-white/5 hover:text-white">+</button>
+        </div>
+      </div>
      </div>
     </div>
 
@@ -131,19 +149,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           <table class="w-full min-w-[900px] border-collapse" data-sortable>
             <thead>
               <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="date">Date</th>
-                <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="season">Season</th>
-                <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="round">Round</th>
-                <th class="hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="session">Session</th>
-                <th class="hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>
-                <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lap">Lap</th>
-                <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
-                <th class="hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="involved">Involved</th>
-                <th class="py-3 pr-3 text-center font-medium" data-sort-key="pp">PP</th>
-                <th class="py-3 pr-3 text-center font-medium" data-sort-key="time">Time</th>
-                <th class="py-3 pr-3 text-center font-medium" data-sort-key="pts">Pts</th>
-                <th class="hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
-                <th class="py-3 pr-4" aria-hidden="true"></th>
+                <th class="whitespace-nowrap py-3 pl-4 pr-3 font-medium" data-sort-key="date">Date</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="season">Season</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="round">Round</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="session">Session</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lap">Lap</th>
+                <th class="whitespace-nowrap py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="involved">Involved</th>
+                <th class="whitespace-nowrap py-3 pr-3 text-center font-medium" data-sort-key="pp">PP</th>
+                <th class="whitespace-nowrap py-3 pr-3 text-center font-medium" data-sort-key="time">Time</th>
+                <th class="whitespace-nowrap py-3 pr-3 text-center font-medium" data-sort-key="pts">Pts</th>
+                <th class="whitespace-nowrap hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
+                <th class="whitespace-nowrap py-3 pr-4" aria-hidden="true"></th>
               </tr>
             </thead>
             <tbody>
@@ -199,6 +217,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     <!-- ================= By Driver ================= -->
     <div data-incidents-panel="byDriver" class="mt-6 hidden">
+      <p class="hidden text-white/60" data-min-starts-empty>No drivers have that many starts.</p>
       {data.byDriver.length === 0 ? (
         <p class="mt-6 text-white/60">No incidents logged yet.</p>
       ) : (
@@ -222,6 +241,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   <>
                     <tr
                       data-expand-row
+                      data-starts={agg.racesStarted}
                       tabindex="0"
                       role="button"
                       aria-expanded="false"

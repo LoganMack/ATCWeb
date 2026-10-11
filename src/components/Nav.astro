@@ -45,15 +45,56 @@ const navLogoLightUrl = currentSeason?.logo_url ? (currentSeason.logo_url_light 
 // have joined yet, so it still gets Sign-Up.
 const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
 
-const links: { href: string; label: string; external?: boolean }[] = [
+// `menu` = a hover dropdown on the desktop nav (the mobile nav stays a flat list
+// of the top-level links). `rounds` = the Results menu, whose rounds are fetched
+// from /api/nav-rounds the first time it's hovered (see the script below).
+type NavLink = { href: string; label: string; external?: boolean; menu?: { href: string; label: string }[]; rounds?: boolean };
+const links: NavLink[] = [
   { href: '/news', label: 'News' },
-  { href: '/calendar', label: 'Calendar' },
-  { href: '/results', label: 'Results' },
-  { href: '/standings', label: 'Standings' },
+  {
+    href: '/calendar',
+    label: 'Calendar',
+    menu: [
+      { href: '/calendar?view=list', label: 'List' },
+      { href: '/calendar?view=calendar', label: 'Calendar' },
+      { href: '/calendar?view=map', label: 'Map' },
+    ],
+  },
+  { href: '/results', label: 'Results', rounds: true },
+  {
+    href: '/standings',
+    label: 'Standings',
+    menu: [
+      { href: '/standings?championship=drivers', label: 'Drivers' },
+      { href: '/standings?championship=teams', label: 'Teams' },
+    ],
+  },
   { href: '/roster', label: 'Drivers' },
   { href: '/teams', label: 'Teams' },
-  { href: '/media', label: 'Media' },
-  { href: '/champions', label: 'History' },
+  {
+    href: '/media',
+    label: 'Media',
+    menu: [
+      { href: '/media?tab=videos', label: 'Video' },
+      { href: '/media?tab=race-photos', label: 'Photos' },
+      { href: '/media?tab=posters', label: 'Posters' },
+      { href: '/media?tab=replays', label: 'Replays' },
+      { href: '/media?tab=meetups', label: 'Meetups' },
+    ],
+  },
+  {
+    href: '/champions',
+    label: 'History',
+    menu: [
+      { href: '/champions', label: 'Champions' },
+      { href: '/driver-stats', label: 'Driver Stats' },
+      { href: '/team-stats', label: 'Team Stats' },
+      { href: '/hall-of-fame', label: 'Hall of Fame' },
+      { href: '/awards', label: 'Awards' },
+      { href: '/circuits', label: 'Circuits' },
+      { href: '/incidents', label: 'Incidents' },
+    ],
+  },
   { href: RULEBOOK_URL, label: 'Rulebook', external: true },
   { href: redbubbleUrl, label: 'Shop', external: true },
 ];
@@ -74,16 +115,44 @@ const links: { href: string; label: string; external?: boolean }[] = [
     </a>
 
     <nav class="hidden items-center gap-8 font-display text-lg uppercase tracking-widest sm:flex">
-      {links.map((link) => (
-        <a
-          href={link.href}
-          target={link.external ? '_blank' : undefined}
-          rel={link.external ? 'noopener noreferrer' : undefined}
-          class="text-white/80 transition hover:text-white"
-        >
-          {link.label}
-        </a>
-      ))}
+      {links.map((link) =>
+        link.menu || link.rounds ? (
+          // Hover/keyboard dropdown. The panel's outer wrapper adds top padding so
+          // the pointer can travel from the link to the panel without leaving the
+          // group, and there's deliberately no arrow next to the label.
+          <div class="group relative" data-nav-menu data-nav-rounds-menu={link.rounds ? '' : undefined}>
+            <a href={link.href} class="text-white/80 transition hover:text-white group-hover:text-white group-focus-within:text-white">
+              {link.label}
+            </a>
+            <div class="invisible absolute left-0 top-full z-50 -ml-3 pt-3 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
+              <div class="min-w-[11rem] rounded-[10px] border border-white/10 bg-brand-ink p-1.5 font-sans text-sm normal-case tracking-normal shadow-xl">
+                {link.menu?.map((item) => (
+                  <a href={item.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white">{item.label}</a>
+                ))}
+                {link.rounds && (
+                  <>
+                    <div data-nav-rounds class="max-h-80 min-w-[17rem] overflow-y-auto">
+                      <p class="px-3 py-2 text-white/40">Loading…</p>
+                    </div>
+                    <div class="-mx-1.5 -mb-1.5 mt-1.5 border-t border-white/10 p-1.5">
+                      <a href={link.href} class="block rounded-md px-3 py-2 font-semibold text-brand-primary transition hover:bg-white/[0.06]">All results &rarr;</a>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <a
+            href={link.href}
+            target={link.external ? '_blank' : undefined}
+            rel={link.external ? 'noopener noreferrer' : undefined}
+            class="text-white/80 transition hover:text-white"
+          >
+            {link.label}
+          </a>
+        )
+      )}
     </nav>
 
     <div class="flex items-center gap-2 sm:gap-3">
@@ -247,6 +316,71 @@ const links: { href: string; label: string; external?: boolean }[] = [
   }
 
   document.addEventListener('astro:page-load', initMobileNav);
+
+  // Results dropdown: fetch the current season's rounds the first time the menu is
+  // hovered or focused, then keep them for the rest of the visit. Delegated on the
+  // document so it survives page swaps without rebinding.
+  type NavRound = { id: number; round: number | null; track: string };
+  let navRounds: NavRound[] | null = null;
+  let navRoundsLoading = false;
+
+  function renderNavRounds(list: HTMLElement, state: 'ok' | 'error') {
+    list.replaceChildren();
+    if (state === 'error' || !navRounds || navRounds.length === 0) {
+      const p = document.createElement('p');
+      p.className = 'px-3 py-2 text-white/40';
+      p.textContent = state === 'error' ? "Couldn't load rounds." : 'No rounds yet.';
+      list.appendChild(p);
+      return;
+    }
+    for (const r of navRounds) {
+      const a = document.createElement('a');
+      a.href = `/results/${r.id}`;
+      a.className = 'flex items-baseline gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white';
+      if (r.round !== null) {
+        const num = document.createElement('span');
+        num.className = 'min-w-[3.75rem] text-white/40';
+        num.textContent = `Round ${r.round}`;
+        a.appendChild(num);
+      }
+      const track = document.createElement('span');
+      track.textContent = r.track;
+      a.appendChild(track);
+      list.appendChild(a);
+    }
+  }
+
+  async function loadNavRounds(menu: HTMLElement) {
+    const list = menu.querySelector<HTMLElement>('[data-nav-rounds]');
+    if (!list) return;
+    if (navRounds) {
+      if (!list.dataset.rendered) {
+        renderNavRounds(list, 'ok');
+        list.dataset.rendered = 'true';
+      }
+      return;
+    }
+    if (navRoundsLoading) return;
+    navRoundsLoading = true;
+    try {
+      const res = await fetch('/api/nav-rounds');
+      if (!res.ok) throw new Error(String(res.status));
+      navRounds = (await res.json()) as NavRound[];
+      renderNavRounds(list, 'ok');
+      list.dataset.rendered = 'true';
+    } catch {
+      renderNavRounds(list, 'error');
+    } finally {
+      navRoundsLoading = false;
+    }
+  }
+
+  function onNavMenuIntent(e: Event) {
+    const menu = (e.target as HTMLElement | null)?.closest?.<HTMLElement>('[data-nav-rounds-menu]');
+    if (menu) void loadNavRounds(menu);
+  }
+  document.addEventListener('mouseover', onNavMenuIntent);
+  document.addEventListener('focusin', onNavMenuIntent);
 
   // "Happening Now" banner: fills the marquee track with enough real
   // copies to cover any viewport width (see the long comment on the

@@ -6,7 +6,7 @@
 // for car logos (race results/standings rows) — both just need "a name, an
 // optional logo, show it small, and reveal the full name/label on hover."
 import { teamInitials } from '../lib/teamLogo';
-import { resizedImageUrl } from '../lib/supabase';
+import { logoBgAttrs, resizedImageUrl, type LogoBackground } from '../lib/supabase';
 
 interface Props {
   name: string;
@@ -33,15 +33,17 @@ interface Props {
    * from a call site that's rendering a car's logo.
    */
   tint?: boolean;
+  /** Light/dark plate behind the logo — for track logos (circuits.logo_background). Pass INSTEAD of `tint`, which would turn a plated logo black. */
+  logoBg?: LogoBackground | null;
 }
 
-const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title, resizeWidth = 96, tint = false } = Astro.props;
+const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title, resizeWidth = 96, tint = false, logoBg = null } = Astro.props;
 const hoverText = title ?? name;
 const resizedLogoUrl = resizedImageUrl(logoUrl, { width: resizeWidth });
 ---
 
 {resizedLogoUrl ? (
-  <img src={resizedLogoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''} ${tint ? 'theme-tint' : ''}`} />
+  <img src={resizedLogoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''} ${tint ? 'theme-tint' : ''}`} {...logoBgAttrs(logoBg)} />
 ) : (
   <div
     class={`${size} flex-none rounded bg-white/10 flex items-center justify-center text-[9px] font-bold uppercase tracking-wide text-white/50 ${grayscale ? 'opacity-60' : ''}`}
