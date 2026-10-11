@@ -40,5 +40,26 @@ function initReportDialog() {
   document.addEventListener('input', onFormChange);
   document.addEventListener('change', onFormChange);
 }
+// The homepage's "Submit Incident Report" link lands here as ?submit=incident:
+// open the Report Incident dialog as soon as the fetched fragment has put it
+// on the page (the loader re-dispatches astro:page-load once it has), then
+// drop the param so a refresh doesn't pop it open again.
+function openDialogFromLink() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('submit') !== 'incident') return;
+  const dialog = document.querySelector<HTMLDialogElement>('dialog[data-report-dialog]');
+  if (!dialog) return;
+  url.searchParams.delete('submit');
+  history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  if (dialog.open) return;
+  const form = dialog.querySelector<HTMLFormElement>('[data-report-form]');
+  form?.reset();
+  if (form) updateReportSubmit(form);
+  dialog.showModal();
+}
+
 initReportDialog();
-document.addEventListener('astro:page-load', initReportDialog);
+document.addEventListener('astro:page-load', () => {
+  initReportDialog();
+  openDialogFromLink();
+});
