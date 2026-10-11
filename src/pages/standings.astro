@@ -466,6 +466,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     tip.className =
       'pointer-events-none absolute z-20 hidden min-w-[11rem] max-w-[16rem] rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-xs shadow-lg';
     plot.appendChild(tip);
+    // Team name beside a hovered team logo (logos have no text of their own).
+    const nameTip = document.createElement('div');
+    nameTip.className =
+      'pointer-events-none absolute z-20 hidden whitespace-nowrap rounded-md border border-white/15 bg-brand-ink px-2 py-1 text-xs font-semibold text-white shadow-lg';
+    plot.appendChild(nameTip);
 
     function render() {
       plot!.querySelector('svg')?.remove();
@@ -536,33 +541,98 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         if (last >= 0) g.appendChild(el('circle', { cx: X(last), cy: Y(val(s, last) as number), r: 4, fill: colorOf(idx), stroke: 'var(--g-surface)', 'stroke-width': 2 }));
         svg.appendChild(g);
       }
-      // Direct labels on the four leaders (only where there's room on the right)
+      // End-of-line labels (names, or team logos on the team championship), each centred
+      // vertically on its own line's end. They overlap freely instead of pushing each other
+      // down: higher-ranked series are painted on top, and hovering a label or its line
+      // brings that series to the very front and highlights its line while it's hovered.
+      // Only the coloured top-8 are labelled by default; any other shown line gets its
+      // label while hovered. Needs room on the right, so none on narrow screens.
+      const labelLayer = el('g', {});
+      const labelNodes = new Map<string, SVGGElement>();
+      const labelCy = new Map<string, number>();
+      const labelBase = new Set<string>();
+      const labelOrder: string[] = [];
       if (m.r > 60) {
-        const leaders = visible
-          .filter((x) => val(x.s, n - 1) !== null)
-          .sort((a, b) => (val(b.s, n - 1) as number) - (val(a.s, n - 1) as number))
-          .slice(0, visible.some((x) => x.s.logo) ? 8 : 4);
-        let lastY = -99;
-        for (const { s } of leaders) {
+        const labelled = visible.filter((x) => val(x.s, n - 1) !== null).sort((a, b) => b.idx - a.idx); // lowest rank first → highest rank painted last (on top)
+        const lx = w - m.r + 8;
+        for (const { s, idx } of labelled) {
+          const cy = Y(val(s, n - 1) as number);
+          const g = el('g', { 'data-label-id': s.id });
+          g.appendChild(el('rect', { x: lx - 4, y: cy - 12, width: m.r - 4, height: 24, fill: 'transparent' }));
           if (s.logo) {
-            // Team championship: the team's logo sits at the line end instead of its name.
             const size = 24;
-            const y = Math.max(Y(val(s, n - 1) as number) - size / 2, lastY + size + 2);
-            lastY = y;
-            const img = el('image', { x: w - m.r + 8, y, width: size, height: size, href: s.logo, preserveAspectRatio: 'xMidYMid meet' });
-            const title = el('title', {});
-            title.textContent = s.full;
-            img.appendChild(title);
-            svg.appendChild(img);
-            continue;
+            const img = el('image', { x: lx, y: cy - size / 2, width: size, height: size, href: s.logo, preserveAspectRatio: 'xMidYMid meet' });
+            g.appendChild(img);
+          } else {
+            const t = el('text', {
+              x: lx,
+              y: cy,
+              fill: 'var(--g-ink)',
+              'font-size': 11,
+              'dominant-baseline': 'central',
+              stroke: 'var(--g-surface)',
+              'stroke-width': 3,
+              'stroke-linejoin': 'round',
+              'paint-order': 'stroke',
+            });
+            t.textContent = s.short.length > 14 ? `${s.short.slice(0, 13)}…` : s.short;
+            g.appendChild(t);
           }
-          const y = Math.max(Y(val(s, n - 1) as number) + 4, lastY + 13);
-          lastY = y;
-          const t = el('text', { x: w - m.r + 8, y, fill: 'var(--g-ink)', 'font-size': 11 });
-          t.textContent = s.short.length > 14 ? `${s.short.slice(0, 13)}…` : s.short;
-          svg.appendChild(t);
+          const title = el('title', {});
+          title.textContent = s.full;
+          g.appendChild(title);
+          labelNodes.set(s.id, g);
+          labelCy.set(s.id, cy);
+          labelOrder.push(s.id);
+          if (idx < TOP) labelBase.add(s.id);
+          labelLayer.appendChild(g);
         }
       }
+      svg.appendChild(labelLayer);
+
+      // Hover state shared by the lines and the labels: one highlighted series at a time.
+      function applyHighlight() {
+        paths.forEach((p, id) => p.setAttribute('stroke-width', id === highlight ? '3.5' : '2'));
+        groups.forEach((g, id) => g.setAttribute('opacity', highlight && id !== highlight ? '0.35' : '1'));
+        // Highlighted line goes in front of the other lines (still under the labels); with nothing highlighted, restore the normal order.
+        if (highlight) {
+          const g = groups.get(highlight);
+          if (g) svg.insertBefore(g, labelLayer);
+        } else {
+          for (const { s } of ordered) {
+            const g = groups.get(s.id);
+            if (g) svg.insertBefore(g, labelLayer);
+          }
+        }
+        labelNodes.forEach((g, id) => {
+          g.style.display = labelBase.has(id) || id === highlight ? '' : 'none';
+          g.setAttribute('opacity', highlight && id !== highlight ? '0.35' : '1');
+        });
+        // Highlighted label jumps to the top; otherwise back to rank order (best on top).
+        if (highlight && labelNodes.has(highlight)) labelLayer.appendChild(labelNodes.get(highlight)!);
+        else labelOrder.forEach((id) => labelLayer.appendChild(labelNodes.get(id)!));
+        // Logos have no text, so a hovered logo gets the team name beside it.
+        const hs = highlight ? data.series.find((x) => x.id === highlight) : null;
+        if (hs && hs.logo && labelCy.has(hs.id)) {
+          nameTip.textContent = hs.full;
+          nameTip.classList.remove('hidden');
+          const tw = nameTip.offsetWidth;
+          nameTip.style.left = `${Math.max(0, w - m.r + 8 - tw - 8)}px`;
+          nameTip.style.top = `${Math.max(0, (labelCy.get(hs.id) as number) - nameTip.offsetHeight / 2)}px`;
+        } else {
+          nameTip.classList.add('hidden');
+        }
+      }
+      function setHighlight(next: string | null) {
+        if (next === highlight) return;
+        highlight = next;
+        applyHighlight();
+      }
+      labelLayer.addEventListener('pointerover', (e) => {
+        const g = (e.target as Element).closest('[data-label-id]');
+        if (g) setHighlight(g.getAttribute('data-label-id'));
+      });
+      labelLayer.addEventListener('pointerleave', () => setHighlight(null));
       // Crosshair + hit layer
       const cross = el('line', { y1: m.t, y2: m.t + ih, stroke: 'var(--g-axis)', 'stroke-width': 1, opacity: 0 });
       svg.appendChild(cross);
@@ -589,11 +659,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             near = r.s.id;
           }
         }
-        if (near !== highlight) {
-          highlight = near;
-          paths.forEach((p, id) => p.setAttribute('stroke-width', id === highlight ? '3.5' : '2'));
-          groups.forEach((g, id) => g.setAttribute('opacity', highlight && id !== highlight ? '0.35' : '1'));
-        }
+        setHighlight(near);
         rows.sort((a, b) => b.v - a.v);
         tip.replaceChildren();
         const head = document.createElement('div');
@@ -630,13 +696,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       hit.addEventListener('pointerleave', () => {
         cross.setAttribute('opacity', '0');
         tip.classList.add('hidden');
-        if (highlight) {
-          highlight = null;
-          paths.forEach((p) => p.setAttribute('stroke-width', '2'));
-          groups.forEach((g) => g.setAttribute('opacity', '1'));
-        }
+        setHighlight(null);
       });
       plot!.insertBefore(svg, tip);
+      applyHighlight(); // keeps a highlight (and the label visibility rules) across re-renders
     }
 
     function renderLegend() {

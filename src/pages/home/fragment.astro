@@ -513,18 +513,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                       {shortDriverName(row.driver.name)}
                                       {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                                     </span>
-                                    <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                                    {/* Car/team logos hidden on mobile (Logan) — this card is narrow enough that they crowd the row; same "hidden sm:contents" technique as ResultsTable.astro's row. */}
-                                    {row.car && (
-                                      <span class="hidden sm:contents">
-                                        <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />
-                                      </span>
-                                    )}
-                                    {row.team && (
-                                      <span class="hidden sm:contents">
-                                        <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />
-                                      </span>
-                                    )}
+                                    {/* Flag / car / team sit in FIXED-WIDTH slots, same as ResultsTable.astro's row: a driver with no flag, car or team still gets an empty slot, so everything else lines up row to row. Car/team logos hidden on mobile (Logan) — this card is narrow enough that they crowd the row. */}
+                                    <span class="flex h-5 w-6 flex-none items-center justify-center">
+                                      <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                                    </span>
+                                    <span class="hidden h-5 w-5 flex-none items-center justify-center sm:flex">
+                                      {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-5 w-5" tint />}
+                                    </span>
+                                    <span class="hidden h-5 w-5 flex-none items-center justify-center sm:flex">
+                                      {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-5 w-5" />}
+                                    </span>
                                     {rowClassName && (
                                       <span class={classTagFull(rowClassName)}>
                                         {rowClassName}
@@ -625,18 +623,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             {shortDriverName(row.driver.name)}
                             {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                           </span>
-                          <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
-                          {/* Car/team logos hidden on mobile (Logan) — same treatment as the Previous Result widget's driver rows above. */}
-                          {extras && extras.cars.length > 0 && (
-                            <span class="hidden sm:contents">
-                              <CarLogos cars={extras.cars} size="h-5 w-5" />
-                            </span>
-                          )}
-                          {primaryTeam && (
-                            <span class="hidden sm:contents">
-                              <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />
-                            </span>
-                          )}
+                          {/* Same fixed-width flag / car / team slots as the Previous Result widget's driver rows above (car/team hidden on mobile). */}
+                          <span class="flex h-5 w-6 flex-none items-center justify-center">
+                            <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+                          </span>
+                          <span class="hidden h-5 w-5 flex-none items-center justify-center sm:flex">
+                            {extras && extras.cars.length > 0 && <CarLogos cars={extras.cars} size="h-5 w-5" />}
+                          </span>
+                          <span class="hidden h-5 w-5 flex-none items-center justify-center sm:flex">
+                            {primaryTeam && <TeamLogo name={primaryTeam.teamName} logoUrl={primaryTeam.logoUrl} size="h-5 w-5" />}
+                          </span>
                           {rowClassName && (
                             <span class={classTagFull(rowClassName)}>
                               {rowClassName}

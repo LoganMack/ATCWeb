@@ -32,6 +32,11 @@ import {
   roundsSinceDate,
   getSeasons,
   getTeamRosterWithTeamsForSeason,
+  uploadDriverAvatar,
+  updateMyDriverProfile,
+  DRIVER_BIO_MAX,
+  DRIVER_AVATAR_MAX_BYTES,
+  DRIVER_AVATAR_TYPES,
 } from '../../lib/supabase';
 import { getOfficialRoundStartTimes } from '../../lib/results';
 import { isOnProbationNow } from '../../lib/penalties';
@@ -46,6 +51,50 @@ import {
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
+
+// A signed-in user whose login is linked to THIS roster driver can edit their own
+// photo and bio here (0104_driver_self_service_profile.sql). Signed-in requests
+// are never stored in the shared edge cache (see middleware.ts), so rendering the
+// edit controls server-side for them is safe.
+const session = Astro.locals.session;
+const isOwner = Boolean(session && session.profile?.driver_id && session.profile.driver_id === driverId);
+
+if (Astro.request.method === 'POST') {
+  const back = (code: string) => Astro.redirect(`/drivers/${driverId}?${code}`, 303);
+  if (!isOwner || !session) return Astro.redirect(`/drivers/${driverId}`, 303);
+  try {
+    const form = await Astro.request.formData();
+    const bio = String(form.get('bio') ?? '').trim();
+    if (bio.length > DRIVER_BIO_MAX) return back('profile_error=bio-too-long');
+
+    let photoUrl: string | undefined;
+    const photo = form.get('photo');
+    if (photo instanceof File && photo.size > 0) {
+      if (!DRIVER_AVATAR_TYPES[photo.type]) return back('profile_error=photo-type');
+      if (photo.size > DRIVER_AVATAR_MAX_BYTES) return back('profile_error=photo-size');
+      photoUrl = await uploadDriverAvatar(supabaseEnv, session.accessToken, driverId, photo);
+    }
+    await updateMyDriverProfile(supabaseEnv, session.accessToken, { bio: bio || null, photoUrl });
+    return back('saved=1');
+  } catch (err) {
+    console.error('Failed to save driver profile:', err);
+    return back('profile_error=failed');
+  }
+}
+
+const PROFILE_ERRORS: Record<string, string> = {
+  'bio-too-long': `Your bio can be at most ${DRIVER_BIO_MAX} characters.`,
+  'photo-type': 'Profile photos must be PNG, JPG or WebP images.',
+  'photo-size': `Profile photos can be at most ${DRIVER_AVATAR_MAX_BYTES / 1024 / 1024} MB.`,
+  failed: "Couldn't save your profile. Try again in a moment.",
+};
+const profileFlash: { kind: 'ok' | 'error'; message: string } | null = !isOwner
+  ? null
+  : Astro.url.searchParams.get('saved')
+    ? { kind: 'ok', message: 'Profile updated.' }
+    : PROFILE_ERRORS[Astro.url.searchParams.get('profile_error') ?? '']
+      ? { kind: 'error', message: PROFILE_ERRORS[Astro.url.searchParams.get('profile_error') ?? ''] }
+      : null;
 
 let loadError: string | null = null;
 let driver: Awaited<ReturnType<typeof getDriverProfileById>> = null;
@@ -112,6 +161,7 @@ if (!loadError && driver) {
   }
 }
 
+const HeaderTag = isOwner ? 'form' : 'div';
 const displayName = driver ? displayDriverName(driver.name) : '';
 const photoUrl = driver ? resizedImageUrl(driver.photo_url, { width: 320 }) : null;
 const statusName = driver?.driver_statuses?.name ?? '—';
@@ -131,8 +181,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     {!loadError && driver && (
       <>
-        <!-- Header -->
-        <div class="reveal relative grid gap-6 rounded-xl border border-white/10 bg-brand-ink p-6 sm:grid-cols-[176px_1fr] sm:p-8">
+        {profileFlash && (
+          <p class={`mb-4 rounded-lg border p-3 text-sm text-white/80 ${profileFlash.kind === 'ok' ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}>
+            {profileFlash.message}
+          </p>
+        )}
+        <!-- Header. For the driver themselves this is a form: the nav's Edit button switches it into edit mode (see the script below). -->
+        <HeaderTag
+          class="reveal relative grid gap-6 rounded-xl border border-white/10 bg-brand-ink p-6 sm:grid-cols-[176px_1fr] sm:p-8"
+          {...(isOwner ? { method: 'post', enctype: 'multipart/form-data', 'data-profile-form': '' } : {})}
+        >
           <!-- Activity status: pinned to the top-right corner, right-aligned.
                Hidden entirely on mobile (Logan) — the reserved `pr-24` gutter
                on the name column below is dropped there too, so the driver
@@ -164,13 +222,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             )}
           </div>
 
-          {photoUrl ? (
-            <img src={photoUrl} alt={displayName} class="h-40 w-40 flex-none rounded-xl object-cover sm:h-44 sm:w-44" />
-          ) : (
-            <div class="flex h-40 w-40 flex-none items-center justify-center rounded-xl bg-white/5 font-display text-5xl text-white/20 sm:h-44 sm:w-44">
-              {driver.car_number !== null ? `#${driver.car_number}` : displayName.charAt(0)}
-            </div>
-          )}
+          <div class="relative h-40 w-40 flex-none sm:h-44 sm:w-44">
+            {photoUrl ? (
+              <img src={photoUrl} alt={displayName} class="h-full w-full rounded-xl object-cover" />
+            ) : (
+              <div class="flex h-full w-full items-center justify-center rounded-xl bg-white/5 font-display text-5xl text-white/20">
+                {driver.car_number !== null ? `#${driver.car_number}` : displayName.charAt(0)}
+              </div>
+            )}
+            {isOwner && (
+              <>
+                <img data-photo-preview alt="" class="absolute inset-0 hidden h-full w-full rounded-xl object-cover" />
+                {/* Edit mode only: click the photo to pick a new one. */}
+                <label data-edit-only class="absolute inset-0 hidden cursor-pointer items-center justify-center rounded-xl bg-black/55 text-center text-sm font-semibold text-white transition hover:bg-black/65 focus-within:ring-2 focus-within:ring-brand-primary">
+                  <span class="px-2">Click to change photo</span>
+                  <input type="file" name="photo" accept="image/png,image/jpeg,image/webp" data-photo-input class="sr-only" />
+                </label>
+              </>
+            )}
+          </div>
 
           <div class="min-w-0 sm:pr-32">
             <div class="flex flex-wrap items-center gap-2">
@@ -199,9 +269,33 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               </span>
             </div>
 
-            {driver.bio && <p class="mt-4 max-w-2xl text-sm text-white/70">{driver.bio}</p>}
+            {driver.bio && <p data-view-only class="mt-4 max-w-2xl whitespace-pre-line text-sm text-white/70">{driver.bio}</p>}
+
+            {isOwner && (
+              <div data-edit-only class="mt-4 hidden max-w-2xl">
+                <label class="flex flex-col gap-1.5 text-sm">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Bio</span>
+                  <textarea
+                    name="bio"
+                    rows="5"
+                    maxlength={DRIVER_BIO_MAX}
+                    data-bio-input
+                    placeholder="Tell people a bit about yourself…"
+                    class="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+                  >{driver.bio ?? ''}</textarea>
+                </label>
+                <div class="mt-1 flex items-center justify-between gap-3 text-xs text-white/40">
+                  <span data-photo-error class="text-brand-pink"></span>
+                  <span><span data-bio-count>0</span> / {DRIVER_BIO_MAX}</span>
+                </div>
+                <div class="mt-4 flex gap-2">
+                  <button type="submit" class="btn btn-primary">Save</button>
+                  <button type="button" data-profile-cancel class="btn btn-neutral">Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        </HeaderTag>
 
         <!-- Body: season/race/career-moves/awards tables live in
              drivers/[id]/fragment.astro — fetched client-side below. Hall of
@@ -296,6 +390,91 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     document.addEventListener('astro:page-load', initDriverResults);
     document.addEventListener('astro:page-load', initSplitsSync);
+
+    // Own-profile editing. The nav's Edit button (only rendered on your own driver
+    // page) toggles the header between view and edit mode; delegated listeners on
+    // `document` so it keeps working across page swaps without rebinding.
+    const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+    const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
+    function profileForm(): HTMLFormElement | null {
+      return document.querySelector<HTMLFormElement>('form[data-profile-form]');
+    }
+    function updateBioCount(form: HTMLFormElement) {
+      const input = form.querySelector<HTMLTextAreaElement>('[data-bio-input]');
+      const count = form.querySelector<HTMLElement>('[data-bio-count]');
+      if (!input || !count) return;
+      count.textContent = String(input.value.length);
+      count.classList.toggle('text-brand-pink', input.value.length > input.maxLength);
+    }
+    function setProfileEditing(form: HTMLFormElement, editing: boolean) {
+      form.querySelectorAll<HTMLElement>('[data-edit-only]').forEach((el) => {
+        el.classList.toggle('hidden', !editing);
+        // The photo overlay is a flex box when shown, everything else is block.
+        if (el.tagName === 'LABEL') el.classList.toggle('flex', editing);
+      });
+      form.querySelectorAll<HTMLElement>('[data-view-only]').forEach((el) => el.classList.toggle('hidden', editing));
+      document.querySelectorAll<HTMLElement>('[data-profile-edit-toggle]').forEach((b) => b.setAttribute('aria-pressed', String(editing)));
+      form.dataset.editing = editing ? 'true' : 'false';
+      if (editing) updateBioCount(form);
+    }
+    function resetProfileForm(form: HTMLFormElement) {
+      form.reset();
+      const preview = form.querySelector<HTMLImageElement>('[data-photo-preview]');
+      if (preview) {
+        if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+        preview.removeAttribute('src');
+        preview.classList.add('hidden');
+      }
+      const err = form.querySelector<HTMLElement>('[data-photo-error]');
+      if (err) err.textContent = '';
+    }
+
+    document.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const form = profileForm();
+      if (!form) return;
+      if (target.closest('[data-profile-edit-toggle]')) {
+        const next = form.dataset.editing !== 'true';
+        if (!next) resetProfileForm(form);
+        setProfileEditing(form, next);
+        return;
+      }
+      if (target.closest('[data-profile-cancel]')) {
+        resetProfileForm(form);
+        setProfileEditing(form, false);
+      }
+    });
+    document.addEventListener('input', (e) => {
+      const input = (e.target as HTMLElement).closest<HTMLTextAreaElement>('[data-bio-input]');
+      const form = input?.closest<HTMLFormElement>('form[data-profile-form]');
+      if (form) updateBioCount(form);
+    });
+    document.addEventListener('change', (e) => {
+      const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-photo-input]');
+      const form = input?.closest<HTMLFormElement>('form[data-profile-form]');
+      if (!input || !form) return;
+      const err = form.querySelector<HTMLElement>('[data-photo-error]');
+      const preview = form.querySelector<HTMLImageElement>('[data-photo-preview]');
+      const file = input.files?.[0];
+      if (err) err.textContent = '';
+      if (!file) return;
+      if (!AVATAR_TYPES.includes(file.type)) {
+        if (err) err.textContent = 'Photos must be PNG, JPG or WebP.';
+        input.value = '';
+        return;
+      }
+      if (file.size > AVATAR_MAX_BYTES) {
+        if (err) err.textContent = 'Photos can be at most 5 MB.';
+        input.value = '';
+        return;
+      }
+      if (preview) {
+        if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
+        preview.src = URL.createObjectURL(file);
+        preview.classList.remove('hidden');
+      }
+    });
 
     // The Seasons / Races / Splits / Bests tab switch — same reasoning as
     // initDriverResults' own doc comment on why this has to be a delegated
