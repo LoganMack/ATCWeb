@@ -8,6 +8,9 @@ import {
   resolveSupabaseEnv,
   getCircuits,
   getAllCircuitLayouts,
+  getCircuitLogoBackgrounds,
+  logoBgAttrs,
+  type LogoBackground,
   formatLapTime,
   formatDate,
   displayLayoutName,
@@ -34,11 +37,13 @@ const bannerPromise = (async () => {
 
 let circuits: Circuit[] = [];
 let layouts: CircuitLayout[] = [];
+let logoBackgrounds: Record<string, LogoBackground> = {};
 let loadError = false;
 try {
-  const [circuitsResult, layoutsResult] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
+  const [circuitsResult, layoutsResult, logoBgResult] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
   circuits = circuitsResult;
   layouts = layoutsResult;
+  logoBackgrounds = logoBgResult;
 } catch (err) {
   console.error('Failed to load circuits:', err);
   loadError = true;
@@ -146,7 +151,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           ▶
                         </span>
                         {imageUrl ? (
-                          <img src={imageUrl} alt="" class="h-9 w-9 flex-none rounded object-contain" data-contrast-logo />
+                          <img src={imageUrl} alt="" class="h-9 w-9 flex-none rounded object-contain" {...logoBgAttrs(logoBackgrounds[layout.circuit_id])} />
                         ) : (
                           <div class="h-9 w-9 flex-none rounded bg-white/10"></div>
                         )}

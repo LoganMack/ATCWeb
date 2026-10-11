@@ -2072,6 +2072,35 @@ export async function getCircuitCoordinates(env: SupabaseEnv): Promise<{ id: str
   }
 }
 
+export type LogoBackground = 'light' | 'dark';
+
+/**
+ * Per-circuit plate behind the primary track logo (0103_circuit_logo_background.sql),
+ * chosen on /admin/circuits/<id> for logos that disappear into one of the
+ * themes (a dark logo on the dark theme, a white one on the light theme).
+ * Keyed by circuit id; circuits with no plate are simply absent. Separate,
+ * failure-tolerant query for the same reason as getCircuitCoordinates: this
+ * must never break a page if the code is deployed before the migration.
+ */
+export async function getCircuitLogoBackgrounds(env: SupabaseEnv): Promise<Record<string, LogoBackground>> {
+  try {
+    const rows = await restGet<{ id: string; logo_background: string | null }[]>(env, 'circuits?select=id,logo_background&logo_background=not.is.null');
+    const out: Record<string, LogoBackground> = {};
+    for (const r of rows) {
+      if (r.logo_background === 'light' || r.logo_background === 'dark') out[r.id] = r.logo_background;
+    }
+    return out;
+  } catch (err) {
+    console.error('Failed to load circuit logo backgrounds (is 0103_circuit_logo_background.sql applied?):', err);
+    return {};
+  }
+}
+
+/** Attributes to spread onto a track-logo <img>: global.css draws the chosen plate behind it (see `data-logo-bg`). Empty when no plate is set. */
+export function logoBgAttrs(bg: LogoBackground | null | undefined): Record<string, string> {
+  return bg ? { 'data-logo-bg': bg } : {};
+}
+
 export async function getCircuitById(env: SupabaseEnv, id: string) {
   const circuits = await restGet<Circuit[]>(
     env,
@@ -2084,7 +2113,7 @@ export function createCircuit(env: SupabaseEnv, accessToken: string, data: Parti
   return restPost<Circuit>(env, accessToken, 'circuits', data);
 }
 
-export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null }) {
+export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null; logo_background?: LogoBackground | null }) {
   return restPatch<Circuit>(env, accessToken, `circuits?id=eq.${encodeURIComponent(id)}`, data);
 }
 

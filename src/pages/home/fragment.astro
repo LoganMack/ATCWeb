@@ -10,6 +10,7 @@ import {
   getNewsPosts,
   getUpcomingEvents,
   getAllCircuitLayouts,
+  getCircuitLogoBackgrounds,
   getSeasons,
   getDriverClasses,
   getStandingsExcludedRoundIds,
@@ -53,12 +54,14 @@ let upcomingEvents: Awaited<ReturnType<typeof getUpcomingEvents>> = [];
 // file) takes priority over the circuit's generic logo on the "Next Up"
 // card, same as everywhere else an event shows a circuit image.
 let eventLayouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
+let logoBackgrounds: Awaited<ReturnType<typeof getCircuitLogoBackgrounds>> = {};
 const loadTopSection = async () => {
   try {
-    [latestNews, upcomingEvents, eventLayouts] = await Promise.all([
+    [latestNews, upcomingEvents, eventLayouts, logoBackgrounds] = await Promise.all([
       getNewsPosts(supabaseEnv, 16),
       getUpcomingEvents(supabaseEnv, 4),
       getAllCircuitLayouts(supabaseEnv),
+      getCircuitLogoBackgrounds(supabaseEnv),
     ]);
   } catch (err) {
     // Supabase not configured yet / unreachable at build time — render the
@@ -416,7 +419,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         )}
 
         <div class="space-y-3">
-          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} layouts={eventLayouts} />)}
+          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} layouts={eventLayouts} logoBackgrounds={logoBackgrounds} />)}
         </div>
 
         {upcomingEvents.length > 0 && (

@@ -3,6 +3,8 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
+  getCircuitLogoBackgrounds,
+  type LogoBackground,
   resolveSupabaseEnv,
   getCircuitById,
   getCircuitCoordinates,
@@ -180,6 +182,10 @@ if (Astro.request.method === 'POST') {
     const name = String(form.get('name') ?? '').trim();
     const location = String(form.get('location') ?? '').trim() || null;
     const logoFile = form.get('logo');
+    // Light/dark plate behind the logo. Only written when it changed, so saving anything else never touches the column.
+    const bgRaw = String(form.get('logo_background') ?? '');
+    const newLogoBg: LogoBackground | null = bgRaw === 'light' || bgRaw === 'dark' ? bgRaw : null;
+    const logoBgChanged = (newLogoBg ?? '') !== String(form.get('had_logo_background') ?? '');
 
     // Map coordinates (0098_circuit_coordinates.sql). Only sent when something is
     // being set or cleared, so saving other fields never touches these columns.
@@ -220,6 +226,10 @@ if (Astro.request.method === 'POST') {
           await updateCircuit(supabaseEnv, accessToken, circuitId!, { logo_url });
         }
 
+        if (logoBgChanged) {
+          await updateCircuit(supabaseEnv, accessToken, circuitId!, { logo_background: newLogoBg });
+        }
+
         await logActivity(supabaseEnv, accessToken, actor, {
           action: isNew ? 'add' : 'edit',
           entity_type: 'circuit',
@@ -243,6 +253,10 @@ if (!isNew && id) {
 }
 
 const c: Partial<Circuit> = circuit ?? { name: '', logo_url: null, location: null };
+let currentLogoBg: LogoBackground | '' = '';
+if (!isNew && id) {
+  currentLogoBg = (await getCircuitLogoBackgrounds(supabaseEnv))[id] ?? '';
+}
 let coordsRow: { latitude: number | null; longitude: number | null } | null = null;
 if (!isNew && id) {
   coordsRow = (await getCircuitCoordinates(supabaseEnv)).find((r) => r.id === id) ?? null;
@@ -320,7 +334,7 @@ if (!isNew && id) {
     <div class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Logo</span>
       {c.logo_url && (
-        <img src={c.logo_url} alt="" class="mb-2 h-16 w-16 rounded object-contain ring-1 ring-white/10" />
+        <img src={c.logo_url} alt="" data-logo-preview {...(currentLogoBg ? { 'data-logo-bg': currentLogoBg } : {})} class="mb-2 h-16 w-16 rounded object-contain ring-1 ring-white/10" />
       )}
       <input
         type="file"
@@ -330,6 +344,21 @@ if (!isNew && id) {
       />
       <span class="text-xs text-white/40">PNG, JPG, WebP, or SVG. Uploading a new file replaces the current logo.</span>
     </div>
+
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Logo background</span>
+      <select
+        name="logo_background"
+        data-logo-bg-select
+        class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
+      >
+        <option value="" selected={currentLogoBg === ''}>None</option>
+        <option value="light" selected={currentLogoBg === 'light'}>Light</option>
+        <option value="dark" selected={currentLogoBg === 'dark'}>Dark</option>
+      </select>
+      <input type="hidden" name="had_logo_background" value={currentLogoBg} />
+      <span class="text-xs text-white/40">Puts a plate behind this logo everywhere it's shown. Pick Light for a dark logo that gets lost on the dark theme, or Dark for a white logo that gets lost on the light theme.</span>
+    </label>
 
     <div class="mt-2 flex gap-3">
       <button
@@ -645,6 +674,15 @@ if (!isNew && id) {
       btn.addEventListener('click', (e) => {
         if (!confirm(btn.dataset.confirm || 'Are you sure?')) e.preventDefault();
       });
+    });
+
+    // Live preview of the chosen logo background on the saved logo thumbnail.
+    const bgSelect = document.querySelector<HTMLSelectElement>('[data-logo-bg-select]');
+    const preview = document.querySelector<HTMLImageElement>('[data-logo-preview]');
+    bgSelect?.addEventListener('change', () => {
+      if (!preview) return;
+      if (bgSelect.value) preview.setAttribute('data-logo-bg', bgSelect.value);
+      else preview.removeAttribute('data-logo-bg');
     });
   });
 </script>

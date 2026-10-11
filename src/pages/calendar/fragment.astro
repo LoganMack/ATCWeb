@@ -6,6 +6,7 @@ import {
   getEvents,
   getCircuits,
   getCircuitCoordinates,
+  getCircuitLogoBackgrounds,
   getAllCircuitLayouts,
   resolveSupabaseEnv,
   eventImageUrl,
@@ -71,6 +72,7 @@ let layoutRoundsCountByEventId = new Map<string, number | null>();
 let linkedRoundByEventId = new Map<string, RoundSummary | null>();
 // Circuit latitude/longitude for the Map view — tolerant of the columns not existing yet (returns []), so it can never take the page down.
 const coordsPromise = getCircuitCoordinates(supabaseEnv);
+const logoBgPromise = getCircuitLogoBackgrounds(supabaseEnv);
 const bulkFetchPromise = (async () => {
   try {
     return await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv), getAllRounds(supabaseEnv)]);
@@ -99,7 +101,7 @@ const rulesetsFetchPromise = (async () => {
   }
 })();
 
-const [allEvents, bulkResult, rulesetsResult, circuitCoords] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise, coordsPromise]);
+const [allEvents, bulkResult, rulesetsResult, circuitCoords, logoBackgrounds] = await Promise.all([eventsPromise, bulkFetchPromise, rulesetsFetchPromise, coordsPromise, logoBgPromise]);
 
 // Season picker: the page shows ONE season's events at a time (the current season
 // unless ?season=<number> says otherwise, or "all"), always including its past
@@ -299,7 +301,7 @@ const upcomingIcsBundle = upcoming
         )}
         {upcoming.length > 0 && (
           <div class="mt-6 divide-y divide-white/10 rounded-xl border border-white/10 bg-brand-ink">
-            {upcoming.map((event, i) => <EventDetailCard variant="row" event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
+            {upcoming.map((event, i) => <EventDetailCard variant="row" event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} logoBackgrounds={logoBackgrounds} />)}
           </div>
         )}
 
@@ -307,7 +309,7 @@ const upcomingIcsBundle = upcoming
           <div id="past-events-block">
             <h2 class="reveal mt-14 font-display text-2xl uppercase tracking-widest text-white/50">Past Events</h2>
             <div class="mt-6 divide-y divide-white/10 rounded-xl border border-white/10 bg-brand-ink opacity-70">
-              {past.map((event, i) => <EventDetailCard variant="row" event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} />)}
+              {past.map((event, i) => <EventDetailCard variant="row" event={event} index={i} layoutRoundsCount={layoutRoundsCountByEventId.get(event.id) ?? undefined} linkedRound={linkedRoundByEventId.get(event.id) ?? null} incidentLimit={incidentLimitByEventId.get(event.id) ?? null} layouts={layouts} logoBackgrounds={logoBackgrounds} />)}
             </div>
           </div>
         )}
