@@ -1,12 +1,13 @@
 ---
 export const prerender = false;
 
-// The Event Briefing page — linked only from the homepage's next-upcoming-
-// event card (src/components/UpcomingEventCard.astro, left of "Add to
-// Calendar"), for whichever event is chronologically next. Not otherwise
-// restricted at this page's own level (reachable by URL for any real,
-// track-having event) — same "not linked everywhere, but not gated either"
-// approach as /results/[subsessionId].astro's own pages.
+// The Event Briefing page — linked from the homepage's next-upcoming-event
+// card (src/components/UpcomingEventCard.astro, left of "Add to Calendar")
+// and from every upcoming event's card on the calendar
+// (src/components/EventDetailCard.astro). Not otherwise restricted at this
+// page's own level (reachable by URL for any real, track-having event) —
+// same "not linked everywhere, but not gated either" approach as
+// /results/[subsessionId].astro's own pages.
 import Layout from '../../layouts/Layout.astro';
 import {
   resolveSupabaseEnv,
@@ -14,14 +15,14 @@ import {
   getCircuits,
   getAllCircuitLayouts,
   getDriverClasses,
-  getPenaltiesForSubsessions,
   getCarLogos,
   getRaceLinksForSubsessions,
-  formatDate,
+  formatDateShort,
   formatLapTime,
   displayLayoutName,
-  displayDriverName,
+  shortDriverName,
   layoutImageUrl,
+  resizedImageUrl,
   getCircuitLogoBackgrounds,
   logoBgAttrs,
   type LogoBackground,
@@ -41,13 +42,15 @@ import {
   getLayoutClassBestLaps,
   resolveLapRecordCar,
   driversSelect,
-  describePenaltyResolution,
   type LayoutRoundSummary,
   type LayoutHighlights,
   type ClassBestLap,
 } from '../../lib/results';
 import { classBadgeLetter, classTagFull, classTagShort } from '../../lib/classColors';
+import { getIncidentsForSubsessions, type IncidentRow } from '../../lib/incidents';
 import WeatherIcon from '../../components/WeatherIcon.astro';
+import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
+import IncidentDetailsDialog from '../../components/IncidentDetailsDialog.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const eventId = Astro.params.eventId ?? '';
@@ -76,21 +79,16 @@ let layoutRow: CircuitLayout | null = null;
 let recordCarName: string | null = null;
 let recordCarLogoUrl: string | null = null;
 let imageUrl: string | null = null;
+/** The layout's own track-map image (circuit_layouts.image_url, "Layout map" in admin) — shown in its own section; null hides the section. */
+let layoutMapUrl: string | null = null;
 let logoBg: LogoBackground | null = null;
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let classNameById = new Map<number, string>();
 let historicalRounds: LayoutRoundSummary[] = [];
 let highlights: LayoutHighlights = { winnersByClass: new Map(), polesByClass: new Map() };
 let classBestLaps: Map<number, ClassBestLap> = new Map();
-interface IncidentEntry {
-  round: LayoutRoundSummary;
-  /** "#12", or the driver's display name as a fallback when they have no car_number on file, or "Racing Incident" when no driver is attached at all — see item 5/8 of Logan's briefing tweaks. */
-  identityLabel: string;
-  description: string;
-  /** From describePenaltyResolution() — null when this penalty carries no consequence at all. */
-  resolution: string | null;
-}
-let incidentEntries: IncidentEntry[] = [];
+/** Every posted incident at this layout, newest first — rendered with the same table (and click-for-details popup) as History → Incidents. */
+let incidentRows: IncidentRow[] = [];
 /** One race's broadcast or photo-album link, paired with the historical round it belongs to for date/season display — same shape for both new sections below, just holding whichever url applies. */
 interface MediaEntry {
   round: LayoutRoundSummary;
@@ -114,6 +112,7 @@ if (!loadError && event && event.circuit_id) {
     circuit = circuits.find((c) => c.id === event!.circuit_id) ?? null;
     layoutRow = circuit ? resolveLayout(circuit.name, event.layout, circuits, layouts) : null;
     imageUrl = layoutRow ? layoutImageUrl(layoutRow, circuit) : (circuit?.logo_url ?? null);
+    layoutMapUrl = layoutRow?.image_url ?? null;
     logoBg = circuit ? ((await getCircuitLogoBackgrounds(supabaseEnv))[circuit.id] ?? null) : null;
     classes = driverClasses;
     classNameById = new Map(classes.map((c) => [c.id, c.name]));
@@ -124,10 +123,11 @@ if (!loadError && event && event.circuit_id) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
 
-    const [layoutHighlights, layoutClassBestLaps, penalties, raceLinks, resolvedRecordCar] = await Promise.all([
-      getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
+    const [layoutHighlights, layoutClassBestLaps, incidents, raceLinks, resolvedRecordCar] = await Promise.all([
+      // allRaces: a sprint weekend lists every race's winner, not just race 1's. Poles are unchanged.
+      getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers, { allRaces: true }),
       getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers, carLogos),
-      getPenaltiesForSubsessions(
+      getIncidentsForSubsessions(
         supabaseEnv,
         historicalRounds.map((r) => r.subsessionId)
       ),
@@ -142,27 +142,8 @@ if (!loadError && event && event.circuit_id) {
     recordCarName = resolvedRecordCar?.carName ?? null;
     recordCarLogoUrl = resolvedRecordCar?.carLogoUrl ?? null;
 
-    const driverById = new Map(drivers.map((d) => [d.id, d]));
+    incidentRows = incidents;
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
-    incidentEntries = penalties
-      .map((p): IncidentEntry | null => {
-        const round = roundBySubsession.get(p.subsession_id);
-        if (!round) return null;
-        const driver = p.driver_id ? driverById.get(p.driver_id) : null;
-        const identityLabel = driver
-          ? driver.car_number !== null
-            ? `#${driver.car_number}`
-            : displayDriverName(driver.name)
-          : 'Racing Incident';
-        return {
-          round,
-          identityLabel,
-          description: p.description?.trim() || 'No description provided.',
-          resolution: describePenaltyResolution(p),
-        };
-      })
-      .filter((x): x is IncidentEntry => x !== null)
-      .sort((a, b) => b.round.startTime.localeCompare(a.round.startTime));
 
     const byRoundDesc = (a: MediaEntry, b: MediaEntry) => b.round.startTime.localeCompare(a.round.startTime);
     broadcastEntries = raceLinks
@@ -267,6 +248,24 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </div>
         </div>
 
+        {/* Layout map — the layout's own track-map image (circuit_layouts.image_url,
+            labelled "Layout map" in admin > Circuits), full page width at 1:1.
+            Its own section between Schedule and Track Record; left out when
+            the layout has no map uploaded. object-contain keeps a non-square
+            map whole inside the square rather than cropping it. */}
+        {layoutMapUrl && (
+          <div class="reveal mt-8" style="transition-delay: 90ms">
+            <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Layout Map</h2>
+            <div class="mt-3 aspect-square w-full overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
+              <img
+                src={resizedImageUrl(layoutMapUrl, { width: 1200 }) ?? layoutMapUrl}
+                alt={`Layout map of ${circuitName}${layoutDisplayName ? ` — ${layoutDisplayName}` : ''}`}
+                class="h-full w-full object-contain"
+              />
+            </div>
+          </div>
+        )}
+
         {/* 2. Track record — the admin-curated circuit_layouts fields
             (lap_record_seconds/holder/date), same source/format
             circuits.astro already shows publicly; not re-derived from raw
@@ -285,7 +284,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             {layoutRow && layoutRow.lap_record_seconds !== null ? (
               <p class="flex flex-wrap items-center">
                 <span class="font-display text-2xl">{formatLapTime(layoutRow.lap_record_seconds)}</span>
-                {layoutRow.lap_record_holder && <span class="ml-2 text-white/70">{layoutRow.lap_record_holder}</span>}
+                {layoutRow.lap_record_holder && <span class="ml-2 text-white/70">{shortDriverName(layoutRow.lap_record_holder)}</span>}
                 {recordCarLogoUrl && (
                   <img
                     src={recordCarLogoUrl}
@@ -294,7 +293,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     class="ml-2 h-5 w-5 flex-none rounded object-contain"
                   />
                 )}
-                {layoutRow.lap_record_date && <span class="ml-1 text-white/40">({formatDate(layoutRow.lap_record_date)})</span>}
+                {layoutRow.lap_record_date && <span class="ml-1 text-white/40">({formatDateShort(layoutRow.lap_record_date)})</span>}
               </p>
             ) : (
               <p class="text-white/40">No lap record on file for this layout.</p>
@@ -308,7 +307,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       {classBadgeLetter(gammaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
-                    <span class="text-white/70">{displayDriverName(gammaBestLap.driver.name)}</span>
+                    <span class="text-white/70">{shortDriverName(gammaBestLap.driver.name)}</span>
                     {gammaBestLap.carLogoUrl && (
                       <img
                         src={gammaBestLap.carLogoUrl}
@@ -317,7 +316,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         class="h-5 w-5 flex-none rounded object-contain"
                       />
                     )}
-                    <span class="text-white/40">({formatDate(gammaBestLap.date)})</span>
+                    <span class="text-white/40">({formatDateShort(gammaBestLap.date)})</span>
                   </p>
                 )}
                 {deltaBestLap && deltaClass && (
@@ -326,7 +325,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       {classBadgeLetter(deltaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
-                    <span class="text-white/70">{displayDriverName(deltaBestLap.driver.name)}</span>
+                    <span class="text-white/70">{shortDriverName(deltaBestLap.driver.name)}</span>
                     {deltaBestLap.carLogoUrl && (
                       <img
                         src={deltaBestLap.carLogoUrl}
@@ -335,7 +334,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         class="h-5 w-5 flex-none rounded object-contain"
                       />
                     )}
-                    <span class="text-white/40">({formatDate(deltaBestLap.date)})</span>
+                    <span class="text-white/40">({formatDateShort(deltaBestLap.date)})</span>
                   </p>
                 )}
               </div>
@@ -345,8 +344,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         {/* 3. Past winners & pole-sitters, per class — see
             getLayoutClassHighlights in src/lib/results.ts for how these are
-            derived (race 1 only, scored_position for winner,
-            starting_position for pole). */}
+            derived (every race's winner by scored_position, race 1's
+            starting_position for pole). Names are "F. Lastname", dates
+            "Mar 2, 2025"; a round with more than one race tags each winner
+            "Race N". */}
         <div class="reveal mt-8" style="transition-delay: 120ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Winners &amp; Pole-Sitters</h2>
           {orderedClassIdsWithWinners.length === 0 ? (
@@ -366,10 +367,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       <ul class="mt-1 space-y-1 text-sm">
                         {winners.map((w) => (
                           <li class="flex items-center justify-between gap-2">
-                            <a href={`/results/${w.round.subsessionId}`} class="hover:text-brand-primary">
-                              {displayDriverName(w.driver.name)}
+                            <a
+                              href={`/results/${w.round.subsessionId}${w.raceNumber > 1 ? `?session=race-${w.raceNumber}` : ''}`}
+                              class="hover:text-brand-primary"
+                            >
+                              {shortDriverName(w.driver.name)}
+                              {w.raceCount > 1 && <span class="ml-1 text-[11px] text-white/40">Race {w.raceNumber}</span>}
                             </a>
-                            <span class="text-xs text-white/40">{formatDate(w.round.startTime)}</span>
+                            <span class="text-xs text-white/40">{formatDateShort(w.round.startTime)}</span>
                           </li>
                         ))}
                       </ul>
@@ -380,9 +385,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         {poles.map((p) => (
                           <li class="flex items-center justify-between gap-2">
                             <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="hover:text-brand-primary">
-                              {displayDriverName(p.driver.name)}
+                              {shortDriverName(p.driver.name)}
                             </a>
-                            <span class="text-xs text-white/40">{formatDate(p.round.startTime)}</span>
+                            <span class="text-xs text-white/40">{formatDateShort(p.round.startTime)}</span>
                           </li>
                         ))}
                       </ul>
@@ -419,7 +424,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       class={`flex items-center justify-between gap-3 p-3 text-sm transition hover:bg-white/5 ${i > 0 ? 'border-t border-white/10' : ''}`}
                     >
                       <span class="font-semibold">{r.seasonLabel ?? CATEGORY_LABELS.championship}</span>
-                      <span class="text-white/50">{formatDate(r.startTime)}</span>
+                      <span class="text-white/50">{formatDateShort(r.startTime)}</span>
                     </a>
                   ))}
                 </div>
@@ -428,17 +433,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </details>
         </div>
 
-        {/* 5. Past incidents at this circuit layout — every penalty logged
-            against any round found above, newest first, uncapped. Shows car
-            numbers rather than driver names (falls back to name if a
-            driver has no car_number on file), and "Racing Incident" (no
-            driver attached) gets the exact same bold-white treatment as a
-            real number rather than being dimmed — both are the row's
-            "who" identity, just one of two kinds. The free-text description
-            starts collapsed (often long/narrative) with its own toggle; the
-            resolution (time/points/PP/warning, from describePenaltyResolution)
-            stays always visible on its own line below it. The whole section
-            (heading + list) also starts collapsed, same as Past Results. */}
+        {/* 5. Past incidents at this circuit layout — every posted incident
+            logged against any round found above, newest first, uncapped.
+            Same table as History → Incidents' All Incidents view
+            (IncidentsAllTable.astro): sortable columns, and clicking a row
+            opens the same Incident Details popup (IncidentDetailsDialog.astro
+            + src/scripts/incidentDetails.ts). The Track column is left out
+            since every row is this track. The whole section starts
+            collapsed, same as Past Results; the popup sits outside the
+            <details> so it can open whatever the section's state. */}
         <div class="reveal mt-8" style="transition-delay: 160ms">
           <details class="group">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
@@ -446,32 +449,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <span class="text-white/40 transition group-open:rotate-180">▾</span>
             </summary>
             <div class="mt-3">
-              {incidentEntries.length === 0 ? (
+              {incidentRows.length === 0 ? (
                 <p class="text-sm text-white/40">No incidents logged at this layout yet.</p>
               ) : (
-                <div class="overflow-hidden rounded-xl border border-white/10">
-                  {incidentEntries.map((inc, i) => (
-                    <div class={`p-3 text-sm ${i > 0 ? 'border-t border-white/10' : ''}`}>
-                      <div class="flex flex-wrap items-center justify-between gap-2">
-                        <span class="font-semibold text-white">{inc.identityLabel}</span>
-                        <a href={`/results/${inc.round.subsessionId}/incidents`} class="text-xs text-white/40 hover:text-white">
-                          {formatDate(inc.round.startTime)}
-                        </a>
-                      </div>
-                      <details class="group mt-1">
-                        <summary class="flex cursor-pointer list-none items-center gap-1 text-xs font-medium uppercase tracking-wide text-white/40 hover:text-white/60">
-                          Description
-                          <span class="text-white/30 transition group-open:rotate-180">▾</span>
-                        </summary>
-                        <p class="mt-1 text-white/70">{inc.description}</p>
-                      </details>
-                      {inc.resolution && <p class="mt-1 text-xs text-white/50">{inc.resolution}</p>}
-                    </div>
-                  ))}
-                </div>
+                <IncidentsAllTable rows={incidentRows} showTrack={false} minWidthClass="" />
               )}
             </div>
           </details>
+          {incidentRows.length > 0 && <IncidentDetailsDialog rows={incidentRows} />}
         </div>
 
         {/* 6. Past broadcasts at this circuit layout — every race_links row
@@ -502,7 +487,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         {b.round.seasonLabel ?? CATEGORY_LABELS.championship}
                         {b.raceNumber > 1 && ` — Race ${b.raceNumber}`}
                       </span>
-                      <span class="text-white/50">{formatDate(b.round.startTime)}</span>
+                      <span class="text-white/50">{formatDateShort(b.round.startTime)}</span>
                     </a>
                   ))}
                 </div>
@@ -535,7 +520,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         {p.round.seasonLabel ?? CATEGORY_LABELS.championship}
                         {p.raceNumber > 1 && ` — Race ${p.raceNumber}`}
                       </span>
-                      <span class="text-white/50">{formatDate(p.round.startTime)}</span>
+                      <span class="text-white/50">{formatDateShort(p.round.startTime)}</span>
                     </a>
                   ))}
                 </div>
@@ -547,3 +532,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     )}
   </section>
 </Layout>
+
+<script>
+  import '../../scripts/incidentDetails';
+</script>

@@ -2078,6 +2078,10 @@ export function findRoundsForLayout(
 export interface ClassHighlight {
   round: LayoutRoundSummary;
   driver: DriverBasic;
+  /** Which race of the round this winner took (1, 2 or 3). Poles always report 1 — qualifying isn't split by race. */
+  raceNumber: number;
+  /** How many races that round ran for this class, so a caller can label "Race 2" only where a round has more than one. */
+  raceCount: number;
 }
 
 export interface LayoutHighlights {
@@ -2089,6 +2093,7 @@ export interface LayoutHighlights {
 
 interface RaceOneScoreRow {
   subsession_id: number;
+  race_number: number;
   driver_id: string;
   class_id: number;
   scored_position: number | null;
@@ -2130,8 +2135,11 @@ interface RaceOneCuratedRow {
 export async function getLayoutClassHighlights(
   env: SupabaseEnv,
   rounds: LayoutRoundSummary[],
-  driversBasic?: DriverBasic[]
+  driversBasic?: DriverBasic[],
+  /** When true, winners are every race's winner (a sprint weekend gives one per race) instead of race 1 only. Poles are unaffected either way. */
+  options: { allRaces?: boolean } = {}
 ): Promise<LayoutHighlights> {
+  const allRaces = options.allRaces === true;
   const winnersByClass = new Map<number, ClassHighlight[]>();
   const polesByClass = new Map<number, ClassHighlight[]>();
   if (rounds.length === 0) return { winnersByClass, polesByClass };
@@ -2143,7 +2151,7 @@ export async function getLayoutClassHighlights(
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     restGetAll<RaceOneScoreRow>(
       env,
-      `race_scores?select=subsession_id,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`
+      `race_scores?select=subsession_id,race_number,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`
     ),
     restGetAll<RaceOneCuratedRow>(
       env,
@@ -2156,10 +2164,15 @@ export async function getLayoutClassHighlights(
 
   const winnerBySubClass = new Map<string, { driverId: string; position: number }>();
   const classIdBySubDriver = new Map<string, number>();
+  // Distinct race numbers per (subsession, class), for the "Race N" label.
+  const raceNumbersBySubClass = new Map<string, Set<number>>();
   for (const s of scoreRows) {
     classIdBySubDriver.set(`${s.subsession_id}:${s.driver_id}`, s.class_id);
+    const classKey = `${s.subsession_id}:${s.class_id}`;
+    if (!raceNumbersBySubClass.has(classKey)) raceNumbersBySubClass.set(classKey, new Set());
+    raceNumbersBySubClass.get(classKey)!.add(s.race_number);
     if (!s.classified || s.dsq || s.scored_position === null) continue;
-    const key = `${s.subsession_id}:${s.class_id}`;
+    const key = allRaces ? `${s.subsession_id}:${s.class_id}:${s.race_number}` : classKey;
     const existing = winnerBySubClass.get(key);
     if (!existing || s.scored_position < existing.position) {
       winnerBySubClass.set(key, { driverId: s.driver_id, position: s.scored_position });
@@ -2181,13 +2194,18 @@ export async function getLayoutClassHighlights(
   }
 
   for (const [key, { driverId }] of winnerBySubClass) {
-    const [subsessionIdStr, classIdStr] = key.split(':');
+    const [subsessionIdStr, classIdStr, raceNumberStr] = key.split(':');
     const round = roundBySubsession.get(Number(subsessionIdStr));
     const driver = driverById.get(driverId);
     if (!round || !driver) continue;
     const classId = Number(classIdStr);
     if (!winnersByClass.has(classId)) winnersByClass.set(classId, []);
-    winnersByClass.get(classId)!.push({ round, driver });
+    winnersByClass.get(classId)!.push({
+      round,
+      driver,
+      raceNumber: raceNumberStr ? Number(raceNumberStr) : 1,
+      raceCount: raceNumbersBySubClass.get(`${subsessionIdStr}:${classIdStr}`)?.size ?? 1,
+    });
   }
 
   for (const [key, { custId }] of poleBySubClass) {
@@ -2197,10 +2215,12 @@ export async function getLayoutClassHighlights(
     if (!round || !driver) continue;
     const classId = Number(classIdStr);
     if (!polesByClass.has(classId)) polesByClass.set(classId, []);
-    polesByClass.get(classId)!.push({ round, driver });
+    polesByClass.get(classId)!.push({ round, driver, raceNumber: 1, raceCount: 1 });
   }
 
-  const byRoundDesc = (a: ClassHighlight, b: ClassHighlight) => b.round.startTime.localeCompare(a.round.startTime);
+  // Newest round first; within a round, race 1 before race 2 before race 3.
+  const byRoundDesc = (a: ClassHighlight, b: ClassHighlight) =>
+    b.round.startTime.localeCompare(a.round.startTime) || a.raceNumber - b.raceNumber;
   for (const list of winnersByClass.values()) list.sort(byRoundDesc);
   for (const list of polesByClass.values()) list.sort(byRoundDesc);
 
