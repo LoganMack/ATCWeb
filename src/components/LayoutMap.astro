@@ -1,0 +1,231 @@
+---
+import { formatDateShort, PIT_DIFFICULTY_LABELS, resizedImageUrl, logoBgAttrs, type LayoutMapDetails, type LogoBackground, type PitLaneInfo } from '../lib/supabase';
+import type { IncidentRow } from '../lib/incidents';
+import { driverNumberLabel, roundLabel } from '../lib/incidentDisplay';
+
+/**
+ * The Event Briefing's "Layout Map" section: track facts, the layout's map,
+ * where past incidents happened (pins, plus a heat layer from where they
+ * cluster), and how tricky the pit entry and exit are.
+ *
+ * Phones get the simple stack — facts card, the map with its pins, pit chips,
+ * legend. From md up the same markup grows layer switches (Incidents / Heat
+ * map / Pit lane) and the pit entry/exit flags at their spots on the map.
+ *
+ * The map image is white lines on transparent/black; global.css plates it
+ * black in the dark theme and white + inverted in the light theme (see
+ * `.layout-map-plate`). Pins link to the shared Incident Details popup
+ * (IncidentDetailsDialog.astro + src/scripts/incidentDetails.ts, which the
+ * page loads) through `data-history-incident`, so they need `incidents`
+ * to contain every row a pin refers to — only posted incidents are passed in,
+ * so a pin for an unposted incident is simply not drawn.
+ */
+interface Props {
+  circuitName: string;
+  layoutName: string | null;
+  logoUrl: string | null;
+  logoBg: LogoBackground | null;
+  location: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  corners: number | null;
+  lengthKm: number | null;
+  /** The layout's map image (circuit_layouts.image_url); null leaves just the facts. */
+  mapUrl: string | null;
+  details: LayoutMapDetails;
+  incidents: IncidentRow[];
+}
+
+const { circuitName, layoutName, logoUrl, logoBg, location, latitude, longitude, corners, lengthKm, mapUrl, details, incidents } = Astro.props;
+
+const coordinates =
+  latitude !== null && longitude !== null
+    ? `${Math.abs(latitude).toFixed(4)}° ${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? 'E' : 'W'}`
+    : null;
+
+const facts: { label: string; value: string }[] = [];
+if (location) facts.push({ label: 'Location', value: location });
+if (coordinates) facts.push({ label: 'Coordinates', value: coordinates });
+if (corners !== null) facts.push({ label: 'Corners', value: String(corners) });
+if (lengthKm !== null) facts.push({ label: 'Length', value: `${lengthKm} km` });
+
+const incidentById = new Map(incidents.map((r) => [r.id, r]));
+function penaltyText(row: IncidentRow): string {
+  if (row.isWarning) return 'Warning';
+  const parts: string[] = [];
+  if (row.timePenaltySeconds) parts.push(`+${row.timePenaltySeconds}s`);
+  if (row.penaltyPoints) parts.push(`${row.penaltyPoints} PP`);
+  if (row.pointsPenalty) parts.push(`${row.pointsPenalty} pts`);
+  return parts.length > 0 ? parts.join(' · ') : 'No penalty';
+}
+const pins = details.pins
+  .map((pin) => {
+    const row = incidentById.get(pin.penaltyId);
+    if (!row) return null;
+    return {
+      pin,
+      row,
+      kind: row.driver === null ? 'racing' : row.isWarning ? 'warning' : 'penalty',
+      title: `${driverNumberLabel(row)} · ${formatDateShort(row.startTime)}`,
+      detail: `${row.seasonLabel ? `${row.seasonLabel} · ` : ''}${roundLabel(row)}${row.lap !== null ? ` · Lap ${row.lap}` : ''}`,
+      result: penaltyText(row),
+    };
+  })
+  .filter((p): p is NonNullable<typeof p> => p !== null);
+
+const pitItems = [
+  { key: 'entry', label: 'Pit entry', info: details.pitEntry },
+  { key: 'exit', label: 'Pit exit', info: details.pitExit },
+] satisfies { key: string; label: string; info: PitLaneInfo }[];
+const pitSet = pitItems.filter((p) => p.info.difficulty !== null);
+const pitFlags = pitItems.filter((p) => p.info.point !== null);
+
+// A traced SVG is resolution-independent, so only rasters go through image resizing.
+const mapSrc = mapUrl ? (/\.svg($|\?)/i.test(mapUrl) ? mapUrl : (resizedImageUrl(mapUrl, { width: 1200 }) ?? mapUrl)) : null;
+const mapAlt = `Layout map of ${circuitName}${layoutName ? ` — ${layoutName}` : ''}`;
+const hasAnything = facts.length > 0 || mapSrc !== null || pitSet.length > 0;
+---
+
+{hasAnything && (
+  <div data-layout-map>
+    <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Layout Map</h2>
+
+    {/* Facts — a stacked card on phones, one compact strip from md up. */}
+    <div class="mt-3 rounded-xl border border-white/10 p-4 md:flex md:flex-wrap md:items-center md:gap-x-8 md:gap-y-3">
+      <div class="flex items-center gap-3">
+        {logoUrl && (
+          <img src={resizedImageUrl(logoUrl, { width: 96 })} alt="" loading="lazy" class="h-11 w-11 flex-none rounded object-contain" {...logoBgAttrs(logoBg)} />
+        )}
+        <div>
+          <p class="font-display text-lg leading-tight">{circuitName}</p>
+          {layoutName && <p class="text-sm text-white/50">{layoutName}</p>}
+        </div>
+      </div>
+      {facts.length > 0 && (
+        <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-white/10 pt-4 md:ml-auto md:mt-0 md:flex md:flex-wrap md:border-0 md:pt-0">
+          {facts.map((f) => (
+            <div>
+              <dt class="text-[10px] font-semibold uppercase tracking-wide text-white/40">{f.label}</dt>
+              <dd class="text-sm font-semibold">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+
+    {mapSrc && (
+      <>
+        {/* Layer switches — desktop only. Phones always show the pins and nothing else. */}
+        {(pins.length > 0 || pitFlags.length > 0) && (
+          <div class="mt-3 hidden flex-wrap items-center gap-2 md:flex">
+            {pins.length > 0 && (
+              <>
+                <button type="button" class="btn btn-neutral btn-sm" data-map-toggle="pins" data-active="true" aria-pressed="true">Incidents ({pins.length})</button>
+                <button type="button" class="btn btn-neutral btn-sm" data-map-toggle="heat" aria-pressed="false">Heat map</button>
+              </>
+            )}
+            {pitFlags.length > 0 && (
+              <button type="button" class="btn btn-neutral btn-sm" data-map-toggle="pit" data-active="true" aria-pressed="true">Pit lane</button>
+            )}
+          </div>
+        )}
+
+        <div class="layout-map-plate mt-3 border border-white/10">
+          <img src={mapSrc} alt={mapAlt} class="layout-map-img" loading="lazy" decoding="async" />
+
+          {/* Heat: one soft blob per pin, so overlap builds up where incidents cluster. Off until switched on (desktop). */}
+          {pins.length > 0 && (
+            <div class="absolute inset-0" data-map-layer="heat" data-off aria-hidden="true">
+              {pins.map((p) => (
+                <span class="map-heat" style={`left:${p.pin.x}%;top:${p.pin.y}%`}></span>
+              ))}
+            </div>
+          )}
+
+          {pitFlags.length > 0 && (
+            <div class="absolute inset-0 hidden md:block" data-map-layer="pit" aria-hidden="true">
+              {pitFlags.map((f) => (
+                <span class="map-flag" data-level={f.info.difficulty ?? 'none'} style={`left:${f.info.point!.x}%;top:${f.info.point!.y}%`}>
+                  <i></i>{f.key === 'entry' ? 'PIT IN' : 'PIT OUT'}{f.info.difficulty ? ` · ${PIT_DIFFICULTY_LABELS[f.info.difficulty]}` : ''}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {pins.length > 0 && (
+            <div class="absolute inset-0" data-map-layer="pins">
+              {pins.map((p) => (
+                <button
+                  type="button"
+                  class="map-pin"
+                  data-history-incident={p.row.id}
+                  data-kind={p.kind}
+                  data-appealed={p.row.isAppealed ? '' : undefined}
+                  data-tip={p.pin.y < 24 ? 'below' : undefined}
+                  data-tip-x={p.pin.x < 20 ? 'left' : p.pin.x > 80 ? 'right' : undefined}
+                  style={`left:${p.pin.x}%;top:${p.pin.y}%`}
+                  aria-label={`Incident: ${p.title}. ${p.result}`}
+                >
+                  <span class="map-pin-tip">
+                    <b>{p.title}</b><br />
+                    {p.detail}<br />
+                    {p.result}{p.row.isAppealed && <><br />Appealed</>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {pins.length > 0 && (
+          <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-white/60">
+            <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full bg-brand-pink"></span>Penalty</span>
+            <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full bg-brand-gold"></span>Warning</span>
+            <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full bg-gray-400"></span>Racing incident</span>
+            <span class="inline-flex items-center gap-1.5"><span class="inline-block h-2.5 w-2.5 rounded-full border-2 border-dashed border-brand-primary"></span>Appealed</span>
+            <span class="text-white/40">Tap a pin for details.</span>
+          </div>
+        )}
+      </>
+    )}
+
+    {/* Pit lane difficulty — chips under the map (and the only pit info on phones). */}
+    {pitSet.length > 0 && (
+      <div class="mt-3 flex flex-col gap-2">
+        <div class="flex flex-wrap gap-2">
+          {pitSet.map((p) => (
+            <span
+              class={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold ${
+                p.info.difficulty === 'difficult'
+                  ? 'border-brand-pink/60 text-brand-pink'
+                  : p.info.difficulty === 'moderate'
+                    ? 'border-brand-gold/60 text-brand-gold'
+                    : 'border-emerald-500/50 text-emerald-400'
+              }`}
+            >
+              {p.label}: {PIT_DIFFICULTY_LABELS[p.info.difficulty!]}
+            </span>
+          ))}
+        </div>
+        {pitSet.filter((p) => p.info.note).map((p) => (
+          <p class="text-sm text-white/60"><span class="font-semibold text-white/80">{p.label}:</span> {p.info.note}</p>
+        ))}
+      </div>
+    )}
+  </div>
+)}
+
+<script>
+  // Desktop layer switches (Incidents / Heat map / Pit lane): hide or show a layer container.
+  document.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-map-toggle]');
+    if (!btn) return;
+    const root = btn.closest<HTMLElement>('[data-layout-map]');
+    const layer = root?.querySelector<HTMLElement>(`[data-map-layer="${btn.dataset.mapToggle}"]`);
+    if (!layer) return;
+    const nowOn = layer.hasAttribute('data-off');
+    layer.toggleAttribute('data-off', !nowOn);
+    btn.dataset.active = nowOn ? 'true' : 'false';
+    btn.setAttribute('aria-pressed', String(nowOn));
+  });
+</script>

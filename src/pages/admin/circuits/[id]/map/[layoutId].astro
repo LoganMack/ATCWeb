@@ -1,0 +1,330 @@
+---
+export const prerender = false;
+
+// The layout map editor — one layout's map image, where its past incidents
+// happened (pins), and how tricky its pit entry and exit are. Everything here
+// feeds the Event Briefing page's Layout Map section (src/components/
+// LayoutMap.astro). Linked from each layout's card on /admin/circuits/<id>.
+//
+// One form, one Save: the file upload, the pit lane settings, and the full
+// pin list (as JSON in a hidden field, kept up to date by
+// src/scripts/layoutMapEditor.ts) all post together. The editor script also
+// traces a PNG/JPG/WebP into an SVG in the browser and swaps that into the
+// upload when the form is submitted, so what lands in storage is the SVG.
+import AdminLayout from '../../../../../layouts/AdminLayout.astro';
+import {
+  resolveSupabaseEnv,
+  getCircuitById,
+  getCircuitLayoutById,
+  getCircuits,
+  getAllCircuitLayouts,
+  updateCircuitLayout,
+  uploadToStorage,
+  getLayoutMapDetails,
+  saveLayoutMapDetails,
+  displayLayoutName,
+  formatDateShort,
+  PIT_DIFFICULTY_LABELS,
+  PIT_NOTE_MAX,
+  type PitDifficulty,
+  type MapPoint,
+} from '../../../../../lib/supabase';
+import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout } from '../../../../../lib/results';
+import { getIncidentsForSubsessions } from '../../../../../lib/incidents';
+import { getPostedSubsessionIds } from '../../../../../lib/incidentReports';
+import { driverNumberLabel, roundLabel, sessionLabel } from '../../../../../lib/incidentDisplay';
+import { logActivity, actorNameFor } from '../../../../../lib/activityLog';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+const { id, layoutId } = Astro.params;
+
+const circuit = id ? await getCircuitById(supabaseEnv, id) : null;
+const layout = layoutId ? await getCircuitLayoutById(supabaseEnv, layoutId) : null;
+if (!circuit || !layout || layout.circuit_id !== circuit.id) {
+  return Astro.redirect('/admin/circuits', 302);
+}
+
+const MAP_FILE_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+const MAP_FILE_MAX_BYTES = 5 * 1024 * 1024;
+
+// Every incident at this layout, posted or not — an admin can pin one before its report goes live (its pin
+// just stays hidden on the public page until then).
+const [allRounds, circuits, layouts, postedIds] = await Promise.all([
+  getAllRounds(supabaseEnv),
+  getCircuits(supabaseEnv),
+  getAllCircuitLayouts(supabaseEnv),
+  getPostedSubsessionIds(supabaseEnv),
+]);
+const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
+  supabaseEnv,
+  allRounds.map((r) => r.subsession_id)
+);
+const historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, circuit.id, layout.name);
+const incidents = await getIncidentsForSubsessions(
+  supabaseEnv,
+  historicalRounds.map((r) => r.subsessionId),
+  { includeUnposted: true }
+);
+const incidentIds = new Set(incidents.map((r) => r.id));
+
+let saveError: string | null = null;
+
+function difficultyFrom(v: FormDataEntryValue | null): PitDifficulty | null {
+  return v === 'easy' || v === 'moderate' || v === 'difficult' ? v : null;
+}
+function pointFrom(form: FormData, key: string): MapPoint | null {
+  const rawX = String(form.get(`${key}_x`) ?? '').trim();
+  const rawY = String(form.get(`${key}_y`) ?? '').trim();
+  if (rawX === '' || rawY === '') return null;
+  const x = Number(rawX);
+  const y = Number(rawY);
+  return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 100 && y >= 0 && y <= 100 ? { x, y } : null;
+}
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  try {
+    // Pins: only incidents that really belong to this layout, one pin each.
+    let rawPins: unknown = [];
+    try {
+      rawPins = JSON.parse(String(form.get('pins_json') ?? '[]'));
+    } catch {
+      throw new Error('The pin list could not be read — reload the page and try again.');
+    }
+    const pins: { penaltyId: string; x: number; y: number }[] = [];
+    const seen = new Set<string>();
+    if (Array.isArray(rawPins)) {
+      for (const p of rawPins) {
+        const penaltyId = String(p?.penaltyId ?? '');
+        const x = Number(p?.x);
+        const y = Number(p?.y);
+        if (!incidentIds.has(penaltyId) || seen.has(penaltyId)) continue;
+        if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100) continue;
+        seen.add(penaltyId);
+        pins.push({ penaltyId, x, y });
+      }
+    }
+
+    // The map file, if a new one was chosen.
+    const file = form.get('map_file');
+    let newImageUrl: string | null = null;
+    if (file instanceof File && file.size > 0) {
+      const ext = MAP_FILE_TYPES[file.type];
+      if (!ext) throw new Error('The map must be a PNG, JPG, WebP or SVG file.');
+      if (file.size > MAP_FILE_MAX_BYTES) throw new Error('The map file is too large (5 MB maximum).');
+      if (ext === 'svg') {
+        const text = await file.text();
+        if (!/<svg[\s>]/i.test(text) || /<script/i.test(text) || /\son\w+\s*=/i.test(text)) {
+          throw new Error('That SVG could not be used (it must be a plain SVG with no scripts).');
+        }
+      }
+      const path = `circuit-layout-${layout.id}-${Date.now()}.${ext}`;
+      newImageUrl = await uploadToStorage(supabaseEnv, accessToken, 'logos', path, file);
+    }
+
+    await saveLayoutMapDetails(supabaseEnv, accessToken, layout.id, {
+      pitEntry: {
+        difficulty: difficultyFrom(form.get('pit_entry_difficulty')),
+        note: String(form.get('pit_entry_note') ?? ''),
+        point: pointFrom(form, 'pit_entry'),
+      },
+      pitExit: {
+        difficulty: difficultyFrom(form.get('pit_exit_difficulty')),
+        note: String(form.get('pit_exit_note') ?? ''),
+        point: pointFrom(form, 'pit_exit'),
+      },
+      pins,
+    });
+    if (newImageUrl) await updateCircuitLayout(supabaseEnv, accessToken, layout.id, { image_url: newImageUrl });
+
+    await logActivity(supabaseEnv, accessToken, actor, {
+      action: 'edit',
+      entity_type: 'circuit',
+      entity_label: `${circuit.name} — ${displayLayoutName(layout.name)} (layout map)`,
+      entity_id: layout.id,
+    });
+    return Astro.redirect(`/admin/circuits/${circuit.id}/map/${layout.id}?saved=1`, 302);
+  } catch (err) {
+    console.error('Failed to save layout map details:', err);
+    saveError = err instanceof Error ? err.message : 'Failed to save the layout map.';
+  }
+}
+
+const details = await getLayoutMapDetails(supabaseEnv, layout.id);
+const mapUrl = layout.image_url;
+const saved = Astro.url.searchParams.get('saved') === '1';
+// An incident whose round is gone from the pin list (deleted) can't be placed; pins for unlisted incidents are dropped on save.
+const pinnedIds = new Set(details.pins.map((p) => p.penaltyId));
+
+function incidentKind(row: (typeof incidents)[number]): 'penalty' | 'warning' | 'racing' {
+  return row.driver === null ? 'racing' : row.isWarning ? 'warning' : 'penalty';
+}
+function incidentLabel(row: (typeof incidents)[number]): string {
+  return `${driverNumberLabel(row)} · ${row.lap !== null ? `Lap ${row.lap} · ` : ''}${formatDateShort(row.startTime)}`;
+}
+
+const initialJson = JSON.stringify({
+  pins: details.pins.filter((p) => incidentIds.has(p.penaltyId)).map((p) => ({ penaltyId: p.penaltyId, x: p.x, y: p.y })),
+  pitEntry: details.pitEntry.point,
+  pitExit: details.pitExit.point,
+}).replace(/</g, '\\u003c');
+
+const pitBlocks = [
+  { key: 'entry', title: 'Pit entry', info: details.pitEntry },
+  { key: 'exit', title: 'Pit exit', info: details.pitExit },
+] as const;
+---
+
+<AdminLayout title="Layout Map">
+  <div class="reveal mt-8">
+    <a href={`/admin/circuits/${circuit.id}`} class="text-sm text-white/50 hover:text-white">&larr; Back to {circuit.name}</a>
+    <h1 class="mt-2 font-display text-3xl">Layout map</h1>
+    <p class="text-white/50">{circuit.name} — {displayLayoutName(layout.name)}</p>
+
+    {saved && <p class="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-white/80">Saved.</p>}
+    {saveError && <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{saveError}</p>}
+
+    <form method="POST" enctype="multipart/form-data" data-astro-reload data-map-editor class="mt-6">
+      <input type="hidden" name="pins_json" value="[]" />
+      <input type="hidden" name="pit_entry_x" value="" />
+      <input type="hidden" name="pit_entry_y" value="" />
+      <input type="hidden" name="pit_exit_x" value="" />
+      <input type="hidden" name="pit_exit_y" value="" />
+      <script type="application/json" data-editor-initial set:html={initialJson}></script>
+
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div>
+          <div class="mb-2 hidden items-center justify-between gap-3 rounded-lg border border-brand-primary/40 bg-brand-primary/10 px-3 py-2 text-sm" data-editor-banner>
+            <span data-editor-banner-text></span>
+            <button type="button" class="text-xs text-white/60 underline hover:text-white" data-editor-cancel-arm>Cancel</button>
+          </div>
+          <div class="layout-map-plate border border-white/10" data-editor-plate>
+            {mapUrl ? (
+              <img src={mapUrl} alt="" class="layout-map-img" data-editor-img />
+            ) : (
+              <>
+                <img src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==" alt="" class="layout-map-img" data-editor-img />
+                <p class="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-white/40">No map yet — choose an image on the right.</p>
+              </>
+            )}
+            <div class="absolute inset-0" data-editor-flags></div>
+            <div class="absolute inset-0" data-editor-pins></div>
+          </div>
+          <p class="mt-2 text-xs text-white/40">Pins and pit points are saved as positions on the square map, so they stay in place at any size. Drag a pin to adjust it.</p>
+        </div>
+
+        <div class="flex flex-col gap-4">
+          <section class="rounded-xl border border-white/10 p-4">
+            <h2 class="font-display text-lg">Map image</h2>
+            <p class="mt-1 text-xs text-white/50">White lines and corner numbers on a black background work best. A PNG/JPG/WebP can be converted to an SVG here (sharp at any size, and it switches cleanly between light and dark); an SVG is used as-is.</p>
+            <input
+              type="file"
+              name="map_file"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              class="mt-3 w-full rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none file:mr-2 file:rounded-md file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-white"
+            />
+            <div class="mt-3 hidden flex-col gap-3 border-t border-white/10 pt-3 text-xs text-white/60" data-trace-panel>
+              <label class="flex items-center gap-2 text-sm text-white">
+                <input type="checkbox" checked data-trace-on class="accent-brand-primary" /> Convert to SVG
+              </label>
+              <label class="flex flex-col gap-1">
+                Line brightness cut-off
+                <input type="range" min="40" max="220" value="128" data-trace-threshold />
+              </label>
+              <label class="flex flex-col gap-1">
+                Remove specks
+                <input type="range" min="0" max="60" value="12" data-trace-speck />
+              </label>
+              <label class="flex items-center gap-2">
+                <input type="checkbox" data-trace-invert class="accent-brand-primary" /> Dark lines on a light background
+              </label>
+              <p class="text-white/40" data-trace-status></p>
+            </div>
+          </section>
+
+          <section class="rounded-xl border border-white/10 p-4">
+            <h2 class="font-display text-lg">Pit lane</h2>
+            <p class="mt-1 text-xs text-white/50">Entry and exit are rated separately. The flag position is optional — it shows on the desktop map.</p>
+            {pitBlocks.map((b) => (
+              <div class="mt-3 border-t border-white/10 pt-3 first:border-0 first:pt-0">
+                <p class="text-sm font-semibold">{b.title}</p>
+                <select
+                  name={`pit_${b.key}_difficulty`}
+                  class="mt-2 w-full rounded-md border border-white/15 bg-brand-ink px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                >
+                  <option value="" selected={!b.info.difficulty}>Not rated</option>
+                  {(['easy', 'moderate', 'difficult'] as const).map((d) => (
+                    <option value={d} selected={b.info.difficulty === d}>{PIT_DIFFICULTY_LABELS[d]}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  name={`pit_${b.key}_note`}
+                  maxlength={PIT_NOTE_MAX}
+                  value={b.info.note ?? ''}
+                  placeholder="Short note, e.g. blind entry, brake early"
+                  class="mt-2 w-full rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-brand-primary"
+                />
+                <div class="mt-2 flex items-center gap-2 text-xs">
+                  <button type="button" class="btn btn-neutral btn-sm" data-pit-place={b.key}>Place on map</button>
+                  <button type="button" class="hidden text-white/50 underline hover:text-white" data-pit-clear={b.key}>Clear</button>
+                  <span class="text-white/40" data-pit-state={b.key}>Not placed</span>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section class="rounded-xl border border-white/10 p-4">
+            <div class="flex items-baseline justify-between gap-2">
+              <h2 class="font-display text-lg">Incidents</h2>
+              <span class="text-xs text-white/40" data-pin-count></span>
+            </div>
+            <p class="mt-1 text-xs text-white/50">Every incident logged at this layout. Pick one up with Place, then click the map. Incidents from rounds that aren't posted yet can be pinned, but stay hidden on the public page until posted.</p>
+            {incidents.length === 0 ? (
+              <p class="mt-3 text-sm text-white/40">No incidents logged at this layout yet.</p>
+            ) : (
+              <ul class="mt-3 flex max-h-96 flex-col overflow-y-auto rounded-lg border border-white/10">
+                {incidents.map((row, i) => (
+                  <li
+                    data-incident-row
+                    data-incident-id={row.id}
+                    data-incident-label={incidentLabel(row)}
+                    data-kind={incidentKind(row)}
+                    data-appealed={row.isAppealed ? 'true' : 'false'}
+                    data-placed={pinnedIds.has(row.id) ? 'true' : 'false'}
+                    class={`flex items-center gap-2 px-3 py-2 text-xs ${i > 0 ? 'border-t border-white/10' : ''}`}
+                  >
+                    <span
+                      data-row-dot
+                      class={`h-2.5 w-2.5 flex-none rounded-full ${incidentKind(row) === 'penalty' ? 'bg-brand-pink' : incidentKind(row) === 'warning' ? 'bg-brand-gold' : 'bg-gray-400'}`}
+                    ></span>
+                    <span class="min-w-0 flex-1">
+                      <span class="block truncate font-semibold text-white">{incidentLabel(row)}</span>
+                      <span class="block truncate text-white/50">
+                        {row.seasonLabel ? `${row.seasonLabel} · ` : ''}{roundLabel(row)} · {sessionLabel(row)}{row.offenseNames.length > 0 ? ` · ${row.offenseNames.join(', ')}` : ''}
+                        {!postedIds.has(row.subsessionId) && <span class="text-brand-gold"> · not posted</span>}
+                      </span>
+                    </span>
+                    <button type="button" class="btn btn-neutral btn-sm" data-row-place>Place</button>
+                    <button type="button" class="hidden text-white/50 underline hover:text-white" data-row-remove>Remove</button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <div class="flex items-center gap-3">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href={`/admin/circuits/${circuit.id}`} class="text-sm text-white/50 hover:text-white">Cancel</a>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</AdminLayout>
+
+<script>
+  import '../../../../../scripts/layoutMapEditor';
+</script>

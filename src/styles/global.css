@@ -1010,3 +1010,174 @@ input[type="file"]:hover::file-selector-button {
   font-size: 11px;
   color: var(--m-muted);
 }
+
+/* ---- Layout map (Event Briefing + /admin/circuits/<id>/map/<layoutId>) ----
+   The map image is white lines on a transparent (traced SVG) or black (an
+   uploaded raster) background. The plate is black in the dark theme and
+   white in the light theme, and in the light theme the image itself is
+   inverted (white lines -> black), so one upload serves both themes.
+   Pins, flags and the heat layer sit above the image and are never inverted.
+   Positions are percentages of the plate, which is always square. ---- */
+.layout-map-plate {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: #000;
+}
+.layout-map-plate > img.layout-map-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.light .layout-map-plate {
+  background: #fff;
+}
+.light .layout-map-plate > img.layout-map-img {
+  filter: invert(1);
+}
+
+.map-pin {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 9999px;
+  border: 2px solid #0b0b0e;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
+  cursor: pointer;
+  transition: transform 0.12s;
+  padding: 0;
+}
+.light .map-pin {
+  border-color: #fff;
+}
+.map-pin:hover,
+.map-pin:focus-visible,
+.map-pin[data-selected] {
+  transform: scale(1.35);
+  z-index: 5;
+  outline: none;
+}
+.map-pin[data-kind="penalty"] { background: #f5426e; }
+.map-pin[data-kind="warning"] { background: #f5c642; }
+.map-pin[data-kind="racing"] { background: #9ca3af; }
+.map-pin[data-appealed]::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px dashed #4369f5;
+  pointer-events: none;
+}
+.map-pin-tip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 20;
+  min-width: 9rem;
+  max-width: 14rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(255 255 255 / 0.15);
+  background: #121218;
+  color: #f2f2f5;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
+  transition: opacity 0.1s;
+}
+.light .map-pin-tip {
+  background: #fff;
+  color: #111114;
+  border-color: rgb(17 17 20 / 0.15);
+}
+.map-pin:hover > .map-pin-tip,
+.map-pin:focus-visible > .map-pin-tip {
+  opacity: 1;
+}
+/* Near an edge the tooltip would be clipped by the plate, so it opens downward / hugs the pin's side instead. */
+.map-pin[data-tip-x="left"] > .map-pin-tip {
+  left: -8px;
+  transform: none;
+}
+.map-pin[data-tip-x="right"] > .map-pin-tip {
+  left: auto;
+  right: -8px;
+  transform: none;
+}
+.map-pin[data-tip="below"] > .map-pin-tip {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+
+.map-heat {
+  position: absolute;
+  width: 22%;
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgb(245 66 110 / 0.5), rgb(245 66 110 / 0.18) 45%, rgb(245 66 110 / 0) 70%);
+  pointer-events: none;
+}
+
+.map-flag {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem 0.15rem 0.4rem;
+  border-radius: 9999px;
+  border: 1.5px solid;
+  background: #121218;
+  color: #f2f2f5;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.light .map-flag {
+  background: #fff;
+  color: #111114;
+}
+.map-flag > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+.map-flag[data-level="easy"] { border-color: #34d399; }
+.map-flag[data-level="easy"] > i { background: #34d399; }
+.map-flag[data-level="moderate"] { border-color: #f5c642; }
+.map-flag[data-level="moderate"] > i { background: #f5c642; }
+.map-flag[data-level="difficult"] { border-color: #f5426e; }
+.map-flag[data-level="difficult"] > i { background: #f5426e; }
+.map-flag[data-level="none"] { border-color: rgb(255 255 255 / 0.4); }
+
+/* Layer switches on the Event Briefing's layout map: the toggle script sets data-off on a layer container to hide it. */
+[data-map-layer][data-off] {
+  display: none !important;
+}
+
+/* Map editor: while an incident or pit point is picked up, the plate shows where a click will drop it. */
+.layout-map-plate[data-armed] {
+  cursor: crosshair;
+  outline: 2px solid #4369f5;
+  outline-offset: -2px;
+}
+.layout-map-plate .map-pin[data-draggable] {
+  cursor: grab;
+  touch-action: none;
+}
