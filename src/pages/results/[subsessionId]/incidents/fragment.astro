@@ -1404,24 +1404,18 @@ const nextIncidentNumber =
           </details>
         )}
 
-        {!viewReports && sortedPenalties.length === 0 && (
-          <div class="mt-10 flex flex-wrap items-center gap-3">
-            {/* Edit Report (admin, no ?view=reports) shows just the button instead; View Incidents only
-                shows it when there are no submitted reports either, so it doesn't read as "nothing here"
-                underneath a list of reports still waiting to be logged. */}
-            {(!isAdmin || (viewReports && incidentReports.length === 0)) && (
-              <p class="text-white/60">No incidents logged for this round.</p>
-            )}
-            {isAdmin && !viewReports && (
-              <a
-                href={viewReportsHref}
-                class="btn btn-neutral"
-              >
-                To view submitted incidents, click here
-              </a>
-            )}
-          </div>
-        )}
+        {/* Admins reach the submitted reports from the View Reported Incidents button at the top of the page;
+            with some still open, say so rather than reading as "nothing here". */}
+        {!viewReports && sortedPenalties.length === 0 && (() => {
+          const openReports = incidentReports.filter((r) => r.status === 'open').length;
+          return (
+            <p class="mt-10 text-white/60">
+              {openReports > 0
+                ? `No incidents logged yet. ${openReports} submitted ${openReports === 1 ? 'report is' : 'reports are'} waiting under View Reported Incidents.`
+                : 'No incidents logged for this round.'}
+            </p>
+          );
+        })()}
 
         {!viewReports && isAdmin && roundPenaltyData.carriedIn.length > 0 && (
           <div id={OWED_PENALTIES_ANCHOR} class="mt-10 scroll-mt-24 rounded-xl border border-brand-gold/40 bg-brand-gold/5 p-4">

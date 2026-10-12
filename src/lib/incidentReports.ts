@@ -381,7 +381,7 @@ export async function saveIncidentReportReview(
 }
 
 /** Minimum number of reviews before a report gets an agreement colour. */
-export const REVIEW_AGREEMENT_MIN = 5;
+export const REVIEW_AGREEMENT_MIN = 3;
 
 /**
  * How much the reviews of one report agree, once at least

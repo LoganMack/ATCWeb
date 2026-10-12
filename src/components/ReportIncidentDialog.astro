@@ -25,6 +25,8 @@ function shortName(name: string): string {
   return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(' ')}`;
 }
 const dialogId = `report-incident-dialog-${subsessionId}`;
+const sortButtonClass =
+  'rounded px-1.5 py-0.5 text-white/50 transition hover:text-white aria-pressed:bg-white/10 aria-pressed:text-white';
 const fieldClass =
   'rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary';
 ---
@@ -68,6 +70,14 @@ const fieldClass =
 
     <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-driver-picker>
       <legend class="mb-1">Cars Involved</legend>
+      {drivers.length > 1 && (
+        <div class="-mt-1 mb-1 flex items-center gap-1" role="group" aria-label="Sort drivers by">
+          Sort:
+          {/* Drivers arrive sorted by car number, so that's the starting order (driverPickerSearch.ts reorders). */}
+          <button type="button" data-driver-sort="number" aria-pressed="true" class={sortButtonClass}>Number</button>
+          <button type="button" data-driver-sort="name" aria-pressed="false" class={sortButtonClass}>Name</button>
+        </div>
+      )}
       {drivers.length > 0 && (
         <input type="search" data-driver-search placeholder="Search by car number or name…" aria-label="Search drivers" class={fieldClass} />
       )}
@@ -78,6 +88,8 @@ const fieldClass =
             class="flex items-center gap-2 text-xs text-white/70"
             data-driver-option
             data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
+            data-sort-number={d.car_number ?? undefined}
+            data-sort-name={d.name}
           >
             <input type="checkbox" name="involved_driver_ids" value={d.id} />
             {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {shortName(d.name)}
