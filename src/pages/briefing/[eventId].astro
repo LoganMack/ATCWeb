@@ -22,9 +22,12 @@ import {
   displayLayoutName,
   shortDriverName,
   layoutImageUrl,
-  resizedImageUrl,
   getCircuitLogoBackgrounds,
+  getCircuitCoordinates,
+  getLayoutMapDetails,
+  emptyLayoutMapDetails,
   logoBgAttrs,
+  type LayoutMapDetails,
   type LogoBackground,
   type EventRecord,
   type Circuit,
@@ -49,6 +52,7 @@ import {
 import { classBadgeLetter, classTagFull, classTagShort } from '../../lib/classColors';
 import { getIncidentsForSubsessions, type IncidentRow } from '../../lib/incidents';
 import WeatherIcon from '../../components/WeatherIcon.astro';
+import LayoutMap from '../../components/LayoutMap.astro';
 import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
 import IncidentDetailsDialog from '../../components/IncidentDetailsDialog.astro';
 
@@ -79,8 +83,11 @@ let layoutRow: CircuitLayout | null = null;
 let recordCarName: string | null = null;
 let recordCarLogoUrl: string | null = null;
 let imageUrl: string | null = null;
-/** The layout's own track-map image (circuit_layouts.image_url, "Layout map" in admin) — shown in its own section; null hides the section. */
+/** The layout's own track-map image (circuit_layouts.image_url, "Layout map" in admin) — drawn by the LayoutMap component; null leaves just the track facts. */
 let layoutMapUrl: string | null = null;
+/** Pit entry/exit difficulty and where incidents happened on the map (0106_layout_map_details.sql). Empty until an admin fills them in. */
+let mapDetails: LayoutMapDetails = emptyLayoutMapDetails();
+let circuitCoordinates: { latitude: number | null; longitude: number | null } = { latitude: null, longitude: null };
 let logoBg: LogoBackground | null = null;
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let classNameById = new Map<number, string>();
@@ -113,6 +120,13 @@ if (!loadError && event && event.circuit_id) {
     layoutRow = circuit ? resolveLayout(circuit.name, event.layout, circuits, layouts) : null;
     imageUrl = layoutRow ? layoutImageUrl(layoutRow, circuit) : (circuit?.logo_url ?? null);
     layoutMapUrl = layoutRow?.image_url ?? null;
+    const [details, coordinates] = await Promise.all([
+      layoutRow ? getLayoutMapDetails(supabaseEnv, layoutRow.id) : Promise.resolve(emptyLayoutMapDetails()),
+      getCircuitCoordinates(supabaseEnv),
+    ]);
+    mapDetails = details;
+    const coords = coordinates.find((c) => c.id === event!.circuit_id);
+    circuitCoordinates = { latitude: coords?.latitude ?? null, longitude: coords?.longitude ?? null };
     logoBg = circuit ? ((await getCircuitLogoBackgrounds(supabaseEnv))[circuit.id] ?? null) : null;
     classes = driverClasses;
     classNameById = new Map(classes.map((c) => [c.id, c.name]));
@@ -248,23 +262,27 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </div>
         </div>
 
-        {/* Layout map — the layout's own track-map image (circuit_layouts.image_url,
-            labelled "Layout map" in admin > Circuits), full page width at 1:1.
-            Its own section between Schedule and Track Record; left out when
-            the layout has no map uploaded. object-contain keeps a non-square
-            map whole inside the square rather than cropping it. */}
-        {layoutMapUrl && (
-          <div class="reveal mt-8" style="transition-delay: 90ms">
-            <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Layout Map</h2>
-            <div class="mt-3 aspect-square w-full overflow-hidden rounded-xl border border-white/10 bg-white/[0.03]">
-              <img
-                src={resizedImageUrl(layoutMapUrl, { width: 1200 }) ?? layoutMapUrl}
-                alt={`Layout map of ${circuitName}${layoutDisplayName ? ` — ${layoutDisplayName}` : ''}`}
-                class="h-full w-full object-contain"
-              />
-            </div>
-          </div>
-        )}
+        {/* Layout map — facts, the layout's own map, incident pins and pit lane
+            difficulty, all drawn by LayoutMap.astro (stacked on phones, with
+            layer switches from md up). Sits between Schedule and Track Record.
+            The pins open the same Incident Details popup as the Past
+            Incidents table below, so they're given that table's rows. */}
+        <div class="reveal mt-8" style="transition-delay: 90ms">
+          <LayoutMap
+            circuitName={circuitName}
+            layoutName={layoutDisplayName}
+            logoUrl={circuit?.logo_url ?? null}
+            logoBg={logoBg}
+            location={circuit?.location ?? null}
+            latitude={circuitCoordinates.latitude}
+            longitude={circuitCoordinates.longitude}
+            corners={layoutRow?.corners ?? null}
+            lengthKm={layoutRow?.length_km ?? null}
+            mapUrl={layoutMapUrl}
+            details={mapDetails}
+            incidents={incidentRows}
+          />
+        </div>
 
         {/* 2. Track record — the admin-curated circuit_layouts fields
             (lap_record_seconds/holder/date), same source/format

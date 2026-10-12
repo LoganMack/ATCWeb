@@ -100,12 +100,17 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
  * Event Briefing page's Past Incidents table. Skips the site-wide fetches the
  * By Driver / By Offense views need, so it stays cheap.
  */
-export async function getIncidentsForSubsessions(env: SupabaseEnv, onlySubsessionIds: number[]): Promise<IncidentRow[]> {
+export async function getIncidentsForSubsessions(
+  env: SupabaseEnv,
+  onlySubsessionIds: number[],
+  /** Admin tools (the layout map's pin editor) need incidents from rounds that aren't posted yet; public pages never pass this. */
+  options: { includeUnposted?: boolean } = {}
+): Promise<IncidentRow[]> {
   if (onlySubsessionIds.length === 0) return [];
-  return (await loadIncidents(env, onlySubsessionIds)).all;
+  return (await loadIncidents(env, onlySubsessionIds, options.includeUnposted === true)).all;
 }
 
-async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[]): Promise<IncidentsData> {
+async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[], includeUnposted = false): Promise<IncidentsData> {
   const rounds = await getAllRounds(env);
   // Round numbers are per season, so they're always worked out from every round; only the penalty fetch narrows down.
   const subsessionIds = onlySubsessionIds ?? rounds.map((r) => r.subsession_id);
@@ -135,7 +140,7 @@ async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[]): Pr
         ),
   ]);
 
-  const penalties = allPenalties.filter((p) => postedRoundIds.has(p.subsession_id));
+  const penalties = includeUnposted ? allPenalties : allPenalties.filter((p) => postedRoundIds.has(p.subsession_id));
 
   const racesStartedByDriver = new Map<string, Set<string>>();
   for (const row of raceStartRows) {
