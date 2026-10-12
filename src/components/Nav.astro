@@ -1,5 +1,6 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
+import { isAdminView } from '../lib/auth';
 import { resolveSupabaseEnv, getSeasons } from '../lib/supabase';
 import { getLiveBannerInfo } from '../lib/liveEvent';
 import SeasonLogo from './SeasonLogo.astro';
@@ -46,6 +47,9 @@ const navLogoLightUrl = currentSeason?.logo_url ? (currentSeason.logo_url_light 
 const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
 // On your own driver page the profile icon becomes an Edit button (the page's own script toggles edit mode).
 const onOwnProfile = Boolean(myDriverId) && Astro.url.pathname.replace(/\/+$/, '') === `/drivers/${myDriverId}`;
+// Admin Panel shortcut beside the profile button. isAdminView, not isRealAdmin, so it hides while
+// previewing as a visitor (the footer's View as Visitor toggle is what switches back).
+const showAdminLink = isAdminView(Astro.locals);
 
 // `menu` = a hover dropdown on the desktop nav (the mobile nav stays a flat list
 // of the top-level links). `rounds` = the Results menu, whose rounds are fetched
@@ -103,7 +107,7 @@ const links: NavLink[] = [
 ---
 
 <header class="sticky top-0 z-50 border-b border-white/10 bg-brand-ink/80 backdrop-blur">
-  <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+  <div class="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
     <a href="/" class="relative flex items-center" transition:name="site-logo">
       <SeasonLogo
         darkUrl={navLogoDarkUrl}
@@ -116,7 +120,8 @@ const links: NavLink[] = [
       </span>
     </a>
 
-    <nav class="hidden items-center gap-8 font-display text-lg uppercase tracking-widest sm:flex">
+    {/* The full link row needs ~1000px, so below lg it collapses into the hamburger menu, and its gaps tighten until xl. */}
+    <nav class="hidden items-center gap-5 font-display text-lg uppercase tracking-widest lg:flex xl:gap-8">
       {links.map((link) =>
         link.menu || link.rounds ? (
           // Hover/keyboard dropdown. The panel's outer wrapper adds top padding so
@@ -189,13 +194,25 @@ const links: NavLink[] = [
         </a>
       )}
 
+      {showAdminLink && (
+        <span class="group relative">
+          <a href="/admin" class="btn btn-neutral !px-2.5" aria-label="Admin Panel">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </a>
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Admin Panel</span>
+        </span>
+      )}
+
       <button
         type="button"
         id="mobile-nav-toggle"
         aria-expanded="false"
         aria-controls="mobile-nav"
         aria-label="Toggle navigation menu"
-        class="btn btn-neutral h-9 w-9 !p-0 sm:hidden"
+        class="btn btn-neutral h-9 w-9 !p-0 lg:hidden"
       >
         <svg id="icon-open" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="h-5 w-5">
           <line x1="3" y1="6" x2="21" y2="6"></line>
@@ -275,7 +292,7 @@ const links: NavLink[] = [
 
   <nav
     id="mobile-nav"
-    class="hidden flex-col border-t border-white/10 bg-brand-ink px-6 py-4 font-display text-lg uppercase tracking-widest sm:hidden"
+    class="hidden flex-col border-t border-white/10 bg-brand-ink px-6 py-4 font-display text-lg uppercase tracking-widest lg:hidden"
   >
     {links.map((link) => (
       <a

@@ -1,6 +1,5 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
-import { isAdminView } from '../lib/auth';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
@@ -21,10 +20,7 @@ const isSignedIn = Boolean(Astro.locals.session);
 // broadcaster can record a delayed broadcast without spoilers.
 const broadcasterMode = Astro.locals.broadcasterMode;
 
-// Unlike "View as Visitor" above, this link itself SHOULD disappear while
-// previewing as a visitor (isAdminView, not isRealAdmin) — it's a plain
-// shortcut into /admin, not the toggle that controls the preview.
-const showAdminLink = isAdminView(Astro.locals);
+// The Admin Panel link lives in the header now (Nav.astro, gear icon).
 ---
 
 <footer class="border-t border-white/10 py-10">
@@ -101,9 +97,6 @@ const showAdminLink = isAdminView(Astro.locals);
           <a href="/login" class="hover:text-white/80">Login</a>
           <a href="/signup" class="hover:text-white/80">Sign Up</a>
         </>
-      )}
-      {showAdminLink && (
-        <a href="/admin" class="hover:text-white/80">Admin Panel</a>
       )}
       </div>
     </div>
