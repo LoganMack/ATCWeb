@@ -484,7 +484,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       let ymax = 10;
       for (const { s } of pool) for (let i = 0; i < n; i++) ymax = Math.max(ymax, val(s, i) ?? 0);
       const step = niceStep(ymax / 5);
-      const top = Math.ceil(ymax / step) * step;
+      // The leader sits on the top edge instead of rounding up to the next gridline,
+      // which left dead space above the lines and squashed them together.
+      const top = ymax;
       const X = (i: number) => m.l + (n > 1 ? (i / (n - 1)) * iw : iw / 2);
       const Y = (v: number) => m.t + ih - (v / top) * ih;
 
@@ -495,6 +497,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         svg.appendChild(el('line', { x1: m.l, x2: w - m.r, y1: Y(v), y2: Y(v), stroke: 'var(--g-grid)', 'stroke-width': 1 }));
         const t = el('text', { x: m.l - 8, y: Y(v) + 4, 'text-anchor': 'end', fill: 'var(--g-axis)', 'font-size': 11 });
         t.textContent = String(Math.round(v));
+        svg.appendChild(t);
+      }
+      // Label the top edge with the leader's total too, unless the last gridline's label is close enough to collide.
+      if (Y(Math.floor(top / step) * step) - Y(top) >= 14) {
+        const t = el('text', { x: m.l - 8, y: Y(top) + 4, 'text-anchor': 'end', fill: 'var(--g-axis)', 'font-size': 11 });
+        t.textContent = String(Math.round(top));
         svg.appendChild(t);
       }
       // x axis labels (thinned so they never collide)
@@ -578,9 +586,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             t.textContent = s.short.length > 14 ? `${s.short.slice(0, 13)}…` : s.short;
             g.appendChild(t);
           }
-          const title = el('title', {});
-          title.textContent = s.full;
-          g.appendChild(title);
+          // Text labels get a native tooltip for their full name; logos don't, since the
+          // styled name tag already shows it (both at once read as two tooltips).
+          if (!s.logo) {
+            const title = el('title', {});
+            title.textContent = s.full;
+            g.appendChild(title);
+          }
           labelNodes.set(s.id, g);
           labelCy.set(s.id, cy);
           labelOrder.push(s.id);
@@ -660,6 +672,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           }
         }
         setHighlight(near);
+        // Only show the round's values while the pointer is on (near) a line, not anywhere in the plot.
+        if (!near) {
+          tip.classList.add('hidden');
+          return;
+        }
         rows.sort((a, b) => b.v - a.v);
         tip.replaceChildren();
         const head = document.createElement('div');

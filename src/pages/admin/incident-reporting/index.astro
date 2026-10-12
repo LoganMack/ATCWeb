@@ -184,7 +184,7 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
             <td class="whitespace-nowrap px-4 py-3 text-right">
               {/* ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
               <a href={`/results/${r.subsessionId}/incidents?view=reports`} class="font-semibold text-brand-primary hover:underline">View Incidents</a>
-              <a href={`/results/${r.subsessionId}/incidents`} class="ml-4 font-semibold text-brand-primary hover:underline">Edit Report</a>
+              <a href={`/results/${r.subsessionId}/incidents`} class="ml-4 font-semibold text-brand-primary hover:underline">{r.posted ? 'View Report' : 'Edit Report'}</a>
             </td>
           </tr>
         ))}

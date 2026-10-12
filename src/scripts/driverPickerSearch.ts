@@ -15,6 +15,11 @@
  * hides a choice you've made. Options without data-search (e.g. a pinned
  * "Racing Incident") are never filtered.
  *
+ * Optional sort toggle: buttons with data-driver-sort="number" / "name"
+ * inside the picker reorder the options by their data-sort-number /
+ * data-sort-name (the button with aria-pressed="true" is the current order).
+ * Options without data-sort-name are left where they are.
+ *
  * One delegated listener set on `document`, bound once per JS context with
  * a module-scoped guard — see expandRows.ts's header for why not a flag on
  * document.body. Code that changes the list programmatically (opening a
@@ -37,6 +42,23 @@ function filterPicker(picker: HTMLElement) {
   picker.querySelector<HTMLElement>('[data-driver-search-empty]')?.classList.toggle('hidden', visible > 0);
 }
 
+/** Reorders the picker's options in place (they share one parent), keeping the empty-state line last. */
+function sortPicker(picker: HTMLElement, by: string) {
+  const options = [...picker.querySelectorAll<HTMLElement>('[data-driver-option][data-sort-name]')];
+  if (!options.length) return;
+  const num = (o: HTMLElement) => Number(o.dataset.sortNumber ?? Infinity);
+  const name = (o: HTMLElement) => o.dataset.sortName ?? '';
+  options.sort((a, b) =>
+    by === 'name'
+      ? name(a).localeCompare(name(b)) || num(a) - num(b)
+      : num(a) - num(b) || name(a).localeCompare(name(b))
+  );
+  const parent = options[0].parentElement!;
+  const empty = parent.querySelector(':scope > [data-driver-search-empty]');
+  for (const o of options) parent.insertBefore(o, empty);
+  picker.querySelectorAll<HTMLElement>('[data-driver-sort]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.driverSort === by)));
+}
+
 function init() {
   if (initialized) return;
   initialized = true;
@@ -45,6 +67,12 @@ function init() {
     const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-driver-search]');
     const picker = input?.closest<HTMLElement>('[data-driver-picker]');
     if (picker) filterPicker(picker);
+  });
+
+  document.addEventListener('click', (e) => {
+    const button = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-sort]');
+    const picker = button?.closest<HTMLElement>('[data-driver-picker]');
+    if (button && picker) sortPicker(picker, button.dataset.driverSort ?? 'number');
   });
 
   // Enter in the search box would otherwise submit the surrounding form.

@@ -132,14 +132,9 @@ const links: NavLink[] = [
                   <a href={item.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white">{item.label}</a>
                 ))}
                 {link.rounds && (
-                  <>
-                    <div data-nav-rounds class="max-h-80 min-w-[17rem] overflow-y-auto">
-                      <p class="px-3 py-2 text-white/40">Loading…</p>
-                    </div>
-                    <div class="-mx-1.5 -mb-1.5 mt-1.5 border-t border-white/10 p-1.5">
-                      <a href={link.href} class="block rounded-md px-3 py-2 font-semibold text-brand-primary transition hover:bg-white/[0.06]">All results &rarr;</a>
-                    </div>
-                  </>
+                  <div data-nav-rounds class="max-h-80 min-w-[17rem] overflow-y-auto">
+                    <p class="px-3 py-2 text-white/40">Loading…</p>
+                  </div>
                 )}
               </div>
             </div>
