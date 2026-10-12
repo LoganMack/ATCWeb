@@ -1,0 +1,86 @@
+---
+import type { IncidentRow } from '../lib/incidents';
+import { incidentSummariesJson } from '../lib/incidentDisplay';
+
+/**
+ * The "Incident Details" popup and the JSON block of per-incident details it
+ * reads from (keyed by incident id). Rendered once per page next to whichever
+ * incident rows can open it — see IncidentsAllTable.astro and
+ * src/scripts/incidentDetails.ts.
+ */
+interface Props {
+  /** Every incident row on the page that can open the popup. */
+  rows: IncidentRow[];
+}
+const json = incidentSummariesJson(Astro.props.rows);
+---
+
+<script type="application/json" data-history-incident-data set:html={json}></script>
+
+{/* "Incident Details" popup — opened by clicking/tapping any incident row (same card as the Incident Report page's, read-only). The click handling lives in src/scripts/incidentDetails.ts, loaded by the page shell (a <script> in a fetched fragment would never run). */}
+<dialog
+  data-history-incident-dialog
+  class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
+>
+  <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+    <div class="flex items-center justify-between">
+      <h4 class="font-display text-lg">Incident Details</h4>
+      <button type="button" data-close-history-incident class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+    </div>
+    <dl class="flex flex-col gap-3 text-sm">
+      <div>
+        <dt class="text-[11px] uppercase tracking-wide text-white/40">Round</dt>
+        <dd data-hi="round" class="mt-0.5 font-semibold"></dd>
+        <dd data-hi="when" class="text-white/60"></dd>
+      </div>
+      <div>
+        <dt class="text-[11px] uppercase tracking-wide text-white/40">Driver</dt>
+        <dd data-hi="driver" class="mt-0.5 font-semibold"></dd>
+      </div>
+      <div class="flex gap-6">
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Incident #</dt>
+          <dd data-hi="number" class="mt-0.5"></dd>
+        </div>
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Lap</dt>
+          <dd data-hi="lap" class="mt-0.5"></dd>
+        </div>
+      </div>
+      <div data-hi-row="involved" class="hidden">
+        <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
+        <dd data-hi="involved" class="mt-0.5 text-white/70"></dd>
+      </div>
+      <div data-hi-row="description" class="hidden">
+        <dt class="text-[11px] uppercase tracking-wide text-white/40">Description</dt>
+        <dd data-hi="description" class="mt-0.5 text-white/70"></dd>
+      </div>
+      <div data-hi-row="offenses" class="hidden">
+        <dt class="text-[11px] uppercase tracking-wide text-white/40">Offenses</dt>
+        <dd data-hi="offenses" class="mt-0.5 flex flex-col gap-0.5 text-white/70"></dd>
+      </div>
+      <div class="flex gap-6">
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">PP</dt>
+          <dd data-hi="pp" class="mt-0.5"></dd>
+        </div>
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Time</dt>
+          <dd data-hi="time" class="mt-0.5"></dd>
+        </div>
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts</dt>
+          <dd data-hi="points" class="mt-0.5"></dd>
+        </div>
+      </div>
+      <div data-hi-row="appealed" class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2">
+        <dt class="text-[10px] font-semibold uppercase tracking-wide text-brand-pink">Appealed</dt>
+        <dd class="mt-1 text-[13px] text-brand-pink/90">This incident was appealed.</dd>
+      </div>
+    </dl>
+    <div class="flex flex-wrap justify-end gap-2">
+      <a data-hi-link="round" href="#" class="btn btn-neutral btn-sm">Round Results</a>
+      <a data-hi-link="report" href="#" class="btn btn-primary btn-sm">Incident Report</a>
+    </div>
+  </div>
+</dialog>

@@ -1,0 +1,90 @@
+---
+import { displayDriverName, formatDateShort } from '../lib/supabase';
+import type { IncidentRow } from '../lib/incidents';
+import { sessionLabel, driverNumberLabel, shortTrackName, involvedLabel } from '../lib/incidentDisplay';
+
+/**
+ * The All Incidents table — every logged incident as one sortable row, click
+ * (or Enter/Space) to open the Incident Details popup. Shared by History →
+ * Incidents (src/pages/incidents/fragment.astro) and the Event Briefing
+ * page's Past Incidents section, so the two always look and behave the same.
+ * Pair it with IncidentDetailsDialog.astro (the popup + its data) on the same
+ * page; the open/close behavior is src/scripts/incidentDetails.ts.
+ */
+interface Props {
+  rows: IncidentRow[];
+  /** The Track column is pointless when every row is the same track (the briefing page). */
+  showTrack?: boolean;
+  /** Tailwind min-width class for the table; History → Incidents keeps its wide layout. */
+  minWidthClass?: string;
+}
+const { rows, showTrack = true, minWidthClass = 'min-w-[900px]' } = Astro.props;
+---
+
+<div class="rounded-xl border border-white/10" data-sticky-thead>
+  <table class={`w-full border-collapse ${minWidthClass}`} data-sortable>
+    <thead>
+      <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+        <th class="whitespace-nowrap py-3 pl-4 pr-3 font-medium" data-sort-key="date">Date</th>
+        <th class="whitespace-nowrap hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="season">Season</th>
+        <th class="whitespace-nowrap hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="round">Round</th>
+        <th class="whitespace-nowrap hidden py-3 pr-3 font-medium md:table-cell" data-sort-key="session">Session</th>
+        {showTrack && <th class="whitespace-nowrap hidden py-3 pr-3 font-medium sm:table-cell" data-sort-key="track">Track</th>}
+        <th class="whitespace-nowrap hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="lap">Lap</th>
+        <th class="whitespace-nowrap py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
+        <th class="whitespace-nowrap hidden py-3 pr-3 font-medium lg:table-cell" data-sort-key="involved">Involved</th>
+        <th class="whitespace-nowrap py-3 pr-3 text-center font-medium" data-sort-key="pp">PP</th>
+        <th class="whitespace-nowrap py-3 pr-3 text-center font-medium" data-sort-key="time">Time</th>
+        <th class="whitespace-nowrap py-3 pr-3 text-center font-medium" data-sort-key="pts">Pts</th>
+        <th class="whitespace-nowrap hidden py-3 pr-3 text-center font-medium xl:table-cell" data-sort-key="appealed">Appealed</th>
+        <th class="whitespace-nowrap py-3 pr-4" aria-hidden="true"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map((row) => (
+        <tr
+          data-history-incident={row.id}
+          tabindex="0"
+          role="button"
+          class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04] active:bg-white/5"
+        >
+          <td class="py-2.5 pl-4 pr-3 text-white/60" data-col="date" data-sort-value={row.startTime}>
+            {formatDateShort(row.startTime)}
+          </td>
+          <td class="hidden py-2.5 pr-3 text-white/60 md:table-cell" data-col="season">{row.seasonLabel ?? '—'}</td>
+          <td class="hidden py-2.5 pr-3 text-white/60 sm:table-cell" data-col="round" data-sort-value={row.displayRoundNumber ?? -1}>
+            {row.displayRoundNumber !== null ? row.displayRoundNumber : 'Exhibition'}
+          </td>
+          <td class="hidden whitespace-nowrap py-2.5 pr-3 text-white/60 md:table-cell" data-col="session">{sessionLabel(row)}</td>
+          {showTrack && <td class="hidden whitespace-nowrap py-2.5 pr-3 font-semibold sm:table-cell" data-col="track" data-sort-value={row.trackName} title={row.trackName}>{shortTrackName(row.trackName)}</td>}
+          <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="lap">{row.lap ?? '—'}</td>
+          <td class="py-2.5 pr-3 font-semibold" data-col="driver" data-sort-value={row.driver?.car_number ?? -1}>
+            <span title={row.driver === null ? 'Racing Incident — no driver at fault' : displayDriverName(row.driver.name)}>
+              {driverNumberLabel(row)}
+            </span>
+          </td>
+          <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
+          <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp" data-sort-value={row.isWarning ? 0 : row.penaltyPoints}>
+            {/* A warning never carries a PP value of its own (see
+                results/[subsessionId]/incidents.astro's own "warning"
+                sentinel comment) — shown here the same way that
+                page's own PP column shows it. */}
+            {row.isWarning ? (
+              <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
+            ) : (
+              <div>{row.penaltyPoints || '—'}</div>
+            )}
+          </td>
+          <td class="py-2.5 pr-3 text-center text-white/60" data-col="time">
+            {row.timePenaltySeconds ? `+${row.timePenaltySeconds}s` : '—'}
+          </td>
+          <td class="py-2.5 pr-3 text-center text-white/60" data-col="pts">{row.pointsPenalty || '—'}</td>
+          <td class="hidden py-2.5 pr-3 text-center text-white/60 xl:table-cell" data-col="appealed" data-sort-value={row.isAppealed ? 1 : 0}>
+            {row.isAppealed ? 'Yes' : '—'}
+          </td>
+          <td class="py-2.5 pr-4 text-right text-lg leading-none text-white/30" aria-hidden="true">&rsaquo;</td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>

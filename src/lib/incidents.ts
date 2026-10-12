@@ -91,8 +91,24 @@ export interface IncidentsData {
  * shape as getSeasonOverallContext elsewhere in this codebase).
  */
 export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> {
+  return loadIncidents(env);
+}
+
+/**
+ * Just the All Incidents rows (same shape, same "posted reports only" rule,
+ * same round numbering as getAllIncidents) for a chosen set of rounds — the
+ * Event Briefing page's Past Incidents table. Skips the site-wide fetches the
+ * By Driver / By Offense views need, so it stays cheap.
+ */
+export async function getIncidentsForSubsessions(env: SupabaseEnv, onlySubsessionIds: number[]): Promise<IncidentRow[]> {
+  if (onlySubsessionIds.length === 0) return [];
+  return (await loadIncidents(env, onlySubsessionIds)).all;
+}
+
+async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[]): Promise<IncidentsData> {
   const rounds = await getAllRounds(env);
-  const subsessionIds = rounds.map((r) => r.subsession_id);
+  // Round numbers are per season, so they're always worked out from every round; only the penalty fetch narrows down.
+  const subsessionIds = onlySubsessionIds ?? rounds.map((r) => r.subsession_id);
 
   const [allPenalties, postedRoundIds, driversBasic, offenses, excludedRoundIds, raceStartRows] = await Promise.all([
     getPenaltiesForSubsessions(env, subsessionIds),
@@ -111,7 +127,7 @@ export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> 
     // driver's distinct (subsession, race_number) starts for the By Driver
     // table's Inc/Race and Pen/Race columns. Deliberately not routed through
     // results.ts's standings engine (see this file's header comment).
-    subsessionIds.length === 0
+    subsessionIds.length === 0 || onlySubsessionIds
       ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
       : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
           env,
