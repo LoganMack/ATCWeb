@@ -22,7 +22,7 @@
  *    whenever a row actually has an `adjusted_position`, that's flagged so
  *    the UI can indicate a penalty affected the result.
  *
- * 2. Season point totals drop each driver's worst 2 rounds, plus whatever
+ * 2. Season point totals drop each driver's worst N rounds (N = the season ruleset's rules.drops.base, 2 by default), plus whatever
  *    `seasons.extra_drop_weeks` adds for that season (Logan: "the baseline
  *    amount is 2 drop weeks"). A "round" here is one subsession_id —
  *    race1+race2+race3 (when present) are summed as a single droppable
@@ -874,7 +874,24 @@ export function computeSeasonStandingsRoundColumns(
     .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.subsessionId - b.subsessionId);
 }
 
+/** Fallback drop count when a season's ruleset doesn't specify `rules.drops.base` (or no ruleset resolves at all). Every ruleset on file today sets its own value — see `rulesetBaseDropWeeks`. */
 export const BASELINE_DROP_WEEKS = 2;
+
+/**
+ * A ruleset's base number of drop weeks (`rules.drops.base`), falling back to
+ * BASELINE_DROP_WEEKS when the ruleset is missing or the field isn't a
+ * non-negative whole number. The season's own `extra_drop_weeks` is added on
+ * top by `seasonDropWeeks`.
+ */
+export function rulesetBaseDropWeeks(ruleset: ScoringRuleset | null | undefined): number {
+  const base = (ruleset?.rules as { drops?: { base?: unknown } } | null | undefined)?.drops?.base;
+  return typeof base === 'number' && Number.isInteger(base) && base >= 0 ? base : BASELINE_DROP_WEEKS;
+}
+
+/** Total drop weeks a season's driver standings get: its ruleset's base plus the season's `extra_drop_weeks`. */
+export function seasonDropWeeks(season: Pick<Season, 'scoring_ruleset_id' | 'extra_drop_weeks'>, rulesets: ScoringRuleset[]): number {
+  return rulesetBaseDropWeeks(resolveSeasonRuleset(season, rulesets)) + (season.extra_drop_weeks ?? 0);
+}
 /** Drop weeks don't kick in until the championship has actually run this many rounds — per Logan. Below this, `finalizeStandings` forces the drop count to 0 regardless of `BASELINE_DROP_WEEKS`/`extra_drop_weeks`, so every round scored so far still counts toward the total (no early-season "your worst round doesn't count" swings while the sample size is tiny). */
 export const MIN_ROUNDS_FOR_DROPS = 5;
 
@@ -988,10 +1005,12 @@ function finalizeStandings(
   allSubsessionIds: Set<number>,
   finalRoundSubsessionId: number | null = null,
   canDropFinalRound: boolean = true,
+  /** The season's ruleset's `rules.drops.base` (see rulesetBaseDropWeeks) — season.extra_drop_weeks is added on top below. */
+  baseDropWeeks: number = BASELINE_DROP_WEEKS,
   /** Standings Matrix view's penalty summaries (StandingsRoundCell.penalties) — see buildPenaltiesByDriverAndRound. Omitted entirely leaves every cell's penalties empty, harmless for any caller that doesn't need the Matrix view. */
   penaltiesByDriverAndRound?: Map<string, Map<number, Penalty[]>>
 ): DriverSeasonStanding[] {
-  const totalDrops = allSubsessionIds.size >= MIN_ROUNDS_FOR_DROPS ? BASELINE_DROP_WEEKS + (season.extra_drop_weeks ?? 0) : 0;
+  const totalDrops = allSubsessionIds.size >= MIN_ROUNDS_FOR_DROPS ? baseDropWeeks + (season.extra_drop_weeks ?? 0) : 0;
   // Only actually a constraint when the final round is both present in this
   // pool (this class/view may not have raced it at all) and the ruleset
   // wants it protected — otherwise this is exactly the old unconstrained
@@ -1356,6 +1375,7 @@ export async function computeSeasonStandings(
     allSubsessionIds,
     finalRoundSubsessionId,
     canDropFinalRound,
+    rulesetBaseDropWeeks(resolveSeasonRuleset(season, allRulesets)),
     buildPenaltiesByDriverAndRound(overallContext.penalties)
   );
 }
@@ -1486,6 +1506,7 @@ export async function computeOverallSeasonStandings(
     allSubsessionIds,
     finalRoundSubsessionId,
     canDropFinalRound,
+    rulesetBaseDropWeeks(resolveSeasonRuleset(season, allRulesets)),
     buildPenaltiesByDriverAndRound(overallContext.penalties)
   );
 }

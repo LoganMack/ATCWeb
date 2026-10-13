@@ -28,6 +28,7 @@ import {
   computeDisplayRoundNumbers,
   normalizeTrackOrLayoutName,
   BASELINE_DROP_WEEKS,
+  seasonDropWeeks,
   MIN_ROUNDS_FOR_DROPS,
   getSeasonCarTeamStats,
   getSeasonDriverExtendedStats,
@@ -276,12 +277,15 @@ if (!loadError && activeSeason && championship === 'teams' && !deltaNotActiveFor
 // Timeline Slider needs (teams never drop rounds), and a track logo for each
 // column header — matched to a circuit by track name, same normalisation the
 // rest of the site uses; a track with no logo falls back to an initials tile.
-const driverDropWeeks = activeSeason ? BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0) : BASELINE_DROP_WEEKS;
+let driverDropWeeks = activeSeason ? BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0) : BASELINE_DROP_WEEKS;
 if (!loadError && activeSeason && matrixColumns.length > 0) {
   matrixDropWeeks = championship === 'drivers' ? driverDropWeeks : 0;
   try {
     const rulesets = await getScoringRulesets(supabaseEnv);
     matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, rulesets)?.can_drop_final_round ?? false;
+    // Base drop weeks come from the season's ruleset (rules.drops.base), plus the season's extra_drop_weeks.
+    driverDropWeeks = seasonDropWeeks(activeSeason, rulesets);
+    if (championship === 'drivers') matrixDropWeeks = driverDropWeeks;
   } catch (err) {
     console.error('Failed to load scoring rulesets for standings:', err);
   }

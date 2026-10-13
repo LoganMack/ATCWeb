@@ -45,8 +45,9 @@ let error: string | null = null;
  * explicit `enabled: true` — see 0067_ruleset_overhaul_and_bonuses.sql).
  *
  * REFERENCE ONLY, transcribed from the rulebook for admins/stewards but NOT
- * read by any code: drops (except .base, which only an unused legacy DB
- * view reads), teams, probation, pp_penalties, classification,
+ * read by any code: drops (except .base, which the driver standings read
+ * as the number of worst rounds dropped — see rulesetBaseDropWeeks in
+ * results.ts — plus the season's extra_drop_weeks), teams, probation, pp_penalties, classification,
  * season_pp_limit, and — easy to miss — classification.min_distance_pct:
  * the actual 50%-of-leader's-laps classification rule is HARDCODED in
  * recalculate_race_scores() (§2.25), not read from here. Editing this field
