@@ -1,4 +1,5 @@
 ---
+import DriverLink from './DriverLink.astro';
 import type { ChampionEntry, DriverSeasonExtras } from '../lib/results';
 import { pctOf } from '../lib/results';
 import type { ChampionPhoto } from '../lib/supabase';
@@ -57,7 +58,7 @@ function raceWord(n: number): string {
         </p>
         <div class="mt-1 flex flex-wrap items-center gap-2">
           <h3 class="font-display text-3xl leading-none">
-            {driverName} {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
+            <DriverLink id={d.driver.id}>{driverName}</DriverLink> {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
           </h3>
           <DriverFlag nationality1={d.driver.nationality_1} nationality2={d.driver.nationality_2} />
           {/* Cars first, teams second — every driver has a car, not every driver has a team. */}

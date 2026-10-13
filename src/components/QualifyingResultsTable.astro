@@ -17,6 +17,7 @@
 // isRealPenaltyTag, src/lib/penalties.ts — see the former's own doc
 // comment for why it's not just named "penaltyTagLabel") rather than a
 // separate copy.
+import DriverLink from './DriverLink.astro';
 import type { QualifyingRow } from '../lib/results';
 import type { Penalty } from '../lib/supabase';
 import { displayDriverName, shortDriverName } from '../lib/supabase';
@@ -74,10 +75,10 @@ for (const p of qualifyingPenalties) {
               <div class="flex flex-wrap items-center gap-2">
                 {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as ResultsTable.astro's row. */}
                 <span class="hidden sm:inline">
-                  {displayDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <span class="sm:hidden">
-                  {shortDriverName(row.driver.name)} {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                 {row.notInRoster && (

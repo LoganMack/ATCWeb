@@ -6,6 +6,7 @@ import UpcomingEventCard from '../../components/UpcomingEventCard.astro';
 import CarLogos from '../../components/CarLogos.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
+import DriverLink from '../../components/DriverLink.astro';
 import {
   getNewsPosts,
   getUpcomingEvents,
@@ -510,7 +511,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                         off by the truncate above even on
                                         desktop. */}
                                     <span class="min-w-0 flex-1 truncate font-semibold">
-                                      {shortDriverName(row.driver.name)}
+                                      <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink>
                                       {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                                     </span>
                                     {/* Flag / car / team sit in FIXED-WIDTH slots, same as ResultsTable.astro's row: a driver with no flag, car or team still gets an empty slot, so everything else lines up row to row. Car/team logos hidden on mobile (Logan) — this card is narrow enough that they crowd the row. */}
@@ -620,7 +621,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                           <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
                           {/* Same short-name treatment as the Previous Result widget's driver rows above — narrow fixed-width card. */}
                           <span class="min-w-0 flex-1 truncate font-semibold">
-                            {shortDriverName(row.driver.name)}
+                            <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink>
                             {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
                           </span>
                           {/* Same fixed-width flag / car / team slots as the Previous Result widget's driver rows above (car/team hidden on mobile). */}

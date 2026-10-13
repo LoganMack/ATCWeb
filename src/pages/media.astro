@@ -131,7 +131,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       photoUrl: string | null;
       lat: number;
       lng: number;
-      drivers: string[];
+      drivers: { id: string; label: string }[];
     }
 
     function initMeetupMap() {
@@ -198,9 +198,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             l.textContent = 'Attended';
             const ul = document.createElement('ul');
             ul.className = 'mt-1 text-sm text-white/70';
-            p.drivers.forEach((name) => {
+            p.drivers.forEach((driver) => {
               const li = document.createElement('li');
-              li.textContent = name;
+              // Links to the driver's profile but reads as plain text (same markup as src/components/DriverLink.astro).
+              const a = document.createElement('a');
+              a.href = `/drivers/${driver.id}`;
+              a.className = 'driver-link';
+              a.title = 'Click to view profile';
+              a.textContent = driver.label;
+              li.appendChild(a);
               ul.appendChild(li);
             });
             body.append(l, ul);

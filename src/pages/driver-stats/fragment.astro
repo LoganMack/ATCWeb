@@ -4,6 +4,7 @@ export const prerender = false;
 import CarLogos from '../../components/CarLogos.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
+import DriverLink from '../../components/DriverLink.astro';
 import TrophyIcon from '../../components/TrophyIcon.astro';
 import { resolveSupabaseEnv, getDriverClasses, getSeasons, displayDriverName } from '../../lib/supabase';
 import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
@@ -112,7 +113,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     &#9654;
                   </span>
                   <span>
-                    {name} {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
+                    <DriverLink id={entry.driver.id}>{name}</DriverLink> {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
                   </span>
                   <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                 </div>
