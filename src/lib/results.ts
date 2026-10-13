@@ -1527,6 +1527,29 @@ export interface TeamSeasonStanding {
   roundCells: Map<number, StandingsRoundCell>;
   /** Races any of this team's drivers started, per round — feeds the "Standings by Round" slider's as-of Starts column. */
   roundStarts: Map<number, number>;
+  /** Every finish by any of this team's drivers this season, one per driver per race — the Team Standings expandable row's results table. `counted` is false for a finish outside the team's top 2 scorers of that race (it earned the team nothing). */
+  raceEntries: TeamRaceEntry[];
+}
+
+/** One driver's finish in one race, as listed in a team's expandable row on the Team Standings page. */
+export interface TeamRaceEntry {
+  subsessionId: number;
+  raceNumber: number;
+  driverId: string;
+  /** Null for the per-class (Delta) team competition, which doesn't tag classes. */
+  classId: number | null;
+  /** Overall field position (penalty-adjusted), or the class position in a per-class team competition. Null for a disqualified driver. */
+  position: number | null;
+  dsq: boolean;
+  startingPosition: number | null;
+  incidents: number | null;
+  laps: number | null;
+  lapsLed: number | null;
+  bestLapTenThousandths: number | null;
+  /** The points figure the team competition ranked this finish by. */
+  points: number;
+  /** True when this finish was one of the team's top 2 scorers of the race, i.e. its points went into the team's total. */
+  counted: boolean;
 }
 
 /**
@@ -1599,12 +1622,13 @@ export async function computeTeamSeasonStandings(
     roundPoints: Map<number, number>;
     roundStarts: Map<number, number>;
     driverIds: Set<string>;
+    raceEntries: TeamRaceEntry[];
   }
   const accum = new Map<string, TeamAccum>();
   function getAccum(teamId: string): TeamAccum {
     let a = accum.get(teamId);
     if (!a) {
-      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map(), roundStarts: new Map(), driverIds: new Set() };
+      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map(), roundStarts: new Map(), driverIds: new Set(), raceEntries: [] };
       accum.set(teamId, a);
     }
     return a;
@@ -1640,9 +1664,32 @@ export async function computeTeamSeasonStandings(
     for (const group of raceTeamGroups.values()) {
       const subsessionId = group[0].subsession_id;
       const teamId = group[0].team_id as string;
-      const roundSum = topTeamScorers(group, pointsOf).reduce((sum, s) => sum + pointsOf(s), 0);
+      const scorers = topTeamScorers(group, pointsOf);
+      const roundSum = scorers.reduce((sum, s) => sum + pointsOf(s), 0);
       const a = getAccum(teamId);
       a.roundPoints.set(subsessionId, (a.roundPoints.get(subsessionId) ?? 0) + roundSum);
+      for (const s of group) {
+        const custId = overallContext.custIdByDriverId.get(s.driver_id);
+        const resultLookupKey = custId != null ? resultKey(s.subsession_id, s.race_number, custId) : null;
+        const raw = resultLookupKey ? overallContext.rawByKey.get(resultLookupKey) : undefined;
+        const lapStats = resultLookupKey ? overallContext.lapStatsByKey.get(resultLookupKey) : undefined;
+        const adjustment = overallContext.adjustments.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`);
+        a.raceEntries.push({
+          subsessionId: s.subsession_id,
+          raceNumber: s.race_number,
+          driverId: s.driver_id,
+          classId: s.class_id,
+          position: s.dsq ? null : adjustment ? adjustment.newPosition : s.scored_position,
+          dsq: s.dsq,
+          startingPosition: raw?.starting_position ?? null,
+          incidents: raw?.incidents ?? null,
+          laps: raw?.laps_complete ?? null,
+          lapsLed: raw?.laps_led ?? null,
+          bestLapTenThousandths: lapStats?.best_lap_ten_thousandths ?? null,
+          points: pointsOf(s),
+          counted: scorers.includes(s),
+        });
+      }
     }
   } else {
     // ---- One class's own separate team competition (e.g. Delta's) ----
@@ -1772,12 +1819,37 @@ export async function computeTeamSeasonStandings(
       raceTeamGroups.get(key)!.push(s);
     }
 
+    const classPositionByKey = new Map(
+      classScoreRows.map((r) => [`${r.subsessionId}:${r.raceNumber}:${r.driverId}`, r.classPosition] as const)
+    );
     for (const group of raceTeamGroups.values()) {
       const subsessionId = group[0].subsession_id;
       const teamId = group[0].team_id as string;
-      const roundSum = topTeamScorers(group, pointsOf).reduce((sum, s) => sum + pointsOf(s), 0);
+      const scorers = topTeamScorers(group, pointsOf);
+      const roundSum = scorers.reduce((sum, s) => sum + pointsOf(s), 0);
       const a = getAccum(teamId);
       a.roundPoints.set(subsessionId, (a.roundPoints.get(subsessionId) ?? 0) + roundSum);
+      for (const s of group) {
+        const custId = custIdByDriverId.get(s.driver_id);
+        const resultLookupKey = custId != null ? resultKey(s.subsession_id, s.race_number, custId) : null;
+        const raw = resultLookupKey ? rawByKey.get(resultLookupKey) : undefined;
+        const lapStats = resultLookupKey ? overallContext.lapStatsByKey.get(resultLookupKey) : undefined;
+        a.raceEntries.push({
+          subsessionId: s.subsession_id,
+          raceNumber: s.race_number,
+          driverId: s.driver_id,
+          classId: null,
+          position: s.dsq ? null : classPositionByKey.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`) ?? null,
+          dsq: s.dsq,
+          startingPosition: raw?.starting_position ?? null,
+          incidents: raw?.incidents ?? null,
+          laps: raw?.laps_complete ?? null,
+          lapsLed: raw?.laps_led ?? null,
+          bestLapTenThousandths: lapStats?.best_lap_ten_thousandths ?? null,
+          points: pointsOf(s),
+          counted: scorers.includes(s),
+        });
+      }
     }
   }
 
@@ -1818,6 +1890,7 @@ export async function computeTeamSeasonStandings(
       driverIds: [...a.driverIds],
       roundCells,
       roundStarts: a.roundStarts,
+      raceEntries: a.raceEntries,
     });
   }
 
