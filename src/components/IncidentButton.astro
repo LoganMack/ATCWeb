@@ -1,6 +1,6 @@
 ---
 /**
- * The results page's yellow incident button, in one of three states:
+ * The results page's yellow incident button, in one of two states:
  *
  *  - 'report' — the reporting period is open: reads "Report Incident" and
  *    opens the Report Incident dialog (ReportIncidentDialog.astro, via
@@ -10,14 +10,14 @@
  *    since this page is edge-cached for up to a minute.
  *  - 'view' — the round's incident report has been posted (or the viewer is
  *    an admin): reads "Incident Report" and links to the incident page.
- *  - 'closed' — the period is over and the report isn't posted yet:
- *    disabled, reads "Incident Report", hover explains the stewards are
- *    still reviewing.
+ *
+ * Between the two (period over, report not posted yet) the results page
+ * renders no button at all (#75).
  */
 import { reportingCountdownText } from '../lib/incidentReports';
 
 interface Props {
-  state: 'report' | 'view' | 'closed';
+  state: 'report' | 'view';
   incidentsHref: string;
   /** ISO time the reporting period ends — only used in the 'report' state. */
   closesAtIso?: string | null;
@@ -40,20 +40,6 @@ const closes = closesAtIso ? new Date(closesAtIso) : null;
     <span class={tip} role="tooltip" data-incident-countdown data-closes-at={closesAtIso ?? undefined}>
       {closes ? reportingCountdownText(closes) : 'Incident reporting is open.'}
     </span>
-  </span>
-)}
-
-{state === 'closed' && (
-  <span class="group relative">
-    <button
-      type="button"
-      disabled
-      aria-disabled="true"
-      class="btn btn-neutral"
-    >
-      Incident Report
-    </button>
-    <span class={tip} role="tooltip">The incident reporting period has closed. The stewards are currently reviewing.</span>
   </span>
 )}
 

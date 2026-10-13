@@ -461,11 +461,11 @@ const classKey = activeClass ? activeClass.name.toLowerCase() : 'all';
 // --- Incident reporting (per Logan) ----------------------------------------
 // Open for a configurable number of hours (site setting, default 24) after
 // the race is over — see src/lib/incidentReports.ts for the exact window
-// math. The yellow incident button is one of three states (IncidentButton.
-// astro): "Report Incident" while open, a disabled "Incident Report" once the
-// period has closed, and a working "Incident Report" link once stewards have
-// POSTED the round (admin > Incident Reporting) — posting also ends
-// reporting. Admins always get the link. The POST below re-checks the window
+// math. The yellow incident button is one of two states (IncidentButton.
+// astro): "Report Incident" while open, and a working "Incident Report" link
+// once stewards have POSTED the round (admin > Incident Reporting) — posting
+// also ends reporting. Between the two (period closed, report not posted yet)
+// there's no button at all (#75). Admins always get the link. The POST below re-checks the window
 // server-side.
 const reportSessionOptions: { value: string; label: string }[] = [
   ...overallRaceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
@@ -485,7 +485,7 @@ const reportingHours = !loadError && round ? await getReportingPeriodHours(supab
 const reportingWindow =
   !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time, reportingHours) : null;
 const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
-const incidentButtonState: 'report' | 'view' | 'closed' = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : 'closed';
+const incidentButtonState: 'report' | 'view' | null = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : null;
 // Admins normally only see the "Incident Report" link, but while reporting
 // is still open they also get the Report Incident button (placed between the
 // Race Links and Incident Report buttons) so they can file one themselves.
@@ -499,7 +499,7 @@ let reportFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   const flash = Astro.url.searchParams.get('report');
   if (flash === 'ok') reportFlash = { kind: 'ok', message: 'Incident reported successfully.' };
   else if (flash === 'closed') reportFlash = { kind: 'error', message: 'The reporting period for this round has closed.' };
-  else if (flash === 'invalid') reportFlash = { kind: 'error', message: 'Your report was missing a required field — please fill in Session, Lap, Turn and at least one car.' };
+  else if (flash === 'invalid') reportFlash = { kind: 'error', message: 'Your report was missing a required field — please fill in Session, Lap, Turn, Description and at least one car.' };
   else if (flash === 'failed') reportFlash = { kind: 'error', message: "Couldn't save your report right now. Please try again." };
 }
 
@@ -517,10 +517,10 @@ if (postForm && postForm.get('intent') === 'report-incident' && !loadError && ro
   const lapRaw = String(postForm.get('lap') ?? '').trim();
   const lap = /^\d+$/.test(lapRaw) ? Number(lapRaw) : NaN;
   const turn = String(postForm.get('turn') ?? '').trim().slice(0, 80);
-  const description = String(postForm.get('description') ?? '').trim().slice(0, 2000) || null;
+  const description = String(postForm.get('description') ?? '').trim().slice(0, 2000);
   const involved = [...new Set(postForm.getAll('involved_driver_ids').map(String))].filter((id) => reportDriverById.has(id));
 
-  if (!reportSessionOptions.some((o) => o.value === sessionValue) || !Number.isFinite(lap) || !turn || involved.length === 0) {
+  if (!reportSessionOptions.some((o) => o.value === sessionValue) || !Number.isFinite(lap) || !turn || !description || involved.length === 0) {
     return back('invalid');
   }
   try {
@@ -790,7 +790,7 @@ Astro.response.headers.set(
             {isAdmin && showReportButton && (
               <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
             )}
-            <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
+            {incidentButtonState && <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />}
             <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} />
             {/* Icon-only; the label shows on hover/keyboard focus (same tooltip look as the incident button's). */}
             <span class="group relative">
