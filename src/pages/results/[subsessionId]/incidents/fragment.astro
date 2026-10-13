@@ -25,11 +25,13 @@ import {
   getSeasonById,
   getScoringRulesets,
   resolveSeasonRuleset,
+  shortDriverName,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
   type ScoringRuleset,
 } from '../../../../lib/supabase';
+import SectionIcon from '../../../../components/SectionIcon.astro';
 import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, type RoundResults, type DriverBasic } from '../../../../lib/results';
 import {
   applyPenaltiesToRoundResults,
@@ -329,14 +331,14 @@ if (isAdmin && postForm) {
         failed = true;
       }
     }
-    return roundPenaltyBack(ROUND_PENALTIES_ANCHOR, failed);
+    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
   }
 
   // The Round Summary row's Edit: tick boxes for the fixed kinds plus one Other
   // note. Ticked kinds with nothing logged are added, unticked logged ones are
-  // removed; ones left ticked keep their note and served status. Served ones
-  // are never removed from here (their boxes are locked in the popup) — that
-  // would lose where they were served; undo them in the Round Penalties table.
+  // removed (served ones too — this popup is the one place a penalty is
+  // waived, and unticking it drops where it was served); ones left ticked keep
+  // their note and served status.
   // These are separate writes, not one transaction: if one fails partway, the
   // ones before it stay saved, get logged, and the flash says to check.
   if (intent === 'save-driver-round-penalties') {
@@ -355,7 +357,7 @@ if (isAdmin && postForm) {
             await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note: null, created_by: actor.id });
             changes++;
           } else if (!wanted.has(kind)) {
-            for (const rp of logged.filter((rp) => rp.served_subsession_id === null)) {
+            for (const rp of logged) {
               await deleteRoundPenalty(supabaseEnv, accessToken, rp.id);
               changes++;
             }
@@ -369,7 +371,7 @@ if (isAdmin && postForm) {
         } else if (otherNote && other && other.note !== otherNote) {
           await updateRoundPenalty(supabaseEnv, accessToken, other.id, { driver_id: driverId, kind: 'other', note: otherNote, markOwed: false });
           changes++;
-        } else if (!otherNote && other && other.served_subsession_id === null) {
+        } else if (!otherNote && other) {
           await deleteRoundPenalty(supabaseEnv, accessToken, other.id);
           changes++;
         }
@@ -410,7 +412,7 @@ if (isAdmin && postForm) {
         failed = true;
       }
     }
-    return roundPenaltyBack(ROUND_PENALTIES_ANCHOR, failed);
+    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
   }
 
   if (intent === 'set-round-penalty-served') {
@@ -754,6 +756,8 @@ function reportLabel(r: IncidentReport): string {
 // redirects back to its own pathname + search, so the mode survives a
 // Dismiss/Reopen/Log incident round trip.
 const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
+// Reports still waiting on the stewards — the number on the View Reported Incidents button.
+const openReportCount = incidentReports.filter((r) => r.status === 'open').length;
 
 // Steward reviews (0096), View Incidents only. RLS hands back only what this
 // admin may see — their own review, plus everyone else's on reports they've
@@ -799,12 +803,12 @@ function myReviewOf(reportId: string): IncidentReportReview | null {
 // reviews didn't load there's no telling what this steward has reviewed, so
 // every open report goes in one ungrouped list instead of a wrong queue (with
 // a warning above it).
-interface ReportGroup { title: string; empty: string | null; collapsed: boolean; reports: IncidentReport[]; alwaysShow?: boolean }
-const needsReviewGroup: ReportGroup = { title: 'Needs Review', empty: null, collapsed: false, reports: [], alwaysShow: true };
-const reviewedGroup: ReportGroup = { title: 'Reviewed', empty: null, collapsed: false, reports: [] };
-const openGroup: ReportGroup = { title: 'Open', empty: null, collapsed: false, reports: [] };
-const dismissedGroup: ReportGroup = { title: 'Dismissed', empty: null, collapsed: true, reports: [] };
-const loggedGroup: ReportGroup = { title: 'Logged', empty: null, collapsed: true, reports: [] };
+interface ReportGroup { title: string; icon: 'review' | 'reviewed' | 'open' | 'dismissed' | 'logged'; empty: string | null; collapsed: boolean; reports: IncidentReport[]; alwaysShow?: boolean }
+const needsReviewGroup: ReportGroup = { title: 'Needs Review', icon: 'review', empty: null, collapsed: false, reports: [], alwaysShow: true };
+const reviewedGroup: ReportGroup = { title: 'Reviewed', icon: 'reviewed', empty: null, collapsed: false, reports: [] };
+const openGroup: ReportGroup = { title: 'Open', icon: 'open', empty: null, collapsed: false, reports: [] };
+const dismissedGroup: ReportGroup = { title: 'Dismissed', icon: 'dismissed', empty: null, collapsed: true, reports: [] };
+const loggedGroup: ReportGroup = { title: 'Logged', icon: 'logged', empty: null, collapsed: true, reports: [] };
 for (const r of incidentReports) {
   const group =
     r.status === 'dismissed' ? dismissedGroup
@@ -817,6 +821,14 @@ for (const r of incidentReports) {
 const reportGroups = reviewsLoadFailed
   ? [openGroup, dismissedGroup, loggedGroup]
   : [needsReviewGroup, reviewedGroup, dismissedGroup, loggedGroup];
+// Colour for each group's icon (SectionIcon.astro), matching the agreement colours below.
+const groupIconColor: Record<ReportGroup['icon'], string> = {
+  review: 'text-brand-gold',
+  reviewed: 'text-emerald-400',
+  open: 'text-brand-gold',
+  dismissed: 'text-white/40',
+  logged: 'text-brand-primary',
+};
 const agreementStyles = {
   all: { item: 'border-emerald-400/60 bg-emerald-400/10', text: 'text-emerald-400', label: 'All stewards agree' },
   driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same cars at fault, different penalties' },
@@ -1012,21 +1024,15 @@ function driverLabel(driverId: string): string {
   const d = driverById.get(driverId) ?? seasonDriverById.get(driverId);
   return d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown driver';
 }
+/** "#14 J. Doe" — driverLabel() with the name shortened, for the compact cards. */
+function shortDriverLabel(driverId: string): string {
+  const d = driverById.get(driverId) ?? seasonDriverById.get(driverId);
+  return d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${shortDriverName(d.name)}` : 'Unknown driver';
+}
 function roundRefLabel(id: number): string {
   const r = roundPenaltyData.roundById.get(id);
   return r ? `${r.track_name} (${formatDate(r.start_time)})` : `Round ${id}`;
 }
-/** What an Edit button hands initRoundPenaltyDialog (incidents.astro). */
-function roundPenaltyEditData(rp: RoundPenalty): string {
-  return JSON.stringify({
-    id: rp.id,
-    driver_id: rp.driver_id,
-    kind: rp.kind,
-    note: rp.note,
-    served_label: rp.served_subsession_id !== null ? `Served at ${roundRefLabel(rp.served_subsession_id)}` : null,
-  });
-}
-
 const summaryRows: SummaryRow[] = [...roundPenaltiesByDriver].map(([driverId, driverPenalties]) => {
   const byRace = new Map<number, RaceTally>();
   for (const p of driverPenalties) {
@@ -1136,7 +1142,7 @@ const nextIncidentNumber =
               href={viewReports ? editReportHref : viewReportsHref}
               class="btn btn-neutral"
             >
-              {viewReports ? 'View Report' : 'View Reported Incidents'}
+              {viewReports ? 'View Report' : `View Reported Incidents${openReportCount > 0 ? ` (${openReportCount})` : ''}`}
             </a>
             {!viewReports && (
               <div class="flex flex-wrap items-center gap-2">
@@ -1182,6 +1188,7 @@ const nextIncidentNumber =
               {/* Same card header as the driver profile's collapsible sections (Awards, Career Moves…). */}
               <summary class="flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
                 <span class="flex items-center gap-2">
+                  <SectionIcon name={g.icon} class={`h-6 w-6 flex-none ${groupIconColor[g.icon]}`} />
                   <h2 class="font-display text-2xl">{g.title}</h2>
                   <span class="font-display text-2xl text-white/40">{g.reports.length}</span>
                 </span>
@@ -1332,6 +1339,7 @@ const nextIncidentNumber =
           <details class="group mt-6 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
             <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
               <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
+              <SectionIcon name="appeals" class="h-5 w-5 flex-none text-brand-gold" />
               <h2 class="font-display text-xl text-brand-gold">
                 Submitted Appeals
                 <span class="ml-2 text-sm text-white/40">
@@ -1404,53 +1412,59 @@ const nextIncidentNumber =
           </details>
         )}
 
-        {/* Admins reach the submitted reports from the View Reported Incidents button at the top of the page;
-            with some still open, say so rather than reading as "nothing here". */}
-        {!viewReports && sortedPenalties.length === 0 && (() => {
-          const openReports = incidentReports.filter((r) => r.status === 'open').length;
-          return (
-            <p class="mt-10 text-white/60">
-              {openReports > 0
-                ? `No incidents logged yet. ${openReports} submitted ${openReports === 1 ? 'report is' : 'reports are'} waiting under View Reported Incidents.`
-                : 'No incidents logged for this round.'}
-            </p>
-          );
-        })()}
+        {/* Admins reach the submitted reports from the View Reported Incidents button at the top of the page,
+            which carries the number of reports still waiting. */}
+        {!viewReports && sortedPenalties.length === 0 && (
+          <p class="mt-10 text-white/60">
+            {openReportCount > 0 ? 'No incidents logged yet.' : 'No incidents logged for this round.'}
+          </p>
+        )}
 
         {!viewReports && isAdmin && roundPenaltyData.carriedIn.length > 0 && (
-          <div id={OWED_PENALTIES_ANCHOR} class="mt-10 scroll-mt-24 rounded-xl border border-brand-gold/40 bg-brand-gold/5 p-4">
-            <h3 class="text-xs font-semibold uppercase tracking-widest text-brand-gold">Owed from earlier rounds</h3>
-            <p class="mt-1 text-xs text-white/50">
-              Round penalties not yet served. Mark each one served once it's been applied at this round. Only stewards see this.
-            </p>
-            <ul class="mt-3 divide-y divide-white/5 text-sm">
+          <details id={OWED_PENALTIES_ANCHOR} open class="group mt-6 scroll-mt-24 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
+            <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+              <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
+              <SectionIcon name="pending" class="h-5 w-5 flex-none text-brand-gold" />
+              <h2 class="font-display text-xl text-brand-gold">
+                Pending Penalties
+                <span class="ml-2 text-sm text-white/40">
+                  {roundPenaltyData.carriedIn.filter((rp) => rp.served_subsession_id !== subsessionId).length} open
+                </span>
+              </h2>
+            </summary>
+            <ul class="mt-3 flex flex-col gap-2">
               {roundPenaltyData.carriedIn.map((rp) => {
                 const servedHere = rp.served_subsession_id === subsessionId;
                 return (
-                  <li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
-                    <div>
-                      <span class="font-semibold">{driverLabel(rp.driver_id)}</span>
-                      <span class="text-white/80"> — {roundPenaltyLabel(rp)}</span>
-                      {rp.kind !== 'other' && rp.note && <span class="text-white/50"> ({rp.note})</span>}
-                      <div class="text-xs text-white/40">
-                        Earned at{' '}
-                        <a href={`/results/${rp.subsession_id}/incidents`} class="underline hover:text-white">{roundRefLabel(rp.subsession_id)}</a>
-                      </div>
+                  <li class={`rounded-lg border border-white/10 bg-brand-ink p-3 text-sm ${servedHere ? 'opacity-50' : ''}`}>
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <p class="font-semibold text-white/80">
+                        {shortDriverLabel(rp.driver_id)}
+                        <span class="font-normal text-white/50">
+                          {' · '}
+                          {roundPenaltyLabel(rp)}
+                          {rp.kind !== 'other' && rp.note && ` (${rp.note})`}
+                        </span>
+                      </p>
+                      <form method="POST" action={formAction} data-astro-reload class="flex flex-wrap items-center gap-2">
+                        <input type="hidden" name="intent" value="set-round-penalty-served" />
+                        <input type="hidden" name="round_penalty_id" value={rp.id} />
+                        <input type="hidden" name="served" value={servedHere ? '0' : '1'} />
+                        <button type="submit" class={servedHere ? 'btn btn-neutral btn-sm' : 'btn btn-primary btn-sm'}>
+                          {servedHere ? 'Undo' : 'Mark served'}
+                        </button>
+                      </form>
                     </div>
-                    <form method="POST" action={formAction} data-astro-reload class="flex items-center gap-3">
-                      <input type="hidden" name="intent" value="set-round-penalty-served" />
-                      <input type="hidden" name="round_penalty_id" value={rp.id} />
-                      <input type="hidden" name="served" value={servedHere ? '0' : '1'} />
-                      {servedHere && <span class="text-xs font-semibold uppercase tracking-wide text-emerald-400">Served here</span>}
-                      <button type="submit" class={servedHere ? 'text-xs font-semibold text-white/40 hover:text-white' : 'btn btn-neutral text-xs'}>
-                        {servedHere ? 'Undo' : 'Mark served'}
-                      </button>
-                    </form>
+                    <p class="mt-2 text-[11px] text-white/30">
+                      Earned at{' '}
+                      <a href={`/results/${rp.subsession_id}/incidents`} class="underline hover:text-white">{roundRefLabel(rp.subsession_id)}</a>
+                      {servedHere && ' · served here'}
+                    </p>
                   </li>
                 );
               })}
             </ul>
-          </div>
+          </details>
         )}
 
         {!viewReports && sessionKeysWithIncidents.map((key) => (
@@ -1740,8 +1754,7 @@ const nextIncidentNumber =
                   </div>
                   <p class="text-sm text-white/70" data-driver-round-penalties-label></p>
                   <p class="text-xs text-white/40">
-                    Ticked penalties are owed at the next round. Ones the round's PP total calls for start ticked; untick to waive.
-                    Served ones are locked — undo them in the Round Penalties table.
+                    Ticked penalties are owed at the next round. Ones the round's PP total calls for start ticked; untick any of them to waive or remove it.
                   </p>
                   <div class="flex flex-col gap-2">
                     {ROUND_PENALTY_KINDS.filter((k) => k !== 'other').map((k) => (
@@ -1773,66 +1786,8 @@ const nextIncidentNumber =
           </div>
         )}
 
-        {!viewReports && roundPenaltyData.available && (isAdmin || roundPenaltyData.earnedHere.length > 0) && (
-          <div id={ROUND_PENALTIES_ANCHOR} class="mt-12 scroll-mt-24">
-            {roundPenaltyData.earnedHere.length > 0 && (
-              <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
-                <table class="w-full border-collapse">
-                  <thead>
-                    <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                      <th class="py-3 pl-4 pr-3 font-medium">Driver</th>
-                      <th class="py-3 pr-3 font-medium">Penalty</th>
-                      <th class={`py-3 font-medium ${isAdmin ? 'pr-3' : 'pr-4'}`}>Status</th>
-                      {isAdmin && <th class="w-20 py-3 pr-4"><span class="sr-only">Edit or remove</span></th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {roundPenaltyData.earnedHere.map((rp) => (
-                      <tr class="border-b border-white/5 text-sm last:border-b-0">
-                        <td class="py-2.5 pl-4 pr-3 font-semibold">{driverLabel(rp.driver_id)}</td>
-                        <td class="py-2.5 pr-3">
-                          {roundPenaltyLabel(rp)}
-                          {rp.kind !== 'other' && rp.note && <span class="text-white/50"> ({rp.note})</span>}
-                        </td>
-                        <td class={`py-2.5 ${isAdmin ? 'pr-3' : 'pr-4'}`}>
-                          {rp.served_subsession_id !== null ? (
-                            <span class="text-emerald-400">
-                              Served at{' '}
-                              <a href={`/results/${rp.served_subsession_id}/incidents`} class="underline hover:text-white">
-                                {roundRefLabel(rp.served_subsession_id)}
-                              </a>
-                            </span>
-                          ) : (
-                            <span class="text-brand-gold">Owed</span>
-                          )}
-                        </td>
-                        {isAdmin && (
-                          <td class="whitespace-nowrap py-2.5 pr-4 text-right">
-                            <button
-                              type="button"
-                              data-edit-round-penalty
-                              data-round-penalty={roundPenaltyEditData(rp)}
-                              class={iconBtn}
-                              title="Edit"
-                              aria-label="Edit round penalty"
-                            >
-                              <RowIcon name="edit" />
-                            </button>
-                            <form method="POST" action={formAction} data-astro-reload class="inline-flex">
-                              <input type="hidden" name="intent" value="delete-round-penalty" />
-                              <input type="hidden" name="round_penalty_id" value={rp.id} />
-                              <button type="submit" class={iconBtnDanger} title="Remove" aria-label="Remove round penalty">
-                                <RowIcon name="remove" />
-                              </button>
-                            </form>
-                          </td>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+        {!viewReports && roundPenaltyData.available && isAdmin && (
+          <div id={ROUND_PENALTIES_ANCHOR}>
             {isAdmin && (
               <>
                 {/* Shared add/edit popup, same pattern as the incident dialog — filled by
@@ -2226,13 +2181,13 @@ const nextIncidentNumber =
         {viewReports && (
           <dialog
             data-review-dialog
-            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+            class="w-full max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
           >
             <form method="POST" action={formAction} data-astro-reload class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
               <input type="hidden" name="intent" value="save-review" />
               <input type="hidden" name="report_id" data-review-report-id />
               <div class="flex items-center justify-between gap-3">
-                <h4 class="font-display text-lg">Steward Review <span data-review-label class="text-white/50"></span></h4>
+                <h4 class="font-display text-lg">Steward Review</h4>
                 <button type="button" data-close-review-dialog class="text-white/40 hover:text-white">✕</button>
               </div>
               {/* Cars at fault (src/scripts/faultCards.ts): a searchable checklist —
@@ -2253,17 +2208,17 @@ const nextIncidentNumber =
                     aria-label="Search drivers"
                     class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                   />
-                  <div class="grid max-h-48 grid-cols-1 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-2 sm:gap-x-4">
+                  <div class="grid max-h-48 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-3">
                     {roundDrivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}
                     {roundDrivers.map((d) => (
                       <label
                         class="flex items-center gap-2 text-xs text-white/70"
                         data-driver-option
                         data-search={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`.toLowerCase()}
-                        data-fault-label={`${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}`}
+                        data-fault-label={`${d.car_number !== null ? `#${d.car_number} ` : ''}${shortDriverName(d.name)}`}
                       >
                         <input type="checkbox" name="fault_driver_ids" value={d.id} />
-                        {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {d.name}
+                        {d.car_number !== null && <span class="text-white/30">#{d.car_number}</span>} {shortDriverName(d.name)}
                       </label>
                     ))}
                     <p data-driver-search-empty class="col-span-full hidden text-white/30">No matches.</p>
