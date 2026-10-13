@@ -7,6 +7,7 @@ import { bannerUrlFor } from '../../../lib/pageBanners';
 import PageBanner from '../../../components/PageBanner.astro';
 import { getRoundBySubsessionId } from '../../../lib/results';
 import { isRoundPosted } from '../../../lib/incidentReports';
+import { isAdminView } from '../../../lib/auth';
 
 // Shell-then-skeleton split (same pattern as results.astro / standings.astro):
 // this file paints the frame, the back link and a loading skeleton right away;
@@ -51,6 +52,7 @@ const description =
     : 'Every incident and penalty logged for this round.';
 const seasonParam = Astro.url.searchParams.get('season');
 const backToRoundHref = `/results/${subsessionId}${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
+const showIncidentReportingLink = isAdminView(Astro.locals);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
@@ -58,7 +60,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 <Layout title={trackName ? `Incident Report: ${trackName}` : 'Incident Report'} description={description}>
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
-    <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
+    <div class="flex flex-wrap items-center gap-x-5 gap-y-1">
+      <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
+      {/* Admins usually arrive here from admin > Incident Reporting (View Incidents / Edit Report), so one click back there (#60). */}
+      {showIncidentReportingLink && (
+        <a href="/admin/incident-reporting" class="text-sm text-white/50 hover:text-white">&larr; Incident Reporting</a>
+      )}
+    </div>
 
     <div data-incident-results data-fragment-url={`/results/${subsessionId}/incidents/fragment${Astro.url.search}`}>
       <div aria-live="polite" aria-busy="true">
@@ -517,18 +525,54 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const faultSearch = faultRoot.querySelector<HTMLInputElement>('[data-driver-search]')!;
     const faultsMissing = faultRoot.querySelector<HTMLElement>('[data-review-faults-missing]')!;
     const explanationField = dialog.querySelector<HTMLTextAreaElement>('[data-review-explanation]')!;
+    const saveButton = dialog.querySelector<HTMLButtonElement>('[data-review-save]')!;
     const faults = initFaultPicker(faultRoot);
 
-    // Checkboxes can't be `required` as a group, so the browser won't stop a
-    // save with nothing ticked — do it here (the server checks too).
+    // Save stays disabled until the review is complete (#74): a verdict (cars
+    // at fault or Racing Incident — checkboxes can't be `required` as a
+    // group), a penalty for every ticked car, and an explanation. The server
+    // checks all of it too.
+    const penaltyFields = () => [...faultRoot.querySelectorAll<HTMLSelectElement>('[data-fault-cards] select[name^="penalty:"]')];
     const hasVerdict = () => faults.isRacingIncident() || faults.selected().length > 0;
-    faultRoot.addEventListener('fault-change', () => {
-      if (hasVerdict()) faultsMissing.classList.add('hidden');
-    });
-    form.addEventListener('submit', (e) => {
-      if (hasVerdict()) return;
-      e.preventDefault();
-      faultsMissing.classList.remove('hidden');
+    const updateSave = () => {
+      const complete = hasVerdict() && penaltyFields().every((s) => s.value) && explanationField.value.trim() !== '';
+      saveButton.disabled = !complete;
+      faultsMissing.classList.toggle('hidden', complete);
+    };
+    faultRoot.addEventListener('fault-change', updateSave);
+    form.addEventListener('change', updateSave);
+    form.addEventListener('input', updateSave);
+
+    // A review the server turned away for a fixable reason (?review=invalid or
+    // failed) used to vanish with the redirect. Keep a draft of it for this
+    // tab, and reopen the dialog with it after such a redirect; any other load
+    // drops it. (sessionStorage can throw or be empty — the draft is a nicety.)
+    const DRAFT_KEY = 'incident-review-draft';
+    type ReviewDraft = { report_id: string; faults: { driver_id: string; penalty: string }[] | null; explanation: string };
+    let draft: ReviewDraft | null = null;
+    try {
+      const flash = new URL(window.location.href).searchParams.get('review');
+      if (flash === 'invalid' || flash === 'failed') draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null');
+      else sessionStorage.removeItem(DRAFT_KEY);
+    } catch {
+      draft = null;
+    }
+    form.addEventListener('submit', () => {
+      const value: ReviewDraft = {
+        report_id: reportIdField.value,
+        faults: faults.isRacingIncident()
+          ? []
+          : faults.selected().map((id) => ({
+              driver_id: id,
+              penalty: faultRoot.querySelector<HTMLSelectElement>(`select[name="penalty:${CSS.escape(id)}"]`)?.value ?? '',
+            })),
+        explanation: explanationField.value,
+      };
+      try {
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+      } catch {
+        /* no draft, no harm */
+      }
     });
 
     document.querySelectorAll<HTMLButtonElement>('[data-open-review-dialog]').forEach((btn) => {
@@ -539,6 +583,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           faults: { driver_id: string; penalty: string }[] | null;
           explanation: string;
         };
+        // A draft kept from a save that didn't go through wins over the stored review.
+        if (draft?.report_id === data.report_id) {
+          data.faults = draft.faults;
+          data.explanation = draft.explanation;
+        }
         reportIdField.value = data.report_id;
         // Clear any search left over from the last report and re-filter (driverPickerSearch.ts).
         faultSearch.value = '';
@@ -549,8 +598,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           const card = faults.addDriver(f.driver_id);
           if (card) setCardField(card, 'penalty', f.penalty);
         }
-        faultsMissing.classList.add('hidden');
         explanationField.value = data.explanation;
+        updateSave();
         dialog.showModal();
       });
     });
@@ -558,6 +607,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     dialog.querySelectorAll<HTMLButtonElement>('[data-close-review-dialog]').forEach((btn) => {
       btn.addEventListener('click', () => dialog.close());
     });
+
+    // Back from a save that didn't go through: reopen that report's review with the draft.
+    if (draft) {
+      const reportId = draft.report_id;
+      [...document.querySelectorAll<HTMLButtonElement>('[data-open-review-dialog]')]
+        .find((btn) => {
+          try {
+            return JSON.parse(btn.dataset.review ?? '{}').report_id === reportId;
+          } catch {
+            return false;
+          }
+        })
+        ?.click();
+    }
   }
 
   document.addEventListener('astro:page-load', initReviewDialog);

@@ -2240,7 +2240,7 @@ const nextIncidentNumber =
                     </select>
                   </label>
                 </template>
-                <p data-review-faults-missing class="hidden text-[11px] font-semibold text-brand-gold">Tick the car(s) at fault, or Racing Incident.</p>
+                <p data-review-faults-missing class="hidden text-[11px] font-semibold text-brand-gold">To save, tick the car(s) at fault (or Racing Incident), pick a penalty for each car, and write an explanation.</p>
               </div>
               <label class="flex flex-col gap-1 text-[11px] text-white/50">
                 Explanation
@@ -2258,7 +2258,7 @@ const nextIncidentNumber =
               </p>
               <div class="flex justify-end gap-2">
                 <button type="button" data-close-review-dialog class="btn btn-neutral">Cancel</button>
-                <button type="submit" class="btn btn-gold">Save Review</button>
+                <button type="submit" data-review-save disabled class="btn btn-gold">Save Review</button>
               </div>
             </form>
           </dialog>
