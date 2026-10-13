@@ -2,6 +2,7 @@
 export const prerender = false;
 
 import DriverFlag from '../../components/DriverFlag.astro';
+import DriverLink from '../../components/DriverLink.astro';
 import SeasonLogo from '../../components/SeasonLogo.astro';
 import { resolveSupabaseEnv, getSeasons, getManualAwards, displayDriverName, type Season, type ManualAward, type SeasonLogoPair } from '../../lib/supabase';
 import {
@@ -40,6 +41,7 @@ function signed(n: number): string {
 
 /** One tied-for-the-award driver's display data, alongside that driver's own link (only ever more than one entry apart from another when the section is a Dominator/Defender-style margin award — a margin tie can span different races/drivers, so each entry carries its own link rather than the row sharing one). */
 interface WinnerDisplay {
+  driverId: string;
   driverName: string;
   carNumber: number | null;
   nationality1: string | null;
@@ -66,6 +68,7 @@ interface AwardSection {
 
 function winnerDisplay(driver: DriverBasic, link?: { href: string; label: string }): WinnerDisplay {
   return {
+    driverId: driver.id,
     driverName: displayDriverName(driver.name),
     carNumber: driver.car_number,
     nationality1: driver.nationality_1,
@@ -317,7 +320,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             {r.winners.map((w) => (
                               <span class="flex items-center gap-1.5">
                                 <DriverFlag nationality1={w.nationality1} nationality2={w.nationality2} size="h-3.5 w-5" />
-                                {w.driverName}
+                                <DriverLink id={w.driverId}>{w.driverName}</DriverLink>
                                 {w.carNumber !== null && <span class="text-white/40">#{w.carNumber}</span>}
                               </span>
                             ))}

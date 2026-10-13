@@ -1181,3 +1181,17 @@ input[type="file"]:hover::file-selector-button {
   cursor: grab;
   touch-action: none;
 }
+
+/* Driver names that link to a profile (src/components/DriverLink.astro).
+   Must read as plain text: the link inherits the surrounding colour, font
+   and decoration, so wrapping a name in one changes nothing visually. */
+a.driver-link {
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-decoration: none;
+}
+/* Skip the site-wide link press-dip (a:active above) — it would make a name flicker like a link. */
+a.driver-link:active {
+  opacity: 1;
+}

@@ -4,6 +4,7 @@
 // filters) instead of one season's #1 driver. No PhotoGrid here since teams
 // don't have champion photos the way drivers do — a single large TeamLogo
 // fills that column instead.
+import DriverLink from './DriverLink.astro';
 import type { TeamChampionEntry } from '../lib/results';
 import type { DriverBasic } from '../lib/results';
 import { displayDriverName } from '../lib/supabase';
@@ -53,7 +54,7 @@ const { season, standing: t } = entry;
           {roster.map((driver) => (
             <div class="flex items-center gap-1.5 text-sm text-white/70">
               <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
-              <span>{displayDriverName(driver.name)}</span>
+              <span><DriverLink id={driver.id}>{displayDriverName(driver.name)}</DriverLink></span>
               {driver.car_number !== null && <span class="text-white/40">#{driver.car_number}</span>}
             </div>
           ))}

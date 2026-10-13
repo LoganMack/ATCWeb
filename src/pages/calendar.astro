@@ -347,6 +347,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // showDayDetail() above) permanently un-clickable; a WeakSet correctly
     // treats a clone as a distinct, not-yet-bound node.
     interface RecapDriverLite {
+      id: string;
       name: string;
       car_number: number | null;
     }
@@ -373,6 +374,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       if (parts.length === 0) return '';
       if (parts.length === 1) return parts[0];
       return `${parts[0].charAt(0)}. ${parts[parts.length - 1]}`;
+    }
+
+    /** A driver's short name as a profile link that reads as plain text (same markup as src/components/DriverLink.astro). */
+    function driverNameLink(driver: RecapDriverLite): HTMLAnchorElement {
+      const a = document.createElement('a');
+      a.href = `/drivers/${driver.id}`;
+      a.className = 'driver-link';
+      a.title = 'Click to view profile';
+      a.textContent = shortDriverName(driver.name);
+      return a;
     }
 
     function fetchRoundRecap(subsessionId: number): Promise<RoundRecapLite | null> {
@@ -430,7 +441,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           cls.top3.forEach((t) => {
             const driverLine = document.createElement('p');
             driverLine.className = 'pl-2 text-white/50';
-            driverLine.textContent = `${t.position}. ${shortDriverName(t.driver.name)}`;
+            driverLine.append(`${t.position}. `, driverNameLink(t.driver));
             raceEl.appendChild(driverLine);
           });
         });
@@ -438,9 +449,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         if (race.fastestLap) {
           const fl = document.createElement('p');
           fl.className = 'mt-0.5 text-white/50';
-          fl.textContent = `Fastest Lap: ${shortDriverName(race.fastestLap.driver.name)} — ${race.fastestLap.formatted}${
-            race.fastestLap.isTrackRecord ? ' (Track Record!)' : ''
-          }`;
+          fl.append(
+            'Fastest Lap: ',
+            driverNameLink(race.fastestLap.driver),
+            ` — ${race.fastestLap.formatted}${race.fastestLap.isTrackRecord ? ' (Track Record!)' : ''}`
+          );
           raceEl.appendChild(fl);
         }
 

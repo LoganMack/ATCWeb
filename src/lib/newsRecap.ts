@@ -148,6 +148,7 @@ export interface RecapTeamPoints {
 
 export interface RecapTeamDriverEntry {
   raceNumber: number;
+  driverId: string;
   driverName: string;
   carNumber: number | null;
   points: number;
@@ -446,6 +447,7 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     if (!map.has(key)) map.set(key, { teamName: key, logoUrl: row.team!.logoUrl, entries: [] });
     map.get(key)!.entries.push({
       raceNumber,
+      driverId: row.driver.id,
       driverName: row.driver.name,
       carNumber: row.driver.car_number,
       points,

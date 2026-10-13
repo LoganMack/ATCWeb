@@ -16,6 +16,7 @@ import {
 import { driversSelect, getAllRounds, isChampionshipSeason, type DriverBasic } from '../../lib/results';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import TeamLogo from '../../components/TeamLogo.astro';
+import DriverLink from '../../components/DriverLink.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -358,12 +359,14 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                             {/* Mobile: first name stacked above the rest of
                                 the name, no car number (Logan) — desktop
                                 keeps the original single-line "Name #Number". */}
-                            <span class="flex flex-col leading-tight sm:hidden">
-                              <span>{first}</span>
-                              {rest && <span>{rest}</span>}
-                            </span>
+                            <DriverLink id={driver.id}>
+                              <span class="flex flex-col leading-tight sm:hidden">
+                                <span>{first}</span>
+                                {rest && <span>{rest}</span>}
+                              </span>
+                            </DriverLink>
                             <span class="hidden sm:inline">
-                              {fullName}
+                              <DriverLink id={driver.id}>{fullName}</DriverLink>
                               {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
                             </span>
                           </>
@@ -391,7 +394,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                           <tr class="border-b border-white/5 last:border-0">
                             <td class="py-1 text-white/50">Driver {i + 1}</td>
                             <td class="py-1 text-right font-semibold text-white/90">
-                              {displayDriverName(driver.name)}
+                              <DriverLink id={driver.id}>{displayDriverName(driver.name)}</DriverLink>
                               {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
                             </td>
                           </tr>

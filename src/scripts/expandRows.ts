@@ -70,6 +70,8 @@ function initExpandRows() {
     // normally; this only stops it from ALSO reaching this one.
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
     if ((e.target as HTMLElement).closest('[data-hof-class-select]')) return;
+    // A driver's name inside the row links to their profile — follow it instead of toggling the row.
+    if ((e.target as HTMLElement).closest('a.driver-link')) return;
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-expand-row]');
     if (row) toggleExpandRow(row);
   });
@@ -78,6 +80,7 @@ function initExpandRows() {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
     if ((e.target as HTMLElement).closest('[data-hof-class-select]')) return;
+    if ((e.target as HTMLElement).closest('a.driver-link')) return;
     const row = (e.target as HTMLElement).closest<HTMLElement>('[data-expand-row]');
     if (!row) return;
     e.preventDefault();

@@ -162,14 +162,14 @@ const FILTER_LABELS: Record<VideoFilter, string> = {
 // flat link list rather than queried per-meetup, same "front-load once,
 // group in memory" reasoning as photoLinksBySubsession elsewhere on this
 // page.
-const driverNamesByMeetupId = new Map<string, string[]>();
+const driverNamesByMeetupId = new Map<string, { id: string; label: string }[]>();
 for (const link of meetupDriverLinks) {
   if (!link.drivers) continue;
   if (!driverNamesByMeetupId.has(link.meetup_id)) driverNamesByMeetupId.set(link.meetup_id, []);
   const label = displayDriverName(link.drivers.name) + (link.drivers.car_number !== null ? ` #${link.drivers.car_number}` : '');
-  driverNamesByMeetupId.get(link.meetup_id)!.push(label);
+  driverNamesByMeetupId.get(link.meetup_id)!.push({ id: link.driver_id, label });
 }
-for (const names of driverNamesByMeetupId.values()) names.sort((a, b) => a.localeCompare(b));
+for (const names of driverNamesByMeetupId.values()) names.sort((a, b) => a.label.localeCompare(b.label));
 
 const meetupPins = meetups
   .filter((m) => Number.isFinite(m.latitude) && Number.isFinite(m.longitude))
