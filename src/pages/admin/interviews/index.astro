@@ -1,0 +1,136 @@
+---
+export const prerender = false;
+
+// Admin → Interviews: post-race "media pen" recordings submitted from the
+// microphone button on each round's results page (0109_race_interviews.sql).
+// Newest first, grouped by nothing — each card names the driver, the round and
+// how long after the race it came in (the "recorded early enough" cue), with an
+// audio player (private bucket, one-hour signed links) and a Delete button.
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv, formatDate } from '../../../lib/supabase';
+import { getAllRounds } from '../../../lib/results';
+import { getRaceInterviews, signInterviewUrl, deleteRaceInterview, type RaceInterview } from '../../../lib/raceInterviews';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = Astro.locals.session!.accessToken;
+const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+
+let error: string | null = null;
+let interviews: RaceInterview[] = [];
+let loadError = false;
+try {
+  interviews = await getRaceInterviews(supabaseEnv, accessToken);
+} catch (err) {
+  // Most likely migration 0109 hasn't been run yet.
+  console.error('Failed to load interviews:', err);
+  loadError = true;
+}
+
+let rounds: Awaited<ReturnType<typeof getAllRounds>> = [];
+try {
+  rounds = await getAllRounds(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load rounds for interviews:', err);
+}
+const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (String(form.get('intent') ?? '') === 'delete') {
+    const target = interviews.find((i) => i.id === String(form.get('id') ?? ''));
+    if (target) {
+      try {
+        await deleteRaceInterview(supabaseEnv, accessToken, target);
+        const round = roundBySubsession.get(target.subsession_id);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'delete',
+          entity_type: 'interview',
+          entity_label: `Interview — ${target.driver?.name ?? 'Unknown driver'}${round ? ` (${round.track_name})` : ''}`,
+          entity_id: target.id,
+        });
+        return Astro.redirect('/admin/interviews', 302);
+      } catch (err) {
+        console.error('Failed to delete interview:', err);
+        error = "Couldn't delete that interview.";
+      }
+    }
+  }
+}
+
+const urls = new Map<string, string | null>();
+await Promise.all(interviews.map(async (i) => urls.set(i.id, await signInterviewUrl(supabaseEnv, accessToken, i.audio_path))));
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  return `${formatDate(iso)} ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+function formatDuration(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+/** "3h after the race" / "2d 4h after the race" — a cue for "recorded early enough" to air. */
+function afterRace(iso: string, raceStart: string | undefined): string | null {
+  if (!raceStart) return null;
+  const mins = Math.round((new Date(iso).getTime() - new Date(raceStart).getTime()) / 60000);
+  if (!Number.isFinite(mins) || mins < 0) return null;
+  const h = Math.floor(mins / 60);
+  if (h < 1) return `${mins}m after the race`;
+  if (h < 48) return `${h}h after the race`;
+  return `${Math.floor(h / 24)}d ${h % 24}h after the race`;
+}
+---
+
+<AdminLayout title="Interviews">
+  <h1 class="reveal font-display text-4xl">Interviews</h1>
+  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
+    Post-race comments recorded by drivers from the microphone button on a round's results page — up to 60 seconds each,
+    newest first.
+  </p>
+
+  {error && <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>}
+  {loadError && (
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
+      Couldn't load interviews. If this is new, run migration 0109_race_interviews.sql first.
+    </p>
+  )}
+  {!loadError && interviews.length === 0 && <p class="reveal mt-8 text-sm text-white/40">No interviews recorded yet.</p>}
+
+  {!loadError && interviews.length > 0 && (
+    <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 80ms">
+      {interviews.map((i) => {
+        const round = roundBySubsession.get(i.subsession_id);
+        const url = urls.get(i.id);
+        const timing = afterRace(i.created_at, round?.start_time);
+        return (
+          <div class="flex flex-col gap-3 rounded-lg bg-brand-ink p-4 text-sm ring-1 ring-white/10 sm:flex-row sm:items-center">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                {i.driver?.car_number != null && <span class="text-xs text-white/30">#{i.driver.car_number}</span>}
+                <span class="font-semibold text-white/90">{i.driver?.name ?? 'Unknown driver'}</span>
+                <span class="rounded-md bg-brand-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary tabular-nums">
+                  {formatDuration(i.duration_seconds)}
+                </span>
+              </div>
+              <p class="mt-1 text-xs text-white/50">
+                {round ? (
+                  <a href={`/results/${i.subsession_id}`} class="hover:text-white">{round.season_label ? `${round.season_label} · ` : ''}{round.track_name}</a>
+                ) : (
+                  `Round ${i.subsession_id}`
+                )}
+                <span class="text-white/30"> · {formatTimestamp(i.created_at)}{timing ? ` (${timing})` : ''}</span>
+              </p>
+            </div>
+            <div class="flex flex-none items-center gap-3">
+              {url ? <audio controls preload="none" src={url} class="h-10 w-64 max-w-full"></audio> : <span class="text-xs text-white/40">Audio unavailable</span>}
+              <form method="POST" data-astro-reload onsubmit="return confirm('Delete this interview?')">
+                <input type="hidden" name="intent" value="delete" />
+                <input type="hidden" name="id" value={i.id} />
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+              </form>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</AdminLayout>

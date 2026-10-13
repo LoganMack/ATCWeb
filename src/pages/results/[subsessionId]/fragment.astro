@@ -7,6 +7,7 @@ import PracticeResultsTable from '../../../components/PracticeResultsTable.astro
 import RaceLinksBlock from '../../../components/RaceLinksBlock.astro';
 import IncidentButton from '../../../components/IncidentButton.astro';
 import ReportIncidentDialog from '../../../components/ReportIncidentDialog.astro';
+import InterviewDialog from '../../../components/InterviewDialog.astro';
 import {
   resolveSupabaseEnv,
   getDriverClasses,
@@ -57,6 +58,14 @@ import {
 } from '../../../lib/incidentReports';
 import { EVENT_TAG_CLASSES } from '../../../lib/eventFormatting';
 import { isAdminView } from '../../../lib/auth';
+import {
+  INTERVIEW_MAX_SECONDS,
+  INTERVIEW_MAX_BYTES,
+  interviewExtension,
+  uploadInterviewAudio,
+  hasSubmittedInterview,
+  createRaceInterview,
+} from '../../../lib/raceInterviews';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
@@ -529,6 +538,44 @@ if (postForm && postForm.get('intent') === 'report-incident' && !loadError && ro
   return back('ok');
 }
 
+// Record Interview (0109_race_interviews.sql): a signed-in user linked to a
+// driver posts the clip the dialog recorded (src/scripts/interviewRecorder.ts).
+// Answers JSON (the script submits with fetch, not a form navigation).
+const interviewDriverId: string | null = reportSession?.profile?.driver_id ?? null;
+// One interview per driver per round: already-submitted drivers get the button disabled up front.
+const interviewAlreadySubmitted =
+  interviewDriverId && reportSession ? await hasSubmittedInterview(supabaseEnv, reportSession.accessToken, subsessionId) : false;
+if (postForm && postForm.get('intent') === 'submit-interview' && !loadError && round) {
+  const json = (body: { ok: boolean; error?: string }, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+  if (!reportSession) return json({ ok: false, error: 'Sign in to record an interview.' }, 401);
+  if (!interviewDriverId) return json({ ok: false, error: 'Your account isn’t linked to a driver.' }, 403);
+  const audio = postForm.get('audio');
+  const durationRaw = Number(postForm.get('duration'));
+  const duration = Number.isFinite(durationRaw) ? Math.round(durationRaw) : NaN;
+  const ext = audio instanceof File ? interviewExtension(audio.type) : null;
+  if (!(audio instanceof File) || !ext || audio.size === 0 || audio.size > INTERVIEW_MAX_BYTES || !(duration >= 1)) {
+    return json({ ok: false, error: 'That recording couldn’t be read. Please record it again.' }, 400);
+  }
+  const id = crypto.randomUUID();
+  const path = `${id}.${ext}`;
+  try {
+    await uploadInterviewAudio(supabaseEnv, reportSession.accessToken, path, audio, audio.type.split(';')[0]);
+    await createRaceInterview(supabaseEnv, reportSession.accessToken, {
+      id,
+      subsession_id: subsessionId,
+      audio_path: path,
+      audio_type: audio.type.split(';')[0],
+      duration_seconds: Math.min(duration, INTERVIEW_MAX_SECONDS + 10),
+    });
+  } catch (err) {
+    console.error('Failed to save interview:', err);
+    const limit = err instanceof Error && (err.message.includes('interview limit reached') || err.message.includes('race_interviews_one_per_driver_round'));
+    return json({ ok: false, error: limit ? 'You’ve already submitted an interview for this race.' : 'Couldn’t save your interview right now. Please try again.' }, limit ? 429 : 500);
+  }
+  return json({ ok: true });
+}
+
 const qualifying = await qualifyingPromise;
 
 const practice = await practicePromise;
@@ -755,9 +802,31 @@ Astro.response.headers.set(
               </a>
               <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Kudos</span>
             </span>
+            {/* Microphone — Record Interview. Disabled unless signed in with a login linked to a driver. */}
+            <span class="group relative">
+              <button
+                type="button"
+                class="btn btn-primary !px-2.5"
+                aria-label="Record Interview"
+                data-open-interview-dialog
+                disabled={!interviewDriverId || interviewAlreadySubmitted}
+              >
+                {/* Studio microphone */}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+                  <rect x="9" y="2" width="6" height="12" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0" />
+                  <path d="M12 18v4M8.5 22h7" />
+                </svg>
+              </button>
+              <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">
+                {interviewAlreadySubmitted ? 'You’ve already submitted an interview for this race' : interviewDriverId ? 'Record Interview' : reportSession ? 'Link your account to a driver to record an interview' : 'Sign in to record an interview'}
+              </span>
+            </span>
           </div>
         </div>
         </div>
+
+        {interviewDriverId && !interviewAlreadySubmitted && <InterviewDialog action={formAction} maxSeconds={INTERVIEW_MAX_SECONDS} />}
 
         {showReportButton && (
           <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} action={formAction} />
