@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Microphone icon options</title>
+<style>
+:root{--ink:#0b0f1a;--primary:67 105 245;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#070a12;color:#e8ebf5;font-family:Roboto,system-ui,sans-serif;padding:32px 20px}
+h1{font-family:Teko,Impact,sans-serif;font-weight:600;font-size:40px;margin:0 0 4px}
+p.sub{margin:0 0 28px;color:#ffffff99;font-size:14px;max-width:62ch}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;max-width:1000px}
+.card{background:var(--ink);border-radius:12px;padding:16px;box-shadow:inset 0 0 0 1px #ffffff1a}
+.card h2{margin:0 0 2px;font-size:15px}.card p{margin:0 0 14px;font-size:12px;color:#ffffff80;min-height:32px}
+.row{display:flex;gap:8px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:8px 10px;border-radius:8px;color:rgb(var(--primary));background:transparent;box-shadow:inset 0 0 0 1.5px rgb(var(--primary)/.7);cursor:pointer;border:0}
+.btn:hover:not(:disabled){background:rgb(var(--primary)/.12)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn svg{width:20px;height:20px}
+.tag{font-size:10px;color:#ffffff66;margin-left:4px}
+</style></head><body>
+<h1>Microphone button — icon options</h1>
+<p class="sub">Each shows the button next to the existing Kudos thumb, enabled and disabled (signed out / no linked driver). All use the site's 20px stroke-icon style (2px round strokes, currentColor). Pick one; swapping is a one-line SVG change. <b>Currently wired in: A.</b></p>
+<div class="grid">
+
+<div class="card"><h2>A · Studio mic (current)</h2><p>Clean capsule with stand. Reads instantly as "record audio".</p>
+<div class="row">
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12" opacity="0"/><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></svg></button>
+<button class="btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></svg></button></div></div>
+
+<div class="card"><h2>B · Filled capsule</h2><p>Same shape with a solid head — more weight, matches filled brand glyphs.</p>
+<div class="row">
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></svg></button>
+<button class="btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></svg></button></div></div>
+
+<div class="card"><h2>C · Reporter's handheld</h2><p>Round news-style mic with grille lines and handle — the "media pen" vibe.</p>
+<div class="row">
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="8" r="5.5"/><path d="M10.5 11.5 4 18a1.8 1.8 0 0 0 2.5 2.5l6.2-6.2"/><path d="M11 5.5l5 5M12.5 3.8l5.7 5.7" stroke-width="1.4"/></svg></button>
+<button class="btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="14" cy="8" r="5.5"/><path d="M10.5 11.5 4 18a1.8 1.8 0 0 0 2.5 2.5l6.2-6.2"/><path d="M11 5.5l5 5M12.5 3.8l5.7 5.7" stroke-width="1.4"/></svg></button></div></div>
+
+<div class="card"><h2>D · Mic + sound waves</h2><p>Mic with broadcast arcs on both sides — says "on air" without text.</p>
+<div class="row">
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9.5" y="3" width="5" height="10" rx="2.5"/><path d="M12 16v4M9 20h6"/><path d="M5.5 8.5v2a6.5 6.5 0 0 0 .6 2.7M18.5 8.5v2a6.5 6.5 0 0 1-.6 2.7" stroke-width="1.6"/><path d="M2.5 9v1M21.5 9v1" stroke-width="1.6"/></svg></button>
+<button class="btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9.5" y="3" width="5" height="10" rx="2.5"/><path d="M12 16v4M9 20h6"/><path d="M5.5 8.5v2a6.5 6.5 0 0 0 .6 2.7M18.5 8.5v2a6.5 6.5 0 0 1-.6 2.7" stroke-width="1.6"/><path d="M2.5 9v1M21.5 9v1" stroke-width="1.6"/></svg></button></div></div>
+
+<div class="card"><h2>E · Mic with record dot</h2><p>Capsule mic plus a small red-ready dot badge, echoing "recording".</p>
+<div class="row">
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="6" height="11" rx="3"/><path d="M4 11a7 7 0 0 0 11.5 5.3"/><path d="M11 19v3M8 22h6"/><circle cx="19" cy="6" r="2.6" fill="currentColor" stroke="none"/></svg></button>
+<button class="btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="6" height="11" rx="3"/><path d="M4 11a7 7 0 0 0 11.5 5.3"/><path d="M11 19v3M8 22h6"/><circle cx="19" cy="6" r="2.6" fill="currentColor" stroke="none"/></svg></button></div></div>
+
+<div class="card"><h2>F · Mic with sparkle</h2><p>Mirrors the Kudos thumb's sparkle, so the two buttons feel like a set.</p>
+<div class="row">
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 1) scale(.92)"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></g><path d="M20 2v4M18 4h4" stroke-width="1.6"/></svg></button>
+<button class="btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(-1 1) scale(.92)"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></g><path d="M20 2v4M18 4h4" stroke-width="1.6"/></svg></button></div></div>
+
+</div>
+
+<h1 style="margin-top:40px">Beside Kudos</h1>
+<p class="sub">How option A sits in the real toolbar.</p>
+<div class="row" style="gap:8px">
+<button class="btn" style="padding:8px 14px;font-weight:600;font-size:14px">Race Links</button>
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0 1) scale(.92)"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></g><path d="M20 2v4M18 4h4" stroke-width="1.6"/></svg></button>
+<button class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v4M8.5 22h7"/></svg></button>
+</div>
+</body></html>

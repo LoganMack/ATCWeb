@@ -1,0 +1,66 @@
+---
+/**
+ * Record Interview dialog — opened by the microphone button next to Kudos on
+ * the round results page. Only rendered for signed-in users linked to a driver;
+ * the button is disabled for everyone else. Behavior (MediaRecorder, the 60 s
+ * countdown that drains the Record button right-to-left, Re-Record, Submit)
+ * lives in src/scripts/interviewRecorder.ts, loaded by the results page shell —
+ * this markup arrives in a fetched fragment, where <script> tags never run.
+ * Submitting POSTs the clip to `action` (the results fragment,
+ * `intent=submit-interview`) via fetch.
+ */
+interface Props {
+  action: string;
+  maxSeconds: number;
+}
+const { action, maxSeconds } = Astro.props;
+---
+
+<dialog
+  data-interview-dialog
+  data-action={action}
+  data-max-seconds={maxSeconds}
+  class="w-full max-w-lg rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+>
+  <div class="flex flex-col gap-4 p-5">
+    <div class="flex items-center justify-between">
+      <h4 class="font-display text-xl">Record Interview</h4>
+      <button type="button" data-interview-close class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+    </div>
+
+    <div class="flex flex-col gap-2 text-sm text-white/70">
+      <p>
+        Record your post-race comments for the media pen. You will be given {maxSeconds} seconds. If recorded early enough,
+        they may be featured on broadcast.
+      </p>
+      <p>Remember the community guidelines:</p>
+      <ol class="list-decimal pl-5">
+        <li>Display good sportsmanship, on and off the track.</li>
+        <li>Maintain a respectful environment. Any form of toxicity is not tolerated.</li>
+        <li>Refrain from political or religious discussions.</li>
+      </ol>
+    </div>
+
+    {/* Big blue Record button. The fill layer is the "countdown bar": while recording it shrinks from full width to 0 anchored on the LEFT, so color drains right-to-left. */}
+    <button
+      type="button"
+      data-interview-record
+      class="relative flex h-14 w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-brand-primary/15 text-lg font-bold text-white ring-1 ring-brand-primary/60 transition disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span data-interview-fill class="absolute inset-y-0 left-0 w-full bg-brand-primary"></span>
+      <span class="relative flex items-center gap-2">
+        <svg data-interview-record-icon xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4" aria-hidden="true"><circle cx="12" cy="12" r="8" /></svg>
+        <svg data-interview-stop-icon xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="hidden h-4 w-4" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+        <span data-interview-record-label>Record</span>
+        <span data-interview-time class="hidden text-sm font-semibold tabular-nums text-white/80"></span>
+      </span>
+    </button>
+
+    <p data-interview-status role="status" class="min-h-[1.25rem] text-xs text-white/50"></p>
+    <audio data-interview-preview controls class="hidden w-full"></audio>
+
+    <div class="flex min-h-[2.25rem] justify-end">
+      <button type="button" data-interview-submit class="btn btn-primary hidden">Submit</button>
+    </div>
+  </div>
+</dialog>
