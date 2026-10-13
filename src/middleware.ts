@@ -143,7 +143,8 @@ const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()',
+  // microphone=(self): the results page's Record Interview button needs getUserMedia on this origin.
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=(), interest-cohort=()',
   'Strict-Transport-Security': 'max-age=31536000',
   'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
 };
