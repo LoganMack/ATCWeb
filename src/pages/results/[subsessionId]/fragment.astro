@@ -64,6 +64,7 @@ import {
   interviewExtension,
   uploadInterviewAudio,
   hasSubmittedInterview,
+  isInterviewWindowOpen,
   createRaceInterview,
 } from '../../../lib/raceInterviews';
 
@@ -543,6 +544,8 @@ if (postForm && postForm.get('intent') === 'report-incident' && !loadError && ro
 // Answers JSON (the script submits with fetch, not a form navigation).
 const interviewDriverId: string | null = reportSession?.profile?.driver_id ?? null;
 // One interview per driver per round: already-submitted drivers get the button disabled up front.
+// Interviews close a week after the round.
+const interviewWindowOpen = round ? isInterviewWindowOpen(round.start_time) : false;
 const interviewAlreadySubmitted =
   interviewDriverId && reportSession ? await hasSubmittedInterview(supabaseEnv, reportSession.accessToken, subsessionId) : false;
 if (postForm && postForm.get('intent') === 'submit-interview' && !loadError && round) {
@@ -550,6 +553,7 @@ if (postForm && postForm.get('intent') === 'submit-interview' && !loadError && r
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
   if (!reportSession) return json({ ok: false, error: 'Sign in to record an interview.' }, 401);
   if (!interviewDriverId) return json({ ok: false, error: 'Your account isn’t linked to a driver.' }, 403);
+  if (!interviewWindowOpen) return json({ ok: false, error: 'Interviews are only open for a week after the race.' }, 403);
   const audio = postForm.get('audio');
   const durationRaw = Number(postForm.get('duration'));
   const duration = Number.isFinite(durationRaw) ? Math.round(durationRaw) : NaN;
@@ -765,7 +769,7 @@ Astro.response.headers.set(
               </select>
             </label>
           )}
-          <label class="flex flex-col gap-1.5 sm:w-[8.8rem]">
+          <label class="flex flex-col gap-1.5 sm:w-[6.6rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Session</span>
             <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
               {sessionChoices.map((o) => (
@@ -773,7 +777,7 @@ Astro.response.headers.set(
               ))}
             </select>
           </label>
-          <label class="flex flex-col gap-1.5 sm:w-[8.8rem]">
+          <label class="flex flex-col gap-1.5 sm:w-[6.6rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
             <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
               <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
@@ -809,7 +813,7 @@ Astro.response.headers.set(
                 class="btn btn-primary !px-2.5"
                 aria-label="Record Interview"
                 data-open-interview-dialog
-                disabled={!interviewDriverId || interviewAlreadySubmitted}
+                disabled={!interviewDriverId || interviewAlreadySubmitted || !interviewWindowOpen}
               >
                 {/* Studio microphone */}
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
@@ -819,14 +823,14 @@ Astro.response.headers.set(
                 </svg>
               </button>
               <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">
-                {interviewAlreadySubmitted ? 'You’ve already submitted an interview for this race' : interviewDriverId ? 'Record Interview' : reportSession ? 'Link your account to a driver to record an interview' : 'Sign in to record an interview'}
+                {!interviewWindowOpen ? 'Interviews close one week after the race' : interviewAlreadySubmitted ? 'You’ve already submitted an interview for this race' : interviewDriverId ? 'Record Interview' : reportSession ? 'Link your account to a driver to record an interview' : 'Sign in to record an interview'}
               </span>
             </span>
           </div>
         </div>
         </div>
 
-        {interviewDriverId && !interviewAlreadySubmitted && <InterviewDialog action={formAction} maxSeconds={INTERVIEW_MAX_SECONDS} />}
+        {interviewDriverId && !interviewAlreadySubmitted && interviewWindowOpen && <InterviewDialog action={formAction} maxSeconds={INTERVIEW_MAX_SECONDS} />}
 
         {showReportButton && (
           <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} action={formAction} />

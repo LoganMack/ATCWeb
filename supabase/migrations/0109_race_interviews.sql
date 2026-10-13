@@ -9,7 +9,8 @@
 -- Submission goes through a SECURITY DEFINER function so the driver link is
 -- verified server-side (the client can't claim to be someone else). Only admins
 -- can read or delete interviews and their audio. Each driver can submit one
--- interview per round (re-recording before submitting is free).
+-- interview per round (re-recording before submitting is free), and only while the
+-- round is at most 7 days old (counted from the round's start time).
 
 -- 1. The interviews --------------------------------------------------------------
 create table if not exists race_interviews (
@@ -51,6 +52,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_driver uuid;
+  v_start timestamptz;
 begin
   if v_uid is null then raise exception 'sign in required'; end if;
   select driver_id into v_driver from profiles where id = v_uid;
@@ -62,7 +64,9 @@ begin
   end if;
   if p_audio_type is null or p_audio_type !~ '^audio/(webm|mp4|ogg)' then raise exception 'invalid audio type'; end if;
   if p_duration_seconds is null or p_duration_seconds < 1 or p_duration_seconds > 75 then raise exception 'invalid duration'; end if;
-  if not exists (select 1 from curated_rounds where subsession_id = p_subsession_id) then raise exception 'unknown round'; end if;
+  select start_time into v_start from curated_rounds where subsession_id = p_subsession_id;
+  if v_start is null then raise exception 'unknown round'; end if;
+  if v_start < now() - interval '7 days' then raise exception 'interview window closed'; end if;
   if exists (select 1 from race_interviews where subsession_id = p_subsession_id and driver_id = v_driver) then
     raise exception 'interview limit reached';
   end if;

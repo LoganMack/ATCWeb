@@ -12,6 +12,14 @@ import { restGetAuthed, type SupabaseEnv } from './supabase';
 
 export const INTERVIEW_BUCKET = 'race-interviews';
 export const INTERVIEW_MAX_SECONDS = 60;
+/** Interviews can only be submitted for rounds at most this many days old (counted from the round's start; also enforced in submit_race_interview). */
+export const INTERVIEW_WINDOW_DAYS = 7;
+
+/** True while the round (by its start time) is still inside the interview window. */
+export function isInterviewWindowOpen(roundStartIso: string, now: Date = new Date()): boolean {
+  const start = new Date(roundStartIso).getTime();
+  return Number.isFinite(start) && now.getTime() - start <= INTERVIEW_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+}
 /** Same as the bucket's file_size_limit (0109). 60 s of Opus is ~0.5 MB, so this is generous. */
 export const INTERVIEW_MAX_BYTES = 5 * 1024 * 1024;
 
