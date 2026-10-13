@@ -122,9 +122,16 @@ async function startRecording(dialog: HTMLDialogElement) {
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch {
+  } catch (err) {
     p.record.disabled = false;
-    setStatus(dialog, 'Microphone access was blocked. Allow it in your browser’s site settings and try again.', 'error');
+    const name = err instanceof DOMException ? err.name : '';
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      setStatus(dialog, 'No microphone was found. Plug one in or check your system sound settings, then try again.', 'error');
+    } else if (name === 'NotReadableError' || name === 'AbortError') {
+      setStatus(dialog, 'Your microphone is in use by another app or unavailable. Close other apps using it and try again.', 'error');
+    } else {
+      setStatus(dialog, 'Microphone access was blocked. Allow it in your browser’s site settings and try again.', 'error');
+    }
     return;
   }
   // The dialog may have been closed while the permission prompt was open.
