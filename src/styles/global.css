@@ -222,6 +222,16 @@ th[data-sort-key]::after {
   opacity: 0.35;
 }
 
+/* Mobile: keep each sortable header on one line. In a narrow column the arrow
+   (an inline-block ::after) used to wrap onto a second line, which pushed that
+   header's text above its neighbours' (e.g. Pos / Points / PP sat higher than
+   Driver on Standings). */
+@media (max-width: 639px) {
+  th[data-sort-key] {
+    white-space: nowrap;
+  }
+}
+
 th[data-sort-key][data-sort-dir='asc']::after {
   content: '\25B2';
   opacity: 1;

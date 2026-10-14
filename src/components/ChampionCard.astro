@@ -56,21 +56,24 @@ function raceWord(n: number): string {
           />
           {season.name}
         </p>
-        <div class="mt-1 flex flex-wrap items-center gap-2">
+        <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <h3 class="font-display text-3xl leading-none">
             <DriverLink id={d.driver.id}>{driverName}</DriverLink> {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
           </h3>
-          <DriverFlag nationality1={d.driver.nationality_1} nationality2={d.driver.nationality_2} />
-          {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
-          {extras && <CarLogos cars={extras.cars} size="h-6 w-6" />}
-          {extras?.teams.map((t) => (
-            <TeamLogo
-              name={t.teamName}
-              logoUrl={t.logoUrl}
-              size="h-6 w-6"
-              title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
-            />
-          ))}
+          {/* Flag, car and team logos: inline after the name at sm+, on their own line beneath it on mobile (Logan). */}
+          <div class="flex basis-full flex-wrap items-center gap-2 sm:basis-auto">
+            <DriverFlag nationality1={d.driver.nationality_1} nationality2={d.driver.nationality_2} />
+            {/* Cars first, teams second — every driver has a car, not every driver has a team. */}
+            {extras && <CarLogos cars={extras.cars} size="h-6 w-6" />}
+            {extras?.teams.map((t) => (
+              <TeamLogo
+                name={t.teamName}
+                logoUrl={t.logoUrl}
+                size="h-6 w-6"
+                title={`${t.teamName} — ${raceWord(t.racesUnderTeam)} under this team, ${raceWord(t.racesScoredForTeam)} scored for the team`}
+              />
+            ))}
+          </div>
         </div>
       </div>
 
