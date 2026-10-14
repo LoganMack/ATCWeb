@@ -2,7 +2,8 @@
 // One stat tile — a big number with a small label above it and an optional
 // subtitle below (used for the starts/appearances-based percentages: see
 // the header comment in src/lib/results.ts for why poles use appearances
-// as their denominator while everything else uses starts).
+// as their denominator while everything else uses starts). The subtitle is
+// hidden on mobile (Logan) — only the big number and its label show there.
 interface Props {
   label: string;
   value: string | number;
@@ -24,5 +25,5 @@ const { label, value, sub, labelSuffixLower } = Astro.props;
     {label}{labelSuffixLower && <span class="lowercase">{labelSuffixLower}</span>}
   </dt>
   <dd class="mt-1 font-display text-3xl leading-none">{value}</dd>
-  {sub && <p class="mt-1 text-[11px] text-white/40">{sub}</p>}
+  {sub && <p class="mt-1 hidden text-[11px] text-white/40 sm:block">{sub}</p>}
 </div>

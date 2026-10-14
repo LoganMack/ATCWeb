@@ -28,6 +28,7 @@ import {
   PIT_NOTE_MAX,
   type PitDifficulty,
   type MapPoint,
+  type LayoutCorner,
 } from '../../../../../lib/supabase';
 import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout } from '../../../../../lib/results';
 import { getIncidentsForSubsessions } from '../../../../../lib/incidents';
@@ -107,6 +108,27 @@ if (Astro.request.method === 'POST') {
       }
     }
 
+    // Corners: label + position, one per label.
+    let rawCorners: unknown = [];
+    try {
+      rawCorners = JSON.parse(String(form.get('corners_json') ?? '[]'));
+    } catch {
+      throw new Error('The corner list could not be read — reload the page and try again.');
+    }
+    const corners: LayoutCorner[] = [];
+    const seenLabels = new Set<string>();
+    if (Array.isArray(rawCorners)) {
+      for (const c of rawCorners) {
+        const label = String(c?.label ?? '').trim().slice(0, 8);
+        const x = Number(c?.x);
+        const y = Number(c?.y);
+        if (!label || label.startsWith('?') || seenLabels.has(label.toLowerCase())) continue;
+        if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100) continue;
+        seenLabels.add(label.toLowerCase());
+        corners.push({ label, x, y });
+      }
+    }
+
     // The map file, if a new one was chosen.
     const file = form.get('map_file');
     let newImageUrl: string | null = null;
@@ -136,6 +158,7 @@ if (Astro.request.method === 'POST') {
         point: pointFrom(form, 'pit_exit'),
       },
       pins,
+      corners,
     });
     if (newImageUrl) await updateCircuitLayout(supabaseEnv, accessToken, layout.id, { image_url: newImageUrl });
 
@@ -169,6 +192,7 @@ const initialJson = JSON.stringify({
   pins: details.pins.filter((p) => incidentIds.has(p.penaltyId)).map((p) => ({ penaltyId: p.penaltyId, x: p.x, y: p.y })),
   pitEntry: details.pitEntry.point,
   pitExit: details.pitExit.point,
+  corners: details.corners,
 }).replace(/</g, '\\u003c');
 
 const pitBlocks = [
@@ -188,6 +212,7 @@ const pitBlocks = [
 
     <form method="POST" enctype="multipart/form-data" data-astro-reload data-map-editor class="mt-6">
       <input type="hidden" name="pins_json" value="[]" />
+      <input type="hidden" name="corners_json" value="[]" />
       <input type="hidden" name="pit_entry_x" value="" />
       <input type="hidden" name="pit_entry_y" value="" />
       <input type="hidden" name="pit_exit_x" value="" />
@@ -211,6 +236,7 @@ const pitBlocks = [
             )}
             <div class="absolute inset-0" data-editor-flags></div>
             <div class="absolute inset-0" data-editor-pins></div>
+            <div class="pointer-events-none absolute inset-0" data-editor-corners></div>
           </div>
           <p class="mt-2 text-xs text-white/40">Pins and pit points are saved as positions on the square map, so they stay in place at any size. Drag a pin to adjust it.</p>
         </div>
@@ -274,6 +300,30 @@ const pitBlocks = [
                 </div>
               </div>
             ))}
+          </section>
+
+          <section class="rounded-xl border border-white/10 p-4">
+            <div class="flex items-baseline justify-between gap-2">
+              <h2 class="font-display text-lg">Corners</h2>
+              <span class="text-xs text-white/40" data-corner-count></span>
+            </div>
+            <p class="mt-1 text-xs text-white/50">Mark each corner's number on the map. When a driver reports a turn, the Reported Incidents page circles it here. Labels can be "7" or "5a"; a report of "Turn 3/4" circles corners 3 and 4. Drag a marker to adjust it.</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-primary btn-sm" data-corner-detect>Detect from image</button>
+              <span class="text-xs text-white/40" data-corner-detect-status>Finds the numbers drawn on the map.</span>
+            </div>
+            <div class="mt-3 flex items-center gap-2">
+              <input
+                type="text"
+                maxlength="8"
+                data-corner-label
+                placeholder="Label, e.g. 1"
+                class="w-28 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-brand-primary"
+              />
+              <button type="button" class="btn btn-neutral btn-sm" data-corner-place>Place on map</button>
+            </div>
+            <p class="mt-2 hidden text-xs text-brand-gold" data-corner-error></p>
+            <ul class="mt-3 flex flex-wrap gap-1.5" data-corner-list></ul>
           </section>
 
           <section class="rounded-xl border border-white/10 p-4">

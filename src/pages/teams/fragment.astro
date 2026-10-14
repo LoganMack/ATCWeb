@@ -296,11 +296,10 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
-              {/* Founded is now shown at every width — on mobile it
-                  REPLACES the driver columns below (hidden there instead,
-                  per Logan — see those columns' own comment). Still gated
-                  on !isPastSeason exactly as before. */}
-              {!isPastSeason && <th class="py-3 pr-4 font-medium" data-sort-key="founded">Founded</th>}
+              {/* Founded is hidden on mobile (Logan) so the team name has the
+                  whole row; desktop shows it as before. Still gated on
+                  !isPastSeason. */}
+              {!isPastSeason && <th class="hidden py-3 pr-4 font-medium sm:table-cell" data-sort-key="founded">Founded</th>}
               {/* Mobile: hidden (sm:table-cell) — a driver list is instead
                   reached by tapping a row to expand it (chevron +
                   [data-expand-row]/[data-detail-row], src/scripts/
@@ -344,7 +343,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                     </div>
                   </td>
                   {!isPastSeason && (
-                    <td class="py-2.5 pr-4 text-white/70" data-col="founded" data-sort-value={founded}>
+                    <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell" data-col="founded" data-sort-value={founded}>
                       {formatFoundedDate(founded)}
                     </td>
                   )}

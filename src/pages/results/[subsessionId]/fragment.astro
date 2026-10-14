@@ -756,7 +756,7 @@ Astro.response.headers.set(
         <div class="mt-8 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
         <div class="flex flex-wrap items-end gap-3">
           {roundPickerGroups.length > 0 && (
-            <label class="flex w-full flex-col gap-1.5 sm:w-60">
+            <label class="hidden w-full flex-col gap-1.5 sm:flex sm:w-60">
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Round</span>
               <select aria-label="Round" class={selectClass} onchange="window.location.href=this.value">
                 {roundPickerGroups.map((g) => (

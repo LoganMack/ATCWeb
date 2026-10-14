@@ -222,6 +222,16 @@ th[data-sort-key]::after {
   opacity: 0.35;
 }
 
+/* Mobile: keep each sortable header on one line. In a narrow column the arrow
+   (an inline-block ::after) used to wrap onto a second line, which pushed that
+   header's text above its neighbours' (e.g. Pos / Points / PP sat higher than
+   Driver on Standings). */
+@media (max-width: 639px) {
+  th[data-sort-key] {
+    white-space: nowrap;
+  }
+}
+
 th[data-sort-key][data-sort-dir='asc']::after {
   content: '\25B2';
   opacity: 1;
@@ -1172,6 +1182,67 @@ input[type="file"]:hover::file-selector-button {
 }
 
 /* Map editor: while an incident or pit point is picked up, the plate shows where a click will drop it. */
+/* Numbered corner marker (layout map editor) and the ring drawn round a reported turn (Reported Incidents). */
+.map-corner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  margin: -10px 0 0 -10px;
+  border-radius: 9999px;
+  border: 1.5px solid #4369f5;
+  /* Opaque, so a marker placed over a number printed on the map covers it instead of smudging. */
+  background: #1b2a6b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+}
+.map-corner[data-uncertain] {
+  border-color: #f5c642;
+  background: #6b5410;
+}
+.map-turn-ring {
+  position: absolute;
+  width: 20%;
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  border: 2px solid #f5426e;
+  box-shadow: 0 0 0 2px rgb(245 66 110 / 0.25), 0 0 10px rgb(245 66 110 / 0.6);
+  pointer-events: none;
+}
+.map-turn-ring > b {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  padding: 0 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #f5426e;
+  white-space: nowrap;
+}
+/* The View Map popup on a reported incident: a square plate no taller than the window, rings bigger than the in-row ones used to be. */
+.map-plate-dialog {
+  width: min(100%, 70vh);
+  margin: 0 auto;
+}
+.map-plate-dialog .map-turn-ring {
+  width: 12%;
+}
+.map-plate-dialog .map-turn-ring > b {
+  font-size: 13px;
+}
+
 .layout-map-plate[data-armed] {
   cursor: crosshair;
   outline: 2px solid #4369f5;

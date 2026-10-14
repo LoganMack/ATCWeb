@@ -458,7 +458,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </label>
           <div class="flex flex-wrap items-end gap-4 sm:ml-auto">
             {matrixColumns.length > 1 && (
-              <div class="group relative flex flex-col gap-1.5">
+              <div class="group relative hidden flex-col gap-1.5 sm:flex">
                 <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Standings by Round</span>
                 {/* Ticks + hover-only round tag (styles: .round-slider in global.css). The tag is the live
                     readout — standings.astro's slider script writes its text and the --p / --steps vars. */}
@@ -680,8 +680,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                         const cell = row.roundCells.get(col.subsessionId);
                         const title = `Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`;
                         return (
-                          <div class="relative flex w-20 flex-col items-center gap-1" data-round-col={i} title={title}>
-                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-20 w-20" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
+                          <div class="relative flex w-8 flex-col items-center gap-1 sm:w-20" data-round-col={i} title={title}>
+                            <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-5 w-5 sm:h-20 sm:w-20" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
                             {cell ? (
                               <span
                                 data-cell-points
@@ -911,8 +911,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       const cell = row.roundCells.get(col.subsessionId);
                       const title = `Round ${col.roundNumber ?? '?'} — ${matrixColumnTitle(col.trackName, col.format)}`;
                       return (
-                        <div class="relative flex w-20 flex-col items-center gap-1" data-round-col={i} title={title}>
-                          <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-20 w-20" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
+                        <div class="relative flex w-8 flex-col items-center gap-1 sm:w-20" data-round-col={i} title={title}>
+                          <TeamLogo name={col.trackName} logoUrl={matrixLogoBySubsession.get(col.subsessionId) ?? null} size="h-5 w-5 sm:h-20 sm:w-20" title={title} logoBg={matrixLogoBgBySubsession.get(col.subsessionId) ?? null} />
                           {cell ? (
                             <span data-cell-points data-orig-dropped="false" class="text-xs text-white/80" title={`${cell.points} pts`}>{cell.points}</span>
                           ) : (

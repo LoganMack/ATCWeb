@@ -8,7 +8,7 @@ export const prerender = false;
 // an Edit link to the round's incident report page where reports are logged
 // or dismissed.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, restGetAuthed, formatDate, getStandingsExcludedRoundIds } from '../../../lib/supabase';
+import { resolveSupabaseEnv, restGetAuthed, getStandingsExcludedRoundIds } from '../../../lib/supabase';
 import { getAllRounds, computeDisplayRoundNumbers } from '../../../lib/results';
 import { getPostedSubsessionIds, setRoundPosted } from '../../../lib/incidentReports';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
@@ -108,7 +108,8 @@ try {
       const c = counts.get(r.subsession_id) ?? { open: 0, logged: 0, dismissed: 0 };
       const n = displayNumber.get(r.subsession_id);
       const season = r.season_label ?? '';
-      const label = n != null ? `${season ? season + ' · ' : ''}Round ${n}` : `${season ? season + ' · ' : ''}Exhibition`;
+      // "ATC18, Round 3" — then the table adds ": Track Name".
+      const label = `${season ? season + ', ' : ''}${n != null ? `Round ${n}` : 'Exhibition'}`;
       return {
         subsessionId: r.subsession_id,
         label,
@@ -156,13 +157,12 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
       </thead>
       <tbody>
         {visibleRows.map((r) => (
-          <tr class="border-t border-white/5">
+          <tr class={`border-t border-white/5 ${r.posted ? 'text-white/40' : ''}`}>
             <td class="px-4 py-3">
-              <div class="font-semibold text-white">{r.label} — {r.trackName}</div>
-              <div class="text-xs text-white/40">{formatDate(r.startTime)}</div>
+              <div class={`font-semibold ${r.posted ? 'text-white/40' : 'text-white'}`}>{r.label}: {r.trackName}</div>
             </td>
             <td class="px-3 py-3 text-center tabular-nums">{r.reported}</td>
-            <td class={`px-3 py-3 text-center tabular-nums ${r.pending > 0 ? 'font-semibold text-brand-gold' : ''}`}>{r.pending}</td>
+            <td class={`px-3 py-3 text-center tabular-nums ${r.pending > 0 && !r.posted ? 'font-semibold text-brand-gold' : ''}`}>{r.pending}</td>
             <td class="px-3 py-3 text-center tabular-nums">{r.dismissed}</td>
             <td class="px-3 py-3 text-center tabular-nums">{r.logged}</td>
             <td class="px-3 py-3 text-center">
@@ -182,9 +182,17 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
               </form>
             </td>
             <td class="whitespace-nowrap px-4 py-3 text-right">
-              {/* ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
-              <a href={`/results/${r.subsessionId}/incidents?view=reports`} class="font-semibold text-brand-primary hover:underline">View Incidents</a>
-              <a href={`/results/${r.subsessionId}/incidents`} class="ml-4 font-semibold text-brand-primary hover:underline">{r.posted ? 'View Report' : 'Edit Report'}</a>
+              {/* Two fixed-width slots so "View Incidents" never shifts with the width of "View Report" / "Edit Report". ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
+              <span class="inline-flex gap-4">
+                <a
+                  href={`/results/${r.subsessionId}/incidents?view=reports`}
+                  class={`inline-block w-28 text-left font-semibold hover:underline ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
+                >View Incidents</a>
+                <a
+                  href={`/results/${r.subsessionId}/incidents`}
+                  class={`inline-block w-28 text-left font-semibold hover:underline ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
+                >{r.posted ? 'View Report' : 'Edit Report'}</a>
+              </span>
             </td>
           </tr>
         ))}
