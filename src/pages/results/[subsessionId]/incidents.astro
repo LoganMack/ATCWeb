@@ -625,6 +625,58 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
   document.addEventListener('astro:page-load', initReviewDialog);
 
+  // View Map popup (View Incidents only): one shared <dialog> holding the
+  // layout map; each card's View Map button carries its title, subtitle and
+  // the matched corners (data-map), which become the rings drawn here.
+  function initReportMapDialog() {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-report-map-dialog]');
+    if (!dialog) return;
+    const plate = dialog.querySelector<HTMLElement>('[data-report-map-plate]')!;
+    const title = dialog.querySelector<HTMLElement>('[data-report-map-title]')!;
+    const subtitle = dialog.querySelector<HTMLElement>('[data-report-map-subtitle]')!;
+    const note = dialog.querySelector<HTMLElement>('[data-report-map-note]')!;
+
+    document.querySelectorAll<HTMLButtonElement>('[data-open-report-map]').forEach((btn) => {
+      if (btn.dataset.mapBound) return;
+      btn.dataset.mapBound = 'true';
+      btn.addEventListener('click', () => {
+        const data = JSON.parse(btn.dataset.map ?? '{}') as {
+          title?: string;
+          subtitle?: string;
+          corners?: { label: string; x: number; y: number }[];
+        };
+        title.textContent = data.title ?? '';
+        subtitle.textContent = data.subtitle ?? '';
+        plate.querySelectorAll('.map-turn-ring').forEach((el) => el.remove());
+        for (const c of data.corners ?? []) {
+          const ring = document.createElement('span');
+          ring.className = 'map-turn-ring';
+          ring.style.left = `${c.x}%`;
+          ring.style.top = `${c.y}%`;
+          const label = document.createElement('b');
+          label.textContent = c.label;
+          ring.append(label);
+          plate.append(ring);
+        }
+        note.classList.toggle('hidden', (data.corners ?? []).length > 0);
+        dialog.showModal();
+      });
+    });
+
+    if (!dialog.dataset.mapBound) {
+      dialog.dataset.mapBound = 'true';
+      dialog.querySelectorAll<HTMLButtonElement>('[data-close-report-map]').forEach((btn) => {
+        btn.addEventListener('click', () => dialog.close());
+      });
+      // A click on the backdrop (the dialog element itself, outside its padded content) closes it.
+      dialog.addEventListener('click', (event) => {
+        if (event.target === dialog) dialog.close();
+      });
+    }
+  }
+
+  document.addEventListener('astro:page-load', initReportMapDialog);
+
   // Round Penalties add/edit popup (admin only, 0104): one shared <dialog>,
   // blank for "+ Add round penalty", filled from the row's data-round-penalty
   // for Edit. Bails until the fragment's dialog exists, like the ones above.

@@ -1231,39 +1231,16 @@ input[type="file"]:hover::file-selector-button {
   color: #f5426e;
   white-space: nowrap;
 }
-/* The map beside a reported incident: a panel as tall as its card, holding a square map
-   (rings are positioned in % of that square, like pins). The panel is never shorter than the map. */
-.layout-map-plate.map-plate-side {
-  width: 13rem;
-  flex: none;
-  align-self: stretch;
-  aspect-ratio: auto;
-  min-height: 13rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* The View Map popup on a reported incident: a square plate no taller than the window, rings bigger than the in-row ones used to be. */
+.map-plate-dialog {
+  width: min(100%, 70vh);
+  margin: 0 auto;
 }
-.map-side-square {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1 / 1;
+.map-plate-dialog .map-turn-ring {
+  width: 12%;
 }
-.map-side-square > img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  user-select: none;
-}
-.light .map-side-square > img {
-  filter: invert(1);
-}
-@media (max-width: 639px) {
-  .layout-map-plate.map-plate-side {
-    align-self: center;
-    min-height: 0;
-  }
+.map-plate-dialog .map-turn-ring > b {
+  font-size: 13px;
 }
 
 .layout-map-plate[data-armed] {
