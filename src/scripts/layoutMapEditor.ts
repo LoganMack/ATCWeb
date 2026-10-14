@@ -1,15 +1,15 @@
 // Client behavior for /admin/circuits/<id>/map/<layoutId> (the layout map editor):
 //   - previewing a chosen map file, and (for a PNG/JPG/WebP) tracing it into an SVG in the browser
 //     with the vendored imagetracer, swapped into the upload when the form is submitted;
-//   - placing and dragging incident pins and the two optional pit lane points on the map.
-// Everything the server needs is written into hidden inputs (pins_json, pit_*_x/y) on every change.
+//   - placing and dragging incident pins, numbered corner markers and the two optional pit lane points on the map.
+// Everything the server needs is written into hidden inputs (pins_json, corners_json, pit_*_x/y) on every change.
 import imageTracer from './vendor/imagetracer.js';
 
 interface Pt {
   x: number;
   y: number;
 }
-type Armed = { kind: 'pin'; id: string } | { kind: 'pit'; which: 'entry' | 'exit' } | null;
+type Armed = { kind: 'pin'; id: string } | { kind: 'pit'; which: 'entry' | 'exit' } | { kind: 'corner'; label: string } | null;
 
 const tracer = imageTracer as unknown as {
   imagedataToSVG: (img: { width: number; height: number; data: Uint8ClampedArray }, opts: Record<string, unknown>) => string;
@@ -89,6 +89,11 @@ function initLayoutMapEditor() {
   const img = form.querySelector<HTMLImageElement>('[data-editor-img]');
   const pinLayer = form.querySelector<HTMLElement>('[data-editor-pins]')!;
   const flagLayer = form.querySelector<HTMLElement>('[data-editor-flags]')!;
+  const cornerLayer = form.querySelector<HTMLElement>('[data-editor-corners]')!;
+  const cornerList = form.querySelector<HTMLElement>('[data-corner-list]')!;
+  const cornerInput = form.querySelector<HTMLInputElement>('[data-corner-label]')!;
+  const cornerError = form.querySelector<HTMLElement>('[data-corner-error]')!;
+  const cornersInput = form.querySelector<HTMLInputElement>('input[name="corners_json"]')!;
   const banner = form.querySelector<HTMLElement>('[data-editor-banner]')!;
   const bannerText = form.querySelector<HTMLElement>('[data-editor-banner-text]')!;
   const pinsInput = form.querySelector<HTMLInputElement>('input[name="pins_json"]')!;
@@ -97,10 +102,12 @@ function initLayoutMapEditor() {
     pins: { penaltyId: string; x: number; y: number }[];
     pitEntry: Pt | null;
     pitExit: Pt | null;
+    corners: { label: string; x: number; y: number }[];
   };
 
   const pins = new Map<string, Pt>(initial.pins.map((p) => [p.penaltyId, { x: p.x, y: p.y }]));
   const pit: Record<'entry' | 'exit', Pt | null> = { entry: initial.pitEntry, exit: initial.pitExit };
+  const corners = new Map<string, Pt>((initial.corners ?? []).map((c) => [c.label, { x: c.x, y: c.y }]));
   let armed: Armed = null;
 
   const rows = Array.from(form.querySelectorAll<HTMLElement>('[data-incident-row]'));
@@ -120,11 +127,16 @@ function initLayoutMapEditor() {
       bannerText.textContent = `Click the map to place: ${rowById.get(next.id)?.dataset.incidentLabel ?? 'incident'}`;
     } else if (next?.kind === 'pit') {
       bannerText.textContent = `Click the map to place the pit ${next.which}`;
+    } else if (next?.kind === 'corner') {
+      bannerText.textContent = `Click the map to place corner ${next.label}`;
     }
   }
 
   function sync() {
     pinsInput.value = JSON.stringify(Array.from(pins, ([penaltyId, p]) => ({ penaltyId, x: p.x, y: p.y })));
+    cornersInput.value = JSON.stringify(Array.from(corners, ([label, p]) => ({ label, x: p.x, y: p.y })));
+    const cornerCount = form.querySelector<HTMLElement>('[data-corner-count]');
+    if (cornerCount) cornerCount.textContent = `${corners.size} placed`;
     for (const which of ['entry', 'exit'] as const) {
       const p = pit[which];
       form.querySelector<HTMLInputElement>(`input[name="pit_${which}_x"]`)!.value = p ? String(p.x) : '';
@@ -161,6 +173,33 @@ function initLayoutMapEditor() {
         return el;
       })
     );
+    cornerLayer.replaceChildren(
+      ...Array.from(corners, ([label, p]) => {
+        const el = document.createElement('span');
+        el.className = 'map-corner';
+        el.dataset.cornerId = label;
+        el.textContent = label;
+        el.title = `Corner ${label}`;
+        el.style.left = `${p.x}%`;
+        el.style.top = `${p.y}%`;
+        return el;
+      })
+    );
+    cornerList.replaceChildren(
+      ...Array.from(corners.keys()).map((label) => {
+        const li = document.createElement('li');
+        li.className = 'inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-0.5 text-xs text-white/80';
+        li.append(`Corner ${label}`);
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.dataset.cornerRemove = label;
+        x.className = 'text-white/40 hover:text-white';
+        x.setAttribute('aria-label', `Remove corner ${label}`);
+        x.textContent = '✕';
+        li.append(x);
+        return li;
+      })
+    );
     flagLayer.replaceChildren(
       ...(['entry', 'exit'] as const).flatMap((which) => {
         const p = pit[which];
@@ -194,6 +233,24 @@ function initLayoutMapEditor() {
       render();
       return;
     }
+    if (t.closest('[data-corner-place]')) {
+      const label = cornerInput.value.trim().slice(0, 8);
+      if (!label) {
+        cornerError.textContent = 'Type the corner’s label first (e.g. 7 or 5a).';
+        cornerError.classList.remove('hidden');
+        cornerInput.focus();
+        return;
+      }
+      cornerError.classList.add('hidden');
+      setArmed({ kind: 'corner', label });
+      return;
+    }
+    const cornerRemove = t.closest<HTMLElement>('[data-corner-remove]');
+    if (cornerRemove) {
+      corners.delete(cornerRemove.dataset.cornerRemove!);
+      render();
+      return;
+    }
     const pitPlace = t.closest<HTMLElement>('[data-pit-place]');
     if (pitPlace) {
       setArmed({ kind: 'pit', which: pitPlace.dataset.pitPlace as 'entry' | 'exit' });
@@ -210,10 +267,15 @@ function initLayoutMapEditor() {
       return;
     }
     // Dropping the picked-up thing on the map.
-    if (armed && t.closest('[data-editor-plate]') && !t.closest('.map-pin')) {
+    if (armed && t.closest('[data-editor-plate]') && !t.closest('.map-pin') && !t.closest('.map-corner')) {
       const p = pointFromEvent(e);
       if (armed.kind === 'pin') pins.set(armed.id, p);
-      else pit[armed.which] = p;
+      else if (armed.kind === 'corner') {
+        // A label already in use is moved, not duplicated (case-insensitively).
+        for (const existing of Array.from(corners.keys())) if (existing.toLowerCase() === armed.label.toLowerCase()) corners.delete(existing);
+        corners.set(armed.label, p);
+        cornerInput.value = /^\d+$/.test(armed.label) ? String(Number(armed.label) + 1) : '';
+      } else pit[armed.which] = p;
       setArmed(null);
       render();
     }
@@ -250,6 +312,30 @@ function initLayoutMapEditor() {
   };
   pinLayer.addEventListener('pointerup', endDrag);
   pinLayer.addEventListener('pointercancel', endDrag);
+
+  // --- dragging corner markers ----------------------------------------------
+  let cornerDrag: { label: string; el: HTMLElement } | null = null;
+  cornerLayer.addEventListener('pointerdown', (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('.map-corner');
+    if (!el || armed) return;
+    cornerDrag = { label: el.dataset.cornerId!, el };
+    el.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  cornerLayer.addEventListener('pointermove', (e) => {
+    if (!cornerDrag) return;
+    const p = pointFromEvent(e);
+    corners.set(cornerDrag.label, p);
+    cornerDrag.el.style.left = `${p.x}%`;
+    cornerDrag.el.style.top = `${p.y}%`;
+  });
+  const endCornerDrag = () => {
+    if (!cornerDrag) return;
+    cornerDrag = null;
+    sync();
+  };
+  cornerLayer.addEventListener('pointerup', endCornerDrag);
+  cornerLayer.addEventListener('pointercancel', endCornerDrag);
 
   // --- the map file: preview, and optional trace to SVG -------------------
   const tracePanel = form.querySelector<HTMLElement>('[data-trace-panel]')!;

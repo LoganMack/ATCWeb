@@ -2388,10 +2388,18 @@ export interface LayoutPin extends MapPoint {
   penaltyId: string;
 }
 
+/** A numbered corner marked on a layout's map (layout_corners, 0110). x/y are percentages of the map image. */
+export interface LayoutCorner {
+  label: string;
+  x: number;
+  y: number;
+}
+
 export interface LayoutMapDetails {
   pitEntry: PitLaneInfo;
   pitExit: PitLaneInfo;
   pins: LayoutPin[];
+  corners: LayoutCorner[];
 }
 
 export function emptyLayoutMapDetails(): LayoutMapDetails {
@@ -2399,6 +2407,7 @@ export function emptyLayoutMapDetails(): LayoutMapDetails {
     pitEntry: { difficulty: null, note: null, point: null },
     pitExit: { difficulty: null, note: null, point: null },
     pins: [],
+    corners: [],
   };
 }
 
@@ -2450,6 +2459,15 @@ export async function getLayoutMapDetails(env: SupabaseEnv, layoutId: string): P
   } catch (err) {
     console.error('Failed to load layout incident pins (is 0106_layout_map_details.sql applied?):', err);
   }
+  try {
+    const corners = await restGet<{ label: string; x: number; y: number }[]>(
+      env,
+      `layout_corners?select=label,x,y&layout_id=eq.${id}&order=created_at.asc`
+    );
+    out.corners = corners.map((c) => ({ label: c.label, x: Number(c.x), y: Number(c.y) }));
+  } catch (err) {
+    console.error('Failed to load layout corners (is 0110_layout_corners.sql applied?):', err);
+  }
   return out;
 }
 
@@ -2458,6 +2476,8 @@ export interface LayoutMapDetailsInput {
   pitExit: PitLaneInfo;
   /** The full set of pins for this layout — pins not listed here are removed. */
   pins: { penaltyId: string; x: number; y: number }[];
+  /** The full set of numbered corners for this layout — anything not listed is removed. */
+  corners: LayoutCorner[];
 }
 
 const clampPercent = (n: number) => Math.min(100, Math.max(0, Math.round(n * 100) / 100));
@@ -2496,6 +2516,28 @@ export async function saveLayoutMapDetails(env: SupabaseEnv, accessToken: string
       body: JSON.stringify(input.pins.map((p) => ({ layout_id: layoutId, penalty_id: p.penaltyId, x: clampPercent(p.x), y: clampPercent(p.y) }))),
     });
     if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on layout_incident_pins: ${await res.text()}`);
+  }
+
+  // Corners: an unapplied 0110 migration must not break saving the rest, so only fail if corners were actually given.
+  const existingCorners = await restGet<{ id: string; label: string }[]>(
+    env,
+    `layout_corners?select=id,label&layout_id=eq.${encodeURIComponent(layoutId)}`
+  ).catch(() => null);
+  if (existingCorners === null) {
+    if (input.corners.length > 0) throw new Error('Corners can’t be saved yet — run migration 0110_layout_corners.sql first.');
+    return;
+  }
+  const keepLabels = new Set(input.corners.map((c) => c.label));
+  for (const row of existingCorners) {
+    if (!keepLabels.has(row.label)) await restDelete(env, accessToken, `layout_corners?id=eq.${encodeURIComponent(row.id)}`);
+  }
+  if (input.corners.length > 0) {
+    const res = await fetch(`${env.url}/rest/v1/layout_corners?on_conflict=layout_id,label`, {
+      method: 'POST',
+      headers: writeHeaders(env, accessToken, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
+      body: JSON.stringify(input.corners.map((c) => ({ layout_id: layoutId, label: c.label, x: clampPercent(c.x), y: clampPercent(c.y) }))),
+    });
+    if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on layout_corners: ${await res.text()}`);
   }
 }
 

@@ -26,13 +26,17 @@ import {
   getScoringRulesets,
   resolveSeasonRuleset,
   shortDriverName,
+  getCircuits,
+  getAllCircuitLayouts,
+  getLayoutMapDetails,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
   type ScoringRuleset,
 } from '../../../../lib/supabase';
 import SectionIcon from '../../../../components/SectionIcon.astro';
-import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, type RoundResults, type DriverBasic } from '../../../../lib/results';
+import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, getRoundLayoutsForSubsessions, resolveLayout, type RoundResults, type DriverBasic } from '../../../../lib/results';
+import { matchCorners, type MapCorner } from '../../../../lib/turnMatch';
 import {
   applyPenaltiesToRoundResults,
   effectiveTimePenaltySeconds,
@@ -759,6 +763,35 @@ const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
 // Reports still waiting on the stewards — the number on the View Reported Incidents button.
 const openReportCount = incidentReports.filter((r) => r.status === 'open').length;
 
+// This round's layout map and its numbered corners (layout_corners, 0110),
+// View Incidents only: each report card shows the map with the reported
+// turn(s) circled. Failure-tolerant — no map just means no map column.
+let reportMapUrl: string | null = null;
+let reportMapCorners: MapCorner[] = [];
+if (viewReports && round) {
+  try {
+    const [circuits, layouts, roundLayouts] = await Promise.all([
+      getCircuits(supabaseEnv),
+      getAllCircuitLayouts(supabaseEnv),
+      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
+    ]);
+    const layout = resolveLayout(round.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
+    reportMapUrl = layout?.image_url ?? null;
+    if (layout && reportMapUrl) reportMapCorners = (await getLayoutMapDetails(supabaseEnv, layout.id)).corners;
+  } catch (err) {
+    console.error('Failed to load the layout map for the reported incidents:', err);
+  }
+}
+/** "#04, #12" for a report's cars (name when a car has no number). */
+function reportCarsTitle(r: IncidentReport): string {
+  return r.driver_ids
+    .map((id) => {
+      const d = driverById.get(id);
+      return d ? (d.car_number !== null ? `#${d.car_number}` : shortDriverName(d.name)) : '?';
+    })
+    .join(', ');
+}
+
 // Steward reviews (0096), View Incidents only. RLS hands back only what this
 // admin may see — their own review, plus everyone else's on reports they've
 // already reviewed (or that are logged, or that they were involved in) — and
@@ -1213,42 +1246,25 @@ const nextIncidentNumber =
                 const style = agreement ? agreementStyles[agreement] : null;
                 const duplicateOriginal = duplicateOriginalById.get(r.id);
                 return (
-                <li class={`rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-brand-ink'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
-                  <div class="flex flex-wrap items-center justify-between gap-2">
-                    <p class="font-semibold text-white/80">
-                      {reportLabel(r)}
-                      {possibleDuplicateReportIds.has(r.id) && (
-                        <span class="ml-1 font-normal text-brand-gold">(possible duplicate)</span>
-                      )}
-                    </p>
-                    <div class="flex flex-wrap items-center gap-2">
-                      {r.status === 'open' && (
-                        <button
-                          type="button"
-                          data-log-report
-                          data-report={JSON.stringify({ id: r.id, number: reportNumberById.get(r.id) ?? null, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
-                          class="btn btn-primary btn-sm"
-                        >
-                          Log incident
-                        </button>
-                      )}
-                      <form method="POST" action={formAction} data-astro-reload>
-                        <input type="hidden" name="intent" value="set-report-status" />
-                        <input type="hidden" name="report_id" value={r.id} />
-                        <input type="hidden" name="status" value={r.status === 'open' ? 'dismissed' : 'open'} />
-                        <button type="submit" class="btn btn-neutral btn-sm">
-                          {r.status === 'open' ? 'Dismiss' : 'Reopen'}
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                  <p class="mt-1 text-xs text-white/50">
-                    Cars: {r.driver_ids.map((id) => { const d = driverById.get(id); return d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown'; }).join(', ')}
+                <li class={`flex flex-col gap-3 rounded-lg border p-3 text-sm sm:flex-row ${style ? style.item : 'border-white/10 bg-brand-ink'} ${r.status === 'open' ? '' : 'opacity-50'}`}>
+                  <div class="min-w-0 flex-1">
+                  <p
+                    class="font-semibold text-white/90"
+                    title={r.driver_ids.map((id) => driverById.get(id)?.name ?? 'Unknown').join(', ')}
+                  >
+                    Incident{reportNumberById.get(r.id) ? ` #${reportNumberById.get(r.id)}` : ''}: {reportCarsTitle(r)}
+                    {possibleDuplicateReportIds.has(r.id) && (
+                      <span class="ml-1 font-normal text-brand-gold">(possible duplicate)</span>
+                    )}
                   </p>
-                  {r.description && <p class="mt-1 text-white/70">{r.description}</p>}
-                  <p class="mt-1 text-[11px] text-white/30">
-                    Reported {new Date(r.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
+                  <p class="mt-0.5 text-xs text-white/50">
+                    {sessionLabelByValue.get(r.session) ?? r.session}, Lap {r.lap}
                   </p>
+                  {r.description ? (
+                    <p class="mt-2 whitespace-pre-line text-white/70">{r.description}</p>
+                  ) : (
+                    <p class="mt-2 text-white/40">No description provided.</p>
+                  )}
 
                   <div class="mt-3 border-t border-white/10 pt-3">
                     <div class="flex flex-wrap items-center justify-between gap-2">
@@ -1259,6 +1275,7 @@ const nextIncidentNumber =
                           <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
                         )}
                       </p>
+                      <div class="flex flex-wrap items-center gap-2">
                       {reviewsLocked ? (
                         <span class="text-xs text-white/40">
                           {r.status === 'open'
@@ -1280,9 +1297,28 @@ const nextIncidentNumber =
                           })}
                           class="btn btn-gold btn-sm"
                         >
-                          {myReview ? 'Edit my review' : 'Review'}
+                          Add/Edit Review
                         </button>
                       )}
+                      {r.status === 'open' && (
+                        <button
+                          type="button"
+                          data-log-report
+                          data-report={JSON.stringify({ id: r.id, number: reportNumberById.get(r.id) ?? null, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
+                          class="btn btn-primary btn-sm"
+                        >
+                          Add to Report
+                        </button>
+                      )}
+                      <form method="POST" action={formAction} data-astro-reload>
+                        <input type="hidden" name="intent" value="set-report-status" />
+                        <input type="hidden" name="report_id" value={r.id} />
+                        <input type="hidden" name="status" value={r.status === 'open' ? 'dismissed' : 'open'} />
+                        <button type="submit" class="btn btn-neutral btn-sm">
+                          {r.status === 'open' ? 'Dismiss' : 'Reopen'}
+                        </button>
+                      </form>
+                      </div>
                     </div>
 
                     {duplicateOriginal && (
@@ -1325,6 +1361,20 @@ const nextIncidentNumber =
                       )
                     )}
                   </div>
+                  </div>
+                  {reportMapUrl && (() => {
+                    const turnCorners = matchCorners(r.turn, reportMapCorners);
+                    return (
+                      <div class="layout-map-plate map-plate-side border border-white/10" role="img" aria-label={`Layout map${turnCorners.length > 0 ? `, turn ${turnCorners.map((c) => c.label).join(' and ')} circled` : ''}`}>
+                        <div class="map-side-square">
+                          <img src={reportMapUrl} alt="" loading="lazy" decoding="async" />
+                          {turnCorners.map((c) => (
+                            <span class="map-turn-ring" style={`left:${c.x}%;top:${c.y}%`}><b>{c.label}</b></span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </li>
                 );
               })}
@@ -2240,7 +2290,7 @@ const nextIncidentNumber =
                     </select>
                   </label>
                 </template>
-                <p data-review-faults-missing class="hidden text-[11px] font-semibold text-brand-gold">To save, tick the car(s) at fault (or Racing Incident), pick a penalty for each car, and write an explanation.</p>
+                <p data-review-faults-missing class="hidden text-[11px] font-semibold text-brand-gold">Tick the car(s) at fault, or Racing Incident.</p>
               </div>
               <label class="flex flex-col gap-1 text-[11px] text-white/50">
                 Explanation
@@ -2258,7 +2308,7 @@ const nextIncidentNumber =
               </p>
               <div class="flex justify-end gap-2">
                 <button type="button" data-close-review-dialog class="btn btn-neutral">Cancel</button>
-                <button type="submit" data-review-save disabled class="btn btn-gold">Save Review</button>
+                <button type="submit" class="btn btn-gold">Save Review</button>
               </div>
             </form>
           </dialog>

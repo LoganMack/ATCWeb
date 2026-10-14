@@ -1172,6 +1172,88 @@ input[type="file"]:hover::file-selector-button {
 }
 
 /* Map editor: while an incident or pit point is picked up, the plate shows where a click will drop it. */
+/* Numbered corner marker (layout map editor) and the ring drawn round a reported turn (Reported Incidents). */
+.map-corner {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  margin: -10px 0 0 -10px;
+  border-radius: 9999px;
+  border: 1.5px solid #4369f5;
+  background: rgb(67 105 245 / 0.25);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
+}
+.light .map-corner {
+  color: #0b0b0e;
+}
+.map-turn-ring {
+  position: absolute;
+  width: 20%;
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  border: 2px solid #f5426e;
+  box-shadow: 0 0 0 2px rgb(245 66 110 / 0.25), 0 0 10px rgb(245 66 110 / 0.6);
+  pointer-events: none;
+}
+.map-turn-ring > b {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  padding: 0 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #f5426e;
+  white-space: nowrap;
+}
+/* The map beside a reported incident: a panel as tall as its card, holding a square map
+   (rings are positioned in % of that square, like pins). The panel is never shorter than the map. */
+.layout-map-plate.map-plate-side {
+  width: 13rem;
+  flex: none;
+  align-self: stretch;
+  aspect-ratio: auto;
+  min-height: 13rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.map-side-square {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+}
+.map-side-square > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+.light .map-side-square > img {
+  filter: invert(1);
+}
+@media (max-width: 639px) {
+  .layout-map-plate.map-plate-side {
+    align-self: center;
+    min-height: 0;
+  }
+}
+
 .layout-map-plate[data-armed] {
   cursor: crosshair;
   outline: 2px solid #4369f5;
