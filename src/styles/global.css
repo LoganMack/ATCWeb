@@ -1184,7 +1184,8 @@ input[type="file"]:hover::file-selector-button {
   margin: -10px 0 0 -10px;
   border-radius: 9999px;
   border: 1.5px solid #4369f5;
-  background: rgb(67 105 245 / 0.25);
+  /* Opaque, so a marker placed over a number printed on the map covers it instead of smudging. */
+  background: #1b2a6b;
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -1194,8 +1195,9 @@ input[type="file"]:hover::file-selector-button {
   user-select: none;
   pointer-events: auto;
 }
-.light .map-corner {
-  color: #0b0b0e;
+.map-corner[data-uncertain] {
+  border-color: #f5c642;
+  background: #6b5410;
 }
 .map-turn-ring {
   position: absolute;

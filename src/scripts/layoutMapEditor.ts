@@ -4,6 +4,7 @@
 //   - placing and dragging incident pins, numbered corner markers and the two optional pit lane points on the map.
 // Everything the server needs is written into hidden inputs (pins_json, corners_json, pit_*_x/y) on every change.
 import imageTracer from './vendor/imagetracer.js';
+import { DETECT_SIDE, foregroundMask, findNumberClusters, readClusters } from './cornerDetect';
 
 interface Pt {
   x: number;
@@ -108,6 +109,8 @@ function initLayoutMapEditor() {
   const pins = new Map<string, Pt>(initial.pins.map((p) => [p.penaltyId, { x: p.x, y: p.y }]));
   const pit: Record<'entry' | 'exit', Pt | null> = { entry: initial.pitEntry, exit: initial.pitExit };
   const corners = new Map<string, Pt>((initial.corners ?? []).map((c) => [c.label, { x: c.x, y: c.y }]));
+  // Detected corners whose number is doubtful (or unread: labelled "?1", "?2"…) — shown amber until the admin sets the label.
+  const uncertain = new Set<string>();
   let armed: Armed = null;
 
   const rows = Array.from(form.querySelectorAll<HTMLElement>('[data-incident-row]'));
@@ -180,6 +183,7 @@ function initLayoutMapEditor() {
         el.dataset.cornerId = label;
         el.textContent = label;
         el.title = `Corner ${label}`;
+        if (uncertain.has(label)) el.dataset.uncertain = '';
         el.style.left = `${p.x}%`;
         el.style.top = `${p.y}%`;
         return el;
@@ -188,8 +192,17 @@ function initLayoutMapEditor() {
     cornerList.replaceChildren(
       ...Array.from(corners.keys()).map((label) => {
         const li = document.createElement('li');
-        li.className = 'inline-flex items-center gap-1 rounded-full border border-white/15 px-2 py-0.5 text-xs text-white/80';
-        li.append(`Corner ${label}`);
+        const flagged = uncertain.has(label);
+        li.className = `inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs ${flagged ? 'border-brand-gold/70 text-brand-gold' : 'border-white/15 text-white/80'}`;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = label;
+        input.maxLength = 8;
+        input.size = Math.max(2, label.length);
+        input.dataset.cornerEdit = label;
+        input.setAttribute('aria-label', `Corner label ${label}`);
+        input.className = 'w-10 rounded bg-transparent px-0.5 text-center outline-none focus:bg-white/10';
+        li.append(input);
         const x = document.createElement('button');
         x.type = 'button';
         x.dataset.cornerRemove = label;
@@ -248,6 +261,7 @@ function initLayoutMapEditor() {
     const cornerRemove = t.closest<HTMLElement>('[data-corner-remove]');
     if (cornerRemove) {
       corners.delete(cornerRemove.dataset.cornerRemove!);
+      uncertain.delete(cornerRemove.dataset.cornerRemove!);
       render();
       return;
     }
@@ -312,6 +326,94 @@ function initLayoutMapEditor() {
   };
   pinLayer.addEventListener('pointerup', endDrag);
   pinLayer.addEventListener('pointercancel', endDrag);
+
+  // --- renaming a corner (the label boxes in the Corners list) ------------------
+  cornerList.addEventListener('change', (e) => {
+    const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-corner-edit]');
+    if (!input) return;
+    const old = input.dataset.cornerEdit!;
+    const next = input.value.trim().slice(0, 8);
+    const clash = Array.from(corners.keys()).some((l) => l !== old && l.toLowerCase() === next.toLowerCase());
+    if (next && next !== old && !clash && corners.has(old)) {
+      corners.set(next, corners.get(old)!);
+      corners.delete(old);
+      uncertain.delete(old);
+      cornerError.classList.add('hidden');
+    } else if (next !== old) {
+      cornerError.textContent = clash ? `There's already a corner ${next}.` : 'A corner needs a label.';
+      cornerError.classList.remove('hidden');
+    }
+    render();
+  });
+
+  // --- detect corner numbers from the map image ------------------------------------
+  const detectBtn = form.querySelector<HTMLButtonElement>('[data-corner-detect]')!;
+  const detectStatus = form.querySelector<HTMLElement>('[data-corner-detect-status]')!;
+  detectBtn.addEventListener('click', async () => {
+    const src = img?.currentSrc || img?.src;
+    if (!img || !src || src.startsWith('data:')) {
+      detectStatus.textContent = 'Choose a map image first.';
+      return;
+    }
+    detectBtn.disabled = true;
+    detectStatus.textContent = 'Looking for numbers…';
+    try {
+      const pic = new Image();
+      pic.crossOrigin = 'anonymous';
+      pic.src = src;
+      await pic.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = DETECT_SIDE;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, DETECT_SIDE, DETECT_SIDE);
+      // Same "contain" fit as the map plate, so percentages line up with what the editor shows.
+      const nw = pic.naturalWidth || DETECT_SIDE;
+      const nh = pic.naturalHeight || DETECT_SIDE;
+      const scale = Math.min(DETECT_SIDE / nw, DETECT_SIDE / nh);
+      ctx.drawImage(pic, (DETECT_SIDE - nw * scale) / 2, (DETECT_SIDE - nh * scale) / 2, nw * scale, nh * scale);
+      const mask = foregroundMask(ctx.getImageData(0, 0, DETECT_SIDE, DETECT_SIDE).data, DETECT_SIDE, DETECT_SIDE);
+      const clusters = findNumberClusters(mask, DETECT_SIDE, DETECT_SIDE);
+      if (clusters.length === 0) {
+        detectStatus.textContent = 'No numbers found on this image.';
+        return;
+      }
+      detectStatus.textContent = `Reading ${clusters.length} numbers… (the first run downloads the reader, a few MB)`;
+      const found = await readClusters(mask, DETECT_SIDE, DETECT_SIDE, clusters, (done, total) => {
+        detectStatus.textContent = `Reading numbers… ${done}/${total}`;
+      });
+      let added = 0;
+      let unread = 0;
+      for (const d of found) {
+        // Skip anything already marked at (about) the same spot, so running this twice doesn't pile up duplicates.
+        const near = Array.from(corners.values()).some((p) => Math.hypot(p.x - d.x, p.y - d.y) < 2.5);
+        if (near) continue;
+        let label = d.label;
+        let doubtful = d.uncertain;
+        if (!label || Array.from(corners.keys()).some((l) => l.toLowerCase() === label!.toLowerCase())) {
+          if (label) doubtful = true; // the same number read twice — one of them is wrong
+          let n = 1;
+          while (corners.has(`?${n}`)) n++;
+          label = `?${n}`;
+          unread++;
+        }
+        corners.set(label, { x: d.x, y: d.y });
+        if (doubtful) uncertain.add(label);
+        added++;
+      }
+      render();
+      const flagged = Array.from(corners.keys()).filter((l) => uncertain.has(l)).length;
+      detectStatus.textContent =
+        added === 0
+          ? 'Nothing new found — every number is already marked.'
+          : `Added ${added} corner${added === 1 ? '' : 's'}.${flagged > 0 ? ` ${flagged} in amber ${flagged === 1 ? 'needs' : 'need'} a check${unread > 0 ? ' (labelled ?1, ?2… — type the right number)' : ''}.` : ' Check them against the map, then Save.'}`;
+    } catch (err) {
+      console.error('Corner detection failed:', err);
+      detectStatus.textContent = 'Couldn’t read this image automatically. You can still place corners by hand.';
+    } finally {
+      detectBtn.disabled = false;
+    }
+  });
 
   // --- dragging corner markers ----------------------------------------------
   let cornerDrag: { label: string; el: HTMLElement } | null = null;
@@ -415,7 +517,18 @@ function initLayoutMapEditor() {
       e.formData.set('map_file', traced, 'layout-map.svg');
     }
   });
-  form.addEventListener('submit', sync);
+  form.addEventListener('submit', (e) => {
+    // Unread corners still carry a "?" label — they can't be saved until the admin names (or removes) them.
+    if (Array.from(corners.keys()).some((l) => l.startsWith('?'))) {
+      e.preventDefault();
+      e.stopPropagation();
+      cornerError.textContent = 'Give every detected corner its number (the ones labelled ?1, ?2…) or remove it before saving.';
+      cornerError.classList.remove('hidden');
+      cornerError.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    sync();
+  });
 
   render();
 }

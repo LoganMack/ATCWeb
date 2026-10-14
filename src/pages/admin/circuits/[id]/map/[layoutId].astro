@@ -122,7 +122,7 @@ if (Astro.request.method === 'POST') {
         const label = String(c?.label ?? '').trim().slice(0, 8);
         const x = Number(c?.x);
         const y = Number(c?.y);
-        if (!label || seenLabels.has(label.toLowerCase())) continue;
+        if (!label || label.startsWith('?') || seenLabels.has(label.toLowerCase())) continue;
         if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100) continue;
         seenLabels.add(label.toLowerCase());
         corners.push({ label, x, y });
@@ -308,6 +308,10 @@ const pitBlocks = [
               <span class="text-xs text-white/40" data-corner-count></span>
             </div>
             <p class="mt-1 text-xs text-white/50">Mark each corner's number on the map. When a driver reports a turn, the Reported Incidents page circles it here. Labels can be "7" or "5a"; a report of "Turn 3/4" circles corners 3 and 4. Drag a marker to adjust it.</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-primary btn-sm" data-corner-detect>Detect from image</button>
+              <span class="text-xs text-white/40" data-corner-detect-status>Finds the numbers drawn on the map.</span>
+            </div>
             <div class="mt-3 flex items-center gap-2">
               <input
                 type="text"
