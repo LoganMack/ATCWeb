@@ -873,8 +873,9 @@ const groupIconColor: Record<ReportGroup['icon'], string> = {
   logged: 'text-brand-primary',
 };
 // Hover note on a disabled Add/Edit Review button — same look as the results page's disabled Incident Report button (IncidentButton.astro).
+// Uses a NAMED group (group/reviewbtn): a plain group-hover would also fire whenever the pointer is over the enclosing card's own `group`, showing every row's note at once.
 const reviewTipClass =
-  'pointer-events-none absolute right-0 top-full z-30 mt-1.5 w-max max-w-[16rem] rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100';
+  'pointer-events-none absolute right-0 top-full z-30 mt-1.5 w-max max-w-[16rem] rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover/reviewbtn:opacity-100 group-focus-within/reviewbtn:opacity-100';
 const agreementStyles = {
   all: { item: 'border-emerald-400/60 bg-emerald-400/10', text: 'text-emerald-400', label: 'All stewards agree' },
   driver: { item: 'border-brand-gold/60 bg-brand-gold/10', text: 'text-brand-gold', label: 'Same cars at fault, different penalties' },
@@ -1274,7 +1275,7 @@ const nextIncidentNumber =
                     class={`font-semibold text-white/90 ${dimClass}`}
                     title={r.driver_ids.map((id) => driverById.get(id)?.name ?? 'Unknown').join(', ')}
                   >
-                    Incident{reportNumberById.get(r.id) ? ` #${reportNumberById.get(r.id)}` : ''}: {reportCarsTitle(r)}
+                    Incident{reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: {reportCarsTitle(r)}
                     {possibleDuplicateReportIds.has(r.id) && (
                       <span class="ml-1 font-normal text-brand-gold">(possible duplicate)</span>
                     )}
@@ -1301,8 +1302,22 @@ const nextIncidentNumber =
                       {reviewsLocked && r.status === 'open' && (
                         <span class="text-xs text-white/40">Reopened after logging — log or dismiss it</span>
                       )}
+                      {reportMapUrl && (
+                        <button
+                          type="button"
+                          data-open-report-map
+                          data-map={JSON.stringify({
+                            title: `Incident${reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`,
+                            subtitle: reportSubtitle(r),
+                            corners: turnCorners,
+                          })}
+                          class="btn btn-primary btn-sm"
+                        >
+                          View Map
+                        </button>
+                      )}
                       {reviewBlockedReason ? (
-                        <span class="group relative">
+                        <span class="group/reviewbtn relative">
                           <button type="button" disabled aria-disabled="true" class="btn btn-gold btn-sm">
                             {myReview ? 'Edit Review' : 'Add Review'}
                           </button>
@@ -1332,20 +1347,6 @@ const nextIncidentNumber =
                           class="btn btn-gold btn-sm"
                         >
                           Add to Report
-                        </button>
-                      )}
-                      {reportMapUrl && (
-                        <button
-                          type="button"
-                          data-open-report-map
-                          data-map={JSON.stringify({
-                            title: `Incident${reportNumberById.get(r.id) ? ` #${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`,
-                            subtitle: reportSubtitle(r),
-                            corners: turnCorners,
-                          })}
-                          class="btn btn-primary btn-sm"
-                        >
-                          View Map
                         </button>
                       )}
                       <form method="POST" action={formAction} data-astro-reload>
