@@ -20,11 +20,11 @@ const json = incidentSummariesJson(Astro.props.rows);
 {/* "Incident Details" popup — opened by clicking/tapping any incident row (same card as the Incident Report page's, read-only). The click handling lives in src/scripts/incidentDetails.ts, loaded by the page shell (a <script> in a fetched fragment would never run). */}
 <dialog
   data-history-incident-dialog
-  class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
+  class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-4xl"
 >
   <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
     <div class="flex items-center justify-between">
-      <h4 class="font-display text-lg">Incident Details</h4>
+      <h4 data-hi="title" class="font-display text-lg">Incident</h4>
       <button type="button" data-close-history-incident class="text-white/40 hover:text-white" aria-label="Close">✕</button>
     </div>
     <dl class="flex flex-col gap-3 text-sm">
@@ -33,23 +33,24 @@ const json = incidentSummariesJson(Astro.props.rows);
         <dd data-hi="round" class="mt-0.5 font-semibold"></dd>
         <dd data-hi="when" class="text-white/60"></dd>
       </div>
-      <div>
-        <dt class="text-[11px] uppercase tracking-wide text-white/40">Driver</dt>
-        <dd data-hi="driver" class="mt-0.5 font-semibold"></dd>
-      </div>
-      <div class="flex gap-6">
+      {/* Desktop: Penalized, Involved, Race and Lap share one line. */}
+      <div class="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
         <div>
-          <dt class="text-[11px] uppercase tracking-wide text-white/40">Incident #</dt>
-          <dd data-hi="number" class="mt-0.5"></dd>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Penalized</dt>
+          <dd data-hi="driver" class="mt-0.5 font-semibold"></dd>
+        </div>
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
+          <dd data-hi="involved" class="mt-0.5 text-white/70"></dd>
+        </div>
+        <div>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Race</dt>
+          <dd data-hi="race" class="mt-0.5"></dd>
         </div>
         <div>
           <dt class="text-[11px] uppercase tracking-wide text-white/40">Lap</dt>
           <dd data-hi="lap" class="mt-0.5"></dd>
         </div>
-      </div>
-      <div data-hi-row="involved" class="hidden">
-        <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
-        <dd data-hi="involved" class="mt-0.5 text-white/70"></dd>
       </div>
       <div data-hi-row="description" class="hidden">
         <dt class="text-[11px] uppercase tracking-wide text-white/40">Description</dt>
@@ -59,17 +60,17 @@ const json = incidentSummariesJson(Astro.props.rows);
         <dt class="text-[11px] uppercase tracking-wide text-white/40">Offenses</dt>
         <dd data-hi="offenses" class="mt-0.5 flex flex-col gap-0.5 text-white/70"></dd>
       </div>
-      <div class="flex gap-6">
+      <div class="grid grid-cols-3 gap-x-6 gap-y-3">
         <div>
-          <dt class="text-[11px] uppercase tracking-wide text-white/40">PP</dt>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Penalty Points</dt>
           <dd data-hi="pp" class="mt-0.5"></dd>
         </div>
         <div>
-          <dt class="text-[11px] uppercase tracking-wide text-white/40">Time</dt>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Time Added</dt>
           <dd data-hi="time" class="mt-0.5"></dd>
         </div>
         <div>
-          <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts</dt>
+          <dt class="text-[11px] uppercase tracking-wide text-white/40">Points Docked</dt>
           <dd data-hi="points" class="mt-0.5"></dd>
         </div>
       </div>

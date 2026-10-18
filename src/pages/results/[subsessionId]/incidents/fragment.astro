@@ -443,17 +443,39 @@ if (isAdmin && postForm) {
   if (intent === 'set-report-status') {
     const reportId = String(form.get('report_id') ?? '');
     const status = String(form.get('status') ?? '');
+    // Dismissing needs a reason (the dismiss popup's textarea; 0111).
+    const dismissalReason = String(form.get('reason') ?? '').trim().slice(0, 500);
+    let statusFlash: 'dismissreason' | 'dismissfailed' | 'reasonnotsaved' | null = null;
     if (reportId && (status === 'open' || status === 'dismissed' || status === 'logged')) {
-      try {
-        await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status);
-      } catch (err) {
-        console.error('Failed to update incident report status:', err);
+      if (status === 'dismissed' && !dismissalReason) {
+        statusFlash = 'dismissreason';
+      } else {
+        try {
+          await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status, dismissalReason);
+        } catch (err) {
+          console.error('Failed to update incident report status:', err);
+          if (status === 'dismissed') {
+            statusFlash = 'dismissfailed';
+            // Migration 0111 (the dismissal_reason column) hasn't been run yet: still dismiss
+            // the report, and say plainly that the reason couldn't be saved.
+            if (err instanceof Error && err.message.includes('dismissal_reason')) {
+              try {
+                await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status);
+                statusFlash = 'reasonnotsaved';
+              } catch (retryErr) {
+                console.error('Failed to dismiss incident report (without a reason):', retryErr);
+              }
+            }
+          }
+        }
       }
     }
     // Back to the top of the reports list (see REPORTS_ANCHOR), not the top of
-    // the page, without a ?review= failure left over from an earlier save.
+    // the page, without a ?review= failure left over from an earlier save
+    // (or with one for a dismissal that didn't go through).
     const url = new URL(Astro.url);
     url.searchParams.delete('review');
+    if (statusFlash) url.searchParams.set('review', statusFlash);
     return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
   }
 
@@ -851,7 +873,7 @@ const needsReviewGroup: ReportGroup = { title: 'Needs Review', icon: 'review', e
 const reviewedGroup: ReportGroup = { title: 'Reviewed', icon: 'reviewed', empty: null, collapsed: false, reports: [] };
 const openGroup: ReportGroup = { title: 'Open', icon: 'open', empty: null, collapsed: false, reports: [] };
 const dismissedGroup: ReportGroup = { title: 'Dismissed', icon: 'dismissed', empty: null, collapsed: true, reports: [] };
-const loggedGroup: ReportGroup = { title: 'Logged', icon: 'logged', empty: null, collapsed: true, reports: [] };
+const loggedGroup: ReportGroup = { title: 'Decided', icon: 'logged', empty: null, collapsed: true, reports: [] };
 for (const r of incidentReports) {
   const group =
     r.status === 'dismissed' ? dismissedGroup
@@ -935,6 +957,9 @@ if (viewReports) {
   else if (flash === 'involved') reviewFlash = "Couldn't save your review — you were involved in this incident, so you can't review it.";
   else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs the car(s) at fault (or Racing Incident), a penalty for each car, and an explanation.";
   else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
+  else if (flash === 'dismissreason') reviewFlash = "Couldn't dismiss the incident — a reason is required.";
+  else if (flash === 'dismissfailed') reviewFlash = "Couldn't dismiss the incident right now. Please try again.";
+  else if (flash === 'reasonnotsaved') reviewFlash = "The incident was dismissed, but its reason couldn't be saved — run supabase/migrations/0111_incident_report_dismissal_reason.sql in the Supabase SQL editor.";
 }
 
 // Every loggable session for this round's dialog/grouping — every real race,
@@ -959,6 +984,49 @@ function involvedSummary(p: Penalty): string | null {
     (a, b) => (driverById.get(a)?.car_number ?? Infinity) - (driverById.get(b)?.car_number ?? Infinity)
   );
   return sorted.map((id) => (driverById.get(id)?.car_number != null ? `#${driverById.get(id)!.car_number}` : '?')).join(', ');
+}
+
+/** Everything the Incident Details popup shows for one logged incident (a table row's data-incident-summary, and the View Decision buttons). */
+function incidentSummaryFor(p: Penalty) {
+  const driver = p.driver_id ? driverById.get(p.driver_id) : undefined;
+  const { positionDelta, pointsDelta } = deltaFor(p);
+  return {
+    penaltyId: p.id,
+    driverLabel: p.driver_id === null ? 'Racing Incident (no driver at fault)' : (driver?.car_number != null ? `#${driver.car_number}` : '—'),
+    incidentNumber: formatIncidentNumber(p.incident_number),
+    session: sessionLabelByValue.get(sessionKey(p)) ?? '—',
+    lap: p.lap,
+    involved: involvedSummary(p),
+    description: p.description,
+    offenses: p.offense_ids.map((id) => offenseNameById.get(id) ?? '?'),
+    isWarning: p.is_warning,
+    pp: effectivePenaltyPoints(p),
+    time: effectiveTimePenaltySeconds(p),
+    points: effectivePointsPenalty(p),
+    positionDelta: formatDelta(positionDelta),
+    positionDeltaClass: deltaClass(positionDelta),
+    pointsDelta: formatDelta(pointsDelta),
+    pointsDeltaClass: deltaClass(pointsDelta),
+    isAppealed: p.is_appealed,
+    appealResult: p.appeal_result,
+  };
+}
+
+/**
+ * The logged incident a "Logged" report turned into. Nothing links the two in
+ * the database, so match on what logging copies over: the same session and lap
+ * with one of the report's cars penalized or tagged as involved — loosening the
+ * session, then the lap, if a steward changed either while logging it.
+ */
+function decisionPenaltyFor(r: IncidentReport): Penalty | null {
+  const carsMatch = (p: Penalty) =>
+    (p.driver_id !== null && r.driver_ids.includes(p.driver_id)) || p.involved_driver_ids.some((id) => r.driver_ids.includes(id));
+  return (
+    sortedPenalties.find((p) => sessionKey(p) === r.session && p.lap === r.lap && carsMatch(p)) ??
+    sortedPenalties.find((p) => sessionKey(p) === r.session && carsMatch(p)) ??
+    sortedPenalties.find((p) => p.lap === r.lap && carsMatch(p)) ??
+    null
+  );
 }
 
 /** Numeric incident_number sorts numerically; a non-numeric or missing one sorts to the end (Infinity), then falls back to a string compare so two non-numeric incident numbers still sort predictably rather than by insertion order. */
@@ -1267,6 +1335,7 @@ const nextIncidentNumber =
                   : null;
                 // Dismissed and logged cards fade their text, but keep their buttons at full strength.
                 const dimClass = r.status === 'open' ? '' : 'opacity-50';
+                const decisionPenalty = r.status === 'logged' ? decisionPenaltyFor(r) : null;
                 const turnCorners = reportMapUrl ? matchCorners(r.turn ?? '', reportMapCorners) : [];
                 return (
                 <li class={`flex flex-col gap-3 rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-brand-ink'} `}>
@@ -1291,17 +1360,40 @@ const nextIncidentNumber =
 
                   <div class="mt-3 border-t border-white/10 pt-3">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                      <p class={`text-xs text-white/50 ${dimClass}`}>
-                        Steward reviews: {reviewCount}
-                        {style && <span class={`ml-2 font-semibold ${style.text}`}>{style.label}</span>}
-                        {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
-                          <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
-                        )}
-                      </p>
+                      {r.status === 'dismissed' ? (
+                        // In the Dismissed list the reason takes the place of the review count.
+                        <p class="min-w-0 flex-1 whitespace-pre-line text-xs text-white/60">
+                          <span class="font-semibold text-white/50">Dismissal reason:</span>{' '}
+                          {r.dismissal_reason ?? <span class="text-white/40">None given.</span>}
+                        </p>
+                      ) : (
+                        <p class={`text-xs text-white/50 ${dimClass}`}>
+                          Steward reviews: {reviewCount}
+                          {style && <span class={`ml-2 font-semibold ${style.text}`}>{style.label}</span>}
+                          {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
+                            <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
+                          )}
+                        </p>
+                      )}
                       <div class="flex flex-wrap items-center gap-2">
                       {reviewsLocked && r.status === 'open' && (
                         <span class="text-xs text-white/40">Reopened after logging — log or dismiss it</span>
                       )}
+                      {r.status === 'logged' && (decisionPenalty ? (
+                        <button
+                          type="button"
+                          data-view-decision
+                          data-incident-summary={JSON.stringify(incidentSummaryFor(decisionPenalty))}
+                          class="btn btn-primary btn-sm"
+                        >
+                          View Decision
+                        </button>
+                      ) : (
+                        <span class="group/reviewbtn relative">
+                          <button type="button" disabled aria-disabled="true" class="btn btn-primary btn-sm">View Decision</button>
+                          <span class={reviewTipClass} role="tooltip">No logged incident was found for this report.</span>
+                        </span>
+                      ))}
                       {reportMapUrl && (
                         <button
                           type="button"
@@ -1349,14 +1441,24 @@ const nextIncidentNumber =
                           Add to Report
                         </button>
                       )}
-                      <form method="POST" action={formAction} data-astro-reload>
-                        <input type="hidden" name="intent" value="set-report-status" />
-                        <input type="hidden" name="report_id" value={r.id} />
-                        <input type="hidden" name="status" value={r.status === 'open' ? 'dismissed' : 'open'} />
-                        <button type="submit" class={r.status === 'open' ? 'btn btn-danger btn-sm' : 'btn btn-gold btn-sm'}>
-                          {r.status === 'open' ? 'Dismiss' : 'Reopen'}
+                      {r.status === 'open' ? (
+                        // Asks for a reason first (the dismiss popup below posts the form).
+                        <button
+                          type="button"
+                          data-open-dismiss-dialog
+                          data-dismiss={JSON.stringify({ report_id: r.id, label: `Incident${reportNumberById.get(r.id) ? ` #${reportNumberById.get(r.id)}` : ''}: ${reportSubtitle(r)}` })}
+                          class="btn btn-danger btn-sm"
+                        >
+                          Dismiss
                         </button>
-                      </form>
+                      ) : (
+                        <form method="POST" action={formAction} data-astro-reload>
+                          <input type="hidden" name="intent" value="set-report-status" />
+                          <input type="hidden" name="report_id" value={r.id} />
+                          <input type="hidden" name="status" value="open" />
+                          <button type="submit" class="btn btn-gold btn-sm">Reopen</button>
+                        </form>
+                      )}
                       </div>
                     </div>
 
@@ -1444,6 +1546,16 @@ const nextIncidentNumber =
                         )}
                       </p>
                       <div class="flex flex-wrap items-center gap-2">
+                        {a.status === 'open' && appealed && (
+                          <button
+                            type="button"
+                            data-view-decision
+                            data-incident-summary={JSON.stringify(incidentSummaryFor(appealed))}
+                            class="btn btn-primary btn-sm"
+                          >
+                            View Decision
+                          </button>
+                        )}
                         {a.status === 'open' && (
                           <form method="POST" action={formAction} data-astro-reload>
                             <input type="hidden" name="intent" value="set-appeal-status" />
@@ -1587,25 +1699,7 @@ const nextIncidentNumber =
                           tabindex="0"
                           role="button"
                           data-incident-row
-                          data-incident-summary={JSON.stringify({
-                            penaltyId: p.id,
-                            driverLabel: p.driver_id === null ? 'Racing Incident (no driver at fault)' : (driver?.car_number != null ? `#${driver.car_number}` : '—'),
-                            incidentNumber: formatIncidentNumber(p.incident_number),
-                            lap: p.lap,
-                            involved: involvedSummary(p),
-                            description: p.description,
-                            offenses: p.offense_ids.map((id) => offenseNameById.get(id) ?? '?'),
-                            isWarning: p.is_warning,
-                            pp,
-                            time,
-                            points,
-                            positionDelta: formatDelta(positionDelta),
-                            positionDeltaClass: deltaClass(positionDelta),
-                            pointsDelta: formatDelta(pointsDelta),
-                            pointsDeltaClass: deltaClass(pointsDelta),
-                            isAppealed: p.is_appealed,
-                            appealResult: p.appeal_result,
-                          })}
+                          data-incident-summary={JSON.stringify(incidentSummaryFor(p))}
                         >
                           <td class="py-2.5 pl-4 pr-3 text-white/60">
                             {p.is_appealed ? (
@@ -2135,32 +2229,33 @@ const nextIncidentNumber =
             form below while the Incident Appeal Window is open. */}
         <dialog
           data-mobile-incident-dialog
-          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
+          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-4xl"
         >
           <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
             <div class="flex items-center justify-between">
-              <h4 class="font-display text-lg">Incident Details</h4>
+              <h4 data-mobile-title class="font-display text-lg">Incident</h4>
               <button type="button" data-close-mobile-incident-dialog class="text-white/40 hover:text-white">✕</button>
             </div>
 
             <dl class="flex flex-col gap-3 text-sm">
-              <div>
-                <dt class="text-[11px] uppercase tracking-wide text-white/40">Driver</dt>
-                <dd data-mobile-driver class="mt-0.5 font-semibold"></dd>
-              </div>
-              <div class="flex gap-6">
+              {/* Desktop: Penalized, Involved, Race and Lap share one line, and the five penalty figures share another. */}
+              <div class="grid grid-cols-2 gap-x-6 gap-y-3 md:grid-cols-4">
                 <div>
-                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Incident #</dt>
-                  <dd data-mobile-incident-number class="mt-0.5"></dd>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Penalized</dt>
+                  <dd data-mobile-driver class="mt-0.5 font-semibold"></dd>
+                </div>
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
+                  <dd data-mobile-involved class="mt-0.5 text-white/70"></dd>
+                </div>
+                <div>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Race</dt>
+                  <dd data-mobile-race class="mt-0.5"></dd>
                 </div>
                 <div>
                   <dt class="text-[11px] uppercase tracking-wide text-white/40">Lap</dt>
                   <dd data-mobile-lap class="mt-0.5"></dd>
                 </div>
-              </div>
-              <div data-mobile-involved-row class="hidden">
-                <dt class="text-[11px] uppercase tracking-wide text-white/40">Involved</dt>
-                <dd data-mobile-involved class="mt-0.5 text-white/70"></dd>
               </div>
               <div data-mobile-description-row class="hidden">
                 <dt class="text-[11px] uppercase tracking-wide text-white/40">Description</dt>
@@ -2170,27 +2265,25 @@ const nextIncidentNumber =
                 <dt class="text-[11px] uppercase tracking-wide text-white/40">Offenses</dt>
                 <dd data-mobile-offenses class="mt-0.5 flex flex-col gap-0.5 text-white/70"></dd>
               </div>
-              <div class="flex gap-6">
+              <div class="grid grid-cols-3 gap-x-6 gap-y-3 md:grid-cols-5">
                 <div>
-                  <dt class="text-[11px] uppercase tracking-wide text-white/40">PP</dt>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Penalty Points</dt>
                   <dd data-mobile-pp class="mt-0.5"></dd>
                 </div>
                 <div>
-                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Time</dt>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Time Added</dt>
                   <dd data-mobile-time class="mt-0.5"></dd>
                 </div>
                 <div>
-                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts</dt>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Points Docked</dt>
                   <dd data-mobile-points class="mt-0.5"></dd>
                 </div>
-              </div>
-              <div class="flex gap-6">
                 <div>
-                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Pos &Delta;</dt>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Position Change</dt>
                   <dd data-mobile-position-delta class="mt-0.5 font-semibold"></dd>
                 </div>
                 <div>
-                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Pts &Delta;</dt>
+                  <dt class="text-[11px] uppercase tracking-wide text-white/40">Points Change</dt>
                   <dd data-mobile-points-delta class="mt-0.5 font-semibold"></dd>
                 </div>
               </div>
@@ -2225,11 +2318,11 @@ const nextIncidentNumber =
             <input type="hidden" name="penalty_id" data-appeal-penalty-id />
             <input type="text" name="website" tabindex="-1" autocomplete="off" class="hidden" aria-hidden="true" />
             <div class="flex items-center justify-between">
-              <h4 class="font-display text-lg">Submit Appeal <span data-appeal-incident-label class="text-white/50"></span></h4>
+              <h4 class="font-display text-lg">Submit Appeal<span data-appeal-incident-label></span></h4>
               <button type="button" data-close-appeal-dialog class="text-white/40 hover:text-white">✕</button>
             </div>
             <label class="block text-sm">
-              <span class="text-white/60">Why should this incident be reviewed?</span>
+              <span class="text-white/60">Describe your appeal.</span>
               <textarea
                 name="message"
                 required
@@ -2257,6 +2350,42 @@ const nextIncidentNumber =
             </div>
           </form>
         </dialog>
+
+        {viewReports && (
+          <dialog
+            data-dismiss-dialog
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload class="flex flex-col gap-4 p-5">
+              <input type="hidden" name="intent" value="set-report-status" />
+              <input type="hidden" name="status" value="dismissed" />
+              <input type="hidden" name="report_id" data-dismiss-report-id />
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h4 class="font-display text-lg">Dismiss Incident</h4>
+                  <p data-dismiss-label class="text-xs text-white/50"></p>
+                </div>
+                <button type="button" data-close-dismiss-dialog class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+              </div>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Reason for dismissal:
+                <textarea
+                  name="reason"
+                  data-dismiss-reason
+                  required
+                  maxlength="500"
+                  rows="4"
+                  placeholder="Why is this report being dismissed?"
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                ></textarea>
+              </label>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-close-dismiss-dialog class="btn btn-neutral">Cancel</button>
+                <button type="submit" data-dismiss-submit disabled class="btn btn-danger">Dismiss</button>
+              </div>
+            </form>
+          </dialog>
+        )}
 
         {viewReports && reportMapUrl && (
           <dialog
