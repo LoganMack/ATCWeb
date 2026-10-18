@@ -20,7 +20,7 @@ const json = incidentSummariesJson(Astro.props.rows);
 {/* "Incident Details" popup — opened by clicking/tapping any incident row (same card as the Incident Report page's, read-only). The click handling lives in src/scripts/incidentDetails.ts, loaded by the page shell (a <script> in a fetched fragment would never run). */}
 <dialog
   data-history-incident-dialog
-  class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
+  class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-4xl"
 >
   <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
     <div class="flex items-center justify-between">

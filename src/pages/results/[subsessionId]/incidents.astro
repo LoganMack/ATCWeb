@@ -677,6 +677,40 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
   document.addEventListener('astro:page-load', initReportMapDialog);
 
+  // Dismiss popup (View Incidents only): Dismiss asks for a reason first. One
+  // shared <dialog>; Dismiss stays disabled until a reason is typed (the
+  // server checks it too).
+  function initDismissDialog() {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-dismiss-dialog]');
+    if (!dialog || dialog.dataset.dismissBound) return;
+    dialog.dataset.dismissBound = 'true';
+    const reportIdField = dialog.querySelector<HTMLInputElement>('[data-dismiss-report-id]')!;
+    const label = dialog.querySelector<HTMLElement>('[data-dismiss-label]')!;
+    const reason = dialog.querySelector<HTMLTextAreaElement>('[data-dismiss-reason]')!;
+    const submit = dialog.querySelector<HTMLButtonElement>('[data-dismiss-submit]')!;
+    const sync = () => {
+      submit.disabled = reason.value.trim() === '';
+    };
+    reason.addEventListener('input', sync);
+
+    document.querySelectorAll<HTMLButtonElement>('[data-open-dismiss-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const data = JSON.parse(btn.dataset.dismiss ?? '{}') as { report_id?: string; label?: string };
+        reportIdField.value = data.report_id ?? '';
+        label.textContent = data.label ?? '';
+        reason.value = '';
+        sync();
+        dialog.showModal();
+        reason.focus();
+      });
+    });
+    dialog.querySelectorAll<HTMLButtonElement>('[data-close-dismiss-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => dialog.close());
+    });
+  }
+
+  document.addEventListener('astro:page-load', initDismissDialog);
+
   // Round Penalties add/edit popup (admin only, 0104): one shared <dialog>,
   // blank for "+ Add round penalty", filled from the row's data-round-penalty
   // for Edit. Bails until the fragment's dialog exists, like the ones above.

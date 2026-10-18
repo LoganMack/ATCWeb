@@ -215,6 +215,8 @@ export interface IncidentReport {
   created_at: string;
   /** When steward voting closed — stamped the first time the report is logged, never cleared, even by a Reopen (0096). */
   reviews_closed_at: string | null;
+  /** Why a steward dismissed it (0111) — null for reports dismissed before that, and for anything not dismissed. */
+  dismissal_reason: string | null;
   driver_ids: string[];
 }
 
@@ -274,9 +276,14 @@ export async function setIncidentReportStatus(
   env: SupabaseEnv,
   accessToken: string,
   reportId: string,
-  status: 'open' | 'logged' | 'dismissed'
+  status: 'open' | 'logged' | 'dismissed',
+  /** Required when dismissing (0111); the database clears it again once the report leaves 'dismissed'. */
+  dismissalReason?: string
 ): Promise<void> {
-  await restPatch(env, accessToken, `incident_reports?id=eq.${encodeURIComponent(reportId)}`, { status });
+  await restPatch(env, accessToken, `incident_reports?id=eq.${encodeURIComponent(reportId)}`, {
+    status,
+    ...(status === 'dismissed' ? { dismissal_reason: dismissalReason ?? null } : {}),
+  });
 }
 
 // --- Steward reviews (0096_incident_report_reviews.sql, 0100) --------------

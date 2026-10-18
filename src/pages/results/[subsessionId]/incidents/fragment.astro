@@ -443,17 +443,27 @@ if (isAdmin && postForm) {
   if (intent === 'set-report-status') {
     const reportId = String(form.get('report_id') ?? '');
     const status = String(form.get('status') ?? '');
+    // Dismissing needs a reason (the dismiss popup's textarea; 0111).
+    const dismissalReason = String(form.get('reason') ?? '').trim().slice(0, 500);
+    let statusFlash: 'dismissreason' | 'dismissfailed' | null = null;
     if (reportId && (status === 'open' || status === 'dismissed' || status === 'logged')) {
-      try {
-        await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status);
-      } catch (err) {
-        console.error('Failed to update incident report status:', err);
+      if (status === 'dismissed' && !dismissalReason) {
+        statusFlash = 'dismissreason';
+      } else {
+        try {
+          await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status, dismissalReason);
+        } catch (err) {
+          console.error('Failed to update incident report status:', err);
+          if (status === 'dismissed') statusFlash = 'dismissfailed';
+        }
       }
     }
     // Back to the top of the reports list (see REPORTS_ANCHOR), not the top of
-    // the page, without a ?review= failure left over from an earlier save.
+    // the page, without a ?review= failure left over from an earlier save
+    // (or with one for a dismissal that didn't go through).
     const url = new URL(Astro.url);
     url.searchParams.delete('review');
+    if (statusFlash) url.searchParams.set('review', statusFlash);
     return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
   }
 
@@ -935,6 +945,8 @@ if (viewReports) {
   else if (flash === 'involved') reviewFlash = "Couldn't save your review — you were involved in this incident, so you can't review it.";
   else if (flash === 'invalid') reviewFlash = "Couldn't save your review — it needs the car(s) at fault (or Racing Incident), a penalty for each car, and an explanation.";
   else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
+  else if (flash === 'dismissreason') reviewFlash = "Couldn't dismiss the incident — a reason is required.";
+  else if (flash === 'dismissfailed') reviewFlash = "Couldn't dismiss the incident right now. Please try again.";
 }
 
 // Every loggable session for this round's dialog/grouping — every real race,
@@ -1291,13 +1303,21 @@ const nextIncidentNumber =
 
                   <div class="mt-3 border-t border-white/10 pt-3">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                      <p class={`text-xs text-white/50 ${dimClass}`}>
-                        Steward reviews: {reviewCount}
-                        {style && <span class={`ml-2 font-semibold ${style.text}`}>{style.label}</span>}
-                        {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
-                          <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
-                        )}
-                      </p>
+                      {r.status === 'dismissed' ? (
+                        // In the Dismissed list the reason takes the place of the review count.
+                        <p class="min-w-0 flex-1 whitespace-pre-line text-xs text-white/60">
+                          <span class="font-semibold text-white/50">Dismissal reason:</span>{' '}
+                          {r.dismissal_reason ?? <span class="text-white/40">None given.</span>}
+                        </p>
+                      ) : (
+                        <p class={`text-xs text-white/50 ${dimClass}`}>
+                          Steward reviews: {reviewCount}
+                          {style && <span class={`ml-2 font-semibold ${style.text}`}>{style.label}</span>}
+                          {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
+                            <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
+                          )}
+                        </p>
+                      )}
                       <div class="flex flex-wrap items-center gap-2">
                       {reviewsLocked && r.status === 'open' && (
                         <span class="text-xs text-white/40">Reopened after logging — log or dismiss it</span>
@@ -1349,14 +1369,24 @@ const nextIncidentNumber =
                           Add to Report
                         </button>
                       )}
-                      <form method="POST" action={formAction} data-astro-reload>
-                        <input type="hidden" name="intent" value="set-report-status" />
-                        <input type="hidden" name="report_id" value={r.id} />
-                        <input type="hidden" name="status" value={r.status === 'open' ? 'dismissed' : 'open'} />
-                        <button type="submit" class={r.status === 'open' ? 'btn btn-danger btn-sm' : 'btn btn-gold btn-sm'}>
-                          {r.status === 'open' ? 'Dismiss' : 'Reopen'}
+                      {r.status === 'open' ? (
+                        // Asks for a reason first (the dismiss popup below posts the form).
+                        <button
+                          type="button"
+                          data-open-dismiss-dialog
+                          data-dismiss={JSON.stringify({ report_id: r.id, label: reportLabel(r) })}
+                          class="btn btn-danger btn-sm"
+                        >
+                          Dismiss
                         </button>
-                      </form>
+                      ) : (
+                        <form method="POST" action={formAction} data-astro-reload>
+                          <input type="hidden" name="intent" value="set-report-status" />
+                          <input type="hidden" name="report_id" value={r.id} />
+                          <input type="hidden" name="status" value="open" />
+                          <button type="submit" class="btn btn-gold btn-sm">Reopen</button>
+                        </form>
+                      )}
                       </div>
                     </div>
 
@@ -2135,7 +2165,7 @@ const nextIncidentNumber =
             form below while the Incident Appeal Window is open. */}
         <dialog
           data-mobile-incident-dialog
-          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-md"
+          class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-4xl"
         >
           <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
             <div class="flex items-center justify-between">
@@ -2257,6 +2287,42 @@ const nextIncidentNumber =
             </div>
           </form>
         </dialog>
+
+        {viewReports && (
+          <dialog
+            data-dismiss-dialog
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload class="flex flex-col gap-4 p-5">
+              <input type="hidden" name="intent" value="set-report-status" />
+              <input type="hidden" name="status" value="dismissed" />
+              <input type="hidden" name="report_id" data-dismiss-report-id />
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h4 class="font-display text-lg">Dismiss Incident</h4>
+                  <p data-dismiss-label class="text-xs text-white/50"></p>
+                </div>
+                <button type="button" data-close-dismiss-dialog class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+              </div>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Reason for dismissing
+                <textarea
+                  name="reason"
+                  data-dismiss-reason
+                  required
+                  maxlength="500"
+                  rows="4"
+                  placeholder="Why is this report being dismissed?"
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                ></textarea>
+              </label>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-close-dismiss-dialog class="btn btn-neutral">Cancel</button>
+                <button type="submit" data-dismiss-submit disabled class="btn btn-danger">Dismiss</button>
+              </div>
+            </form>
+          </dialog>
+        )}
 
         {viewReports && reportMapUrl && (
           <dialog
