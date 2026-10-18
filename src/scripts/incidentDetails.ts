@@ -38,12 +38,12 @@ function openIncidentDetails(row: HTMLElement) {
   };
   set('round', `${summary.track} · ${summary.round}`);
   set('when', `${summary.season} · ${summary.session} · ${summary.date}`);
+  set('title', summary.incidentNumber && summary.incidentNumber !== '—' ? `Incident ${summary.incidentNumber}` : 'Incident');
   set('driver', summary.driver ?? '—');
-  set('number', summary.incidentNumber ?? '—');
+  set('race', summary.session ?? '—');
   set('lap', summary.lap != null ? String(summary.lap) : '—');
   const involved: string[] = summary.involved ?? [];
-  show('involved', involved.length > 0);
-  set('involved', involved.join(', '));
+  set('involved', involved.length > 0 ? involved.join(', ') : '—');
   show('description', Boolean(summary.description));
   set('description', summary.description ?? '');
   const offenses: string[] = summary.offenses ?? [];
