@@ -45,12 +45,13 @@ if (Astro.request.method === 'POST' && !loadError) {
           error = 'You cannot delete your own account.';
         } else {
           await deleteUser(supabaseEnv, accessToken, profileId);
+          // ID only: the deleted person's email or name must not outlive the account in the log.
           await logActivity(supabaseEnv, accessToken, actor, {
             action: 'delete',
             entity_type: 'user',
-            entity_label: targetName,
+            entity_label: `User ${profileId}`,
             entity_id: profileId,
-            details: emailById.get(profileId) ? `Deleted ${emailById.get(profileId)}` : 'User deleted',
+            details: 'User deleted',
           });
         }
       } else if (intent === 'set-driver') {
@@ -156,7 +157,7 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
                 <input type="hidden" name="profile_id" value={profile.id} />
                 <select
                   name="driver_id"
-                  onchange="this.form.submit()"
+                  data-submit-on-change
                   aria-label="Linked driver"
                   class="w-56 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                 >
@@ -180,7 +181,7 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
                 <input type="hidden" name="profile_id" value={profile.id} />
                 <select
                   name="role"
-                  onchange="this.form.submit()"
+                  data-submit-on-change
                   aria-label="Role"
                   class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                 >

@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../components/LoadError.astro';
+import { markUncacheable } from '../lib/security';
 
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
@@ -96,6 +98,7 @@ try {
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
 <Layout title="Champions" description="Past Alpha Touring Challenge season champions.">
@@ -103,14 +106,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Champions</h1>
 
-    {loadError && (
-      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load champions right now. If this mentions permission/RLS, race_scores or curated_race_results
-        likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
-        it has to be run manually in the Supabase SQL editor.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
+    {loadError && <LoadError />}
 
     {!loadError && (
       <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
@@ -119,7 +115,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         {/* Each option's value is its destination URL; onchange just navigates there. */}
         <label class="flex flex-col gap-1.5 sm:w-44">
         <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-        <select aria-label="Class or team" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+        <select aria-label="Class or team" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" data-navigate-on-change>
           {visibleClasses.map((c) => (
             <option value={`/champions?class=${encodeURIComponent(c.name)}`} selected={!activeTeamView && c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
           ))}

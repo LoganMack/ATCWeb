@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable } from '../../lib/security';
 
 import DriverRow from '../../components/DriverRow.astro';
 import {
@@ -183,17 +185,10 @@ const statuses = ['All', 'Active', 'Inactive', 'Unassigned'];
 // filter script below needing a special case for it, same shape as
 // Unassigned cutting across status in the group above.
 const experienceLevels = ['All', 'New', 'Rookie', 'Veteran'];
+if (loadError) markUncacheable(Astro);
 ---
 
-    {loadError && (
-      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load the roster right now. If this mentions a missing column, drivers likely still needs the
-        sign_up_date/status/class columns from <code>supabase/migrations/0011_driver_signup_date.sql</code>
-        (and earlier migrations) — they have to be run manually in the Supabase SQL editor. If instead this
-        mentions PUBLIC_SUPABASE_URL or PUBLIC_SUPABASE_ANON_KEY, check that those are set.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
+    {loadError && <LoadError class="mt-8" />}
 
     <!--
       One-row filter card: the search box sits left-aligned and stretches to

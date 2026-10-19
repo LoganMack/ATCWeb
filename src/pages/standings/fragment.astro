@@ -1,7 +1,8 @@
 ---
 export const prerender = false;
 
-import { safeJson } from '../../lib/security';
+import { safeJson, markUncacheable } from '../../lib/security';
+import LoadError from '../../components/LoadError.astro';
 import CarLogos from '../../components/CarLogos.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
@@ -425,18 +426,12 @@ function matrixColumnTitle(trackName: string, format: 'endurance' | 'sprint' | n
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
     <div class="mt-8"></div>
 
-    {loadError && (
-      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load standings right now. If this mentions permission/RLS, race_scores or curated_race_results
-        likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
-        it has to be run manually in the Supabase SQL editor.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
+    {loadError && <LoadError />}
 
     {!loadError && (
       <div class="relative z-30 mt-8 rounded-xl border border-white/10 bg-brand-ink p-4">
@@ -448,7 +443,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             <select
               name="season"
               data-logo-select
-              onchange="var r = this.form.elements.round; if (r) r.disabled = true; this.form.submit()"
+              data-submit-on-change data-disable-on-submit="round"
               class="w-44 h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
             >
               {championshipSeasons.map((s) => (
@@ -484,7 +479,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
               <select
                 name="mode"
-                onchange="this.form.submit()"
+                data-submit-on-change
                 class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
@@ -496,7 +491,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Championship</span>
               <select
                 name="championship"
-                onchange="this.form.submit()"
+                data-submit-on-change
                 class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 <option value="drivers" selected={championship === 'drivers'} class="bg-brand-ink text-white">Drivers</option>
@@ -507,7 +502,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
               <select
                 name="class"
-                onchange="this.form.submit()"
+                data-submit-on-change
                 class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 {championship === 'drivers' ? (

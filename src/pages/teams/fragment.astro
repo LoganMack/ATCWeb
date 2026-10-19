@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable } from '../../lib/security';
 
 import {
   getTeams,
@@ -243,13 +245,10 @@ const sortedTeams = teams
 // loader's doc comment above).
 const showFourthDriverColumn = [...rosterByTeamId.values()].some((list) => list.length >= 4);
 const driverColumnCount = showFourthDriverColumn ? 4 : 3;
+if (loadError) markUncacheable(Astro);
 ---
 
-    {loadError && (
-      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load teams right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
-      </p>
-    )}
+    {loadError && <LoadError class="mt-8" />}
 
     {!loadError && (
       <div class="reveal mt-8 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 80ms">
@@ -267,7 +266,7 @@ const driverColumnCount = showFourthDriverColumn ? 4 : 3;
                 <select
                   name="season"
                   data-logo-select
-                  onchange="this.form.submit()"
+                  data-submit-on-change
                   class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
                 >
                   <optgroup label="Championships" class="bg-brand-ink text-white">

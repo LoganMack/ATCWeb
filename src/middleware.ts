@@ -13,31 +13,19 @@
  * cache") — the site's on-demand pages already each set their own
  * Cache-Control: public, s-maxage=... header, but that header alone does
  * NOT get Cloudflare to actually cache a Worker-generated response; only
- * explicit use of the Cache API does. Without this, every visit to every
- * dynamic page was hitting Supabase fresh, for every visitor, regardless of
- * that header. See
+ * explicit use of the Cache API does. See
  * https://developers.cloudflare.com/workers/reference/how-the-cache-works/
  *
- * CONFIRMED PITFALL (production incident, same day this was first added):
- * a `Response` returned by `cache.match()` has an IMMUTABLE `headers`
- * object. Astro's own `RenderContext.render()` (astro/dist/core/
- * render-context.js) sets an internal `astro-route-type` header on every
- * response during normal rendering, then unconditionally deletes it again
- * right after the middleware chain returns — see its own render() method:
- * `if (response.headers.get(ROUTE_TYPE_HEADER)) response.headers.delete(...)`.
- * The first version of this cache-read block returned the cached Response
- * object straight from `cache.match()` — which still carried that header,
- * baked in from when it was cached — and Astro's `.delete()` call on it
- * threw `TypeError: Can't modify immutable headers`, turning into a real
- * HTTP 500 (empty body) on every second-or-later request to a given URL.
- * Confirmed via an actual Cloudflare Worker exception log naming
- * `RenderContext.render` as the throw site. The fix: NEVER return a
- * `cache.match()` result directly — always rebuild it into a fresh
- * `Response` (mutable headers) first, exactly as done below.
+ * CONFIRMED PITFALL (production incident): a `Response` returned by
+ * `cache.match()` has an IMMUTABLE `headers` object, and Astro's
+ * RenderContext.render() deletes its internal `astro-route-type` header from
+ * whatever the middleware returns — on an immutable response that threw and
+ * became a 500 on every cache hit. NEVER return a `cache.match()` result
+ * directly; always rebuild it into a fresh `Response` first, as done below.
  */
 
 import { defineMiddleware } from 'astro:middleware';
-import { resolveSupabaseEnv, logPageView, restGet } from './lib/supabase';
+import { resolveSupabaseEnv, logPageView, restGet, type SupabaseEnv } from './lib/supabase';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,
@@ -48,29 +36,23 @@ import {
   getProfile,
   refreshSession,
 } from './lib/auth';
+import { CONTENT_SECURITY_POLICY } from './lib/csp';
+import { cacheKeyUrl, isCacheAnonymous } from './lib/edgeCache';
 
 const ADMIN_PREFIX = '/admin';
-// Paths under /admin that must stay reachable without a session.
-// /admin/login is just a redirect stub to /login now (see that file) for
-// old bookmarks, but it's still nominally "under /admin" by URL, so without
-// this exemption the gate below would redirect an unauthenticated visitor
-// away from it before it ever got the chance to redirect them itself.
+// Paths under /admin that must stay reachable without a session (/admin/login
+// is a redirect stub to /login for old bookmarks).
 const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
 
 // A fixed, non-secret salt for the page-view visitor hash below — see
-// 0077_page_views.sql's own header comment for exactly why a hardcoded
-// value (rather than a real per-deploy secret, which this project has no
-// mechanism for) is an accepted tradeoff here: it keeps the raw IP out of
-// the database, which is the actual goal, not resisting a determined
-// attacker who already has source access.
+// 0077_page_views.sql's header for why a hardcoded value is an accepted
+// tradeoff: it keeps the raw IP out of the database, which is the goal.
 const PAGE_VIEW_SALT = 'atc-page-view-v1';
 
 /**
  * sha256(ip + user-agent + salt + UTC calendar date), hex-truncated to 32
- * chars — see 0077_page_views.sql for the full privacy reasoning (rotates
- * daily on purpose, never stores the raw IP). `crypto.subtle` is a Web
- * Crypto API global available both on the deployed Cloudflare Worker and in
- * modern Node (local `astro dev`) — no extra dependency needed.
+ * chars — see 0077_page_views.sql for the privacy reasoning (rotates daily on
+ * purpose, never stores the raw IP).
  */
 async function hashVisitor(ip: string, userAgent: string, dateStr: string): Promise<string> {
   const data = new TextEncoder().encode(`${ip}|${userAgent}|${PAGE_VIEW_SALT}|${dateStr}`);
@@ -83,19 +65,11 @@ async function hashVisitor(ip: string, userAgent: string, dateStr: string): Prom
 
 /**
  * Pages opt into the SHARED edge cache with `Cache-Control: public,
- * s-maxage=N, stale-while-revalidate=M` (no `max-age`). That header is for
- * the edge cache only, but browsers also read it: with no max-age the
- * freshness lifetime is 0, and `stale-while-revalidate` then lets Chrome
- * serve its own stale copy of the page for up to M seconds while it
- * revalidates in the background. The visible bug: the footer's "View as
- * Broadcaster" toggle POSTs and redirects back to the same URL, and the
- * browser answered that GET from its stale cached copy (the pre-toggle
- * render) — the toggle only appeared to work after a manual refresh.
- *
- * So whatever goes to the BROWSER gets `max-age=0, must-revalidate` in
- * place of that header (the edge cache still stores the original, since
- * this runs after/away from `cache.put`'s copy). Responses that set their
- * own explicit `max-age` are left alone.
+ * s-maxage=N, stale-while-revalidate=M` (no `max-age`). Browsers read that
+ * too, and with stale-while-revalidate would serve their own stale copy (the
+ * footer's Broadcaster toggle appeared not to work until a refresh). So the
+ * BROWSER copy gets `max-age=0, must-revalidate` instead; the edge copy keeps
+ * the original. Responses with their own explicit `max-age` are left alone.
  */
 function forBrowser(response: Response): Response {
   const cc = response.headers.get('Cache-Control') ?? '';
@@ -128,18 +102,13 @@ function normalisePath(pathname: string): string | null {
 }
 
 /**
- * Baseline security headers for every response.
- *
- * The CSP here is intentionally NOT a full script-src lockdown: Astro emits
- * inline <script>/<style> blocks and the pages use inline handlers/styles in
- * several places, so a strict script-src would break the site. What it does
- * enforce are the directives that are safe and high value: no framing by
- * other sites (clickjacking), no plugins, no <base> hijacking, forms may only
- * post back to this site, and everything upgraded to https.
+ * Baseline security headers for every response. The CSP (src/lib/csp.ts)
+ * allows scripts only from this origin plus the hashed inline theme script;
+ * it also blocks framing by other sites, plugins, <base> hijacking and
+ * cross-site form posts.
  */
 const SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy':
-    "frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'",
+  'Content-Security-Policy': CONTENT_SECURITY_POLICY,
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -161,79 +130,81 @@ function withSecurityHeaders(response: Response): Response {
   return response;
 }
 
+// Broadcaster mode hides the most recent round. Its id is memoised per isolate
+// for up to 60 s, so broadcaster renders don't add a database call each.
+const LATEST_ROUND_TTL_MS = 60_000;
+let latestRoundMemo: { subsessionId: number | null; expiresAt: number } | null = null;
+
+async function latestRoundSubsessionId(env: SupabaseEnv): Promise<number | null> {
+  const now = Date.now();
+  if (latestRoundMemo && latestRoundMemo.expiresAt > now) return latestRoundMemo.subsessionId;
+  const latest = await restGet<{ subsession_id: number }[]>(env, 'curated_rounds?select=subsession_id&order=start_time.desc&limit=1');
+  latestRoundMemo = { subsessionId: latest[0]?.subsession_id ?? null, expiresAt: now + LATEST_ROUND_TTL_MS };
+  return latestRoundMemo.subsessionId;
+}
+
+/** GoTrue rejected the refresh token (4xx), as opposed to a network failure. */
+function isRejectedRefresh(err: unknown): boolean {
+  return err instanceof Error && /^Session refresh failed \(4\d\d\)/.test(err.message);
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
 
   const env = resolveSupabaseEnv(context.locals);
   const accessToken = context.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = context.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
-  const hasAuthCookies = Boolean(accessToken || refreshToken);
-  // "View as Broadcaster" — see src/lib/auth.ts's BROADCASTER_COOKIE. Any
-  // visitor can turn it on, so it's handled independently of auth: it just
-  // has to keep the response out of the shared edge cache in both
-  // directions (a spoiler-free render must never be stored for everyone
-  // else, and a cached full render must never be served to a broadcaster).
+  const cookieOptions = authCookieOptions(context.url);
+  // "View as Broadcaster" (src/lib/auth.ts BROADCASTER_COOKIE): anyone can turn
+  // it on. Its render differs from the normal page, so it gets its own edge
+  // cache entry and is never stored by the browser.
   const broadcasterMode = context.cookies.get(BROADCASTER_COOKIE)?.value === '1';
   context.locals.broadcasterMode = broadcasterMode;
 
-  // `context.locals.runtime` only exists on the deployed Cloudflare Worker
-  // (see @astrojs/cloudflare's server.js, which is what actually populates
-  // it) — it's undefined in local `astro dev`, so this whole feature is
-  // optional-chained throughout and simply no-ops locally instead of
-  // erroring. `caches.default` (not a bare global `caches`) is this
-  // adapter's exact v11 API shape — see the resolveSupabaseEnv-style
-  // `locals.runtime.env` access just above for the same pattern.
-  const cache = context.locals.runtime?.caches?.default;
-  const isCacheableMethod = context.request.method === 'GET';
+  // Treated as a signed-out visitor for the shared cache unless the cookies
+  // could hold a real session (see isCacheAnonymous). A malformed access
+  // cookie with no refresh cookie can't, so it is dropped instead of costing
+  // an auth call on every request.
+  const cacheAnonymous = isCacheAnonymous(accessToken, refreshToken);
+  if (cacheAnonymous && accessToken) context.cookies.delete(ACCESS_TOKEN_COOKIE, cookieOptions);
 
-  // --- Edge cache read (GET, anonymous requests only) ---------------------
-  //
-  // Skipped entirely whenever the request carries either auth cookie, even
-  // before we know if they resolve to a real session below — a signed-in
-  // (or session-expired-but-cookie-still-present) visitor always gets a
-  // fully resolved render rather than risking a stale anonymous-rendered
-  // page from the shared cache. Some nominally-public pages (e.g.
-  // results/[subsessionId].astro) render admin-only UI when the viewer is a
-  // signed-in admin, and this is the simplest way to guarantee that never
-  // gets short-circuited by a cache hit meant for anonymous visitors.
-  //
-  // The cache hit is rebuilt into a fresh Response (mutable headers)
-  // before returning — see this file's own top-of-file doc comment for
-  // exactly why returning `cached` here directly crashes every such
-  // request with a real 500.
-  if (cache && isCacheableMethod && !hasAuthCookies && !broadcasterMode) {
-    const cached = await cache.match(context.request);
+  // `locals.runtime` only exists on the Worker (deployed or `wrangler dev`),
+  // not in `astro dev`, so the cache simply no-ops there.
+  const cache = context.locals.runtime?.caches?.default;
+  const cacheEligible = Boolean(cache) && context.request.method === 'GET' && cacheAnonymous;
+  const cacheKey = cacheKeyUrl(context.url, broadcasterMode ? 'broadcaster' : 'default');
+
+  // --- Edge cache read ------------------------------------------------------
+  // Rebuilt into a fresh Response (mutable headers) — see the file header.
+  if (cache && cacheEligible) {
+    const cached = await cache.match(cacheKey);
     if (cached) {
-      return withSecurityHeaders(
-        forBrowser(
-          new Response(cached.body, {
-            status: cached.status,
-            statusText: cached.statusText,
-            headers: cached.headers,
-          })
-        )
-      );
+      const hit = new Response(cached.body, {
+        status: cached.status,
+        statusText: cached.statusText,
+        headers: cached.headers,
+      });
+      hit.headers.set('X-ATC-Cache', 'HIT');
+      if (broadcasterMode) hit.headers.set('Cache-Control', 'private, no-store');
+      return withSecurityHeaders(forBrowser(hit));
     }
   }
 
-  // Broadcaster mode: find the most recent round (unfiltered — `env` here
-  // was resolved before any hiding was set) and hand its subsession id to
-  // every downstream resolveSupabaseEnv(locals) call, which is what makes
-  // restGet/restGetAll exclude it. A failed lookup just means nothing gets
-  // hidden this request (logged) rather than breaking the page.
+  // Broadcaster mode: hand the most recent round's id to every downstream
+  // resolveSupabaseEnv(locals) call, which makes restGet/restGetAll exclude it.
+  // A failed lookup means nothing is hidden this request (logged), so that
+  // unfiltered render must never be stored under the broadcaster cache key.
   if (broadcasterMode && env.url && env.anonKey) {
     try {
-      const latest = await restGet<{ subsession_id: number }[]>(
-        env,
-        'curated_rounds?select=subsession_id&order=start_time.desc&limit=1'
-      );
-      if (latest[0]) context.locals.broadcasterHiddenSubsessionIds = [latest[0].subsession_id];
+      const latest = await latestRoundSubsessionId(env);
+      if (latest !== null) context.locals.broadcasterHiddenSubsessionIds = [latest];
     } catch (err) {
+      context.locals.uncacheable = true;
       console.error('Broadcaster mode: failed to look up the latest round:', err);
     }
   }
 
-  if (env.url && env.anonKey && (accessToken || refreshToken)) {
+  if (env.url && env.anonKey && !cacheAnonymous) {
     try {
       let activeAccessToken = accessToken;
       let user = activeAccessToken ? await getUser(env, activeAccessToken) : null;
@@ -244,7 +215,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
         const refreshed = await refreshSession(env, refreshToken);
         activeAccessToken = refreshed.accessToken;
         user = refreshed.user;
-        const cookieOptions = authCookieOptions(context.url);
         context.cookies.set(ACCESS_TOKEN_COOKIE, refreshed.accessToken, {
           ...cookieOptions,
           maxAge: 60 * 60, // access tokens are short-lived; this just bounds the cookie's own lifetime
@@ -253,6 +223,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
           ...cookieOptions,
           maxAge: 60 * 60 * 24 * 30,
         });
+      } else if (!user && accessToken) {
+        // A dead access token with nothing to refresh it: drop it so the
+        // browser goes back to cached pages.
+        context.cookies.delete(ACCESS_TOKEN_COOKIE, cookieOptions);
       }
 
       if (user && activeAccessToken) {
@@ -260,36 +234,31 @@ export const onRequest = defineMiddleware(async (context, next) => {
         context.locals.session = { user, profile, accessToken: activeAccessToken };
       }
     } catch (err) {
-      // A network hiccup or an actually-invalid refresh token both just
-      // mean "treat this request as logged out" — never fail the request.
+      // Treat the request as logged out; never fail it. A refresh token the
+      // auth server rejected is cleared with its access token, so the browser
+      // returns to cached pages. A network failure keeps them for next time.
       console.error('Auth middleware error:', err);
+      if (isRejectedRefresh(err)) {
+        context.cookies.delete(ACCESS_TOKEN_COOKIE, cookieOptions);
+        context.cookies.delete(REFRESH_TOKEN_COOKIE, cookieOptions);
+      }
     }
   }
 
-  // "View as Visitor" (see src/lib/auth.ts's isAdminView doc comment):
-  // computed on every request, not just /admin ones, since the footer
-  // toggle that flips this cookie renders on every page. Deliberately
-  // independent of the /admin route gate below, which stays keyed on the
-  // REAL role — previewing the public site as a visitor should never lock
-  // a real admin out of the admin panel itself.
+  // "View as Visitor" (see src/lib/auth.ts's isAdminView): computed on every
+  // request since the footer toggle renders on every page. Independent of the
+  // /admin gate below, which stays keyed on the REAL role.
   context.locals.isRealAdmin = context.locals.session?.profile?.role === 'admin';
   context.locals.viewAsVisitor = context.locals.isRealAdmin && context.cookies.get(VIEW_MODE_COOKIE)?.value === 'visitor';
 
   const pathname = context.url.pathname;
-  // SECURITY: gate on a NORMALISED path, not the raw one. Astro's router
-  // percent-decodes the URL before matching a route, so /%61dmin (= /admin)
-  // used to sail past a plain `startsWith('/admin')` check and render admin
-  // pages with no login. Decode (repeatedly, in case of double-encoding),
-  // lowercase, and collapse slashes/backslashes before comparing. If the path
-  // can't be decoded at all, treat it as an admin path (fail closed).
+  // SECURITY: gate on a NORMALISED path (Astro's router percent-decodes, so
+  // /%61dmin would otherwise slip past a plain prefix check). Undecodable
+  // paths count as admin paths (fail closed).
   const normalisedPath = normalisePath(pathname);
   const isAdminRoute = normalisedPath === null || normalisedPath.startsWith(ADMIN_PREFIX);
   const isPublicAdminPath = normalisedPath !== null && PUBLIC_ADMIN_PATHS.has(normalisedPath);
 
-  // Was a bare `return` for the redirect case, with a second `return next();`
-  // below covering everything else — rewritten to funnel both outcomes
-  // through one `response` variable so the cache-write check after this
-  // block runs uniformly no matter which path produced the response.
   let response: Response;
   if (isAdminRoute && !isPublicAdminPath) {
     const session = context.locals.session;
@@ -302,75 +271,50 @@ export const onRequest = defineMiddleware(async (context, next) => {
     response = await next();
   }
 
-  // Never let a browser or intermediary hold a broadcaster-mode render
-  // either — it differs from the normal page at the same URL.
-  if (broadcasterMode) response.headers.set('Cache-Control', 'private, no-store');
+  // A render that hit a data-load failure (markUncacheable) is never stored
+  // anywhere, whatever Cache-Control the page set afterwards.
+  if (context.locals.uncacheable) response.headers.set('Cache-Control', 'no-store');
 
-  // --- Edge cache write (GET, anonymous, successful, opt-in pages only) ---
-  //
-  // Deliberately conservative — every condition below has to hold before
-  // anything lands in the shared edge cache:
-  //   - GET only (never cache the result of a POST/form action)
-  //   - no session at all (`!context.locals.session`) — the one rule that
-  //     matters most; see the read-side comment above for why this (rather
-  //     than enumerating admin-aware pages) is the safety net
-  //   - response.status === 200 (never cache a redirect, 404, or error page)
-  //   - no Set-Cookie header (defensive — a response setting cookies isn't
-  //     something the next visitor should be handed verbatim)
-  //   - the page's own Cache-Control opted in with "public" — this respects
-  //     each page's existing per-page header rather than a blanket policy
-  //     here, so a page that never set one (or set `private`) is never
-  //     cached even though it otherwise qualifies
-  //
-  // `response` here is a normal, fresh Response (either `next()`'s own, or
-  // one we just constructed via `context.redirect()`) — never the immutable
-  // object `cache.match()` returns, so `.clone()`ing it for the write is
-  // safe and unrelated to this file's own read-side pitfall (see top of
-  // file). No hand-rolled stale-while-revalidate here (serve-stale-then-
-  // refresh-in-background) — this is intentionally just "fresh cache hit,
-  // or full recompute," the simpler of the two. `waitUntil` runs the write
-  // in the background so it never delays the response reaching this
-  // visitor, and `.clone()` is required because a Response body can only be
-  // read once, and the real body still needs to reach them.
-  if (
-    cache &&
-    isCacheableMethod &&
-    !context.locals.session &&
-    !broadcasterMode &&
-    response.status === 200 &&
-    !response.headers.has('Set-Cookie') &&
-    (response.headers.get('Cache-Control') ?? '').includes('public')
-  ) {
-    context.locals.runtime.ctx.waitUntil(cache.put(context.request, response.clone()));
+  // --- Edge cache write (GET, anonymous, successful, opt-in pages only) -----
+  // Every condition must hold: cache-eligible request, no session, 200, no
+  // Set-Cookie, not marked uncacheable, and the page itself opted in with
+  // `public`. The broadcaster render is stored under its own key. `waitUntil`
+  // keeps the write off the response path; `.clone()` because a body can
+  // only be read once.
+  if (cacheEligible) {
+    const storable =
+      !context.locals.session &&
+      !context.locals.uncacheable &&
+      response.status === 200 &&
+      !response.headers.has('Set-Cookie') &&
+      (response.headers.get('Cache-Control') ?? '').includes('public');
+    if (storable) {
+      context.locals.runtime.ctx.waitUntil(cache!.put(cacheKey, response.clone()));
+      response.headers.set('X-ATC-Cache', 'MISS');
+    }
   }
 
-  // Only now — the clone above already captured the edge-cache header.
+  // Never let a browser or intermediary hold a broadcaster render (set after
+  // the edge copy above captured the page's own header).
+  if (broadcasterMode) response.headers.set('Cache-Control', 'private, no-store');
+
   forBrowser(response);
   response = withSecurityHeaders(response);
 
-  // --- Site analytics (0077_page_views.sql, 0080_page_views_status_and_stats.sql) ---
+  // --- Site analytics (0077/0080 page_views, written via record_page_view since 0114) ---
   //
-  // One row per real hit on an actual public page: GET only, never /admin or
-  // /api (nothing under either is "content" a visitor browsed), never a real
-  // admin's own traffic (`isRealAdmin` — otherwise Logan's own admin-panel
-  // work would skew "unique visitors" on the very dashboard showing them).
-  // Logs both a genuine page view (status 200) AND an error a visitor
-  // actually hit (status >= 400 — 404s, 500s) so the dashboard's "Most
-  // Common Errors" card has something to show; a 3xx redirect is neither (a
-  // bounce, not a page view or an error) and is deliberately excluded. Only
-  // runs on the deployed Worker — same `context.locals.runtime`
-  // optional-chaining reasoning as the edge cache above: local `astro dev`
-  // has neither `runtime.cf` (for country) nor `runtime.ctx.waitUntil` (to
-  // fire this without delaying the response), and page views from a dev
-  // machine wouldn't mean anything on the real dashboard anyway. Fired via
-  // `waitUntil` so a slow/failed insert never adds latency to the actual
-  // response, same reasoning as the cache write just above.
+  // One row per real hit on a public page: GET only, never /admin, /api or a
+  // /fragment fetch, never a real admin's own traffic, and 200s or errors
+  // (>= 400) only. Only on the Worker (needs runtime.ctx.waitUntil), and never
+  // from localhost: dev traffic means nothing on the dashboard and local runs
+  // must not write to the production database.
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(context.url.hostname);
   if (
     context.locals.runtime &&
+    !isLocalHost &&
     context.request.method === 'GET' &&
     !isAdminRoute &&
     !pathname.startsWith('/api') &&
-    // Shell-then-skeleton pages fetch a /…/fragment URL right after their own load; counting those too would double every view.
     !pathname.endsWith('/fragment') &&
     !context.locals.isRealAdmin &&
     (response.status === 200 || response.status >= 400)

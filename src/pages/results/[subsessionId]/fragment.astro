@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../../components/LoadError.astro';
+import { markUncacheable } from '../../../lib/security';
 
 import ResultsTable from '../../../components/ResultsTable.astro';
 import QualifyingResultsTable from '../../../components/QualifyingResultsTable.astro';
@@ -15,6 +17,7 @@ import {
   getTestRoundIds,
   getRaceLinksForSubsession,
   upsertRaceLinks,
+  invalidRaceLinkField,
   formatDate,
   getPenaltiesForSubsession,
   getSeasonById,
@@ -63,6 +66,7 @@ import {
   INTERVIEW_MAX_BYTES,
   interviewExtension,
   uploadInterviewAudio,
+  interviewAudioPath,
   hasSubmittedInterview,
   isInterviewWindowOpen,
   createRaceInterview,
@@ -113,20 +117,30 @@ if (isAdmin && postForm) {
       return s.length > 0 ? s : null;
     };
     const raceNumber = Number(form.get('race_number'));
-    if (Number.isFinite(raceNumber)) {
+    const linkFields = {
+      replay_url: strOrNull(form.get('replay_url')),
+      broadcast_url: strOrNull(form.get('broadcast_url')),
+      photo_album_url: strOrNull(form.get('photo_album_url')),
+    };
+    // Only http(s) links are saved; anything else comes back as a field error.
+    const badField = invalidRaceLinkField(linkFields);
+    const backParams = new URLSearchParams(Astro.url.search);
+    backParams.delete('links_error');
+    if (badField) {
+      backParams.set('links_error', badField);
+    } else if (Number.isFinite(raceNumber)) {
       try {
         await upsertRaceLinks(supabaseEnv, Astro.locals.session!.accessToken, {
           subsession_id: subsessionId,
           race_number: raceNumber,
-          replay_url: strOrNull(form.get('replay_url')),
-          broadcast_url: strOrNull(form.get('broadcast_url')),
-          photo_album_url: strOrNull(form.get('photo_album_url')),
+          ...linkFields,
         });
       } catch (err) {
         console.error('Failed to save race links:', err);
       }
     }
-    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
+    const backQuery = backParams.toString();
+    return Astro.redirect(`${shellPath}${backQuery ? `?${backQuery}` : ''}`, 302);
   }
 
   // Penalty add/edit/remove now lives entirely on the Incident Report page
@@ -562,7 +576,7 @@ if (postForm && postForm.get('intent') === 'submit-interview' && !loadError && r
     return json({ ok: false, error: 'That recording couldn’t be read. Please record it again.' }, 400);
   }
   const id = crypto.randomUUID();
-  const path = `${id}.${ext}`;
+  const path = interviewAudioPath(interviewDriverId, subsessionId, ext);
   try {
     await uploadInterviewAudio(supabaseEnv, reportSession.accessToken, path, audio, audio.type.split(';')[0]);
     await createRaceInterview(supabaseEnv, reportSession.accessToken, {
@@ -695,6 +709,7 @@ Astro.response.headers.set(
   'Cache-Control',
   reportFlash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
 );
+if (loadError) markUncacheable(Astro);
 ---
 
     {reportFlash && (
@@ -710,14 +725,7 @@ Astro.response.headers.set(
       </p>
     )}
 
-    {loadError && (
-      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load this round's results right now. If this mentions permission/RLS, race_scores or
-        curated_race_results likely still need the public-read policy from
-        <code>supabase/migrations/0004_champions.sql</code> — it has to be run manually in the Supabase SQL editor.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
+    {loadError && <LoadError />}
 
     {round && (
       <>
@@ -758,7 +766,7 @@ Astro.response.headers.set(
           {roundPickerGroups.length > 0 && (
             <label class="hidden w-full flex-col gap-1.5 sm:flex sm:w-60">
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Round</span>
-              <select aria-label="Round" class={selectClass} onchange="window.location.href=this.value">
+              <select aria-label="Round" class={selectClass} data-navigate-on-change>
                 {roundPickerGroups.map((g) => (
                   <optgroup label={g.label} class="bg-brand-ink text-white">
                     {g.rounds.map((r) => (
@@ -771,7 +779,7 @@ Astro.response.headers.set(
           )}
           <label class="flex flex-col gap-1.5 sm:w-[6.6rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Session</span>
-            <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
+            <select aria-label="Session" class={selectClass} data-navigate-on-change>
               {sessionChoices.map((o) => (
                 <option value={resultsHref(o.key, classKey)} selected={o.key === sessionKey} class="bg-brand-ink text-white">{o.label}</option>
               ))}
@@ -779,7 +787,7 @@ Astro.response.headers.set(
           </label>
           <label class="flex flex-col gap-1.5 sm:w-[6.6rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-            <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
+            <select aria-label="Class" class={selectClass} data-navigate-on-change>
               <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
               {classes.map((c) => (
                 <option value={resultsHref(sessionKey, c.name.toLowerCase())} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>
@@ -791,7 +799,7 @@ Astro.response.headers.set(
               <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
             )}
             {incidentButtonState && <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />}
-            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} />
+            <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} fieldError={isAdmin ? Astro.url.searchParams.get('links_error') : null} />
             {/* Icon-only; the label shows on hover/keyboard focus (same tooltip look as the incident button's). */}
             <span class="group relative">
               <a href={kudosHref} class="btn btn-primary !px-2.5" aria-label="Kudos">

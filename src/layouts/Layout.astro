@@ -2,6 +2,7 @@
 import { ViewTransitions } from 'astro:transitions';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import { THEME_INIT_SCRIPT } from '../lib/csp';
 import '../styles/global.css';
 
 interface Props {
@@ -40,18 +41,8 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
       no re-run needed on `astro:page-load` the way the rest of the site's
       per-page scripts need.
     -->
-    <script is:inline>
-      (function () {
-        try {
-          var stored = localStorage.getItem('atc-theme');
-          if (stored === 'light') {
-            document.documentElement.classList.add('light');
-          }
-        } catch (e) {
-          // localStorage unavailable — fall back to the default (dark).
-        }
-      })();
-    </script>
+    <!-- The text lives in src/lib/csp.ts next to its CSP hash, so the two can't drift apart. -->
+    <script is:inline set:html={THEME_INIT_SCRIPT} />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
@@ -118,5 +109,6 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
     <script src="../scripts/driverPickerSearch.ts"></script>
     <script src="../scripts/logoSelect.ts"></script>
     <script src="../scripts/theme.ts"></script>
+    <script src="../scripts/delegatedControls.ts"></script>
   </body>
 </html>

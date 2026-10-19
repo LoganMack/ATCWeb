@@ -54,7 +54,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         {/* Each option's value is its destination URL; onchange just navigates there. */}
         <label class="flex flex-col gap-1.5 sm:w-44">
           <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
-          <select aria-label="View" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+          <select aria-label="View" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" data-navigate-on-change>
             <option value="/team-stats?view=overall" selected={view === 'overall'} class="bg-brand-ink text-white">Overall</option>
             <option value="/team-stats?view=delta" selected={view === 'delta'} class="bg-brand-ink text-white">Delta</option>
           </select>

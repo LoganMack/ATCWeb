@@ -122,7 +122,7 @@ function afterRace(iso: string, raceStart: string | undefined): string | null {
             </div>
             <div class="flex flex-none items-center gap-3">
               {url ? <audio controls preload="none" src={url} class="h-10 w-64 max-w-full"></audio> : <span class="text-xs text-white/40">Audio unavailable</span>}
-              <form method="POST" data-astro-reload onsubmit="return confirm('Delete this interview?')">
+              <form method="POST" data-astro-reload data-confirm="Delete this interview?">
                 <input type="hidden" name="intent" value="delete" />
                 <input type="hidden" name="id" value={i.id} />
                 <button type="submit" class="btn btn-danger btn-sm">Delete</button>

@@ -21,6 +21,7 @@
  */
 
 import { LEAGUE_TIME_ZONE } from './timezone';
+import { isHttpUrl } from './security';
 
 export interface SupabaseEnv {
   url: string;
@@ -1508,6 +1509,18 @@ export function getAllReplayRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&replay_url=not.is.null`);
 }
 
+export const RACE_LINK_URL_FIELDS = ['replay_url', 'broadcast_url', 'incident_report_url', 'photo_album_url'] as const;
+export type RaceLinkUrlField = (typeof RACE_LINK_URL_FIELDS)[number];
+
+/** The first link field holding something other than an http(s) URL (blocks javascript:, data: etc.), or null. */
+export function invalidRaceLinkField(data: Partial<Record<RaceLinkUrlField, string | null>>): RaceLinkUrlField | null {
+  for (const field of RACE_LINK_URL_FIELDS) {
+    const value = data[field];
+    if (value != null && !isHttpUrl(value)) return field;
+  }
+  return null;
+}
+
 /** Upserts one race's links — replaces whatever was set for that (subsession_id, race_number) before. Any field left undefined stays whatever it already was; pass null explicitly to clear a field. */
 export async function upsertRaceLinks(
   env: SupabaseEnv,
@@ -1522,6 +1535,8 @@ export async function upsertRaceLinks(
     photo_album_url?: string | null;
   }
 ) {
+  const badField = invalidRaceLinkField(data);
+  if (badField) throw new Error(`race_links.${badField} must be an http(s) URL`);
   const res = await fetch(`${env.url}/rest/v1/race_links?on_conflict=subsession_id,race_number`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
@@ -3094,12 +3109,10 @@ export function removeMeetupDriver(env: SupabaseEnv, accessToken: string, meetup
 // requests actually count as a real page visit.
 
 /**
- * Fire-and-forget insert into page_views. Uses the plain anon key (no user
- * is ever signed in for a real visitor) — same public-insert-only shape as
- * `page_views`' own RLS policy. Deliberately swallows every error rather
- * than throwing: a hiccup logging analytics must never turn into a broken
- * page for an actual visitor. Not built on restPost (which always attaches
- * a user accessToken) since there's no accessToken here at all.
+ * Fire-and-forget page view through record_page_view() (0114), which applies
+ * the field checks and the per-visitor rate limit; anon can no longer insert
+ * into page_views directly. Uses the plain anon key (a real visitor is never
+ * signed in). Never throws: analytics must not break a page.
  */
 export async function logPageView(
   env: SupabaseEnv,
@@ -3107,16 +3120,17 @@ export async function logPageView(
 ): Promise<void> {
   try {
     if (!env.url || !env.anonKey) return;
-    await fetch(`${env.url}/rest/v1/page_views`, {
+    const res = await fetch(`${env.url}/rest/v1/rpc/record_page_view`, {
       method: 'POST',
-      headers: { ...restHeaders(env), 'Content-Type': 'application/json' },
+      headers: { apikey: env.anonKey, Authorization: `Bearer ${env.anonKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        path: entry.path,
-        country: entry.country,
-        visitor_hash: entry.visitorHash,
-        status: entry.status,
+        p_path: entry.path,
+        p_visitor_hash: entry.visitorHash,
+        p_country: entry.country,
+        p_status: entry.status,
       }),
     });
+    if (!res.ok) console.error(`Failed to log page view: record_page_view returned ${res.status}`);
   } catch (err) {
     console.error('Failed to log page view:', err);
   }

@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../../../components/LoadError.astro';
+import { markUncacheable } from '../../../../lib/security';
 
 // A champion's race-by-race season — fetched client-side, once, the first time a
 // champion card on /champions is expanded (see the script in champions.astro; this
@@ -35,9 +37,10 @@ const raceCountBySubsession = new Map<number, number>();
 for (const r of rows) raceCountBySubsession.set(r.subsessionId, (raceCountBySubsession.get(r.subsessionId) ?? 0) + 1);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+if (loadError) markUncacheable(Astro);
 ---
 
-{loadError && <p class="text-xs text-white/40">Couldn't load this season's results right now.</p>}
+{loadError && <LoadError class="mt-0 text-xs" />}
 
 {!loadError && rows.length === 0 && <p class="text-xs text-white/40">No race results on file for this season.</p>}
 

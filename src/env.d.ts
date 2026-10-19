@@ -63,5 +63,7 @@ declare namespace App {
     broadcasterMode: boolean;
     /** Subsession id(s) hidden from every subsession-keyed read while `broadcasterMode` is on (the most recent round). Carried onto SupabaseEnv by resolveSupabaseEnv. */
     broadcasterHiddenSubsessionIds?: number[];
+    /** Set by markUncacheable (src/lib/security.ts) when a render hit a data-load failure; the middleware then sends no-store and skips the edge cache. */
+    uncacheable?: boolean;
   }
 }

@@ -21,8 +21,9 @@ export const prerender = false;
 // see that file's own header comment for exactly what gets filled in and
 // why.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, uploadToStorage, formatDateShort } from '../../../lib/supabase';
+import { resolveSupabaseEnv, formatDateShort } from '../../../lib/supabase';
 import { parseCsv } from '../../../lib/csv';
+import { safeJson } from '../../../lib/security';
 import {
   importRaceResultsCsv,
   importQualifyingResultsCsv,
@@ -30,7 +31,7 @@ import {
   getEventsMissingResults,
   type EventResultCoverage,
 } from '../../../lib/raceResultsImport';
-import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { logActivity, actorNameFor, storeImportSpreadsheet } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -58,11 +59,11 @@ if (Astro.request.method === 'POST') {
   };
 
   async function logImport(kind: ImportKind, file: File, imported: number, skipped: number) {
-    let fileUrl: string | null = null;
+    let filePath: string | null = null;
     try {
       const ext = file.name.split('.').pop() || 'csv';
       const path = `${kind}-${Date.now()}.${ext}`;
-      fileUrl = await uploadToStorage(supabaseEnv, accessToken, 'imports', path, file);
+      filePath = await storeImportSpreadsheet(supabaseEnv, accessToken, path, file);
     } catch (err) {
       console.error('Failed to store import spreadsheet for the activity log:', err);
     }
@@ -71,7 +72,7 @@ if (Astro.request.method === 'POST') {
       entity_type: 'import',
       entity_label: `${IMPORT_KIND_NOUNS[kind]} import`,
       details: `${imported} imported, ${skipped} skipped`,
-      file_url: fileUrl,
+      file_url: filePath,
       file_name: file.name,
     });
   }
@@ -326,43 +327,10 @@ function eventLabel(ev: EventResultCoverage): string {
     </div>
   </dialog>
 
-  <script define:vars={{ panels }}>
-    // Single shared upload dialog for every event/session-type button above
-    // — same trigger-carries-its-own-data-then-populate-and-showModal
-    // pattern as admin/rulesets' add/edit dialog. `panels` (kind -> title/
-    // intent/help/writesTo) comes from the server via define:vars since it
-    // never changes per-click; only which event/kind was clicked does.
-    const dialog = document.querySelector('[data-upload-dialog]');
-    if (dialog) {
-      const titleEl = dialog.querySelector('[data-dialog-title]');
-      const eventLabelEl = dialog.querySelector('[data-dialog-event-label]');
-      const writesToEl = dialog.querySelector('[data-dialog-writes-to]');
-      const templateLink = dialog.querySelector('[data-dialog-template-link]');
-      const intentField = dialog.querySelector('[data-dialog-intent-field]');
-      const helpEl = dialog.querySelector('[data-dialog-help]');
-
-      document.querySelectorAll('[data-open-upload-dialog]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const kind = btn.dataset.kind;
-          const panel = panels.find((p) => p.kind === kind);
-          if (!panel) return;
-
-          titleEl.textContent = panel.title;
-          eventLabelEl.textContent = btn.dataset.eventLabel || '';
-          writesToEl.textContent = `Writes to: ${panel.writesTo}`;
-          helpEl.textContent = panel.help;
-          intentField.value = panel.intent;
-
-          const eventId = btn.dataset.eventId;
-          templateLink.href = eventId
-            ? `/api/import-templates/${kind}.csv?eventId=${encodeURIComponent(eventId)}`
-            : `/api/import-templates/${kind}.csv`;
-
-          dialog.showModal();
-        });
-      });
-
-      dialog.querySelector('[data-close-upload-dialog]')?.addEventListener('click', () => dialog.close());
-    }
-  </script>
+  {/* Panel texts as data for src/scripts/importUploadDialog.ts (no inline script under the CSP). */}
+  <script type="application/json" id="import-panels" set:html={safeJson(panels)} />
 </AdminLayout>
+
+<script>
+  import '../../../scripts/importUploadDialog';
+</script>

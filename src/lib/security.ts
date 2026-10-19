@@ -59,6 +59,26 @@ export function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * The only text a visitor sees when a data load fails. Backend errors carry
+ * status codes, query paths and schema hints, so they go to the server log
+ * (console.error) and never into public markup.
+ */
+export function publicLoadErrorMessage(): string {
+  return "We couldn't load this right now. Please try again shortly.";
+}
+
+/**
+ * Marks this render as a failed load: the browser gets no-store now, and the
+ * middleware forces no-store again after the page sets its own header and
+ * keeps the response out of the edge cache, so a failure is never served to
+ * the next visitor.
+ */
+export function markUncacheable(astro: { locals: App.Locals; response: { headers: Headers } }): void {
+  astro.locals.uncacheable = true;
+  astro.response.headers.set('Cache-Control', 'no-store');
+}
+
 /** True only for http(s) URLs — blocks javascript:, data: etc. */
 export function isHttpUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;

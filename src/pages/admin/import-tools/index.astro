@@ -29,14 +29,13 @@ import {
   getAllNewsPosts,
   createNewsPost,
   updateNewsPost,
-  uploadToStorage,
   type EventFormat,
   type Weather,
 } from '../../../lib/supabase';
 import { parseCsv } from '../../../lib/csv';
 import { slugify } from '../../../lib/slug';
 import { userDisplayName } from '../../../lib/auth';
-import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { logActivity, actorNameFor, storeImportSpreadsheet } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -68,11 +67,11 @@ if (Astro.request.method === 'POST') {
   };
 
   async function logImport(kind: ImportKind, file: File, imported: number, skipped: number) {
-    let fileUrl: string | null = null;
+    let filePath: string | null = null;
     try {
       const ext = file.name.split('.').pop() || 'csv';
       const path = `${kind}-${Date.now()}.${ext}`;
-      fileUrl = await uploadToStorage(supabaseEnv, accessToken, 'imports', path, file);
+      filePath = await storeImportSpreadsheet(supabaseEnv, accessToken, path, file);
     } catch (err) {
       console.error('Failed to store import spreadsheet for the activity log:', err);
     }
@@ -81,7 +80,7 @@ if (Astro.request.method === 'POST') {
       entity_type: 'import',
       entity_label: `${IMPORT_KIND_NOUNS[kind]} import`,
       details: `${imported} imported, ${skipped} skipped`,
-      file_url: fileUrl,
+      file_url: filePath,
       file_name: file.name,
     });
   }

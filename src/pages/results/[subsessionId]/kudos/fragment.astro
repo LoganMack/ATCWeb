@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../../../components/LoadError.astro';
+import { markUncacheable } from '../../../../lib/security';
 
 import KudosDialog from '../../../../components/KudosDialog.astro';
 import DriverLink from '../../../../components/DriverLink.astro';
@@ -187,13 +189,10 @@ const signInHref = `/login?next=${encodeURIComponent(`${shellPath}${cleanSearch}
 // A render carrying a confirmation/error banner (?kudos=…) must never land in
 // the shared edge cache, or every visitor would see it.
 Astro.response.headers.set('Cache-Control', flash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
-{loadError && (
-  <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-    Couldn't load this round's kudos right now.
-  </p>
-)}
+{loadError && <LoadError />}
 
 {round && !loadError && (
   <>
@@ -243,7 +242,7 @@ Astro.response.headers.set('Cache-Control', flash ? 'private, no-store' : 'publi
                   </a>
                 )}
                 {session && (isAdmin || k.author_id === session.user.id) && (
-                  <form method="POST" action={formAction} data-astro-reload onsubmit="return confirm('Delete this kudos?')">
+                  <form method="POST" action={formAction} data-astro-reload data-confirm="Delete this kudos?">
                     <input type="hidden" name="intent" value="delete-kudos" />
                     <input type="hidden" name="kudos_id" value={k.id} />
                     <button type="submit" class="btn btn-neutral btn-sm">Delete</button>

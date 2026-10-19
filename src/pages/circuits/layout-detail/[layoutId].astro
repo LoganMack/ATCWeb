@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../../components/LoadError.astro';
+import { markUncacheable } from '../../../lib/security';
 
 // Circuits page's per-layout expanded-row content — fetched client-side,
 // once, the first time a visitor expands a given row on /circuits (see
@@ -175,13 +177,12 @@ const gammaBestLap = gammaClassId !== null ? (classBestLaps.get(gammaClassId) ??
 const deltaBestLap = deltaClassId !== null ? (classBestLaps.get(deltaClassId) ?? null) : null;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600');
+if (loadError) markUncacheable(Astro);
 ---
 
 {!layoutRow && <p class="text-white/40">Layout not found.</p>}
 
-{layoutRow && loadError && (
-  <p class="text-white/40">Couldn't load this layout's history right now.</p>
-)}
+{layoutRow && loadError && <LoadError class="mt-0" />}
 
 {layoutRow && !loadError && (
   <div class="flex flex-col gap-6">

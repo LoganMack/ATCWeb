@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable } from '../../lib/security';
 
 // Public driver profile page — reached by clicking a row on the Roster
 // (see src/components/DriverRow.astro / src/pages/roster.astro).
@@ -168,16 +170,12 @@ const statusName = driver?.driver_statuses?.name ?? '—';
 const className = driver?.driver_classes?.name ?? '';
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
 <Layout title={driver ? displayName : 'Driver'} description={driver ? `${displayName}'s driver profile, stats, and race history.` : 'Driver profile.'}>
   <section class="relative mx-auto max-w-7xl px-6 pb-24 pt-8">
-    {loadError && (
-      <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load this driver's profile right now.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
+    {loadError && <LoadError class="mt-0" />}
 
     {!loadError && driver && (
       <>
