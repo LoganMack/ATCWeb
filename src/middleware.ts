@@ -192,12 +192,14 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   // Broadcaster mode: hand the most recent round's id to every downstream
   // resolveSupabaseEnv(locals) call, which makes restGet/restGetAll exclude it.
-  // A failed lookup just means nothing is hidden this request (logged).
+  // A failed lookup means nothing is hidden this request (logged), so that
+  // unfiltered render must never be stored under the broadcaster cache key.
   if (broadcasterMode && env.url && env.anonKey) {
     try {
       const latest = await latestRoundSubsessionId(env);
       if (latest !== null) context.locals.broadcasterHiddenSubsessionIds = [latest];
     } catch (err) {
+      context.locals.uncacheable = true;
       console.error('Broadcaster mode: failed to look up the latest round:', err);
     }
   }
