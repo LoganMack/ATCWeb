@@ -8,8 +8,8 @@
 // an admin login is available) one admin page per file that used to hold an
 // inline handler, it fails when:
 //   - the response has no CSP script-src, or script-src allows 'unsafe-inline' / 'unsafe-eval'
-//   - an inline <script> (JavaScript) has no matching 'sha256-…' in script-src
-//   - an external <script src> is not same-origin
+//   - an inline <script> (JavaScript) has no matching 'sha256-…' or the response's nonce in script-src
+//   - an external <script src> is neither same-origin nor an origin listed in script-src
 //   - any element carries an on*= event-handler attribute or a javascript: URL
 // It also scans src/ for on*= attributes, define:vars and unhashed is:inline
 // scripts, so admin-only templates are covered even without a login.
@@ -109,13 +109,17 @@ function checkHtml(where, html, csp) {
   for (const { attrs, body } of scriptsOf(html)) {
     const type = (attrs.get('type') || '').toLowerCase();
     if (!JS_TYPES.has(type)) continue; // JSON data blocks never execute
+    // Only Cloudflare's edge-injected scripts carry the response nonce.
+    if (attrs.has('nonce') && sources.includes(`'nonce-${attrs.get('nonce')}'`)) continue;
     if (attrs.has('src')) {
       const src = new URL(decodeEntities(attrs.get('src')), BASE + '/');
-      if (src.origin !== new URL(BASE).origin) fail(where, `external script not allowed by 'self': ${src.href}`);
+      if (src.origin !== new URL(BASE).origin && !sources.includes(src.origin)) {
+        fail(where, `external script not allowed by script-src: ${src.href}`);
+      }
       continue;
     }
     const hash = sha256Source(body);
-    if (!sources.includes(hash)) fail(where, `inline script without a listed hash (${hash}): ${body.trim().slice(0, 80)}`);
+    if (!sources.includes(hash)) fail(where, `inline script without a listed hash or nonce (${hash}): ${body.trim().slice(0, 80)}`);
   }
 
   for (const tag of tagsOf(html)) {
@@ -232,10 +236,13 @@ async function scanSources() {
 // --- Self-test: the detector must catch known-bad markup -------------------------------
 
 function selfTest() {
-  const csp = "script-src 'self' " + sha256Source('ok();');
+  const csp = "script-src 'self' " + sha256Source('ok();') + " 'nonce-abc' https://static.cloudflareinsights.com";
   const cases = [
     ['<script>ok();</script><p>fine</p>', 0],
     ['<script>evil();</script>', 1],
+    ['<script nonce="abc">edge();</script>', 0],
+    ['<script nonce="xyz">edge();</script>', 1],
+    ['<script defer src="https://static.cloudflareinsights.com/beacon.min.js"></script>', 0],
     ['<select onchange="go()"></select>', 1],
     ['<a href="javascript:alert(1)">x</a>', 1],
     ['<script type="application/json">{"a":1}</script>', 0],
