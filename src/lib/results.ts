@@ -248,7 +248,7 @@ function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId
     'subsession_id,race_number,driver_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,classified,dsq';
   return restGet<RaceScoreRow[]>(
     env,
-    `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`
+    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`
   );
 }
 
@@ -297,7 +297,7 @@ function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
   // rows across pages.
   return restGetAll<RaceScoreBulkRow>(
     env,
-    `race_scores?select=${select}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`
+    `race_scores_public?select=${select}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`
   );
 }
 
@@ -324,7 +324,7 @@ function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
   return restGet<RaceScoreOverallRow[]>(
     env,
-    `race_scores?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`
   );
 }
 
@@ -344,7 +344,7 @@ function getRaceScoresForSubsessionsOverall(env: SupabaseEnv, subsessionIds: num
   if (subsessionIds.length === 0) return Promise.resolve([] as RaceScoreOverallRow[]);
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
-  return restGetAll<RaceScoreOverallRow>(env, `race_scores?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`);
+  return restGetAll<RaceScoreOverallRow>(env, `race_scores_public?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`);
 }
 
 interface CuratedQualifyingBulkRow {
@@ -2245,7 +2245,7 @@ export async function getLayoutClassHighlights(
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     restGetAll<RaceOneScoreRow>(
       env,
-      `race_scores?select=subsession_id,race_number,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`
+      `race_scores_public?select=subsession_id,race_number,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`
     ),
     restGetAll<RaceOneCuratedRow>(
       env,
@@ -2374,7 +2374,7 @@ export async function getLayoutClassBestLaps(
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
-      `race_scores?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`
+      `race_scores_public?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`
     ),
   ]);
 
@@ -2564,7 +2564,7 @@ export async function buildLayoutClassBestLaps(
       env,
       `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&best_lap_ten_thousandths=not.is.null`
     ),
-    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(env, `race_scores?select=subsession_id,driver_id,class_id`),
+    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(env, `race_scores_public?select=subsession_id,driver_id,class_id`),
   ]);
 
   const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
@@ -3879,7 +3879,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     dsq: boolean;
   }>(
     env,
-    `race_scores?select=${scoreSelect}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`
+    `race_scores_public?select=${scoreSelect}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`
   );
   if (scores.length === 0) return [];
 
@@ -5224,7 +5224,7 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,total_points,classified,dsq,scored_position';
   const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames] = await Promise.all([
-    restGet<RaceScoreWithClass[]>(env, `race_scores?select=${select}&subsession_id=eq.${subsessionId}`),
+    restGet<RaceScoreWithClass[]>(env, `race_scores_public?select=${select}&subsession_id=eq.${subsessionId}`),
     getCuratedRaceResultsForSubsessions(env, [subsessionId]),
     driversSelect(env, { includeAi: true }),
     getTeamsBasic(env),
@@ -5586,7 +5586,7 @@ export async function getQualifyingForSubsession(
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
       env,
-      `race_scores?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
+      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
     ),
   ]);
 
@@ -5688,7 +5688,7 @@ export async function getPracticeForSubsession(
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
       env,
-      `race_scores?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
+      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
     ),
   ]);
 

@@ -35,6 +35,12 @@ export interface SupabaseEnv {
    * carries onto the env every page already builds from `Astro.locals`.
    */
   hiddenSubsessionIds?: number[];
+  /**
+   * A signed-in user's JWT for restGet/restGetAll, so reads run under that
+   * user's RLS instead of the anon key's. Only set on admin paths that must
+   * see unposted rounds' penalties (0112) — see withAccessToken.
+   */
+  accessToken?: string;
 }
 
 /**
@@ -48,6 +54,7 @@ const SUBSESSION_KEYED_TABLES = new Set([
   'curated_qualifying',
   'curated_practice_results',
   'race_scores',
+  'race_scores_public',
   'penalties',
   'race_links',
   'round_overrides',
@@ -72,10 +79,15 @@ export function resolveSupabaseEnv(locals: App.Locals): SupabaseEnv {
   };
 }
 
+/** The same env, but reads go out as this user (their RLS applies). Admin-only paths, never on publicly cached pages. */
+export function withAccessToken(env: SupabaseEnv, accessToken: string): SupabaseEnv {
+  return { ...env, accessToken };
+}
+
 function restHeaders(env: SupabaseEnv) {
   return {
     apikey: env.anonKey,
-    Authorization: `Bearer ${env.anonKey}`,
+    Authorization: `Bearer ${env.accessToken ?? env.anonKey}`,
   };
 }
 

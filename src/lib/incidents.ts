@@ -136,7 +136,7 @@ async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[], inc
       ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
       : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
           env,
-          `race_scores?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`
+          `race_scores_public?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`
         ),
   ]);
 

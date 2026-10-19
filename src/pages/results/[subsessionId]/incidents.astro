@@ -156,7 +156,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         fileInput.addEventListener('change', () => {
           const files = Array.from(fileInput.files ?? []);
           if (files.length > 3) showError('You can attach up to 3 files.');
-          else if (files.some((f) => f.size > 10 * 1024 * 1024)) showError('Each file must be 10 MB or smaller.');
+          else if (files.some((f) => f.size > 5 * 1024 * 1024)) showError('Each file must be 5 MB or smaller.');
           else showError('');
         });
         appealForm.addEventListener('submit', (event) => {
@@ -164,9 +164,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           if (files.length > 3) {
             event.preventDefault();
             showError('You can attach up to 3 files.');
-          } else if (files.some((f) => f.size > 10 * 1024 * 1024)) {
+          } else if (files.some((f) => f.size > 5 * 1024 * 1024)) {
             event.preventDefault();
-            showError('Each file must be 10 MB or smaller.');
+            showError('Each file must be 5 MB or smaller.');
           }
         });
       }
