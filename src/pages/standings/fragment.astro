@@ -443,7 +443,7 @@ if (loadError) markUncacheable(Astro);
             <select
               name="season"
               data-logo-select
-              onchange="var r = this.form.elements.round; if (r) r.disabled = true; this.form.submit()"
+              data-submit-on-change data-disable-on-submit="round"
               class="w-44 h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
             >
               {championshipSeasons.map((s) => (
@@ -479,7 +479,7 @@ if (loadError) markUncacheable(Astro);
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
               <select
                 name="mode"
-                onchange="this.form.submit()"
+                data-submit-on-change
                 class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 <option value="list" selected={mode === 'list'} class="bg-brand-ink text-white">List</option>
@@ -491,7 +491,7 @@ if (loadError) markUncacheable(Astro);
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Championship</span>
               <select
                 name="championship"
-                onchange="this.form.submit()"
+                data-submit-on-change
                 class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 <option value="drivers" selected={championship === 'drivers'} class="bg-brand-ink text-white">Drivers</option>
@@ -502,7 +502,7 @@ if (loadError) markUncacheable(Astro);
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
               <select
                 name="class"
-                onchange="this.form.submit()"
+                data-submit-on-change
                 class="h-9 w-44 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
               >
                 {championship === 'drivers' ? (

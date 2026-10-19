@@ -319,7 +319,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
             Ruleset
             <select
               name="scoring_ruleset_id"
-              onchange="this.form.submit()"
+              data-submit-on-change
               class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
             >
               <option value="" class="bg-brand-ink text-white" selected={!season.scoring_ruleset_id}>
@@ -345,7 +345,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
               name="gamma_enabled"
               value="1"
               checked={season.gamma_enabled}
-              onchange="this.form.submit()"
+              data-submit-on-change
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Gamma
@@ -356,7 +356,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
               name="delta_enabled"
               value="1"
               checked={season.delta_enabled}
-              onchange="this.form.submit()"
+              data-submit-on-change
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Delta
@@ -367,7 +367,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
               name="delta_team_enabled"
               value="1"
               checked={season.delta_team_enabled}
-              onchange="this.form.submit()"
+              data-submit-on-change
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Delta Team
@@ -376,9 +376,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
         <form
           method="POST"
           data-astro-reload
-          onsubmit={`return confirm(${JSON.stringify(
-            `Recalculate every round in ${season.name}? This rescoring uses whatever ruleset is currently assigned and overwrites that season's existing race_scores.`
-          )});`}
+          data-confirm={`Recalculate every round in ${season.name}? This rescoring uses whatever ruleset is currently assigned and overwrites that season's existing race_scores.`}
         >
           <input type="hidden" name="intent" value="recalculate" />
           <input type="hidden" name="season_id" value={season.id} />

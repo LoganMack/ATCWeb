@@ -157,7 +157,7 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
                 <input type="hidden" name="profile_id" value={profile.id} />
                 <select
                   name="driver_id"
-                  onchange="this.form.submit()"
+                  data-submit-on-change
                   aria-label="Linked driver"
                   class="w-56 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                 >
@@ -181,7 +181,7 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
                 <input type="hidden" name="profile_id" value={profile.id} />
                 <select
                   name="role"
-                  onchange="this.form.submit()"
+                  data-submit-on-change
                   aria-label="Role"
                   class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
                 >

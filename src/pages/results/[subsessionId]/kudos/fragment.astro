@@ -242,7 +242,7 @@ if (loadError) markUncacheable(Astro);
                   </a>
                 )}
                 {session && (isAdmin || k.author_id === session.user.id) && (
-                  <form method="POST" action={formAction} data-astro-reload onsubmit="return confirm('Delete this kudos?')">
+                  <form method="POST" action={formAction} data-astro-reload data-confirm="Delete this kudos?">
                     <input type="hidden" name="intent" value="delete-kudos" />
                     <input type="hidden" name="kudos_id" value={k.id} />
                     <button type="submit" class="btn btn-neutral btn-sm">Delete</button>

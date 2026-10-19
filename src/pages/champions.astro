@@ -115,7 +115,7 @@ if (loadError) markUncacheable(Astro);
         {/* Each option's value is its destination URL; onchange just navigates there. */}
         <label class="flex flex-col gap-1.5 sm:w-44">
         <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-        <select aria-label="Class or team" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+        <select aria-label="Class or team" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" data-navigate-on-change>
           {visibleClasses.map((c) => (
             <option value={`/champions?class=${encodeURIComponent(c.name)}`} selected={!activeTeamView && c.id === activeClass?.id} class="bg-brand-ink text-white">{c.name}</option>
           ))}

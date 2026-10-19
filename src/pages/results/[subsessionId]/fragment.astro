@@ -766,7 +766,7 @@ if (loadError) markUncacheable(Astro);
           {roundPickerGroups.length > 0 && (
             <label class="hidden w-full flex-col gap-1.5 sm:flex sm:w-60">
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Round</span>
-              <select aria-label="Round" class={selectClass} onchange="window.location.href=this.value">
+              <select aria-label="Round" class={selectClass} data-navigate-on-change>
                 {roundPickerGroups.map((g) => (
                   <optgroup label={g.label} class="bg-brand-ink text-white">
                     {g.rounds.map((r) => (
@@ -779,7 +779,7 @@ if (loadError) markUncacheable(Astro);
           )}
           <label class="flex flex-col gap-1.5 sm:w-[6.6rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Session</span>
-            <select aria-label="Session" class={selectClass} onchange="window.location.href=this.value">
+            <select aria-label="Session" class={selectClass} data-navigate-on-change>
               {sessionChoices.map((o) => (
                 <option value={resultsHref(o.key, classKey)} selected={o.key === sessionKey} class="bg-brand-ink text-white">{o.label}</option>
               ))}
@@ -787,7 +787,7 @@ if (loadError) markUncacheable(Astro);
           </label>
           <label class="flex flex-col gap-1.5 sm:w-[6.6rem]">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Class</span>
-            <select aria-label="Class" class={selectClass} onchange="window.location.href=this.value">
+            <select aria-label="Class" class={selectClass} data-navigate-on-change>
               <option value={resultsHref(sessionKey, 'all')} selected={!activeClass} class="bg-brand-ink text-white">All</option>
               {classes.map((c) => (
                 <option value={resultsHref(sessionKey, c.name.toLowerCase())} selected={activeClass?.id === c.id} class="bg-brand-ink text-white">{c.name}</option>

@@ -211,7 +211,7 @@ if (loadError) markUncacheable(Astro);
         <div class="flex flex-wrap items-end gap-3">
           <label class="flex flex-col gap-1.5 sm:w-44">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Media</span>
-            <select aria-label="Media" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+            <select aria-label="Media" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" data-navigate-on-change>
               {TABS.map((t) => (
                 <option value={tabHref(t)} selected={tab === t} class="bg-brand-ink text-white">{TAB_LABELS[t]}</option>
               ))}
@@ -220,7 +220,7 @@ if (loadError) markUncacheable(Astro);
           {!loadError && tab === 'videos' && (
             <label class="flex flex-col gap-1.5 sm:w-44">
               <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Category</span>
-              <select aria-label="Video category" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" onchange="window.location.href=this.value">
+              <select aria-label="Video category" class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5" data-navigate-on-change>
                 {VIDEO_FILTERS.map((f) => (
                   <option value={filterHref(f)} selected={filter === f} class="bg-brand-ink text-white">{FILTER_LABELS[f]}</option>
                 ))}

@@ -32,7 +32,7 @@ const sections: { key: Props['active']; href: string; label: string }[] = [
   <select
     aria-label="History section"
     class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
-    onchange="window.location.href=this.value"
+    data-navigate-on-change
   >
     {sections.map((s) => (
       <option value={s.href} selected={s.key === active} class="bg-brand-ink text-white">{s.label}</option>
