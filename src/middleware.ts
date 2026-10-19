@@ -36,7 +36,7 @@ import {
   getProfile,
   refreshSession,
 } from './lib/auth';
-import { CONTENT_SECURITY_POLICY } from './lib/csp';
+import { contentSecurityPolicy, newCspNonce } from './lib/csp';
 import { cacheKeyUrl, isCacheAnonymous } from './lib/edgeCache';
 
 const ADMIN_PREFIX = '/admin';
@@ -103,12 +103,12 @@ function normalisePath(pathname: string): string | null {
 
 /**
  * Baseline security headers for every response. The CSP (src/lib/csp.ts)
- * allows scripts only from this origin plus the hashed inline theme script;
- * it also blocks framing by other sites, plugins, <base> hijacking and
- * cross-site form posts.
+ * allows scripts only from this origin plus the hashed inline theme script
+ * and Cloudflare's injected scripts; it also blocks framing by other sites,
+ * plugins, <base> hijacking and cross-site form posts. The CSP itself is set
+ * per response in withSecurityHeaders because its nonce must be fresh.
  */
 const SECURITY_HEADERS: Record<string, string> = {
-  'Content-Security-Policy': CONTENT_SECURITY_POLICY,
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
@@ -119,12 +119,13 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 function withSecurityHeaders(response: Response): Response {
+  const headers = { ...SECURITY_HEADERS, 'Content-Security-Policy': contentSecurityPolicy(newCspNonce()) };
   try {
-    for (const [k, v] of Object.entries(SECURITY_HEADERS)) response.headers.set(k, v);
+    for (const [k, v] of Object.entries(headers)) response.headers.set(k, v);
   } catch {
     // Immutable headers (e.g. a passthrough of a fetched Response) — rebuild.
     const copy = new Response(response.body, response);
-    for (const [k, v] of Object.entries(SECURITY_HEADERS)) copy.headers.set(k, v);
+    for (const [k, v] of Object.entries(headers)) copy.headers.set(k, v);
     return copy;
   }
   return response;
