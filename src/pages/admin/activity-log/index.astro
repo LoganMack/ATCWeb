@@ -7,7 +7,7 @@ export const prerender = false;
 // nothing on this page writes to activity_log itself, it only queries it.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, restGetAuthed, formatDate } from '../../../lib/supabase';
-import type { ActivityAction, ActivityLogRow } from '../../../lib/activityLog';
+import { signImportFileUrls, type ActivityAction, type ActivityLogRow } from '../../../lib/activityLog';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -55,6 +55,13 @@ try {
   console.error('Failed to load activity log:', err);
   loadError = true;
 }
+
+// The imports bucket is private (0115): spreadsheets download through one-hour signed links.
+const signedFileUrls = await signImportFileUrls(
+  supabaseEnv,
+  accessToken,
+  entries.map((e) => e.file_url)
+);
 
 const ACTION_LABELS: Record<ActivityAction, string> = { add: 'Added', edit: 'Edited', delete: 'Deleted' };
 const ACTION_BADGE_CLASSES: Record<ActivityAction, string> = {
@@ -176,11 +183,12 @@ function formatTimestamp(iso: string): string {
           <div class="flex flex-none flex-col items-end gap-1 text-right text-xs text-white/40">
             <span>{entry.actor_name}</span>
             <span>{formatTimestamp(entry.created_at)}</span>
-            {entry.file_url && (
-              <a href={entry.file_url} download={entry.file_name ?? undefined} class="font-semibold text-brand-primary hover:underline">
+            {entry.file_url && signedFileUrls.has(entry.file_url) && (
+              <a href={signedFileUrls.get(entry.file_url)} download={entry.file_name ?? undefined} class="font-semibold text-brand-primary hover:underline">
                 Download{entry.file_name ? ` (${entry.file_name})` : ''}
               </a>
             )}
+            {entry.file_url && !signedFileUrls.has(entry.file_url) && <span>Download unavailable</span>}
           </div>
         </div>
       ))}

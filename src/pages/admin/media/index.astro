@@ -28,6 +28,7 @@ import {
   type RaceLinks,
 } from '../../../lib/supabase';
 import { getAllRounds, driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results';
+import { isHttpUrl } from '../../../lib/security';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = Astro.locals.session!.accessToken;
@@ -102,6 +103,8 @@ if (Astro.request.method === 'POST') {
       const url = String(form.get('photo_album_url') ?? '').trim();
       if (!Number.isFinite(subsessionId)) {
         error = 'Invalid round.';
+      } else if (url.length > 0 && !isHttpUrl(url)) {
+        error = 'Photo album URL must start with http:// or https://.';
       } else {
         await upsertRaceLinks(supabaseEnv, accessToken, {
           subsession_id: subsessionId,

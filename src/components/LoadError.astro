@@ -1,0 +1,24 @@
+---
+/**
+ * Shared "couldn't load" notice. Shows only the generic text; `detail` is for
+ * admin pages and is rendered only when the viewer is a real admin.
+ */
+import { publicLoadErrorMessage } from '../lib/security';
+
+interface Props {
+  class?: string;
+  detail?: string | null;
+}
+
+const { class: className = 'mt-4', detail } = Astro.props;
+const showDetail = Boolean(detail) && Astro.locals.isRealAdmin === true;
+---
+
+<p
+  class:list={['rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80', className]}
+  role="alert"
+  data-load-error
+>
+  {publicLoadErrorMessage()}
+  {showDetail && <span class="mt-1 block text-white/50">{detail}</span>}
+</p>

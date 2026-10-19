@@ -45,12 +45,13 @@ if (Astro.request.method === 'POST' && !loadError) {
           error = 'You cannot delete your own account.';
         } else {
           await deleteUser(supabaseEnv, accessToken, profileId);
+          // ID only: the deleted person's email or name must not outlive the account in the log.
           await logActivity(supabaseEnv, accessToken, actor, {
             action: 'delete',
             entity_type: 'user',
-            entity_label: targetName,
+            entity_label: `User ${profileId}`,
             entity_id: profileId,
-            details: emailById.get(profileId) ? `Deleted ${emailById.get(profileId)}` : 'User deleted',
+            details: 'User deleted',
           });
         }
       } else if (intent === 'set-driver') {

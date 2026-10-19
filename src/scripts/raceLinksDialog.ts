@@ -22,5 +22,17 @@ function initRaceLinksDialog() {
     if (target instanceof HTMLDialogElement && target.hasAttribute('data-race-links-dialog')) target.close();
   });
 }
+// A refused save comes back with the dialog marked to reopen on its field error.
+function openRaceLinksWithError() {
+  const dialog = document.querySelector('dialog[data-race-links-autoopen]');
+  if (dialog instanceof HTMLDialogElement && !dialog.open) {
+    dialog.removeAttribute('data-race-links-autoopen');
+    dialog.showModal();
+  }
+}
+
 initRaceLinksDialog();
-document.addEventListener('astro:page-load', initRaceLinksDialog);
+document.addEventListener('astro:page-load', () => {
+  initRaceLinksDialog();
+  openRaceLinksWithError();
+});

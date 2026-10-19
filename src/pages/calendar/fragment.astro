@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable } from '../../lib/security';
 
 import EventDetailCard from '../../components/EventDetailCard.astro';
 import {
@@ -183,6 +185,7 @@ if (rulesetsResult) {
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 
 const todayStr = new Date().toISOString().slice(0, 10);
 // getEvents() has no date filter (see src/lib/supabase.ts), so backdated
@@ -286,11 +289,7 @@ const upcomingIcsBundle = upcoming
     </div>
     </div>
 
-    {loadError && (
-      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load the calendar right now — check that PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY are set.
-      </p>
-    )}
+    {loadError && <LoadError class="mt-8" />}
 
     {!loadError && events.length === 0 && <p class="mt-8 text-white/60">No results.</p>}
 

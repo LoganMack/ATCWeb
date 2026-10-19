@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable } from '../../lib/security';
 
 import ChampionCard from '../../components/ChampionCard.astro';
 import TeamChampionCard from '../../components/TeamChampionCard.astro';
@@ -127,16 +129,10 @@ if (!loadError && activeTeamView) {
 }
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
-{loadError && (
-  <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-    Couldn't load champions right now. If this mentions permission/RLS, race_scores or curated_race_results
-    likely still need the public-read policy from <code>supabase/migrations/0004_champions.sql</code> —
-    it has to be run manually in the Supabase SQL editor.
-    <br /><span class="mt-1 block text-white/50">{loadError}</span>
-  </p>
-)}
+{loadError && <LoadError />}
 
 {!loadError && activeTeamView && teamChampions.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
 

@@ -1,5 +1,7 @@
 ---
 export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable } from '../../lib/security';
 
 // The Event Briefing page — linked from the homepage's next-upcoming-event
 // card (src/components/UpcomingEventCard.astro, left of "Add to Calendar")
@@ -198,18 +200,14 @@ const circuitName = circuit?.name ?? event?.title ?? 'TBA';
 const layoutDisplayName = event?.layout ? displayLayoutName(event.layout) : event?.subtitle ?? null;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
 <Layout title={event ? `Event Briefing — ${circuitName}` : 'Event Briefing'} description="Everything to know before the next race weekend.">
   <section class="mx-auto max-w-4xl px-6 pb-24 pt-8">
     <a href="/" class="text-sm text-white/50 hover:text-white">&larr; Back to Home</a>
 
-    {loadError && (
-      <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load this event's briefing right now.
-        <br /><span class="mt-1 block text-white/50">{loadError}</span>
-      </p>
-    )}
+    {loadError && <LoadError />}
 
     {event && (
       <>

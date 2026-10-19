@@ -43,11 +43,24 @@ export function interviewExtension(mimeType: string): 'webm' | 'mp4' | 'ogg' | n
   return null;
 }
 
-/** Uploads the clip as the signed-in user (the bucket's insert policy requires a driver-linked login). Throws on failure. */
+/**
+ * Object path for a driver's clip for one round: "<driver id>/<subsession id>.<ext>".
+ * Storage policies only let a driver write inside their own folder (0114/0115),
+ * and the fixed name keeps it to one clip per driver per round.
+ */
+export function interviewAudioPath(driverId: string, subsessionId: number, ext: string): string {
+  return `${driverId}/${subsessionId}.${ext}`;
+}
+
+/**
+ * Uploads the clip as the signed-in user. x-upsert lets a retry overwrite the
+ * same path after a failed record step; storage refuses the overwrite once the
+ * clip has been submitted (0114). Throws on failure.
+ */
 export async function uploadInterviewAudio(env: SupabaseEnv, accessToken: string, path: string, file: Blob, contentType: string): Promise<void> {
   const res = await fetch(`${env.url}/storage/v1/object/${INTERVIEW_BUCKET}/${path}`, {
     method: 'POST',
-    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': contentType },
+    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': contentType, 'x-upsert': 'true' },
     body: file,
   });
   if (!res.ok) throw new Error(`Interview upload failed (${res.status}): ${await res.text()}`);

@@ -1,7 +1,8 @@
 ---
 export const prerender = false;
 
-import { safeJson } from '../../lib/security';
+import { safeJson, markUncacheable } from '../../lib/security';
+import LoadError from '../../components/LoadError.astro';
 import {
   resolveSupabaseEnv,
   getAllMediaGraphics,
@@ -201,6 +202,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
         : tab === 'meetups' && meetupPins.length > 0
           ? { id: 'media-search-meetups', placeholder: 'Search meetups…' }
           : null;
+if (loadError) markUncacheable(Astro);
 ---
 
     {/* Media and (on Videos) category pickers, always leftmost with Category right after Media; search sits to their right — each option's value is its destination URL; onchange just navigates there. */}
@@ -237,11 +239,7 @@ const searchBox: { id: string; placeholder: string } | null = loadError
       </div>
     </div>
 
-    {loadError && (
-      <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">
-        Couldn't load Media page content right now.
-      </p>
-    )}
+    {loadError && <LoadError class="mt-0" />}
 
     {!loadError && tab === 'videos' && (
       <>
