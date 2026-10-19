@@ -43,7 +43,9 @@ function scriptsOf(html) {
   const out = [];
   const re = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
   let m;
-  while ((m = re.exec(html))) out.push({ attrs: parseAttributes(m[1]), body: m[2] });
+  // Comments can mention "<script>" in prose; they are not elements.
+  const uncommented = html.replace(/<!--[\s\S]*?-->/g, '');
+  while ((m = re.exec(uncommented))) out.push({ attrs: parseAttributes(m[1]), body: m[2] });
   return out;
 }
 
@@ -168,8 +170,10 @@ async function checkPage(urlPath, { cookie, label } = {}) {
       continue;
     }
     checkedPages++;
-    // A fragment's markup runs under its parent page's policy once injected.
-    checkHtml(`${fragPath} (from ${where})`, frag.html, page.res.headers.get('content-security-policy'));
+    // Every response gets its own nonce, and Cloudflare stamps that response's nonce onto the
+    // scripts it injects, so a fragment is checked against its own header. A fragment with no
+    // header has no script-src and fails in checkHtml.
+    checkHtml(`${fragPath} (from ${where})`, frag.html, frag.res.headers.get('content-security-policy'));
   }
   return { html: page.html };
 }
