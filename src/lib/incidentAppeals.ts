@@ -7,6 +7,8 @@
  * from the moment the round's incident report was POSTED — the first moment
  * drivers can see the incident at all — so a round with no posted time
  * (not posted, or posted before appeals existed) has its appeals closed.
+ * Appeals need a signed-in user; the database enforces the window, the
+ * per-user limits and the upload folder too (0113).
  */
 
 import { restGetAuthed, restPatch, getSiteSettings, type SupabaseEnv } from './supabase';
@@ -14,7 +16,9 @@ import { siteSettingInt, INCIDENT_APPEAL_PERIOD_HOURS_KEY } from './siteSettings
 import { getRoundPostedAt } from './incidentReports';
 
 export const APPEAL_MAX_FILES = 3;
-export const APPEAL_MAX_FILE_BYTES = 10 * 1024 * 1024;
+/** Mirrors the 'incident-appeals' bucket's file_size_limit (0113). */
+export const APPEAL_MAX_FILE_MB = 5;
+export const APPEAL_MAX_FILE_BYTES = APPEAL_MAX_FILE_MB * 1024 * 1024;
 export const APPEAL_MAX_MESSAGE_LENGTH = 4000;
 /** Mirrors the 'incident-appeals' bucket's allowed_mime_types (0093). */
 export const APPEAL_ALLOWED_MIME_TYPES = [
@@ -76,13 +80,13 @@ export function safeAppealFileName(name: string): string {
   return cleaned || 'file';
 }
 
-/** Uploads one attached file into the private bucket — open to signed-out visitors via the bucket's insert policy. Throws on failure. */
-export async function uploadAppealFile(env: SupabaseEnv, accessToken: string | null, path: string, file: File): Promise<void> {
+/** Uploads one attached file into the private bucket, under the signed-in user's own `<user id>/` folder (the bucket's insert policy, 0113). Throws on failure. */
+export async function uploadAppealFile(env: SupabaseEnv, accessToken: string, path: string, file: File): Promise<void> {
   const res = await fetch(`${env.url}/storage/v1/object/${APPEAL_BUCKET}/${path}`, {
     method: 'POST',
     headers: {
       apikey: env.anonKey,
-      Authorization: `Bearer ${accessToken ?? env.anonKey}`,
+      Authorization: `Bearer ${accessToken}`,
       'Content-Type': file.type || 'application/octet-stream',
     },
     body: file,
@@ -90,17 +94,17 @@ export async function uploadAppealFile(env: SupabaseEnv, accessToken: string | n
   if (!res.ok) throw new Error(`Appeal file upload failed (${res.status}): ${await res.text()}`);
 }
 
-/** Records the appeal (SECURITY DEFINER function, 0093). Throws on failure. */
+/** Records the appeal (SECURITY DEFINER function, 0093; signed-in only since 0113). Throws on failure. */
 export async function createIncidentAppeal(
   env: SupabaseEnv,
-  accessToken: string | null,
+  accessToken: string,
   input: { id: string; penalty_id: string; message: string; files: AppealFileMeta[] }
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/submit_incident_appeal`, {
     method: 'POST',
     headers: {
       apikey: env.anonKey,
-      Authorization: `Bearer ${accessToken ?? env.anonKey}`,
+      Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ p_id: input.id, p_penalty_id: input.penalty_id, p_message: input.message, p_files: input.files }),

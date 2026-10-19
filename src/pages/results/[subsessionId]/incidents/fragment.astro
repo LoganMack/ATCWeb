@@ -11,6 +11,7 @@ export const prerender = false;
 // penalties as of this version.
 import {
   resolveSupabaseEnv,
+  withAccessToken,
   getPenaltiesForSubsession,
   getPenaltiesForSubsessions,
   getDrivers,
@@ -79,6 +80,7 @@ import {
   signAppealFileUrl,
   APPEAL_MAX_FILES,
   APPEAL_MAX_FILE_BYTES,
+  APPEAL_MAX_FILE_MB,
   APPEAL_MAX_MESSAGE_LENGTH,
   APPEAL_ALLOWED_MIME_TYPES,
   type AppealFileMeta,
@@ -99,11 +101,16 @@ import {
   type IncidentReportReview,
 } from '../../../../lib/incidentReports';
 
-const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI — and blocks the POST
 // handlers below — while previewing.
 const isAdmin = isAdminView(Astro.locals);
+// Admins read as themselves: an unposted round's penalties and score
+// deductions are hidden from the anon key (0112). Signed-in pages are never
+// edge-cached (src/middleware.ts), so this can't leak into a public copy.
+const supabaseEnv = isAdmin
+  ? withAccessToken(resolveSupabaseEnv(Astro.locals), Astro.locals.session!.accessToken)
+  : resolveSupabaseEnv(Astro.locals);
 const subsessionId = Number(Astro.params.subsessionId);
 // id of the Reported Incidents panel. Dismiss/Reopen and saving a review
 // redirect to it, so the steward lands back on their review queue instead of
@@ -134,11 +141,12 @@ async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
 const postForm: FormData | null =
   Astro.request.method === 'POST' && Number.isFinite(subsessionId) ? await Astro.request.formData() : null;
 
-// --- Submit an appeal (anyone, signed in or not) ---------------------------
+// --- Submit an appeal (signed-in users only) -------------------------------
 // Open only while the Incident Appeal Window is (see lib/incidentAppeals.ts);
-// re-checked here server-side. The files go into the private
-// 'incident-appeals' bucket first, then one SECURITY DEFINER call records the
-// appeal text + file list (0093_incident_appeals.sql).
+// re-checked here server-side and again in the database. The files go into
+// the private 'incident-appeals' bucket under the user's own folder first,
+// then one SECURITY DEFINER call records the appeal text + file list
+// (0093_incident_appeals.sql, 0113_bound_incident_submissions.sql).
 if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') {
   const back = (code: string) => {
     const url = new URL(Astro.url);
@@ -147,6 +155,8 @@ if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') {
   };
   // Honeypot — real users never fill this hidden field.
   if (String(postForm.get('website') ?? '').trim() !== '') return back('ok');
+  const appealSession = Astro.locals.session;
+  if (!appealSession) return back('signin');
   const appealCloses = await getAppealClosesAt(supabaseEnv, subsessionId);
   if (!isAppealOpen(appealCloses)) return back('closed');
 
@@ -162,10 +172,10 @@ if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') {
     const owned = await restGet<{ id: string }[]>(supabaseEnv, `penalties?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`);
     if (owned.length === 0) return back('invalid');
     const appealId = crypto.randomUUID();
-    const token = Astro.locals.session?.accessToken ?? null;
+    const token = appealSession.accessToken;
     const uploaded: AppealFileMeta[] = [];
     for (const [i, file] of files.entries()) {
-      const path = `${appealId}/${i + 1}-${safeAppealFileName(file.name)}`;
+      const path = `${appealSession.user.id}/${appealId}/${i + 1}-${safeAppealFileName(file.name)}`;
       await uploadAppealFile(supabaseEnv, token, path, file);
       uploaded.push({ path, name: file.name, size: file.size, type: file.type });
     }
@@ -939,7 +949,8 @@ let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   else if (flash === 'closed') appealFlash = { kind: 'error', message: 'The appeal window for this round has closed.' };
   else if (flash === 'invalid') appealFlash = { kind: 'error', message: 'Your appeal needs a written explanation.' };
   else if (flash === 'toomany') appealFlash = { kind: 'error', message: `You can attach up to ${APPEAL_MAX_FILES} files.` };
-  else if (flash === 'toolarge') appealFlash = { kind: 'error', message: 'Each file must be 10 MB or smaller.' };
+  else if (flash === 'toolarge') appealFlash = { kind: 'error', message: `Each file must be ${APPEAL_MAX_FILE_MB} MB or smaller.` };
+  else if (flash === 'signin') appealFlash = { kind: 'error', message: 'Sign in to submit an appeal.' };
   else if (flash === 'badtype') appealFlash = { kind: 'error', message: 'Attachments must be images, PDFs, videos (MP4/WebM/MOV) or text files.' };
   else if (flash === 'failed') appealFlash = { kind: 'error', message: "Couldn't save your appeal right now. Please try again." };
 }
@@ -2294,17 +2305,21 @@ const nextIncidentNumber =
             </dl>
 
             <div class="flex justify-end">
-              <button
-                type="button"
-                data-open-appeal-dialog
-                data-appeal-closes-at={appealClosesAt?.toISOString() ?? ''}
-                data-appeal-open={appealOpen ? 'true' : 'false'}
-                disabled={!appealOpen}
-                title={appealOpen ? 'Appeal this incident.' : 'The appeal window for this incident has closed.'}
-                class="btn btn-gold"
-              >
-                Submit Appeal
-              </button>
+              {appealOpen && !Astro.locals.session ? (
+                <a href={`/login?next=${encodeURIComponent(shellPath)}`} class="btn btn-gold">Sign in to appeal</a>
+              ) : (
+                <button
+                  type="button"
+                  data-open-appeal-dialog
+                  data-appeal-closes-at={appealClosesAt?.toISOString() ?? ''}
+                  data-appeal-open={appealOpen ? 'true' : 'false'}
+                  disabled={!appealOpen}
+                  title={appealOpen ? 'Appeal this incident.' : 'The appeal window for this incident has closed.'}
+                  class="btn btn-gold"
+                >
+                  Submit Appeal
+                </button>
+              )}
             </div>
           </div>
         </dialog>
@@ -2332,7 +2347,7 @@ const nextIncidentNumber =
               ></textarea>
             </label>
             <label class="block text-sm">
-              <span class="text-white/60">Attachments (optional — up to {APPEAL_MAX_FILES} files, 10 MB each)</span>
+              <span class="text-white/60">Attachments (optional — up to {APPEAL_MAX_FILES} files, {APPEAL_MAX_FILE_MB} MB each)</span>
               <input
                 type="file"
                 name="files"

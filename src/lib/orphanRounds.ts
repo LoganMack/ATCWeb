@@ -57,7 +57,7 @@ export async function getOrphanedRounds(env: SupabaseEnv): Promise<OrphanRound[]
   );
   if (rounds.length === 0) return [];
   const ids = rounds.map((r) => r.subsession_id).join(',');
-  const scoredRows = await restGetAll<{ subsession_id: number }>(env, `race_scores?select=subsession_id&subsession_id=in.(${ids})&race_number=eq.1`);
+  const scoredRows = await restGetAll<{ subsession_id: number }>(env, `race_scores_public?select=subsession_id&subsession_id=in.(${ids})&race_number=eq.1`);
   const scored = new Set(scoredRows.map((r) => r.subsession_id));
   return rounds.map((r) => ({
     ...r,

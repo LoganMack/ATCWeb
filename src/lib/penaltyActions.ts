@@ -12,6 +12,7 @@ import {
   updateDriver,
   getEvents,
   getPenaltiesForSubsessions,
+  withAccessToken,
   type SupabaseEnv,
 } from './supabase';
 import { getCurrentSeasonRounds } from './results';
@@ -35,7 +36,8 @@ export async function recomputeDriverSeasonPP(env: SupabaseEnv, accessToken: str
   ]);
   if (!driver || currentSeason.subsessionIds.length === 0) return;
 
-  const seasonPenalties = await getPenaltiesForSubsessions(env, currentSeason.subsessionIds);
+  // Read as the admin: penalties of rounds not yet posted are hidden from the anon key (0112) but still count.
+  const seasonPenalties = await getPenaltiesForSubsessions(withAccessToken(env, accessToken), currentSeason.subsessionIds);
   const driverPenalties = seasonPenalties.filter((p) => p.driver_id === driverId);
   const state = computeSeasonPPState(driver, driverPenalties, events);
 
