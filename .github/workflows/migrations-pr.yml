@@ -1,0 +1,218 @@
+# Pull-request checks for database migrations (W2 in the migration-history design).
+#
+# Runs on every pull request, with no path filter, so the three job names can be required checks;
+# each job ends green straight away when the PR changes nothing under supabase/. It uses
+# `pull_request` and never `pull_request_target`, so fork PRs run without secrets (BR3.1). No job
+# here reads production's schema: comparisons with production run only in the protected
+# deploy.yml and db-tools.yml jobs.
+#
+# The Supabase CLI comes from package.json (`supabase`, pinned exactly) through `npx supabase`.
+name: Migrations
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  migrations-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The base commit must be present to diff against it.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Detect changes under supabase/
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" HEAD -- supabase/; then
+            echo "No change under supabase/; nothing to check."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tool tests
+        if: steps.scope.outputs.changed == 'true'
+        run: node --test "supabase/tools/*.test.mjs"
+
+      - name: Migration rules
+        if: steps.scope.outputs.changed == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node supabase/tools/check-migrations.mjs --base "$BASE_SHA" --head HEAD
+
+  migrations-rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Detect changes under supabase/
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" HEAD -- supabase/; then
+            echo "No change under supabase/; nothing to rebuild."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [ ! -d supabase/migrations/archive ]; then
+            # Before the baseline PR, supabase/migrations/ still holds the 128 legacy numbered files,
+            # which cannot be replayed on an empty database. This job starts working once the
+            # baseline PR has moved them to the archive.
+            echo "Skipping: pre-cutover tree (no supabase/migrations/archive/). The rebuild starts working after the baseline PR."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read the migration rules output
+        id: rules
+        if: steps.scope.outputs.run == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Violations fail migrations-static; here only the outputs are needed.
+          node supabase/tools/check-migrations.mjs --base "$BASE_SHA" --head HEAD > "$RUNNER_TEMP/rules.txt" || true
+          cat "$RUNNER_TEMP/rules.txt"
+          grep -E '^(cutover|new_migrations)=' "$RUNNER_TEMP/rules.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies (pinned Supabase CLI)
+        if: steps.scope.outputs.run == 'true'
+        run: npm ci
+
+      - name: Start a throwaway local Supabase
+        if: steps.scope.outputs.run == 'true'
+        run: npx supabase start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Rebuild from every active migration (BR3.2)
+        if: steps.scope.outputs.run == 'true'
+        run: npx supabase db reset
+
+      - name: Skip the down-script exercise
+        if: steps.scope.outputs.run == 'true' && (steps.rules.outputs.cutover == 'true' || steps.rules.outputs.new_migrations == '')
+        run: |
+          if [ "${{ steps.rules.outputs.cutover }}" = "true" ]; then
+            echo "Skipping the down-script exercise: this is the cutover PR, and the baseline's down notes are comment-only."
+          else
+            echo "No new migrations in this PR; no down scripts to exercise."
+          fi
+
+      - name: Exercise the down scripts in reverse order (BR3.3)
+        if: steps.scope.outputs.run == 'true' && steps.rules.outputs.cutover != 'true' && steps.rules.outputs.new_migrations != ''
+        env:
+          NEW_MIGRATIONS: ${{ steps.rules.outputs.new_migrations }}
+        run: |
+          set -euo pipefail
+          local_url="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+          work="$RUNNER_TEMP/down-exercise"
+          mkdir -p "$work/new"
+          IFS=',' read -ra files <<< "$NEW_MIGRATIONS"
+
+          # Back to the base branch's schema: the PR's new files out, then rebuild (S0).
+          for f in "${files[@]}"; do mv "supabase/migrations/$f" "$work/new/$f"; done
+          npx supabase db reset
+          bash supabase/tools/snapshot.sh local "$work/s0.schema.sql" "$work/s0.platform.sql"
+
+          # All new migrations first, so one that depends on an earlier one in this PR still applies.
+          i=0
+          for f in "${files[@]}"; do
+            i=$((i + 1))
+            echo "Applying $f"
+            psql "$local_url" -X -q -v ON_ERROR_STOP=1 --single-transaction -f "$work/new/$f"
+            bash supabase/tools/snapshot.sh local "$work/s$i.schema.sql" "$work/s$i.platform.sql"
+          done
+
+          # Then Dn..D1; after each Di the schema must equal S(i-1).
+          for ((j = ${#files[@]}; j >= 1; j--)); do
+            f="${files[$((j - 1))]}"
+            down="supabase/down/${f%.sql}.down.sql"
+            echo "Running $down"
+            psql "$local_url" -X -q -v ON_ERROR_STOP=1 --single-transaction -f "$down"
+            bash supabase/tools/snapshot.sh local "$work/d$j.schema.sql" "$work/d$j.platform.sql"
+            bash supabase/tools/compare.sh "$down undoes $f" \
+              "$work/s$((j - 1)).schema.sql" "$work/s$((j - 1)).platform.sql" \
+              "$work/d$j.schema.sql" "$work/d$j.platform.sql"
+          done
+
+  migrations-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `secrets` cannot be tested reliably in a job-level `if`, so the gate is a step.
+      - name: Decide whether to dry-run
+        id: gate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          HAS_SECRET: ${{ secrets.CI_READONLY_DB_URL != '' }}
+          CUTOVER_DONE: ${{ vars.MIGRATIONS_CUTOVER_DONE }}
+        run: |
+          run=false
+          if git diff --quiet "$BASE_SHA" HEAD -- supabase/; then
+            echo "No change under supabase/; nothing to dry-run."
+          elif [ "$SAME_REPO" != "true" ]; then
+            echo "Skipping: PRs from forks get no secrets, so there is no dry run against production."
+          elif [ "$HAS_SECRET" != "true" ]; then
+            echo "Skipping: CI_READONLY_DB_URL is not available to this run (for example a Dependabot PR)."
+          elif [ "$CUTOVER_DONE" != "true" ]; then
+            echo "Skipping: MIGRATIONS_CUTOVER_DONE is not true yet; until the history cutover, production lists the legacy versions."
+          else
+            run=true
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - name: Read the migration rules output
+        id: rules
+        if: steps.gate.outputs.run == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node supabase/tools/check-migrations.mjs --base "$BASE_SHA" --head HEAD > "$RUNNER_TEMP/rules.txt" || true
+          grep -E '^new_migrations=' "$RUNNER_TEMP/rules.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies (pinned Supabase CLI)
+        if: steps.gate.outputs.run == 'true'
+        run: npm ci
+
+      # The URL uses Supabase's session-pooler form, because GitHub runners are IPv4-only:
+      #   postgresql://ci_reader.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+      # The ci_reader role can read only supabase_migrations.schema_migrations.
+      - name: Dry run against production history (BR3.4)
+        if: steps.gate.outputs.run == 'true'
+        env:
+          CI_READONLY_DB_URL: ${{ secrets.CI_READONLY_DB_URL }}
+          EXPECTED: ${{ steps.rules.outputs.new_migrations }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/dry-run.txt"
+          npx supabase db push --dry-run --db-url "$CI_READONLY_DB_URL" 2>&1 | tee "$out"
+          listed="$(grep -oE '[0-9]{14}_[a-z0-9_]+\.sql' "$out" | sort -u | paste -sd, - || true)"
+          expected="$(tr ',' '\n' <<< "$EXPECTED" | grep -v '^$' | sort -u | paste -sd, - || true)"
+          if [ "$listed" != "$expected" ]; then
+            echo "::error::The dry run would apply [$listed], but this PR adds [$expected]."
+            exit 1
+          fi
+          echo "The dry run lists exactly this PR's new migrations: [${expected}]."

@@ -1,0 +1,128 @@
+# Manual database tools (W5 in the migration-history design), run from the Actions tab or with
+#   gh workflow run db-tools.yml --ref <branch> -f action=<dump|compare|dry-run>
+#
+# dump and compare use environment `production` (PRODUCTION_DB_URL), so they run only on the
+# branches that environment allows. dry-run uses the read-only repository secret
+# CI_READONLY_DB_URL. Both URLs use Supabase's session-pooler form (GitHub runners are IPv4-only):
+#   postgresql://<role>.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+# with <role> `postgres` for PRODUCTION_DB_URL and `ci_reader` for CI_READONLY_DB_URL.
+# The Supabase CLI comes from package.json (pinned exactly) through `npx supabase`.
+name: DB tools
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "dump: baseline files from production; compare: production vs this branch's migrations; dry-run: pending migrations"
+        type: choice
+        options: [dump, compare, dry-run]
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Produces baseline_schema.sql and baseline_platform.sql from production. They are uploaded only
+  # when the secret scan is clean, because artifacts of a public repository can be downloaded.
+  dump:
+    if: ${{ inputs.action == 'dump' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Dump production's schema (two parts)
+        env:
+          DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DB_URL" ]; then
+            echo "::error::PRODUCTION_DB_URL is not set in environment production."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/baseline"
+          bash supabase/tools/snapshot.sh remote \
+            "$RUNNER_TEMP/baseline/baseline_schema.sql" "$RUNNER_TEMP/baseline/baseline_platform.sql"
+          wc -l "$RUNNER_TEMP/baseline/"*.sql
+
+      - name: Secret scan
+        run: node supabase/tools/secret-scan.mjs "$RUNNER_TEMP/baseline/baseline_schema.sql" "$RUNNER_TEMP/baseline/baseline_platform.sql"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baseline
+          path: ${{ runner.temp }}/baseline/
+          retention-days: 7
+          if-no-files-found: error
+
+  # Production against a throwaway database built from this branch's active migrations.
+  compare:
+    if: ${{ inputs.action == 'compare' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check this branch has the baseline
+        run: |
+          if [ ! -d supabase/migrations/archive ]; then
+            echo "::error::This branch has no supabase/migrations/archive/, so its supabase/migrations/ still holds the legacy files that cannot be rebuilt. Run compare on a branch with the baseline."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Rebuild a throwaway database from this branch's migrations
+        run: npx supabase start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Compare production with the rebuild
+        env:
+          DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DB_URL" ]; then
+            echo "::error::PRODUCTION_DB_URL is not set in environment production."
+            exit 1
+          fi
+          work="$RUNNER_TEMP/compare"
+          mkdir -p "$work"
+          bash supabase/tools/snapshot.sh local "$work/rebuild.schema.sql" "$work/rebuild.platform.sql"
+          bash supabase/tools/snapshot.sh remote "$work/production.schema.sql" "$work/production.platform.sql"
+          bash supabase/tools/compare.sh "Compare (rebuild vs production)" \
+            "$work/rebuild.schema.sql" "$work/rebuild.platform.sql" \
+            "$work/production.schema.sql" "$work/production.platform.sql"
+
+  dry-run:
+    if: ${{ inputs.action == 'dry-run' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Dry run against production history
+        env:
+          CI_READONLY_DB_URL: ${{ secrets.CI_READONLY_DB_URL }}
+        run: |
+          if [ -z "$CI_READONLY_DB_URL" ]; then
+            echo "::error::The repository secret CI_READONLY_DB_URL is not set."
+            exit 1
+          fi
+          npx supabase db push --dry-run --db-url "$CI_READONLY_DB_URL"
