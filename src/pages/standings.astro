@@ -87,6 +87,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 
 <script>
+  import { totalAsOf } from '../lib/seasonTotals';
+
   // "Standings by Round" slider: shows the standings as they were after round
   // N, for both the List and Matrix views, Drivers and Teams.
   //  - Matrix: round columns after N are hidden.
@@ -173,27 +175,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const origSort = new Map<HTMLElement, string | undefined>();
     document.querySelectorAll<HTMLElement>('[data-live]').forEach((el) => origSort.set(el, el.dataset.sortValue));
 
-    function totalAsOf(points: (number | null)[], n: number, drops: number) {
-      const pool = points.slice(0, n).map((p, i) => ({ i, p: p ?? 0 }));
-      const totalDrops = n >= minDropRounds ? drops : 0;
-      const dropped = new Set<number>();
-      let total: number;
-      if (!canDropFinal && n >= 1) {
-        const finalPts = pool[n - 1].p;
-        const rest = pool.slice(0, n - 1).sort((a, b) => b.p - a.p || a.i - b.i);
-        const dropCount = Math.min(totalDrops, Math.max(0, n - 1));
-        const keep = Math.max(0, rest.length - dropCount);
-        total = finalPts + rest.slice(0, keep).reduce((s, r) => s + r.p, 0);
-        rest.slice(keep).forEach((r) => dropped.add(r.i));
-      } else {
-        const ranked = [...pool].sort((a, b) => b.p - a.p || a.i - b.i);
-        const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
-        total = ranked.slice(0, ranked.length - dropCount).reduce((s, r) => s + r.p, 0);
-        ranked.slice(ranked.length - dropCount).forEach((r) => dropped.add(r.i));
-      }
-      return { total, dropped };
-    }
-
     const sumIdx = (rounds: (number[] | null)[], n: number, idx: number) => {
       let s = 0;
       for (let i = 0; i < n; i++) s += rounds[i]?.[idx] ?? 0;
@@ -254,7 +235,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         .map(([id, d]) => {
           const pts = d.r.map((r) => (r ? r[0] : null));
           const attended = d.r.slice(0, nOverall).some((r) => r !== null);
-          return { id, o: d.o, attended, total: totalAsOf(pts, nOverall, driverDrops).total, starts: sumIdx(d.r, nOverall, 1) };
+          return { id, o: d.o, attended, total: totalAsOf(pts, nOverall, driverDrops, minDropRounds, canDropFinal).total, starts: sumIdx(d.r, nOverall, 1) };
         })
         .filter((d) => d.attended)
         .sort((a, b) => b.total - a.total || a.o - b.o);
@@ -298,7 +279,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         if (!attended) continue;
 
         const pts = r.rounds.map((x) => (x ? x[0] : null));
-        const { total, dropped } = totalAsOf(pts, n, baseDrops);
+        const { total, dropped } = totalAsOf(pts, n, baseDrops, minDropRounds, canDropFinal);
         const apps = r.rounds.slice(0, n).filter((x) => x !== null).length;
         let keys: number[];
 
@@ -391,6 +372,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </script>
 
 <script>
+  import { totalAsOf } from '../lib/seasonTotals';
+
   // Graph view: cumulative points per driver/team (a running sum of each
   // round's points). By default drop weeks are NOT applied, so lines can end
   // above the Total shown in List/Matrix; ticking "Drop Weeks" re-totals every
@@ -416,30 +399,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const dropBox = document.getElementById('graph-drop-weeks') as HTMLInputElement | null;
     let dropOn = false;
 
-    // Same rule as totalAsOf() in the Standings by Round slider script above:
-    // after n rounds, drop the worst `drops` (only once n >= minDropRounds),
-    // never dropping the latest round unless the ruleset allows it, and always
-    // keeping at least one round.
-    function totalWithDrops(points: (number | null)[], n: number) {
-      const pool = points.slice(0, n).map((p, i) => ({ i, p: p ?? 0 }));
-      const totalDrops = n >= data.minDropRounds ? data.drops : 0;
-      if (!data.canDropFinal && n >= 1) {
-        const finalPts = pool[n - 1].p;
-        const rest = pool.slice(0, n - 1).sort((a, b) => b.p - a.p || a.i - b.i);
-        const dropCount = Math.min(totalDrops, Math.max(0, n - 1));
-        return finalPts + rest.slice(0, rest.length - dropCount).reduce((s, r) => s + r.p, 0);
-      }
-      const ranked = [...pool].sort((a, b) => b.p - a.p || a.i - b.i);
-      const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
-      return ranked.slice(0, ranked.length - dropCount).reduce((s, r) => s + r.p, 0);
-    }
     const dropCache = new Map<string, (number | null)[]>();
     // The value plotted for series `s` at round index `i` under the current Drop Weeks setting.
     function val(s: Series, i: number): number | null {
       if (!dropOn) return s.cum[i];
       let arr = dropCache.get(s.id);
       if (!arr) {
-        arr = s.cum.map((c, k) => (c === null ? null : totalWithDrops(s.pts, k + 1)));
+        // Same drop rules as the slider's totals (src/lib/seasonTotals.ts).
+        arr = s.cum.map((c, k) =>
+          c === null ? null : totalAsOf(s.pts, k + 1, data.drops, data.minDropRounds, data.canDropFinal).total
+        );
         dropCache.set(s.id, arr);
       }
       return arr[i];

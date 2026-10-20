@@ -397,7 +397,7 @@ const graphSeries = (
 const graphJson = JSON.stringify({
   cols: matrixColumns.map((c) => ({ r: c.roundNumber, t: c.startTime, k: matrixColumnTitle(c.trackName, c.format) })),
   series: graphSeries,
-  // Same drop rules the List/Matrix totals use (see totalAsOf in standings.astro): drivers drop their worst N rounds once the season has run MIN_ROUNDS_FOR_DROPS rounds; teams never drop.
+  // Same drop rules the List/Matrix totals use (see totalAsOf in src/lib/seasonTotals.ts): drivers drop their worst N rounds once the season has run MIN_ROUNDS_FOR_DROPS rounds; teams never drop.
   drops: championship === 'drivers' ? driverDropWeeks : 0,
   minDropRounds: MIN_ROUNDS_FOR_DROPS,
   canDropFinal: matrixCanDropFinalRound,
