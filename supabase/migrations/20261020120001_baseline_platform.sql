@@ -10,6 +10,8 @@
 -- 20261020120000_baseline_schema.sql). Without this part a rebuilt database would have no
 -- buckets, no storage policies and no profile row for new sign-ups. It runs after part 1
 -- because the policies and the trigger function use the site's tables and functions.
+-- Its ALTER DEFAULT PRIVILEGES lines also switch back on the defaults part 1 switched off
+-- while the site's objects were created.
 --
 -- The supabase_admin default privileges at the end stay commented out: they cannot be set
 -- as the migration role, and a new Supabase project already has them.

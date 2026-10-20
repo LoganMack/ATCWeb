@@ -12,6 +12,15 @@
 -- lists exactly these two versions after the history cutover (supabase/tools/history-cutover.sql).
 --
 -- Never edit this file. Change the schema with a new timestamped migration and its down script.
+--
+-- One addition before the dump: a new Supabase project grants anon, authenticated and
+-- service_role default rights on every new table, sequence and function in `public`. Left on
+-- while this file runs, those defaults would hand anon EXECUTE on functions production has
+-- revoked. They are switched off here, so the dump's own GRANT/REVOKE lines are the only
+-- rights each object gets, exactly as in production; part 2 switches them back on at the end.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated, service_role;
 
 
 
