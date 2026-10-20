@@ -3083,7 +3083,7 @@ export interface Penalty {
   appeal_penalty_points: number;
 }
 
-interface PenaltyRow {
+export interface PenaltyRow {
   id: string;
   subsession_id: number;
   race_number: number;
@@ -3112,7 +3112,7 @@ const PENALTY_SELECT =
   'is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,' +
   'penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)';
 
-function toPenalty(row: PenaltyRow): Penalty {
+export function toPenalty(row: PenaltyRow): Penalty {
   const { penalty_offense_links, penalty_involved_drivers, ...rest } = row;
   return {
     ...rest,

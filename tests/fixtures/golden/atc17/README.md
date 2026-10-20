@@ -67,4 +67,6 @@ unpaged) was not truncated.
 - Drivers carry only `id`, `name` and the stand-in customer id. The other fields the code's driver
   shape has are fixed (`null` or `false`), because standings never read them. No bio, no
   `created_by`.
+- Steward penalty descriptions (`penalties[].description`) are kept verbatim. They mention car
+  numbers and other drivers, as the public site already shows them.
 - The files were checked with `node supabase/tools/secret-scan.mjs` (clean) and read before commit.

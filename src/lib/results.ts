@@ -145,7 +145,7 @@ export function isDecidedChampionshipSeason(season: Pick<Season, 'name' | 'is_cu
 // Raw row shapes
 // ---------------------------------------------------------------------------
 
-interface RaceScoreRow {
+export interface RaceScoreRow {
   subsession_id: number;
   race_number: number;
   driver_id: string;
@@ -167,7 +167,7 @@ interface RaceScoreRow {
   dsq: boolean;
 }
 
-interface CuratedRaceResultRow {
+export interface CuratedRaceResultRow {
   subsession_id: number;
   race_number: number;
   cust_id: number;
@@ -301,7 +301,7 @@ function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
   );
 }
 
-interface RaceScoreOverallRow {
+export interface RaceScoreOverallRow {
   subsession_id: number;
   race_number: number;
   driver_id: string;
@@ -397,7 +397,7 @@ function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: nu
   );
 }
 
-interface RawLapStatsRow {
+export interface RawLapStatsRow {
   subsession_id: number;
   race_number: number;
   cust_id: number;
@@ -582,7 +582,7 @@ export async function getCurrentSeasonRounds(env: SupabaseEnv): Promise<CurrentS
   };
 }
 
-interface SeasonOverallContext {
+export interface SeasonOverallContext {
   /** (subsessionId:raceNumber:driverId) -> adjustment, only for races a penalty actually touched. */
   adjustments: Map<string, SeasonOverallAdjustment>;
   penalties: Penalty[];
@@ -680,7 +680,7 @@ export async function getSeasonOverallContext(
  * once per season, on slices of ONE bulk multi-season fetch instead —
  * see that function's own doc comment for why.
  */
-function buildSeasonOverallContext(
+export function buildSeasonOverallContext(
   exhibitionIds: Set<number>,
   drivers: DriverBasic[],
   overallScoresRaw: RaceScoreOverallRow[],
@@ -975,7 +975,7 @@ export const MIN_ROUNDS_FOR_DROPS = 5;
  * round_number; otherwise picking either would be equally arbitrary.
  * Returns null for a season with no eligible rounds at all yet.
  */
-function findFinalRoundSubsessionId(
+export function findFinalRoundSubsessionId(
   seasonRounds: RoundSummary[],
   excludedRoundIds: Set<number>,
 ): number | null {
@@ -993,7 +993,7 @@ function findFinalRoundSubsessionId(
   return final.subsession_id;
 }
 
-interface StandingsAccum {
+export interface StandingsAccum {
   starts: number;
   subsessionIds: Set<number>;
   poleSubsessionIds: Set<number>;
@@ -1076,7 +1076,7 @@ function roundStatFor(a: StandingsAccum, subsessionId: number): StandingsRoundSt
  * enough of them for a "worst round" to be a meaningful outlier rather than
  * a third of the season.
  */
-function finalizeStandings(
+export function finalizeStandings(
   accum: Map<string, StandingsAccum>,
   driverById: Map<string, DriverBasic>,
   season: Season,
@@ -1233,6 +1233,61 @@ export async function computeSeasonStandings(
     classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
     rulesets ? Promise.resolve(rulesets) : getScoringRulesets(env),
   ]);
+  // The exclusion filter and empty check run here, before the context fetch,
+  // so an empty class costs no context fetch. buildSeasonStandings repeats
+  // them so it is correct on its own.
+  const scores =
+    exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+  if (scores.length === 0) return [];
+
+  // Cross-class penalty context — this class's finish points are based on
+  // OVERALL field position, which a penalty against a driver in a DIFFERENT
+  // class in the same race can also shift, so this class's own (filtered)
+  // `scores` alone isn't enough to know that. See getSeasonOverallContext.
+  const overallContext =
+    precomputedOverallContext ??
+    (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
+  return buildSeasonStandings({
+    season,
+    classId,
+    scoresRaw,
+    drivers,
+    exhibitionIds,
+    classes,
+    rulesets: allRulesets,
+    overallContext,
+  });
+}
+
+/** Everything `buildSeasonStandings` needs, already fetched. */
+export interface ClassStandingsInputs {
+  season: Season;
+  classId: number;
+  /** race_scores_public rows for this season and class, before excluded rounds are removed. */
+  scoresRaw: RaceScoreRow[];
+  drivers: DriverBasic[];
+  /** Standings-excluded rounds (exhibition or test). */
+  exhibitionIds: Set<number>;
+  classes: Lookup[];
+  rulesets: ScoringRuleset[];
+  overallContext: SeasonOverallContext;
+}
+
+/**
+ * Pure (no network) body of `computeSeasonStandings`: one season and class's
+ * standings from rows already fetched. Kept separate so tests can run it on
+ * plain arrays.
+ */
+export function buildSeasonStandings({
+  season,
+  classId,
+  scoresRaw,
+  drivers,
+  exhibitionIds,
+  classes,
+  rulesets: allRulesets,
+  overallContext,
+}: ClassStandingsInputs): DriverSeasonStanding[] {
   // Defaults to protected (canDropFinalRound=false) when no ruleset resolves
   // at all — see ScoringRuleset.can_drop_final_round's own doc comment.
   const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
@@ -1253,17 +1308,10 @@ export async function computeSeasonStandings(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
 
-  // Cross-class penalty context — this class's finish points are based on
-  // OVERALL field position, which a penalty against a driver in a DIFFERENT
-  // class in the same race can also shift, so this class's own (filtered)
-  // `scores` alone isn't enough to know that. See getSeasonOverallContext.
-  // Its own `rawByKey` already covers every subsession this whole SEASON
-  // raced (a superset of this one class's own subsessions), so it doubles
-  // as this class's curated_race_results lookup too — no separate fetch
-  // needed for that anymore.
-  const overallContext =
-    precomputedOverallContext ??
-    (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
+  // The context's own `rawByKey` already covers every subsession this whole
+  // SEASON raced (a superset of this one class's own subsessions), so it
+  // doubles as this class's curated_race_results lookup too — no separate
+  // fetch needed for that anymore.
   const rawByKey = overallContext.rawByKey;
 
   // Group this class's race_scores rows by (subsession_id, race_number) so
@@ -1553,11 +1601,43 @@ export async function computeOverallSeasonStandings(
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     rulesets ? Promise.resolve(rulesets) : getScoringRulesets(env),
   ]);
-  const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
 
   const overallContext =
     precomputedOverallContext ??
     (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
+  return buildOverallSeasonStandings({
+    season,
+    drivers,
+    exhibitionIds,
+    rulesets: allRulesets,
+    overallContext,
+  });
+}
+
+/** Everything `buildOverallSeasonStandings` needs, already fetched. */
+export interface OverallStandingsInputs {
+  season: Season;
+  drivers: DriverBasic[];
+  /** Standings-excluded rounds (exhibition or test). */
+  exhibitionIds: Set<number>;
+  rulesets: ScoringRuleset[];
+  overallContext: SeasonOverallContext;
+}
+
+/**
+ * Pure (no network) body of `computeOverallSeasonStandings`: every class
+ * combined, from rows already fetched. Kept separate so tests can run it on
+ * plain arrays.
+ */
+export function buildOverallSeasonStandings({
+  season,
+  drivers,
+  exhibitionIds,
+  rulesets: allRulesets,
+  overallContext,
+}: OverallStandingsInputs): DriverSeasonStanding[] {
+  const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
+
   const scores = overallContext.overallScores;
   if (scores.length === 0) return [];
 
