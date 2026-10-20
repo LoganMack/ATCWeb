@@ -159,7 +159,9 @@ jobs:
             echo "::error::PRODUCTION_DB_URL is not set in environment production."
             exit 1
           fi
-          npx supabase db push --db-url "$PRODUCTION_DB_URL" --skip-vault --yes
+          # --include-all: two PRs can merge out of timestamp order; without it the CLI refuses
+          # the older-numbered migration and every later deploy stops here.
+          npx supabase db push --db-url "$PRODUCTION_DB_URL" --skip-vault --include-all --yes
 
   deploy:
     needs: [gates, drift-check, apply]

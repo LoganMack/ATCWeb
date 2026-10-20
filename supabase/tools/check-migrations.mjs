@@ -2,12 +2,16 @@
 // Migration rule checker (BR1.1–BR1.6 in the migration-history design), run by the
 // `migrations-static` job and by hand:
 //
-//   node supabase/tools/check-migrations.mjs --base origin/main --head HEAD
+//   node supabase/tools/check-migrations.mjs --base origin/main --head HEAD [--applied versions.txt]
+//
+// --applied names a file with production's applied versions (one per line). With it, an edit to
+// a merged migration that production never applied is allowed, so a failed deploy can be fixed.
 //
 // It compares two git refs, prints one message per violation (naming the file), then prints
 // `cutover=true|false` and `new_migrations=<file,file,...>` so workflows can read them, and exits
 // 1 when any rule is broken. Dependency-free on purpose: it runs before `npm ci` in CI.
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const ACTIVE_DIR = 'supabase/migrations/';
@@ -97,7 +101,7 @@ function changedFiles(cwd, base, head) {
  * Checks the change from `base` to `head` in the repository at `cwd`.
  * Returns { violations: [{ file, message }], cutover, newMigrations }.
  */
-export function checkMigrations({ base, head = 'HEAD', cwd = process.cwd() }) {
+export function checkMigrations({ base, head = 'HEAD', cwd = process.cwd(), appliedVersions = null }) {
   const baseFiles = listFiles(cwd, base);
   const headFiles = listFiles(cwd, head);
   const baseHasArchive = [...baseFiles].some(isArchive);
@@ -176,10 +180,17 @@ export function checkMigrations({ base, head = 'HEAD', cwd = process.cwd() }) {
       if (isArchive(change.path) && baseHasArchive) {
         fail(change.path, 'files in supabase/migrations/archive/ are never edited (BR1.3)');
       } else if (isActive(change.path)) {
-        fail(
-          change.path,
-          'an active migration on the base branch must not be edited; add a new migration (BR1.6)',
-        );
+        // A merged migration that failed to apply blocks every later deploy until it is corrected,
+        // so it may be edited, but only when production's history (read by the caller) shows it
+        // never ran. Without that list (forks, no secret) every edit stays refused.
+        const match = MIGRATION_NAME.exec(basename(change.path));
+        const unapplied = appliedVersions !== null && match !== null && !appliedVersions.has(match[1]);
+        if (!unapplied) {
+          fail(
+            change.path,
+            'an active migration on the base branch must not be edited; add a new migration (BR1.6)',
+          );
+        }
       }
     } else if (change.kind === 'R' || change.kind === 'C') {
       const { from, to, score } = change;
@@ -211,13 +222,23 @@ export function checkMigrations({ base, head = 'HEAD', cwd = process.cwd() }) {
 }
 
 function parseArgs(argv) {
-  const args = { base: null, head: 'HEAD' };
+  const args = { base: null, head: 'HEAD', appliedVersions: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--base') args.base = argv[++i];
     else if (argv[i] === '--head') args.head = argv[++i];
-    else throw new Error(`unknown argument ${argv[i]}`);
+    else if (argv[i] === '--applied') {
+      // One version per line: production's supabase_migrations.schema_migrations.
+      const text = readFileSync(argv[++i], 'utf8');
+      args.appliedVersions = new Set(
+        text
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean),
+      );
+    } else throw new Error(`unknown argument ${argv[i]}`);
   }
-  if (!args.base) throw new Error('usage: check-migrations.mjs --base <ref> [--head <ref>]');
+  if (!args.base)
+    throw new Error('usage: check-migrations.mjs --base <ref> [--head <ref>] [--applied <file>]');
   return args;
 }
 

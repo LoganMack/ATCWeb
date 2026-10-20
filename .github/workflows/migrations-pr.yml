@@ -44,11 +44,33 @@ jobs:
         if: steps.scope.outputs.changed == 'true'
         run: node --test "supabase/tools/*.test.mjs"
 
+      # Production's applied versions, read with the read-only ci_reader role, let a merged
+      # migration that never applied be corrected. Forks and runs without the secret get no list,
+      # so every edit to a merged migration stays refused for them.
+      - name: Read production's applied versions
+        id: applied
+        if: steps.scope.outputs.changed == 'true' && github.event.pull_request.head.repo.full_name == github.repository && vars.MIGRATIONS_CUTOVER_DONE == 'true'
+        env:
+          CI_READONLY_DB_URL: ${{ secrets.CI_READONLY_DB_URL }}
+        run: |
+          if [ -z "$CI_READONLY_DB_URL" ]; then
+            echo "No CI_READONLY_DB_URL; edits to merged migrations stay refused."
+            exit 0
+          fi
+          psql "$CI_READONLY_DB_URL" -X -At -c "select version from supabase_migrations.schema_migrations" > "$RUNNER_TEMP/applied.txt"
+          echo "file=$RUNNER_TEMP/applied.txt" >> "$GITHUB_OUTPUT"
+
       - name: Migration rules
         if: steps.scope.outputs.changed == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: node supabase/tools/check-migrations.mjs --base "$BASE_SHA" --head HEAD
+          APPLIED_FILE: ${{ steps.applied.outputs.file }}
+        run: |
+          if [ -n "$APPLIED_FILE" ]; then
+            node supabase/tools/check-migrations.mjs --base "$BASE_SHA" --head HEAD --applied "$APPLIED_FILE"
+          else
+            node supabase/tools/check-migrations.mjs --base "$BASE_SHA" --head HEAD
+          fi
 
   migrations-rebuild:
     runs-on: ubuntu-latest
