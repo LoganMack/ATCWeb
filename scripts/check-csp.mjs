@@ -69,7 +69,8 @@ function tagsOf(html) {
     .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script\s*>)/gi, '$1$2')
     .replace(/(<style\b[^>]*>)[\s\S]*?(<\/style\s*>)/gi, '$1$2');
   const tags = [];
-  const re = /<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+(?:[^\s"'>\/=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>/g;
+  const re =
+    /<([a-zA-Z][a-zA-Z0-9-]*)((?:\s+(?:[^\s"'>\/=]+)(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>/g;
   let m;
   while ((m = re.exec(stripped))) tags.push({ name: m[1].toLowerCase(), attrs: parseAttributes(m[2]) });
   return tags;
@@ -121,13 +122,18 @@ function checkHtml(where, html, csp) {
       continue;
     }
     const hash = sha256Source(body);
-    if (!sources.includes(hash)) fail(where, `inline script without a listed hash or nonce (${hash}): ${body.trim().slice(0, 80)}`);
+    if (!sources.includes(hash))
+      fail(where, `inline script without a listed hash or nonce (${hash}): ${body.trim().slice(0, 80)}`);
   }
 
   for (const tag of tagsOf(html)) {
     for (const [name, value] of tag.attrs) {
-      if (/^on[a-z]+$/.test(name)) fail(where, `<${tag.name}> has inline handler ${name}="${value.slice(0, 60)}"`);
-      if (['href', 'src', 'action', 'formaction'].includes(name) && /^\s*javascript:/i.test(decodeEntities(value))) {
+      if (/^on[a-z]+$/.test(name))
+        fail(where, `<${tag.name}> has inline handler ${name}="${value.slice(0, 60)}"`);
+      if (
+        ['href', 'src', 'action', 'formaction'].includes(name) &&
+        /^\s*javascript:/i.test(decodeEntities(value))
+      ) {
         fail(where, `<${tag.name}> has a javascript: URL in ${name}`);
       }
     }
@@ -196,7 +202,9 @@ async function adminCookie() {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: BASE },
     body: new URLSearchParams({ email, password }),
   });
-  const cookies = (res.headers.getSetCookie?.() ?? []).map((c) => c.split(';')[0]).filter((c) => /^atc_(at|rt)=/.test(c));
+  const cookies = (res.headers.getSetCookie?.() ?? [])
+    .map((c) => c.split(';')[0])
+    .filter((c) => /^atc_(at|rt)=/.test(c));
   return cookies.length > 0 ? cookies.join('; ') : null;
 }
 
@@ -224,15 +232,19 @@ async function scanSources() {
         .replace(/<!--[\s\S]*?-->/g, '')
         .replace(/(<script\b[^>]*>)[\s\S]*?(<\/script\s*>)/gi, '$1$2')
         .replace(/(<style\b[^>]*>)[\s\S]*?(<\/style\s*>)/gi, '$1$2');
-      for (const m of markup.matchAll(/<[a-zA-Z][^>]*?\son[a-z]+\s*=/g)) fail(rel, `inline handler in template: ${m[0].slice(0, 80)}`);
-      if (/<script\b[^>]*define:vars/.test(text)) fail(rel, 'define:vars script (renders a per-request inline script)');
+      for (const m of markup.matchAll(/<[a-zA-Z][^>]*?\son[a-z]+\s*=/g))
+        fail(rel, `inline handler in template: ${m[0].slice(0, 80)}`);
+      if (/<script\b[^>]*define:vars/.test(text))
+        fail(rel, 'define:vars script (renders a per-request inline script)');
       for (const m of text.matchAll(/<script\b([^>]*)\bis:inline\b([^>]*)>/g)) {
         const attrs = m[1] + m[2];
         if (/type=["']application\/(ld\+)?json["']/.test(attrs)) continue;
-        if (!/set:html=\{THEME_INIT_SCRIPT\}/.test(attrs)) fail(rel, 'is:inline script whose hash is not managed in src/lib/csp.ts');
+        if (!/set:html=\{THEME_INIT_SCRIPT\}/.test(attrs))
+          fail(rel, 'is:inline script whose hash is not managed in src/lib/csp.ts');
       }
     }
-    if (rel.endsWith('.ts') && /innerHTML\s*=.*\son[a-z]+=/.test(text)) fail(rel, 'HTML string with an inline handler');
+    if (rel.endsWith('.ts') && /innerHTML\s*=.*\son[a-z]+=/.test(text))
+      fail(rel, 'HTML string with an inline handler');
   }
   if (!/INLINE_SCRIPT_HASHES/.test(hashesSource)) fail('src/lib/csp.ts', 'INLINE_SCRIPT_HASHES missing');
 }
@@ -240,7 +252,8 @@ async function scanSources() {
 // --- Self-test: the detector must catch known-bad markup -------------------------------
 
 function selfTest() {
-  const csp = "script-src 'self' " + sha256Source('ok();') + " 'nonce-abc' https://static.cloudflareinsights.com";
+  const csp =
+    "script-src 'self' " + sha256Source('ok();') + " 'nonce-abc' https://static.cloudflareinsights.com";
   const cases = [
     ['<script>ok();</script><p>fine</p>', 0],
     ['<script>evil();</script>', 1],
@@ -289,17 +302,38 @@ async function main() {
   const driverId = await firstMatch('/roster/fragment', /\/drivers\/([0-9a-f-]{36})\b/);
 
   const publicPages = ['/', '/login', '/signup', '/standings'];
-  if (subsessionId) publicPages.push(`/results/${subsessionId}`, `/results/${subsessionId}/incidents`, `/results/${subsessionId}/kudos`);
+  if (subsessionId)
+    publicPages.push(
+      `/results/${subsessionId}`,
+      `/results/${subsessionId}/incidents`,
+      `/results/${subsessionId}/kudos`,
+    );
   else fail('discovery', 'no round found on /results/fragment, so the results model pages were not checked');
   if (driverId) publicPages.push(`/drivers/${driverId}`);
   else fail('discovery', 'no driver found on /roster/fragment, so the driver model page was not checked');
   // Pages whose own markup held inline handlers.
-  publicPages.push('/calendar', '/champions', '/driver-stats', '/team-stats', '/media', '/results', '/teams', '/hall-of-fame');
+  publicPages.push(
+    '/calendar',
+    '/champions',
+    '/driver-stats',
+    '/team-stats',
+    '/media',
+    '/results',
+    '/teams',
+    '/hall-of-fame',
+  );
 
   for (const p of publicPages) await checkPage(p);
 
   const cookie = await adminCookie();
-  const adminPages = ['/admin/awards', '/admin/interviews', '/admin/rulesets', '/admin/seasons', '/admin/users', '/admin/import'];
+  const adminPages = [
+    '/admin/awards',
+    '/admin/interviews',
+    '/admin/rulesets',
+    '/admin/seasons',
+    '/admin/users',
+    '/admin/import',
+  ];
   if (cookie) {
     // admin/teams/[id].astro held a handler; take the first team from the admin list.
     const { html } = await fetchPage('/admin/teams', cookie);
@@ -315,7 +349,8 @@ async function main() {
       continue;
     }
     const result = await checkPage(p, { cookie });
-    if (result?.redirected) skipped.push(`${p} (redirected to ${result.redirected}: the test account is not an admin)`);
+    if (result?.redirected)
+      skipped.push(`${p} (redirected to ${result.redirected}: the test account is not an admin)`);
   }
 
   console.log(`Checked ${checkedPages} page(s) and fragment(s), plus a scan of src/.`);

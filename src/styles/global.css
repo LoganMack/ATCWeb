@@ -32,26 +32,46 @@
     background-color: transparent;
     box-shadow: inset 0 0 0 1.5px rgb(var(--btn-rgb) / var(--btn-ring));
   }
-  .btn:hover:not(:disabled) { background-color: rgb(var(--btn-rgb) / 0.12); }
-  .btn-sm { @apply px-3 py-1.5 text-xs; }
-  .btn-lg { @apply px-6 py-3; }
+  .btn:hover:not(:disabled) {
+    background-color: rgb(var(--btn-rgb) / 0.12);
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn-lg {
+    @apply px-6 py-3;
+  }
 
-  .btn-primary { --btn-rgb: 67 105 245; --btn-text: rgb(67 105 245); }
-  .btn-danger  { --btn-rgb: 245 66 110; --btn-text: rgb(245 66 110); }
-  .btn-gold    { --btn-rgb: 245 198 66; --btn-text: rgb(245 198 66); }
-  .btn-neutral { --btn-rgb: 255 255 255; --btn-text: rgb(255 255 255 / 0.72); --btn-ring: 0.25; }
-  .btn-neutral:hover:not(:disabled) { color: rgb(255 255 255 / 1); }
+  .btn-primary {
+    --btn-rgb: 67 105 245;
+    --btn-text: rgb(67 105 245);
+  }
+  .btn-danger {
+    --btn-rgb: 245 66 110;
+    --btn-text: rgb(245 66 110);
+  }
+  .btn-gold {
+    --btn-rgb: 245 198 66;
+    --btn-text: rgb(245 198 66);
+  }
+  .btn-neutral {
+    --btn-rgb: 255 255 255;
+    --btn-text: rgb(255 255 255 / 0.72);
+    --btn-ring: 0.25;
+  }
+  .btn-neutral:hover:not(:disabled) {
+    color: rgb(255 255 255 / 1);
+  }
 
   /* Selected state for filter/tab style toggles: tinted fill, stronger ring. */
   .btn-active,
-  .btn[data-active="true"] {
+  .btn[data-active='true'] {
     --btn-rgb: 67 105 245;
     --btn-text: rgb(67 105 245);
     --btn-ring: 0.9;
     background-color: rgb(67 105 245 / 0.18);
   }
 }
-
 
 /*
  * FONT SETUP.
@@ -107,7 +127,7 @@ html {
 }
 
 body {
-  @apply bg-brand-ink text-white font-body antialiased;
+  @apply bg-brand-ink font-body text-white antialiased;
 }
 
 /* Teko renders italicized everywhere it's used, per style direction — this
@@ -116,11 +136,18 @@ body {
    links, stat numbers, card titles, etc). Plain CSS, not @apply, so there's
    no risk of the circular-dependency issue a literal `.font-display`
    selector caused earlier when combined with `@apply font-display`. */
-h1, h2, h3, h4, .font-display {
+h1,
+h2,
+h3,
+h4,
+.font-display {
   font-style: italic;
 }
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   @apply font-display tracking-wide;
 }
 
@@ -134,7 +161,9 @@ h1, h2, h3, h4 {
 .reveal {
   opacity: 0;
   transform: translateY(0.5rem);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 .reveal.is-visible {
@@ -388,36 +417,92 @@ th[data-sort-key][data-sort-dir='desc']::after {
 }
 
 /* ---- borders: white/NN -> ink/NN ---- */
-.light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) { border-color: rgb(17 17 20 / 0.1); }
-.light .border-white\/5 { border-color: rgb(17 17 20 / 0.05); }
-.light .border-white\/10 { border-color: rgb(17 17 20 / 0.1); }
-.light .border-white\/15 { border-color: rgb(17 17 20 / 0.15); }
-.light .border-white\/20 { border-color: rgb(17 17 20 / 0.2); }
-.light .hover\:border-white\/20:hover { border-color: rgb(17 17 20 / 0.2); }
+.light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(17 17 20 / 0.1);
+}
+.light .border-white\/5 {
+  border-color: rgb(17 17 20 / 0.05);
+}
+.light .border-white\/10 {
+  border-color: rgb(17 17 20 / 0.1);
+}
+.light .border-white\/15 {
+  border-color: rgb(17 17 20 / 0.15);
+}
+.light .border-white\/20 {
+  border-color: rgb(17 17 20 / 0.2);
+}
+.light .hover\:border-white\/20:hover {
+  border-color: rgb(17 17 20 / 0.2);
+}
 
 /* ---- backgrounds: translucent white tints -> ink tints ---- */
-.light .bg-white\/5 { background-color: rgb(17 17 20 / 0.05); }
-.light .bg-white\/10 { background-color: rgb(17 17 20 / 0.1); }
-.light .bg-white\/\[0\.02\] { background-color: rgb(17 17 20 / 0.02); }
-.light .bg-white\/\[0\.03\] { background-color: rgb(17 17 20 / 0.03); }
-.light .hover\:bg-white\/5:hover { background-color: rgb(17 17 20 / 0.05); }
-.light .focus\:bg-white\/5:focus { background-color: rgb(17 17 20 / 0.05); }
-.light .hover\:bg-white\/10:hover { background-color: rgb(17 17 20 / 0.1); }
-.light .hover\:bg-white\/20:hover { background-color: rgb(17 17 20 / 0.2); }
-.light .hover\:bg-white\/\[0\.02\]:hover { background-color: rgb(17 17 20 / 0.02); }
-.light .hover\:bg-white\/\[0\.03\]:hover { background-color: rgb(17 17 20 / 0.03); }
-.light .hover\:bg-white\/\[0\.04\]:hover { background-color: rgb(17 17 20 / 0.04); }
-.light .hover\:bg-white\/\[0\.06\]:hover { background-color: rgb(17 17 20 / 0.06); }
-.light .active\:bg-white\/5:active { background-color: rgb(17 17 20 / 0.05); }
-.light .open\:bg-white\/\[0\.05\][open] { background-color: rgb(17 17 20 / 0.05); }
-.light .file\:bg-white\/10::file-selector-button { background-color: rgb(17 17 20 / 0.1); }
-.light .peer\/class:checked ~ .peer-checked\/class\:bg-white\/10 { background-color: rgb(17 17 20 / 0.1); }
-.light .peer\/overall:checked ~ .peer-checked\/overall\:bg-white\/10 { background-color: rgb(17 17 20 / 0.1); }
-.light .ring-white\/10 { --tw-ring-color: rgb(17 17 20 / 0.1); }
-.light .ring-white\/15 { --tw-ring-color: rgb(17 17 20 / 0.15); }
-.light .decoration-white\/20 { text-decoration-color: rgb(17 17 20 / 0.2); }
-.light .decoration-white\/25 { text-decoration-color: rgb(17 17 20 / 0.25); }
-.light .decoration-white\/30 { text-decoration-color: rgb(17 17 20 / 0.3); }
+.light .bg-white\/5 {
+  background-color: rgb(17 17 20 / 0.05);
+}
+.light .bg-white\/10 {
+  background-color: rgb(17 17 20 / 0.1);
+}
+.light .bg-white\/\[0\.02\] {
+  background-color: rgb(17 17 20 / 0.02);
+}
+.light .bg-white\/\[0\.03\] {
+  background-color: rgb(17 17 20 / 0.03);
+}
+.light .hover\:bg-white\/5:hover {
+  background-color: rgb(17 17 20 / 0.05);
+}
+.light .focus\:bg-white\/5:focus {
+  background-color: rgb(17 17 20 / 0.05);
+}
+.light .hover\:bg-white\/10:hover {
+  background-color: rgb(17 17 20 / 0.1);
+}
+.light .hover\:bg-white\/20:hover {
+  background-color: rgb(17 17 20 / 0.2);
+}
+.light .hover\:bg-white\/\[0\.02\]:hover {
+  background-color: rgb(17 17 20 / 0.02);
+}
+.light .hover\:bg-white\/\[0\.03\]:hover {
+  background-color: rgb(17 17 20 / 0.03);
+}
+.light .hover\:bg-white\/\[0\.04\]:hover {
+  background-color: rgb(17 17 20 / 0.04);
+}
+.light .hover\:bg-white\/\[0\.06\]:hover {
+  background-color: rgb(17 17 20 / 0.06);
+}
+.light .active\:bg-white\/5:active {
+  background-color: rgb(17 17 20 / 0.05);
+}
+.light .open\:bg-white\/\[0\.05\][open] {
+  background-color: rgb(17 17 20 / 0.05);
+}
+.light .file\:bg-white\/10::file-selector-button {
+  background-color: rgb(17 17 20 / 0.1);
+}
+.light .peer\/class:checked ~ .peer-checked\/class\:bg-white\/10 {
+  background-color: rgb(17 17 20 / 0.1);
+}
+.light .peer\/overall:checked ~ .peer-checked\/overall\:bg-white\/10 {
+  background-color: rgb(17 17 20 / 0.1);
+}
+.light .ring-white\/10 {
+  --tw-ring-color: rgb(17 17 20 / 0.1);
+}
+.light .ring-white\/15 {
+  --tw-ring-color: rgb(17 17 20 / 0.15);
+}
+.light .decoration-white\/20 {
+  text-decoration-color: rgb(17 17 20 / 0.2);
+}
+.light .decoration-white\/25 {
+  text-decoration-color: rgb(17 17 20 / 0.25);
+}
+.light .decoration-white\/30 {
+  text-decoration-color: rgb(17 17 20 / 0.3);
+}
 
 /* ---- text: white/NN -> ink/NN. This is the big one — the base body text
    color (global.css `body` rule above) is full-opacity `text-white`, so
@@ -433,53 +518,116 @@ th[data-sort-key][data-sort-dir='desc']::after {
    labels) gets the same nudge rather than compounding unevenly. `text-
    white` itself (opacity 1, full ink) is already as dark as this scale
    goes, so it's untouched, same as every hover: variant below. ---- */
-.light .text-white { color: rgb(17 17 20 / 1); }
-.light .text-white\/20 { color: rgb(17 17 20 / 0.28); }
-.light .text-white\/25 { color: rgb(17 17 20 / 0.33); }
-.light .text-white\/30 { color: rgb(17 17 20 / 0.38); }
-.light .text-white\/35 { color: rgb(17 17 20 / 0.43); }
-.light .text-white\/40 { color: rgb(17 17 20 / 0.48); }
-.light .text-white\/50 { color: rgb(17 17 20 / 0.58); }
-.light .text-white\/60 { color: rgb(17 17 20 / 0.68); }
-.light .text-white\/70 { color: rgb(17 17 20 / 0.78); }
-.light .text-white\/80 { color: rgb(17 17 20 / 0.88); }
-.light .text-white\/90 { color: rgb(17 17 20 / 0.98); }
-.light .hover\:text-white:hover { color: rgb(17 17 20 / 1); }
-.light .hover\:text-white\/60:hover { color: rgb(17 17 20 / 0.68); }
-.light .hover\:text-white\/70:hover { color: rgb(17 17 20 / 0.78); }
-.light .hover\:text-white\/80:hover { color: rgb(17 17 20 / 0.88); }
-.light .file\:text-white::file-selector-button { color: rgb(17 17 20 / 1); }
-.light .peer\/class:checked ~ .peer-checked\/class\:text-white { color: rgb(17 17 20 / 1); }
-.light .peer\/overall:checked ~ .peer-checked\/overall\:text-white { color: rgb(17 17 20 / 1); }
+.light .text-white {
+  color: rgb(17 17 20 / 1);
+}
+.light .text-white\/20 {
+  color: rgb(17 17 20 / 0.28);
+}
+.light .text-white\/25 {
+  color: rgb(17 17 20 / 0.33);
+}
+.light .text-white\/30 {
+  color: rgb(17 17 20 / 0.38);
+}
+.light .text-white\/35 {
+  color: rgb(17 17 20 / 0.43);
+}
+.light .text-white\/40 {
+  color: rgb(17 17 20 / 0.48);
+}
+.light .text-white\/50 {
+  color: rgb(17 17 20 / 0.58);
+}
+.light .text-white\/60 {
+  color: rgb(17 17 20 / 0.68);
+}
+.light .text-white\/70 {
+  color: rgb(17 17 20 / 0.78);
+}
+.light .text-white\/80 {
+  color: rgb(17 17 20 / 0.88);
+}
+.light .text-white\/90 {
+  color: rgb(17 17 20 / 0.98);
+}
+.light .hover\:text-white:hover {
+  color: rgb(17 17 20 / 1);
+}
+.light .hover\:text-white\/60:hover {
+  color: rgb(17 17 20 / 0.68);
+}
+.light .hover\:text-white\/70:hover {
+  color: rgb(17 17 20 / 0.78);
+}
+.light .hover\:text-white\/80:hover {
+  color: rgb(17 17 20 / 0.88);
+}
+.light .file\:text-white::file-selector-button {
+  color: rgb(17 17 20 / 1);
+}
+.light .peer\/class:checked ~ .peer-checked\/class\:text-white {
+  color: rgb(17 17 20 / 1);
+}
+.light .peer\/overall:checked ~ .peer-checked\/overall\:text-white {
+  color: rgb(17 17 20 / 1);
+}
 
 /* ---- solid dark backgrounds (brand-ink) -> paper ---- */
-.light .bg-brand-ink { background-color: rgb(247 247 249 / 1); }
-.light .bg-brand-ink\/80 { background-color: rgb(247 247 249 / 0.8); }
+.light .bg-brand-ink {
+  background-color: rgb(247 247 249 / 1);
+}
+.light .bg-brand-ink\/80 {
+  background-color: rgb(247 247 249 / 0.8);
+}
 .light .from-brand-ink\/30 {
   --tw-gradient-from: rgb(247 247 249 / 0.3) var(--tw-gradient-from-position);
   --tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position);
 }
 .light .via-brand-ink\/80 {
   --tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position);
-  --tw-gradient-stops: var(--tw-gradient-from), rgb(247 247 249 / 0.8) var(--tw-gradient-via-position), var(--tw-gradient-to);
+  --tw-gradient-stops:
+    var(--tw-gradient-from), rgb(247 247 249 / 0.8) var(--tw-gradient-via-position), var(--tw-gradient-to);
 }
-.light .to-brand-ink { --tw-gradient-to: rgb(247 247 249 / 1) var(--tw-gradient-to-position); }
+.light .to-brand-ink {
+  --tw-gradient-to: rgb(247 247 249 / 1) var(--tw-gradient-to-position);
+}
 
 /* ---- brand-color TEXT gets darkened, WCAG-checked variants. Background/
    border/ring usages of the same brand colors (badges, tinted panels,
    focus rings) are left unchanged — those are low-opacity tints, not the
    thing that has to stay readable at body-text size. ---- */
-.light .text-brand-blue { color: rgb(66 104 245 / 1); }
-.light .text-brand-primary { color: rgb(66 104 245 / 1); }
-.light .hover\:text-brand-primary:hover { color: rgb(66 104 245 / 1); }
-.light .text-brand-pink { color: rgb(232 12 66 / 1); }
-.light .text-brand-pink\/90 { color: rgb(232 12 66 / 0.9); }
-.light .hover\:text-brand-pink:hover { color: rgb(232 12 66 / 1); }
-.light .text-brand-gold { color: rgb(148 111 8 / 1); }
-.light .text-brand-gold\/80 { color: rgb(148 111 8 / 0.8); }
+.light .text-brand-blue {
+  color: rgb(66 104 245 / 1);
+}
+.light .text-brand-primary {
+  color: rgb(66 104 245 / 1);
+}
+.light .hover\:text-brand-primary:hover {
+  color: rgb(66 104 245 / 1);
+}
+.light .text-brand-pink {
+  color: rgb(232 12 66 / 1);
+}
+.light .text-brand-pink\/90 {
+  color: rgb(232 12 66 / 0.9);
+}
+.light .hover\:text-brand-pink:hover {
+  color: rgb(232 12 66 / 1);
+}
+.light .text-brand-gold {
+  color: rgb(148 111 8 / 1);
+}
+.light .text-brand-gold\/80 {
+  color: rgb(148 111 8 / 0.8);
+}
 /* Steward reviews' "all stewards agree" green (incident report View Incidents). */
-.light .text-emerald-400 { color: rgb(4 120 87 / 1); }
-.light .text-red-300 { color: rgb(185 28 28 / 1); }
+.light .text-emerald-400 {
+  color: rgb(4 120 87 / 1);
+}
+.light .text-red-300 {
+  color: rgb(185 28 28 / 1);
+}
 
 /* ---- solid blue buttons: text stays white in light mode ----
    `bg-brand-primary` (SOLID, full-opacity — not the low-opacity
@@ -496,7 +644,9 @@ th[data-sort-key][data-sort-dir='desc']::after {
    the source-order tie against the rare button that also spells out
    `text-white` explicitly — either way, every solid blue button keeps
    white text in both themes. */
-.light .bg-brand-primary { color: rgb(255 255 255 / 1); }
+.light .bg-brand-primary {
+  color: rgb(255 255 255 / 1);
+}
 
 /* ---- "selected" pill/tab convention: `bg-white` + `text-brand-ink`
    together, used site-wide for active filters/tabs (roster, calendar,
@@ -509,17 +659,27 @@ th[data-sort-key][data-sort-dir='desc']::after {
    `data-[active=true]` variant (roster/calendar) is a separate compiled
    selector from the plain utility classes, so it needs its own copy of
    the same override. ---- */
-.light .bg-white { background-color: rgb(17 17 20 / 1); }
-.light .text-brand-ink { color: rgb(247 247 249 / 1); }
-.light .data-\[active\=true\]\:bg-white[data-active="true"] { background-color: rgb(17 17 20 / 1); }
-.light .data-\[active\=true\]\:text-brand-ink[data-active="true"] { color: rgb(247 247 249 / 1); }
+.light .bg-white {
+  background-color: rgb(17 17 20 / 1);
+}
+.light .text-brand-ink {
+  color: rgb(247 247 249 / 1);
+}
+.light .data-\[active\=true\]\:bg-white[data-active='true'] {
+  background-color: rgb(17 17 20 / 1);
+}
+.light .data-\[active\=true\]\:text-brand-ink[data-active='true'] {
+  color: rgb(247 247 249 / 1);
+}
 
 /* ---- "Happening Now" nav marquee (src/components/Nav.astro) is a fixed
    white-strip-with-black-text treatment by design, not a themed surface —
    it stays white/black in both modes. More specific than the generic
    `.light .bg-white` rule above (scoped to its own attribute selector), so
    it wins regardless of source order. ---- */
-.light [data-marquee-viewport].bg-white { background-color: rgb(255 255 255 / 1); }
+.light [data-marquee-viewport].bg-white {
+  background-color: rgb(255 255 255 / 1);
+}
 
 /* ---- sticky table headers (see the [data-sticky-thead] rule above): its
    background comes from `@apply bg-brand-ink`, which compiles straight
@@ -549,11 +709,11 @@ th[data-sort-key][data-sort-dir='desc']::after {
    or dark plate per circuit (Logo background on /admin/circuits/<id>) for a
    logo that would otherwise vanish into the current theme. The same plate
    shows in both themes, since it's a deliberate choice for that logo. ---- */
-img[data-logo-bg="light"] {
+img[data-logo-bg='light'] {
   background-color: #fff;
   padding: 2px;
 }
-img[data-logo-bg="dark"] {
+img[data-logo-bg='dark'] {
   background-color: #111114;
   padding: 2px;
 }
@@ -564,18 +724,33 @@ img[data-logo-bg="dark"] {
    overrides above (their borders keep the bright brand color). ---- */
 .light .btn-primary,
 .light .btn-active,
-.light .btn[data-active="true"] { --btn-text: rgb(67 105 245); }
-.light .btn-danger { --btn-text: rgb(232 12 66); }
-.light .btn-gold { --btn-text: rgb(148 111 8); --btn-rgb: 214 160 20; }
-.light .btn-neutral { --btn-rgb: 17 17 20; --btn-text: rgb(17 17 20 / 0.78); }
-.light .btn-neutral:hover:not(:disabled) { color: rgb(17 17 20 / 1); }
-.light .btn-neutral[data-active="true"],
-.light .btn-neutral.btn-active { --btn-rgb: 67 105 245; --btn-text: rgb(67 105 245); }
+.light .btn[data-active='true'] {
+  --btn-text: rgb(67 105 245);
+}
+.light .btn-danger {
+  --btn-text: rgb(232 12 66);
+}
+.light .btn-gold {
+  --btn-text: rgb(148 111 8);
+  --btn-rgb: 214 160 20;
+}
+.light .btn-neutral {
+  --btn-rgb: 17 17 20;
+  --btn-text: rgb(17 17 20 / 0.78);
+}
+.light .btn-neutral:hover:not(:disabled) {
+  color: rgb(17 17 20 / 1);
+}
+.light .btn-neutral[data-active='true'],
+.light .btn-neutral.btn-active {
+  --btn-rgb: 67 105 245;
+  --btn-text: rgb(67 105 245);
+}
 
 /* ---- file inputs: the browser's "Choose file" button gets the same
    outline look as a .btn-neutral, whatever file: utilities a given input
    carries. ---- */
-input[type="file"]::file-selector-button {
+input[type='file']::file-selector-button {
   margin-right: 0.75rem;
   cursor: pointer;
   border: 0;
@@ -585,17 +760,19 @@ input[type="file"]::file-selector-button {
   color: rgb(255 255 255 / 0.72);
   background-color: transparent;
   box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.25);
-  transition: background-color 150ms, color 150ms;
+  transition:
+    background-color 150ms,
+    color 150ms;
 }
-input[type="file"]:hover::file-selector-button {
+input[type='file']:hover::file-selector-button {
   color: rgb(255 255 255 / 1);
   background-color: rgb(255 255 255 / 0.12);
 }
-.light input[type="file"]::file-selector-button {
+.light input[type='file']::file-selector-button {
   color: rgb(17 17 20 / 0.78);
   box-shadow: inset 0 0 0 1.5px rgb(17 17 20 / 0.25);
 }
-.light input[type="file"]:hover::file-selector-button {
+.light input[type='file']:hover::file-selector-button {
   color: rgb(17 17 20 / 1);
   background-color: rgb(17 17 20 / 0.12);
 }
@@ -631,69 +808,190 @@ input[type="file"]:hover::file-selector-button {
   --card-gold-h: rgb(247 237 212);
 }
 
-[class~="bg-white/5"] { background-color: rgb(23 23 26); }
-[class~="hover:bg-white/5"]:hover { background-color: rgb(23 23 26); }
-[class~="focus:bg-white/5"]:focus { background-color: rgb(23 23 26); }
-[class~="bg-white/[0.02]"] { background-color: rgb(16 16 19); }
-[class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(16 16 19); }
-[class~="bg-white/[0.03]"] { background-color: rgb(18 18 21); }
-[class~="hover:bg-white/[0.03]"]:hover { background-color: rgb(18 18 21); }
-[class~="hover:bg-white/[0.04]"]:hover { background-color: rgb(21 21 24); }
-[class~="bg-white/[0.05]"] { background-color: rgb(23 23 26); }
-[class~="hover:bg-white/[0.06]"]:hover { background-color: rgb(26 26 28); }
-[class~="bg-white/10"] { background-color: rgb(35 35 38); }
-[class~="hover:bg-white/10"]:hover { background-color: rgb(35 35 38); }
-[class~="bg-brand-blue/10"] { background-color: rgb(17 20 37); }
-[class~="bg-brand-blue/15"] { background-color: rgb(19 25 49); }
-[class~="bg-brand-blue/20"] { background-color: rgb(22 30 60); }
-[class~="hover:bg-brand-blue/20"]:hover { background-color: rgb(22 30 60); }
-[class~="bg-brand-pink/10"] { background-color: rgb(34 16 24); }
-[class~="bg-brand-pink/15"] { background-color: rgb(46 19 28); }
-[class~="bg-brand-pink/20"] { background-color: rgb(58 22 33); }
-[class~="hover:bg-brand-pink/20"]:hover { background-color: rgb(58 22 33); }
-[class~="bg-brand-gold/5"] { background-color: rgb(23 20 17); }
-[class~="bg-brand-gold/10"] { background-color: rgb(34 30 19); }
-[class~="bg-brand-gold/15"] { background-color: rgb(46 39 22); }
-[class~="bg-brand-gold/20"] { background-color: rgb(58 48 24); }
-[class~="hover:bg-brand-gold/20"]:hover { background-color: rgb(58 48 24); }
-[class~="bg-brand-primary/10"] { background-color: rgb(17 20 37); }
-[class~="bg-brand-primary/15"] { background-color: rgb(19 25 49); }
-[class~="bg-brand-primary/20"] { background-color: rgb(22 30 60); }
-[class~="hover:bg-brand-primary/20"]:hover { background-color: rgb(22 30 60); }
-[class~="bg-brand-tertiary/10"] { background-color: rgb(34 30 19); }
+[class~='bg-white/5'] {
+  background-color: rgb(23 23 26);
+}
+[class~='hover:bg-white/5']:hover {
+  background-color: rgb(23 23 26);
+}
+[class~='focus:bg-white/5']:focus {
+  background-color: rgb(23 23 26);
+}
+[class~='bg-white/[0.02]'] {
+  background-color: rgb(16 16 19);
+}
+[class~='hover:bg-white/[0.02]']:hover {
+  background-color: rgb(16 16 19);
+}
+[class~='bg-white/[0.03]'] {
+  background-color: rgb(18 18 21);
+}
+[class~='hover:bg-white/[0.03]']:hover {
+  background-color: rgb(18 18 21);
+}
+[class~='hover:bg-white/[0.04]']:hover {
+  background-color: rgb(21 21 24);
+}
+[class~='bg-white/[0.05]'] {
+  background-color: rgb(23 23 26);
+}
+[class~='hover:bg-white/[0.06]']:hover {
+  background-color: rgb(26 26 28);
+}
+[class~='bg-white/10'] {
+  background-color: rgb(35 35 38);
+}
+[class~='hover:bg-white/10']:hover {
+  background-color: rgb(35 35 38);
+}
+[class~='bg-brand-blue/10'] {
+  background-color: rgb(17 20 37);
+}
+[class~='bg-brand-blue/15'] {
+  background-color: rgb(19 25 49);
+}
+[class~='bg-brand-blue/20'] {
+  background-color: rgb(22 30 60);
+}
+[class~='hover:bg-brand-blue/20']:hover {
+  background-color: rgb(22 30 60);
+}
+[class~='bg-brand-pink/10'] {
+  background-color: rgb(34 16 24);
+}
+[class~='bg-brand-pink/15'] {
+  background-color: rgb(46 19 28);
+}
+[class~='bg-brand-pink/20'] {
+  background-color: rgb(58 22 33);
+}
+[class~='hover:bg-brand-pink/20']:hover {
+  background-color: rgb(58 22 33);
+}
+[class~='bg-brand-gold/5'] {
+  background-color: rgb(23 20 17);
+}
+[class~='bg-brand-gold/10'] {
+  background-color: rgb(34 30 19);
+}
+[class~='bg-brand-gold/15'] {
+  background-color: rgb(46 39 22);
+}
+[class~='bg-brand-gold/20'] {
+  background-color: rgb(58 48 24);
+}
+[class~='hover:bg-brand-gold/20']:hover {
+  background-color: rgb(58 48 24);
+}
+[class~='bg-brand-primary/10'] {
+  background-color: rgb(17 20 37);
+}
+[class~='bg-brand-primary/15'] {
+  background-color: rgb(19 25 49);
+}
+[class~='bg-brand-primary/20'] {
+  background-color: rgb(22 30 60);
+}
+[class~='hover:bg-brand-primary/20']:hover {
+  background-color: rgb(22 30 60);
+}
+[class~='bg-brand-tertiary/10'] {
+  background-color: rgb(34 30 19);
+}
 
-.light [class~="bg-white/5"] { background-color: rgb(236 236 238); }
-.light [class~="hover:bg-white/5"]:hover { background-color: rgb(236 236 238); }
-.light [class~="focus:bg-white/5"]:focus { background-color: rgb(236 236 238); }
-.light [class~="bg-white/[0.02]"] { background-color: rgb(242 242 244); }
-.light [class~="hover:bg-white/[0.02]"]:hover { background-color: rgb(242 242 244); }
-.light [class~="bg-white/[0.03]"] { background-color: rgb(240 240 242); }
-.light [class~="hover:bg-white/[0.03]"]:hover { background-color: rgb(240 240 242); }
-.light [class~="hover:bg-white/[0.04]"]:hover { background-color: rgb(238 238 240); }
-.light [class~="bg-white/[0.05]"] { background-color: rgb(236 236 238); }
-.light [class~="hover:bg-white/[0.06]"]:hover { background-color: rgb(233 233 235); }
-.light [class~="bg-white/10"] { background-color: rgb(224 224 226); }
-.light [class~="hover:bg-white/10"]:hover { background-color: rgb(224 224 226); }
-.light [class~="bg-brand-blue/10"] { background-color: rgb(229 233 249); }
-.light [class~="bg-brand-blue/15"] { background-color: rgb(220 226 248); }
-.light [class~="bg-brand-blue/20"] { background-color: rgb(211 219 248); }
-.light [class~="hover:bg-brand-blue/20"]:hover { background-color: rgb(211 219 248); }
-.light [class~="bg-brand-pink/10"] { background-color: rgb(247 229 235); }
-.light [class~="bg-brand-pink/15"] { background-color: rgb(247 220 228); }
-.light [class~="bg-brand-pink/20"] { background-color: rgb(247 211 221); }
-.light [class~="hover:bg-brand-pink/20"]:hover { background-color: rgb(247 211 221); }
-.light [class~="bg-brand-gold/5"] { background-color: rgb(247 245 240); }
-.light [class~="bg-brand-gold/10"] { background-color: rgb(247 242 231); }
-.light [class~="bg-brand-gold/15"] { background-color: rgb(247 240 222); }
-.light [class~="bg-brand-gold/20"] { background-color: rgb(247 237 212); }
-.light [class~="hover:bg-brand-gold/20"]:hover { background-color: rgb(247 237 212); }
-.light [class~="bg-emerald-400/10"] { background-color: rgb(231 245 239); }
-.light [class~="bg-brand-primary/10"] { background-color: rgb(229 233 249); }
-.light [class~="bg-brand-primary/15"] { background-color: rgb(220 226 248); }
-.light [class~="bg-brand-primary/20"] { background-color: rgb(211 219 248); }
-.light [class~="hover:bg-brand-primary/20"]:hover { background-color: rgb(211 219 248); }
-.light [class~="bg-brand-tertiary/10"] { background-color: rgb(247 242 231); }
-
+.light [class~='bg-white/5'] {
+  background-color: rgb(236 236 238);
+}
+.light [class~='hover:bg-white/5']:hover {
+  background-color: rgb(236 236 238);
+}
+.light [class~='focus:bg-white/5']:focus {
+  background-color: rgb(236 236 238);
+}
+.light [class~='bg-white/[0.02]'] {
+  background-color: rgb(242 242 244);
+}
+.light [class~='hover:bg-white/[0.02]']:hover {
+  background-color: rgb(242 242 244);
+}
+.light [class~='bg-white/[0.03]'] {
+  background-color: rgb(240 240 242);
+}
+.light [class~='hover:bg-white/[0.03]']:hover {
+  background-color: rgb(240 240 242);
+}
+.light [class~='hover:bg-white/[0.04]']:hover {
+  background-color: rgb(238 238 240);
+}
+.light [class~='bg-white/[0.05]'] {
+  background-color: rgb(236 236 238);
+}
+.light [class~='hover:bg-white/[0.06]']:hover {
+  background-color: rgb(233 233 235);
+}
+.light [class~='bg-white/10'] {
+  background-color: rgb(224 224 226);
+}
+.light [class~='hover:bg-white/10']:hover {
+  background-color: rgb(224 224 226);
+}
+.light [class~='bg-brand-blue/10'] {
+  background-color: rgb(229 233 249);
+}
+.light [class~='bg-brand-blue/15'] {
+  background-color: rgb(220 226 248);
+}
+.light [class~='bg-brand-blue/20'] {
+  background-color: rgb(211 219 248);
+}
+.light [class~='hover:bg-brand-blue/20']:hover {
+  background-color: rgb(211 219 248);
+}
+.light [class~='bg-brand-pink/10'] {
+  background-color: rgb(247 229 235);
+}
+.light [class~='bg-brand-pink/15'] {
+  background-color: rgb(247 220 228);
+}
+.light [class~='bg-brand-pink/20'] {
+  background-color: rgb(247 211 221);
+}
+.light [class~='hover:bg-brand-pink/20']:hover {
+  background-color: rgb(247 211 221);
+}
+.light [class~='bg-brand-gold/5'] {
+  background-color: rgb(247 245 240);
+}
+.light [class~='bg-brand-gold/10'] {
+  background-color: rgb(247 242 231);
+}
+.light [class~='bg-brand-gold/15'] {
+  background-color: rgb(247 240 222);
+}
+.light [class~='bg-brand-gold/20'] {
+  background-color: rgb(247 237 212);
+}
+.light [class~='hover:bg-brand-gold/20']:hover {
+  background-color: rgb(247 237 212);
+}
+.light [class~='bg-emerald-400/10'] {
+  background-color: rgb(231 245 239);
+}
+.light [class~='bg-brand-primary/10'] {
+  background-color: rgb(229 233 249);
+}
+.light [class~='bg-brand-primary/15'] {
+  background-color: rgb(220 226 248);
+}
+.light [class~='bg-brand-primary/20'] {
+  background-color: rgb(211 219 248);
+}
+.light [class~='hover:bg-brand-primary/20']:hover {
+  background-color: rgb(211 219 248);
+}
+.light [class~='bg-brand-tertiary/10'] {
+  background-color: rgb(247 242 231);
+}
 
 /* ============================================================
    STANDINGS BY ROUND SLIDER (ticks + floating round tag)
@@ -812,7 +1110,6 @@ input[type="file"]:hover::file-selector-button {
   opacity: 1;
 }
 
-
 /* ============================================================
    PHOTO BANNER OVERLAY (src/components/PageBanner.astro + home hero)
    ============================================================
@@ -837,7 +1134,7 @@ input[type="file"]:hover::file-selector-button {
 /* Film grain: self-stitching noise tile, so there are no seams at any width.
    Masked out toward the bottom so the banner still blends into the page. */
 .banner-overlay::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   background-image: url('data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22200%22%20height=%22200%22%3E%3Cfilter%20id=%22n%22%3E%3CfeTurbulence%20type=%22fractalNoise%22%20baseFrequency=%22.85%22%20numOctaves=%222%22%20stitchTiles=%22stitch%22/%3E%3CfeColorMatrix%20type=%22saturate%22%20values=%220%22/%3E%3C/filter%3E%3Crect%20width=%22200%22%20height=%22200%22%20filter=%22url%28%23n%29%22%20opacity=%22.55%22/%3E%3C/svg%3E');
@@ -1074,11 +1371,17 @@ input[type="file"]:hover::file-selector-button {
   z-index: 5;
   outline: none;
 }
-.map-pin[data-kind="penalty"] { background: #f5426e; }
-.map-pin[data-kind="warning"] { background: #f5c642; }
-.map-pin[data-kind="racing"] { background: #9ca3af; }
+.map-pin[data-kind='penalty'] {
+  background: #f5426e;
+}
+.map-pin[data-kind='warning'] {
+  background: #f5c642;
+}
+.map-pin[data-kind='racing'] {
+  background: #9ca3af;
+}
 .map-pin[data-appealed]::after {
-  content: "";
+  content: '';
   position: absolute;
   inset: -6px;
   border-radius: 9999px;
@@ -1117,16 +1420,16 @@ input[type="file"]:hover::file-selector-button {
   opacity: 1;
 }
 /* Near an edge the tooltip would be clipped by the plate, so it opens downward / hugs the pin's side instead. */
-.map-pin[data-tip-x="left"] > .map-pin-tip {
+.map-pin[data-tip-x='left'] > .map-pin-tip {
   left: -8px;
   transform: none;
 }
-.map-pin[data-tip-x="right"] > .map-pin-tip {
+.map-pin[data-tip-x='right'] > .map-pin-tip {
   left: auto;
   right: -8px;
   transform: none;
 }
-.map-pin[data-tip="below"] > .map-pin-tip {
+.map-pin[data-tip='below'] > .map-pin-tip {
   bottom: auto;
   top: calc(100% + 8px);
 }
@@ -1137,7 +1440,12 @@ input[type="file"]:hover::file-selector-button {
   aspect-ratio: 1 / 1;
   transform: translate(-50%, -50%);
   border-radius: 9999px;
-  background: radial-gradient(circle, rgb(245 66 110 / 0.5), rgb(245 66 110 / 0.18) 45%, rgb(245 66 110 / 0) 70%);
+  background: radial-gradient(
+    circle,
+    rgb(245 66 110 / 0.5),
+    rgb(245 66 110 / 0.18) 45%,
+    rgb(245 66 110 / 0) 70%
+  );
   pointer-events: none;
 }
 
@@ -1168,13 +1476,27 @@ input[type="file"]:hover::file-selector-button {
   border-radius: 9999px;
   background: currentColor;
 }
-.map-flag[data-level="easy"] { border-color: #34d399; }
-.map-flag[data-level="easy"] > i { background: #34d399; }
-.map-flag[data-level="moderate"] { border-color: #f5c642; }
-.map-flag[data-level="moderate"] > i { background: #f5c642; }
-.map-flag[data-level="difficult"] { border-color: #f5426e; }
-.map-flag[data-level="difficult"] > i { background: #f5426e; }
-.map-flag[data-level="none"] { border-color: rgb(255 255 255 / 0.4); }
+.map-flag[data-level='easy'] {
+  border-color: #34d399;
+}
+.map-flag[data-level='easy'] > i {
+  background: #34d399;
+}
+.map-flag[data-level='moderate'] {
+  border-color: #f5c642;
+}
+.map-flag[data-level='moderate'] > i {
+  background: #f5c642;
+}
+.map-flag[data-level='difficult'] {
+  border-color: #f5426e;
+}
+.map-flag[data-level='difficult'] > i {
+  background: #f5426e;
+}
+.map-flag[data-level='none'] {
+  border-color: rgb(255 255 255 / 0.4);
+}
 
 /* Layer switches on the Event Briefing's layout map: the toggle script sets data-off on a layer container to hide it. */
 [data-map-layer][data-off] {
@@ -1216,7 +1538,9 @@ input[type="file"]:hover::file-selector-button {
   transform: translate(-50%, -50%);
   border-radius: 9999px;
   border: 2px solid #f5426e;
-  box-shadow: 0 0 0 2px rgb(245 66 110 / 0.25), 0 0 10px rgb(245 66 110 / 0.6);
+  box-shadow:
+    0 0 0 2px rgb(245 66 110 / 0.25),
+    0 0 10px rgb(245 66 110 / 0.6);
   pointer-events: none;
 }
 .map-turn-ring > b {

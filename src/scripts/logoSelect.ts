@@ -17,7 +17,8 @@
  * document for new `select[data-logo-select]` elements. Each is enhanced once.
  */
 const LOGO_CLASS = 'h-5 w-5 flex-none rounded-sm object-contain';
-const BUTTON_BASE = 'flex w-full items-center gap-2 rounded-md border border-white/15 bg-transparent text-left text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5';
+const BUTTON_BASE =
+  'flex w-full items-center gap-2 rounded-md border border-white/15 bg-transparent text-left text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5';
 const PANEL_CLASS =
   'absolute left-0 top-full z-50 mt-1 hidden max-h-72 min-w-full overflow-auto rounded-md border border-white/15 bg-brand-ink py-1 shadow-lg';
 
@@ -49,7 +50,9 @@ function enhance(select: HTMLSelectElement) {
   const hasAnyLogo = [...select.options].some((o) => o.dataset.logo);
 
   // Width classes (w-*, max-w-*, min-w-*, flex-*) move to the wrapper; everything else is replaced.
-  const sizing = [...select.classList].filter((c) => /^(w-|max-w-|min-w-|flex-|shrink|grow|sm:w-|sm:max-w-|ml-|mr-)/.test(c));
+  const sizing = [...select.classList].filter((c) =>
+    /^(w-|max-w-|min-w-|flex-|shrink|grow|sm:w-|sm:max-w-|ml-|mr-)/.test(c),
+  );
   const wrapper = document.createElement('div');
   wrapper.className = `relative ${sizing.length ? sizing.join(' ') : 'w-full sm:w-auto sm:min-w-[11rem]'}`;
   select.parentNode!.insertBefore(wrapper, select);
@@ -65,7 +68,10 @@ function enhance(select: HTMLSelectElement) {
   const own = [...select.classList];
   const sized = own.filter((c) => /^(h-|py-|px-|text-(xs|sm|base))/.test(c));
   const hasHeight = own.some((c) => /^(h-|py-)/.test(c));
-  button.className = `${BUTTON_BASE} ${hasHeight ? '' : 'h-9'} ${own.some((c) => /^px-/.test(c)) ? '' : 'px-3'} ${own.some((c) => /^text-(xs|sm|base)/.test(c)) ? '' : 'text-sm'} ${sized.join(' ')}`.replace(/\s+/g, ' ').trim();
+  button.className =
+    `${BUTTON_BASE} ${hasHeight ? '' : 'h-9'} ${own.some((c) => /^px-/.test(c)) ? '' : 'px-3'} ${own.some((c) => /^text-(xs|sm|base)/.test(c)) ? '' : 'text-sm'} ${sized.join(' ')}`
+      .replace(/\s+/g, ' ')
+      .trim();
   button.setAttribute('role', 'combobox');
   button.setAttribute('aria-haspopup', 'listbox');
   button.setAttribute('aria-expanded', 'false');
@@ -142,7 +148,12 @@ function enhance(select: HTMLSelectElement) {
     panel.classList.remove('hidden');
     button.setAttribute('aria-expanded', 'true');
     openInstance = api;
-    setActive(Math.max(0, items.findIndex(({ option }) => option.selected)));
+    setActive(
+      Math.max(
+        0,
+        items.findIndex(({ option }) => option.selected),
+      ),
+    );
   };
   const close = () => {
     panel.classList.add('hidden');
@@ -206,7 +217,8 @@ function init() {
   enhanceAll();
   new MutationObserver(scheduleScan).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener('mousedown', (e) => {
-    if (openInstance && !(e.target as HTMLElement).closest('[role="listbox"], [role="combobox"]')) openInstance.close();
+    if (openInstance && !(e.target as HTMLElement).closest('[role="listbox"], [role="combobox"]'))
+      openInstance.close();
   });
   document.addEventListener('astro:page-load', scheduleScan);
 }

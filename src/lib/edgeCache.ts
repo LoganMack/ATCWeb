@@ -54,7 +54,11 @@ export function cacheKeyUrl(url: URL, variant: 'default' | 'broadcaster' = 'defa
 
 /** Three base64url segments. Anything else can't be a Supabase access token, so it isn't worth an auth call. */
 export function isJwtShaped(token: string | undefined): boolean {
-  return typeof token === 'string' && token.length <= 4096 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token);
+  return (
+    typeof token === 'string' &&
+    token.length <= 4096 &&
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)
+  );
 }
 
 /**

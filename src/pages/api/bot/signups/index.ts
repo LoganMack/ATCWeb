@@ -49,7 +49,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ error: 'numbers must be a list of whole numbers' }, 400);
   }
   const iracingRaw = body.iracing_id;
-  const iracingId = iracingRaw === undefined || iracingRaw === null || iracingRaw === '' ? null : toWholeNumber(iracingRaw);
+  const iracingId =
+    iracingRaw === undefined || iracingRaw === null || iracingRaw === '' ? null : toWholeNumber(iracingRaw);
   if (iracingId === null && !(iracingRaw === undefined || iracingRaw === null || iracingRaw === '')) {
     return json({ error: 'iracing_id must be a whole number' }, 400);
   }

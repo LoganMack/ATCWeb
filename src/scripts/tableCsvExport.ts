@@ -58,7 +58,11 @@ function tableToCsv(table: HTMLTableElement): string {
 
   const headerRow = table.tHead?.rows[0];
   if (headerRow) {
-    lines.push(Array.from(headerRow.cells).map((th) => csvField(cellText(th))).join(','));
+    lines.push(
+      Array.from(headerRow.cells)
+        .map((th) => csvField(cellText(th)))
+        .join(','),
+    );
   }
 
   const tbody = table.tBodies[0];
@@ -66,7 +70,11 @@ function tableToCsv(table: HTMLTableElement): string {
     Array.from(tbody.rows)
       .filter((row) => !row.hasAttribute('data-detail-row') && row.style.display !== 'none')
       .forEach((row) => {
-        lines.push(Array.from(row.cells).map((cell) => csvField(cellText(cell))).join(','));
+        lines.push(
+          Array.from(row.cells)
+            .map((cell) => csvField(cellText(cell)))
+            .join(','),
+        );
       });
   }
 

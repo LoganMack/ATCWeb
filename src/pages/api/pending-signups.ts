@@ -19,7 +19,7 @@ export const GET: APIRoute = async ({ locals }) => {
     const rows = await restGetAuthed<{ id: string }[]>(
       resolveSupabaseEnv(locals),
       session.accessToken,
-      'signup_requests?select=id&status=eq.pending'
+      'signup_requests?select=id&status=eq.pending',
     );
     return json({ count: rows.length }, 200);
   } catch (err) {

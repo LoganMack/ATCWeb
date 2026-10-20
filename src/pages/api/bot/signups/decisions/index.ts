@@ -1,5 +1,11 @@
 import type { APIRoute } from 'astro';
-import { resolveBotApiEnv, isAuthorizedBot, serviceRpc, json, type PendingRejection } from '../../../../../lib/signups';
+import {
+  resolveBotApiEnv,
+  isAuthorizedBot,
+  serviceRpc,
+  json,
+  type PendingRejection,
+} from '../../../../../lib/signups';
 
 export const prerender = false;
 

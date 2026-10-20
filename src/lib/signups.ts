@@ -22,7 +22,8 @@ export interface BotApiEnv {
 }
 
 export function resolveBotApiEnv(locals: App.Locals): BotApiEnv {
-  const runtimeEnv = (locals as { runtime?: { env?: Record<string, string | undefined> } } | undefined)?.runtime?.env;
+  const runtimeEnv = (locals as { runtime?: { env?: Record<string, string | undefined> } } | undefined)
+    ?.runtime?.env;
   return {
     url: resolveSupabaseEnv(locals).url,
     serviceKey: runtimeEnv?.SUPABASE_SERVICE_ROLE_KEY || import.meta.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -89,7 +90,13 @@ export async function serviceRpc<T>(env: BotApiEnv, fn: string, args: Record<str
 }
 
 export type SubmitSignupResult =
-  | { status: 'pending'; request_id: string; assigned_number: number; taken: { number: number; holder: string }[]; replaced_previous: boolean }
+  | {
+      status: 'pending';
+      request_id: string;
+      assigned_number: number;
+      taken: { number: number; holder: string }[];
+      replaced_previous: boolean;
+    }
   | { status: 'all_taken'; taken: { number: number; holder: string }[] };
 
 export interface PendingRejection {
@@ -129,20 +136,29 @@ export interface SignupRequest {
 export async function getSignupRequests(
   env: SupabaseEnv,
   accessToken: string,
-  recentDecidedLimit = 25
+  recentDecidedLimit = 25,
 ): Promise<{ pending: SignupRequest[]; decided: SignupRequest[] }> {
   const [pending, decided] = await Promise.all([
-    restGetAuthed<SignupRequest[]>(env, accessToken, 'signup_requests?select=*&status=eq.pending&order=created_at.asc'),
     restGetAuthed<SignupRequest[]>(
       env,
       accessToken,
-      `signup_requests?select=*&status=neq.pending&order=decided_at.desc&limit=${recentDecidedLimit}`
+      'signup_requests?select=*&status=eq.pending&order=created_at.asc',
+    ),
+    restGetAuthed<SignupRequest[]>(
+      env,
+      accessToken,
+      `signup_requests?select=*&status=neq.pending&order=decided_at.desc&limit=${recentDecidedLimit}`,
     ),
   ]);
   return { pending, decided };
 }
 
-async function adminRpc<T>(env: SupabaseEnv, accessToken: string, fn: string, args: Record<string, unknown>): Promise<T> {
+async function adminRpc<T>(
+  env: SupabaseEnv,
+  accessToken: string,
+  fn: string,
+  args: Record<string, unknown>,
+): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/rpc/${fn}`, {
     method: 'POST',
     headers: {
@@ -162,7 +178,13 @@ async function adminRpc<T>(env: SupabaseEnv, accessToken: string, fn: string, ar
 export function approveSignupRequest(
   env: SupabaseEnv,
   accessToken: string,
-  input: { request_id: string; name: string; iracing_cust_id: number | null; class_id: number; driver_id: string | null }
+  input: {
+    request_id: string;
+    name: string;
+    iracing_cust_id: number | null;
+    class_id: number;
+    driver_id: string | null;
+  },
 ): Promise<{ driver_id: string; driver_name: string; car_number: number }> {
   return adminRpc(env, accessToken, 'approve_signup_request', {
     p_request_id: input.request_id,
@@ -173,7 +195,12 @@ export function approveSignupRequest(
   });
 }
 
-export function rejectSignupRequest(env: SupabaseEnv, accessToken: string, requestId: string, reason: string): Promise<void> {
+export function rejectSignupRequest(
+  env: SupabaseEnv,
+  accessToken: string,
+  requestId: string,
+  reason: string,
+): Promise<void> {
   return adminRpc(env, accessToken, 'reject_signup_request', { p_request_id: requestId, p_reason: reason });
 }
 
@@ -191,7 +218,10 @@ export function getSignupRoster(env: SupabaseEnv): Promise<SignupRosterDriver[]>
   const select = 'id,name,car_number,iracing_cust_id,class_id,driver_statuses(name)';
   // restGetAll pages past PostgREST's 1000-row cap, so a big roster can't
   // silently hide a number holder or a returning driver.
-  return restGetAll<SignupRosterDriver>(env, `drivers?select=${encodeURIComponent(select)}&is_ai=eq.false&order=id.asc`);
+  return restGetAll<SignupRosterDriver>(
+    env,
+    `drivers?select=${encodeURIComponent(select)}&is_ai=eq.false&order=id.asc`,
+  );
 }
 
 /**
@@ -200,10 +230,14 @@ export function getSignupRoster(env: SupabaseEnv): Promise<SignupRosterDriver[]>
  * Inactive, other than `excludeDriverId`. Only a preview for the admin page;
  * approval re-checks in the database.
  */
-export function numberHolder(roster: SignupRosterDriver[], number: number, excludeDriverId: string | null = null) {
+export function numberHolder(
+  roster: SignupRosterDriver[],
+  number: number,
+  excludeDriverId: string | null = null,
+) {
   return (
     roster.find(
-      (d) => d.car_number === number && d.driver_statuses?.name !== 'Inactive' && d.id !== excludeDriverId
+      (d) => d.car_number === number && d.driver_statuses?.name !== 'Inactive' && d.id !== excludeDriverId,
     ) ?? null
   );
 }
@@ -214,12 +248,16 @@ export function numberHolder(roster: SignupRosterDriver[], number: number, exclu
  * mean two different people, even with the same name. Mirrors the "same
  * person" test in submit_signup_request() (0098).
  */
-export function returningCandidates(roster: SignupRosterDriver[], request: Pick<SignupRequest, 'name' | 'iracing_cust_id'>) {
+export function returningCandidates(
+  roster: SignupRosterDriver[],
+  request: Pick<SignupRequest, 'name' | 'iracing_cust_id'>,
+) {
   const name = request.name.trim().toLowerCase();
   return roster.filter(
     (d) =>
       (request.iracing_cust_id !== null && d.iracing_cust_id === request.iracing_cust_id) ||
-      (d.name.trim().toLowerCase() === name && (request.iracing_cust_id === null || d.iracing_cust_id === null))
+      (d.name.trim().toLowerCase() === name &&
+        (request.iracing_cust_id === null || d.iracing_cust_id === null)),
   );
 }
 

@@ -15,13 +15,7 @@
  * below needs to change.
  */
 
-import {
-  restGet,
-  restGetAuthed,
-  restPatch,
-  getSiteSettings,
-  type SupabaseEnv,
-} from './supabase';
+import { restGet, restGetAuthed, restPatch, getSiteSettings, type SupabaseEnv } from './supabase';
 import { siteSettingInt, INCIDENT_REPORT_PERIOD_HOURS_KEY } from './siteSettings';
 import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from './timezone';
 
@@ -55,7 +49,7 @@ export interface ReportingWindow {
 export function computeReportingWindow(
   event: WindowEvent | null,
   roundStartTimeIso: string | null,
-  periodHours: number = REPORTING_WINDOW_HOURS
+  periodHours: number = REPORTING_WINDOW_HOURS,
 ): ReportingWindow | null {
   let raceOver: Date | null = null;
 
@@ -65,7 +59,10 @@ export function computeReportingWindow(
       { start: event.race2_start_time, laps: event.race2_laps },
       { start: event.race3_start_time, laps: event.race3_laps },
     ]
-      .map((r) => ({ startUtc: r.start ? zonedTimeToUtc(event.event_date, r.start, LEAGUE_TIME_ZONE) : null, laps: r.laps }))
+      .map((r) => ({
+        startUtc: r.start ? zonedTimeToUtc(event.event_date, r.start, LEAGUE_TIME_ZONE) : null,
+        laps: r.laps,
+      }))
       .filter((r): r is { startUtc: Date; laps: number | null } => r.startUtc !== null);
 
     if (races.length > 0) {
@@ -77,7 +74,8 @@ export function computeReportingWindow(
       } else {
         // Time-limited: final race's expiry (assumed length, see header) + 30 min.
         raceOver = new Date(
-          last.startUtc.getTime() + (TIME_LIMITED_RACE_ASSUMED_MINUTES + TIME_LIMITED_POST_RACE_MINUTES) * 60_000
+          last.startUtc.getTime() +
+            (TIME_LIMITED_RACE_ASSUMED_MINUTES + TIME_LIMITED_POST_RACE_MINUTES) * 60_000,
         );
       }
     }
@@ -104,13 +102,13 @@ export async function getReportingWindowForRound(
   env: SupabaseEnv,
   subsessionId: number,
   roundStartTimeIso: string | null,
-  periodHours: number = REPORTING_WINDOW_HOURS
+  periodHours: number = REPORTING_WINDOW_HOURS,
 ): Promise<ReportingWindow | null> {
   let event: WindowEvent | null = null;
   try {
     const rounds = await restGet<{ event_id: string | null }[]>(
       env,
-      `curated_rounds?select=event_id&subsession_id=eq.${subsessionId}`
+      `curated_rounds?select=event_id&subsession_id=eq.${subsessionId}`,
     );
     const eventId = rounds[0]?.event_id ?? null;
     const path = eventId
@@ -138,7 +136,10 @@ export async function getReportingPeriodHours(env: SupabaseEnv): Promise<number>
 /** Whether stewards have posted this round's incident report (making its page public). No row = not posted. */
 export async function isRoundPosted(env: SupabaseEnv, subsessionId: number): Promise<boolean> {
   try {
-    const rows = await restGet<{ posted: boolean }[]>(env, `round_incident_status?select=posted&subsession_id=eq.${subsessionId}`);
+    const rows = await restGet<{ posted: boolean }[]>(
+      env,
+      `round_incident_status?select=posted&subsession_id=eq.${subsessionId}`,
+    );
     return rows[0]?.posted === true;
   } catch (err) {
     console.error('Failed to read the round incident posted flag:', err);
@@ -151,7 +152,7 @@ export async function getRoundPostedAt(env: SupabaseEnv, subsessionId: number): 
   try {
     const rows = await restGet<{ posted: boolean; posted_at: string | null }[]>(
       env,
-      `round_incident_status?select=posted,posted_at&subsession_id=eq.${subsessionId}`
+      `round_incident_status?select=posted,posted_at&subsession_id=eq.${subsessionId}`,
     );
     const row = rows[0];
     if (!row || row.posted !== true || !row.posted_at) return null;
@@ -165,12 +166,20 @@ export async function getRoundPostedAt(env: SupabaseEnv, subsessionId: number): 
 
 /** Every posted round's subsession id. */
 export async function getPostedSubsessionIds(env: SupabaseEnv): Promise<Set<number>> {
-  const rows = await restGet<{ subsession_id: number }[]>(env, 'round_incident_status?select=subsession_id&posted=eq.true');
+  const rows = await restGet<{ subsession_id: number }[]>(
+    env,
+    'round_incident_status?select=subsession_id&posted=eq.true',
+  );
   return new Set(rows.map((r) => r.subsession_id));
 }
 
 /** Admin: post/unpost a round's incident report. */
-export async function setRoundPosted(env: SupabaseEnv, accessToken: string, subsessionId: number, posted: boolean): Promise<void> {
+export async function setRoundPosted(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+  posted: boolean,
+): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/round_incident_status?on_conflict=subsession_id`, {
     method: 'POST',
     headers: {
@@ -179,9 +188,14 @@ export async function setRoundPosted(env: SupabaseEnv, accessToken: string, subs
       'Content-Type': 'application/json',
       Prefer: 'resolution=merge-duplicates,return=minimal',
     },
-    body: JSON.stringify({ subsession_id: subsessionId, posted, posted_at: posted ? new Date().toISOString() : null }),
+    body: JSON.stringify({
+      subsession_id: subsessionId,
+      posted,
+      posted_at: posted ? new Date().toISOString() : null,
+    }),
   });
-  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on round_incident_status: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase upsert error ${res.status} on round_incident_status: ${await res.text()}`);
 }
 
 /**
@@ -194,7 +208,8 @@ export function reportingCountdownText(closesUtc: Date, now: Date = new Date()):
   const ms = closesUtc.getTime() - now.getTime();
   if (ms <= 0) return 'The incident reporting period has ended.';
   const minutes = Math.ceil(ms / 60_000);
-  if (minutes <= 120) return `Incident reporting period ends in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+  if (minutes <= 120)
+    return `Incident reporting period ends in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
   const hours = Math.floor(ms / 3_600_000);
   return `Incident reporting period ends in ${hours} hours.`;
 }
@@ -235,7 +250,11 @@ export interface NewIncidentReport {
  * the reporter from the caller's JWT (null when `accessToken` is omitted —
  * the anon key is used instead). Throws on any failure.
  */
-export async function createIncidentReport(env: SupabaseEnv, accessToken: string | null, input: NewIncidentReport): Promise<void> {
+export async function createIncidentReport(
+  env: SupabaseEnv,
+  accessToken: string | null,
+  input: NewIncidentReport,
+): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/submit_incident_report`, {
     method: 'POST',
     headers: {
@@ -252,19 +271,22 @@ export async function createIncidentReport(env: SupabaseEnv, accessToken: string
       p_driver_ids: input.driver_ids,
     }),
   });
-  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on submit_incident_report: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase rpc error ${res.status} on submit_incident_report: ${await res.text()}`);
 }
 
 /** Admin (or own-reporter) read — RLS filters to whatever the token may see. */
 export async function getIncidentReportsForSubsession(
   env: SupabaseEnv,
   accessToken: string,
-  subsessionId: number
+  subsessionId: number,
 ): Promise<IncidentReport[]> {
-  const rows = await restGetAuthed<(Omit<IncidentReport, 'driver_ids'> & { incident_report_drivers: { driver_id: string }[] })[]>(
+  const rows = await restGetAuthed<
+    (Omit<IncidentReport, 'driver_ids'> & { incident_report_drivers: { driver_id: string }[] })[]
+  >(
     env,
     accessToken,
-    `incident_reports?select=*,incident_report_drivers(driver_id)&subsession_id=eq.${subsessionId}&order=created_at.asc`
+    `incident_reports?select=*,incident_report_drivers(driver_id)&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
   return rows.map(({ incident_report_drivers, ...r }) => ({
     ...r,
@@ -278,7 +300,7 @@ export async function setIncidentReportStatus(
   reportId: string,
   status: 'open' | 'logged' | 'dismissed',
   /** Required when dismissing (0111); the database clears it again once the report leaves 'dismissed'. */
-  dismissalReason?: string
+  dismissalReason?: string,
 ): Promise<void> {
   await restPatch(env, accessToken, `incident_reports?id=eq.${encodeURIComponent(reportId)}`, {
     status,
@@ -326,14 +348,17 @@ export function reviewPenaltyLabel(penalty: ReviewPenalty): string {
 export async function getVisibleReviewsForSubsession(
   env: SupabaseEnv,
   accessToken: string,
-  subsessionId: number
+  subsessionId: number,
 ): Promise<IncidentReportReview[]> {
   const rows = await restGetAuthed<
-    (Omit<IncidentReportReview, 'faults'> & { incident_reports: unknown; incident_report_review_drivers: ReviewFault[] })[]
+    (Omit<IncidentReportReview, 'faults'> & {
+      incident_reports: unknown;
+      incident_report_review_drivers: ReviewFault[];
+    })[]
   >(
     env,
     accessToken,
-    `incident_report_reviews?select=*,incident_reports!inner(subsession_id),incident_report_review_drivers(driver_id,penalty)&incident_reports.subsession_id=eq.${subsessionId}&order=created_at.asc`
+    `incident_report_reviews?select=*,incident_reports!inner(subsession_id),incident_report_review_drivers(driver_id,penalty)&incident_reports.subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
   return rows.map(({ incident_reports: _, incident_report_review_drivers, ...r }) => ({
     ...r,
@@ -345,7 +370,7 @@ export async function getVisibleReviewsForSubsession(
 export async function getReviewCountsForSubsession(
   env: SupabaseEnv,
   accessToken: string,
-  subsessionId: number
+  subsessionId: number,
 ): Promise<Map<string, number>> {
   const res = await fetch(`${env.url}/rest/v1/rpc/incident_report_review_counts`, {
     method: 'POST',
@@ -356,7 +381,8 @@ export async function getReviewCountsForSubsession(
     },
     body: JSON.stringify({ p_subsession_id: subsessionId }),
   });
-  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on incident_report_review_counts: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase rpc error ${res.status} on incident_report_review_counts: ${await res.text()}`);
   const rows = (await res.json()) as { report_id: string; review_count: number }[];
   return new Map(rows.map((r) => [r.report_id, r.review_count]));
 }
@@ -369,7 +395,7 @@ export async function getReviewCountsForSubsession(
 export async function saveIncidentReportReview(
   env: SupabaseEnv,
   accessToken: string,
-  input: { report_id: string; faults: ReviewFault[]; explanation: string }
+  input: { report_id: string; faults: ReviewFault[]; explanation: string },
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/save_incident_report_review`, {
     method: 'POST',
@@ -384,7 +410,8 @@ export async function saveIncidentReportReview(
       p_explanation: input.explanation,
     }),
   });
-  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on save_incident_report_review: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase rpc error ${res.status} on save_incident_report_review: ${await res.text()}`);
 }
 
 /** Minimum number of reviews before a report gets an agreement colour. */
@@ -396,10 +423,14 @@ export const REVIEW_AGREEMENT_MIN = 3;
  * penalty), 'driver' (same cars, different penalties) or 'split' (different
  * cars, or fault vs. Racing Incident). Null below the minimum.
  */
-export function reviewAgreement(reviews: Pick<IncidentReportReview, 'faults'>[]): 'all' | 'driver' | 'split' | null {
+export function reviewAgreement(
+  reviews: Pick<IncidentReportReview, 'faults'>[],
+): 'all' | 'driver' | 'split' | null {
   if (reviews.length < REVIEW_AGREEMENT_MIN) return null;
   // `faults` is sorted by driver id, so these keys compare as sets.
-  const drivers = new Set(reviews.map((r) => r.faults.map((f) => f.driver_id).join(',') || 'racing_incident'));
+  const drivers = new Set(
+    reviews.map((r) => r.faults.map((f) => f.driver_id).join(',') || 'racing_incident'),
+  );
   if (drivers.size > 1) return 'split';
   const penalties = new Set(reviews.map((r) => r.faults.map((f) => `${f.driver_id}:${f.penalty}`).join(',')));
   return penalties.size === 1 ? 'all' : 'driver';

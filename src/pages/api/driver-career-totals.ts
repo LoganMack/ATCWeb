@@ -1,5 +1,10 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv, getSeasons, getDriverClasses, getStandingsExcludedRoundIds } from '../../lib/supabase';
+import {
+  resolveSupabaseEnv,
+  getSeasons,
+  getDriverClasses,
+  getStandingsExcludedRoundIds,
+} from '../../lib/supabase';
 import { computeDriverCareerStats } from '../../lib/results';
 
 export const prerender = false;

@@ -18,16 +18,22 @@ const require = createRequire(path.resolve(dir) + '/');
 const topo = require('world-atlas/land-110m.json');
 const { feature } = require('topojson-client');
 
-const A1 = 1.340264, A2 = -0.081106, A3 = 0.000893, A4 = 0.003796;
+const A1 = 1.340264,
+  A2 = -0.081106,
+  A3 = 0.000893,
+  A4 = 0.003796;
 const RAD = Math.PI / 180;
 function eq(lng, lat) {
   const th = Math.asin((Math.sqrt(3) / 2) * Math.sin(lat * RAD));
-  const t2 = th * th, t6 = t2 * t2 * t2;
-  const x = (2 * Math.sqrt(3) * lng * RAD * Math.cos(th)) / (3 * (9 * A4 * t6 * t2 + 7 * A3 * t6 + 3 * A2 * t2 + A1));
+  const t2 = th * th,
+    t6 = t2 * t2 * t2;
+  const x =
+    (2 * Math.sqrt(3) * lng * RAD * Math.cos(th)) / (3 * (9 * A4 * t6 * t2 + 7 * A3 * t6 + 3 * A2 * t2 + A1));
   const y = th * (A1 + A2 * t2 + t6 * (A3 + A4 * t2));
   return [x, y];
 }
-const LAT_TOP = 84, LAT_BOTTOM = -58;
+const LAT_TOP = 84,
+  LAT_BOTTOM = -58;
 const xMax = eq(180, 0)[0];
 const yTop = eq(0, LAT_TOP)[1];
 const yBot = eq(0, LAT_BOTTOM)[1];
@@ -82,9 +88,15 @@ for (const g of land.geometry ? [land.geometry] : land.features.map((x) => x.geo
       const hi = Math.max(...un.map((p) => p[0]));
       const parts = [];
       if (hi > 180) {
-        parts.push(clip(un, 180, true), clip(un, 180, false).map((p) => [p[0] - 360, p[1]]));
+        parts.push(
+          clip(un, 180, true),
+          clip(un, 180, false).map((p) => [p[0] - 360, p[1]]),
+        );
       } else if (lo < -180) {
-        parts.push(clip(un, -180, false), clip(un, -180, true).map((p) => [p[0] + 360, p[1]]));
+        parts.push(
+          clip(un, -180, false),
+          clip(un, -180, true).map((p) => [p[0] + 360, p[1]]),
+        );
       } else parts.push(un);
       for (const part of parts) {
         if (part.length < 3) continue;

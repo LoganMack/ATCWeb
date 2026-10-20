@@ -19,7 +19,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   } catch {
     return json({ error: 'Body must be JSON' }, 400);
   }
-  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 100 || !ids.every((id) => typeof id === 'string' && UUID.test(id))) {
+  if (
+    !Array.isArray(ids) ||
+    ids.length === 0 ||
+    ids.length > 100 ||
+    !ids.every((id) => typeof id === 'string' && UUID.test(id))
+  ) {
     return json({ error: 'request_ids must be a list of 1-100 request IDs' }, 400);
   }
 

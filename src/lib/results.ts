@@ -239,7 +239,7 @@ export function driversSelect(env: SupabaseEnv, { includeAi = false }: { include
   const aiFilter = includeAi ? '' : '&is_ai=eq.false';
   return restGet<DriverBasic[]>(
     env,
-    `drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai${aiFilter}`
+    `drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai${aiFilter}`,
   );
 }
 
@@ -248,7 +248,7 @@ function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId
     'subsession_id,race_number,driver_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,classified,dsq';
   return restGet<RaceScoreRow[]>(
     env,
-    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`
+    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`,
   );
 }
 
@@ -297,7 +297,7 @@ function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
   // rows across pages.
   return restGetAll<RaceScoreBulkRow>(
     env,
-    `race_scores_public?select=${select}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`
+    `race_scores_public?select=${select}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`,
   );
 }
 
@@ -324,7 +324,7 @@ function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
   return restGet<RaceScoreOverallRow[]>(
     env,
-    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -344,7 +344,10 @@ function getRaceScoresForSubsessionsOverall(env: SupabaseEnv, subsessionIds: num
   if (subsessionIds.length === 0) return Promise.resolve([] as RaceScoreOverallRow[]);
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
-  return restGetAll<RaceScoreOverallRow>(env, `race_scores_public?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`);
+  return restGetAll<RaceScoreOverallRow>(
+    env,
+    `race_scores_public?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`,
+  );
 }
 
 interface CuratedQualifyingBulkRow {
@@ -366,7 +369,7 @@ function getQualifyingForSubsessionsBulk(env: SupabaseEnv, subsessionIds: number
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedQualifyingBulkRow[]);
   return restGetAll<CuratedQualifyingBulkRow>(
     env,
-    `curated_qualifying?select=subsession_id,cust_id,qual_position&subsession_id=in.(${subsessionIds.join(',')})`
+    `curated_qualifying?select=subsession_id,cust_id,qual_position&subsession_id=in.(${subsessionIds.join(',')})`,
   );
 }
 
@@ -390,7 +393,7 @@ function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: nu
   // stable across requests.
   return restGetAll<CuratedRaceResultRow>(
     env,
-    `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
+    `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
   );
 }
 
@@ -418,17 +421,23 @@ interface RawLapStatsRow {
  * interval-only behavior, and the results page simply omits the
  * average/best lap stats.
  */
-async function getLapStatsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RawLapStatsRow[]> {
+async function getLapStatsForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<RawLapStatsRow[]> {
   if (subsessionIds.length === 0) return [];
   try {
     // restGetAll — same reasoning (and same explicit order, for the same
     // paginated-stability reason) as getCuratedRaceResultsForSubsessions.
     return await restGetAll<RawLapStatsRow>(
       env,
-      `curated_race_results?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
+      `curated_race_results?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
     );
   } catch (err) {
-    console.error('Failed to fetch average/best lap data (curated_race_results.average_lap_ten_thousandths) — falling back to interval-only penalty ranking and omitting lap-time stats:', err);
+    console.error(
+      'Failed to fetch average/best lap data (curated_race_results.average_lap_ten_thousandths) — falling back to interval-only penalty ranking and omitting lap-time stats:',
+      err,
+    );
     return [];
   }
 }
@@ -449,15 +458,21 @@ interface RawDisplayNameRow {
  * "Cust #<id>" per row when this comes back empty) rather than taking down
  * every page that shares that query.
  */
-async function getDisplayNamesForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RawDisplayNameRow[]> {
+async function getDisplayNamesForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<RawDisplayNameRow[]> {
   if (subsessionIds.length === 0) return [];
   try {
     return await restGetAll<RawDisplayNameRow>(
       env,
-      `curated_race_results?select=subsession_id,race_number,cust_id,display_name&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
+      `curated_race_results?select=subsession_id,race_number,cust_id,display_name&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
     );
   } catch (err) {
-    console.error('Failed to fetch display_name (curated_race_results.display_name) — unrostered entrants will show as "Cust #<id>" instead of their real name:', err);
+    console.error(
+      'Failed to fetch display_name (curated_race_results.display_name) — unrostered entrants will show as "Cust #<id>" instead of their real name:',
+      err,
+    );
     return [];
   }
 }
@@ -478,7 +493,9 @@ function teamSeasonLogoKey(teamId: string, seasonId: string): string {
 }
 
 /** team_id:season_id -> logo_url, built once per call site that needs season-aware team logos (getRoundResults, getSeasonCarTeamStats) — see 0019_team_season_logos.sql. */
-function buildSeasonLogoMap(rows: { team_id: string; season_id: string; logo_url: string }[]): Map<string, string> {
+function buildSeasonLogoMap(
+  rows: { team_id: string; season_id: string; logo_url: string }[],
+): Map<string, string> {
   return new Map(rows.map((r) => [teamSeasonLogoKey(r.team_id, r.season_id), r.logo_url]));
 }
 
@@ -500,7 +517,10 @@ export async function getAllTeamSeasonLogosSafe(env: SupabaseEnv): ReturnType<ty
   try {
     return await getAllTeamSeasonLogos(env);
   } catch (err) {
-    console.error('Failed to fetch team_season_logos (migration 0019 not applied yet?) — falling back to current team logos only:', err);
+    console.error(
+      'Failed to fetch team_season_logos (migration 0019 not applied yet?) — falling back to current team logos only:',
+      err,
+    );
     return [];
   }
 }
@@ -512,7 +532,11 @@ export async function getAllTeamSeasonLogosSafe(env: SupabaseEnv): ReturnType<ty
  * determine a season for what it's showing (falls straight back to the
  * current logo).
  */
-function resolveTeamLogo(team: TeamBasic, seasonId: string | null, seasonLogos: Map<string, string>): string | null {
+function resolveTeamLogo(
+  team: TeamBasic,
+  seasonId: string | null,
+  seasonLogos: Map<string, string>,
+): string | null {
   if (seasonId) {
     const override = seasonLogos.get(teamSeasonLogoKey(team.id, seasonId));
     if (override) return override;
@@ -610,7 +634,7 @@ export async function getSeasonOverallContext(
   exhibitionIds: Set<number>,
   drivers: DriverBasic[],
   /** Pass every ruleset on file when a caller already has them (e.g. computeSeasonStandings/computeOverallSeasonStandings, which resolve their own `canDropFinalRound` from the same fetch) so this doesn't refetch the same small table a second time. Resolved against this `season` via `resolveSeasonRuleset` either way. */
-  rulesets?: ScoringRuleset[]
+  rulesets?: ScoringRuleset[],
 ): Promise<SeasonOverallContext> {
   const [overallScoresRaw, allRulesets] = await Promise.all([
     getRaceScoresForSeasonOverall(env, season.id),
@@ -623,7 +647,9 @@ export async function getSeasonOverallContext(
   // is just to keep this wrapper's OWN fetches scoped to exactly the same
   // rounds as before, not a behavior change.
   const filteredForFetchScope =
-    exhibitionIds.size > 0 ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : overallScoresRaw;
+    exhibitionIds.size > 0
+      ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id))
+      : overallScoresRaw;
   const subsessionIds = [...new Set(filteredForFetchScope.map((s) => s.subsession_id))];
   const [rawResults, penalties, seasonRounds, lapStats] = await Promise.all([
     getCuratedRaceResultsForSubsessions(env, subsessionIds),
@@ -632,7 +658,16 @@ export async function getSeasonOverallContext(
     getLapStatsForSubsessions(env, subsessionIds),
   ]);
 
-  return buildSeasonOverallContext(exhibitionIds, drivers, overallScoresRaw, rawResults, penalties, seasonRounds, lapStats, rules);
+  return buildSeasonOverallContext(
+    exhibitionIds,
+    drivers,
+    overallScoresRaw,
+    rawResults,
+    penalties,
+    seasonRounds,
+    lapStats,
+    rules,
+  );
 }
 
 /**
@@ -654,14 +689,16 @@ function buildSeasonOverallContext(
   seasonRounds: RoundSummary[],
   lapStats: RawLapStatsRow[],
   /** This season's resolved scoring_rulesets.rules (or null if none resolves) — every caller of this function is single-season-scoped, so this one value is repeated across every subsession_id below to build rulesBySubsession. See SeasonOverallContext.rulesBySubsession's own doc comment. */
-  rules: unknown
+  rules: unknown,
 ): SeasonOverallContext {
   const custIdByDriverId = new Map(
-    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
 
   const overallScores =
-    exhibitionIds.size > 0 ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : overallScoresRaw;
+    exhibitionIds.size > 0
+      ? overallScoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id))
+      : overallScoresRaw;
 
   if (overallScores.length === 0) {
     return {
@@ -679,7 +716,9 @@ function buildSeasonOverallContext(
   }
 
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
-  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const lapStatsByKey = new Map(
+    lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]),
+  );
   const formatBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, r.format]));
   const rulesBySubsession = new Map(seasonRounds.map((r) => [r.subsession_id, rules]));
 
@@ -692,19 +731,33 @@ function buildSeasonOverallContext(
     if (r.finish_position === 1) {
       leaderStatsByRace.set(`${r.subsession_id}:${r.race_number}`, {
         lapsComplete: r.laps_complete,
-        averageLapTenThousandths: lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, r.cust_id))?.average_lap_ten_thousandths ?? null,
+        averageLapTenThousandths:
+          lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, r.cust_id))
+            ?.average_lap_ten_thousandths ?? null,
       });
     }
   }
 
   if (penalties.length === 0) {
-    return { adjustments: new Map(), penalties, formatBySubsession, rulesBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey, seasonRounds };
+    return {
+      adjustments: new Map(),
+      penalties,
+      formatBySubsession,
+      rulesBySubsession,
+      rawByKey,
+      overallScores,
+      custIdByDriverId,
+      leaderStatsByRace,
+      lapStatsByKey,
+      seasonRounds,
+    };
   }
 
   const seasonScoreRows: SeasonScoreRow[] = overallScores.map((s) => {
     const custId = custIdByDriverId.get(s.driver_id);
     const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
-    const lapStatsRow = custId != null ? lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const lapStatsRow =
+      custId != null ? lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
     return {
       subsessionId: s.subsession_id,
       raceNumber: s.race_number,
@@ -723,8 +776,24 @@ function buildSeasonOverallContext(
     };
   });
 
-  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession, rulesBySubsession);
-  return { adjustments, penalties, formatBySubsession, rulesBySubsession, rawByKey, overallScores, custIdByDriverId, leaderStatsByRace, lapStatsByKey, seasonRounds };
+  const adjustments = computeSeasonOverallAdjustments(
+    seasonScoreRows,
+    penalties,
+    formatBySubsession,
+    rulesBySubsession,
+  );
+  return {
+    adjustments,
+    penalties,
+    formatBySubsession,
+    rulesBySubsession,
+    rawByKey,
+    overallScores,
+    custIdByDriverId,
+    leaderStatsByRace,
+    lapStatsByKey,
+    seasonRounds,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -860,7 +929,7 @@ function buildPenaltiesByDriverAndRound(penalties: Penalty[]): Map<string, Map<n
 export function computeSeasonStandingsRoundColumns(
   seasonRounds: RoundSummary[],
   allSubsessionIds: Set<number>,
-  displayRoundNumbers: Map<number, number | null>
+  displayRoundNumbers: Map<number, number | null>,
 ): SeasonStandingsRoundColumn[] {
   return seasonRounds
     .filter((r) => allSubsessionIds.has(r.subsession_id))
@@ -889,7 +958,10 @@ export function rulesetBaseDropWeeks(ruleset: ScoringRuleset | null | undefined)
 }
 
 /** Total drop weeks a season's driver standings get: its ruleset's base plus the season's `extra_drop_weeks`. */
-export function seasonDropWeeks(season: Pick<Season, 'scoring_ruleset_id' | 'extra_drop_weeks'>, rulesets: ScoringRuleset[]): number {
+export function seasonDropWeeks(
+  season: Pick<Season, 'scoring_ruleset_id' | 'extra_drop_weeks'>,
+  rulesets: ScoringRuleset[],
+): number {
   return rulesetBaseDropWeeks(resolveSeasonRuleset(season, rulesets)) + (season.extra_drop_weeks ?? 0);
 }
 /** Drop weeks don't kick in until the championship has actually run this many rounds — per Logan. Below this, `finalizeStandings` forces the drop count to 0 regardless of `BASELINE_DROP_WEEKS`/`extra_drop_weeks`, so every round scored so far still counts toward the total (no early-season "your worst round doesn't count" swings while the sample size is tiny). */
@@ -903,12 +975,18 @@ export const MIN_ROUNDS_FOR_DROPS = 5;
  * round_number; otherwise picking either would be equally arbitrary.
  * Returns null for a season with no eligible rounds at all yet.
  */
-function findFinalRoundSubsessionId(seasonRounds: RoundSummary[], excludedRoundIds: Set<number>): number | null {
+function findFinalRoundSubsessionId(
+  seasonRounds: RoundSummary[],
+  excludedRoundIds: Set<number>,
+): number | null {
   const eligible = seasonRounds.filter((r) => !excludedRoundIds.has(r.subsession_id));
   if (eligible.length === 0) return null;
   let final = eligible[0];
   for (const r of eligible) {
-    if (r.start_time > final.start_time || (r.start_time === final.start_time && (r.round_number ?? -1) > (final.round_number ?? -1))) {
+    if (
+      r.start_time > final.start_time ||
+      (r.start_time === final.start_time && (r.round_number ?? -1) > (final.round_number ?? -1))
+    ) {
       final = r;
     }
   }
@@ -1008,14 +1086,16 @@ function finalizeStandings(
   /** The season's ruleset's `rules.drops.base` (see rulesetBaseDropWeeks) — season.extra_drop_weeks is added on top below. */
   baseDropWeeks: number = BASELINE_DROP_WEEKS,
   /** Standings Matrix view's penalty summaries (StandingsRoundCell.penalties) — see buildPenaltiesByDriverAndRound. Omitted entirely leaves every cell's penalties empty, harmless for any caller that doesn't need the Matrix view. */
-  penaltiesByDriverAndRound?: Map<string, Map<number, Penalty[]>>
+  penaltiesByDriverAndRound?: Map<string, Map<number, Penalty[]>>,
 ): DriverSeasonStanding[] {
-  const totalDrops = allSubsessionIds.size >= MIN_ROUNDS_FOR_DROPS ? baseDropWeeks + (season.extra_drop_weeks ?? 0) : 0;
+  const totalDrops =
+    allSubsessionIds.size >= MIN_ROUNDS_FOR_DROPS ? baseDropWeeks + (season.extra_drop_weeks ?? 0) : 0;
   // Only actually a constraint when the final round is both present in this
   // pool (this class/view may not have raced it at all) and the ruleset
   // wants it protected — otherwise this is exactly the old unconstrained
   // behavior.
-  const protectFinalRound = !canDropFinalRound && finalRoundSubsessionId !== null && allSubsessionIds.has(finalRoundSubsessionId);
+  const protectFinalRound =
+    !canDropFinalRound && finalRoundSubsessionId !== null && allSubsessionIds.has(finalRoundSubsessionId);
 
   const standings: Omit<DriverSeasonStanding, 'position'>[] = [];
   for (const [driverId, a] of accum) {
@@ -1102,7 +1182,7 @@ function finalizeStandings(
       y.lapsLed - x.lapsLed ||
       y.laps - x.laps ||
       y.appearances - x.appearances ||
-      displayDriverName(x.driver.name).localeCompare(displayDriverName(y.driver.name))
+      displayDriverName(x.driver.name).localeCompare(displayDriverName(y.driver.name)),
   );
 
   return standings.map((s, i) => ({ ...s, position: i + 1 }));
@@ -1140,12 +1220,14 @@ export async function computeSeasonStandings(
   /** Same sharing reasoning as `precomputedOverallContext` — lets a caller that already fetched this class's own race_scores rows (e.g. computeTeamSeasonStandings' per-class team competition, which needs the identical rows) pass them in instead of querying twice. */
   precomputedScoresRaw?: RaceScoreRow[],
   /** Same sharing reasoning as `driversBasic` above — pass every ruleset on file when computing many seasons back to back (see `getChampions`/`computeDriverCareerStats`) so this doesn't refetch the same small table once per season. Resolved against this `season` via `resolveSeasonRuleset` either way. */
-  rulesets?: ScoringRuleset[]
+  rulesets?: ScoringRuleset[],
 ): Promise<DriverSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
   const [scoresRaw, drivers, exhibitionIds, classes, allRulesets] = await Promise.all([
-    precomputedScoresRaw ? Promise.resolve(precomputedScoresRaw) : getRaceScoresForSeasonClass(env, season.id, classId),
+    precomputedScoresRaw
+      ? Promise.resolve(precomputedScoresRaw)
+      : getRaceScoresForSeasonClass(env, season.id, classId),
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
@@ -1162,12 +1244,13 @@ export async function computeSeasonStandings(
   // Individual rounds can be flagged exhibition even inside a real
   // championship season (e.g. a pre-season race) — those never count
   // toward standings, same as a whole exhibition season.
-  const scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+  const scores =
+    exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
   if (scores.length === 0) return [];
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   const custIdByDriverId = new Map(
-    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
 
   // Cross-class penalty context — this class's finish points are based on
@@ -1178,7 +1261,9 @@ export async function computeSeasonStandings(
   // raced (a superset of this one class's own subsessions), so it doubles
   // as this class's curated_race_results lookup too — no separate fetch
   // needed for that anymore.
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
+  const overallContext =
+    precomputedOverallContext ??
+    (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
   const rawByKey = overallContext.rawByKey;
 
   // Group this class's race_scores rows by (subsession_id, race_number) so
@@ -1211,9 +1296,12 @@ export async function computeSeasonStandings(
       .filter((s) => !s.dsq)
       .map((s) => {
         const custId = custIdByDriverId.get(s.driver_id);
-        const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+        const raw =
+          custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
         const lapStatsRow =
-          custId != null ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+          custId != null
+            ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId))
+            : undefined;
         return {
           score: s,
           position: raw?.adjusted_position ?? raw?.finish_position ?? null,
@@ -1260,7 +1348,7 @@ export async function computeSeasonStandings(
     overallContext.adjustments,
     overallContext.leaderStatsByRace,
     awardsClassPoints,
-    overallContext.rulesBySubsession
+    overallContext.rulesBySubsession,
   );
 
   // Disqualified results are excluded from ranking entirely (not just
@@ -1275,14 +1363,28 @@ export async function computeSeasonStandings(
       if (s.dsq) continue;
       const key = `${raceKey}:${s.driver_id}`;
       const adjustment = classAdjustments.get(key);
-      const classRank = adjustment ? adjustment.newClassPosition : originalClassPositionByKey.get(key) ?? null;
+      const classRank = adjustment
+        ? adjustment.newClassPosition
+        : (originalClassPositionByKey.get(key) ?? null);
       if (classRank === null) continue;
       const a = getAccum(s.driver_id);
       const rs = roundStatFor(a, s.subsession_id);
-      if (classRank === 1) { a.wins++; rs.wins++; }
-      if (classRank <= 3) { a.podiums++; rs.podiums++; }
-      if (classRank <= 5) { a.top5s++; rs.top5s++; }
-      if (classRank <= 10) { a.top10s++; rs.top10s++; }
+      if (classRank === 1) {
+        a.wins++;
+        rs.wins++;
+      }
+      if (classRank <= 3) {
+        a.podiums++;
+        rs.podiums++;
+      }
+      if (classRank <= 5) {
+        a.top5s++;
+        rs.top5s++;
+      }
+      if (classRank <= 10) {
+        a.top10s++;
+        rs.top10s++;
+      }
     }
   }
 
@@ -1292,7 +1394,9 @@ export async function computeSeasonStandings(
   // falls back to the true overall pole-sitter instead, same as the Overall
   // view. Gamma/Delta keep using their own real Class Pole (pole_bonus).
   const isAlphaClass = !awardsClassPoints;
-  const overallPoleDriverBySubsession = isAlphaClass ? computeOverallPoleDriverBySubsession(overallContext) : null;
+  const overallPoleDriverBySubsession = isAlphaClass
+    ? computeOverallPoleDriverBySubsession(overallContext)
+    : null;
 
   // Alpha's points MUST come from the exact same source computeOverallSeasonStandings
   // uses (finish_points + finesse_bonus + pole_bonus + points_deduction, with
@@ -1320,9 +1424,11 @@ export async function computeSeasonStandings(
           .map((s) => {
             const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
             const adjustment = overallContext.adjustments.get(key);
-            const points = adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+            const points = adjustment
+              ? adjustment.overallTotalPoints
+              : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
             return [key, points] as const;
-          })
+          }),
       )
     : null;
 
@@ -1337,7 +1443,8 @@ export async function computeSeasonStandings(
     const rs = roundStatFor(a, s.subsession_id);
     rs.starts += 1;
     if (isAlphaClass) {
-      if (overallPoleDriverBySubsession!.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
+      if (overallPoleDriverBySubsession!.get(s.subsession_id) === s.driver_id)
+        a.poleSubsessionIds.add(s.subsession_id);
     } else if (s.pole_bonus > 0) {
       a.poleSubsessionIds.add(s.subsession_id);
     }
@@ -1376,7 +1483,7 @@ export async function computeSeasonStandings(
     finalRoundSubsessionId,
     canDropFinalRound,
     rulesetBaseDropWeeks(resolveSeasonRuleset(season, allRulesets)),
-    buildPenaltiesByDriverAndRound(overallContext.penalties)
+    buildPenaltiesByDriverAndRound(overallContext.penalties),
   );
 }
 
@@ -1394,7 +1501,9 @@ export async function computeSeasonStandings(
  * "poles" stat or tiebreaker column the way it can for Gamma/Delta.
  */
 function computeOverallPoleDriverBySubsession(context: SeasonOverallContext): Map<number, string> {
-  const custIdToDriverId = new Map([...context.custIdByDriverId].map(([driverId, custId]) => [custId, driverId]));
+  const custIdToDriverId = new Map(
+    [...context.custIdByDriverId].map(([driverId, custId]) => [custId, driverId]),
+  );
   const overallPoleDriverBySubsession = new Map<number, string>();
   for (const raw of context.rawByKey.values()) {
     if (raw.race_number === 1 && raw.starting_position === 1) {
@@ -1435,7 +1544,7 @@ export async function computeOverallSeasonStandings(
   /** See `computeSeasonStandings`' identical param — shares one season-wide penalty context across every view instead of each fetching its own. */
   precomputedOverallContext?: SeasonOverallContext,
   /** See `computeSeasonStandings`' identical param. */
-  rulesets?: ScoringRuleset[]
+  rulesets?: ScoringRuleset[],
 ): Promise<DriverSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
@@ -1446,7 +1555,9 @@ export async function computeOverallSeasonStandings(
   ]);
   const canDropFinalRound = resolveSeasonRuleset(season, allRulesets)?.can_drop_final_round ?? false;
 
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
+  const overallContext =
+    precomputedOverallContext ??
+    (await getSeasonOverallContext(env, season, exhibitionIds, drivers, allRulesets));
   const scores = overallContext.overallScores;
   if (scores.length === 0) return [];
 
@@ -1470,11 +1581,15 @@ export async function computeOverallSeasonStandings(
     a.subsessionIds.add(s.subsession_id);
     const rs = roundStatFor(a, s.subsession_id);
     rs.starts += 1;
-    if (overallPoleDriverBySubsession.get(s.subsession_id) === s.driver_id) a.poleSubsessionIds.add(s.subsession_id);
+    if (overallPoleDriverBySubsession.get(s.subsession_id) === s.driver_id)
+      a.poleSubsessionIds.add(s.subsession_id);
     rs.poles = a.poleSubsessionIds.has(s.subsession_id) ? 1 : 0;
 
     const custId = overallContext.custIdByDriverId.get(s.driver_id);
-    const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const raw =
+      custId != null
+        ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId))
+        : undefined;
     a.lapsLed += raw?.laps_led ?? 0;
     a.laps += raw?.laps_complete ?? 0;
     rs.lapsLed += raw?.laps_led ?? 0;
@@ -1482,15 +1597,29 @@ export async function computeOverallSeasonStandings(
 
     const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
     const adjustment = overallContext.adjustments.get(key);
-    const points = adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+    const points = adjustment
+      ? adjustment.overallTotalPoints
+      : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
     a.roundPoints.set(s.subsession_id, (a.roundPoints.get(s.subsession_id) ?? 0) + points);
 
     const position = adjustment ? adjustment.newPosition : s.scored_position;
     if (!s.dsq && position !== null) {
-      if (position === 1) { a.wins++; rs.wins++; }
-      if (position <= 3) { a.podiums++; rs.podiums++; }
-      if (position <= 5) { a.top5s++; rs.top5s++; }
-      if (position <= 10) { a.top10s++; rs.top10s++; }
+      if (position === 1) {
+        a.wins++;
+        rs.wins++;
+      }
+      if (position <= 3) {
+        a.podiums++;
+        rs.podiums++;
+      }
+      if (position <= 5) {
+        a.top5s++;
+        rs.top5s++;
+      }
+      if (position <= 10) {
+        a.top10s++;
+        rs.top10s++;
+      }
     }
   }
 
@@ -1507,7 +1636,7 @@ export async function computeOverallSeasonStandings(
     finalRoundSubsessionId,
     canDropFinalRound,
     rulesetBaseDropWeeks(resolveSeasonRuleset(season, allRulesets)),
-    buildPenaltiesByDriverAndRound(overallContext.penalties)
+    buildPenaltiesByDriverAndRound(overallContext.penalties),
   );
 }
 
@@ -1595,7 +1724,7 @@ export async function computeTeamSeasonStandings(
   /** Only meaningful for the per-class branch (`classId` set) — see `computeSeasonStandings`' identical param. */
   precomputedScoresRaw?: RaceScoreRow[],
   /** Same sharing reasoning as `driversBasic` above — see `computeSeasonStandings`' identical param. Only actually used (to fetch a fresh `overallContext`) when `precomputedOverallContext` is omitted — every real caller today passes that in instead. */
-  rulesets?: ScoringRuleset[]
+  rulesets?: ScoringRuleset[],
 ): Promise<TeamSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
@@ -1613,7 +1742,9 @@ export async function computeTeamSeasonStandings(
   // summaries — built from `overallContext.penalties` once, after the
   // branch — can see it too, and so it's fetched at most once regardless of
   // which branch runs.
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers, rulesets));
+  const overallContext =
+    precomputedOverallContext ??
+    (await getSeasonOverallContext(env, season, exhibitionIds, drivers, rulesets));
   const penaltiesByDriverAndRound = buildPenaltiesByDriverAndRound(overallContext.penalties);
 
   interface TeamAccum {
@@ -1628,7 +1759,14 @@ export async function computeTeamSeasonStandings(
   function getAccum(teamId: string): TeamAccum {
     let a = accum.get(teamId);
     if (!a) {
-      a = { starts: 0, subsessionIds: new Set(), roundPoints: new Map(), roundStarts: new Map(), driverIds: new Set(), raceEntries: [] };
+      a = {
+        starts: 0,
+        subsessionIds: new Set(),
+        roundPoints: new Map(),
+        roundStarts: new Map(),
+        driverIds: new Set(),
+        raceEntries: [],
+      };
       accum.set(teamId, a);
     }
     return a;
@@ -1642,7 +1780,9 @@ export async function computeTeamSeasonStandings(
     const pointsOf = (s: RaceScoreOverallRow) => {
       const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
       const adjustment = overallContext.adjustments.get(key);
-      return adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+      return adjustment
+        ? adjustment.overallTotalPoints
+        : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
     };
 
     // Starts/appearances count every row for the team, same as a driver's
@@ -1673,7 +1813,9 @@ export async function computeTeamSeasonStandings(
         const resultLookupKey = custId != null ? resultKey(s.subsession_id, s.race_number, custId) : null;
         const raw = resultLookupKey ? overallContext.rawByKey.get(resultLookupKey) : undefined;
         const lapStats = resultLookupKey ? overallContext.lapStatsByKey.get(resultLookupKey) : undefined;
-        const adjustment = overallContext.adjustments.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`);
+        const adjustment = overallContext.adjustments.get(
+          `${s.subsession_id}:${s.race_number}:${s.driver_id}`,
+        );
         a.raceEntries.push({
           subsessionId: s.subsession_id,
           raceNumber: s.race_number,
@@ -1694,15 +1836,18 @@ export async function computeTeamSeasonStandings(
   } else {
     // ---- One class's own separate team competition (e.g. Delta's) ----
     const [scoresRaw, classes] = await Promise.all([
-      precomputedScoresRaw ? Promise.resolve(precomputedScoresRaw) : getRaceScoresForSeasonClass(env, season.id, classId),
+      precomputedScoresRaw
+        ? Promise.resolve(precomputedScoresRaw)
+        : getRaceScoresForSeasonClass(env, season.id, classId),
       classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
     ]);
     const awardsClassPoints = classes.find((c) => c.id === classId)?.name !== 'Alpha';
-    const scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+    const scores =
+      exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
     if (scores.length === 0) return [];
 
     const custIdByDriverId = new Map(
-      drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+      drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
     );
 
     // Cross-class penalty context — same reasoning as computeSeasonStandings.
@@ -1728,9 +1873,12 @@ export async function computeTeamSeasonStandings(
         .filter((s) => !s.dsq)
         .map((s) => {
           const custId = custIdByDriverId.get(s.driver_id);
-          const raw = custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+          const raw =
+            custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
           const lapStatsRow =
-            custId != null ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+            custId != null
+              ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId))
+              : undefined;
           return {
             score: s,
             position: raw?.adjusted_position ?? raw?.finish_position ?? null,
@@ -1774,7 +1922,7 @@ export async function computeTeamSeasonStandings(
       overallContext.adjustments,
       overallContext.leaderStatsByRace,
       awardsClassPoints,
-      overallContext.rulesBySubsession
+      overallContext.rulesBySubsession,
     );
 
     // Alpha Team points must come from the same source computeSeasonStandings'
@@ -1792,9 +1940,11 @@ export async function computeTeamSeasonStandings(
             .map((s) => {
               const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
               const adjustment = overallContext.adjustments.get(key);
-              const points = adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+              const points = adjustment
+                ? adjustment.overallTotalPoints
+                : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
               return [key, points] as const;
-            })
+            }),
         )
       : null;
 
@@ -1820,7 +1970,9 @@ export async function computeTeamSeasonStandings(
     }
 
     const classPositionByKey = new Map(
-      classScoreRows.map((r) => [`${r.subsessionId}:${r.raceNumber}:${r.driverId}`, r.classPosition] as const)
+      classScoreRows.map(
+        (r) => [`${r.subsessionId}:${r.raceNumber}:${r.driverId}`, r.classPosition] as const,
+      ),
     );
     for (const group of raceTeamGroups.values()) {
       const subsessionId = group[0].subsession_id;
@@ -1839,7 +1991,9 @@ export async function computeTeamSeasonStandings(
           raceNumber: s.race_number,
           driverId: s.driver_id,
           classId: null,
-          position: s.dsq ? null : classPositionByKey.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`) ?? null,
+          position: s.dsq
+            ? null
+            : (classPositionByKey.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`) ?? null),
           dsq: s.dsq,
           startingPosition: raw?.starting_position ?? null,
           incidents: raw?.incidents ?? null,
@@ -1875,7 +2029,7 @@ export async function computeTeamSeasonStandings(
     const roundCells = new Map<number, StandingsRoundCell>();
     for (const [subsessionId, points] of a.roundPoints) {
       const penalties = [...a.driverIds].flatMap((driverId) =>
-        (penaltiesByDriverAndRound.get(driverId)?.get(subsessionId) ?? []).map(summarizePenalty)
+        (penaltiesByDriverAndRound.get(driverId)?.get(subsessionId) ?? []).map(summarizePenalty),
       );
       roundCells.set(subsessionId, { points, dropped: false, penalties });
     }
@@ -1992,7 +2146,7 @@ export function resolveLayout(
   trackName: string,
   roundLayout: string | null,
   circuits: Circuit[],
-  layouts: CircuitLayout[]
+  layouts: CircuitLayout[],
 ): CircuitLayout | null {
   const targetTrack = normalizeTrackOrLayoutName(trackName);
   const circuit = circuits.find((c) => normalizeTrackOrLayoutName(c.name) === targetTrack);
@@ -2066,7 +2220,11 @@ function sameLayoutMatchKey(a: LayoutMatchKey, b: LayoutMatchKey): boolean {
   return a.kind === b.kind && a.id === b.id;
 }
 
-function resolveEventLayoutKey(circuitId: string, eventLayoutName: string | null, layouts: CircuitLayout[]): LayoutMatchKey {
+function resolveEventLayoutKey(
+  circuitId: string,
+  eventLayoutName: string | null,
+  layouts: CircuitLayout[],
+): LayoutMatchKey {
   const circuitLayouts = layouts.filter((l) => l.circuit_id === circuitId);
   if (circuitLayouts.length === 0) return { kind: 'circuit', id: circuitId };
   if (circuitLayouts.length === 1) return { kind: 'layout', id: circuitLayouts[0].id };
@@ -2085,7 +2243,7 @@ function resolveRoundLayoutKey(
   trackName: string,
   roundLayout: string | null,
   circuits: Circuit[],
-  layouts: CircuitLayout[]
+  layouts: CircuitLayout[],
 ): LayoutMatchKey | null {
   const targetTrack = normalizeTrackOrLayoutName(trackName);
   const circuit = circuits.find((c) => normalizeTrackOrLayoutName(c.name) === targetTrack);
@@ -2130,12 +2288,17 @@ export function findRoundsForLayout(
    * getExhibitionRoundIds()/getTestRoundIds() results through.
    */
   exhibitionRoundIds: Set<number> = new Set(),
-  testRoundIds: Set<number> = new Set()
+  testRoundIds: Set<number> = new Set(),
 ): LayoutRoundSummary[] {
   const targetKey = resolveEventLayoutKey(circuitId, eventLayoutName, layouts);
 
   const matches = allRounds.filter((r) => {
-    const resolved = resolveRoundLayoutKey(r.track_name, roundLayoutBySubsession.get(r.subsession_id) ?? null, circuits, layouts);
+    const resolved = resolveRoundLayoutKey(
+      r.track_name,
+      roundLayoutBySubsession.get(r.subsession_id) ?? null,
+      circuits,
+      layouts,
+    );
     return resolved !== null && sameLayoutMatchKey(resolved, targetKey);
   });
 
@@ -2153,7 +2316,11 @@ export function findRoundsForLayout(
   }
   const displayRoundNumberBySubsession = new Map<number, number | null>();
   for (const seasonRounds of roundsBySeasonId.values()) {
-    for (const [subsessionId, num] of computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds)) {
+    for (const [subsessionId, num] of computeDisplayRoundNumbers(
+      seasonRounds,
+      exhibitionRoundIds,
+      testRoundIds,
+    )) {
       displayRoundNumberBySubsession.set(subsessionId, num);
     }
   }
@@ -2231,7 +2398,7 @@ export async function getLayoutClassHighlights(
   rounds: LayoutRoundSummary[],
   driversBasic?: DriverBasic[],
   /** When true, winners are every race's winner (a sprint weekend gives one per race) instead of race 1 only. Poles are unaffected either way. */
-  options: { allRaces?: boolean } = {}
+  options: { allRaces?: boolean } = {},
 ): Promise<LayoutHighlights> {
   const allRaces = options.allRaces === true;
   const winnersByClass = new Map<number, ClassHighlight[]>();
@@ -2245,16 +2412,18 @@ export async function getLayoutClassHighlights(
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     restGetAll<RaceOneScoreRow>(
       env,
-      `race_scores_public?select=subsession_id,race_number,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`
+      `race_scores_public?select=subsession_id,race_number,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`,
     ),
     restGetAll<RaceOneCuratedRow>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,starting_position&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`
+      `curated_race_results?select=subsession_id,cust_id,starting_position&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`,
     ),
   ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
-  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const driverByCustId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
+  );
 
   const winnerBySubClass = new Map<string, { driverId: string; position: number }>();
   const classIdBySubDriver = new Map<string, number>();
@@ -2357,7 +2526,7 @@ export async function getLayoutClassBestLaps(
   rounds: LayoutRoundSummary[],
   driversBasic?: DriverBasic[],
   /** See getSeasonCarTeamStats' identical param — pass a pre-fetched car_logos list to skip this function's own fetch. */
-  carLogosLookup?: CarLogo[]
+  carLogosLookup?: CarLogo[],
 ): Promise<Map<number, ClassBestLap>> {
   const bestByClass = new Map<number, ClassBestLap>();
   if (rounds.length === 0) return bestByClass;
@@ -2368,17 +2537,24 @@ export async function getLayoutClassBestLaps(
   const [drivers, carLogos, raceRows, scoreRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
-    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
+    restGetAll<{
+      subsession_id: number;
+      cust_id: number;
+      best_lap_ten_thousandths: number | null;
+      car_name: string | null;
+    }>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`
+      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
-      `race_scores_public?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`
+      `race_scores_public?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`,
     ),
   ]);
 
-  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const driverByCustId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
+  );
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   // First class_id seen per (subsession, driver) — same "class doesn't
   // change race-to-race within one round" reasoning as every other
@@ -2453,12 +2629,17 @@ export async function resolveLapRecordCar(
   env: SupabaseEnv,
   layoutRow: Pick<CircuitLayout, 'lap_record_seconds' | 'lap_record_date'>,
   historicalRounds: LayoutRoundSummary[],
-  carLogosLookup?: CarLogo[]
+  carLogosLookup?: CarLogo[],
 ): Promise<ResolvedLapRecordCar | null> {
   if (layoutRow.lap_record_seconds === null || historicalRounds.length === 0) return null;
 
   const etDate = (iso: string) =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: LEAGUE_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: LEAGUE_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date(iso));
 
   const dateMatches = layoutRow.lap_record_date
     ? historicalRounds.filter((r) => etDate(r.startTime) === layoutRow.lap_record_date)
@@ -2469,7 +2650,7 @@ export async function resolveLapRecordCar(
   const [rows, carLogos] = await Promise.all([
     restGetAll<{ subsession_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
       env,
-      `curated_race_results?select=subsession_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&car_name=not.is.null`
+      `curated_race_results?select=subsession_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&car_name=not.is.null`,
     ),
     carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
   ]);
@@ -2517,12 +2698,17 @@ export function buildLayoutRoundCounter(
   allRounds: RoundSummary[],
   roundLayoutBySubsession: Map<number, string | null>,
   circuits: Circuit[],
-  layouts: CircuitLayout[]
+  layouts: CircuitLayout[],
 ): (circuitId: string, eventLayoutName: string | null) => number {
   const keyStr = (key: LayoutMatchKey) => `${key.kind}:${key.id}`;
   const countByKey = new Map<string, number>();
   for (const r of allRounds) {
-    const key = resolveRoundLayoutKey(r.track_name, roundLayoutBySubsession.get(r.subsession_id) ?? null, circuits, layouts);
+    const key = resolveRoundLayoutKey(
+      r.track_name,
+      roundLayoutBySubsession.get(r.subsession_id) ?? null,
+      circuits,
+      layouts,
+    );
     if (!key) continue;
     const k = keyStr(key);
     countByKey.set(k, (countByKey.get(k) ?? 0) + 1);
@@ -2555,19 +2741,29 @@ export async function buildLayoutClassBestLaps(
   layouts: CircuitLayout[],
   driversBasic?: DriverBasic[],
   /** See getSeasonCarTeamStats' identical param — pass a pre-fetched car_logos list to skip this function's own fetch. */
-  carLogosLookup?: CarLogo[]
+  carLogosLookup?: CarLogo[],
 ): Promise<(circuitId: string, eventLayoutName: string | null) => Map<number, ClassBestLap>> {
   const [drivers, carLogos, raceRows, scoreRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
-    restGetAll<{ subsession_id: number; cust_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
+    restGetAll<{
+      subsession_id: number;
+      cust_id: number;
+      best_lap_ten_thousandths: number | null;
+      car_name: string | null;
+    }>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&best_lap_ten_thousandths=not.is.null`
+      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&best_lap_ten_thousandths=not.is.null`,
     ),
-    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(env, `race_scores_public?select=subsession_id,driver_id,class_id`),
+    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
+      env,
+      `race_scores_public?select=subsession_id,driver_id,class_id`,
+    ),
   ]);
 
-  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const driverByCustId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
+  );
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const classIdBySubDriver = new Map<string, number>();
@@ -2587,7 +2783,12 @@ export async function buildLayoutClassBestLaps(
     if (!driver) continue;
     const classId = classIdBySubDriver.get(`${row.subsession_id}:${driver.id}`);
     if (classId === undefined) continue;
-    const layoutKey = resolveRoundLayoutKey(round.track_name, roundLayoutBySubsession.get(row.subsession_id) ?? null, circuits, layouts);
+    const layoutKey = resolveRoundLayoutKey(
+      round.track_name,
+      roundLayoutBySubsession.get(row.subsession_id) ?? null,
+      circuits,
+      layouts,
+    );
     if (!layoutKey) continue;
     const lk = keyStr(layoutKey);
     let byClass = bestByLayoutKeyClass.get(lk);
@@ -2617,7 +2818,10 @@ export async function buildLayoutClassBestLaps(
 }
 
 /** Batched version of newsRecap.ts's fetchRoundLayout — one query for every round in the season instead of one per round. Same graceful-degradation-on-failure reasoning (this is a small admin-filled column that may not exist/be filled in for every round). */
-export async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<number, string | null>> {
+export async function getRoundLayoutsForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<Map<number, string | null>> {
   if (subsessionIds.length === 0) return new Map();
   try {
     // restGetAll — same reasoning as getCuratedRaceResultsForSubsessions;
@@ -2626,11 +2830,14 @@ export async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsession
     // round), so it's also a sufficient stable sort for pagination.
     const rows = await restGetAll<{ subsession_id: number; layout: string | null }>(
       env,
-      `curated_rounds?select=subsession_id,layout&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc`
+      `curated_rounds?select=subsession_id,layout&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc`,
     );
     return new Map(rows.map((r) => [r.subsession_id, r.layout]));
   } catch (err) {
-    console.error('Failed to fetch curated_rounds.layout for season distance-driven stats — distance will be omitted:', err);
+    console.error(
+      'Failed to fetch curated_rounds.layout for season distance-driven stats — distance will be omitted:',
+      err,
+    );
     return new Map();
   }
 }
@@ -2651,23 +2858,27 @@ export async function getRoundLayoutsForSubsessions(env: SupabaseEnv, subsession
  * as a last resort for minor punctuation/casing drift between
  * events.circuits.name and curated_rounds.track_name.
  */
-async function findSubsessionIdsForTrack(env: SupabaseEnv, trackName: string, layoutName: string | null): Promise<number[]> {
+async function findSubsessionIdsForTrack(
+  env: SupabaseEnv,
+  trackName: string,
+  layoutName: string | null,
+): Promise<number[]> {
   const encTrack = encodeURIComponent(trackName);
   if (layoutName) {
     const withLayout = await restGetAll<{ subsession_id: number }>(
       env,
-      `curated_rounds?select=subsession_id&track_name=eq.${encTrack}&layout=eq.${encodeURIComponent(layoutName)}`
+      `curated_rounds?select=subsession_id&track_name=eq.${encTrack}&layout=eq.${encodeURIComponent(layoutName)}`,
     );
     if (withLayout.length > 0) return withLayout.map((r) => r.subsession_id);
   }
   const anyLayout = await restGetAll<{ subsession_id: number }>(
     env,
-    `curated_rounds?select=subsession_id&track_name=eq.${encTrack}`
+    `curated_rounds?select=subsession_id&track_name=eq.${encTrack}`,
   );
   if (anyLayout.length > 0) return anyLayout.map((r) => r.subsession_id);
   const caseInsensitive = await restGetAll<{ subsession_id: number }>(
     env,
-    `curated_rounds?select=subsession_id&track_name=ilike.${encTrack}`
+    `curated_rounds?select=subsession_id&track_name=ilike.${encTrack}`,
   );
   return caseInsensitive.map((r) => r.subsession_id);
 }
@@ -2684,19 +2895,26 @@ async function findSubsessionIdsForTrack(env: SupabaseEnv, trackName: string, la
  * brand-new circuit/layout) — the caller falls back to a flat assumed
  * duration in that case.
  */
-export async function getLayoutBestLapSeconds(env: SupabaseEnv, trackName: string | null, layoutName: string | null): Promise<number | null> {
+export async function getLayoutBestLapSeconds(
+  env: SupabaseEnv,
+  trackName: string | null,
+  layoutName: string | null,
+): Promise<number | null> {
   if (!trackName) return null;
   try {
     const subsessionIds = await findSubsessionIdsForTrack(env, trackName, layoutName);
     if (subsessionIds.length === 0) return null;
     const rows = await restGet<{ best_lap_ten_thousandths: number | null }[]>(
       env,
-      `curated_race_results?select=best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&order=best_lap_ten_thousandths.asc&limit=1`
+      `curated_race_results?select=best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&order=best_lap_ten_thousandths.asc&limit=1`,
     );
     const best = rows[0]?.best_lap_ten_thousandths;
     return best ? best / 10000 : null;
   } catch (err) {
-    console.error('Failed to look up historical best lap time for the "Happening Now" nav banner\'s race-duration estimate:', err);
+    console.error(
+      'Failed to look up historical best lap time for the "Happening Now" nav banner\'s race-duration estimate:',
+      err,
+    );
     return null;
   }
 }
@@ -2725,7 +2943,7 @@ export async function getDriverBestLapsAtTrack(
   layoutName: string | null,
   driverIds: string[],
   excludeSubsessionId: number,
-  driversBasic?: DriverBasic[]
+  driversBasic?: DriverBasic[],
 ): Promise<Map<string, number>> {
   const best = new Map<string, number>();
   if (driverIds.length === 0) return best;
@@ -2748,7 +2966,7 @@ export async function getDriverBestLapsAtTrack(
 
   const rows = await restGetAll<{ cust_id: number; best_lap_ten_thousandths: number | null }>(
     env,
-    `curated_race_results?select=cust_id,best_lap_ten_thousandths&subsession_id=in.(${otherSubsessionIds.join(',')})&cust_id=in.(${custIds.join(',')})&best_lap_ten_thousandths=not.is.null`
+    `curated_race_results?select=cust_id,best_lap_ten_thousandths&subsession_id=in.(${otherSubsessionIds.join(',')})&cust_id=in.(${custIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
   );
   for (const row of rows) {
     if (row.best_lap_ten_thousandths === null) continue;
@@ -2779,7 +2997,7 @@ export async function getDriverBestLapsAtTrack(
  */
 async function getCuratedRaceResultsWithLapStatsBulk(
   env: SupabaseEnv,
-  subsessionIds: number[]
+  subsessionIds: number[],
 ): Promise<{ rawResults: CuratedRaceResultRow[]; lapStats: RawLapStatsRow[] }> {
   if (subsessionIds.length === 0) return { rawResults: [], lapStats: [] };
   const combinedSelect =
@@ -2787,13 +3005,13 @@ async function getCuratedRaceResultsWithLapStatsBulk(
   try {
     const rows = await restGetAll<CuratedRaceResultRow & RawLapStatsRow>(
       env,
-      `curated_race_results?select=${combinedSelect}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`
+      `curated_race_results?select=${combinedSelect}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
     );
     return { rawResults: rows, lapStats: rows };
   } catch (err) {
     console.error(
       'Combined curated_race_results+lap-stats bulk query failed — falling back to the two separate isolated queries:',
-      err
+      err,
     );
     const [rawResults, lapStats] = await Promise.all([
       getCuratedRaceResultsForSubsessions(env, subsessionIds),
@@ -2821,7 +3039,7 @@ export async function getSeasonDriverExtendedStats(
   circuitsLookup?: Circuit[],
   layoutsLookup?: CircuitLayout[],
   /** `curated_rounds.layout` for every subsession this call might touch, pre-fetched — see `circuitsLookup`'s reasoning. Must cover at least this season's own subsessions; a caller with a global map covering every season (`computeDriverCareerStats`) can just pass the same one to every season's call. */
-  roundLayoutsLookup?: Map<number, string | null>
+  roundLayoutsLookup?: Map<number, string | null>,
 ): Promise<Map<string, DriverSeasonExtendedStats>> {
   if (!isChampionshipSeason(season.name)) return new Map();
 
@@ -2830,7 +3048,8 @@ export async function getSeasonDriverExtendedStats(
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
   ]);
 
-  const overallContext = precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
+  const overallContext =
+    precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
   const scores = overallContext.overallScores;
   if (scores.length === 0) return new Map();
 
@@ -2839,26 +3058,38 @@ export async function getSeasonDriverExtendedStats(
     circuitsLookup
       ? Promise.resolve(circuitsLookup)
       : getCircuits(env).catch((err) => {
-          console.error('Failed to fetch circuits for season distance-driven/corners-per-incident stats — both will be omitted:', err);
+          console.error(
+            'Failed to fetch circuits for season distance-driven/corners-per-incident stats — both will be omitted:',
+            err,
+          );
           return [] as Circuit[];
         }),
     layoutsLookup
       ? Promise.resolve(layoutsLookup)
       : getAllCircuitLayouts(env).catch((err) => {
-          console.error('Failed to fetch circuit_layouts for season distance-driven/corners-per-incident stats — both will be omitted:', err);
+          console.error(
+            'Failed to fetch circuit_layouts for season distance-driven/corners-per-incident stats — both will be omitted:',
+            err,
+          );
           return [] as CircuitLayout[];
         }),
-    roundLayoutsLookup ? Promise.resolve(roundLayoutsLookup) : getRoundLayoutsForSubsessions(env, subsessionIds),
+    roundLayoutsLookup
+      ? Promise.resolve(roundLayoutsLookup)
+      : getRoundLayoutsForSubsessions(env, subsessionIds),
   ]);
   // seasonRounds comes straight off the shared context now (same
   // curated_rounds fetch getSeasonOverallContext already made for
   // formatBySubsession) instead of a second getRoundsForSeason call.
-  const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+  const trackNameBySubsession = new Map(
+    overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]),
+  );
   const kmBySubsession = new Map<number, number | null>();
   const cornersBySubsession = new Map<number, number | null>();
   for (const subsessionId of subsessionIds) {
     const trackName = trackNameBySubsession.get(subsessionId);
-    const layout = trackName ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, layouts) : null;
+    const layout = trackName
+      ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, layouts)
+      : null;
     kmBySubsession.set(subsessionId, layout?.length_km ?? null);
     cornersBySubsession.set(subsessionId, layout?.corners ?? null);
   }
@@ -2895,7 +3126,17 @@ export async function getSeasonDriverExtendedStats(
   function getAccum(driverId: string): ExtendedAccum {
     let a = accum.get(driverId);
     if (!a) {
-      a = { laps: 0, lapsLed: 0, netPositionsChange: 0, incidents: 0, penaltyPoints: 0, bonusPoints: 0, distanceKm: 0, totalCorners: 0, byRound: new Map() };
+      a = {
+        laps: 0,
+        lapsLed: 0,
+        netPositionsChange: 0,
+        incidents: 0,
+        penaltyPoints: 0,
+        bonusPoints: 0,
+        distanceKm: 0,
+        totalCorners: 0,
+        byRound: new Map(),
+      };
       accum.set(driverId, a);
     }
     return a;
@@ -2908,7 +3149,10 @@ export async function getSeasonDriverExtendedStats(
     er.bonusPoints += s.finesse_bonus + s.pole_bonus;
 
     const custId = overallContext.custIdByDriverId.get(s.driver_id);
-    const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const raw =
+      custId != null
+        ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId))
+        : undefined;
     if (!raw) continue;
     a.laps += raw.laps_complete ?? 0;
     a.lapsLed += raw.laps_led ?? 0;
@@ -3048,7 +3292,7 @@ export async function getSeasonCarTeamStats(
    * curated_rounds) unconditionally would cost those callers MORE, not
    * less, since this function doesn't use any of that extra data itself.
    */
-  precomputedOverallContext?: SeasonOverallContext
+  precomputedOverallContext?: SeasonOverallContext,
 ): Promise<Map<string, DriverSeasonExtras>> {
   const [drivers, teams, carLogos, exhibitionIds, seasonLogoRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env),
@@ -3063,20 +3307,26 @@ export async function getSeasonCarTeamStats(
   if (precomputedOverallContext) {
     scores = precomputedOverallContext.overallScores;
     carNameByKey = new Map(
-      [...precomputedOverallContext.rawByKey.values()].map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.car_name])
+      [...precomputedOverallContext.rawByKey.values()].map((r) => [
+        resultKey(r.subsession_id, r.race_number, r.cust_id),
+        r.car_name,
+      ]),
     );
   } else {
     const scoresRaw = await getRaceScoresForSeasonOverall(env, season.id);
-    scores = exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
+    scores =
+      exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
     const subsessionIds = [...new Set(scores.map((s) => s.subsession_id))];
     const rawResults = await getCuratedRaceResultsForSubsessions(env, subsessionIds);
-    carNameByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.car_name]));
+    carNameByKey = new Map(
+      rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.car_name]),
+    );
   }
   if (scores.length === 0) return new Map();
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
 
   const custIdByDriverId = new Map(
-    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
@@ -3085,7 +3335,8 @@ export async function getSeasonCarTeamStats(
   const carCountsByDriver = new Map<string, Map<string, number>>();
   for (const s of scores) {
     const custId = custIdByDriverId.get(s.driver_id);
-    const carName = custId != null ? carNameByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const carName =
+      custId != null ? carNameByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
     if (!carName) continue;
     if (!carCountsByDriver.has(s.driver_id)) carCountsByDriver.set(s.driver_id, new Map());
     const m = carCountsByDriver.get(s.driver_id)!;
@@ -3108,7 +3359,8 @@ export async function getSeasonCarTeamStats(
   }
 
   const scoredForTeamByDriverTeam = new Map<string, Map<string, number>>(); // driverId -> teamId -> count
-  const overallPointsOf = (s: RaceScoreOverallRow) => s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+  const overallPointsOf = (s: RaceScoreOverallRow) =>
+    s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
   for (const group of teamRaceGroups.values()) {
     for (const s of topTeamScorers(group, overallPointsOf)) {
       if (!scoredForTeamByDriverTeam.has(s.driver_id)) scoredForTeamByDriverTeam.set(s.driver_id, new Map());
@@ -3160,7 +3412,11 @@ export interface ChampionEntry {
  * Gamma before ATC16) simply have no rows and are skipped automatically —
  * no hardcoded season cutoffs needed.
  */
-export async function getChampions(env: SupabaseEnv, seasons: Season[], classId: number): Promise<ChampionEntry[]> {
+export async function getChampions(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classId: number,
+): Promise<ChampionEntry[]> {
   // isDecidedChampionshipSeason, not isChampionshipSeason alone — a season
   // still flagged is_current has no champion to show yet, per Logan.
   const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
@@ -3210,7 +3466,7 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
         seasonPenalties,
         seasonRounds,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
 
       const classScores = seasonScores.filter((s) => s.class_id === classId);
@@ -3223,10 +3479,10 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
         classes,
         overallContext,
         classScores,
-        rulesets
+        rulesets,
       );
       return standings.length > 0 ? { season, standing: standings[0] } : null;
-    })
+    }),
   );
   return perSeason.filter((r): r is ChampionEntry => r !== null);
 }
@@ -3252,23 +3508,24 @@ export async function getChampions(env: SupabaseEnv, seasons: Season[], classId:
 export async function getChampionsWithExtras(
   env: SupabaseEnv,
   seasons: Season[],
-  classId: number
+  classId: number,
 ): Promise<{ champions: ChampionEntry[]; extrasBySeasonId: Map<string, DriverSeasonExtras | undefined> }> {
   // Same isDecidedChampionshipSeason gate as getChampions() above.
   const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
-  const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows, rulesets] = await Promise.all([
-    driversSelect(env),
-    getStandingsExcludedRoundIds(env),
-    getDriverClasses(env),
-    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
-    getAllRounds(env),
-    getTeamsBasic(env),
-    getCarLogos(env),
-    getAllTeamSeasonLogosSafe(env),
-    getScoringRulesets(env),
-  ]);
+  const [drivers, exhibitionIds, classes, bulkScores, allRounds, teams, carLogos, seasonLogoRows, rulesets] =
+    await Promise.all([
+      driversSelect(env),
+      getStandingsExcludedRoundIds(env),
+      getDriverClasses(env),
+      getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+      getAllRounds(env),
+      getTeamsBasic(env),
+      getCarLogos(env),
+      getAllTeamSeasonLogosSafe(env),
+      getScoringRulesets(env),
+    ]);
 
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
   const [{ rawResults, lapStats }, penalties] = await Promise.all([
@@ -3301,7 +3558,7 @@ export async function getChampionsWithExtras(
         seasonPenalties,
         seasonRounds,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
 
       const classScores = seasonScores.filter((s) => s.class_id === classId);
@@ -3314,7 +3571,7 @@ export async function getChampionsWithExtras(
         classes,
         overallContext,
         classScores,
-        rulesets
+        rulesets,
       );
       if (standings.length === 0) return null;
 
@@ -3327,12 +3584,12 @@ export async function getChampionsWithExtras(
         teams,
         carLogos,
         seasonLogoRows,
-        overallContext
+        overallContext,
       );
       extrasBySeasonId.set(season.id, extras.get(champion.driver.id));
 
       return { season, standing: champion };
-    })
+    }),
   );
 
   return {
@@ -3364,21 +3621,26 @@ export interface TeamChampionEntry {
  * Delta before it existed, or before it was enabled) is skipped
  * automatically, same as getChampions() skips a class's pre-existence.
  */
-export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], classId?: number): Promise<TeamChampionEntry[]> {
+export async function getTeamChampions(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classId?: number,
+): Promise<TeamChampionEntry[]> {
   // Same isDecidedChampionshipSeason gate as getChampions() above.
   const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
-  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds, rulesets] = await Promise.all([
-    driversSelect(env),
-    getStandingsExcludedRoundIds(env),
-    getDriverClasses(env),
-    getTeamsBasic(env),
-    getAllTeamSeasonLogosSafe(env),
-    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
-    getAllRounds(env),
-    getScoringRulesets(env),
-  ]);
+  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds, rulesets] =
+    await Promise.all([
+      driversSelect(env),
+      getStandingsExcludedRoundIds(env),
+      getDriverClasses(env),
+      getTeamsBasic(env),
+      getAllTeamSeasonLogosSafe(env),
+      getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
+      getAllRounds(env),
+      getScoringRulesets(env),
+    ]);
 
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
   const [{ rawResults, lapStats }, penalties] = await Promise.all([
@@ -3406,10 +3668,11 @@ export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], clas
         seasonPenalties,
         seasonRounds,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
 
-      const precomputedScoresRaw = classId !== undefined ? seasonScores.filter((s) => s.class_id === classId) : undefined;
+      const precomputedScoresRaw =
+        classId !== undefined ? seasonScores.filter((s) => s.class_id === classId) : undefined;
 
       const standings = await computeTeamSeasonStandings(
         env,
@@ -3421,10 +3684,10 @@ export async function getTeamChampions(env: SupabaseEnv, seasons: Season[], clas
         seasonLogoRows,
         classes,
         overallContext,
-        precomputedScoresRaw
+        precomputedScoresRaw,
       );
       return standings.length > 0 ? { season, standing: standings[0] } : null;
-    })
+    }),
   );
   return perSeason.filter((r): r is TeamChampionEntry => r !== null);
 }
@@ -3501,7 +3764,10 @@ export interface DriverCareerStats {
  * input. Caller is responsible for deciding which rows to include (and for
  * skipping a driver entirely if the filtered set comes back empty).
  */
-export function aggregateDriverCareerStats(driver: DriverBasic, seasonRows: DriverCareerSeasonRow[]): DriverCareerStats {
+export function aggregateDriverCareerStats(
+  driver: DriverBasic,
+  seasonRows: DriverCareerSeasonRow[],
+): DriverCareerStats {
   let championships = 0;
   let wins = 0;
   let podiums = 0;
@@ -3568,7 +3834,7 @@ export async function computeDriverCareerStats(
   env: SupabaseEnv,
   seasons: Season[],
   classes: Lookup[],
-  exhibitionRoundIds?: Set<number>
+  exhibitionRoundIds?: Set<number>,
 ): Promise<DriverCareerStats[]> {
   const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
@@ -3585,18 +3851,35 @@ export async function computeDriverCareerStats(
   // handful of seasons on file. The only fix that stays flat no matter how
   // many seasons get added in the future is to never issue a query "per
   // season" at all — bulk-fetch across every season once, then filter.
-  const [drivers, exhibitionIds, teams, carLogos, seasonLogoRows, circuits, layouts, bulkScores, allRounds, rulesets] = await Promise.all([
+  const [
+    drivers,
+    exhibitionIds,
+    teams,
+    carLogos,
+    seasonLogoRows,
+    circuits,
+    layouts,
+    bulkScores,
+    allRounds,
+    rulesets,
+  ] = await Promise.all([
     driversSelect(env),
     exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     getTeamsBasic(env),
     getCarLogos(env),
     getAllTeamSeasonLogosSafe(env),
     getCircuits(env).catch((err) => {
-      console.error('Failed to fetch circuits for career distance/corners-per-incident stats — both will be omitted:', err);
+      console.error(
+        'Failed to fetch circuits for career distance/corners-per-incident stats — both will be omitted:',
+        err,
+      );
       return [] as Circuit[];
     }),
     getAllCircuitLayouts(env).catch((err) => {
-      console.error('Failed to fetch circuit_layouts for career distance/corners-per-incident stats — both will be omitted:', err);
+      console.error(
+        'Failed to fetch circuit_layouts for career distance/corners-per-incident stats — both will be omitted:',
+        err,
+      );
       return [] as CircuitLayout[];
     }),
     getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
@@ -3645,7 +3928,7 @@ export async function computeDriverCareerStats(
       seasonPenalties,
       seasonRounds,
       seasonLapStats,
-      resolveSeasonRuleset(season, rulesets)?.rules ?? null
+      resolveSeasonRuleset(season, rulesets)?.rules ?? null,
     );
 
     const scoresByClassId = new Map<number, RaceScoreRow[]>();
@@ -3654,90 +3937,124 @@ export async function computeDriverCareerStats(
       scoresByClassId.get(row.class_id)!.push(row);
     }
 
-    const [classStandingsByClass, overallStandings, extendedStats, teamStandingsOverall, teamStandingsDelta, carTeamStats] =
-      await Promise.all([
-        Promise.all(
-          classes.map((c) =>
-            computeSeasonStandings(
-              env,
-              season,
-              c.id,
-              drivers,
-              exhibitionIds,
-              classes,
-              overallContext,
-              scoresByClassId.get(c.id) ?? [],
-              rulesets
-            )
-          )
+    const [
+      classStandingsByClass,
+      overallStandings,
+      extendedStats,
+      teamStandingsOverall,
+      teamStandingsDelta,
+      carTeamStats,
+    ] = await Promise.all([
+      Promise.all(
+        classes.map((c) =>
+          computeSeasonStandings(
+            env,
+            season,
+            c.id,
+            drivers,
+            exhibitionIds,
+            classes,
+            overallContext,
+            scoresByClassId.get(c.id) ?? [],
+            rulesets,
+          ),
         ),
-        computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
-        getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts, roundLayouts),
-        computeTeamSeasonStandings(env, season, exhibitionIds, undefined, drivers, teams, seasonLogoRows, classes, overallContext),
-        // Gated on delta_team_enabled, not just deltaClass existing — the
-        // Delta driver class raced from ATC5, but the separate Delta TEAM
-        // championship this powers (deltaTeamPosition, below) didn't start
-        // until ATC10 (see 0052_delta_team_enabled.sql). Without this,
-        // ATC5-ATC9 driver rows would show a deltaTeamPosition implying a
-        // championship that didn't exist yet.
-        deltaClass && season.delta_team_enabled
-          ? computeTeamSeasonStandings(
-              env,
-              season,
-              exhibitionIds,
-              deltaClass.id,
-              drivers,
-              teams,
-              seasonLogoRows,
-              classes,
-              overallContext,
-              scoresByClassId.get(deltaClass.id) ?? []
-            )
-          : Promise.resolve([]),
-        getSeasonCarTeamStats(env, season, exhibitionIds, drivers, teams, carLogos, seasonLogoRows, overallContext),
-      ]);
+      ),
+      computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
+      getSeasonDriverExtendedStats(
+        env,
+        season,
+        exhibitionIds,
+        drivers,
+        overallContext,
+        circuits,
+        layouts,
+        roundLayouts,
+      ),
+      computeTeamSeasonStandings(
+        env,
+        season,
+        exhibitionIds,
+        undefined,
+        drivers,
+        teams,
+        seasonLogoRows,
+        classes,
+        overallContext,
+      ),
+      // Gated on delta_team_enabled, not just deltaClass existing — the
+      // Delta driver class raced from ATC5, but the separate Delta TEAM
+      // championship this powers (deltaTeamPosition, below) didn't start
+      // until ATC10 (see 0052_delta_team_enabled.sql). Without this,
+      // ATC5-ATC9 driver rows would show a deltaTeamPosition implying a
+      // championship that didn't exist yet.
+      deltaClass && season.delta_team_enabled
+        ? computeTeamSeasonStandings(
+            env,
+            season,
+            exhibitionIds,
+            deltaClass.id,
+            drivers,
+            teams,
+            seasonLogoRows,
+            classes,
+            overallContext,
+            scoresByClassId.get(deltaClass.id) ?? [],
+          )
+        : Promise.resolve([]),
+      getSeasonCarTeamStats(
+        env,
+        season,
+        exhibitionIds,
+        drivers,
+        teams,
+        carLogos,
+        seasonLogoRows,
+        overallContext,
+      ),
+    ]);
 
     const overallPositionByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.position]));
-      const teamPositionByTeamId = new Map(teamStandingsOverall.map((t) => [t.teamId, t.position]));
-      const deltaTeamPositionByTeamId = new Map(teamStandingsDelta.map((t) => [t.teamId, t.position]));
+    const teamPositionByTeamId = new Map(teamStandingsOverall.map((t) => [t.teamId, t.position]));
+    const deltaTeamPositionByTeamId = new Map(teamStandingsDelta.map((t) => [t.teamId, t.position]));
 
-      classes.forEach((cls, i) => {
-        for (const standing of classStandingsByClass[i]) {
-          const driverId = standing.driver.id;
-          const extras = carTeamStats.get(driverId);
-          const ext = extendedStats.get(driverId);
-          // getSeasonCarTeamStats already sorts a driver's teams by
-          // racesUnderTeam descending — [0] is their primary team that
-          // season (the only one relevant for "their team's standing").
-          const primaryTeam = extras?.teams[0] ?? null;
+    classes.forEach((cls, i) => {
+      for (const standing of classStandingsByClass[i]) {
+        const driverId = standing.driver.id;
+        const extras = carTeamStats.get(driverId);
+        const ext = extendedStats.get(driverId);
+        // getSeasonCarTeamStats already sorts a driver's teams by
+        // racesUnderTeam descending — [0] is their primary team that
+        // season (the only one relevant for "their team's standing").
+        const primaryTeam = extras?.teams[0] ?? null;
 
-          const row: DriverCareerSeasonRow = {
-            season,
-            classId: cls.id,
-            className: cls.name,
-            wins: standing.wins,
-            podiums: standing.podiums,
-            top5s: standing.top5s,
-            top10s: standing.top10s,
-            poles: standing.poles,
-            starts: standing.starts,
-            appearances: standing.appearances,
-            laps: standing.laps,
-            lapsLed: standing.lapsLed,
-            incidents: ext?.incidents ?? 0,
-            totalCorners: ext?.totalCorners ?? null,
-            classPosition: standing.position,
-            overallPosition: overallPositionByDriverId.get(driverId) ?? null,
-            teamPosition: primaryTeam ? teamPositionByTeamId.get(primaryTeam.teamId) ?? null : null,
-            deltaTeamPosition: primaryTeam ? deltaTeamPositionByTeamId.get(primaryTeam.teamId) ?? null : null,
-            cars: extras?.cars ?? [],
-            teams: extras?.teams ?? [],
-          };
+        const row: DriverCareerSeasonRow = {
+          season,
+          classId: cls.id,
+          className: cls.name,
+          wins: standing.wins,
+          podiums: standing.podiums,
+          top5s: standing.top5s,
+          top10s: standing.top10s,
+          poles: standing.poles,
+          starts: standing.starts,
+          appearances: standing.appearances,
+          laps: standing.laps,
+          lapsLed: standing.lapsLed,
+          incidents: ext?.incidents ?? 0,
+          totalCorners: ext?.totalCorners ?? null,
+          classPosition: standing.position,
+          overallPosition: overallPositionByDriverId.get(driverId) ?? null,
+          teamPosition: primaryTeam ? (teamPositionByTeamId.get(primaryTeam.teamId) ?? null) : null,
+          deltaTeamPosition: primaryTeam ? (deltaTeamPositionByTeamId.get(primaryTeam.teamId) ?? null) : null,
+          cars: extras?.cars ?? [],
+          teams: extras?.teams ?? [],
+        };
 
-          if (!seasonRowsByDriver.has(driverId)) seasonRowsByDriver.set(driverId, []);
-          seasonRowsByDriver.get(driverId)!.push(row);
-        }
-      });
+        if (!seasonRowsByDriver.has(driverId)) seasonRowsByDriver.set(driverId, []);
+        seasonRowsByDriver.get(driverId)!.push(row);
+      }
+    });
   }
 
   const out: DriverCareerStats[] = [];
@@ -3857,10 +4174,13 @@ export interface DriverRaceHistoryRow {
  * same subsessions — needed to find each race's leader for formatMargin),
  * and one getAllRounds() — never a per-season or per-round loop.
  */
-export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): Promise<DriverRaceHistoryRow[]> {
+export async function getDriverRaceHistory(
+  env: SupabaseEnv,
+  driverId: string,
+): Promise<DriverRaceHistoryRow[]> {
   const driverRows = await restGet<{ id: string; iracing_cust_id: number | null }[]>(
     env,
-    `drivers?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`
+    `drivers?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`,
   );
   const custId = driverRows[0]?.iracing_cust_id ?? null;
   // No cust_id on file means this driver can never have a curated_race_results
@@ -3879,7 +4199,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     dsq: boolean;
   }>(
     env,
-    `race_scores_public?select=${scoreSelect}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`
+    `race_scores_public?select=${scoreSelect}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`,
   );
   if (scores.length === 0) return [];
 
@@ -3927,19 +4247,31 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     // never the whole page" isolation getSeasonDriverExtendedStats uses for
     // the identical lookup.
     getCircuits(env).catch((err) => {
-      console.error('Failed to fetch circuits for driver race-history corners-per-incident stats — CPI will be omitted:', err);
+      console.error(
+        'Failed to fetch circuits for driver race-history corners-per-incident stats — CPI will be omitted:',
+        err,
+      );
       return [] as Circuit[];
     }),
     getAllCircuitLayouts(env).catch((err) => {
-      console.error('Failed to fetch circuit_layouts for driver race-history corners-per-incident stats — CPI will be omitted:', err);
+      console.error(
+        'Failed to fetch circuit_layouts for driver race-history corners-per-incident stats — CPI will be omitted:',
+        err,
+      );
       return [] as CircuitLayout[];
     }),
     getRoundLayoutsForSubsessions(env, subsessionIds).catch((err) => {
-      console.error('Failed to fetch round layouts for driver race-history corners-per-incident stats — CPI will be omitted:', err);
+      console.error(
+        'Failed to fetch round layouts for driver race-history corners-per-incident stats — CPI will be omitted:',
+        err,
+      );
       return new Map<number, string | null>();
     }),
     getQualifyingForSubsessionsBulk(env, subsessionIds).catch((err) => {
-      console.error('Failed to fetch qualifying results for driver race history — Avg Qualify will be omitted:', err);
+      console.error(
+        'Failed to fetch qualifying results for driver race history — Avg Qualify will be omitted:',
+        err,
+      );
       return [] as CuratedQualifyingBulkRow[];
     }),
     getScoringRulesets(env),
@@ -3963,9 +4295,11 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   // is season-agnostic, so this works the same as the single-season
   // buildSeasonOverallContext pattern used elsewhere in this file.
   const custIdByDriverId = new Map(
-    allDrivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+    allDrivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
-  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const lapStatsByKey = new Map(
+    lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]),
+  );
   const formatBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r.format]));
   // Unlike the single-season buildSeasonOverallContext pattern, this driver's
   // career can span MANY seasons, each potentially on its own
@@ -3976,13 +4310,17 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   const rulesBySubsession = new Map(
     allRounds.map((r) => {
       const roundSeason = seasonById.get(r.season_id);
-      return [r.subsession_id, roundSeason ? resolveSeasonRuleset(roundSeason, rulesets)?.rules ?? null : null];
-    })
+      return [
+        r.subsession_id,
+        roundSeason ? (resolveSeasonRuleset(roundSeason, rulesets)?.rules ?? null) : null,
+      ];
+    }),
   );
 
   const seasonScoreRows: SeasonScoreRow[] = overallScoresRaw.map((s) => {
     const rowCustId = custIdByDriverId.get(s.driver_id);
-    const rawForRow = rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+    const rawForRow =
+      rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
     const lapStatsRow =
       rowCustId != null ? lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
     return {
@@ -4002,7 +4340,12 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
     };
   });
-  const adjustments = computeSeasonOverallAdjustments(seasonScoreRows, penalties, formatBySubsession, rulesBySubsession);
+  const adjustments = computeSeasonOverallAdjustments(
+    seasonScoreRows,
+    penalties,
+    formatBySubsession,
+    rulesBySubsession,
+  );
 
   // Leader's laps_complete per (subsession, race) — same as getRoundResults'
   // own leaderLapsByRace, just keyed across every round in scope at once
@@ -4025,7 +4368,11 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   }
   const displayNumberBySubsession = new Map<number, number | null>();
   for (const seasonRounds of roundsBySeason.values()) {
-    for (const [subsessionId, num] of computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds)) {
+    for (const [subsessionId, num] of computeDisplayRoundNumbers(
+      seasonRounds,
+      exhibitionRoundIds,
+      testRoundIds,
+    )) {
       displayNumberBySubsession.set(subsessionId, num);
     }
   }
@@ -4046,12 +4393,13 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   const classFieldByRace = new Map<string, ClassFieldEntry[]>();
   for (const s of overallScoresRaw) {
     const rowCustId = custIdByDriverId.get(s.driver_id);
-    const rawForRow = rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+    const rawForRow =
+      rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
     const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
     if (!classFieldByRace.has(key)) classFieldByRace.set(key, []);
     classFieldByRace.get(key)!.push({
       driverId: s.driver_id,
-      finishPos: rawForRow ? rawForRow.adjusted_position ?? rawForRow.finish_position : null,
+      finishPos: rawForRow ? (rawForRow.adjusted_position ?? rawForRow.finish_position) : null,
       startPos: rawForRow?.starting_position ?? null,
       dsq: s.dsq,
     });
@@ -4094,11 +4442,16 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
   const layoutRecordBySubsession = new Map<number, number | null>();
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
-    const layout = trackName ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, circuitLayouts) : null;
+    const layout = trackName
+      ? resolveLayout(trackName, roundLayouts.get(subsessionId) ?? null, circuits, circuitLayouts)
+      : null;
     cornersBySubsession.set(subsessionId, layout?.corners ?? null);
     layoutRecordBySubsession.set(subsessionId, layout?.lap_record_seconds ?? null);
     const rawLayoutText = roundLayouts.get(subsessionId);
-    layoutLabelBySubsession.set(subsessionId, rawLayoutText ? `${trackName ?? '—'} — ${rawLayoutText}` : trackName ?? '—');
+    layoutLabelBySubsession.set(
+      subsessionId,
+      rawLayoutText ? `${trackName ?? '—'} — ${rawLayoutText}` : (trackName ?? '—'),
+    );
   }
 
   // Qualifying (see DriverRaceHistoryRow.qualPosition/classQualPosition's own
@@ -4146,7 +4499,7 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     const raw = rawByKey.get(resultKey(score.subsession_id, score.race_number, custId));
     if (!raw) continue; // shouldn't happen (a scored race always has a matching raw result) — skip rather than fabricate a row
     const round = roundBySubsession.get(score.subsession_id) ?? null;
-    const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
+    const team = score.team_id ? (teamById.get(score.team_id) ?? null) : null;
 
     // Live-engine position/points first, legacy manual override next, raw
     // last — see DriverRaceHistoryRow.finishPosition's doc comment. An NC/DSQ
@@ -4164,16 +4517,16 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
     // comment.
     const isQualifyingRace = score.race_number === 1;
     const qualPosition = isQualifyingRace
-      ? qualPositionBySubsessionDriver.get(`${score.subsession_id}:${driverId}`) ?? null
+      ? (qualPositionBySubsessionDriver.get(`${score.subsession_id}:${driverId}`) ?? null)
       : null;
     const classQualPosition = isQualifyingRace
-      ? classQualPositionBySubsessionDriver.get(`${score.subsession_id}:${driverId}`) ?? null
+      ? (classQualPositionBySubsessionDriver.get(`${score.subsession_id}:${driverId}`) ?? null)
       : null;
 
     out.push({
       subsessionId: score.subsession_id,
       raceNumber: score.race_number,
-      season: round ? seasonById.get(round.season_id) ?? null : null,
+      season: round ? (seasonById.get(round.season_id) ?? null) : null,
       trackName: round?.track_name ?? '—',
       layoutLabel: layoutLabelBySubsession.get(score.subsession_id) ?? round?.track_name ?? '—',
       startTime: round?.start_time ?? '',
@@ -4181,17 +4534,21 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       classId: score.class_id,
       className: classNameById.get(score.class_id) ?? '',
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
-      team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, round?.season_id ?? null, seasonLogoMap) } : null,
+      team: team
+        ? { name: team.name, logoUrl: resolveTeamLogo(team, round?.season_id ?? null, seasonLogoMap) }
+        : null,
       startingPosition: raw.starting_position,
       finishPosition,
-      classPosition: classPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
-      classStartingPosition: classStartingPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
+      classPosition:
+        classPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
+      classStartingPosition:
+        classStartingPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
       wasAdjusted: finishPosition !== raw.finish_position,
       gainedPositions: finishPosition < raw.finish_position,
       margin: formatMargin(
         raw.interval_ten_thousandths,
         raw.laps_complete,
-        leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null
+        leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null,
       ),
       intervalTenThousandths: raw.interval_ten_thousandths,
       incidents: raw.incidents,
@@ -4203,7 +4560,9 @@ export async function getDriverRaceHistory(env: SupabaseEnv, driverId: string): 
       totalPoints,
       dsq: score.dsq,
       classified: score.classified,
-      bestLapTenThousandths: lapStatsByKey.get(resultKey(score.subsession_id, score.race_number, custId))?.best_lap_ten_thousandths ?? null,
+      bestLapTenThousandths:
+        lapStatsByKey.get(resultKey(score.subsession_id, score.race_number, custId))
+          ?.best_lap_ten_thousandths ?? null,
       roundLayoutText: roundLayouts.get(score.subsession_id) ?? null,
       layoutRecordSeconds: layoutRecordBySubsession.get(score.subsession_id) ?? null,
     });
@@ -4328,12 +4687,16 @@ export async function computeTeamCareerStats(
    * own doc comment for how that differs from the Delta driver class
    * existing at all).
    */
-  view: 'overall' | 'delta' = 'overall'
+  view: 'overall' | 'delta' = 'overall',
 ): Promise<TeamCareerStats[]> {
   const [driverCareerStats, organizations, orgTeamSeasons] = await Promise.all([
-    precomputedDriverCareerStats ? Promise.resolve(precomputedDriverCareerStats) : computeDriverCareerStats(env, seasons, classes, exhibitionRoundIds),
+    precomputedDriverCareerStats
+      ? Promise.resolve(precomputedDriverCareerStats)
+      : computeDriverCareerStats(env, seasons, classes, exhibitionRoundIds),
     precomputedOrganizations ? Promise.resolve(precomputedOrganizations) : getOrganizations(env),
-    precomputedOrgTeamSeasons ? Promise.resolve(precomputedOrgTeamSeasons) : getAllOrganizationTeamSeasons(env),
+    precomputedOrgTeamSeasons
+      ? Promise.resolve(precomputedOrgTeamSeasons)
+      : getAllOrganizationTeamSeasons(env),
   ]);
 
   // (team_id, season_id) -> organization_id — a team that's never been
@@ -4454,7 +4817,7 @@ export async function computeTeamCareerStats(
   const out: TeamCareerStats[] = [];
   for (const [groupKey, groupAccums] of bySeasonByGroup) {
     const accums = groupAccums.sort((a, b) => b.season.number - a.season.number);
-    const organization = groupKey.startsWith('team:') ? null : orgById.get(groupKey) ?? null;
+    const organization = groupKey.startsWith('team:') ? null : (orgById.get(groupKey) ?? null);
     const seasonRows: TeamCareerSeasonRow[] = accums.map((a) => ({
       season: a.season,
       teamName: a.teamName,
@@ -4557,7 +4920,7 @@ const ROUND_SUMMARY_SELECT =
 export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {
   return restGet<RoundSummary[]>(
     env,
-    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&order=start_time.desc`
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&order=start_time.desc`,
   );
 }
 
@@ -4591,20 +4954,26 @@ export function getAllRounds(env: SupabaseEnv) {
  * database actually agrees and flips them.
  */
 export function getOfficialRoundStartTimes(env: SupabaseEnv) {
-  return restGetAll<{ start_time: string }>(env, `curated_rounds?select=start_time&status=eq.official&order=start_time.asc`);
+  return restGetAll<{ start_time: string }>(
+    env,
+    `curated_rounds?select=start_time&status=eq.official&order=start_time.asc`,
+  );
 }
 
 export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: number) {
   const rounds = await restGet<RoundSummary[]>(
     env,
-    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`,
   );
   return rounds[0] ?? null;
 }
 
 /** Just the newest round on file (by start_time) — powers the homepage's "Previous Result" card. A dedicated `limit=1` query rather than getAllRounds()[0]; no reason to pull the whole table's history down to the edge function just to look at the first row. */
 export async function getMostRecentRound(env: SupabaseEnv): Promise<RoundSummary | null> {
-  const rounds = await restGet<RoundSummary[]>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc&limit=1`);
+  const rounds = await restGet<RoundSummary[]>(
+    env,
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc&limit=1`,
+  );
   return rounds[0] ?? null;
 }
 
@@ -4681,21 +5050,32 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
   const round = await getMostRecentRound(env);
   if (!round) return null;
 
-  const [rawResults, penalties, classes, excludedRoundIds, testRoundIds, layoutBySubsession, seasonRounds, allSeasons, qualifying, practice] =
-    await Promise.all([
-      getRoundResults(env, round.subsession_id),
-      getPenaltiesForSubsession(env, round.subsession_id),
-      getDriverClasses(env),
-      getStandingsExcludedRoundIds(env),
-      getTestRoundIds(env),
-      getRoundLayoutsForSubsessions(env, [round.subsession_id]),
-      getRoundsForSeason(env, round.season_id),
-      getSeasons(env),
-      getQualifyingForSubsession(env, round.subsession_id),
-      getPracticeForSubsession(env, round.subsession_id),
-    ]);
+  const [
+    rawResults,
+    penalties,
+    classes,
+    excludedRoundIds,
+    testRoundIds,
+    layoutBySubsession,
+    seasonRounds,
+    allSeasons,
+    qualifying,
+    practice,
+  ] = await Promise.all([
+    getRoundResults(env, round.subsession_id),
+    getPenaltiesForSubsession(env, round.subsession_id),
+    getDriverClasses(env),
+    getStandingsExcludedRoundIds(env),
+    getTestRoundIds(env),
+    getRoundLayoutsForSubsessions(env, [round.subsession_id]),
+    getRoundsForSeason(env, round.season_id),
+    getSeasons(env),
+    getQualifyingForSubsession(env, round.subsession_id),
+    getPracticeForSubsession(env, round.subsession_id),
+  ]);
 
-  const results = penalties.length > 0 ? applyPenaltiesToRoundResults(rawResults, penalties, round.format) : rawResults;
+  const results =
+    penalties.length > 0 ? applyPenaltiesToRoundResults(rawResults, penalties, round.format) : rawResults;
   const roundSeason = allSeasons.find((s) => s.id === round.season_id) ?? null;
   const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
   const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
@@ -4728,7 +5108,11 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
   /** Top 5, matching the homepage Standings widget's own row cap. */
   const TOP_N = 5;
 
-  function driverTabs<T>(overall: T[], byClass: Map<number, T[]>, toRow: (r: T) => PreviousResultWidgetDriverRow): PreviousResultWidgetTab[] {
+  function driverTabs<T>(
+    overall: T[],
+    byClass: Map<number, T[]>,
+    toRow: (r: T) => PreviousResultWidgetDriverRow,
+  ): PreviousResultWidgetTab[] {
     return [
       { key: 'overall', label: 'Overall', type: 'driver', rows: overall.slice(0, TOP_N).map(toRow) },
       ...classes.map((c) => ({
@@ -4750,7 +5134,12 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
    * instead of a whole season's, so there's no separate adjustment lookup
    * to build here.
    */
-  function teamTab(key: string, label: string, classId: number, classRows: RaceResultRow[]): PreviousResultWidgetTab {
+  function teamTab(
+    key: string,
+    label: string,
+    classId: number,
+    classRows: RaceResultRow[],
+  ): PreviousResultWidgetTab {
     const isAlpha = classId === alphaClassId;
     const pointsOf = (r: RaceResultRow) => (isAlpha ? r.totalPoints - r.classPoints : r.totalPoints);
     const rowsByTeam = new Map<string, RaceResultRow[]>();
@@ -4780,10 +5169,18 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
   const sessions: PreviousResultWidgetSession[] = [];
 
   if (practice.overall.length > 0) {
-    sessions.push({ key: 'practice', label: 'Practice', tabs: driverTabs(practice.overall, practice.byClass, toPracticeRow) });
+    sessions.push({
+      key: 'practice',
+      label: 'Practice',
+      tabs: driverTabs(practice.overall, practice.byClass, toPracticeRow),
+    });
   }
   if (qualifying.overall.length > 0) {
-    sessions.push({ key: 'qualifying', label: 'Qualifying', tabs: driverTabs(qualifying.overall, qualifying.byClass, toQualifyingRow) });
+    sessions.push({
+      key: 'qualifying',
+      label: 'Qualifying',
+      tabs: driverTabs(qualifying.overall, qualifying.byClass, toQualifyingRow),
+    });
   }
 
   const raceNumbers = [...results.overall.keys()].sort((a, b) => a - b);
@@ -4791,15 +5188,31 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
     const overallRows = (results.overall.get(raceNumber) ?? []).filter((r) => !r.dsq && r.position !== null);
     const byClassForRace = new Map<number, RaceResultRow[]>();
     for (const c of classes) {
-      const rows = (results.byClass.get(c.id)?.get(raceNumber) ?? []).filter((r) => !r.dsq && r.position !== null);
+      const rows = (results.byClass.get(c.id)?.get(raceNumber) ?? []).filter(
+        (r) => !r.dsq && r.position !== null,
+      );
       byClassForRace.set(c.id, rows);
     }
     const tabs = driverTabs(overallRows, byClassForRace, toDriverRow);
     if (alphaClassId !== undefined) {
-      tabs.push(teamTab('alpha-team', 'Alpha Team', alphaClassId, results.byClass.get(alphaClassId)?.get(raceNumber) ?? []));
+      tabs.push(
+        teamTab(
+          'alpha-team',
+          'Alpha Team',
+          alphaClassId,
+          results.byClass.get(alphaClassId)?.get(raceNumber) ?? [],
+        ),
+      );
     }
     if (deltaClassId !== undefined && roundSeason?.delta_team_enabled) {
-      tabs.push(teamTab('delta-team', 'Delta Team', deltaClassId, results.byClass.get(deltaClassId)?.get(raceNumber) ?? []));
+      tabs.push(
+        teamTab(
+          'delta-team',
+          'Delta Team',
+          deltaClassId,
+          results.byClass.get(deltaClassId)?.get(raceNumber) ?? [],
+        ),
+      );
     }
     sessions.push({
       key: `race-${raceNumber}`,
@@ -4879,7 +5292,7 @@ export async function getAllBroadcastVideos(env: SupabaseEnv): Promise<Broadcast
 export async function getBroadcastRoundDetails(
   env: SupabaseEnv,
   subsessionId: number,
-  seasonId: string
+  seasonId: string,
 ): Promise<{ roundNumber: number | null; layout: string | null }> {
   const [roundNumber, layout] = await Promise.all([
     (async () => {
@@ -4899,13 +5312,16 @@ export async function getBroadcastRoundDetails(
       try {
         const rows = await restGet<{ layout: string | null; event_id: string | null }[]>(
           env,
-          `curated_rounds?select=layout,event_id&subsession_id=eq.${subsessionId}`
+          `curated_rounds?select=layout,event_id&subsession_id=eq.${subsessionId}`,
         );
         const round = rows[0];
         if (!round) return null;
         if (round.layout) return round.layout;
         if (!round.event_id) return null;
-        const events = await restGet<{ layout: string | null }[]>(env, `events?select=layout&id=eq.${round.event_id}`);
+        const events = await restGet<{ layout: string | null }[]>(
+          env,
+          `events?select=layout&id=eq.${round.event_id}`,
+        );
         return events[0]?.layout ?? null;
       } catch (err) {
         console.error('Failed to look up the broadcast round layout:', err);
@@ -5042,10 +5458,10 @@ export async function getEventRound(env: SupabaseEnv, event: EventRecord): Promi
 export function computeDisplayRoundNumbers(
   rounds: RoundSummary[],
   exhibitionRoundIds: Set<number>,
-  testRoundIds: Set<number>
+  testRoundIds: Set<number>,
 ): Map<number, number | null> {
   const chronological = [...rounds].sort(
-    (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
   );
   const out = new Map<number, number | null>();
   let counter = 0;
@@ -5212,7 +5628,6 @@ type RaceScoreWithClass = RaceScoreRow & {
   points_deduction: number;
 };
 
-
 /**
  * Race-by-race results for one round, both grouped by class (ranked within
  * class, the same approach as `computeSeasonStandings`) and as a single
@@ -5223,29 +5638,37 @@ type RaceScoreWithClass = RaceScoreRow & {
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const select =
     'subsession_id,race_number,driver_id,class_id,team_id,finish_points,class_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,total_points,classified,dsq,scored_position';
-  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames] = await Promise.all([
-    restGet<RaceScoreWithClass[]>(env, `race_scores_public?select=${select}&subsession_id=eq.${subsessionId}`),
-    getCuratedRaceResultsForSubsessions(env, [subsessionId]),
-    driversSelect(env, { includeAi: true }),
-    getTeamsBasic(env),
-    getCarLogos(env),
-    getRoundBySubsessionId(env, subsessionId),
-    getAllTeamSeasonLogosSafe(env),
-    getLapStatsForSubsessions(env, [subsessionId]),
-    getDisplayNamesForSubsessions(env, [subsessionId]),
-  ]);
+  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames] =
+    await Promise.all([
+      restGet<RaceScoreWithClass[]>(
+        env,
+        `race_scores_public?select=${select}&subsession_id=eq.${subsessionId}`,
+      ),
+      getCuratedRaceResultsForSubsessions(env, [subsessionId]),
+      driversSelect(env, { includeAi: true }),
+      getTeamsBasic(env),
+      getCarLogos(env),
+      getRoundBySubsessionId(env, subsessionId),
+      getAllTeamSeasonLogosSafe(env),
+      getLapStatsForSubsessions(env, [subsessionId]),
+      getDisplayNamesForSubsessions(env, [subsessionId]),
+    ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   const custIdByDriverId = new Map(
-    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number])
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
   // Every cust_id this app actually has a driver for — anyone in
   // curated_race_results whose cust_id isn't in here raced this round but
   // was never added to the roster at all (see toUnrosteredRow below).
   const rosteredCustIds = new Set(custIdByDriverId.values());
   const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
-  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
-  const displayNameByKey = new Map(displayNames.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.display_name]));
+  const lapStatsByKey = new Map(
+    lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]),
+  );
+  const displayNameByKey = new Map(
+    displayNames.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r.display_name]),
+  );
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
   // This round's season, for the historical-logo lookup below — team logos
@@ -5269,7 +5692,8 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       const custId = r.cust_id;
       leaderAverageLapByRace.set(
         r.race_number,
-        lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, custId))?.average_lap_ten_thousandths ?? null
+        lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, custId))?.average_lap_ten_thousandths ??
+          null,
       );
     }
   }
@@ -5287,14 +5711,16 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
      * unset for the Overall view's own toRow() calls, which keep measuring
      * against `leaderLapsByRace`/0 exactly as before.
      */
-    classLeaderRaw: CuratedRaceResultRow | null = null
+    classLeaderRaw: CuratedRaceResultRow | null = null,
   ): RaceResultRow {
-    const team = score.team_id ? teamById.get(score.team_id) ?? null : null;
+    const team = score.team_id ? (teamById.get(score.team_id) ?? null) : null;
     const lapStatsRow = lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id));
     const averageLapTenThousandths = lapStatsRow?.average_lap_ten_thousandths ?? null;
     const bestLapTenThousandths = lapStatsRow?.best_lap_ten_thousandths ?? null;
     const overallRaceTimeTenThousandths =
-      averageLapTenThousandths !== null && raw.laps_complete !== null ? raw.laps_complete * averageLapTenThousandths : null;
+      averageLapTenThousandths !== null && raw.laps_complete !== null
+        ? raw.laps_complete * averageLapTenThousandths
+        : null;
     const tags: string[] = [];
     // `classified` is computed upstream by the results pipeline itself
     // (Logan: "anyone finishing less than 50% of the leader's laps do not
@@ -5347,18 +5773,31 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       lapsLed: raw.laps_led,
       tags,
       margin: classLeaderRaw
-        ? formatMargin(raw.interval_ten_thousandths, raw.laps_complete, classLeaderRaw.laps_complete, classLeaderRaw.interval_ten_thousandths)
-        : formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null),
+        ? formatMargin(
+            raw.interval_ten_thousandths,
+            raw.laps_complete,
+            classLeaderRaw.laps_complete,
+            classLeaderRaw.interval_ten_thousandths,
+          )
+        : formatMargin(
+            raw.interval_ten_thousandths,
+            raw.laps_complete,
+            leaderLapsByRace.get(score.race_number) ?? null,
+          ),
       intervalTenThousandths: raw.interval_ten_thousandths,
       penaltyOldPosition: null,
       hasPenalty: false,
       team: team ? { name: team.name, logoUrl: resolveTeamLogo(team, seasonId, seasonLogoMap) } : null,
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
-      averageLapFormatted: formatLapTime(averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null),
+      averageLapFormatted: formatLapTime(
+        averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null,
+      ),
       averageLapTenThousandths,
       bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
       bestLapTenThousandths,
-      overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
+      overallRaceTimeFormatted: formatLapTime(
+        overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null,
+      ),
       overallRaceTimeTenThousandths,
       notInRoster: false,
     };
@@ -5378,8 +5817,12 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     const averageLapTenThousandths = lapStatsRow?.average_lap_ten_thousandths ?? null;
     const bestLapTenThousandths = lapStatsRow?.best_lap_ten_thousandths ?? null;
     const overallRaceTimeTenThousandths =
-      averageLapTenThousandths !== null && raw.laps_complete !== null ? raw.laps_complete * averageLapTenThousandths : null;
-    const displayName = displayNameByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id)) ?? `Cust #${raw.cust_id}`;
+      averageLapTenThousandths !== null && raw.laps_complete !== null
+        ? raw.laps_complete * averageLapTenThousandths
+        : null;
+    const displayName =
+      displayNameByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id)) ??
+      `Cust #${raw.cust_id}`;
 
     return {
       raceNumber: raw.race_number,
@@ -5427,17 +5870,25 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
       tags: ['Driver not listed in roster'],
-      margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(raw.race_number) ?? null),
+      margin: formatMargin(
+        raw.interval_ten_thousandths,
+        raw.laps_complete,
+        leaderLapsByRace.get(raw.race_number) ?? null,
+      ),
       intervalTenThousandths: raw.interval_ten_thousandths,
       penaltyOldPosition: null,
       hasPenalty: false,
       team: null,
       car: raw.car_name ? { name: raw.car_name, logoUrl: carLogoByName.get(raw.car_name) ?? null } : null,
-      averageLapFormatted: formatLapTime(averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null),
+      averageLapFormatted: formatLapTime(
+        averageLapTenThousandths !== null ? averageLapTenThousandths / 10000 : null,
+      ),
       averageLapTenThousandths,
       bestLapFormatted: formatLapTime(bestLapTenThousandths !== null ? bestLapTenThousandths / 10000 : null),
       bestLapTenThousandths,
-      overallRaceTimeFormatted: formatLapTime(overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null),
+      overallRaceTimeFormatted: formatLapTime(
+        overallRaceTimeTenThousandths !== null ? overallRaceTimeTenThousandths / 10000 : null,
+      ),
       overallRaceTimeTenThousandths,
       notInRoster: true,
     };
@@ -5531,8 +5982,14 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     // Overall view a complete, truthfully-ordered field instead of tacking
     // unrostered rows onto the end.
     const rankedAndUnrostered = [
-      ...ranked.map((m) => ({ row: toRow(m.score, m.driver, m.raw, m.score.scored_position), rawPos: overallRawPos(m) })),
-      ...unmatchedGroup.map((raw) => ({ row: toUnrosteredRow(raw, unrosteredRawPos(raw)), rawPos: unrosteredRawPos(raw) })),
+      ...ranked.map((m) => ({
+        row: toRow(m.score, m.driver, m.raw, m.score.scored_position),
+        rawPos: overallRawPos(m),
+      })),
+      ...unmatchedGroup.map((raw) => ({
+        row: toUnrosteredRow(raw, unrosteredRawPos(raw)),
+        rawPos: unrosteredRawPos(raw),
+      })),
     ].sort((a, b) => a.rawPos - b.rawPos);
 
     overall.set(raceNumber, [
@@ -5576,21 +6033,23 @@ interface CuratedQualifyingRow {
  */
 export async function getQualifyingForSubsession(
   env: SupabaseEnv,
-  subsessionId: number
+  subsessionId: number,
 ): Promise<{ overall: QualifyingRow[]; byClass: Map<number, QualifyingRow[]> }> {
   const [qualRows, drivers, classScores] = await Promise.all([
     restGet<CuratedQualifyingRow[]>(
       env,
-      `curated_qualifying?select=subsession_id,cust_id,display_name,car_class_name,qual_position,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`
+      `curated_qualifying?select=subsession_id,cust_id,display_name,car_class_name,qual_position,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`,
     ),
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
       env,
-      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
+      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`,
     ),
   ]);
 
-  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const driverByCustId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
+  );
   // First class_id seen per driver in this round — a driver's class doesn't
   // change race-to-race within one round, so any race_scores row for them
   // here is as good as another.
@@ -5632,7 +6091,8 @@ export async function getQualifyingForSubsession(
     };
   });
 
-  const byPos = (a: QualifyingRow, b: QualifyingRow) => (a.qualPosition ?? Infinity) - (b.qualPosition ?? Infinity);
+  const byPos = (a: QualifyingRow, b: QualifyingRow) =>
+    (a.qualPosition ?? Infinity) - (b.qualPosition ?? Infinity);
   const overall = [...rows].sort(byPos);
 
   const byClass = new Map<number, QualifyingRow[]>();
@@ -5678,21 +6138,23 @@ interface CuratedPracticeRow {
  */
 export async function getPracticeForSubsession(
   env: SupabaseEnv,
-  subsessionId: number
+  subsessionId: number,
 ): Promise<{ overall: PracticeRow[]; byClass: Map<number, PracticeRow[]> }> {
   const [practiceRows, drivers, classScores] = await Promise.all([
     restGet<CuratedPracticeRow[]>(
       env,
-      `curated_practice_results?select=subsession_id,cust_id,display_name,car_class_name,best_lap_ten_thousandths,laps&subsession_id=eq.${subsessionId}`
+      `curated_practice_results?select=subsession_id,cust_id,display_name,car_class_name,best_lap_ten_thousandths,laps&subsession_id=eq.${subsessionId}`,
     ),
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
       env,
-      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`
+      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`,
     ),
   ]);
 
-  const driverByCustId = new Map(drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]));
+  const driverByCustId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
+  );
   // First class_id seen per driver in this round — same reasoning as
   // getQualifyingForSubsession's identical block.
   const classIdByDriverId = new Map<string, number>();
@@ -5750,7 +6212,8 @@ export async function getPracticeForSubsession(
     };
   });
 
-  const byPracticePos = (a: PracticeRow, b: PracticeRow) => (a.position ?? Infinity) - (b.position ?? Infinity);
+  const byPracticePos = (a: PracticeRow, b: PracticeRow) =>
+    (a.position ?? Infinity) - (b.position ?? Infinity);
   const overall = [...rows].sort(byPracticePos);
 
   const byClass = new Map<number, PracticeRow[]>();
@@ -5804,7 +6267,7 @@ export function formatMargin(
   intervalTenThousandths: number | null,
   ownLaps: number | null,
   leaderLaps: number | null,
-  leaderIntervalTenThousandths: number | null = 0
+  leaderIntervalTenThousandths: number | null = 0,
 ): string {
   if (intervalTenThousandths === null) return '—';
   const hasValidOffset = leaderIntervalTenThousandths !== null && leaderIntervalTenThousandths >= 0;
@@ -5914,7 +6377,7 @@ function pickBestFromExtendedStats(
   extendedStats: Map<string, DriverSeasonExtendedStats>,
   driverById: Map<string, DriverBasic>,
   valueOf: (s: DriverSeasonExtendedStats) => number | null,
-  filter?: (driverId: string, s: DriverSeasonExtendedStats) => boolean
+  filter?: (driverId: string, s: DriverSeasonExtendedStats) => boolean,
 ): SeasonAwardWinner | null {
   let bestValue: number | null = null;
   let bestDriverIds: string[] = [];
@@ -5930,14 +6393,16 @@ function pickBestFromExtendedStats(
       bestDriverIds.push(driverId);
     }
   }
-  return bestValue === null ? null : { drivers: sortDriversByName(bestDriverIds, driverById), value: bestValue };
+  return bestValue === null
+    ? null
+    : { drivers: sortDriversByName(bestDriverIds, driverById), value: bestValue };
 }
 
 /** Picks the single best VALUE out of a plain driverId -> total-value map and returns every driver tied at it — covers Speed Demon's fastest-lap tally, Consistency's average finish, and Endurance/Sprint Specialist's round-restricted point totals. */
 function pickBestFromValueMap(
   values: Map<string, number>,
   driverById: Map<string, DriverBasic>,
-  direction: 'max' | 'min' = 'max'
+  direction: 'max' | 'min' = 'max',
 ): SeasonAwardWinner | null {
   let bestValue: number | null = null;
   let bestDriverIds: string[] = [];
@@ -5950,7 +6415,9 @@ function pickBestFromValueMap(
       bestDriverIds.push(driverId);
     }
   }
-  return bestValue === null ? null : { drivers: sortDriversByName(bestDriverIds, driverById), value: bestValue };
+  return bestValue === null
+    ? null
+    : { drivers: sortDriversByName(bestDriverIds, driverById), value: bestValue };
 }
 
 /**
@@ -5964,13 +6431,18 @@ function computeMaxPossibleDistanceKm(
   overallContext: SeasonOverallContext,
   circuits: Circuit[],
   layouts: CircuitLayout[],
-  roundLayouts: Map<number, string | null>
+  roundLayouts: Map<number, string | null>,
 ): number {
-  const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+  const trackNameBySubsession = new Map(
+    overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]),
+  );
   const maxLapsByRace = new Map<string, number>();
   for (const s of overallContext.overallScores) {
     const custId = overallContext.custIdByDriverId.get(s.driver_id);
-    const raw = custId != null ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+    const raw =
+      custId != null
+        ? overallContext.rawByKey.get(resultKey(s.subsession_id, s.race_number, custId))
+        : undefined;
     const laps = raw?.laps_complete ?? 0;
     const key = `${s.subsession_id}:${s.race_number}`;
     if (laps > (maxLapsByRace.get(key) ?? 0)) maxLapsByRace.set(key, laps);
@@ -5990,7 +6462,9 @@ function computeMaxPossibleDistanceKm(
 function overallPointsOfRow(s: RaceScoreOverallRow, overallContext: SeasonOverallContext): number {
   const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
   const adjustment = overallContext.adjustments.get(key);
-  return adjustment ? adjustment.overallTotalPoints : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+  return adjustment
+    ? adjustment.overallTotalPoints
+    : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
 }
 
 /**
@@ -6000,7 +6474,11 @@ function overallPointsOfRow(s: RaceScoreOverallRow, overallContext: SeasonOveral
  * race count: more than one race in the round counts as a sprint round for
  * this, exactly one race counts as endurance (Logan's own rule).
  */
-function classifyRoundForSpecialistAwards(subsessionId: number, overallContext: SeasonOverallContext, raceNumbersBySubsession: Map<number, Set<number>>): 'endurance' | 'sprint' {
+function classifyRoundForSpecialistAwards(
+  subsessionId: number,
+  overallContext: SeasonOverallContext,
+  raceNumbersBySubsession: Map<number, Set<number>>,
+): 'endurance' | 'sprint' {
   const explicit = overallContext.formatBySubsession.get(subsessionId);
   if (explicit === 'endurance' || explicit === 'sprint') return explicit;
   const raceCount = raceNumbersBySubsession.get(subsessionId)?.size ?? 1;
@@ -6018,7 +6496,10 @@ function classifyRoundForSpecialistAwards(subsessionId: number, overallContext: 
  * exact Cloudflare Workers subrequest-limit problem those functions' own
  * doc comments describe hitting before this same fix.
  */
-export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Season[]): Promise<SeasonAwards[]> {
+export async function computeSeasonAwardsHistory(
+  env: SupabaseEnv,
+  seasons: Season[],
+): Promise<SeasonAwards[]> {
   // isDecidedChampionshipSeason, not isChampionshipSeason alone — no awards
   // for a season still in progress, per Logan (same reasoning as
   // getChampions()'s own gate).
@@ -6037,7 +6518,10 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
       return [] as Circuit[];
     }),
     getAllCircuitLayouts(env).catch((err) => {
-      console.error('Failed to fetch circuit_layouts for season awards — Ironman distance will be omitted:', err);
+      console.error(
+        'Failed to fetch circuit_layouts for season awards — Ironman distance will be omitted:',
+        err,
+      );
       return [] as CircuitLayout[];
     }),
   ]);
@@ -6057,7 +6541,9 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
   const crossedThresholdSoFar = new Set<string>();
   const rookieCandidatesBySeasonId = new Map<string, Set<string>>();
   for (const season of championshipSeasonsAsc) {
-    const seasonScores = bulkScores.filter((s) => s.season_id === season.id && !exhibitionIds.has(s.subsession_id));
+    const seasonScores = bulkScores.filter(
+      (s) => s.season_id === season.id && !exhibitionIds.has(s.subsession_id),
+    );
     const appearancesByDriver = new Map<string, Set<number>>();
     for (const s of seasonScores) {
       if (!appearancesByDriver.has(s.driver_id)) appearancesByDriver.set(s.driver_id, new Set());
@@ -6092,13 +6578,22 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         seasonPenalties,
         seasonRoundsList,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null
+        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
       if (overallContext.overallScores.length === 0) return null;
 
       const [overallStandings, extendedStats] = await Promise.all([
         computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
-        getSeasonDriverExtendedStats(env, season, exhibitionIds, drivers, overallContext, circuits, layouts, roundLayouts),
+        getSeasonDriverExtendedStats(
+          env,
+          season,
+          exhibitionIds,
+          drivers,
+          overallContext,
+          circuits,
+          layouts,
+          roundLayouts,
+        ),
       ]);
 
       // Rookie of the Season — highest season points (with drops, matching
@@ -6117,24 +6612,38 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         }
       }
       const rookieOfTheSeason: SeasonAwardWinner | null =
-        rookieBestPoints === null ? null : { drivers: sortDriversByName(rookieBestDriverIds, driverById), value: rookieBestPoints };
+        rookieBestPoints === null
+          ? null
+          : { drivers: sortDriversByName(rookieBestDriverIds, driverById), value: rookieBestPoints };
 
       // Sublime Finesse — corners per incident, minimum 50% of the season's
       // rounds attended (by appearances).
       const maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
       const appearancesByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.appearances]));
-      const sublimeFinesse = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.cornersPerIncident, (driverId) => {
-        const appearances = appearancesByDriverId.get(driverId) ?? 0;
-        return maxAppearances > 0 && appearances * 2 >= maxAppearances;
-      });
+      const sublimeFinesse = pickBestFromExtendedStats(
+        extendedStats,
+        driverById,
+        (s) => s.cornersPerIncident,
+        (driverId) => {
+          const appearances = appearancesByDriverId.get(driverId) ?? 0;
+          return maxAppearances > 0 && appearances * 2 >= maxAppearances;
+        },
+      );
 
       const leader = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.lapsLed);
       const bonusFeature = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.bonusPoints);
-      const nakedAggression = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.netPositionsChange);
+      const nakedAggression = pickBestFromExtendedStats(
+        extendedStats,
+        driverById,
+        (s) => s.netPositionsChange,
+      );
 
       const ironmanBest = pickBestFromExtendedStats(extendedStats, driverById, (s) => s.distanceKm);
       const ironman: SeasonIronmanWinner | null = ironmanBest
-        ? { ...ironmanBest, maxPossibleKm: computeMaxPossibleDistanceKm(overallContext, circuits, layouts, roundLayouts) }
+        ? {
+            ...ironmanBest,
+            maxPossibleKm: computeMaxPossibleDistanceKm(overallContext, circuits, layouts, roundLayouts),
+          }
         : null;
 
       // Consistency — best (lowest) average overall finish position per
@@ -6178,7 +6687,10 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         for (const s of group) {
           if (s.dsq) continue;
           const custId = overallContext.custIdByDriverId.get(s.driver_id);
-          const lapStatsRow = custId != null ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
+          const lapStatsRow =
+            custId != null
+              ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId))
+              : undefined;
           const t = lapStatsRow?.best_lap_ten_thousandths ?? null;
           if (t === null) continue;
           if (bestTime === null || t < bestTime) {
@@ -6218,7 +6730,9 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         if (!classRaceGroups.has(key)) classRaceGroups.set(key, []);
         classRaceGroups.get(key)!.push(s);
       }
-      const trackNameBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]));
+      const trackNameBySubsession = new Map(
+        overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]),
+      );
 
       // Penalties grouped by (subsessionId:scoringRaceNumber) — same
       // shape/reasoning as computeSeasonOverallAdjustments' own
@@ -6250,8 +6764,14 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
           .filter((s) => !s.dsq)
           .map((s) => {
             const custId = overallContext.custIdByDriverId.get(s.driver_id);
-            const raw = custId != null ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
-            const lapStatsRow = custId != null ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
+            const raw =
+              custId != null
+                ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId))
+                : undefined;
+            const lapStatsRow =
+              custId != null
+                ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId))
+                : undefined;
             return {
               driverId: s.driver_id,
               position: raw?.adjusted_position ?? raw?.finish_position ?? null,
@@ -6264,14 +6784,18 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         if (positionable.length < 2) continue;
 
         const racePenalties = penaltiesByMarginRace.get(marginRaceKey(subsessionId, raceNumber)) ?? [];
-        const penaltyByRaceDriver = sumPenaltiesByRaceDriver(racePenalties.map((p) => ({ ...p, race_number: raceNumber })));
+        const penaltyByRaceDriver = sumPenaltiesByRaceDriver(
+          racePenalties.map((p) => ({ ...p, race_number: raceNumber })),
+        );
         const touched = positionable.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driverId}`));
 
         let p1DriverId: string | null = null;
         let margin: number | null = null;
 
         if (touched) {
-          const leader: LeaderRaceStats = overallContext.leaderStatsByRace.get(marginRaceKey(subsessionId, raceNumber)) ?? {
+          const leader: LeaderRaceStats = overallContext.leaderStatsByRace.get(
+            marginRaceKey(subsessionId, raceNumber),
+          ) ?? {
             lapsComplete: null,
             averageLapTenThousandths: null,
           };
@@ -6348,7 +6872,8 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
       // figure on this page).
       const raceNumbersBySubsession = new Map<number, Set<number>>();
       for (const s of overallContext.overallScores) {
-        if (!raceNumbersBySubsession.has(s.subsession_id)) raceNumbersBySubsession.set(s.subsession_id, new Set());
+        if (!raceNumbersBySubsession.has(s.subsession_id))
+          raceNumbersBySubsession.set(s.subsession_id, new Set());
         raceNumbersBySubsession.get(s.subsession_id)!.add(s.race_number);
       }
       const endurancePoints = new Map<string, number>();
@@ -6356,7 +6881,8 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
       for (const s of overallContext.overallScores) {
         const points = overallPointsOfRow(s, overallContext);
         const bucket =
-          classifyRoundForSpecialistAwards(s.subsession_id, overallContext, raceNumbersBySubsession) === 'endurance'
+          classifyRoundForSpecialistAwards(s.subsession_id, overallContext, raceNumbersBySubsession) ===
+          'endurance'
             ? endurancePoints
             : sprintPoints;
         bucket.set(s.driver_id, (bucket.get(s.driver_id) ?? 0) + points);
@@ -6380,7 +6906,7 @@ export async function computeSeasonAwardsHistory(env: SupabaseEnv, seasons: Seas
         sprintSpecialist,
       };
       return awards;
-    })
+    }),
   );
 
   return perSeason.filter((r): r is SeasonAwards => r !== null);

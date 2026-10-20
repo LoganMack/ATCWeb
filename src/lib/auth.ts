@@ -60,8 +60,11 @@ function toProfile({ driver, ...rest }: ProfileRow): Profile {
  * Driver), else their display name, iRacing name, or finally their email.
  */
 export function userDisplayName(
-  profile: { driver_name?: string | null; display_name?: string | null; iracing_name?: string | null } | null | undefined,
-  email?: string | null
+  profile:
+    | { driver_name?: string | null; display_name?: string | null; iracing_name?: string | null }
+    | null
+    | undefined,
+  email?: string | null,
 ): string {
   return profile?.driver_name || profile?.display_name || profile?.iracing_name || email || 'Unknown';
 }
@@ -106,7 +109,7 @@ interface GoTrueTokenResponse {
 export async function signInWithPassword(
   env: SupabaseEnv,
   email: string,
-  password: string
+  password: string,
 ): Promise<Session> {
   const res = await fetch(`${env.url}/auth/v1/token?grant_type=password`, {
     method: 'POST',
@@ -164,7 +167,7 @@ export async function signUp(
   email: string,
   password: string,
   displayName?: string,
-  redirectTo?: string
+  redirectTo?: string,
 ): Promise<SignUpResult> {
   const url = new URL(`${env.url}/auth/v1/signup`);
   // Without this, GoTrue falls back to whatever "Site URL" is configured in
@@ -221,7 +224,11 @@ export async function signUp(
  * comment) — get it wrong and the link goes to a `localhost` that doesn't
  * exist for whoever clicks it.
  */
-export async function requestPasswordReset(env: SupabaseEnv, email: string, redirectTo: string): Promise<void> {
+export async function requestPasswordReset(
+  env: SupabaseEnv,
+  email: string,
+  redirectTo: string,
+): Promise<void> {
   const url = new URL(`${env.url}/auth/v1/recover`);
   url.searchParams.set('redirect_to', redirectTo);
   const res = await fetch(url, {
@@ -242,7 +249,11 @@ export async function requestPasswordReset(env: SupabaseEnv, email: string, redi
  * short-lived session access token, so it doubles as proof the request is
  * legitimate — no separate "old password" check needed.
  */
-export async function updatePassword(env: SupabaseEnv, recoveryAccessToken: string, newPassword: string): Promise<void> {
+export async function updatePassword(
+  env: SupabaseEnv,
+  recoveryAccessToken: string,
+  newPassword: string,
+): Promise<void> {
   const res = await fetch(`${env.url}/auth/v1/user`, {
     method: 'PUT',
     headers: authHeaders(env, recoveryAccessToken),
@@ -296,12 +307,15 @@ export async function getUser(env: SupabaseEnv, accessToken: string): Promise<Au
 export async function getProfile(
   env: SupabaseEnv,
   accessToken: string,
-  userId: string
+  userId: string,
 ): Promise<Profile | null> {
   const fetchRows = (select: string) =>
-    fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=${encodeURIComponent(select)}`, {
-      headers: authHeaders(env, accessToken),
-    });
+    fetch(
+      `${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=${encodeURIComponent(select)}`,
+      {
+        headers: authHeaders(env, accessToken),
+      },
+    );
   let res = await fetchRows(PROFILE_SELECT);
   // Every request in the app resolves the session through here, so if the
   // driver-name join ever fails, fall back to the plain columns rather than
@@ -314,9 +328,12 @@ export async function getProfile(
 
 /** All profiles, for the admin "assign roles" screen. Requires an admin's access token (RLS-enforced). */
 export async function getAllProfiles(env: SupabaseEnv, accessToken: string): Promise<Profile[]> {
-  const res = await fetch(`${env.url}/rest/v1/profiles?select=${encodeURIComponent(PROFILE_SELECT)}&order=created_at.asc`, {
-    headers: authHeaders(env, accessToken),
-  });
+  const res = await fetch(
+    `${env.url}/rest/v1/profiles?select=${encodeURIComponent(PROFILE_SELECT)}&order=created_at.asc`,
+    {
+      headers: authHeaders(env, accessToken),
+    },
+  );
   if (!res.ok) throw new Error(`Failed to load profiles (${res.status}): ${await res.text()}`);
   return ((await res.json()) as ProfileRow[]).map(toProfile);
 }
@@ -360,7 +377,7 @@ export async function setProfileDriver(
   env: SupabaseEnv,
   accessToken: string,
   profileId: string,
-  driverId: string | null
+  driverId: string | null,
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}`, {
     method: 'PATCH',
@@ -375,7 +392,7 @@ export async function setProfileRole(
   env: SupabaseEnv,
   accessToken: string,
   profileId: string,
-  role: 'admin' | 'driver'
+  role: 'admin' | 'driver',
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}`, {
     method: 'PATCH',

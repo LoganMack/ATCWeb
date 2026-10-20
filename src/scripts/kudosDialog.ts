@@ -5,7 +5,8 @@
 // execute. The submit button stays disabled until Session, Lap, Turn and at
 // least one car are filled in (the server re-checks all of it).
 function updateKudosSubmit(form: HTMLFormElement) {
-  const val = (name: string) => (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
+  const val = (name: string) =>
+    (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
   const anyCar = form.querySelector('input[name="involved_driver_ids"]:checked') !== null;
   const submit = form.querySelector<HTMLButtonElement>('[data-kudos-submit]');
   if (submit) submit.disabled = !(val('session') && val('lap') !== '' && val('turn') && anyCar);

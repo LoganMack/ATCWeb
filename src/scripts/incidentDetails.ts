@@ -38,7 +38,12 @@ function openIncidentDetails(row: HTMLElement) {
   };
   set('round', `${summary.track} · ${summary.round}`);
   set('when', `${summary.season} · ${summary.session} · ${summary.date}`);
-  set('title', summary.incidentNumber && summary.incidentNumber !== '—' ? `Incident ${summary.incidentNumber}` : 'Incident');
+  set(
+    'title',
+    summary.incidentNumber && summary.incidentNumber !== '—'
+      ? `Incident ${summary.incidentNumber}`
+      : 'Incident',
+  );
   set('driver', summary.driver ?? '—');
   set('race', summary.session ?? '—');
   set('lap', summary.lap != null ? String(summary.lap) : '—');
@@ -53,7 +58,7 @@ function openIncidentDetails(row: HTMLElement) {
       const div = document.createElement('div');
       div.textContent = name;
       return div;
-    })
+    }),
   );
   set('pp', summary.isWarning ? 'Warning' : summary.pp ? String(summary.pp) : '—');
   set('time', summary.time ? `+${summary.time}s` : '—');
@@ -81,7 +86,8 @@ function initIncidentDetails() {
       return;
     }
     // Clicking the backdrop (the <dialog> element itself, outside its content) closes it.
-    if (target instanceof HTMLDialogElement && target.hasAttribute('data-history-incident-dialog')) target.close();
+    if (target instanceof HTMLDialogElement && target.hasAttribute('data-history-incident-dialog'))
+      target.close();
   });
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;

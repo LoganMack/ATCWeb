@@ -16,3 +16,7 @@ supabase/checks/
 
 # Root-level HTML design mockups
 /*.html
+
+# Astro templates: prettier-plugin-astro 0.14 prints markup inside {expressions}
+# as JSX and adds whitespace that Astro renders (and cannot parse six templates)
+*.astro

@@ -32,21 +32,32 @@ export function shortTrackName(name: string): string {
 
 export function involvedLabel(row: IncidentRow): string {
   if (row.involvedDrivers.length === 0) return '—';
-  return row.involvedDrivers.map((d) => (d.car_number !== null ? `#${d.car_number}` : shortDriverName(d.name))).join(', ');
+  return row.involvedDrivers
+    .map((d) => (d.car_number !== null ? `#${d.car_number}` : shortDriverName(d.name)))
+    .join(', ');
 }
 
 /** Everything the click-to-open "Incident Details" popup shows, keyed by incident id and embedded once as JSON (the same incident can appear in several tables, so it isn't repeated per row). */
 export function incidentSummary(row: IncidentRow) {
   return {
-    driver: row.driver === null ? 'Racing Incident (no driver at fault)' : `${row.driver.car_number !== null ? `#${row.driver.car_number} ` : ''}${displayDriverName(row.driver.name)}`,
+    driver:
+      row.driver === null
+        ? 'Racing Incident (no driver at fault)'
+        : `${row.driver.car_number !== null ? `#${row.driver.car_number} ` : ''}${displayDriverName(row.driver.name)}`,
     season: row.seasonLabel ?? '—',
     round: roundLabel(row),
     track: row.trackName,
     date: formatDateShort(row.startTime),
     session: sessionLabel(row),
-    incidentNumber: row.incidentNumber ? (row.incidentNumber.startsWith('#') ? row.incidentNumber : `#${row.incidentNumber}`) : '—',
+    incidentNumber: row.incidentNumber
+      ? row.incidentNumber.startsWith('#')
+        ? row.incidentNumber
+        : `#${row.incidentNumber}`
+      : '—',
     lap: row.lap,
-    involved: row.involvedDrivers.map((d) => `${d.car_number !== null ? `#${d.car_number} ` : ''}${shortDriverName(d.name)}`),
+    involved: row.involvedDrivers.map(
+      (d) => `${d.car_number !== null ? `#${d.car_number} ` : ''}${shortDriverName(d.name)}`,
+    ),
     description: row.description,
     offenses: row.offenseNames,
     isWarning: row.isWarning,

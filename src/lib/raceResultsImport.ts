@@ -93,7 +93,7 @@ export function resolveDriverByCarNumberForSeason<D extends { id: string; car_nu
   drivers: D[],
   seasonCarNumbers: Map<string, number>, // `${driverId}:${seasonId}` -> car_number
   seasonId: string,
-  carNumber: number
+  carNumber: number,
 ): D | undefined {
   const overridden = drivers.find((d) => seasonCarNumbers.get(`${d.id}:${seasonId}`) === carNumber);
   if (overridden) return overridden;
@@ -111,7 +111,11 @@ interface ManualResultImportRow {
 }
 
 function getManualResultImports(env: SupabaseEnv, accessToken: string) {
-  return restGetAuthed<ManualResultImportRow[]>(env, accessToken, 'manual_result_imports?select=import_key,subsession_id');
+  return restGetAuthed<ManualResultImportRow[]>(
+    env,
+    accessToken,
+    'manual_result_imports?select=import_key,subsession_id',
+  );
 }
 
 /**
@@ -192,7 +196,12 @@ interface RoundIdentity {
  * row, exactly matching this importer's original ordering (clear old result
  * rows, then upsert the round).
  */
-function resolveRoundIdentity(importKey: string, get: RowGetter, first: string[], ctx: RoundLookupContext): RoundIdentity | null {
+function resolveRoundIdentity(
+  importKey: string,
+  get: RowGetter,
+  first: string[],
+  ctx: RoundLookupContext,
+): RoundIdentity | null {
   const circuitName = get(first, 'circuit_name');
   const layoutName = get(first, 'layout');
   const seasonName = get(first, 'season_name');
@@ -259,7 +268,7 @@ async function writeRoundRow(
   accessToken: string,
   identity: RoundIdentity,
   numDrivers: number,
-  updateNumDrivers: boolean
+  updateNumDrivers: boolean,
 ): Promise<void> {
   const roundFields = {
     season_id: identity.seasonId,
@@ -293,14 +302,19 @@ async function writeRoundRow(
   if (identity.isExhibition) {
     try {
       try {
-        await restPost(env, accessToken, 'round_overrides', { subsession_id: identity.subsessionId, is_exhibition: true });
+        await restPost(env, accessToken, 'round_overrides', {
+          subsession_id: identity.subsessionId,
+          is_exhibition: true,
+        });
       } catch {
-        await restPatch(env, accessToken, `round_overrides?subsession_id=eq.${identity.subsessionId}`, { is_exhibition: true });
+        await restPatch(env, accessToken, `round_overrides?subsession_id=eq.${identity.subsessionId}`, {
+          is_exhibition: true,
+        });
       }
     } catch (err) {
       console.error(
         `Failed to set the exhibition flag for manual round "${identity.importKey}" (the round itself still imported):`,
-        err
+        err,
       );
     }
   }
@@ -315,21 +329,29 @@ async function writeRoundRow(
   if (identity.isTest) {
     try {
       try {
-        await restPost(env, accessToken, 'round_overrides', { subsession_id: identity.subsessionId, is_test: true });
+        await restPost(env, accessToken, 'round_overrides', {
+          subsession_id: identity.subsessionId,
+          is_test: true,
+        });
       } catch {
-        await restPatch(env, accessToken, `round_overrides?subsession_id=eq.${identity.subsessionId}`, { is_test: true });
+        await restPatch(env, accessToken, `round_overrides?subsession_id=eq.${identity.subsessionId}`, {
+          is_test: true,
+        });
       }
     } catch (err) {
       console.error(
         `Failed to set the test flag for manual round "${identity.importKey}" (the round itself still imported):`,
-        err
+        err,
       );
     }
   }
 }
 
 /** Groups CSV data rows (everything after the header) by their `import_key` column, skipping fully-blank rows and counting keyless rows as skipped. Shared by every importer below. */
-function groupRowsByImportKey(rows: string[][], get: RowGetter): { groups: Map<string, string[][]>; skipped: number } {
+function groupRowsByImportKey(
+  rows: string[][],
+  get: RowGetter,
+): { groups: Map<string, string[][]>; skipped: number } {
   const groups = new Map<string, string[][]>();
   let skipped = 0;
   for (const row of rows.slice(1)) {
@@ -365,7 +387,7 @@ function makeGetter(header: string[]): RowGetter {
 export async function importRaceResultsCsv(
   env: SupabaseEnv,
   accessToken: string,
-  rows: string[][]
+  rows: string[][],
 ): Promise<RaceResultsImportOutcome> {
   let imported = 0;
   let skipped = 0;
@@ -388,7 +410,9 @@ export async function importRaceResultsCsv(
     events,
     importByKey: new Map(existingImports.map((r) => [r.import_key, r.subsession_id])),
   };
-  const seasonCarNumbers = new Map(seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]));
+  const seasonCarNumbers = new Map(
+    seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]),
+  );
 
   const { groups, skipped: keylessSkipped } = groupRowsByImportKey(rows, get);
   skipped += keylessSkipped;
@@ -438,7 +462,7 @@ export async function importRaceResultsCsv(
       }
       if (driver.iracing_cust_id == null) {
         console.error(
-          `Skipped a manual result row (round "${importKey}", race ${raceNumber}, car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`
+          `Skipped a manual result row (round "${importKey}", race ${raceNumber}, car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`,
         );
         skipped++;
         continue;
@@ -475,7 +499,10 @@ export async function importRaceResultsCsv(
         });
         imported++;
       } catch (err) {
-        console.error(`Failed to import a race-result row (round "${importKey}", race ${raceNumber}, car #${carNumber}):`, err);
+        console.error(
+          `Failed to import a race-result row (round "${importKey}", race ${raceNumber}, car #${carNumber}):`,
+          err,
+        );
         skipped++;
       }
     }
@@ -495,7 +522,7 @@ export async function importRaceResultsCsv(
 export async function importQualifyingResultsCsv(
   env: SupabaseEnv,
   accessToken: string,
-  rows: string[][]
+  rows: string[][],
 ): Promise<RaceResultsImportOutcome> {
   let imported = 0;
   let skipped = 0;
@@ -518,7 +545,9 @@ export async function importQualifyingResultsCsv(
     events,
     importByKey: new Map(existingImports.map((r) => [r.import_key, r.subsession_id])),
   };
-  const seasonCarNumbers = new Map(seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]));
+  const seasonCarNumbers = new Map(
+    seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]),
+  );
 
   const { groups, skipped: keylessSkipped } = groupRowsByImportKey(rows, get);
   skipped += keylessSkipped;
@@ -535,7 +564,10 @@ export async function importQualifyingResultsCsv(
       try {
         await restDelete(env, accessToken, `curated_qualifying?subsession_id=eq.${identity.subsessionId}`);
       } catch (err) {
-        console.error(`Failed to clear previous qualifying rows for manual round "${importKey}" before re-import:`, err);
+        console.error(
+          `Failed to clear previous qualifying rows for manual round "${importKey}" before re-import:`,
+          err,
+        );
         skipped += groupRows.length;
         continue;
       }
@@ -568,7 +600,7 @@ export async function importQualifyingResultsCsv(
       }
       if (driver.iracing_cust_id == null) {
         console.error(
-          `Skipped a manual qualifying row (round "${importKey}", car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`
+          `Skipped a manual qualifying row (round "${importKey}", car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`,
         );
         skipped++;
         continue;
@@ -604,7 +636,7 @@ export async function importQualifyingResultsCsv(
 export async function importPracticeResultsCsv(
   env: SupabaseEnv,
   accessToken: string,
-  rows: string[][]
+  rows: string[][],
 ): Promise<RaceResultsImportOutcome> {
   let imported = 0;
   let skipped = 0;
@@ -627,7 +659,9 @@ export async function importPracticeResultsCsv(
     events,
     importByKey: new Map(existingImports.map((r) => [r.import_key, r.subsession_id])),
   };
-  const seasonCarNumbers = new Map(seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]));
+  const seasonCarNumbers = new Map(
+    seasonCarNumberRows.map((r) => [`${r.driver_id}:${r.season_id}`, r.car_number]),
+  );
 
   const { groups, skipped: keylessSkipped } = groupRowsByImportKey(rows, get);
   skipped += keylessSkipped;
@@ -642,9 +676,16 @@ export async function importPracticeResultsCsv(
 
     if (identity.alreadyImported) {
       try {
-        await restDelete(env, accessToken, `curated_practice_results?subsession_id=eq.${identity.subsessionId}`);
+        await restDelete(
+          env,
+          accessToken,
+          `curated_practice_results?subsession_id=eq.${identity.subsessionId}`,
+        );
       } catch (err) {
-        console.error(`Failed to clear previous practice rows for manual round "${importKey}" before re-import:`, err);
+        console.error(
+          `Failed to clear previous practice rows for manual round "${importKey}" before re-import:`,
+          err,
+        );
         skipped += groupRows.length;
         continue;
       }
@@ -675,7 +716,7 @@ export async function importPracticeResultsCsv(
       }
       if (driver.iracing_cust_id == null) {
         console.error(
-          `Skipped a manual practice row (round "${importKey}", car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`
+          `Skipped a manual practice row (round "${importKey}", car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`,
         );
         skipped++;
         continue;
@@ -753,11 +794,15 @@ export interface EventResultCoverage {
 const EVENTS_ELIGIBLE_FOR_RESULTS = new Set(['championship', 'test', 'exhibition']);
 
 /** Every distinct subsession_id present in one results table, restricted to a known set of subsession_ids (so this stays a cheap, bounded query no matter how much history the table holds). restGetAll (not restGet) since a table like curated_race_results has many rows per round — one per driver per race — and could exceed Supabase's default 1000-row response cap well before the round count itself does. */
-async function distinctSubsessionIds(env: SupabaseEnv, table: string, subsessionIds: number[]): Promise<Set<number>> {
+async function distinctSubsessionIds(
+  env: SupabaseEnv,
+  table: string,
+  subsessionIds: number[],
+): Promise<Set<number>> {
   if (subsessionIds.length === 0) return new Set();
   const rows = await restGetAll<{ subsession_id: number }>(
     env,
-    `${table}?select=subsession_id&subsession_id=in.(${subsessionIds.join(',')})`
+    `${table}?select=subsession_id&subsession_id=in.(${subsessionIds.join(',')})`,
   );
   return new Set(rows.map((r) => r.subsession_id));
 }
@@ -777,19 +822,24 @@ async function distinctSubsessionIds(env: SupabaseEnv, table: string, subsession
  * it needs is admin-only anyway (see that table's own RLS), same as this
  * importer's other admin-only reads.
  */
-export async function getEventsMissingResults(env: SupabaseEnv, accessToken: string): Promise<EventResultCoverage[]> {
+export async function getEventsMissingResults(
+  env: SupabaseEnv,
+  accessToken: string,
+): Promise<EventResultCoverage[]> {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const [events, rounds, existingImports] = await Promise.all([
     getEvents(env),
     restGetAll<{ subsession_id: number; event_id: string | null }>(
       env,
-      'curated_rounds?select=subsession_id,event_id&event_id=not.is.null'
+      'curated_rounds?select=subsession_id,event_id&event_id=not.is.null',
     ),
     getManualResultImports(env, accessToken),
   ]);
 
-  const finished = events.filter((e) => EVENTS_ELIGIBLE_FOR_RESULTS.has(e.category) && e.event_date < todayStr);
+  const finished = events.filter(
+    (e) => EVENTS_ELIGIBLE_FOR_RESULTS.has(e.category) && e.event_date < todayStr,
+  );
   if (finished.length === 0) return [];
 
   const finishedEventIds = new Set(finished.map((e) => e.id));
@@ -868,7 +918,9 @@ function slugifyForImportKey(s: string): string {
  * Once a round does exist, getEventsMissingResults' own `importKey` field is
  * used instead so every further upload for that event reuses the SAME key.
  */
-export function suggestImportKey(ev: Pick<EventResultCoverage, 'category' | 'eventDate' | 'circuitName'>): string {
+export function suggestImportKey(
+  ev: Pick<EventResultCoverage, 'category' | 'eventDate' | 'circuitName'>,
+): string {
   const prefix = ev.category === 'exhibition' ? 'exh' : ev.category === 'test' ? 'test' : 'evt';
   return `${prefix}-${ev.eventDate}-${slugifyForImportKey(ev.circuitName)}`;
 }

@@ -1,6 +1,17 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv, getCircuits, getAllCircuitLayouts, getExhibitionRoundIds, getTestRoundIds } from '../../lib/supabase';
-import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout, type LayoutRoundSummary } from '../../lib/results';
+import {
+  resolveSupabaseEnv,
+  getCircuits,
+  getAllCircuitLayouts,
+  getExhibitionRoundIds,
+  getTestRoundIds,
+} from '../../lib/supabase';
+import {
+  getAllRounds,
+  getRoundLayoutsForSubsessions,
+  findRoundsForLayout,
+  type LayoutRoundSummary,
+} from '../../lib/results';
 
 export const prerender = false;
 
@@ -59,7 +70,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
     ]);
     const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
       supabaseEnv,
-      allRounds.map((r) => r.subsession_id)
+      allRounds.map((r) => r.subsession_id),
     );
     const rounds: LayoutRoundSummary[] = findRoundsForLayout(
       allRounds,
@@ -69,7 +80,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
       circuitId,
       layout,
       exhibitionRoundIds,
-      testRoundIds
+      testRoundIds,
     );
 
     return new Response(JSON.stringify(rounds), {

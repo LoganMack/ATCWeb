@@ -65,8 +65,10 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
  * `EVENT_TAG_CLASSES` is the standard size; `EVENT_TAG_COMPACT_CLASSES` is
  * the small variant for tight list rows.
  */
-export const EVENT_TAG_CLASSES = 'inline-flex w-28 flex-none items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wide';
-export const EVENT_TAG_COMPACT_CLASSES = 'inline-flex w-24 flex-none items-center justify-center rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide';
+export const EVENT_TAG_CLASSES =
+  'inline-flex w-28 flex-none items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wide';
+export const EVENT_TAG_COMPACT_CLASSES =
+  'inline-flex w-24 flex-none items-center justify-center rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide';
 
 // Championship is the default/normal case and deliberately gets no special
 // treatment here — callers only render a category badge when it's NOT
@@ -82,7 +84,8 @@ export const EVENT_TAG_COMPACT_CLASSES = 'inline-flex w-24 flex-none items-cente
 export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'bg-white/10 text-white/50',
-  exhibition: 'bg-gradient-to-r from-brand-blue/25 via-brand-pink/25 to-brand-gold/25 text-white ring-1 ring-white/10',
+  exhibition:
+    'bg-gradient-to-r from-brand-blue/25 via-brand-pink/25 to-brand-gold/25 text-white ring-1 ring-white/10',
   holiday: 'bg-white/10 text-white/50',
   iracing: 'bg-white/10 text-white/50',
 };
@@ -123,14 +126,17 @@ export const FORMAT_CARD_CLASSES: Record<EventFormat, string> = {
 export const CATEGORY_CARD_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'border-white/10 bg-white/[0.03]',
-  exhibition: 'border-white/10 bg-gradient-to-r from-[color:var(--card-blue)] via-[color:var(--card-pink)] to-[color:var(--card-gold)]',
+  exhibition:
+    'border-white/10 bg-gradient-to-r from-[color:var(--card-blue)] via-[color:var(--card-pink)] to-[color:var(--card-gold)]',
   holiday: 'border-white/10 bg-white/[0.03]',
   iracing: 'border-white/10 bg-white/[0.03]',
 };
 
 /** Same format-vs-category branch as usesFormatBadge, applied to the card-background accent above instead of the tag badge. */
 export function getEventCardClasses(event: { category: EventCategory; format: EventFormat }): string {
-  return usesFormatBadge(event.category) ? FORMAT_CARD_CLASSES[event.format] : CATEGORY_CARD_CLASSES[event.category];
+  return usesFormatBadge(event.category)
+    ? FORMAT_CARD_CLASSES[event.format]
+    : CATEGORY_CARD_CLASSES[event.category];
 }
 
 // Same accent as FORMAT_CARD_CLASSES/CATEGORY_CARD_CLASSES above, plus a
@@ -185,7 +191,8 @@ export interface SessionSummary {
 /** Flattens an event's five possible sessions into a display-ready list, skipping any that were never scheduled. */
 export function getEventSessions(event: EventRecord): SessionSummary[] {
   const sessions: SessionSummary[] = [];
-  const utcIso = (startTime: string | null) => zonedTimeToUtcIso(event.event_date, startTime, LEAGUE_TIME_ZONE);
+  const utcIso = (startTime: string | null) =>
+    zonedTimeToUtcIso(event.event_date, startTime, LEAGUE_TIME_ZONE);
 
   if (event.practice_start_time) {
     sessions.push({

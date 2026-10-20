@@ -97,7 +97,9 @@ function restHeaders(env: SupabaseEnv) {
 // this file's usual per-table CRUD pattern — see that file's header comment.
 export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
   if (!env.url || !env.anonKey) {
-    throw new Error('Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).');
+    throw new Error(
+      'Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).',
+    );
   }
   const res = await fetch(`${env.url}/rest/v1/${withHiddenRounds(env, path)}`, {
     headers: restHeaders(env),
@@ -128,7 +130,9 @@ export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
  */
 export async function restGetAll<T>(env: SupabaseEnv, path: string, pageSize = 1000): Promise<T[]> {
   if (!env.url || !env.anonKey) {
-    throw new Error('Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).');
+    throw new Error(
+      'Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).',
+    );
   }
   const out: T[] = [];
   for (let offset = 0; ; offset += pageSize) {
@@ -221,7 +225,7 @@ export function getDrivers(env: SupabaseEnv, { aiOnly = false }: { aiOnly?: bool
     'driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)';
   return restGet<Driver[]>(
     env,
-    `drivers?select=${encodeURIComponent(select)}&is_ai=eq.${aiOnly}&order=car_number.asc.nullslast`
+    `drivers?select=${encodeURIComponent(select)}&is_ai=eq.${aiOnly}&order=car_number.asc.nullslast`,
   );
 }
 
@@ -262,7 +266,7 @@ const DRIVER_PROFILE_SELECT =
 export async function getDriverProfileById(env: SupabaseEnv, id: string): Promise<DriverProfile | null> {
   const drivers = await restGet<DriverProfile[]>(
     env,
-    `drivers?select=${encodeURIComponent(DRIVER_PROFILE_SELECT)}&id=eq.${encodeURIComponent(id)}&is_ai=eq.false`
+    `drivers?select=${encodeURIComponent(DRIVER_PROFILE_SELECT)}&id=eq.${encodeURIComponent(id)}&is_ai=eq.false`,
   );
   return drivers[0] ?? null;
 }
@@ -284,7 +288,7 @@ export function getNewsPosts(env: SupabaseEnv, limit?: number) {
 export async function getNewsPostBySlug(env: SupabaseEnv, slug: string) {
   const posts = await restGet<NewsPost[]>(
     env,
-    `news_posts?select=${NEWS_PUBLIC_SELECT}&slug=eq.${encodeURIComponent(slug)}&limit=1`
+    `news_posts?select=${NEWS_PUBLIC_SELECT}&slug=eq.${encodeURIComponent(slug)}&limit=1`,
   );
   return posts[0] ?? null;
 }
@@ -321,7 +325,12 @@ export async function restGetAuthed<T>(env: SupabaseEnv, accessToken: string, pa
   return res.json() as Promise<T>;
 }
 
-export async function restPost<T>(env: SupabaseEnv, accessToken: string, path: string, body: unknown): Promise<T> {
+export async function restPost<T>(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation' }),
@@ -332,7 +341,12 @@ export async function restPost<T>(env: SupabaseEnv, accessToken: string, path: s
   return rows[0];
 }
 
-export async function restPatch<T>(env: SupabaseEnv, accessToken: string, path: string, body: unknown): Promise<T> {
+export async function restPatch<T>(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/${path}`, {
     method: 'PATCH',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation' }),
@@ -381,13 +395,16 @@ export interface Team {
 
 /** All teams (active + inactive) — the public Teams page splits them into two sections itself. */
 export function getTeams(env: SupabaseEnv) {
-  return restGet<Team[]>(env, 'teams?select=id,name,status,primary_color_hex,logo_url,created_at&order=name.asc');
+  return restGet<Team[]>(
+    env,
+    'teams?select=id,name,status,primary_color_hex,logo_url,created_at&order=name.asc',
+  );
 }
 
 export async function getTeamById(env: SupabaseEnv, id: string) {
   const teams = await restGet<Team[]>(
     env,
-    `teams?select=id,name,status,primary_color_hex,logo_url,created_at&id=eq.${encodeURIComponent(id)}`
+    `teams?select=id,name,status,primary_color_hex,logo_url,created_at&id=eq.${encodeURIComponent(id)}`,
   );
   return teams[0] ?? null;
 }
@@ -423,19 +440,25 @@ export function getOrganizations(env: SupabaseEnv) {
 }
 
 export async function getOrganizationById(env: SupabaseEnv, id: string) {
-  const orgs = await restGet<Organization[]>(env, `organizations?select=id,name&id=eq.${encodeURIComponent(id)}`);
+  const orgs = await restGet<Organization[]>(
+    env,
+    `organizations?select=id,name&id=eq.${encodeURIComponent(id)}`,
+  );
   return orgs[0] ?? null;
 }
 
 /** Every organization<->team season link, across every org — computeTeamCareerStats (src/lib/results.ts) fetches this once and builds a team+season -> organization lookup from it, rather than querying per-organization. */
 export function getAllOrganizationTeamSeasons(env: SupabaseEnv) {
-  return restGet<OrganizationTeamSeason[]>(env, 'organization_team_seasons?select=id,organization_id,team_id,season_id');
+  return restGet<OrganizationTeamSeason[]>(
+    env,
+    'organization_team_seasons?select=id,organization_id,team_id,season_id',
+  );
 }
 
 export function getOrganizationTeamSeasons(env: SupabaseEnv, organizationId: string) {
   return restGet<OrganizationTeamSeason[]>(
     env,
-    `organization_team_seasons?select=id,organization_id,team_id,season_id&organization_id=eq.${encodeURIComponent(organizationId)}`
+    `organization_team_seasons?select=id,organization_id,team_id,season_id&organization_id=eq.${encodeURIComponent(organizationId)}`,
   );
 }
 
@@ -443,7 +466,12 @@ export function createOrganization(env: SupabaseEnv, accessToken: string, data: 
   return restPost<Organization>(env, accessToken, 'organizations', data);
 }
 
-export function updateOrganization(env: SupabaseEnv, accessToken: string, id: string, data: { name: string }) {
+export function updateOrganization(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: { name: string },
+) {
   return restPatch<Organization>(env, accessToken, `organizations?id=eq.${encodeURIComponent(id)}`, data);
 }
 
@@ -466,18 +494,18 @@ export async function setOrganizationTeamForSeason(
   accessToken: string,
   organizationId: string,
   seasonId: string,
-  teamId: string | null
+  teamId: string | null,
 ) {
   await restDelete(
     env,
     accessToken,
-    `organization_team_seasons?organization_id=eq.${encodeURIComponent(organizationId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `organization_team_seasons?organization_id=eq.${encodeURIComponent(organizationId)}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
   if (!teamId) return;
   await restDelete(
     env,
     accessToken,
-    `organization_team_seasons?team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `organization_team_seasons?team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
   await restPost<OrganizationTeamSeason>(env, accessToken, 'organization_team_seasons', {
     organization_id: organizationId,
@@ -500,7 +528,7 @@ const TEAM_ROSTER_SELECT = 'season_id,team_id,driver_id';
 export function getTeamRosterForSeason(env: SupabaseEnv, seasonId: string) {
   return restGet<TeamRosterEntry[]>(
     env,
-    `team_rosters?select=${TEAM_ROSTER_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `team_rosters?select=${TEAM_ROSTER_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -508,7 +536,7 @@ export function getTeamRosterForSeason(env: SupabaseEnv, seasonId: string) {
 export function getTeamRosterForTeamSeason(env: SupabaseEnv, teamId: string, seasonId: string) {
   return restGet<TeamRosterEntry[]>(
     env,
-    `team_rosters?select=${TEAM_ROSTER_SELECT}&team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `team_rosters?select=${TEAM_ROSTER_SELECT}&team_id=eq.${encodeURIComponent(teamId)}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -526,7 +554,7 @@ export function removeTeamRosterEntry(env: SupabaseEnv, accessToken: string, dat
   return restDelete(
     env,
     accessToken,
-    `team_rosters?season_id=eq.${encodeURIComponent(data.season_id)}&team_id=eq.${encodeURIComponent(data.team_id)}&driver_id=eq.${encodeURIComponent(data.driver_id)}`
+    `team_rosters?season_id=eq.${encodeURIComponent(data.season_id)}&team_id=eq.${encodeURIComponent(data.team_id)}&driver_id=eq.${encodeURIComponent(data.driver_id)}`,
   );
 }
 
@@ -552,7 +580,7 @@ export interface TeamRosterWithTeam {
 export function getTeamRosterWithTeamsForSeason(env: SupabaseEnv, seasonId: string) {
   return restGet<TeamRosterWithTeam[]>(
     env,
-    `team_rosters?select=driver_id,teams(id,name,primary_color_hex,logo_url)&season_id=eq.${encodeURIComponent(seasonId)}`
+    `team_rosters?select=driver_id,teams(id,name,primary_color_hex,logo_url)&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -580,7 +608,7 @@ export function getManualAwards(env: SupabaseEnv) {
 export function getManualAwardsForSeason(env: SupabaseEnv, seasonId: string) {
   return restGet<ManualAward[]>(
     env,
-    `manual_awards?select=${MANUAL_AWARD_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `manual_awards?select=${MANUAL_AWARD_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -588,7 +616,7 @@ export function getManualAwardsForSeason(env: SupabaseEnv, seasonId: string) {
 export function addManualAward(
   env: SupabaseEnv,
   accessToken: string,
-  data: { season_id: string; award_key: ManualAwardKey; driver_id: string }
+  data: { season_id: string; award_key: ManualAwardKey; driver_id: string },
 ) {
   return restPost<ManualAward>(env, accessToken, 'manual_awards', data);
 }
@@ -612,7 +640,7 @@ const TEAM_SEASON_LOGO_SELECT = 'id,team_id,season_id,logo_url';
 export function getTeamSeasonLogosForTeam(env: SupabaseEnv, teamId: string) {
   return restGet<TeamSeasonLogo[]>(
     env,
-    `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}&team_id=eq.${encodeURIComponent(teamId)}`
+    `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}&team_id=eq.${encodeURIComponent(teamId)}`,
   );
 }
 
@@ -625,14 +653,15 @@ export function getAllTeamSeasonLogos(env: SupabaseEnv) {
 export async function upsertTeamSeasonLogo(
   env: SupabaseEnv,
   accessToken: string,
-  data: { team_id: string; season_id: string; logo_url: string }
+  data: { team_id: string; season_id: string; logo_url: string },
 ) {
   const res = await fetch(`${env.url}/rest/v1/team_season_logos?on_conflict=team_id,season_id`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on team_season_logos: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase upsert error ${res.status} on team_season_logos: ${await res.text()}`);
   const rows = (await res.json()) as TeamSeasonLogo[];
   return rows[0];
 }
@@ -701,7 +730,7 @@ const DRIVER_ADMIN_SELECT =
 export async function getDriverById(env: SupabaseEnv, id: string) {
   const drivers = await restGet<DriverRecord[]>(
     env,
-    `drivers?select=${DRIVER_ADMIN_SELECT}&id=eq.${encodeURIComponent(id)}`
+    `drivers?select=${DRIVER_ADMIN_SELECT}&id=eq.${encodeURIComponent(id)}`,
   );
   return drivers[0] ?? null;
 }
@@ -725,7 +754,7 @@ export interface DriverNumberLookup {
 export function getDriversForNumberCheck(env: SupabaseEnv) {
   return restGet<DriverNumberLookup[]>(
     env,
-    'drivers?select=id,name,car_number,driver_statuses(name)&car_number=not.is.null'
+    'drivers?select=id,name,car_number,driver_statuses(name)&car_number=not.is.null',
   );
 }
 
@@ -737,7 +766,10 @@ export interface DriverCustIdLookup {
 }
 
 export function getDriversForCustIdCheck(env: SupabaseEnv) {
-  return restGet<DriverCustIdLookup[]>(env, 'drivers?select=id,name,iracing_cust_id&iracing_cust_id=not.is.null');
+  return restGet<DriverCustIdLookup[]>(
+    env,
+    'drivers?select=id,name,iracing_cust_id&iracing_cust_id=not.is.null',
+  );
 }
 
 /** Every driver's most recent race, plus how many official league rounds have run since then (league-wide, not season/class-scoped) — see driver_last_race (0039_driver_admin_overhaul.sql, revised by 0040_inactivity_90d_or_12_rounds.sql). rounds_since_last_race is null exactly when last_race_at is null (never raced / no iracing_cust_id). Powers both sync_driver_statuses() and the admin edit page's inactivity note — a driver goes Inactive once BOTH the configured inactivity-days and inactivity-rounds thresholds have passed since last_race_at (whichever takes longer — see 0041_driver_settings.sql). */
@@ -749,7 +781,7 @@ export interface DriverLastRace {
 export async function getDriverLastRace(env: SupabaseEnv, driverId: string): Promise<DriverLastRace> {
   const rows = await restGet<DriverLastRace[]>(
     env,
-    `driver_last_race?select=last_race_at,rounds_since_last_race&driver_id=eq.${encodeURIComponent(driverId)}`
+    `driver_last_race?select=last_race_at,rounds_since_last_race&driver_id=eq.${encodeURIComponent(driverId)}`,
   );
   return rows[0] ?? { last_race_at: null, rounds_since_last_race: null };
 }
@@ -760,7 +792,10 @@ export interface DriverLastRaceRow extends DriverLastRace {
 }
 
 export function getAllDriverLastRaces(env: SupabaseEnv): Promise<DriverLastRaceRow[]> {
-  return restGet<DriverLastRaceRow[]>(env, 'driver_last_race?select=driver_id,last_race_at,rounds_since_last_race');
+  return restGet<DriverLastRaceRow[]>(
+    env,
+    'driver_last_race?select=driver_id,last_race_at,rounds_since_last_race',
+  );
 }
 
 /**
@@ -813,7 +848,7 @@ export function buildInactivityNote(
   inactivityDays: number,
   inactivityRounds: number,
   signUpDate?: string | null,
-  roundsSinceSignup?: number | null
+  roundsSinceSignup?: number | null,
 ): string | null {
   if (statusName === 'Veteran') return 'Veterans are exempt from inactivity.';
   if (statusName === 'Inactive') return 'Inactive until next appearance.';
@@ -827,7 +862,9 @@ export function buildInactivityNote(
       const rounds = roundsSinceSignup ?? 0;
       return `Signed-up on ${formatDate(signUpDate)}; ${rounds}/${inactivityRounds} rounds absent; ${daysSinceSignup}/${inactivityDays} days absent`;
     }
-    const daysSince = Math.floor((Date.now() - new Date(lastRace.last_race_at).getTime()) / (1000 * 60 * 60 * 24));
+    const daysSince = Math.floor(
+      (Date.now() - new Date(lastRace.last_race_at).getTime()) / (1000 * 60 * 60 * 24),
+    );
     const rounds = lastRace.rounds_since_last_race ?? 0;
     return `Last raced ${formatDate(lastRace.last_race_at)}; ${rounds}/${inactivityRounds} rounds absent; ${daysSince}/${inactivityDays} days absent`;
   }
@@ -848,7 +885,7 @@ export async function setDriverCarNumber(
   env: SupabaseEnv,
   accessToken: string,
   driverId: string,
-  carNumber: number | null
+  carNumber: number | null,
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/set_driver_car_number`, {
     method: 'POST',
@@ -942,7 +979,10 @@ export interface SyncResultsWithRosterOutcome {
  * excludes exhibition rounds/seasons (Logan: "sometimes those include AI
  * drivers"), which the original version never did.
  */
-export async function syncResultsWithRoster(env: SupabaseEnv, accessToken: string): Promise<SyncResultsWithRosterOutcome> {
+export async function syncResultsWithRoster(
+  env: SupabaseEnv,
+  accessToken: string,
+): Promise<SyncResultsWithRosterOutcome> {
   const res = await fetch(`${env.url}/rest/v1/rpc/sync_results_with_roster`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken),
@@ -969,28 +1009,38 @@ const DRIVER_SEASON_CLASS_SELECT = 'driver_id,season_id,class_id';
 export function getDriverSeasonClassesForDriver(env: SupabaseEnv, driverId: string) {
   return restGet<DriverSeasonClass[]>(
     env,
-    `driver_season_classes?select=${DRIVER_SEASON_CLASS_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}`
+    `driver_season_classes?select=${DRIVER_SEASON_CLASS_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}`,
   );
 }
 
 /** Upserts a driver's class for one season — replaces whatever was set for that season before. The table's primary key is (driver_id, season_id), so this can never leave a driver with two classes in the same season. */
-export async function upsertDriverSeasonClass(env: SupabaseEnv, accessToken: string, data: DriverSeasonClass) {
+export async function upsertDriverSeasonClass(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: DriverSeasonClass,
+) {
   const res = await fetch(`${env.url}/rest/v1/driver_season_classes?on_conflict=driver_id,season_id`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on driver_season_classes: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase upsert error ${res.status} on driver_season_classes: ${await res.text()}`);
   const rows = (await res.json()) as DriverSeasonClass[];
   return rows[0];
 }
 
 /** Clears a driver's class override for one season — they fall back to their primary class for that season again. */
-export function deleteDriverSeasonClass(env: SupabaseEnv, accessToken: string, driverId: string, seasonId: string) {
+export function deleteDriverSeasonClass(
+  env: SupabaseEnv,
+  accessToken: string,
+  driverId: string,
+  seasonId: string,
+) {
   return restDelete(
     env,
     accessToken,
-    `driver_season_classes?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `driver_season_classes?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -1008,7 +1058,7 @@ const DRIVER_SEASON_CAR_NUMBER_SELECT = 'driver_id,season_id,car_number';
 export function getDriverSeasonCarNumbersForDriver(env: SupabaseEnv, driverId: string) {
   return restGet<DriverSeasonCarNumber[]>(
     env,
-    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}`
+    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}`,
   );
 }
 
@@ -1016,33 +1066,46 @@ export function getDriverSeasonCarNumbersForDriver(env: SupabaseEnv, driverId: s
 export function getDriverSeasonCarNumbersForSeason(env: SupabaseEnv, seasonId: string) {
   return restGet<DriverSeasonCarNumber[]>(
     env,
-    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
 /** Every driver_season_car_numbers row, across every season — the manual Race Results and Incident Report CSV importers fetch this once (rather than per-round-season) to resolve a CSV row's car number to a driver_id for that round's own season, before falling back to drivers.car_number. */
 export function getAllDriverSeasonCarNumbers(env: SupabaseEnv) {
-  return restGet<DriverSeasonCarNumber[]>(env, `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}`);
+  return restGet<DriverSeasonCarNumber[]>(
+    env,
+    `driver_season_car_numbers?select=${DRIVER_SEASON_CAR_NUMBER_SELECT}`,
+  );
 }
 
 /** Upserts a driver's car number for one season — replaces whatever was set for that season before. The table's primary key is (driver_id, season_id); its (season_id, car_number) unique constraint is the hard backstop against two drivers sharing a number in the same season (see 0044_driver_season_car_numbers.sql) — callers should validate that themselves first for a friendly error message, since this will otherwise throw a raw constraint-violation error. */
-export async function upsertDriverSeasonCarNumber(env: SupabaseEnv, accessToken: string, data: DriverSeasonCarNumber) {
+export async function upsertDriverSeasonCarNumber(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: DriverSeasonCarNumber,
+) {
   const res = await fetch(`${env.url}/rest/v1/driver_season_car_numbers?on_conflict=driver_id,season_id`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on driver_season_car_numbers: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase upsert error ${res.status} on driver_season_car_numbers: ${await res.text()}`);
   const rows = (await res.json()) as DriverSeasonCarNumber[];
   return rows[0];
 }
 
 /** Clears a driver's car number override for one season — they fall back to their current number (drivers.car_number) for that season again. */
-export function deleteDriverSeasonCarNumber(env: SupabaseEnv, accessToken: string, driverId: string, seasonId: string) {
+export function deleteDriverSeasonCarNumber(
+  env: SupabaseEnv,
+  accessToken: string,
+  driverId: string,
+  seasonId: string,
+) {
   return restDelete(
     env,
     accessToken,
-    `driver_season_car_numbers?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`
+    `driver_season_car_numbers?driver_id=eq.${encodeURIComponent(driverId)}&season_id=eq.${encodeURIComponent(seasonId)}`,
   );
 }
 
@@ -1090,14 +1153,18 @@ const NEWS_ADMIN_SELECT =
 
 /** Drafts + published, newest first — requires an admin's access token (RLS-gated). */
 export function getAllNewsPosts(env: SupabaseEnv, accessToken: string) {
-  return restGetAuthed<NewsPostAdmin[]>(env, accessToken, `news_posts?select=${NEWS_ADMIN_SELECT}&order=published_at.desc`);
+  return restGetAuthed<NewsPostAdmin[]>(
+    env,
+    accessToken,
+    `news_posts?select=${NEWS_ADMIN_SELECT}&order=published_at.desc`,
+  );
 }
 
 export async function getNewsPostByIdAdmin(env: SupabaseEnv, accessToken: string, id: string) {
   const posts = await restGetAuthed<NewsPostAdmin[]>(
     env,
     accessToken,
-    `news_posts?select=${NEWS_ADMIN_SELECT}&id=eq.${encodeURIComponent(id)}`
+    `news_posts?select=${NEWS_ADMIN_SELECT}&id=eq.${encodeURIComponent(id)}`,
   );
   return posts[0] ?? null;
 }
@@ -1106,7 +1173,12 @@ export function createNewsPost(env: SupabaseEnv, accessToken: string, data: Part
   return restPost<NewsPostAdmin>(env, accessToken, 'news_posts', data);
 }
 
-export function updateNewsPost(env: SupabaseEnv, accessToken: string, id: string, data: Partial<NewsPostAdmin>) {
+export function updateNewsPost(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<NewsPostAdmin>,
+) {
   return restPatch<NewsPostAdmin>(env, accessToken, `news_posts?id=eq.${encodeURIComponent(id)}`, data);
 }
 
@@ -1153,13 +1225,19 @@ export function getAllNewsPostTags(env: SupabaseEnv) {
 
 /** Tag ids currently assigned to one post — pre-checks the post editor's tag checkboxes. Public read (RLS). */
 export async function getTagIdsForPost(env: SupabaseEnv, postId: string) {
-  const rows = await restGet<{ tag_id: string }[]>(env, `news_post_tags?select=tag_id&post_id=eq.${encodeURIComponent(postId)}`);
+  const rows = await restGet<{ tag_id: string }[]>(
+    env,
+    `news_post_tags?select=tag_id&post_id=eq.${encodeURIComponent(postId)}`,
+  );
   return rows.map((r) => r.tag_id);
 }
 
 /** Full tag objects (id + name) assigned to one post — for the single-post detail page (news/[slug].astro), which only ever needs one post's worth and shouldn't pull every post's tag links like getAllNewsPostTags() does. */
 export async function getTagsForPost(env: SupabaseEnv, postId: string): Promise<NewsTag[]> {
-  const rows = await restGet<NewsPostTagLink[]>(env, `news_post_tags?select=post_id,news_tags(id,name)&post_id=eq.${encodeURIComponent(postId)}`);
+  const rows = await restGet<NewsPostTagLink[]>(
+    env,
+    `news_post_tags?select=post_id,news_tags(id,name)&post_id=eq.${encodeURIComponent(postId)}`,
+  );
   return rows.map((r) => r.news_tags).filter((t): t is NewsTag => t !== null);
 }
 
@@ -1167,7 +1245,12 @@ export async function getTagsForPost(env: SupabaseEnv, postId: string): Promise<
 export async function setPostTags(env: SupabaseEnv, accessToken: string, postId: string, tagIds: string[]) {
   await restDelete(env, accessToken, `news_post_tags?post_id=eq.${encodeURIComponent(postId)}`);
   if (tagIds.length === 0) return;
-  await restPost(env, accessToken, 'news_post_tags', tagIds.map((tag_id) => ({ post_id: postId, tag_id })));
+  await restPost(
+    env,
+    accessToken,
+    'news_post_tags',
+    tagIds.map((tag_id) => ({ post_id: postId, tag_id })),
+  );
 }
 
 // --- News tagged drivers (0082_news_post_drivers.sql) -------------------
@@ -1234,13 +1317,19 @@ export function getAllNewsPostDrivers(env: SupabaseEnv) {
 
 /** Driver ids currently tagged on one post. Public read (RLS). */
 export async function getDriverIdsForPost(env: SupabaseEnv, postId: string) {
-  const rows = await restGet<{ driver_id: string }[]>(env, `news_post_drivers?select=driver_id&post_id=eq.${encodeURIComponent(postId)}`);
+  const rows = await restGet<{ driver_id: string }[]>(
+    env,
+    `news_post_drivers?select=driver_id&post_id=eq.${encodeURIComponent(postId)}`,
+  );
   return rows.map((r) => r.driver_id);
 }
 
 /** Full driver objects (id/name/car number) tagged on one post, alphabetical — for the single-post detail page (news/[slug].astro), which only ever needs one post's worth and shouldn't pull every post's driver links like getAllNewsPostDrivers() does. */
 export async function getDriversForPost(env: SupabaseEnv, postId: string): Promise<DriverOption[]> {
-  const rows = await restGet<NewsPostDriverLink[]>(env, `news_post_drivers?select=post_id,drivers(id,name,car_number)&post_id=eq.${encodeURIComponent(postId)}`);
+  const rows = await restGet<NewsPostDriverLink[]>(
+    env,
+    `news_post_drivers?select=post_id,drivers(id,name,car_number)&post_id=eq.${encodeURIComponent(postId)}`,
+  );
   return rows
     .map((r) => r.drivers)
     .filter((d): d is DriverOption => d !== null)
@@ -1248,10 +1337,20 @@ export async function getDriversForPost(env: SupabaseEnv, postId: string): Promi
 }
 
 /** Delete-all-then-insert sync of a post's tagged-driver set — same approach setPostTags() uses for news_post_tags. Callers pass extractMentionedDriverIds(body) rather than a manually-picked list (see this section's own header comment). */
-export async function setPostDrivers(env: SupabaseEnv, accessToken: string, postId: string, driverIds: string[]) {
+export async function setPostDrivers(
+  env: SupabaseEnv,
+  accessToken: string,
+  postId: string,
+  driverIds: string[],
+) {
   await restDelete(env, accessToken, `news_post_drivers?post_id=eq.${encodeURIComponent(postId)}`);
   if (driverIds.length === 0) return;
-  await restPost(env, accessToken, 'news_post_drivers', driverIds.map((driver_id) => ({ post_id: postId, driver_id })));
+  await restPost(
+    env,
+    accessToken,
+    'news_post_drivers',
+    driverIds.map((driver_id) => ({ post_id: postId, driver_id })),
+  );
 }
 
 // --- Champion photos (up to 5 per season+class, see /admin/champions) ------
@@ -1271,7 +1370,7 @@ const CHAMPION_PHOTO_SELECT = 'id,season_id,class_id,driver_id,image_url,sort_or
 export function getChampionPhotos(env: SupabaseEnv, seasonId: string, classId: number) {
   return restGet<ChampionPhoto[]>(
     env,
-    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}&order=sort_order.asc`
+    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}&order=sort_order.asc`,
   );
 }
 
@@ -1279,7 +1378,7 @@ export function getChampionPhotos(env: SupabaseEnv, seasonId: string, classId: n
 export function getChampionPhotosForClass(env: SupabaseEnv, classId: number) {
   return restGet<ChampionPhoto[]>(
     env,
-    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&class_id=eq.${classId}&order=season_id.asc,sort_order.asc`
+    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&class_id=eq.${classId}&order=season_id.asc,sort_order.asc`,
   );
 }
 
@@ -1287,7 +1386,7 @@ export function getChampionPhotosForClass(env: SupabaseEnv, classId: number) {
 export async function upsertChampionPhoto(
   env: SupabaseEnv,
   accessToken: string,
-  data: { season_id: string; class_id: number; driver_id: string; image_url: string; sort_order: number }
+  data: { season_id: string; class_id: number; driver_id: string; image_url: string; sort_order: number },
 ) {
   const res = await fetch(`${env.url}/rest/v1/champion_photos?on_conflict=season_id,class_id,sort_order`, {
     method: 'POST',
@@ -1320,20 +1419,23 @@ const HALL_OF_FAME_PHOTO_SELECT = 'id,driver_id,image_url,sort_order';
 export function getHallOfFamePhotos(env: SupabaseEnv, driverId: string) {
   return restGet<HallOfFamePhoto[]>(
     env,
-    `hall_of_fame_photos?select=${HALL_OF_FAME_PHOTO_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}&order=sort_order.asc`
+    `hall_of_fame_photos?select=${HALL_OF_FAME_PHOTO_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}&order=sort_order.asc`,
   );
 }
 
 /** Every uploaded Hall of Fame photo, across every member — one query for the whole /hall-of-fame page instead of one per member. */
 export function getAllHallOfFamePhotos(env: SupabaseEnv) {
-  return restGet<HallOfFamePhoto[]>(env, `hall_of_fame_photos?select=${HALL_OF_FAME_PHOTO_SELECT}&order=driver_id.asc,sort_order.asc`);
+  return restGet<HallOfFamePhoto[]>(
+    env,
+    `hall_of_fame_photos?select=${HALL_OF_FAME_PHOTO_SELECT}&order=driver_id.asc,sort_order.asc`,
+  );
 }
 
 /** Upserts the photo for one (driver, sort_order) slot — replaces whatever was in that slot before. */
 export async function upsertHallOfFamePhoto(
   env: SupabaseEnv,
   accessToken: string,
-  data: { driver_id: string; image_url: string; sort_order: number }
+  data: { driver_id: string; image_url: string; sort_order: number },
 ) {
   const res = await fetch(`${env.url}/rest/v1/hall_of_fame_photos?on_conflict=driver_id,sort_order`, {
     method: 'POST',
@@ -1342,7 +1444,8 @@ export async function upsertHallOfFamePhoto(
     }),
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on hall_of_fame_photos: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase upsert error ${res.status} on hall_of_fame_photos: ${await res.text()}`);
   const rows = (await res.json()) as HallOfFamePhoto[];
   return rows[0];
 }
@@ -1365,14 +1468,17 @@ export interface RoundOverride {
 export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<number>> {
   const rows = await restGet<{ subsession_id: number }[]>(
     env,
-    'round_overrides?select=subsession_id&is_exhibition=eq.true'
+    'round_overrides?select=subsession_id&is_exhibition=eq.true',
   );
   return new Set(rows.map((r) => r.subsession_id));
 }
 
 /** subsession_ids flagged as a test round (0036_round_test_flag.sql) — used by the results list page's Test Sessions filter, same shape as getExhibitionRoundIds. */
 export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
-  const rows = await restGet<{ subsession_id: number }[]>(env, 'round_overrides?select=subsession_id&is_test=eq.true');
+  const rows = await restGet<{ subsession_id: number }[]>(
+    env,
+    'round_overrides?select=subsession_id&is_test=eq.true',
+  );
   return new Set(rows.map((r) => r.subsession_id));
 }
 
@@ -1413,7 +1519,7 @@ export async function setRoundExhibition(
   env: SupabaseEnv,
   accessToken: string,
   subsessionId: number,
-  isExhibition: boolean
+  isExhibition: boolean,
 ) {
   const res = await fetch(`${env.url}/rest/v1/round_overrides?on_conflict=subsession_id`, {
     method: 'POST',
@@ -1426,7 +1532,12 @@ export async function setRoundExhibition(
 }
 
 /** Marks (or unmarks) one round as a test round — same upsert shape as setRoundExhibition, independent flag. Same "no longer called from the round page" note applies — see setRoundExhibition's own doc comment. */
-export async function setRoundTest(env: SupabaseEnv, accessToken: string, subsessionId: number, isTest: boolean) {
+export async function setRoundTest(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+  isTest: boolean,
+) {
   const res = await fetch(`${env.url}/rest/v1/round_overrides?on_conflict=subsession_id`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken, { Prefer: 'return=representation,resolution=merge-duplicates' }),
@@ -1455,10 +1566,13 @@ const RACE_LINKS_SELECT =
   'subsession_id,race_number,iracing_subsession_id,replay_url,broadcast_url,incident_report_url,photo_album_url';
 
 /** Every race's links for one round, keyed by race_number. */
-export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Map<number, RaceLinks>> {
+export async function getRaceLinksForSubsession(
+  env: SupabaseEnv,
+  subsessionId: number,
+): Promise<Map<number, RaceLinks>> {
   const rows = await restGet<RaceLinks[]>(
     env,
-    `race_links?select=${RACE_LINKS_SELECT}&subsession_id=eq.${subsessionId}`
+    `race_links?select=${RACE_LINKS_SELECT}&subsession_id=eq.${subsessionId}`,
   );
   return new Map(rows.map((r) => [r.race_number, r]));
 }
@@ -1471,9 +1585,15 @@ export async function getRaceLinksForSubsession(env: SupabaseEnv, subsessionId: 
  * layout without a per-round fetch. Returns an empty list (no query) for
  * an empty input, same as getPenaltiesForSubsessions.
  */
-export async function getRaceLinksForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<RaceLinks[]> {
+export async function getRaceLinksForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<RaceLinks[]> {
   if (subsessionIds.length === 0) return [];
-  return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&subsession_id=in.(${subsessionIds.join(',')})`);
+  return restGetAll<RaceLinks>(
+    env,
+    `race_links?select=${RACE_LINKS_SELECT}&subsession_id=in.(${subsessionIds.join(',')})`,
+  );
 }
 
 /**
@@ -1509,11 +1629,18 @@ export function getAllReplayRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&replay_url=not.is.null`);
 }
 
-export const RACE_LINK_URL_FIELDS = ['replay_url', 'broadcast_url', 'incident_report_url', 'photo_album_url'] as const;
+export const RACE_LINK_URL_FIELDS = [
+  'replay_url',
+  'broadcast_url',
+  'incident_report_url',
+  'photo_album_url',
+] as const;
 export type RaceLinkUrlField = (typeof RACE_LINK_URL_FIELDS)[number];
 
 /** The first link field holding something other than an http(s) URL (blocks javascript:, data: etc.), or null. */
-export function invalidRaceLinkField(data: Partial<Record<RaceLinkUrlField, string | null>>): RaceLinkUrlField | null {
+export function invalidRaceLinkField(
+  data: Partial<Record<RaceLinkUrlField, string | null>>,
+): RaceLinkUrlField | null {
   for (const field of RACE_LINK_URL_FIELDS) {
     const value = data[field];
     if (value != null && !isHttpUrl(value)) return field;
@@ -1533,7 +1660,7 @@ export async function upsertRaceLinks(
     broadcast_url?: string | null;
     incident_report_url?: string | null;
     photo_album_url?: string | null;
-  }
+  },
 ) {
   const badField = invalidRaceLinkField(data);
   if (badField) throw new Error(`race_links.${badField} must be an http(s) URL`);
@@ -1669,7 +1796,7 @@ export async function uploadToStorage(
   accessToken: string,
   bucket: 'logos' | 'photos' | 'banners' | 'imports',
   path: string,
-  file: File
+  file: File,
 ): Promise<string> {
   const res = await fetch(`${env.url}/storage/v1/object/${bucket}/${path}`, {
     method: 'POST',
@@ -1692,21 +1819,42 @@ export async function uploadToStorage(
 export const DRIVER_BIO_MAX = 500;
 export const DRIVER_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 /** Accepted profile-photo types. SVG is deliberately not allowed for user uploads. */
-export const DRIVER_AVATAR_TYPES: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+export const DRIVER_AVATAR_TYPES: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+};
 
 /** Uploads a driver's own profile photo to photos/driver-avatars/<driverId>/ (the only place storage policies let them write) and returns its public URL. */
-export async function uploadDriverAvatar(env: SupabaseEnv, accessToken: string, driverId: string, file: File): Promise<string> {
+export async function uploadDriverAvatar(
+  env: SupabaseEnv,
+  accessToken: string,
+  driverId: string,
+  file: File,
+): Promise<string> {
   const ext = DRIVER_AVATAR_TYPES[file.type];
   if (!ext) throw new Error('Unsupported image type');
   return uploadToStorage(env, accessToken, 'photos', `driver-avatars/${driverId}/${Date.now()}.${ext}`, file);
 }
 
 /** Saves the signed-in user's own bio (and photo, when given) through update_my_driver_profile(), which only touches their own linked driver row. */
-export async function updateMyDriverProfile(env: SupabaseEnv, accessToken: string, data: { bio: string | null; photoUrl?: string }): Promise<void> {
+export async function updateMyDriverProfile(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { bio: string | null; photoUrl?: string },
+): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/update_my_driver_profile`, {
     method: 'POST',
-    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_bio: data.bio, p_photo_url: data.photoUrl ?? null, p_set_photo: data.photoUrl !== undefined }),
+    headers: {
+      apikey: env.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      p_bio: data.bio,
+      p_photo_url: data.photoUrl ?? null,
+      p_set_photo: data.photoUrl !== undefined,
+    }),
   });
   if (!res.ok) throw new Error(`Failed to update profile (${res.status}): ${await res.text()}`);
 }
@@ -1733,7 +1881,10 @@ export async function updateMyDriverProfile(env: SupabaseEnv, accessToken: strin
  * this project's Storage bucket is allow-listed as a source. Also passes
  * through unchanged if no width/height was requested — nothing to resize.
  */
-export function resizedImageUrl(url: string | null | undefined, options: { width?: number; height?: number }): string | null {
+export function resizedImageUrl(
+  url: string | null | undefined,
+  options: { width?: number; height?: number },
+): string | null {
   if (!url) return null;
   if (!url.includes('.supabase.co/storage/v1/object/public/')) return url;
   if (!options.width && !options.height) return url;
@@ -1818,7 +1969,10 @@ export function getSeasons(env: SupabaseEnv) {
 }
 
 export async function getSeasonById(env: SupabaseEnv, id: string) {
-  const seasons = await restGet<Season[]>(env, `seasons?select=${SEASON_SELECT}&id=eq.${encodeURIComponent(id)}`);
+  const seasons = await restGet<Season[]>(
+    env,
+    `seasons?select=${SEASON_SELECT}&id=eq.${encodeURIComponent(id)}`,
+  );
   return seasons[0] ?? null;
 }
 
@@ -1833,14 +1987,21 @@ export async function updateSeasonLogo(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  logos: { logo_url?: string | null; logo_url_light?: string | null }
+  logos: { logo_url?: string | null; logo_url_light?: string | null },
 ) {
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, logos);
 }
 
 /** Assigns (or clears, with `null`) which scoring ruleset a season uses — see Season.scoring_ruleset_id. */
-export async function updateSeasonRuleset(env: SupabaseEnv, accessToken: string, id: string, rulesetId: string | null) {
-  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, { scoring_ruleset_id: rulesetId });
+export async function updateSeasonRuleset(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  rulesetId: string | null,
+) {
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, {
+    scoring_ruleset_id: rulesetId,
+  });
 }
 
 /** Toggles a season's Gamma/Delta class-activation flags, plus the separate Delta Team championship flag — see Season.gamma_enabled/delta_enabled/delta_team_enabled. */
@@ -1848,7 +2009,7 @@ export async function updateSeasonClassFlags(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  flags: { gamma_enabled: boolean; delta_enabled: boolean; delta_team_enabled: boolean }
+  flags: { gamma_enabled: boolean; delta_enabled: boolean; delta_team_enabled: boolean },
 ) {
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, flags);
 }
@@ -1875,14 +2036,15 @@ export interface SeasonRecalcResult {
 export async function recalculateSeasonScores(
   env: SupabaseEnv,
   accessToken: string,
-  seasonId: string
+  seasonId: string,
 ): Promise<SeasonRecalcResult[]> {
   const res = await fetch(`${env.url}/rest/v1/rpc/recalculate_season_scores`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken),
     body: JSON.stringify({ p_season_id: seasonId }),
   });
-  if (!res.ok) throw new Error(`Supabase RPC error ${res.status} on recalculate_season_scores: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase RPC error ${res.status} on recalculate_season_scores: ${await res.text()}`);
   return res.json() as Promise<SeasonRecalcResult[]>;
 }
 
@@ -1899,10 +2061,17 @@ export async function recalculateSeasonScores(
  * rather than two, which is the safer of the two ways this could go wrong.
  */
 export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, seasonId: string) {
-  await restPatch<Season>(env, accessToken, `seasons?is_current=eq.true&id=neq.${encodeURIComponent(seasonId)}`, {
-    is_current: false,
+  await restPatch<Season>(
+    env,
+    accessToken,
+    `seasons?is_current=eq.true&id=neq.${encodeURIComponent(seasonId)}`,
+    {
+      is_current: false,
+    },
+  );
+  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(seasonId)}`, {
+    is_current: true,
   });
-  await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(seasonId)}`, { is_current: true });
 }
 
 // --- Scoring rulesets (see 0031_scoring_rulesets_default.sql) --------------
@@ -1980,7 +2149,7 @@ export function getScoringRulesets(env: SupabaseEnv) {
 export function createScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
-  data: { name: string; rules: unknown; can_drop_final_round?: boolean }
+  data: { name: string; rules: unknown; can_drop_final_round?: boolean },
 ) {
   return restPost<ScoringRuleset>(env, accessToken, 'scoring_rulesets', data);
 }
@@ -1989,9 +2158,14 @@ export function updateScoringRuleset(
   env: SupabaseEnv,
   accessToken: string,
   id: string,
-  data: Partial<{ name: string; rules: unknown; can_drop_final_round: boolean }>
+  data: Partial<{ name: string; rules: unknown; can_drop_final_round: boolean }>,
 ) {
-  return restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(id)}`, data);
+  return restPatch<ScoringRuleset>(
+    env,
+    accessToken,
+    `scoring_rulesets?id=eq.${encodeURIComponent(id)}`,
+    data,
+  );
 }
 
 export function deleteScoringRuleset(env: SupabaseEnv, accessToken: string, id: string) {
@@ -2006,12 +2180,22 @@ export function deleteScoringRuleset(env: SupabaseEnv, accessToken: string, id: 
  * default is still true.
  */
 export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: string, rulesetId: string) {
-  await restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?is_default=eq.true&id=neq.${encodeURIComponent(rulesetId)}`, {
-    is_default: false,
-  });
-  await restPatch<ScoringRuleset>(env, accessToken, `scoring_rulesets?id=eq.${encodeURIComponent(rulesetId)}`, {
-    is_default: true,
-  });
+  await restPatch<ScoringRuleset>(
+    env,
+    accessToken,
+    `scoring_rulesets?is_default=eq.true&id=neq.${encodeURIComponent(rulesetId)}`,
+    {
+      is_default: false,
+    },
+  );
+  await restPatch<ScoringRuleset>(
+    env,
+    accessToken,
+    `scoring_rulesets?id=eq.${encodeURIComponent(rulesetId)}`,
+    {
+      is_default: true,
+    },
+  );
 }
 
 /**
@@ -2037,7 +2221,10 @@ export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: st
  * round is protected from the drop-week mechanic. See that field's own doc
  * comment on ScoringRuleset.
  */
-export function resolveSeasonRuleset(season: Pick<Season, 'scoring_ruleset_id'>, rulesets: ScoringRuleset[]): ScoringRuleset | null {
+export function resolveSeasonRuleset(
+  season: Pick<Season, 'scoring_ruleset_id'>,
+  rulesets: ScoringRuleset[],
+): ScoringRuleset | null {
   if (season.scoring_ruleset_id) {
     const assigned = rulesets.find((r) => r.id === season.scoring_ruleset_id);
     if (assigned) return assigned;
@@ -2066,16 +2253,18 @@ export function resolveSeasonRuleset(season: Pick<Season, 'scoring_ruleset_id'>,
 export function resolveIncidentLimit(
   ruleset: ScoringRuleset | null,
   format: 'sprint' | 'endurance' | 'special' | null,
-  subsessionId: number | null
+  subsessionId: number | null,
 ): number | null {
-  const rules = (ruleset?.rules ?? null) as
-    | {
-        round_incident_limit?: { sprint?: number; endurance?: number };
-        race_overrides?: { subsession_ids?: number[]; incident_limit?: number };
-      }
-    | null;
+  const rules = (ruleset?.rules ?? null) as {
+    round_incident_limit?: { sprint?: number; endurance?: number };
+    race_overrides?: { subsession_ids?: number[]; incident_limit?: number };
+  } | null;
   const override = rules?.race_overrides;
-  if (subsessionId !== null && override?.subsession_ids?.includes(subsessionId) && typeof override.incident_limit === 'number') {
+  if (
+    subsessionId !== null &&
+    override?.subsession_ids?.includes(subsessionId) &&
+    typeof override.incident_limit === 'number'
+  ) {
     return override.incident_limit;
   }
   if (format === 'sprint' && typeof rules?.round_incident_limit?.sprint === 'number') {
@@ -2114,9 +2303,14 @@ export function getCircuits(env: SupabaseEnv) {
  * the migration is applied. Returns an empty list in that case, so the map just
  * shows "no locations yet" instead of anything else breaking.
  */
-export async function getCircuitCoordinates(env: SupabaseEnv): Promise<{ id: string; latitude: number | null; longitude: number | null }[]> {
+export async function getCircuitCoordinates(
+  env: SupabaseEnv,
+): Promise<{ id: string; latitude: number | null; longitude: number | null }[]> {
   try {
-    return await restGet<{ id: string; latitude: number | null; longitude: number | null }[]>(env, 'circuits?select=id,latitude,longitude');
+    return await restGet<{ id: string; latitude: number | null; longitude: number | null }[]>(
+      env,
+      'circuits?select=id,latitude,longitude',
+    );
   } catch (err) {
     console.error('Failed to load circuit coordinates (is 0098_circuit_coordinates.sql applied?):', err);
     return [];
@@ -2135,14 +2329,20 @@ export type LogoBackground = 'light' | 'dark';
  */
 export async function getCircuitLogoBackgrounds(env: SupabaseEnv): Promise<Record<string, LogoBackground>> {
   try {
-    const rows = await restGet<{ id: string; logo_background: string | null }[]>(env, 'circuits?select=id,logo_background&logo_background=not.is.null');
+    const rows = await restGet<{ id: string; logo_background: string | null }[]>(
+      env,
+      'circuits?select=id,logo_background&logo_background=not.is.null',
+    );
     const out: Record<string, LogoBackground> = {};
     for (const r of rows) {
       if (r.logo_background === 'light' || r.logo_background === 'dark') out[r.id] = r.logo_background;
     }
     return out;
   } catch (err) {
-    console.error('Failed to load circuit logo backgrounds (is 0103_circuit_logo_background.sql applied?):', err);
+    console.error(
+      'Failed to load circuit logo backgrounds (is 0103_circuit_logo_background.sql applied?):',
+      err,
+    );
     return {};
   }
 }
@@ -2155,16 +2355,29 @@ export function logoBgAttrs(bg: LogoBackground | null | undefined): Record<strin
 export async function getCircuitById(env: SupabaseEnv, id: string) {
   const circuits = await restGet<Circuit[]>(
     env,
-    `circuits?select=${CIRCUIT_SELECT}&id=eq.${encodeURIComponent(id)}`
+    `circuits?select=${CIRCUIT_SELECT}&id=eq.${encodeURIComponent(id)}`,
   );
   return circuits[0] ?? null;
 }
 
-export function createCircuit(env: SupabaseEnv, accessToken: string, data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null }) {
+export function createCircuit(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null },
+) {
   return restPost<Circuit>(env, accessToken, 'circuits', data);
 }
 
-export function updateCircuit(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Circuit> & { latitude?: number | null; longitude?: number | null; logo_background?: LogoBackground | null }) {
+export function updateCircuit(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<Circuit> & {
+    latitude?: number | null;
+    longitude?: number | null;
+    logo_background?: LogoBackground | null;
+  },
+) {
   return restPatch<Circuit>(env, accessToken, `circuits?id=eq.${encodeURIComponent(id)}`, data);
 }
 
@@ -2212,7 +2425,10 @@ export function displayLayoutName(name: string): string {
 }
 
 /** The parent circuit's primary logo; a layout's own image is only a fallback for circuits that have no logo yet (or null if neither exists). */
-export function layoutImageUrl(layout: Pick<CircuitLayout, 'image_url'>, circuit: Pick<Circuit, 'logo_url'> | null): string | null {
+export function layoutImageUrl(
+  layout: Pick<CircuitLayout, 'image_url'>,
+  circuit: Pick<Circuit, 'logo_url'> | null,
+): string | null {
   return circuit?.logo_url ?? layout.image_url ?? null;
 }
 
@@ -2228,13 +2444,15 @@ export function layoutImageUrl(layout: Pick<CircuitLayout, 'image_url'>, circuit
 export function eventImageUrl(
   event: { circuit_id: string | null; layout: string | null },
   circuit: Pick<Circuit, 'logo_url'> | null,
-  layouts: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[]
+  layouts: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[],
 ): string | null {
   // HOLIDAY/IRACING events have no circuit_id at all (see EventRecord.title
   // below) — they're never supposed to show a logo, and a null circuit_id
   // simply never matches any layouts[] row here, so this falls straight
   // through to circuit?.logo_url ?? null, which is also null for them.
-  const matchedLayout = event.layout ? layouts.find((l) => l.circuit_id === event.circuit_id && l.name === event.layout) : undefined;
+  const matchedLayout = event.layout
+    ? layouts.find((l) => l.circuit_id === event.circuit_id && l.name === event.layout)
+    : undefined;
   return circuit?.logo_url ?? matchedLayout?.image_url ?? null;
 }
 
@@ -2325,18 +2543,24 @@ export function formatDateShort(dateInput: string | null): string {
 export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
   return restGet<CircuitLayout[]>(
     env,
-    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&circuit_id=eq.${encodeURIComponent(circuitId)}&order=name.asc`
+    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&circuit_id=eq.${encodeURIComponent(circuitId)}&order=name.asc`,
   );
 }
 
 /** Every layout for every circuit in one query — powers the public Circuits page, which needs all of them up front rather than one request per circuit. */
 export function getAllCircuitLayouts(env: SupabaseEnv) {
-  return restGet<CircuitLayout[]>(env, `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`);
+  return restGet<CircuitLayout[]>(
+    env,
+    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`,
+  );
 }
 
 /** One layout by id — powers the Circuits page's per-row lazy detail fragment (src/pages/circuits/layout-detail/[layoutId].astro), which only needs the single layout a visitor just expanded rather than every layout on the site. */
 export async function getCircuitLayoutById(env: SupabaseEnv, id: string) {
-  const rows = await restGet<CircuitLayout[]>(env, `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&id=eq.${encodeURIComponent(id)}`);
+  const rows = await restGet<CircuitLayout[]>(
+    env,
+    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&id=eq.${encodeURIComponent(id)}`,
+  );
   return rows[0] ?? null;
 }
 
@@ -2344,7 +2568,12 @@ export function createCircuitLayout(env: SupabaseEnv, accessToken: string, data:
   return restPost<CircuitLayout>(env, accessToken, 'circuit_layouts', data);
 }
 
-export function updateCircuitLayout(env: SupabaseEnv, accessToken: string, id: string, data: Partial<CircuitLayout>) {
+export function updateCircuitLayout(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<CircuitLayout>,
+) {
   return restPatch<CircuitLayout>(env, accessToken, `circuit_layouts?id=eq.${encodeURIComponent(id)}`, data);
 }
 
@@ -2371,13 +2600,16 @@ const TRACK_GUIDE_SELECT = 'id,layout_id,title,url,sort_order';
 export function getTrackGuidesForLayout(env: SupabaseEnv, layoutId: string) {
   return restGet<TrackGuide[]>(
     env,
-    `track_guides?select=${TRACK_GUIDE_SELECT}&layout_id=eq.${encodeURIComponent(layoutId)}&order=sort_order.asc,created_at.asc`
+    `track_guides?select=${TRACK_GUIDE_SELECT}&layout_id=eq.${encodeURIComponent(layoutId)}&order=sort_order.asc,created_at.asc`,
   );
 }
 
 /** Every track guide for every layout in one query — powers the public Media page's Track Guide filter, which needs all of them up front (grouped by layout in memory) rather than one request per layout. */
 export function getAllTrackGuides(env: SupabaseEnv) {
-  return restGet<TrackGuide[]>(env, `track_guides?select=${TRACK_GUIDE_SELECT}&order=layout_id.asc,sort_order.asc,created_at.asc`);
+  return restGet<TrackGuide[]>(
+    env,
+    `track_guides?select=${TRACK_GUIDE_SELECT}&order=layout_id.asc,sort_order.asc,created_at.asc`,
+  );
 }
 
 export function createTrackGuide(env: SupabaseEnv, accessToken: string, data: Partial<TrackGuide>) {
@@ -2394,7 +2626,11 @@ export function deleteTrackGuide(env: SupabaseEnv, accessToken: string, id: stri
 // to it would break every page if this code shipped before the migration.
 
 export type PitDifficulty = 'easy' | 'moderate' | 'difficult';
-export const PIT_DIFFICULTY_LABELS: Record<PitDifficulty, string> = { easy: 'Easy', moderate: 'Moderate', difficult: 'Difficult' };
+export const PIT_DIFFICULTY_LABELS: Record<PitDifficulty, string> = {
+  easy: 'Easy',
+  moderate: 'Moderate',
+  difficult: 'Difficult',
+};
 export const PIT_NOTE_MAX = 140;
 
 /** A point on the map, as percentages (0-100) from the image's top-left. */
@@ -2467,12 +2703,20 @@ export async function getLayoutMapDetails(env: SupabaseEnv, layoutId: string): P
       }[]
     >(
       env,
-      `circuit_layouts?select=pit_entry_difficulty,pit_entry_note,pit_entry_x,pit_entry_y,pit_exit_difficulty,pit_exit_note,pit_exit_x,pit_exit_y&id=eq.${id}`
+      `circuit_layouts?select=pit_entry_difficulty,pit_entry_note,pit_entry_x,pit_entry_y,pit_exit_difficulty,pit_exit_note,pit_exit_x,pit_exit_y&id=eq.${id}`,
     );
     const r = rows[0];
     if (r) {
-      out.pitEntry = { difficulty: asPitDifficulty(r.pit_entry_difficulty), note: r.pit_entry_note, point: asMapPoint(r.pit_entry_x, r.pit_entry_y) };
-      out.pitExit = { difficulty: asPitDifficulty(r.pit_exit_difficulty), note: r.pit_exit_note, point: asMapPoint(r.pit_exit_x, r.pit_exit_y) };
+      out.pitEntry = {
+        difficulty: asPitDifficulty(r.pit_entry_difficulty),
+        note: r.pit_entry_note,
+        point: asMapPoint(r.pit_entry_x, r.pit_entry_y),
+      };
+      out.pitExit = {
+        difficulty: asPitDifficulty(r.pit_exit_difficulty),
+        note: r.pit_exit_note,
+        point: asMapPoint(r.pit_exit_x, r.pit_exit_y),
+      };
     }
   } catch (err) {
     console.error('Failed to load pit lane details (is 0106_layout_map_details.sql applied?):', err);
@@ -2480,7 +2724,7 @@ export async function getLayoutMapDetails(env: SupabaseEnv, layoutId: string): P
   try {
     const pins = await restGet<{ id: string; penalty_id: string; x: number; y: number }[]>(
       env,
-      `layout_incident_pins?select=id,penalty_id,x,y&layout_id=eq.${id}&order=created_at.asc`
+      `layout_incident_pins?select=id,penalty_id,x,y&layout_id=eq.${id}&order=created_at.asc`,
     );
     out.pins = pins.map((p) => ({ id: p.id, penaltyId: p.penalty_id, x: Number(p.x), y: Number(p.y) }));
   } catch (err) {
@@ -2489,7 +2733,7 @@ export async function getLayoutMapDetails(env: SupabaseEnv, layoutId: string): P
   try {
     const corners = await restGet<{ label: string; x: number; y: number }[]>(
       env,
-      `layout_corners?select=label,x,y&layout_id=eq.${id}&order=created_at.asc`
+      `layout_corners?select=label,x,y&layout_id=eq.${id}&order=created_at.asc`,
     );
     out.corners = corners.map((c) => ({ label: c.label, x: Number(c.x), y: Number(c.y) }));
   } catch (err) {
@@ -2510,7 +2754,12 @@ export interface LayoutMapDetailsInput {
 const clampPercent = (n: number) => Math.min(100, Math.max(0, Math.round(n * 100) / 100));
 
 /** Admin save for the map editor: pit lane fields on the layout, and the layout's whole pin list (upserted per incident; anything no longer listed is deleted). */
-export async function saveLayoutMapDetails(env: SupabaseEnv, accessToken: string, layoutId: string, input: LayoutMapDetailsInput): Promise<void> {
+export async function saveLayoutMapDetails(
+  env: SupabaseEnv,
+  accessToken: string,
+  layoutId: string,
+  input: LayoutMapDetailsInput,
+): Promise<void> {
   const note = (n: string | null) => {
     const t = (n ?? '').trim().slice(0, PIT_NOTE_MAX);
     return t ? t : null;
@@ -2529,7 +2778,7 @@ export async function saveLayoutMapDetails(env: SupabaseEnv, accessToken: string
   const keep = new Set(input.pins.map((p) => p.penaltyId));
   const existing = await restGet<{ id: string; penalty_id: string }[]>(
     env,
-    `layout_incident_pins?select=id,penalty_id&layout_id=eq.${encodeURIComponent(layoutId)}`
+    `layout_incident_pins?select=id,penalty_id&layout_id=eq.${encodeURIComponent(layoutId)}`,
   );
   for (const row of existing) {
     if (!keep.has(row.penalty_id)) {
@@ -2540,31 +2789,49 @@ export async function saveLayoutMapDetails(env: SupabaseEnv, accessToken: string
     const res = await fetch(`${env.url}/rest/v1/layout_incident_pins?on_conflict=penalty_id`, {
       method: 'POST',
       headers: writeHeaders(env, accessToken, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(input.pins.map((p) => ({ layout_id: layoutId, penalty_id: p.penaltyId, x: clampPercent(p.x), y: clampPercent(p.y) }))),
+      body: JSON.stringify(
+        input.pins.map((p) => ({
+          layout_id: layoutId,
+          penalty_id: p.penaltyId,
+          x: clampPercent(p.x),
+          y: clampPercent(p.y),
+        })),
+      ),
     });
-    if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on layout_incident_pins: ${await res.text()}`);
+    if (!res.ok)
+      throw new Error(`Supabase upsert error ${res.status} on layout_incident_pins: ${await res.text()}`);
   }
 
   // Corners: an unapplied 0110 migration must not break saving the rest, so only fail if corners were actually given.
   const existingCorners = await restGet<{ id: string; label: string }[]>(
     env,
-    `layout_corners?select=id,label&layout_id=eq.${encodeURIComponent(layoutId)}`
+    `layout_corners?select=id,label&layout_id=eq.${encodeURIComponent(layoutId)}`,
   ).catch(() => null);
   if (existingCorners === null) {
-    if (input.corners.length > 0) throw new Error('Corners can’t be saved yet — run migration 0110_layout_corners.sql first.');
+    if (input.corners.length > 0)
+      throw new Error('Corners can’t be saved yet — run migration 0110_layout_corners.sql first.');
     return;
   }
   const keepLabels = new Set(input.corners.map((c) => c.label));
   for (const row of existingCorners) {
-    if (!keepLabels.has(row.label)) await restDelete(env, accessToken, `layout_corners?id=eq.${encodeURIComponent(row.id)}`);
+    if (!keepLabels.has(row.label))
+      await restDelete(env, accessToken, `layout_corners?id=eq.${encodeURIComponent(row.id)}`);
   }
   if (input.corners.length > 0) {
     const res = await fetch(`${env.url}/rest/v1/layout_corners?on_conflict=layout_id,label`, {
       method: 'POST',
       headers: writeHeaders(env, accessToken, { Prefer: 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(input.corners.map((c) => ({ layout_id: layoutId, label: c.label, x: clampPercent(c.x), y: clampPercent(c.y) }))),
+      body: JSON.stringify(
+        input.corners.map((c) => ({
+          layout_id: layoutId,
+          label: c.label,
+          x: clampPercent(c.x),
+          y: clampPercent(c.y),
+        })),
+      ),
     });
-    if (!res.ok) throw new Error(`Supabase upsert error ${res.status} on layout_corners: ${await res.text()}`);
+    if (!res.ok)
+      throw new Error(`Supabase upsert error ${res.status} on layout_corners: ${await res.text()}`);
   }
 }
 
@@ -2682,7 +2949,7 @@ export function getUpcomingEvents(env: SupabaseEnv, limit: number) {
   const today = new Date().toISOString().slice(0, 10);
   return restGet<EventWithCircuit[]>(
     env,
-    `events?select=${encodeURIComponent(select)}&event_date=gte.${today}&category=not.in.(holiday,iracing)&order=event_date.asc&limit=${limit}`
+    `events?select=${encodeURIComponent(select)}&event_date=gte.${today}&category=not.in.(holiday,iracing)&order=event_date.asc&limit=${limit}`,
   );
 }
 
@@ -2708,13 +2975,16 @@ export function getEventsForLiveBanner(env: SupabaseEnv) {
     day: '2-digit',
   });
   const dates = [-1, 0, 1].map((offsetDays) => dayFormatter.format(new Date(now + offsetDays * 86_400_000)));
-  return restGet<EventWithCircuit[]>(env, `events?select=${encodeURIComponent(select)}&event_date=in.(${dates.join(',')})&order=event_date.asc`);
+  return restGet<EventWithCircuit[]>(
+    env,
+    `events?select=${encodeURIComponent(select)}&event_date=in.(${dates.join(',')})&order=event_date.asc`,
+  );
 }
 
 export async function getEventById(env: SupabaseEnv, id: string) {
   const events = await restGet<EventRecord[]>(
     env,
-    `events?select=${EVENT_SELECT}&id=eq.${encodeURIComponent(id)}`
+    `events?select=${EVENT_SELECT}&id=eq.${encodeURIComponent(id)}`,
   );
   return events[0] ?? null;
 }
@@ -2748,15 +3018,28 @@ export interface PenaltyOffense {
 const PENALTY_OFFENSE_SELECT = 'id,name,reference_points,sort_order';
 
 export function getPenaltyOffenses(env: SupabaseEnv) {
-  return restGet<PenaltyOffense[]>(env, `penalty_offenses?select=${PENALTY_OFFENSE_SELECT}&order=sort_order.asc`);
+  return restGet<PenaltyOffense[]>(
+    env,
+    `penalty_offenses?select=${PENALTY_OFFENSE_SELECT}&order=sort_order.asc`,
+  );
 }
 
 export function createPenaltyOffense(env: SupabaseEnv, accessToken: string, data: Partial<PenaltyOffense>) {
   return restPost<PenaltyOffense>(env, accessToken, 'penalty_offenses', data);
 }
 
-export function updatePenaltyOffense(env: SupabaseEnv, accessToken: string, id: string, data: Partial<PenaltyOffense>) {
-  return restPatch<PenaltyOffense>(env, accessToken, `penalty_offenses?id=eq.${encodeURIComponent(id)}`, data);
+export function updatePenaltyOffense(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<PenaltyOffense>,
+) {
+  return restPatch<PenaltyOffense>(
+    env,
+    accessToken,
+    `penalty_offenses?id=eq.${encodeURIComponent(id)}`,
+    data,
+  );
 }
 
 export function deletePenaltyOffense(env: SupabaseEnv, accessToken: string, id: string) {
@@ -2842,7 +3125,7 @@ function toPenalty(row: PenaltyRow): Penalty {
 export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Penalty[]> {
   const rows = await restGet<PenaltyRow[]>(
     env,
-    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=eq.${subsessionId}&order=created_at.asc`
+    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
   return rows.map(toPenalty);
 }
@@ -2856,7 +3139,10 @@ export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: 
  * empty list (no query) for an empty input, since PostgREST's `in.()` with
  * nothing inside it isn't a meaningful filter.
  */
-export async function getPenaltiesForSubsessions(env: SupabaseEnv, subsessionIds: number[]): Promise<Penalty[]> {
+export async function getPenaltiesForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<Penalty[]> {
   if (subsessionIds.length === 0) return [];
   // restGetAll (not restGet) — a whole-career query (src/lib/results.ts's
   // computeDriverCareerStats) can span hundreds of rounds across every
@@ -2865,7 +3151,7 @@ export async function getPenaltiesForSubsessions(env: SupabaseEnv, subsessionIds
   // restGetAll's own doc comment.
   const rows = await restGetAll<PenaltyRow>(
     env,
-    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`
+    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`,
   );
   return rows.map(toPenalty);
 }
@@ -2896,14 +3182,24 @@ export async function createPenalty(
   accessToken: string,
   data: PenaltyInput,
   offenseIds: string[],
-  involvedDriverIds: string[]
+  involvedDriverIds: string[],
 ): Promise<Penalty> {
   const created = await restPost<PenaltyRow>(env, accessToken, 'penalties', data);
   if (offenseIds.length > 0) {
-    await restPost(env, accessToken, 'penalty_offense_links', offenseIds.map((offense_id) => ({ penalty_id: created.id, offense_id })));
+    await restPost(
+      env,
+      accessToken,
+      'penalty_offense_links',
+      offenseIds.map((offense_id) => ({ penalty_id: created.id, offense_id })),
+    );
   }
   if (involvedDriverIds.length > 0) {
-    await restPost(env, accessToken, 'penalty_involved_drivers', involvedDriverIds.map((driver_id) => ({ penalty_id: created.id, driver_id })));
+    await restPost(
+      env,
+      accessToken,
+      'penalty_involved_drivers',
+      involvedDriverIds.map((driver_id) => ({ penalty_id: created.id, driver_id })),
+    );
   }
   return { ...created, offense_ids: offenseIds, involved_driver_ids: involvedDriverIds };
 }
@@ -2926,16 +3222,26 @@ export async function updatePenalty(
   id: string,
   data: Partial<PenaltyInput>,
   offenseIds: string[],
-  involvedDriverIds: string[]
+  involvedDriverIds: string[],
 ): Promise<void> {
   await restPatch<PenaltyRow>(env, accessToken, `penalties?id=eq.${encodeURIComponent(id)}`, data);
   await restDelete(env, accessToken, `penalty_offense_links?penalty_id=eq.${encodeURIComponent(id)}`);
   await restDelete(env, accessToken, `penalty_involved_drivers?penalty_id=eq.${encodeURIComponent(id)}`);
   if (offenseIds.length > 0) {
-    await restPost(env, accessToken, 'penalty_offense_links', offenseIds.map((offense_id) => ({ penalty_id: id, offense_id })));
+    await restPost(
+      env,
+      accessToken,
+      'penalty_offense_links',
+      offenseIds.map((offense_id) => ({ penalty_id: id, offense_id })),
+    );
   }
   if (involvedDriverIds.length > 0) {
-    await restPost(env, accessToken, 'penalty_involved_drivers', involvedDriverIds.map((driver_id) => ({ penalty_id: id, driver_id })));
+    await restPost(
+      env,
+      accessToken,
+      'penalty_involved_drivers',
+      involvedDriverIds.map((driver_id) => ({ penalty_id: id, driver_id })),
+    );
   }
 }
 
@@ -2952,12 +3258,15 @@ export function deletePenalty(env: SupabaseEnv, accessToken: string, id: string)
  * not career-scoped." Used to surface "this driver has already been warned
  * N times this season" while logging a new penalty.
  */
-export async function getWarningCounts(env: SupabaseEnv, subsessionIds: number[]): Promise<Map<string, number>> {
+export async function getWarningCounts(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (subsessionIds.length === 0) return out;
   const rows = await restGet<{ driver_id: string | null }[]>(
     env,
-    `penalties?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`
+    `penalties?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`,
   );
   // A Racing Incident (driver_id null) is never a warning in practice — the
   // add/edit dialog hides that checkbox once "Racing Incident" is selected
@@ -2997,15 +3306,24 @@ export function getAllMediaVideos(env: SupabaseEnv) {
 export function getMediaVideosByCategory(env: SupabaseEnv, category: MediaVideoCategory) {
   return restGet<MediaVideo[]>(
     env,
-    `media_videos?select=${MEDIA_VIDEO_SELECT}&category=eq.${encodeURIComponent(category)}&order=created_at.desc`
+    `media_videos?select=${MEDIA_VIDEO_SELECT}&category=eq.${encodeURIComponent(category)}&order=created_at.desc`,
   );
 }
 
-export function createMediaVideo(env: SupabaseEnv, accessToken: string, data: { category: MediaVideoCategory; title: string; youtube_url: string }) {
+export function createMediaVideo(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { category: MediaVideoCategory; title: string; youtube_url: string },
+) {
   return restPost<MediaVideo>(env, accessToken, 'media_videos', data);
 }
 
-export function updateMediaVideo(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Pick<MediaVideo, 'category' | 'title' | 'youtube_url'>>) {
+export function updateMediaVideo(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<Pick<MediaVideo, 'category' | 'title' | 'youtube_url'>>,
+) {
   return restPatch<MediaVideo>(env, accessToken, `media_videos?id=eq.${encodeURIComponent(id)}`, data);
 }
 
@@ -3027,7 +3345,11 @@ export function getAllMediaGraphics(env: SupabaseEnv) {
   return restGet<MediaGraphic[]>(env, `media_graphics?select=${MEDIA_GRAPHIC_SELECT}&order=created_at.desc`);
 }
 
-export function createMediaGraphic(env: SupabaseEnv, accessToken: string, data: { title: string; image_url: string }) {
+export function createMediaGraphic(
+  env: SupabaseEnv,
+  accessToken: string,
+  data: { title: string; image_url: string },
+) {
   return restPost<MediaGraphic>(env, accessToken, 'media_graphics', data);
 }
 
@@ -3057,12 +3379,24 @@ export function getAllMediaMeetups(env: SupabaseEnv) {
 export function createMediaMeetup(
   env: SupabaseEnv,
   accessToken: string,
-  data: { title: string; photo_url?: string | null; latitude: number; longitude: number; location_label?: string | null; meetup_date?: string | null }
+  data: {
+    title: string;
+    photo_url?: string | null;
+    latitude: number;
+    longitude: number;
+    location_label?: string | null;
+    meetup_date?: string | null;
+  },
 ) {
   return restPost<MediaMeetup>(env, accessToken, 'media_meetups', data);
 }
 
-export function updateMediaMeetup(env: SupabaseEnv, accessToken: string, id: string, data: Partial<Omit<MediaMeetup, 'id' | 'created_at'>>) {
+export function updateMediaMeetup(
+  env: SupabaseEnv,
+  accessToken: string,
+  id: string,
+  data: Partial<Omit<MediaMeetup, 'id' | 'created_at'>>,
+) {
   return restPatch<MediaMeetup>(env, accessToken, `media_meetups?id=eq.${encodeURIComponent(id)}`, data);
 }
 
@@ -3085,18 +3419,26 @@ export interface MeetupDriverLink {
 
 /** Every meetup/driver link on file in one query — powers the public Media page's Meetups popup (grouped by meetup_id in memory) the same way getAllTrackGuides front-loads every layout's guides instead of querying per-meetup. */
 export function getAllMeetupDriverLinks(env: SupabaseEnv) {
-  return restGet<MeetupDriverLink[]>(env, `media_meetup_drivers?select=meetup_id,driver_id,drivers(name,car_number)`);
+  return restGet<MeetupDriverLink[]>(
+    env,
+    `media_meetup_drivers?select=meetup_id,driver_id,drivers(name,car_number)`,
+  );
 }
 
 export function addMeetupDriver(env: SupabaseEnv, accessToken: string, meetupId: string, driverId: string) {
   return restPost(env, accessToken, 'media_meetup_drivers', { meetup_id: meetupId, driver_id: driverId });
 }
 
-export function removeMeetupDriver(env: SupabaseEnv, accessToken: string, meetupId: string, driverId: string) {
+export function removeMeetupDriver(
+  env: SupabaseEnv,
+  accessToken: string,
+  meetupId: string,
+  driverId: string,
+) {
   return restDelete(
     env,
     accessToken,
-    `media_meetup_drivers?meetup_id=eq.${encodeURIComponent(meetupId)}&driver_id=eq.${encodeURIComponent(driverId)}`
+    `media_meetup_drivers?meetup_id=eq.${encodeURIComponent(meetupId)}&driver_id=eq.${encodeURIComponent(driverId)}`,
   );
 }
 
@@ -3116,13 +3458,17 @@ export function removeMeetupDriver(env: SupabaseEnv, accessToken: string, meetup
  */
 export async function logPageView(
   env: SupabaseEnv,
-  entry: { path: string; country: string | null; visitorHash: string; status: number }
+  entry: { path: string; country: string | null; visitorHash: string; status: number },
 ): Promise<void> {
   try {
     if (!env.url || !env.anonKey) return;
     const res = await fetch(`${env.url}/rest/v1/rpc/record_page_view`, {
       method: 'POST',
-      headers: { apikey: env.anonKey, Authorization: `Bearer ${env.anonKey}`, 'Content-Type': 'application/json' },
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${env.anonKey}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
         p_path: entry.path,
         p_visitor_hash: entry.visitorHash,
@@ -3175,7 +3521,7 @@ export interface PageViewStats {
 export async function getPageViewStats(
   env: SupabaseEnv,
   accessToken: string,
-  days: number | null = 30
+  days: number | null = 30,
 ): Promise<PageViewStats | null> {
   try {
     const res = await fetch(`${env.url}/rest/v1/rpc/get_page_view_stats`, {
@@ -3206,7 +3552,10 @@ export interface NewsPostViewCount {
  * any failure so the admin news list can just skip the Views column
  * instead of failing the whole page.
  */
-export async function getNewsPostViewCounts(env: SupabaseEnv, accessToken: string): Promise<NewsPostViewCount[] | null> {
+export async function getNewsPostViewCounts(
+  env: SupabaseEnv,
+  accessToken: string,
+): Promise<NewsPostViewCount[] | null> {
   try {
     const res = await fetch(`${env.url}/rest/v1/rpc/get_news_post_view_counts`, {
       method: 'POST',
@@ -3245,11 +3594,15 @@ export async function getMissingRaceResultsCount(env: SupabaseEnv): Promise<numb
  * query (activity_log has no dedicated count RPC — it's a small, admin-only
  * table, so a plain filtered select is plenty cheap).
  */
-export async function getActivityLogCountSince(env: SupabaseEnv, accessToken: string, sinceIso: string): Promise<number> {
+export async function getActivityLogCountSince(
+  env: SupabaseEnv,
+  accessToken: string,
+  sinceIso: string,
+): Promise<number> {
   const rows = await restGetAuthed<{ id: string }[]>(
     env,
     accessToken,
-    `activity_log?select=id&created_at=gte.${encodeURIComponent(sinceIso)}`
+    `activity_log?select=id&created_at=gte.${encodeURIComponent(sinceIso)}`,
   );
   return rows.length;
 }
