@@ -32,7 +32,10 @@ jobs:
       # The real gate: the site must build.
       - run: npm run build
 
-      # Not a gate yet: prettier has never been run over this codebase, so it
-      # would fail on formatting that predates it. Run `npm run format` once,
-      # commit the result, then uncomment.
-      # - run: npm run format:check
+      # Advisory only, by team choice: lint is warnings-only and formatting is
+      # reported but never blocks a merge. Only the build above is a gate.
+      - run: npm run lint
+        continue-on-error: true
+
+      - run: npm run format:check
+        continue-on-error: true

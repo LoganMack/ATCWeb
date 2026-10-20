@@ -4,3 +4,15 @@ node_modules
 package-lock.json
 public
 supabase/seed/*.sql
+
+# Third-party and generated code
+src/scripts/vendor/
+src/lib/worldMap.ts
+
+# SQL that has already been applied must not be rewritten
+supabase/migrations/
+supabase/down/
+supabase/checks/
+
+# Root-level HTML design mockups
+/*.html
