@@ -1,0 +1,10 @@
+-- Down note for 20261020120000_baseline_schema.sql. Comment-only on purpose: there is nothing
+-- to run.
+--
+-- The baseline is the whole `public` and `private` schema, not a change to it. "Undoing" it
+-- would mean dropping every table and its data, so it cannot be undone by a script. To get back
+-- to an earlier state of production, restore a Supabase backup (Dashboard > Database > Backups).
+--
+-- CI never runs this note: the down-script exercise covers only a PR's new migrations, and it
+-- is skipped in the cutover PR that adds the baseline. Every later migration needs a real down
+-- script.

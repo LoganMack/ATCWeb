@@ -1,0 +1,11 @@
+-- Down note for 20261020120001_baseline_platform.sql. Comment-only on purpose: there is nothing
+-- to run.
+--
+-- The platform baseline creates the storage buckets and policies and the sign-up trigger that
+-- the site depends on. Removing them would break uploads and new sign-ups and could orphan
+-- stored files, so it cannot be undone by a script. To get back to an earlier state of
+-- production, restore a Supabase backup (Dashboard > Database > Backups).
+--
+-- CI never runs this note: the down-script exercise covers only a PR's new migrations, and it
+-- is skipped in the cutover PR that adds the baseline. Every later migration needs a real down
+-- script.
