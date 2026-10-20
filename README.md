@@ -72,10 +72,10 @@ The dev server runs at `http://localhost:4321`.
 
 Before the site shows data, set up the database:
 
-1. In the Supabase SQL editor, run every file in `supabase/migrations/` in numeric order.
+1. Apply the migrations in `supabase/migrations/`, in file-name order: the two baseline files first, then any newer timestamped ones. With the Supabase CLI and Docker, `npx supabase start` and then `npx supabase db reset` does this for a local database.
 2. Run the seed files in `supabase/seed/` (`seed_teams.sql`, `seed_drivers.sql`, `seed_news.sql`).
 
-See [Database](#database) for the one caveat about the results pipeline tables.
+See [Database](#database) for how migrations work.
 
 ### Scripts
 
@@ -117,7 +117,10 @@ src/
   styles/         Global styles, fonts and theme tokens
   middleware.ts   Edge caching and request handling
 supabase/
-  migrations/     Numbered SQL migrations (applied by hand)
+  migrations/     Baseline + timestamped migrations (applied by CI on merge); archive/ holds the old ones
+  down/           Undo script for each migration
+  data-fixes/     One-off data corrections, applied by hand and logged
+  tools/          Migration checks, schema dump/compare and one-off scripts
   seed/           Seed data and the roster seed generator
 docs/             Project documentation and history
 public/           Static assets and CSV import templates
@@ -139,13 +142,44 @@ Key modules in `src/lib`:
 
 ## Database
 
-Schema changes are numbered SQL files in `supabase/migrations/`. They are applied by hand in the Supabase SQL editor, in numeric order. Each file's header comment explains what it does and why.
+**Migrations.**
 
-**Results pipeline.** Race results are loaded by an external pipeline into `curated_rounds`, `curated_race_results`, `curated_qualifying` and `race_scores`. Those tables must exist before the migrations that extend them will run, so on a brand-new project you may need to skip or defer those migrations until the pipeline is in place.
+- `supabase/migrations/` starts from a two-part baseline: production's full schema as of 2026-10-20.
+- New changes are timestamped files, `YYYYMMDDHHMMSS_description.sql`, each with a header comment saying what it does and why.
+- Every migration ships with an undo script, `supabase/down/<same name>.down.sql`, in the same pull request.
+- Never edit or delete a migration once it has been applied. Undo it with a new migration whose body is its down script.
+- The pre-baseline files live in `supabase/migrations/archive/`; they are never run again.
+
+**How migrations reach production.** The `deploy.yml` workflow runs on every merge to `main`, in this order, and stops at the first failure:
+
+1. The build and test gates.
+2. A drift check that production still matches the migrations.
+3. `supabase db push`, which applies anything pending.
+4. `wrangler deploy`.
+5. A smoke check of the live site.
+
+**Pull-request checks.** `migrations-pr.yml` runs on every pull request:
+
+- `migrations-static` checks names, down scripts and the archive.
+- `migrations-rebuild` rebuilds a throwaway database from the migrations and exercises each new down script.
+- `migrations-dry-run` lists what would be applied to production.
+
+Pull requests from forks never see production credentials.
+
+**Data fixes.** Corrections to specific rounds' data go in `supabase/data-fixes/`, never in `migrations/`. They are applied by hand (or by Claude with the owner's OK) and logged in `supabase/data-fixes/README.md`. CI never runs them.
+
+**Credentials.** These live only in GitHub, never in the repo:
+
+- `CI_READONLY_DB_URL`, a repository secret: role `ci_reader`, which can read only the migration history.
+- `PRODUCTION_DB_URL`, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, in the `production` environment, limited to `main`.
+
+Database URLs use Supabase's session-pooler form, because GitHub runners are IPv4-only: `postgresql://<role>.<project-ref>:<password>@aws-1-us-west-2.pooler.supabase.com:5432/postgres`.
+
+**Results pipeline.** An external pipeline loads race results into `curated_rounds`, `curated_race_results`, `curated_qualifying` and `race_scores`. The baseline creates these tables, so a fresh database is complete without the pipeline.
 
 **Scoring** is calculated in Postgres by `recalculate_race_scores(subsession_id)`.
 
-**Storage buckets:** `logos`, `photos`, `banners` and `imports` (public), plus a private bucket for incident appeal attachments.
+**Storage buckets:** `logos`, `photos` and `banners` are public; `imports`, `incident-appeals` and `race-interviews` are private.
 
 **`SECURITY DEFINER` functions** back the operations that need elevated access, such as admin user management. They are the only route to that data; client code never holds elevated credentials.
 
@@ -172,13 +206,12 @@ After that, admins manage other users from **Admin → Users**: linking drivers,
 
 ## Deployment
 
-The site deploys as a Cloudflare Worker with static assets, using Wrangler.
+The site deploys as a Cloudflare Worker with static assets. Production deploys run from GitHub Actions (`.github/workflows/deploy.yml`) on every merge to `main`, after any pending migrations apply, so code never goes live ahead of its schema. Cloudflare's own Git auto-deploy is off. The repository variable `DEPLOY_FROM_ACTIONS=true` switches the workflow on.
 
-```bash
-npm run deploy
-```
+- **Emergency deploy without migrations:** the repo owner can run the workflow by hand with `skip_apply`.
+- **Manual deploy:** `npm run deploy` still works, but skips the migration and smoke checks.
 
-Connecting the repository to Cloudflare for Git-based deploys also works. Points to know:
+Points to know:
 
 - `wrangler.jsonc` is the source of truth for configuration. The Worker name must match the project name in Cloudflare.
 - The `vars` block must list every runtime variable. When it exists, Wrangler drops any variable set only in the dashboard.
@@ -204,11 +237,11 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes to `main` 
 - **Themes:** light and dark are both supported.
 - **Data access** goes through `src/lib`, not directly from pages.
 - **Security belongs in the database** (RLS and `SECURITY DEFINER` functions), never only in the UI.
-- **Schema changes** are new numbered migrations. Do not edit applied ones.
+- **Schema changes** are new timestamped migrations with a down script. Do not edit applied ones.
 - **Comments explain why**, not what.
 - **Lint and format:** `npm run lint` (ESLint, warnings only, never blocks) and `npm run format` (Prettier). `.astro` files are excluded from Prettier because its Astro plugin changes rendered whitespace. The one-time formatting commit is listed in `.git-blame-ignore-revs`; run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` skips it.
 
 ## Further reading
 
 - [`docs/development-log.md`](docs/development-log.md): the original long-form README, kept as a chronological record of how each feature was built (v0.1–v0.43). It is an archive, not maintained documentation.
-- Migration file headers in `supabase/migrations/` document the reasoning behind each schema change.
+- Migration file headers in `supabase/migrations/` (and `supabase/migrations/archive/` for the old ones) document the reasoning behind each schema change.
