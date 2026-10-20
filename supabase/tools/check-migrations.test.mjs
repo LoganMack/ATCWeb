@@ -147,6 +147,26 @@ describe('check-migrations', () => {
     assert.match(violations[0].message, /must not be edited.*BR1\.6/);
   });
 
+  it('allows editing a merged migration only when production never applied it', () => {
+    const { cwd, base } = postCutoverRepo();
+    write(cwd, 'supabase/migrations/20261020100001_baseline_platform.sql', 'select 2;\n');
+    const head = commit(cwd, 'head');
+
+    // Production lists only the schema baseline, so the platform file never ran: edit allowed.
+    const unapplied = checkMigrations({ base, head, cwd, appliedVersions: new Set(['20261020100000']) });
+    assert.deepEqual(unapplied.violations, []);
+
+    // Once production lists it, the same edit is refused.
+    const applied = checkMigrations({
+      base,
+      head,
+      cwd,
+      appliedVersions: new Set(['20261020100000', '20261020100001']),
+    });
+    assert.equal(applied.violations.length, 1);
+    assert.match(applied.violations[0].message, /must not be edited.*BR1\.6/);
+  });
+
   it('fails deleting an active migration', () => {
     const { cwd, base } = postCutoverRepo();
     rmSync(join(cwd, 'supabase/migrations/20261020100001_baseline_platform.sql'));

@@ -148,6 +148,8 @@ Key modules in `src/lib`:
 - New changes are timestamped files, `YYYYMMDDHHMMSS_description.sql`, each with a header comment saying what it does and why.
 - Every migration ships with an undo script, `supabase/down/<same name>.down.sql`, in the same pull request.
 - Never edit or delete a migration once it has been applied. Undo it with a new migration whose body is its down script.
+- **Expand, then contract.** A migration applies while the old code is still serving traffic, so it must keep the code currently on `main` working. Add columns, tables or functions first, switch the code over in a later PR, and only then remove what the old code needed.
+- **If a deploy stops at the apply step,** the run's log names the failing migration, and production keeps its previous schema and code. Fix it in a new PR. A migration that never applied may be corrected in place: `migrations-static` reads production's history (read-only) and allows the edit only when that version never ran. Pull your branch up to date with `main` before merging a migration; out-of-order timestamps still apply (`--include-all`), but merging in order keeps the history easy to read.
 - The pre-baseline files live in `supabase/migrations/archive/`; they are never run again.
 
 **How migrations reach production.** The `deploy.yml` workflow runs on every merge to `main`, in this order, and stops at the first failure:
