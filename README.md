@@ -206,6 +206,7 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes to `main` 
 - **Security belongs in the database** (RLS and `SECURITY DEFINER` functions), never only in the UI.
 - **Schema changes** are new numbered migrations. Do not edit applied ones.
 - **Comments explain why**, not what.
+- **Lint and format:** `npm run lint` (ESLint, warnings only, never blocks) and `npm run format` (Prettier). `.astro` files are excluded from Prettier because its Astro plugin changes rendered whitespace. The one-time formatting commit is listed in `.git-blame-ignore-revs`; run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` skips it.
 
 ## Further reading
 
