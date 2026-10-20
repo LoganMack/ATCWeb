@@ -1,0 +1,6 @@
+{
+  "description": "No penalties means no warnings.",
+  "rule_ref": "penalties.ts countWarnings",
+  "input": { "penalties": [] },
+  "expected": { "warnings": 0 }
+}

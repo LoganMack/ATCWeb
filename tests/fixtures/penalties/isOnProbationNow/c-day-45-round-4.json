@@ -1,0 +1,12 @@
+{
+  "description": "On 15 February (day 45) with a 4th round run on 14 February, both thresholds are met and probation is over.",
+  "rule_ref": "rule 61 (whichever is longer); penalties.ts isOnProbationNow",
+  "input": {
+    "driver": { "on_probation": true, "probation_started_at": "2026-01-01" },
+    "events": [{ "event_date": "2026-01-10" }, { "event_date": "2026-01-24" }, { "event_date": "2026-02-07" }, { "event_date": "2026-02-14" }],
+    "today": "2026-02-15T00:00:00Z",
+    "probation_days": 45,
+    "probation_rounds": 4
+  },
+  "expected": { "on_probation": false }
+}

@@ -1,0 +1,15 @@
+{
+  "description": "The format's plain tables are used, and numeric strings are accepted as numbers.",
+  "rule_ref": "penalties.ts resolvePointsTables (mirrors recalculate_race_scores' CASE logic)",
+  "input": {
+    "rules": {
+      "base_points": { "endurance": ["200", "150"] },
+      "class_podium": { "endurance": [10, 5, 2] },
+      "classified_minimum": { "endurance": "4" }
+    },
+    "format": "endurance",
+    "race_number": 1,
+    "subsession_id": 100
+  },
+  "expected": { "finishPoints": [200, 150], "classPoints": [10, 5, 2], "classifiedMinimumFinishPoints": 4 }
+}

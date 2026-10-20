@@ -1,0 +1,15 @@
+{
+  "description": "The top three in class earn the Class Points bonus: 4/2/1 in a sprint, 8/4/2 in an endurance race.",
+  "rule_ref": "rulebook 18.3 Table: Class Points; penalties.ts CLASS_POINTS",
+  "input": {
+    "rows": [
+      { "format": "sprint", "class_position": 1, "awards_class_points": true },
+      { "format": "sprint", "class_position": 2, "awards_class_points": true },
+      { "format": "sprint", "class_position": 3, "awards_class_points": true },
+      { "format": "endurance", "class_position": 1, "awards_class_points": true },
+      { "format": "endurance", "class_position": 2, "awards_class_points": true },
+      { "format": "endurance", "class_position": 3, "awards_class_points": true }
+    ]
+  },
+  "expected": { "points": [4, 2, 1, 8, 4, 2] }
+}

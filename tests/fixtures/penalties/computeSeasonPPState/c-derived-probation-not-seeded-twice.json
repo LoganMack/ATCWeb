@@ -1,0 +1,15 @@
+{
+  "description": "The stored probation (7 February) is the one these penalties produce: 5 + 4 + 1 = 10, and the second 1 PP that evening reaches 11. It is not also used as a seed, so the earlier 1 PP that day is not doubled; the result is 0 PP with probation from 7 February.",
+  "rule_ref": "penalties.ts probationSeed (a probation the replay re-derives is not seeded again)",
+  "input": {
+    "driver": { "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2026-02-07" },
+    "penalties": [
+      { "driver_id": "A", "penalty_points": 5, "created_at": "2026-01-10T20:00:00Z" },
+      { "driver_id": "A", "penalty_points": 4, "created_at": "2026-01-24T20:00:00Z" },
+      { "driver_id": "A", "penalty_points": 1, "created_at": "2026-02-07T19:00:00Z" },
+      { "driver_id": "A", "penalty_points": 1, "created_at": "2026-02-07T20:00:00Z" }
+    ],
+    "events": []
+  },
+  "expected": { "penalty_points": 0, "on_probation": true, "probation_started_at": "2026-02-07" }
+}

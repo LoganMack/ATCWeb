@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "test": "vitest run",
     "deploy": "astro build && wrangler deploy",
     "generate-seed": "python3 supabase/seed/generate_seed.py"
   },
@@ -32,6 +33,7 @@
     "supabase": "2.120.0",
     "typescript": "^5.6.3",
     "typescript-eslint": "8.72.0",
+    "vitest": "2.1.9",
     "wrangler": "^4"
   },
   "engines": {

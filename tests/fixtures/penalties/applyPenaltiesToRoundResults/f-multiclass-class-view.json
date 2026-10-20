@@ -1,0 +1,29 @@
+{
+  "description": "PINS TODAY'S BEHAVIOUR (suspected bug, logged as a follow-up). Gamma G1 wins overall, Alpha A1 is 2nd (2.0 s), Gamma G2 3rd (4.0 s); G1 gets 5 s. Overall view, priced by overall position: A1 1st (100), G2 2nd (95 + class 4 = 99), G1 3rd (90 + class 2 = 92). The Per Class view prices finish points by CLASS position instead: G2 at P1 (100 + 4 = 104), G1 at P2 (95 + 2 = 97), and the Alpha view leaves A1 at 95 because no Alpha driver was penalised.",
+  "rule_ref": "rulebook 18.3 (finish points come from overall position); penalties.ts applyPenaltiesToRoundResults pass 2 passes the class reorder position to recomputeRow",
+  "input": {
+    "subsession_id": 100,
+    "format": "sprint",
+    "rules": null,
+    "class_points_eligible": { "1": false, "2": true },
+    "rows": [
+      { "driver_id": "G1", "class_id": 2, "scored_position": 1, "finish_position": 1, "interval_ten_thousandths": 0, "laps_complete": 20, "average_lap_ten_thousandths": 1000000, "finish_points": 100, "class_points": 4 },
+      { "driver_id": "A1", "class_id": 1, "scored_position": 2, "finish_position": 2, "interval_ten_thousandths": 20000, "laps_complete": 20, "average_lap_ten_thousandths": 1001000, "finish_points": 95 },
+      { "driver_id": "G2", "class_id": 2, "scored_position": 3, "finish_position": 3, "interval_ten_thousandths": 40000, "laps_complete": 20, "average_lap_ten_thousandths": 1002000, "finish_points": 90, "class_points": 2 }
+    ],
+    "penalties": [{ "driver_id": "G1", "race_number": 1, "time_penalty_seconds": 5 }]
+  },
+  "expected": {
+    "overall": {
+      "1": {
+        "G1": { "position": 3, "totalPoints": 92, "classPoints": 2 },
+        "A1": { "position": 1, "totalPoints": 100, "classPoints": 0 },
+        "G2": { "position": 2, "totalPoints": 99, "classPoints": 4 }
+      }
+    },
+    "byClass": {
+      "1": { "1": { "A1": { "position": 1, "totalPoints": 95 } } },
+      "2": { "1": { "G1": { "position": 2, "totalPoints": 97 }, "G2": { "position": 1, "totalPoints": 104 } } }
+    }
+  }
+}

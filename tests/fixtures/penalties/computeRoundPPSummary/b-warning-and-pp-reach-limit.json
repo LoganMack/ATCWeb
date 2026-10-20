@@ -1,0 +1,17 @@
+{
+  "description": "Going in with 9 PP, a round with a warning and a 3 PP penalty earns 3, reaches the limit and resets to 0.",
+  "rule_ref": "rules 57-59; penalties.ts computeRoundPPSummary",
+  "input": {
+    "driver": { "penalty_points_max": 11, "on_probation": false, "probation_started_at": null },
+    "earlier_penalties": [
+      { "driver_id": "A", "penalty_points": 5, "created_at": "2026-01-10T20:00:00Z" },
+      { "driver_id": "A", "penalty_points": 4, "created_at": "2026-01-24T20:00:00Z" }
+    ],
+    "round_penalties": [
+      { "driver_id": "A", "is_warning": true, "penalty_points": 0, "created_at": "2026-02-07T19:00:00Z" },
+      { "driver_id": "A", "penalty_points": 3, "created_at": "2026-02-07T20:00:00Z" }
+    ],
+    "events": []
+  },
+  "expected": { "before": 9, "after": 0, "earned": 3, "doubled": false, "hitLimit": true }
+}

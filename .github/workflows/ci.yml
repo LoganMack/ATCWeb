@@ -21,6 +21,9 @@ jobs:
       # reproducible install.
       - run: npm ci
 
+      # A gate: a failing unit test blocks the merge (and deploy.yml's gates job runs the same).
+      - run: npm test
+
       # Type-checks .astro frontmatter and .ts alike. NOT a gate yet: the
       # codebase has ~98 older type errors (implicit `any`s, Cloudflare Request
       # typings, etc.) that predate CI. The step still runs and shows them in

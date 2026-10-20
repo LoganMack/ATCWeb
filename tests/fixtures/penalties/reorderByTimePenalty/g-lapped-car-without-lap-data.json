@@ -1,0 +1,20 @@
+{
+  "description": "A lapped car with no average-lap data cannot be estimated: it keeps its laps-down count and its place, with no gap.",
+  "rule_ref": "penalties.ts reorderByTimePenalty: missing average-lap data skips the re-ranking",
+  "input": {
+    "race_number": 1,
+    "rows": [
+      { "driver_id": "A", "class_id": 2, "scored_position": 1, "finish_position": 1, "interval_ten_thousandths": 0, "laps_complete": 20, "average_lap_ten_thousandths": 1000000 },
+      { "driver_id": "B", "class_id": 2, "scored_position": 2, "finish_position": 2, "interval_ten_thousandths": 20000, "laps_complete": 20, "average_lap_ten_thousandths": 1001000 },
+      { "driver_id": "E", "class_id": 2, "scored_position": 3, "finish_position": 3, "interval_ten_thousandths": -2, "laps_complete": 18, "average_lap_ten_thousandths": null }
+    ],
+    "penalties": [{ "driver_id": "E", "race_number": 1, "time_penalty_seconds": 60 }]
+  },
+  "expected": {
+    "positions": {
+      "A": { "position": 1, "lapsDown": 0 },
+      "B": { "position": 2, "lapsDown": 0 },
+      "E": { "position": 3, "lapsDown": 2, "lapsDownBefore": 2, "gapTenThousandths": null }
+    }
+  }
+}

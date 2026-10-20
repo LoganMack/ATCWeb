@@ -1,0 +1,15 @@
+{
+  "description": "Sprint race 2 uses the sprint_race2 table where one exists; class points fall back to the plain sprint table when there is no race-2 variant.",
+  "rule_ref": "penalties.ts resolvePointsTables: sprint Race 2+ variant before the plain table",
+  "input": {
+    "rules": {
+      "base_points": { "sprint": [50, 40, 30], "sprint_race2": [25, 20, 15] },
+      "class_podium": { "sprint": [3, 2, 1] },
+      "classified_minimum": { "sprint": 2 }
+    },
+    "format": "sprint",
+    "race_number": 2,
+    "subsession_id": 100
+  },
+  "expected": { "finishPoints": [25, 20, 15], "classPoints": [3, 2, 1], "classifiedMinimumFinishPoints": 2 }
+}

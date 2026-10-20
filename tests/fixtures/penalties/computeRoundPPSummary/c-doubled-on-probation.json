@@ -1,0 +1,11 @@
+{
+  "description": "On probation since 20 December: an earlier 1 PP counted as 2, and this round's 2 PP counts as 4, so the tally goes from 2 to 6, doubled.",
+  "rule_ref": "rule 60; penalties.ts computeRoundPPSummary",
+  "input": {
+    "driver": { "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2025-12-20" },
+    "earlier_penalties": [{ "driver_id": "A", "penalty_points": 1, "created_at": "2026-01-03T20:00:00Z" }],
+    "round_penalties": [{ "driver_id": "A", "penalty_points": 2, "created_at": "2026-01-10T20:00:00Z" }],
+    "events": []
+  },
+  "expected": { "before": 2, "after": 6, "earned": 4, "doubled": true, "hitLimit": false }
+}

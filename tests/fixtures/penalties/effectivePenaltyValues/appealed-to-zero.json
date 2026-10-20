@@ -1,0 +1,17 @@
+{
+  "description": "An appeal that clears everything applies zero time, points and PP.",
+  "rule_ref": "penalties.ts APPEALS header and effective* helpers",
+  "input": {
+    "penalty": {
+      "driver_id": "A",
+      "time_penalty_seconds": 10,
+      "points_penalty": 5,
+      "penalty_points": 3,
+      "is_appealed": true,
+      "appeal_time_penalty_seconds": 0,
+      "appeal_points_penalty": 0,
+      "appeal_penalty_points": 0
+    }
+  },
+  "expected": { "time_penalty_seconds": 0, "points_penalty": 0, "penalty_points": 0 }
+}

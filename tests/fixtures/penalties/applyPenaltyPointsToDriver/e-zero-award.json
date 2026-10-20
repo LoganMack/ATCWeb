@@ -1,0 +1,15 @@
+{
+  "description": "A 0 PP award (a warning, say) leaves the driver unchanged.",
+  "rule_ref": "penalties.ts applyPenaltyPointsToDriver (awards of 0 or less are ignored)",
+  "input": {
+    "driver": { "penalty_points": 4, "penalty_points_max": 11, "on_probation": false, "probation_started_at": null },
+    "awarded_points": 0,
+    "is_currently_on_probation": false,
+    "today": "2026-03-10T21:00:00Z"
+  },
+  "expected": {
+    "state": { "penalty_points": 4, "penalty_points_max": 11, "on_probation": false, "probation_started_at": null },
+    "hitLimit": false,
+    "repeatDuringProbation": false
+  }
+}
