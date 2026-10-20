@@ -1,0 +1,213 @@
+# Merge to main: check, apply pending migrations, then deploy (W3 in the migration-history design).
+#
+# Off until the owner sets repository variable DEPLOY_FROM_ACTIONS=true (and turns off Cloudflare's
+# own Git deploys); every job's `if` checks it. Production jobs run in environment `production`,
+# which holds PRODUCTION_DB_URL, CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+#
+# PRODUCTION_DB_URL uses Supabase's session-pooler form, because GitHub runners are IPv4-only:
+#   postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+# The Supabase CLI comes from package.json (pinned exactly) through `npx supabase`.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_apply:
+        description: 'Emergency only (owner): deploy the code without the drift check or applying migrations'
+        type: boolean
+        default: false
+
+# One run at a time; a queued run waits instead of cancelling the one applying migrations (BR4.2).
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Exactly CI's blocking gates (BR4.5): a PR that makes another check blocking in ci.yml adds it here.
+  gates:
+    if: ${{ vars.DEPLOY_FROM_ACTIONS == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check who may skip migrations
+        if: ${{ inputs.skip_apply }}
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if [ "$ACTOR" != "$OWNER" ]; then
+            echo "::error::skip_apply is for the repository owner only (set by $ACTOR)."
+            exit 1
+          fi
+          echo "::warning::skip_apply set by $ACTOR: the drift check and migrations are skipped for this run."
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test --if-present
+
+  # Stops the run when production's schema differs from what its applied migrations produce, i.e.
+  # someone changed production outside migrations (BR3.5).
+  drift-check:
+    needs: gates
+    if: ${{ vars.DEPLOY_FROM_ACTIONS == 'true' && !inputs.skip_apply }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the cutover has happened
+        id: state
+        run: |
+          if [ ! -d supabase/migrations/archive ]; then
+            echo "Skipping: pre-cutover tree (no supabase/migrations/archive/); there is no baseline to rebuild from yet."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies (pinned Supabase CLI)
+        if: steps.state.outputs.run == 'true'
+        run: npm ci
+
+      - name: Keep only the migrations production has applied
+        if: steps.state.outputs.run == 'true'
+        env:
+          DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DB_URL" ]; then
+            echo "::error::PRODUCTION_DB_URL is not set in environment production."
+            exit 1
+          fi
+          psql "$DB_URL" -X -At -v ON_ERROR_STOP=1 \
+            -c "select version from supabase_migrations.schema_migrations order by version" > "$RUNNER_TEMP/applied.txt"
+          for file in supabase/migrations/*.sql; do
+            version="$(basename "$file" | cut -d_ -f1)"
+            if ! grep -qx "$version" "$RUNNER_TEMP/applied.txt"; then
+              echo "Pending, left out of the rebuild: $(basename "$file")"
+              rm "$file"
+            fi
+          done
+
+      - name: Rebuild a throwaway database from the applied migrations
+        if: steps.state.outputs.run == 'true'
+        run: npx supabase start -x realtime,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Compare production with the rebuild
+        if: steps.state.outputs.run == 'true'
+        env:
+          DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/drift"
+          mkdir -p "$work"
+          bash supabase/tools/snapshot.sh local "$work/rebuild.schema.sql" "$work/rebuild.platform.sql"
+          bash supabase/tools/snapshot.sh remote "$work/production.schema.sql" "$work/production.platform.sql"
+          bash supabase/tools/compare.sh "Drift check (rebuild vs production)" \
+            "$work/rebuild.schema.sql" "$work/rebuild.platform.sql" \
+            "$work/production.schema.sql" "$work/production.platform.sql"
+
+  # Always runs `db push`, whatever the push changed: with nothing pending it is a no-op, so a run
+  # dropped from the queue never strands a migration (BR4.1). Each migration and its history row
+  # commit together, so a failed one is not recorded (BR4.3).
+  apply:
+    needs: drift-check
+    if: ${{ vars.DEPLOY_FROM_ACTIONS == 'true' && !inputs.skip_apply }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Before the cutover, db push would try to replay the legacy numbered files.
+      - name: Refuse before the cutover
+        env:
+          CUTOVER_DONE: ${{ vars.MIGRATIONS_CUTOVER_DONE }}
+        run: |
+          if [ "$CUTOVER_DONE" != "true" ] || [ ! -d supabase/migrations/archive ]; then
+            echo "::error::The migration history cutover is not done (MIGRATIONS_CUTOVER_DONE or the archive is missing); refusing to push migrations."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: Apply pending migrations
+        env:
+          PRODUCTION_DB_URL: ${{ secrets.PRODUCTION_DB_URL }}
+        run: |
+          if [ -z "$PRODUCTION_DB_URL" ]; then
+            echo "::error::PRODUCTION_DB_URL is not set in environment production."
+            exit 1
+          fi
+          npx supabase db push --db-url "$PRODUCTION_DB_URL" --skip-vault --yes
+
+  deploy:
+    needs: [gates, drift-check, apply]
+    # Runs when apply succeeded or was skipped by skip_apply, never after a failure.
+    if: ${{ vars.DEPLOY_FROM_ACTIONS == 'true' && !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Needs no secrets: every runtime variable, including the public PUBLIC_* values, is in
+      # wrangler.jsonc's vars.
+      - run: npm run build
+
+      - name: Deploy the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      # GET, not HEAD: Cloudflare answers HEAD with 403 on this site.
+      - name: Smoke check
+        run: |
+          site="https://alphatouringchallenge.com"
+          headers="$RUNNER_TEMP/headers.txt"
+          failed=0
+          for path in / /standings /results; do
+            ok=false
+            for attempt in 1 2 3 4 5; do
+              code="$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' --max-time 30 "$site$path" || echo 000)"
+              if [ "$code" = "200" ] && grep -qi '^content-security-policy:' "$headers"; then
+                ok=true
+                break
+              fi
+              sleep 10
+            done
+            if [ "$ok" = "true" ]; then
+              echo "OK: $site$path returned 200 with a CSP header."
+            else
+              echo "::error::Smoke check failed: $site$path (last status $code, or no content-security-policy header)."
+              failed=1
+            fi
+          done
+          exit "$failed"

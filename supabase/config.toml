@@ -1,0 +1,29 @@
+# Supabase CLI configuration. It is used only by CI (the throwaway local database in
+# .github/workflows/migrations-pr.yml, deploy.yml and db-tools.yml); production is configured in the
+# Supabase dashboard, not here. Settings left out fall back to the CLI's defaults.
+project_id = "ATCWeb"
+
+[db]
+# Must match production's major version so the local rebuild runs the same Postgres.
+major_version = 17
+
+[db.seed]
+# The checks compare schema only, and supabase/seed/ is not a CLI seed file.
+enabled = false
+
+# Services the checks don't use are off so `supabase start` stays quick on the runner. Auth and
+# storage stay on: the baseline puts a trigger on auth.users and policies on storage.objects.
+[realtime]
+enabled = false
+
+[studio]
+enabled = false
+
+[local_smtp]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
