@@ -61,7 +61,7 @@ import {
   type SupabaseEnv,
 } from './supabase';
 
-interface ImportDriver {
+export interface ImportDriver {
   id: string;
   name: string;
   car_number: number | null;
@@ -136,7 +136,7 @@ function nextSyntheticSubsessionId(): number {
 }
 
 /** "M:SS.sss" or "SS.sss" -> ten-thousandths of a second, matching curated_race_results.average_lap_ten_thousandths/best_lap_ten_thousandths. Blank/unparseable -> null (both columns are optional). */
-function parseLapTimeToTenThousandths(v: string): number | null {
+export function parseLapTimeToTenThousandths(v: string): number | null {
   const trimmed = v.trim();
   if (!trimmed) return null;
   const match = trimmed.match(/^(?:(\d+):)?(\d{1,2}(?:\.\d+)?)$/);
@@ -152,17 +152,17 @@ export interface RaceResultsImportOutcome {
   skipped: number;
 }
 
-type RowGetter = (row: string[], name: string) => string;
+export type RowGetter = (row: string[], name: string) => string;
 
 /** Bulk, read-only context every importer's resolveRoundIdentity() call needs — fetched once per CSV upload, not once per group. */
-interface RoundLookupContext {
+export interface RoundLookupContext {
   circuits: { id: string; name: string }[];
   seasons: { id: string; name: string }[];
   events: { id: string; circuit_id: string | null; event_date: string }[];
   importByKey: Map<string, number>;
 }
 
-interface RoundIdentity {
+export interface RoundIdentity {
   importKey: string;
   subsessionId: number;
   alreadyImported: boolean;
@@ -195,12 +195,15 @@ interface RoundIdentity {
  * round in between resolving the identity and actually writing the round
  * row, exactly matching this importer's original ordering (clear old result
  * rows, then upsert the round).
+ *
+ * `newSubsessionId` is injectable so tests can pass a fixed id instead of a clock-based one.
  */
-function resolveRoundIdentity(
+export function resolveRoundIdentity(
   importKey: string,
   get: RowGetter,
   first: string[],
   ctx: RoundLookupContext,
+  newSubsessionId: () => number = nextSyntheticSubsessionId,
 ): RoundIdentity | null {
   const circuitName = get(first, 'circuit_name');
   const layoutName = get(first, 'layout');
@@ -229,7 +232,7 @@ function resolveRoundIdentity(
   const eventId = matchingEvents.length === 1 ? matchingEvents[0].id : null;
 
   const alreadyImported = ctx.importByKey.has(importKey);
-  const subsessionId = alreadyImported ? ctx.importByKey.get(importKey)! : nextSyntheticSubsessionId();
+  const subsessionId = alreadyImported ? ctx.importByKey.get(importKey)! : newSubsessionId();
 
   return {
     importKey,
@@ -348,7 +351,7 @@ async function writeRoundRow(
 }
 
 /** Groups CSV data rows (everything after the header) by their `import_key` column, skipping fully-blank rows and counting keyless rows as skipped. Shared by every importer below. */
-function groupRowsByImportKey(
+export function groupRowsByImportKey(
   rows: string[][],
   get: RowGetter,
 ): { groups: Map<string, string[][]>; skipped: number } {
@@ -367,11 +370,102 @@ function groupRowsByImportKey(
   return { groups, skipped };
 }
 
-function makeGetter(header: string[]): RowGetter {
+/** Trims and lower-cases every header cell, so column lookups are case-insensitive and a leading BOM (which `trim()` removes) never hides the first column. */
+export function normaliseHeader(header: string[]): string[] {
+  return header.map((h) => h.trim().toLowerCase());
+}
+
+export function makeGetter(header: string[]): RowGetter {
   const colIndex = (name: string) => header.indexOf(name);
   return (row: string[], name: string) => {
     const i = colIndex(name);
     return i >= 0 ? (row[i] ?? '').trim() : '';
+  };
+}
+
+/** The curated_race_results row the race importer posts for one CSV row. */
+export interface CuratedRaceResultInsert {
+  subsession_id: number;
+  race_number: number;
+  cust_id: number;
+  display_name: string;
+  car_name: string | null;
+  car_class_name: string | null;
+  finish_position: number;
+  starting_position: number;
+  adjusted_position: null;
+  incidents: number;
+  laps_complete: number | null;
+  laps_led: number;
+  interval_ten_thousandths: number | null;
+  average_lap_ten_thousandths: number | null;
+  best_lap_ten_thousandths: number | null;
+}
+
+export type MappedRaceResult =
+  | { ok: true; record: CuratedRaceResultInsert }
+  | {
+      ok: false;
+      reason: 'driver' | 'race_number' | 'finish_position' | 'no_cust_id';
+      raceNumber: number;
+      carNumber: number;
+    };
+
+/**
+ * Maps one race-results CSV row to the row to insert, or the reason it is skipped. Pure, so the
+ * row rules can be tested without a database. When several checks fail, the first of `driver`,
+ * `race_number`, `finish_position`, `no_cust_id` is reported.
+ */
+export function mapRaceResultRow(
+  row: string[],
+  get: RowGetter,
+  subsessionId: number,
+  resolveDriver: (carNumber: number) => ImportDriver | undefined,
+): MappedRaceResult {
+  const carNumberRaw = get(row, 'driver_car_number');
+  const carNumber = carNumberRaw ? Number(carNumberRaw) : NaN;
+  const driver = Number.isFinite(carNumber) ? resolveDriver(carNumber) : undefined;
+  const raceNumberRaw = get(row, 'race_number');
+  const raceNumber = raceNumberRaw ? Number(raceNumberRaw) : NaN;
+  const finishPositionRaw = get(row, 'finish_position');
+  const finishPosition = finishPositionRaw ? Number(finishPositionRaw) : NaN;
+
+  if (!driver) return { ok: false, reason: 'driver', raceNumber, carNumber };
+  if (!Number.isFinite(raceNumber)) return { ok: false, reason: 'race_number', raceNumber, carNumber };
+  if (!Number.isFinite(finishPosition))
+    return { ok: false, reason: 'finish_position', raceNumber, carNumber };
+  if (driver.iracing_cust_id == null) return { ok: false, reason: 'no_cust_id', raceNumber, carNumber };
+
+  const startingPositionRaw = get(row, 'starting_position');
+  const incidentsRaw = get(row, 'incidents');
+  const lapsCompleteRaw = get(row, 'laps_complete');
+  const lapsLedRaw = get(row, 'laps_led');
+  const intervalRaw = get(row, 'interval_ten_thousandths');
+  const classNameRaw = get(row, 'class_name');
+
+  return {
+    ok: true,
+    record: {
+      subsession_id: subsessionId,
+      race_number: raceNumber,
+      cust_id: driver.iracing_cust_id,
+      // display_name is NOT NULL on curated_race_results — sourced from
+      // this app's own roster rather than the CSV, since the driver was
+      // already resolved by car number above and this app's name is the
+      // one every other page already shows for them.
+      display_name: driver.name,
+      car_name: get(row, 'car_name') || null,
+      car_class_name: classNameRaw || null,
+      finish_position: finishPosition,
+      starting_position: startingPositionRaw ? Number(startingPositionRaw) : finishPosition,
+      adjusted_position: null,
+      incidents: incidentsRaw ? Number(incidentsRaw) : 0,
+      laps_complete: lapsCompleteRaw ? Number(lapsCompleteRaw) : null,
+      laps_led: lapsLedRaw ? Number(lapsLedRaw) : 0,
+      interval_ten_thousandths: intervalRaw ? Number(intervalRaw) : null,
+      average_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'average_lap_time')),
+      best_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'best_lap_time')),
+    },
   };
 }
 
@@ -393,7 +487,7 @@ export async function importRaceResultsCsv(
   let skipped = 0;
   if (rows.length < 2) return { imported, skipped };
 
-  const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+  const header = normaliseHeader(rows[0] ?? []);
   const get = makeGetter(header);
 
   const [circuits, seasons, events, drivers, existingImports, seasonCarNumberRows] = await Promise.all([
@@ -445,62 +539,28 @@ export async function importRaceResultsCsv(
       continue;
     }
 
+    const resolveDriver = (carNumber: number) =>
+      resolveDriverByCarNumberForSeason(drivers, seasonCarNumbers, identity.seasonId, carNumber);
+
     for (const row of groupRows) {
-      const carNumberRaw = get(row, 'driver_car_number');
-      const carNumber = carNumberRaw ? Number(carNumberRaw) : NaN;
-      const driver = Number.isFinite(carNumber)
-        ? resolveDriverByCarNumberForSeason(drivers, seasonCarNumbers, identity.seasonId, carNumber)
-        : undefined;
-      const raceNumberRaw = get(row, 'race_number');
-      const raceNumber = raceNumberRaw ? Number(raceNumberRaw) : NaN;
-      const finishPositionRaw = get(row, 'finish_position');
-      const finishPosition = finishPositionRaw ? Number(finishPositionRaw) : NaN;
+      const mapped = mapRaceResultRow(row, get, identity.subsessionId, resolveDriver);
 
-      if (!driver || !Number.isFinite(raceNumber) || !Number.isFinite(finishPosition)) {
+      if (!mapped.ok) {
+        if (mapped.reason === 'no_cust_id') {
+          console.error(
+            `Skipped a manual result row (round "${importKey}", race ${mapped.raceNumber}, car #${mapped.carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`,
+          );
+        }
         skipped++;
         continue;
       }
-      if (driver.iracing_cust_id == null) {
-        console.error(
-          `Skipped a manual result row (round "${importKey}", race ${raceNumber}, car #${carNumber}): this driver has no iRacing Customer ID set — set one on their Roster profile before importing their results.`,
-        );
-        skipped++;
-        continue;
-      }
-
-      const startingPositionRaw = get(row, 'starting_position');
-      const incidentsRaw = get(row, 'incidents');
-      const lapsCompleteRaw = get(row, 'laps_complete');
-      const lapsLedRaw = get(row, 'laps_led');
-      const intervalRaw = get(row, 'interval_ten_thousandths');
-      const classNameRaw = get(row, 'class_name');
 
       try {
-        await restPost(env, accessToken, 'curated_race_results', {
-          subsession_id: identity.subsessionId,
-          race_number: raceNumber,
-          cust_id: driver.iracing_cust_id,
-          // display_name is NOT NULL on curated_race_results — sourced from
-          // this app's own roster rather than the CSV, since the driver was
-          // already resolved by car number above and this app's name is the
-          // one every other page already shows for them.
-          display_name: driver.name,
-          car_name: get(row, 'car_name') || null,
-          car_class_name: classNameRaw || null,
-          finish_position: finishPosition,
-          starting_position: startingPositionRaw ? Number(startingPositionRaw) : finishPosition,
-          adjusted_position: null,
-          incidents: incidentsRaw ? Number(incidentsRaw) : 0,
-          laps_complete: lapsCompleteRaw ? Number(lapsCompleteRaw) : null,
-          laps_led: lapsLedRaw ? Number(lapsLedRaw) : 0,
-          interval_ten_thousandths: intervalRaw ? Number(intervalRaw) : null,
-          average_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'average_lap_time')),
-          best_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'best_lap_time')),
-        });
+        await restPost(env, accessToken, 'curated_race_results', mapped.record);
         imported++;
       } catch (err) {
         console.error(
-          `Failed to import a race-result row (round "${importKey}", race ${raceNumber}, car #${carNumber}):`,
+          `Failed to import a race-result row (round "${importKey}", race ${mapped.record.race_number}, car #${Number(get(row, 'driver_car_number'))}):`,
           err,
         );
         skipped++;
@@ -528,7 +588,7 @@ export async function importQualifyingResultsCsv(
   let skipped = 0;
   if (rows.length < 2) return { imported, skipped };
 
-  const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+  const header = normaliseHeader(rows[0] ?? []);
   const get = makeGetter(header);
 
   const [circuits, seasons, events, drivers, existingImports, seasonCarNumberRows] = await Promise.all([
@@ -642,7 +702,7 @@ export async function importPracticeResultsCsv(
   let skipped = 0;
   if (rows.length < 2) return { imported, skipped };
 
-  const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
+  const header = normaliseHeader(rows[0] ?? []);
   const get = makeGetter(header);
 
   const [circuits, seasons, events, drivers, existingImports, seasonCarNumberRows] = await Promise.all([
@@ -906,7 +966,7 @@ export async function getEventsMissingResults(
 }
 
 /** Slugifies text into the lowercase-no-punctuation style the existing manual import_key examples already use (e.g. "exh-2026-08-09-watkinsglen") — see RACE_RESULTS_TEMPLATE in importTemplates.ts. */
-function slugifyForImportKey(s: string): string {
+export function slugifyForImportKey(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 

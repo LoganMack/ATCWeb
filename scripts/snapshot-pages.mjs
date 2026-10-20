@@ -3,10 +3,11 @@
 // such as the one-time Prettier pass or a refactor.
 //
 // Usage:
-//   node scripts/snapshot-pages.mjs <baseUrl> <outDir> [--subsession <id>] [--driver <uuid>]
+//   node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>]
 //       Fetches the public pages below, plus every fragment they load
 //       (data-fragment-url), from a running Worker and saves normalised HTML,
-//       one file per page. Needs: npm run build && npx wrangler dev
+//       one file per page. Needs: npm run build && npx wrangler dev --persist-to <new empty dir>.
+//       --fresh-cache confirms the Worker was started on an empty cache; capture refuses without it.
 //   node scripts/snapshot-pages.mjs --compare <dirA> <dirB>
 //       Prints a per-page summary and exits 1 on any difference.
 //   node scripts/snapshot-pages.mjs --self-test
@@ -19,7 +20,7 @@
 //
 // Normalised away, because they change per request or per build rather than
 // with the markup: CSP nonces, /_astro/ hashed asset names, Astro scope ids (data-astro-cid-*),
-// Cloudflare-injected scripts, the order of class tokens (the Tailwind Prettier
+// calendar-invite DTSTAMP lines, Cloudflare-injected scripts, the order of class tokens (the Tailwind Prettier
 // plugin re-sorts them) and whitespace that cannot render (runs collapse to one
 // space; space next to block-level tags is dropped). Whitespace inside <pre> and
 // <textarea> is kept as is.
@@ -64,6 +65,8 @@ function normalise(html) {
   });
 
   out = out
+    // A calendar invite's DTSTAMP is the time it was generated, so it differs on every request.
+    .replace(/^DTSTAMP:[^\r\n]*/gm, 'DTSTAMP:MASKED')
     // Scripts Cloudflare adds at the edge (analytics beacon, /cdn-cgi/ helpers).
     .replace(/<script\b[^>]*(?:cloudflareinsights\.com|\/cdn-cgi\/)[^>]*>[\s\S]*?<\/script\s*>/gi, '')
     .replace(/<script\b[^>]*>(?:(?!<\/script)[\s\S])*?\/cdn-cgi\/[\s\S]*?<\/script\s*>/gi, '')
@@ -119,6 +122,16 @@ function selfTest() {
     ],
     ['text change detected', same('<p>Round 4</p>', '<p>Round 5</p>'), false],
     ['removed element detected', same('<ul><li>a</li><li>b</li></ul>', '<ul><li>a</li></ul>'), false],
+    [
+      'DTSTAMP masking',
+      same(
+        'BEGIN:VEVENT\r\nDTSTAMP:20261020T181952Z\r\nSUMMARY:Round 1\r\nEND:VEVENT\r\n',
+        'BEGIN:VEVENT\r\nDTSTAMP:20261021T090000Z\r\nSUMMARY:Round 1\r\nEND:VEVENT\r\n',
+      ),
+      true,
+    ],
+    ['capture refused without --fresh-cache', checkCaptureArgs(['--base', 'x']) !== null, true],
+    ['capture allowed with --fresh-cache', checkCaptureArgs(['--base', 'x', '--fresh-cache']), null],
   ];
   const failed = cases.filter(([, got, want]) => got !== want);
   for (const [name] of failed) console.error(`self-test FAILED: ${name}`);
@@ -164,7 +177,23 @@ function flagValue(args, flag) {
   return value;
 }
 
-async function capture(args) {
+/**
+ * Null when a capture may run, otherwise why not. A Worker started on an old cache can serve pages
+ * from an earlier build and hide a change, so the caller must confirm a fresh cache.
+ */
+function checkCaptureArgs(args) {
+  if (args.includes('--fresh-cache')) return null;
+  return (
+    'refusing to capture without --fresh-cache: start the Worker on an empty cache ' +
+    '(npx wrangler dev --persist-to <new empty dir>), then pass --fresh-cache'
+  );
+}
+
+async function capture(rawArgs) {
+  const refusal = checkCaptureArgs(rawArgs);
+  if (refusal) usage(refusal);
+  // The flag is recorded above, so it never counts as one of the two positional arguments.
+  const args = rawArgs.filter((a) => a !== '--fresh-cache');
   const subsessionFlag = flagValue(args, '--subsession');
   const driverFlag = flagValue(args, '--driver');
   if (args.length !== 2) usage('capture needs <baseUrl> <outDir>');
@@ -273,7 +302,7 @@ async function compare(args) {
 function usage(message) {
   console.error(`snapshot-pages: ${message}`);
   console.error(
-    'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> [--subsession <id>] [--driver <uuid>]',
+    'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>]',
   );
   console.error('       node scripts/snapshot-pages.mjs --compare <dirA> <dirB>');
   console.error('       node scripts/snapshot-pages.mjs --self-test');

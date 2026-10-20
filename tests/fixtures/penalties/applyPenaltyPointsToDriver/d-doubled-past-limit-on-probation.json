@@ -1,0 +1,15 @@
+{
+  "description": "On probation with 8 PP, a 2 PP award counts as 4: 12 passes the limit, so the tally resets, probation restarts today, and the repeat-during-probation flag is set.",
+  "rule_ref": "rules 60-62; penalties.ts applyPenaltyPointsToDriver (excess over the limit is discarded)",
+  "input": {
+    "driver": { "penalty_points": 8, "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2026-03-01" },
+    "awarded_points": 2,
+    "is_currently_on_probation": true,
+    "today": "2026-03-10T21:00:00Z"
+  },
+  "expected": {
+    "state": { "penalty_points": 0, "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2026-03-10" },
+    "hitLimit": true,
+    "repeatDuringProbation": true
+  }
+}

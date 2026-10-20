@@ -1,0 +1,22 @@
+{
+  "description": "A 30 s penalty on B (2.0 s behind) puts B 32.0 s behind, past every car behind; still under one leader lap (100 s), so B stays on the lead lap.",
+  "rule_ref": "rulebook 18.3.1/18.3.2; penalties.ts reorderByTimePenalty",
+  "input": {
+    "race_number": 1,
+    "rows": [
+      { "driver_id": "A", "class_id": 2, "scored_position": 1, "finish_position": 1, "interval_ten_thousandths": 0, "laps_complete": 20, "average_lap_ten_thousandths": 1000000 },
+      { "driver_id": "B", "class_id": 2, "scored_position": 2, "finish_position": 2, "interval_ten_thousandths": 20000, "laps_complete": 20, "average_lap_ten_thousandths": 1001000 },
+      { "driver_id": "C", "class_id": 2, "scored_position": 3, "finish_position": 3, "interval_ten_thousandths": 50000, "laps_complete": 20, "average_lap_ten_thousandths": 1002500 },
+      { "driver_id": "D", "class_id": 2, "scored_position": 4, "finish_position": 4, "interval_ten_thousandths": 90000, "laps_complete": 20, "average_lap_ten_thousandths": 1004500 }
+    ],
+    "penalties": [{ "driver_id": "B", "race_number": 1, "time_penalty_seconds": 30 }]
+  },
+  "expected": {
+    "positions": {
+      "A": { "position": 1, "lapsDown": 0 },
+      "C": { "position": 2, "lapsDown": 0 },
+      "D": { "position": 3, "lapsDown": 0 },
+      "B": { "position": 4, "lapsDown": 0, "gapTenThousandths": 320000 }
+    }
+  }
+}

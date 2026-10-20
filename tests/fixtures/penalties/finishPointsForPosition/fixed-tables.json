@@ -1,0 +1,13 @@
+{
+  "description": "A classified driver's base finish points come from the fixed Points System table for the race format.",
+  "rule_ref": "rulebook 18.3 Table: Points System; penalties.ts FINISH_POINTS",
+  "input": {
+    "rows": [
+      { "format": "sprint", "position": 1 },
+      { "format": "sprint", "position": 10 },
+      { "format": "endurance", "position": 1 },
+      { "format": "endurance", "position": 10 }
+    ]
+  },
+  "expected": { "points": [100, 61, 200, 122] }
+}

@@ -1,0 +1,15 @@
+{
+  "description": "On probation a 2 PP award counts double: 2 + 4 = 6, under the limit.",
+  "rule_ref": "rule 60 (PP doubled during probation); penalties.ts applyPenaltyPointsToDriver",
+  "input": {
+    "driver": { "penalty_points": 2, "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2026-03-01" },
+    "awarded_points": 2,
+    "is_currently_on_probation": true,
+    "today": "2026-03-10T21:00:00Z"
+  },
+  "expected": {
+    "state": { "penalty_points": 6, "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2026-03-01" },
+    "hitLimit": false,
+    "repeatDuringProbation": false
+  }
+}

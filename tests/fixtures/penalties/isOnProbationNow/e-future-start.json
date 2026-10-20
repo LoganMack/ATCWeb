@@ -1,0 +1,12 @@
+{
+  "description": "A probation that starts after today is not in effect yet.",
+  "rule_ref": "penalties.ts isOnProbationNow (start after today returns false)",
+  "input": {
+    "driver": { "on_probation": true, "probation_started_at": "2026-03-01" },
+    "events": [],
+    "today": "2026-02-15T00:00:00Z",
+    "probation_days": 45,
+    "probation_rounds": 4
+  },
+  "expected": { "on_probation": false }
+}

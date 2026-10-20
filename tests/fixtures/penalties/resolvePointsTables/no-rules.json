@@ -1,0 +1,6 @@
+{
+  "description": "With no ruleset, no table resolves, so callers fall back to the fixed tables.",
+  "rule_ref": "penalties.ts resolvePointsTables doc comment",
+  "input": { "rules": null, "format": "sprint", "race_number": 1, "subsession_id": 100 },
+  "expected": { "finishPoints": null, "classPoints": null, "classifiedMinimumFinishPoints": null }
+}

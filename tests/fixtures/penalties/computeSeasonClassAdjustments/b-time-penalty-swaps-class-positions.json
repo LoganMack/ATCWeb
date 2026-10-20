@@ -1,0 +1,22 @@
+{
+  "description": "A 5 s penalty on Gamma winner G1 swaps the Gamma order: G2 becomes 1st in class (overall P2: 95 + class 4 = 99) and G1 2nd in class (overall P3: 90 + class 2 = 92).",
+  "rule_ref": "rulebook 18.3.1/18.3.2, Table: Points System and Table: Class Points (sprint); penalties.ts computeSeasonClassAdjustments",
+  "input": {
+    "format": "sprint",
+    "rules": null,
+    "class_id": 2,
+    "awards_class_points": true,
+    "rows": [
+      { "subsession_id": 100, "driver_id": "G1", "class_id": 2, "scored_position": 1, "finish_position": 1, "interval_ten_thousandths": 0, "laps_complete": 20, "average_lap_ten_thousandths": 1000000, "finish_points": 100, "class_points": 4 },
+      { "subsession_id": 100, "driver_id": "A1", "class_id": 1, "scored_position": 2, "finish_position": 2, "interval_ten_thousandths": 20000, "laps_complete": 20, "average_lap_ten_thousandths": 1001000, "finish_points": 95 },
+      { "subsession_id": 100, "driver_id": "G2", "class_id": 2, "scored_position": 3, "finish_position": 3, "interval_ten_thousandths": 40000, "laps_complete": 20, "average_lap_ten_thousandths": 1002000, "finish_points": 90, "class_points": 2 }
+    ],
+    "penalties": [{ "subsession_id": 100, "driver_id": "G1", "race_number": 1, "time_penalty_seconds": 5 }]
+  },
+  "expected": {
+    "adjustments": {
+      "100:1:G1": { "newClassPosition": 2, "totalPoints": 92 },
+      "100:1:G2": { "newClassPosition": 1, "totalPoints": 99 }
+    }
+  }
+}

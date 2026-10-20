@@ -1,0 +1,28 @@
+{
+  "description": "A DSQ driver (no position, 0 points) given a 10-point deduction stays unranked and goes to -10; nobody else moves.",
+  "rule_ref": "rule 69 (net negative points allowed); penalties.ts recomputeScorePoints (DSQ rows are never repositioned)",
+  "input": {
+    "subsession_id": 100,
+    "format": "sprint",
+    "rules": null,
+    "class_points_eligible": { "2": true },
+    "rows": [
+      { "driver_id": "A", "class_id": 2, "scored_position": 1, "finish_position": 1, "interval_ten_thousandths": 0, "laps_complete": 20, "average_lap_ten_thousandths": 1000000, "finish_points": 100, "class_points": 4 },
+      { "driver_id": "B", "class_id": 2, "scored_position": 2, "finish_position": 2, "interval_ten_thousandths": 20000, "laps_complete": 20, "average_lap_ten_thousandths": 1001000, "finish_points": 95, "class_points": 2 },
+      { "driver_id": "E", "class_id": 2, "scored_position": null, "dsq": true, "finish_position": 3, "interval_ten_thousandths": 30000, "laps_complete": 20, "average_lap_ten_thousandths": 1001500 }
+    ],
+    "penalties": [{ "driver_id": "E", "race_number": 1, "points_penalty": 10 }]
+  },
+  "expected": {
+    "overall": {
+      "1": {
+        "A": { "position": 1, "totalPoints": 104 },
+        "B": { "position": 2, "totalPoints": 97 },
+        "E": { "position": null, "totalPoints": -10, "pointsDeduction": -10, "hasPenalty": true }
+      }
+    },
+    "byClass": {
+      "2": { "1": { "A": { "position": 1 }, "B": { "position": 2 }, "E": { "position": null, "totalPoints": -10 } } }
+    }
+  }
+}

@@ -1,0 +1,651 @@
+{
+ "site": "https://alphatouringchallenge.com",
+ "seasonNumber": 17,
+ "views": {
+  "overall": {
+   "url": "https://alphatouringchallenge.com/standings/fragment?season=17&championship=drivers&class=all&mode=list",
+   "classId": null,
+   "rows": [
+    {
+     "position": 1,
+     "driverId": "49a39606-296b-45ee-8d80-9fb425977a92",
+     "total": 1944
+    },
+    {
+     "position": 2,
+     "driverId": "e9e0cec6-1910-4274-883e-b55e68794a6b",
+     "total": 1742
+    },
+    {
+     "position": 3,
+     "driverId": "e33ca879-3092-4d73-9dff-19de78e0c7a4",
+     "total": 1735
+    },
+    {
+     "position": 4,
+     "driverId": "b8cb515b-f45e-4ceb-9390-473adb657a93",
+     "total": 1589
+    },
+    {
+     "position": 5,
+     "driverId": "9a2c7d37-8cac-4056-bd01-9f93f9901934",
+     "total": 1390
+    },
+    {
+     "position": 6,
+     "driverId": "7b58a261-3b8f-42c2-870f-5c6432f475d6",
+     "total": 1375
+    },
+    {
+     "position": 7,
+     "driverId": "590dd4a5-b0ed-41de-aca0-e52858e8309e",
+     "total": 1215
+    },
+    {
+     "position": 8,
+     "driverId": "cab9e197-fb3d-4653-b3bd-3545d8ab4a9e",
+     "total": 1172
+    },
+    {
+     "position": 9,
+     "driverId": "88158968-f588-4057-9552-c7943d5c86d4",
+     "total": 1146
+    },
+    {
+     "position": 10,
+     "driverId": "008e724f-d83a-4547-8eb7-a168f1a202a8",
+     "total": 1139
+    },
+    {
+     "position": 11,
+     "driverId": "9aab296a-1654-4c30-a93e-b1e57061d5ef",
+     "total": 1049
+    },
+    {
+     "position": 12,
+     "driverId": "65c38ce9-a7bd-4518-9017-7fc3cadfd037",
+     "total": 1048
+    },
+    {
+     "position": 13,
+     "driverId": "fdcd6a29-5e48-4594-b316-02894df03b6f",
+     "total": 1000
+    },
+    {
+     "position": 14,
+     "driverId": "cf1840de-faf4-4a57-b9e7-1f68946afd84",
+     "total": 925
+    },
+    {
+     "position": 15,
+     "driverId": "82bfb0e8-7c6f-420f-bd9c-04f787addc85",
+     "total": 918
+    },
+    {
+     "position": 16,
+     "driverId": "f2c0f50a-81f1-4f8a-abd1-8ddd287220c5",
+     "total": 893
+    },
+    {
+     "position": 17,
+     "driverId": "7d8fb73c-1db0-4ff8-9f17-b0a6d083a6bf",
+     "total": 854
+    },
+    {
+     "position": 18,
+     "driverId": "298c3c46-5a9e-44bf-9a02-45ac6a29c925",
+     "total": 853
+    },
+    {
+     "position": 19,
+     "driverId": "6b08db7b-a495-43a1-96a5-2eebc52b8918",
+     "total": 840
+    },
+    {
+     "position": 20,
+     "driverId": "90d89e01-e2e8-4890-8401-59f9d9a228f4",
+     "total": 768
+    },
+    {
+     "position": 21,
+     "driverId": "8f6afc52-69a4-46c3-aaf9-914448d042c5",
+     "total": 727
+    },
+    {
+     "position": 22,
+     "driverId": "9e0e823d-e2be-4714-9f63-b635540a566c",
+     "total": 723
+    },
+    {
+     "position": 23,
+     "driverId": "86874671-2fc1-47bf-a997-2ca76aed0ef0",
+     "total": 711
+    },
+    {
+     "position": 24,
+     "driverId": "5eba52bf-0805-45c7-ad22-32f38a995f1a",
+     "total": 704
+    },
+    {
+     "position": 25,
+     "driverId": "57819a84-5b5e-4cc3-b912-4e7553c6dafd",
+     "total": 691
+    },
+    {
+     "position": 26,
+     "driverId": "7c73a663-6d52-47f6-8eb0-924ba1fde1ba",
+     "total": 633
+    },
+    {
+     "position": 27,
+     "driverId": "8811f320-0437-40f3-9d12-baa71686d55e",
+     "total": 602
+    },
+    {
+     "position": 28,
+     "driverId": "3fc696e7-34fb-4bf3-a0c5-eabe41a26c27",
+     "total": 459
+    },
+    {
+     "position": 29,
+     "driverId": "fe5a00cf-453e-4c59-942b-60c4a0126f15",
+     "total": 426
+    },
+    {
+     "position": 30,
+     "driverId": "a8489577-81b7-47f9-80be-aff305f76cd8",
+     "total": 327
+    },
+    {
+     "position": 31,
+     "driverId": "45c16082-5188-4fd7-8402-99e1e4632816",
+     "total": 278
+    },
+    {
+     "position": 32,
+     "driverId": "450a94c0-2d98-4bb9-8440-5d8c7f08b161",
+     "total": 225
+    },
+    {
+     "position": 33,
+     "driverId": "2a2d04e6-f010-4379-8b84-ecbf495b44d4",
+     "total": 199
+    },
+    {
+     "position": 34,
+     "driverId": "2031a2ce-2ec5-4e88-b7a0-7f06037bbb1b",
+     "total": 193
+    },
+    {
+     "position": 35,
+     "driverId": "8de7b229-3370-4c22-85d5-87300485c9af",
+     "total": 189
+    },
+    {
+     "position": 36,
+     "driverId": "44ac12bb-66e6-4920-b178-f8f8aa2c29f7",
+     "total": 162
+    },
+    {
+     "position": 37,
+     "driverId": "838eb5c2-f5dc-4b06-8699-a3e0a9f3c050",
+     "total": 146
+    },
+    {
+     "position": 38,
+     "driverId": "af964311-1715-4633-bbb5-d4d90a282622",
+     "total": 135
+    },
+    {
+     "position": 39,
+     "driverId": "93c66bf9-cd00-45dd-a896-e834025252dc",
+     "total": 105
+    },
+    {
+     "position": 40,
+     "driverId": "102e5ad6-f531-41c7-8d39-68a984cadec8",
+     "total": 76
+    },
+    {
+     "position": 41,
+     "driverId": "950eb6d7-6e8a-4b0b-b505-29264d50e72a",
+     "total": 76
+    },
+    {
+     "position": 42,
+     "driverId": "7189ca3e-ddb3-482d-af4d-f0edeb26e061",
+     "total": 72
+    },
+    {
+     "position": 43,
+     "driverId": "24e6ab03-4147-4aa9-9fd6-c9443daabf88",
+     "total": 71
+    },
+    {
+     "position": 44,
+     "driverId": "8a0b0a08-1ab0-427e-9d6a-8ca1af17a8f2",
+     "total": 66
+    },
+    {
+     "position": 45,
+     "driverId": "e37c3e4c-0665-4200-9892-eaf8354c7f50",
+     "total": 66
+    },
+    {
+     "position": 46,
+     "driverId": "48ce3c26-c89e-4b98-aa62-ca81aa93c491",
+     "total": 52
+    },
+    {
+     "position": 47,
+     "driverId": "6e7f67b6-16c3-42d5-9d71-c7b962e67523",
+     "total": 48
+    },
+    {
+     "position": 48,
+     "driverId": "15e6fc5d-7427-49b6-a009-3c4c16742562",
+     "total": 46
+    },
+    {
+     "position": 49,
+     "driverId": "f951ec38-6826-40d0-b0cd-6aca3a8cb5dc",
+     "total": 38
+    },
+    {
+     "position": 50,
+     "driverId": "2111cefe-38de-431b-ba2a-f3375b56169d",
+     "total": 32
+    },
+    {
+     "position": 51,
+     "driverId": "cda30e7a-04fa-4f87-9a6e-b272a6db53d0",
+     "total": 22
+    },
+    {
+     "position": 52,
+     "driverId": "150dacdd-e295-48e8-bd14-d4b5811c73bf",
+     "total": 18
+    },
+    {
+     "position": 53,
+     "driverId": "81498322-bbab-4537-9cbe-475f5f71c4af",
+     "total": 0
+    },
+    {
+     "position": 54,
+     "driverId": "02d33cd3-d0cf-470a-8755-69b2651c619c",
+     "total": 0
+    },
+    {
+     "position": 55,
+     "driverId": "c58941e3-62e3-424f-97d2-7da332774cf7",
+     "total": 0
+    },
+    {
+     "position": 56,
+     "driverId": "feacea26-8d7f-4267-bbc7-f3f1d1ddc7f0",
+     "total": 0
+    },
+    {
+     "position": 57,
+     "driverId": "3be18cab-5108-47c1-961e-02b82229633b",
+     "total": 0
+    },
+    {
+     "position": 58,
+     "driverId": "4e1854f5-f042-4bcc-8a98-f501d3bd0056",
+     "total": 0
+    },
+    {
+     "position": 59,
+     "driverId": "cf0a9d41-ab0f-434b-8138-abd533e3fa1d",
+     "total": 0
+    },
+    {
+     "position": 60,
+     "driverId": "ee3e6886-f853-4523-9b3c-d3d07b35e5c1",
+     "total": 0
+    },
+    {
+     "position": 61,
+     "driverId": "d25390b4-6aa4-4d4e-9671-149cbbab7224",
+     "total": 0
+    },
+    {
+     "position": 62,
+     "driverId": "9667bbe4-94c7-425d-8e85-f8b7bb162b2a",
+     "total": 0
+    }
+   ]
+  },
+  "Alpha": {
+   "url": "https://alphatouringchallenge.com/standings/fragment?season=17&championship=drivers&class=Alpha&mode=list",
+   "classId": 1,
+   "rows": [
+    {
+     "position": 1,
+     "driverId": "49a39606-296b-45ee-8d80-9fb425977a92",
+     "total": 1944
+    },
+    {
+     "position": 2,
+     "driverId": "e9e0cec6-1910-4274-883e-b55e68794a6b",
+     "total": 1742
+    },
+    {
+     "position": 3,
+     "driverId": "e33ca879-3092-4d73-9dff-19de78e0c7a4",
+     "total": 1735
+    },
+    {
+     "position": 4,
+     "driverId": "9a2c7d37-8cac-4056-bd01-9f93f9901934",
+     "total": 1390
+    },
+    {
+     "position": 5,
+     "driverId": "88158968-f588-4057-9552-c7943d5c86d4",
+     "total": 1146
+    },
+    {
+     "position": 6,
+     "driverId": "9aab296a-1654-4c30-a93e-b1e57061d5ef",
+     "total": 1049
+    },
+    {
+     "position": 7,
+     "driverId": "90d89e01-e2e8-4890-8401-59f9d9a228f4",
+     "total": 768
+    },
+    {
+     "position": 8,
+     "driverId": "44ac12bb-66e6-4920-b178-f8f8aa2c29f7",
+     "total": 162
+    },
+    {
+     "position": 9,
+     "driverId": "838eb5c2-f5dc-4b06-8699-a3e0a9f3c050",
+     "total": 146
+    }
+   ]
+  },
+  "Gamma": {
+   "url": "https://alphatouringchallenge.com/standings/fragment?season=17&championship=drivers&class=Gamma&mode=list",
+   "classId": 2,
+   "rows": [
+    {
+     "position": 1,
+     "driverId": "b8cb515b-f45e-4ceb-9390-473adb657a93",
+     "total": 1631
+    },
+    {
+     "position": 2,
+     "driverId": "7b58a261-3b8f-42c2-870f-5c6432f475d6",
+     "total": 1388
+    },
+    {
+     "position": 3,
+     "driverId": "590dd4a5-b0ed-41de-aca0-e52858e8309e",
+     "total": 1230
+    },
+    {
+     "position": 4,
+     "driverId": "cab9e197-fb3d-4653-b3bd-3545d8ab4a9e",
+     "total": 1177
+    },
+    {
+     "position": 5,
+     "driverId": "008e724f-d83a-4547-8eb7-a168f1a202a8",
+     "total": 1139
+    },
+    {
+     "position": 6,
+     "driverId": "65c38ce9-a7bd-4518-9017-7fc3cadfd037",
+     "total": 1047
+    },
+    {
+     "position": 7,
+     "driverId": "cf1840de-faf4-4a57-b9e7-1f68946afd84",
+     "total": 941
+    },
+    {
+     "position": 8,
+     "driverId": "f2c0f50a-81f1-4f8a-abd1-8ddd287220c5",
+     "total": 896
+    },
+    {
+     "position": 9,
+     "driverId": "298c3c46-5a9e-44bf-9a02-45ac6a29c925",
+     "total": 862
+    },
+    {
+     "position": 10,
+     "driverId": "7d8fb73c-1db0-4ff8-9f17-b0a6d083a6bf",
+     "total": 854
+    },
+    {
+     "position": 11,
+     "driverId": "6b08db7b-a495-43a1-96a5-2eebc52b8918",
+     "total": 848
+    },
+    {
+     "position": 12,
+     "driverId": "8f6afc52-69a4-46c3-aaf9-914448d042c5",
+     "total": 737
+    },
+    {
+     "position": 13,
+     "driverId": "86874671-2fc1-47bf-a997-2ca76aed0ef0",
+     "total": 704
+    },
+    {
+     "position": 14,
+     "driverId": "57819a84-5b5e-4cc3-b912-4e7553c6dafd",
+     "total": 699
+    },
+    {
+     "position": 15,
+     "driverId": "8a0b0a08-1ab0-427e-9d6a-8ca1af17a8f2",
+     "total": 66
+    },
+    {
+     "position": 16,
+     "driverId": "2111cefe-38de-431b-ba2a-f3375b56169d",
+     "total": 32
+    }
+   ]
+  },
+  "Delta": {
+   "url": "https://alphatouringchallenge.com/standings/fragment?season=17&championship=drivers&class=Delta&mode=list",
+   "classId": 3,
+   "rows": [
+    {
+     "position": 1,
+     "driverId": "fdcd6a29-5e48-4594-b316-02894df03b6f",
+     "total": 1040
+    },
+    {
+     "position": 2,
+     "driverId": "82bfb0e8-7c6f-420f-bd9c-04f787addc85",
+     "total": 942
+    },
+    {
+     "position": 3,
+     "driverId": "9e0e823d-e2be-4714-9f63-b635540a566c",
+     "total": 748
+    },
+    {
+     "position": 4,
+     "driverId": "5eba52bf-0805-45c7-ad22-32f38a995f1a",
+     "total": 715
+    },
+    {
+     "position": 5,
+     "driverId": "7c73a663-6d52-47f6-8eb0-924ba1fde1ba",
+     "total": 634
+    },
+    {
+     "position": 6,
+     "driverId": "8811f320-0437-40f3-9d12-baa71686d55e",
+     "total": 614
+    },
+    {
+     "position": 7,
+     "driverId": "3fc696e7-34fb-4bf3-a0c5-eabe41a26c27",
+     "total": 461
+    },
+    {
+     "position": 8,
+     "driverId": "fe5a00cf-453e-4c59-942b-60c4a0126f15",
+     "total": 433
+    },
+    {
+     "position": 9,
+     "driverId": "a8489577-81b7-47f9-80be-aff305f76cd8",
+     "total": 333
+    },
+    {
+     "position": 10,
+     "driverId": "45c16082-5188-4fd7-8402-99e1e4632816",
+     "total": 278
+    },
+    {
+     "position": 11,
+     "driverId": "450a94c0-2d98-4bb9-8440-5d8c7f08b161",
+     "total": 226
+    },
+    {
+     "position": 12,
+     "driverId": "2031a2ce-2ec5-4e88-b7a0-7f06037bbb1b",
+     "total": 199
+    },
+    {
+     "position": 13,
+     "driverId": "2a2d04e6-f010-4379-8b84-ecbf495b44d4",
+     "total": 193
+    },
+    {
+     "position": 14,
+     "driverId": "8de7b229-3370-4c22-85d5-87300485c9af",
+     "total": 186
+    },
+    {
+     "position": 15,
+     "driverId": "af964311-1715-4633-bbb5-d4d90a282622",
+     "total": 135
+    },
+    {
+     "position": 16,
+     "driverId": "93c66bf9-cd00-45dd-a896-e834025252dc",
+     "total": 109
+    },
+    {
+     "position": 17,
+     "driverId": "102e5ad6-f531-41c7-8d39-68a984cadec8",
+     "total": 76
+    },
+    {
+     "position": 18,
+     "driverId": "950eb6d7-6e8a-4b0b-b505-29264d50e72a",
+     "total": 76
+    },
+    {
+     "position": 19,
+     "driverId": "7189ca3e-ddb3-482d-af4d-f0edeb26e061",
+     "total": 72
+    },
+    {
+     "position": 20,
+     "driverId": "24e6ab03-4147-4aa9-9fd6-c9443daabf88",
+     "total": 71
+    },
+    {
+     "position": 21,
+     "driverId": "e37c3e4c-0665-4200-9892-eaf8354c7f50",
+     "total": 66
+    },
+    {
+     "position": 22,
+     "driverId": "48ce3c26-c89e-4b98-aa62-ca81aa93c491",
+     "total": 52
+    },
+    {
+     "position": 23,
+     "driverId": "6e7f67b6-16c3-42d5-9d71-c7b962e67523",
+     "total": 48
+    },
+    {
+     "position": 24,
+     "driverId": "15e6fc5d-7427-49b6-a009-3c4c16742562",
+     "total": 43
+    },
+    {
+     "position": 25,
+     "driverId": "f951ec38-6826-40d0-b0cd-6aca3a8cb5dc",
+     "total": 38
+    },
+    {
+     "position": 26,
+     "driverId": "cda30e7a-04fa-4f87-9a6e-b272a6db53d0",
+     "total": 22
+    },
+    {
+     "position": 27,
+     "driverId": "150dacdd-e295-48e8-bd14-d4b5811c73bf",
+     "total": 18
+    },
+    {
+     "position": 28,
+     "driverId": "ee3e6886-f853-4523-9b3c-d3d07b35e5c1",
+     "total": 0
+    },
+    {
+     "position": 29,
+     "driverId": "d25390b4-6aa4-4d4e-9671-149cbbab7224",
+     "total": 0
+    },
+    {
+     "position": 30,
+     "driverId": "81498322-bbab-4537-9cbe-475f5f71c4af",
+     "total": 0
+    },
+    {
+     "position": 31,
+     "driverId": "02d33cd3-d0cf-470a-8755-69b2651c619c",
+     "total": 0
+    },
+    {
+     "position": 32,
+     "driverId": "c58941e3-62e3-424f-97d2-7da332774cf7",
+     "total": 0
+    },
+    {
+     "position": 33,
+     "driverId": "feacea26-8d7f-4267-bbc7-f3f1d1ddc7f0",
+     "total": 0
+    },
+    {
+     "position": 34,
+     "driverId": "3be18cab-5108-47c1-961e-02b82229633b",
+     "total": 0
+    },
+    {
+     "position": 35,
+     "driverId": "4e1854f5-f042-4bcc-8a98-f501d3bd0056",
+     "total": 0
+    },
+    {
+     "position": 36,
+     "driverId": "cf0a9d41-ab0f-434b-8138-abd533e3fa1d",
+     "total": 0
+    },
+    {
+     "position": 37,
+     "driverId": "9667bbe4-94c7-425d-8e85-f8b7bb162b2a",
+     "total": 0
+    }
+   ]
+  }
+ },
+ "capturedAt": "2026-10-20T18:19:52.562Z"
+}

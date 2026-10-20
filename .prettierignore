@@ -20,3 +20,6 @@ supabase/checks/
 # Astro templates: prettier-plugin-astro 0.14 prints markup inside {expressions}
 # as JSX and adds whitespace that Astro renders (and cannot parse six templates)
 *.astro
+
+# Test fixtures (golden season JSON is large and captured verbatim)
+tests/fixtures/

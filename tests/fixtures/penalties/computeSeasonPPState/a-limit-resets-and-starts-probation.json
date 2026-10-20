@@ -1,0 +1,15 @@
+{
+  "description": "5 + 4 = 9 PP, then 3 more makes 12 on 7 February: the tally resets to 0 and probation starts that day. A 2 PP award on 21 February (day 14 of probation) counts double, leaving 4.",
+  "rule_ref": "rules 57-61; penalties.ts computeSeasonPPState (replay in entry order)",
+  "input": {
+    "driver": { "penalty_points_max": 11, "on_probation": false, "probation_started_at": null },
+    "penalties": [
+      { "driver_id": "A", "penalty_points": 5, "created_at": "2026-01-10T20:00:00Z" },
+      { "driver_id": "A", "penalty_points": 4, "created_at": "2026-01-24T20:00:00Z" },
+      { "driver_id": "A", "penalty_points": 3, "created_at": "2026-02-07T20:00:00Z" },
+      { "driver_id": "A", "penalty_points": 2, "created_at": "2026-02-21T20:00:00Z" }
+    ],
+    "events": []
+  },
+  "expected": { "penalty_points": 4, "on_probation": true, "probation_started_at": "2026-02-07" }
+}

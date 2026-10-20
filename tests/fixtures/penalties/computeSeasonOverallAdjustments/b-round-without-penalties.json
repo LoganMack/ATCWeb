@@ -1,0 +1,20 @@
+{
+  "description": "Only the penalised round produces an adjustment: B loses 4 in round 100 (95 - 4 = 91); round 300 has no penalties and gets none.",
+  "rule_ref": "penalties.ts computeSeasonOverallAdjustments (only touched triples are returned)",
+  "input": {
+    "format": "sprint",
+    "rules": null,
+    "rows": [
+      { "subsession_id": 100, "driver_id": "A", "class_id": 2, "scored_position": 1, "finish_position": 1, "finish_points": 100 },
+      { "subsession_id": 100, "driver_id": "B", "class_id": 2, "scored_position": 2, "finish_position": 2, "finish_points": 95 },
+      { "subsession_id": 300, "driver_id": "A", "class_id": 2, "scored_position": 1, "finish_position": 1, "finish_points": 100 },
+      { "subsession_id": 300, "driver_id": "B", "class_id": 2, "scored_position": 2, "finish_position": 2, "finish_points": 95 }
+    ],
+    "penalties": [{ "subsession_id": 100, "driver_id": "B", "race_number": 1, "points_penalty": 4 }]
+  },
+  "expected": {
+    "adjustments": {
+      "100:1:B": { "newPosition": 2, "finishPoints": 95, "pointsDeduction": -4, "overallTotalPoints": 91 }
+    }
+  }
+}

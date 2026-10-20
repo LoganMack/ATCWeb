@@ -1,0 +1,21 @@
+{
+  "description": "A 5 s penalty on Gamma winner G1 (Alpha A1 2.0 s back, Gamma G2 4.0 s back) drops G1 to 3rd overall: A1 moves up to 1st (100), G2 to 2nd (95), G1 is repriced at P3 (90).",
+  "rule_ref": "rulebook 18.3.1/18.3.2 and Table: Points System (sprint); penalties.ts computeSeasonOverallAdjustments (cross-class pass)",
+  "input": {
+    "format": "sprint",
+    "rules": null,
+    "rows": [
+      { "subsession_id": 100, "driver_id": "G1", "class_id": 2, "scored_position": 1, "finish_position": 1, "interval_ten_thousandths": 0, "laps_complete": 20, "average_lap_ten_thousandths": 1000000, "finish_points": 100, "class_points": 4 },
+      { "subsession_id": 100, "driver_id": "A1", "class_id": 1, "scored_position": 2, "finish_position": 2, "interval_ten_thousandths": 20000, "laps_complete": 20, "average_lap_ten_thousandths": 1001000, "finish_points": 95 },
+      { "subsession_id": 100, "driver_id": "G2", "class_id": 2, "scored_position": 3, "finish_position": 3, "interval_ten_thousandths": 40000, "laps_complete": 20, "average_lap_ten_thousandths": 1002000, "finish_points": 90, "class_points": 2 }
+    ],
+    "penalties": [{ "subsession_id": 100, "driver_id": "G1", "race_number": 1, "time_penalty_seconds": 5 }]
+  },
+  "expected": {
+    "adjustments": {
+      "100:1:G1": { "newPosition": 3, "finishPoints": 90, "pointsDeduction": 0, "overallTotalPoints": 90 },
+      "100:1:A1": { "newPosition": 1, "finishPoints": 100, "pointsDeduction": 0, "overallTotalPoints": 100 },
+      "100:1:G2": { "newPosition": 2, "finishPoints": 95, "pointsDeduction": 0, "overallTotalPoints": 95 }
+    }
+  }
+}

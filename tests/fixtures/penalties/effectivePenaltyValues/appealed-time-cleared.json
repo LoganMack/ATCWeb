@@ -1,0 +1,17 @@
+{
+  "description": "An appeal with no time penalty recorded (null) leaves no time penalty in effect.",
+  "rule_ref": "penalties.ts effectiveTimePenaltySeconds",
+  "input": {
+    "penalty": {
+      "driver_id": "A",
+      "time_penalty_seconds": 10,
+      "points_penalty": 0,
+      "penalty_points": 1,
+      "is_appealed": true,
+      "appeal_time_penalty_seconds": null,
+      "appeal_points_penalty": 0,
+      "appeal_penalty_points": 1
+    }
+  },
+  "expected": { "time_penalty_seconds": null, "points_penalty": 0, "penalty_points": 1 }
+}

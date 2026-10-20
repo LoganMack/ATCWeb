@@ -1,0 +1,12 @@
+{
+  "description": "Two of three penalties are warnings.",
+  "rule_ref": "penalties.ts countWarnings (offense '2 warnings' escalates to +1 PP, so stewards need the count)",
+  "input": {
+    "penalties": [
+      { "driver_id": "A", "is_warning": true },
+      { "driver_id": "A", "is_warning": false, "penalty_points": 2 },
+      { "driver_id": "A", "is_warning": true }
+    ]
+  },
+  "expected": { "warnings": 2 }
+}

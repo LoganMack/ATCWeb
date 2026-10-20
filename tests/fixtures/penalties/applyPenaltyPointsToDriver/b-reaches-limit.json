@@ -1,0 +1,15 @@
+{
+  "description": "8 PP plus 3 PP reaches the 11 PP limit: the tally resets to 0 and probation starts today.",
+  "rule_ref": "rules 57-59 (reaching the limit resets PP and starts probation); penalties.ts applyPenaltyPointsToDriver",
+  "input": {
+    "driver": { "penalty_points": 8, "penalty_points_max": 11, "on_probation": false, "probation_started_at": null },
+    "awarded_points": 3,
+    "is_currently_on_probation": false,
+    "today": "2026-03-10T21:00:00Z"
+  },
+  "expected": {
+    "state": { "penalty_points": 0, "penalty_points_max": 11, "on_probation": true, "probation_started_at": "2026-03-10" },
+    "hitLimit": true,
+    "repeatDuringProbation": false
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "description": "A round with only a warning (0 PP) leaves the tally at 3 before and after, with nothing earned.",
+  "rule_ref": "penalties.ts computeRoundPPSummary",
+  "input": {
+    "driver": { "penalty_points_max": 11, "on_probation": false, "probation_started_at": null },
+    "earlier_penalties": [{ "driver_id": "A", "penalty_points": 3, "created_at": "2026-01-10T20:00:00Z" }],
+    "round_penalties": [{ "driver_id": "A", "is_warning": true, "penalty_points": 0, "created_at": "2026-01-24T20:00:00Z" }],
+    "events": []
+  },
+  "expected": { "before": 3, "after": 3, "earned": 0, "doubled": false, "hitLimit": false }
+}

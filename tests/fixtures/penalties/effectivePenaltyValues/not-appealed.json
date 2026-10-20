@@ -1,0 +1,17 @@
+{
+  "description": "A penalty that is not appealed applies its original time, points and PP, even if appeal values are filled in.",
+  "rule_ref": "penalties.ts APPEALS header and effective* helpers",
+  "input": {
+    "penalty": {
+      "driver_id": "A",
+      "time_penalty_seconds": 5,
+      "points_penalty": 3,
+      "penalty_points": 2,
+      "is_appealed": false,
+      "appeal_time_penalty_seconds": 1,
+      "appeal_points_penalty": 1,
+      "appeal_penalty_points": 1
+    }
+  },
+  "expected": { "time_penalty_seconds": 5, "points_penalty": 3, "penalty_points": 2 }
+}
