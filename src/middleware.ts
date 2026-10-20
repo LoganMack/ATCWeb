@@ -96,7 +96,10 @@ function normalisePath(pathname: string): string | null {
   } catch {
     return null;
   }
-  p = p.replace(/\\/g, '/').replace(/\/{2,}/g, '/').toLowerCase();
+  p = p
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .toLowerCase();
   if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
   return p;
 }
@@ -113,7 +116,8 @@ const SECURITY_HEADERS: Record<string, string> = {
   'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   // microphone=(self): the results page's Record Interview button needs getUserMedia on this origin.
-  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=(), interest-cohort=()',
+  'Permissions-Policy':
+    'camera=(), microphone=(self), geolocation=(), payment=(), usb=(), interest-cohort=()',
   'Strict-Transport-Security': 'max-age=31536000',
   'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
 };
@@ -139,7 +143,10 @@ let latestRoundMemo: { subsessionId: number | null; expiresAt: number } | null =
 async function latestRoundSubsessionId(env: SupabaseEnv): Promise<number | null> {
   const now = Date.now();
   if (latestRoundMemo && latestRoundMemo.expiresAt > now) return latestRoundMemo.subsessionId;
-  const latest = await restGet<{ subsession_id: number }[]>(env, 'curated_rounds?select=subsession_id&order=start_time.desc&limit=1');
+  const latest = await restGet<{ subsession_id: number }[]>(
+    env,
+    'curated_rounds?select=subsession_id&order=start_time.desc&limit=1',
+  );
   latestRoundMemo = { subsessionId: latest[0]?.subsession_id ?? null, expiresAt: now + LATEST_ROUND_TTL_MS };
   return latestRoundMemo.subsessionId;
 }
@@ -250,7 +257,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // request since the footer toggle renders on every page. Independent of the
   // /admin gate below, which stays keyed on the REAL role.
   context.locals.isRealAdmin = context.locals.session?.profile?.role === 'admin';
-  context.locals.viewAsVisitor = context.locals.isRealAdmin && context.cookies.get(VIEW_MODE_COOKIE)?.value === 'visitor';
+  context.locals.viewAsVisitor =
+    context.locals.isRealAdmin && context.cookies.get(VIEW_MODE_COOKIE)?.value === 'visitor';
 
   const pathname = context.url.pathname;
   // SECURITY: gate on a NORMALISED path (Astro's router percent-decodes, so
@@ -332,7 +340,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
         } catch (err) {
           console.error('Page view logging failed:', err);
         }
-      })()
+      })(),
     );
   }
 

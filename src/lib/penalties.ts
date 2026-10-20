@@ -51,12 +51,12 @@ export type Format = 'endurance' | 'sprint';
 /** Index 0 = position 1. Position 40 is the last explicit row; anyone classified beyond it gets CLASSIFIED_FALLBACK_POINTS instead (rule 31: "drivers who finish outside the points but above the >50% threshold earn minimum points"). */
 const FINISH_POINTS: Record<Format, number[]> = {
   endurance: [
-    200, 190, 180, 170, 162, 154, 146, 138, 130, 122, 114, 108, 102, 96, 90, 84, 78, 72, 66, 60, 54, 50, 46, 42, 38,
-    34, 32, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6,
+    200, 190, 180, 170, 162, 154, 146, 138, 130, 122, 114, 108, 102, 96, 90, 84, 78, 72, 66, 60, 54, 50, 46,
+    42, 38, 34, 32, 30, 28, 26, 24, 22, 20, 18, 16, 14, 12, 10, 8, 6,
   ],
   sprint: [
-    100, 95, 90, 85, 81, 77, 73, 69, 65, 61, 57, 54, 51, 48, 45, 42, 39, 36, 33, 30, 27, 25, 23, 21, 19, 17, 16, 15,
-    14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3,
+    100, 95, 90, 85, 81, 77, 73, 69, 65, 61, 57, 54, 51, 48, 45, 42, 39, 36, 33, 30, 27, 25, 23, 21, 19, 17,
+    16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3,
   ],
 };
 
@@ -81,7 +81,11 @@ export function finishPointsForPosition(format: Format, position: number): numbe
  * Gamma/Delta's own per-race class-position bonus, see README), so a driver
  * in a non-awarding class always gets 0 here regardless of class position.
  */
-export function classPointsForPosition(format: Format, classPosition: number | null, awardsClassPoints: boolean = true): number {
+export function classPointsForPosition(
+  format: Format,
+  classPosition: number | null,
+  awardsClassPoints: boolean = true,
+): number {
   if (!awardsClassPoints) return 0;
   if (classPosition === null || classPosition < 1 || classPosition > CLASS_POINTS[format].length) return 0;
   return CLASS_POINTS[format][classPosition - 1];
@@ -142,7 +146,12 @@ function toFiniteNumber(v: unknown): number | null {
  * which the caller (finishPointsFromTables/classPointsFromTables) treats as
  * "fall back to the fixed table" rather than throwing.
  */
-export function resolvePointsTables(rules: unknown, format: Format, raceNumber: number, subsessionId: number): RacePointsTables {
+export function resolvePointsTables(
+  rules: unknown,
+  format: Format,
+  raceNumber: number,
+  subsessionId: number,
+): RacePointsTables {
   const r = rules as
     | {
         base_points?: Record<string, unknown>;
@@ -156,7 +165,8 @@ export function resolvePointsTables(rules: unknown, format: Format, raceNumber: 
       }
     | null
     | undefined;
-  if (!r || typeof r !== 'object') return { finishPoints: null, classPoints: null, classifiedMinimumFinishPoints: null };
+  if (!r || typeof r !== 'object')
+    return { finishPoints: null, classPoints: null, classifiedMinimumFinishPoints: null };
 
   const overrideActive =
     Array.isArray(r.race_overrides?.subsession_ids) &&
@@ -190,7 +200,12 @@ function finishPointsFromTables(format: Format, position: number, tables: RacePo
 }
 
 /** Ruleset-aware class-podium points — same fallback story as finishPointsFromTables. */
-function classPointsFromTables(format: Format, classPosition: number | null, awardsClassPoints: boolean, tables: RacePointsTables): number {
+function classPointsFromTables(
+  format: Format,
+  classPosition: number | null,
+  awardsClassPoints: boolean,
+  tables: RacePointsTables,
+): number {
   if (!awardsClassPoints) return 0;
   if (tables.classPoints) {
     if (classPosition === null || classPosition < 1 || classPosition > tables.classPoints.length) return 0;
@@ -280,7 +295,9 @@ export function sharedPenaltyTagLabel(rowPenalties: (PenaltyLike & { is_warning:
   const totalPP = rowPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
   if (totalPP > 0) return `${totalPP}PP`;
   if (rowPenalties.some((p) => p.is_warning)) return 'Warning';
-  const hasTimeOrPointsEffect = rowPenalties.some((p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0);
+  const hasTimeOrPointsEffect = rowPenalties.some(
+    (p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0,
+  );
   return hasTimeOrPointsEffect ? 'Penalty' : 'Racing Incident';
 }
 
@@ -334,13 +351,20 @@ interface RaceDriverPenaltyTotal {
  * it, so every place below that keys a penalty by race for scoring reads
  * this instead of the raw race_number.
  */
-export function scoringRaceNumber(p: { session_type: 'race' | 'qualifying' | 'practice'; race_number: number }): number {
+export function scoringRaceNumber(p: {
+  session_type: 'race' | 'qualifying' | 'practice';
+  race_number: number;
+}): number {
   return p.session_type === 'race' ? p.race_number : 1;
 }
 
 /** Sums every penalty logged against each (race, driver) pair in this round — a driver can accumulate more than one penalty for the same race, and their effects stack. Uses each penalty's effective (appeal-aware) time/points, keyed by scoringRaceNumber (above) rather than the raw race_number, so a qualifying/practice penalty's time/points correctly stack onto Race 1 alongside anything logged directly against Race 1. A Racing Incident entry (driver_id null — see supabase.ts's Penalty.driver_id) collapses into one harmless `"${raceNumber}:null"` bucket that no real driver's id can ever match, so it's never looked up — a no-fault entry simply can't apply to anyone. */
 export function sumPenaltiesByRaceDriver(
-  penalties: (PenaltyLike & { race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[]
+  penalties: (PenaltyLike & {
+    race_number: number;
+    driver_id: string | null;
+    session_type: 'race' | 'qualifying' | 'practice';
+  })[],
 ): Map<string, RaceDriverPenaltyTotal> {
   const out = new Map<string, RaceDriverPenaltyTotal>();
   for (const p of penalties) {
@@ -403,7 +427,7 @@ export function reorderByTimePenalty(
   rows: Positionable[],
   raceNumber: number,
   penaltyByRaceDriver: Map<string, RaceDriverPenaltyTotal>,
-  leader: LeaderRaceStats
+  leader: LeaderRaceStats,
 ): Map<string, RankedPosition> {
   const ranked = rows.filter((r) => r.position !== null);
 
@@ -426,26 +450,53 @@ export function reorderByTimePenalty(
 
   const keys: SortKey[] = ranked.map((r) => {
     const originalPosition = r.position as number;
-    const timePenaltyTenThousandths = (penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`)?.time ?? 0) * 10000;
+    const timePenaltyTenThousandths =
+      (penaltyByRaceDriver.get(`${raceNumber}:${r.driverId}`)?.time ?? 0) * 10000;
     const touched = timePenaltyTenThousandths !== 0;
     const lapsDownBefore =
       r.lapsComplete !== null && leader.lapsComplete !== null && leader.lapsComplete > r.lapsComplete
         ? leader.lapsComplete - r.lapsComplete
         : 0;
-    const onLeadLapBefore = lapsDownBefore === 0 && r.intervalTenThousandths !== null && r.intervalTenThousandths >= 0;
+    const onLeadLapBefore =
+      lapsDownBefore === 0 && r.intervalTenThousandths !== null && r.intervalTenThousandths >= 0;
 
     if (onLeadLapBefore) {
       if (!touched) {
         // Untouched lead-lap driver — keep the pipeline's own exact interval.
-        return { driverId: r.driverId, lapsDown: 0, lapsDownBefore, gap: r.intervalTenThousandths, touched, originalPosition };
+        return {
+          driverId: r.driverId,
+          lapsDown: 0,
+          lapsDownBefore,
+          gap: r.intervalTenThousandths,
+          touched,
+          originalPosition,
+        };
       }
       // Exact: real interval + a real penalty, no averaging involved.
       const newInterval = (r.intervalTenThousandths as number) + timePenaltyTenThousandths;
-      if (leader.averageLapTenThousandths !== null && leader.averageLapTenThousandths > 0 && newInterval > leader.averageLapTenThousandths) {
+      if (
+        leader.averageLapTenThousandths !== null &&
+        leader.averageLapTenThousandths > 0 &&
+        newInterval > leader.averageLapTenThousandths
+      ) {
         const lapsDown = Math.floor(newInterval / leader.averageLapTenThousandths);
-        return { driverId: r.driverId, lapsDown, lapsDownBefore, gap: newInterval - lapsDown * leader.averageLapTenThousandths, touched, originalPosition };
+        return {
+          driverId: r.driverId,
+          lapsDown,
+          lapsDownBefore,
+          gap: newInterval - lapsDown * leader.averageLapTenThousandths,
+          touched,
+          originalPosition,
+        };
       }
-      return { driverId: r.driverId, lapsDown: 0, lapsDownBefore, gap: newInterval, touched, originalPosition };
+      return {
+        driverId: r.driverId,
+        lapsDown: 0,
+        lapsDownBefore,
+        gap: newInterval,
+        touched,
+        originalPosition,
+      };
     }
 
     // Already laps down (before this penalty, or after — doesn't matter
@@ -484,7 +535,14 @@ export function reorderByTimePenalty(
     // so this row keeps its pre-penalty laps-down bucket (the penalty's
     // POINTS effect, if any, still applies via recomputeRow — only the
     // re-ranking is skipped here for lack of data to rank it by).
-    return { driverId: r.driverId, lapsDown: lapsDownBefore, lapsDownBefore, gap: null, touched, originalPosition };
+    return {
+      driverId: r.driverId,
+      lapsDown: lapsDownBefore,
+      lapsDownBefore,
+      gap: null,
+      touched,
+      originalPosition,
+    };
   });
 
   // Re-zero the lead-lap group's gap against whoever actually has the
@@ -527,7 +585,12 @@ export function reorderByTimePenalty(
 
   const out = new Map<string, RankedPosition>();
   keys.forEach((k, i) =>
-    out.set(k.driverId, { position: i + 1, lapsDown: k.lapsDown, lapsDownBefore: k.lapsDownBefore, gapTenThousandths: k.gap })
+    out.set(k.driverId, {
+      position: i + 1,
+      lapsDown: k.lapsDown,
+      lapsDownBefore: k.lapsDownBefore,
+      gapTenThousandths: k.gap,
+    }),
   );
   return out;
 }
@@ -582,7 +645,7 @@ function recomputeScorePoints(
   /** Whether this driver's class awards the top-3-in-class Class Points bonus at all — false for Alpha, see classPointsForPosition. */
   awardsClassPoints: boolean,
   /** This race's actual points tables (see resolvePointsTables) — pricing a repositioned driver's new finish/class points off these instead of the fixed FINISH_POINTS/CLASS_POINTS tables whenever the season's ruleset resolves one. */
-  pointsTables: RacePointsTables
+  pointsTables: RacePointsTables,
 ): RecomputedScore {
   const pen = penaltyByRaceDriver.get(`${raceNumber}:${driverId}`);
   const positionChanged = newPosition !== oldPosition;
@@ -674,7 +737,7 @@ function recomputeRow(
   /** classId -> whether that class awards the top-3-in-class Class Points bonus at all (false for Alpha) — looked up via row.classId, which is always this row's own class whether it came from the byClass loop or the overall loop. */
   classPointsEligibleByClassId: Map<number, boolean>,
   /** This race's actual points tables (see resolvePointsTables) — same for every row in this race regardless of class. */
-  pointsTables: RacePointsTables
+  pointsTables: RacePointsTables,
 ): RaceResultRow {
   const awardsClassPoints = classPointsEligibleByClassId.get(row.classId) ?? true;
   const pen = penaltyByRaceDriver.get(`${raceNumber}:${row.driver.id}`);
@@ -706,7 +769,8 @@ function recomputeRow(
       // nonzero interval (kept inline here rather than importing that
       // function, to avoid a runtime value-level import cycle between this
       // file and results.ts — the two already share type-only imports).
-      margin = overallRanked.gapTenThousandths === 0 ? '—' : (overallRanked.gapTenThousandths / 10000).toFixed(3);
+      margin =
+        overallRanked.gapTenThousandths === 0 ? '—' : (overallRanked.gapTenThousandths / 10000).toFixed(3);
       intervalTenThousandths = overallRanked.gapTenThousandths;
     }
   }
@@ -784,7 +848,7 @@ function recomputeRow(
     format,
     penaltyByRaceDriver,
     awardsClassPoints,
-    pointsTables
+    pointsTables,
   );
 
   return {
@@ -826,7 +890,11 @@ function recomputeRow(
  */
 export function applyPenaltiesToRoundResults(
   results: RoundResults,
-  penalties: (PenaltyLike & { race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[],
+  penalties: (PenaltyLike & {
+    race_number: number;
+    driver_id: string | null;
+    session_type: 'race' | 'qualifying' | 'practice';
+  })[],
   format: Format | null,
   /** classId -> whether that class awards the top-3-in-class Class Points bonus at all (false for Alpha) — see recomputeRow. A class missing from this map is treated as awarding it, matching every class besides Alpha. */
   classPointsEligibleByClassId: Map<number, boolean> = new Map(),
@@ -841,7 +909,7 @@ export function applyPenaltiesToRoundResults(
    */
   rules: unknown = null,
   /** This round's subsession_id — only consulted for `rules`' own `race_overrides.subsession_ids` escape hatch (see resolvePointsTables). Unused (and harmless to omit) when `rules` is null. */
-  subsessionId: number | null = null
+  subsessionId: number | null = null,
 ): RoundResults {
   if (penalties.length === 0) return results;
   const penaltyByRaceDriver = sumPenaltiesByRaceDriver(penalties);
@@ -852,7 +920,9 @@ export function applyPenaltiesToRoundResults(
   ]);
 
   const newOverall = new Map(results.overall);
-  const newByClass = new Map([...results.byClass].map(([classId, byRace]) => [classId, new Map(byRace)] as const));
+  const newByClass = new Map(
+    [...results.byClass].map(([classId, byRace]) => [classId, new Map(byRace)] as const),
+  );
 
   const toPositionable = (rows: RaceResultRow[]): Positionable[] =>
     rows.map((r) => ({
@@ -879,7 +949,12 @@ export function applyPenaltiesToRoundResults(
       averageLapTenThousandths: leaderRow?.averageLapTenThousandths ?? null,
     };
 
-    const newOverallRanked = reorderByTimePenalty(toPositionable(overallRows), raceNumber, penaltyByRaceDriver, leader);
+    const newOverallRanked = reorderByTimePenalty(
+      toPositionable(overallRows),
+      raceNumber,
+      penaltyByRaceDriver,
+      leader,
+    );
 
     // Same table for every row in this race regardless of class — resolved
     // once per race rather than per driver (see resolvePointsTables).
@@ -901,13 +976,19 @@ export function applyPenaltiesToRoundResults(
     for (const [classId, byRace] of results.byClass) {
       const classRows = byRace.get(raceNumber);
       if (!classRows) continue;
-      const newPositions = reorderByTimePenalty(toPositionable(classRows), raceNumber, penaltyByRaceDriver, leader);
+      const newPositions = reorderByTimePenalty(
+        toPositionable(classRows),
+        raceNumber,
+        penaltyByRaceDriver,
+        leader,
+      );
       positionsByClassId.set(classId, newPositions);
       for (const [driverId, ranked] of newPositions) newClassPositionByDriver.set(driverId, ranked.position);
       // `results` (as opposed to newByClass) still holds each row exactly
       // as getRoundResults() produced it — its own `position` field IS that
       // driver's original class position, for a class-view row.
-      for (const row of classRows) if (row.position !== null) originalClassPositionByDriver.set(row.driver.id, row.position);
+      for (const row of classRows)
+        if (row.position !== null) originalClassPositionByDriver.set(row.driver.id, row.position);
 
       // A second, display-only reorder for this class, measured against the
       // class's OWN leader (its pre-penalty position-1 row) instead of the
@@ -922,7 +1003,10 @@ export function applyPenaltiesToRoundResults(
         lapsComplete: classLeaderRow?.laps ?? null,
         averageLapTenThousandths: classLeaderRow?.averageLapTenThousandths ?? null,
       };
-      marginRankedByClassId.set(classId, reorderByTimePenalty(toPositionable(classRows), raceNumber, penaltyByRaceDriver, classLeader));
+      marginRankedByClassId.set(
+        classId,
+        reorderByTimePenalty(toPositionable(classRows), raceNumber, penaltyByRaceDriver, classLeader),
+      );
     }
 
     // Pass 2: write back recomputed rows for both views. The Overall view's
@@ -948,9 +1032,9 @@ export function applyPenaltiesToRoundResults(
             penaltyByRaceDriver,
             marginRanked.get(row.driver.id),
             classPointsEligibleByClassId,
-            pointsTables
-          )
-        )
+            pointsTables,
+          ),
+        ),
       );
     }
 
@@ -967,9 +1051,9 @@ export function applyPenaltiesToRoundResults(
           penaltyByRaceDriver,
           newOverallRanked.get(row.driver.id),
           classPointsEligibleByClassId,
-          pointsTables
-        )
-      )
+          pointsTables,
+        ),
+      ),
     );
   }
 
@@ -1028,22 +1112,36 @@ export interface SeasonOverallAdjustment {
  */
 export function computeSeasonOverallAdjustments(
   rows: SeasonScoreRow[],
-  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[],
+  penalties: (PenaltyLike & {
+    subsession_id: number;
+    race_number: number;
+    driver_id: string | null;
+    session_type: 'race' | 'qualifying' | 'practice';
+  })[],
   formatBySubsession: Map<number, Format | null>,
   /** This round's season's scoring_rulesets.rules, keyed by subsession_id — same shape as formatBySubsession, since a career-spanning caller (getDriverRaceHistory) can touch many seasons' worth of subsessions in one call, each potentially on a different ruleset. See resolvePointsTables/finishPointsFromTables above for why this matters: without it, a repositioned driver's new finishPoints was priced off the fixed FINISH_POINTS table instead of the season's actual (often very different) configured table. */
-  rulesBySubsession: Map<number, unknown>
+  rulesBySubsession: Map<number, unknown>,
 ): Map<string, SeasonOverallAdjustment> {
   const out = new Map<string, SeasonOverallAdjustment>();
   if (penalties.length === 0) return out;
 
   const raceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
-  const rowKey = (subsessionId: number, raceNumber: number, driverId: string) => `${subsessionId}:${raceNumber}:${driverId}`;
+  const rowKey = (subsessionId: number, raceNumber: number, driverId: string) =>
+    `${subsessionId}:${raceNumber}:${driverId}`;
 
   // Grouped by scoringRaceNumber (not the raw race_number) so a
   // qualifying/practice penalty (stored with the race_number sentinel 0)
   // lands in Race 1's bucket, same as a penalty logged directly against
   // Race 1 — see scoringRaceNumber's own doc comment above.
-  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[]>();
+  const penaltiesByRace = new Map<
+    string,
+    (PenaltyLike & {
+      subsession_id: number;
+      race_number: number;
+      driver_id: string | null;
+      session_type: 'race' | 'qualifying' | 'practice';
+    })[]
+  >();
   for (const p of penalties) {
     const key = raceKey(p.subsession_id, scoringRaceNumber(p));
     if (!penaltiesByRace.has(key)) penaltiesByRace.set(key, []);
@@ -1072,7 +1170,7 @@ export function computeSeasonOverallAdjustments(
     // reorderByTimePenalty's map key is scoped by raceNumber alone — safe
     // here because we only ever hand it this one race's own group/penalties.
     const penaltyByRaceDriver = sumPenaltiesByRaceDriver(
-      racePenalties.map((p) => ({ ...p, race_number: raceNumber }))
+      racePenalties.map((p) => ({ ...p, race_number: raceNumber })),
     );
     // Only actually reorder this group if one of ITS OWN drivers has a
     // penalty — `racePenalties` can be nonempty just because some OTHER
@@ -1116,7 +1214,8 @@ export function computeSeasonOverallAdjustments(
           ? finishPointsFromTables(format as Format, newPosition, pointsTables)
           : r.finishPoints;
       const pointsDeduction = r.pointsDeduction - (pen?.points ?? 0);
-      const overallTotalPoints = finishPoints + r.finesseBonus + r.poleBonus + r.aggressionBonus + pointsDeduction;
+      const overallTotalPoints =
+        finishPoints + r.finesseBonus + r.poleBonus + r.aggressionBonus + pointsDeduction;
 
       out.set(rowKey(r.subsessionId, r.raceNumber, r.driverId), {
         newPosition: canReposition ? newPosition : r.scoredPosition,
@@ -1173,7 +1272,12 @@ export interface SeasonClassAdjustment {
  */
 export function computeSeasonClassAdjustments(
   rows: SeasonClassScoreRow[],
-  penalties: (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[],
+  penalties: (PenaltyLike & {
+    subsession_id: number;
+    race_number: number;
+    driver_id: string | null;
+    session_type: 'race' | 'qualifying' | 'practice';
+  })[],
   formatBySubsession: Map<number, Format | null>,
   overallAdjustments: Map<string, SeasonOverallAdjustment>,
   /**
@@ -1190,18 +1294,27 @@ export function computeSeasonClassAdjustments(
   /** Whether THIS class (every row here is already filtered to one class — see this function's own doc comment) awards the top-3-in-class Class Points bonus at all — false for Alpha. */
   awardsClassPoints: boolean,
   /** Same as computeSeasonOverallAdjustments' own `rulesBySubsession` param — see that function's doc comment. */
-  rulesBySubsession: Map<number, unknown>
+  rulesBySubsession: Map<number, unknown>,
 ): Map<string, SeasonClassAdjustment> {
   const out = new Map<string, SeasonClassAdjustment>();
   if (penalties.length === 0) return out;
 
   const raceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
-  const rowKey = (subsessionId: number, raceNumber: number, driverId: string) => `${subsessionId}:${raceNumber}:${driverId}`;
+  const rowKey = (subsessionId: number, raceNumber: number, driverId: string) =>
+    `${subsessionId}:${raceNumber}:${driverId}`;
 
   // Same scoringRaceNumber grouping as computeSeasonOverallAdjustments above
   // — a qualifying/practice penalty lands in Race 1's bucket for this class
   // pass too.
-  const penaltiesByRace = new Map<string, (PenaltyLike & { subsession_id: number; race_number: number; driver_id: string | null; session_type: 'race' | 'qualifying' | 'practice' })[]>();
+  const penaltiesByRace = new Map<
+    string,
+    (PenaltyLike & {
+      subsession_id: number;
+      race_number: number;
+      driver_id: string | null;
+      session_type: 'race' | 'qualifying' | 'practice';
+    })[]
+  >();
   for (const p of penalties) {
     const key = raceKey(p.subsession_id, scoringRaceNumber(p));
     if (!penaltiesByRace.has(key)) penaltiesByRace.set(key, []);
@@ -1228,14 +1341,17 @@ export function computeSeasonClassAdjustments(
         ? resolvePointsTables(rules, format, raceNumber, subsessionId)
         : { finishPoints: null, classPoints: null, classifiedMinimumFinishPoints: null };
     const penaltyByRaceDriver = sumPenaltiesByRaceDriver(
-      racePenalties.map((p) => ({ ...p, race_number: raceNumber }))
+      racePenalties.map((p) => ({ ...p, race_number: raceNumber })),
     );
     // Same reasoning as computeSeasonOverallAdjustments: only reorder this
     // class's group if one of ITS OWN drivers was actually penalized.
     const touched = group.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driverId}`));
     if (!touched) continue;
 
-    const leader: LeaderRaceStats = leaderStatsByRace.get(key) ?? { lapsComplete: null, averageLapTenThousandths: null };
+    const leader: LeaderRaceStats = leaderStatsByRace.get(key) ?? {
+      lapsComplete: null,
+      averageLapTenThousandths: null,
+    };
 
     const positionable: Positionable[] = group
       .filter((r) => !r.dsq && r.classPosition !== null)
@@ -1331,7 +1447,7 @@ export function isOnProbationNow(
   events: { event_date: string }[],
   today: Date = new Date(),
   probationDays: number = 45,
-  probationRounds: number = 4
+  probationRounds: number = 4,
 ): boolean {
   if (!driver.on_probation || !driver.probation_started_at) return false;
   const start = new Date(`${driver.probation_started_at}T00:00:00`);
@@ -1343,7 +1459,9 @@ export function isOnProbationNow(
   if (daysElapsed < probationDays) return true;
 
   const todayStr = today.toISOString().slice(0, 10);
-  const roundsElapsed = events.filter((e) => e.event_date > driver.probation_started_at! && e.event_date <= todayStr).length;
+  const roundsElapsed = events.filter(
+    (e) => e.event_date > driver.probation_started_at! && e.event_date <= todayStr,
+  ).length;
   return roundsElapsed < probationRounds;
 }
 
@@ -1366,7 +1484,7 @@ export function applyPenaltyPointsToDriver(
   driver: DriverPPState,
   awardedPoints: number,
   isCurrentlyOnProbation: boolean,
-  today: Date = new Date()
+  today: Date = new Date(),
 ): ApplyPPResult {
   if (awardedPoints <= 0) return { state: driver, hitLimit: false, repeatDuringProbation: false };
 
@@ -1430,7 +1548,7 @@ export interface SeasonPPState {
 export function computeSeasonPPState(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },
   penalties: (PenaltyLike & { created_at: string })[],
-  events: { event_date: string }[]
+  events: { event_date: string }[],
 ): SeasonPPState {
   return replaySeasonPP(driver, probationSeed(driver, penalties, events), penalties, events);
 }
@@ -1450,11 +1568,16 @@ type ProbationSeed = { on_probation: boolean; probation_started_at: string | nul
 function probationSeed(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },
   penalties: (PenaltyLike & { created_at: string })[],
-  events: { event_date: string }[]
+  events: { event_date: string }[],
 ): ProbationSeed {
   const stored = { on_probation: driver.on_probation, probation_started_at: driver.probation_started_at };
   if (!stored.on_probation || !stored.probation_started_at) return stored;
-  const unseeded = replaySeasonPP(driver, { on_probation: false, probation_started_at: null }, penalties, events);
+  const unseeded = replaySeasonPP(
+    driver,
+    { on_probation: false, probation_started_at: null },
+    penalties,
+    events,
+  );
   return unseeded.on_probation && unseeded.probation_started_at === stored.probation_started_at
     ? { on_probation: false, probation_started_at: null }
     : stored;
@@ -1464,11 +1587,13 @@ function replaySeasonPP(
   driver: { penalty_points_max: number },
   seed: ProbationSeed,
   penalties: (PenaltyLike & { created_at: string })[],
-  events: { event_date: string }[]
+  events: { event_date: string }[],
 ): SeasonPPState {
   let state: DriverPPState = { penalty_points: 0, penalty_points_max: driver.penalty_points_max, ...seed };
 
-  const sorted = [...penalties].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const sorted = [...penalties].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
   for (const p of sorted) {
     const awarded = effectivePenaltyPoints(p);
     if (awarded <= 0) continue;
@@ -1477,7 +1602,11 @@ function replaySeasonPP(
     state = applyPenaltyPointsToDriver(state, awarded, wasOnProbation, asOf).state;
   }
 
-  return { penalty_points: state.penalty_points, on_probation: state.on_probation, probation_started_at: state.probation_started_at };
+  return {
+    penalty_points: state.penalty_points,
+    on_probation: state.on_probation,
+    probation_started_at: state.probation_started_at,
+  };
 }
 
 export interface RoundPPSummary {
@@ -1508,7 +1637,7 @@ export function computeRoundPPSummary(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },
   earlierPenalties: (PenaltyLike & { created_at: string })[],
   roundPenalties: (PenaltyLike & { created_at: string })[],
-  events: { event_date: string }[]
+  events: { event_date: string }[],
 ): RoundPPSummary {
   // Seed from the season so far (this round included), so a probation this
   // round triggered isn't also seeded into the replay before it.
@@ -1519,7 +1648,9 @@ export function computeRoundPPSummary(
   let doubled = false;
   let hitLimit = false;
 
-  const sorted = [...roundPenalties].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const sorted = [...roundPenalties].sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
   for (const p of sorted) {
     const awarded = effectivePenaltyPoints(p);
     if (awarded <= 0) continue;

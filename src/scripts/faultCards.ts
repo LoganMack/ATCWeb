@@ -83,7 +83,10 @@ export function initFaultPicker(root: HTMLElement): FaultPicker {
   });
 
   return {
-    selected: () => driverBoxes().filter((b) => b.checked).map((b) => b.value),
+    selected: () =>
+      driverBoxes()
+        .filter((b) => b.checked)
+        .map((b) => b.value),
     isRacingIncident: () => racingIncident.checked,
     clear() {
       racingIncident.checked = false;
@@ -115,8 +118,11 @@ export function initFaultPicker(root: HTMLElement): FaultPicker {
 
 /** Sets a card field by its name prefix (the part before `:<driver id>`). Checkbox groups take an array. */
 export function setCardField(card: HTMLElement, prefix: string, value: string | string[]) {
-  card.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name^="${prefix}:"]`).forEach((el) => {
-    if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = Array.isArray(value) && value.includes(el.value);
-    else el.value = Array.isArray(value) ? (value[0] ?? '') : value;
-  });
+  card
+    .querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name^="${prefix}:"]`)
+    .forEach((el) => {
+      if (el instanceof HTMLInputElement && el.type === 'checkbox')
+        el.checked = Array.isArray(value) && value.includes(el.value);
+      else el.value = Array.isArray(value) ? (value[0] ?? '') : value;
+    });
 }

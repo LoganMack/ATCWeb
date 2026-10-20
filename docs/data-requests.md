@@ -54,11 +54,11 @@ Race results (`curated_*_results`, `race_scores`) and penalties are league recor
 
 Storage files belonging to them:
 
-| Bucket | Where their files are |
-|---|---|
-| `photos` | `driver-avatars/<driver_id>/…` (their own profile photos); admin-uploaded photos are listed in `drivers.photo_url` |
-| `race-interviews` | `<driver_id>/<subsession_id>.<ext>` (and older clips at the paths in `race_interviews.audio_path`) |
-| `incident-appeals` | `<user_id>/<appeal id>/…`, also listed in `incident_appeals.files` |
+| Bucket             | Where their files are                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `photos`           | `driver-avatars/<driver_id>/…` (their own profile photos); admin-uploaded photos are listed in `drivers.photo_url` |
+| `race-interviews`  | `<driver_id>/<subsession_id>.<ext>` (and older clips at the paths in `race_interviews.audio_path`)                 |
+| `incident-appeals` | `<user_id>/<appeal id>/…`, also listed in `incident_appeals.files`                                                 |
 
 Download them from the Supabase dashboard (Storage) and include them in the export.
 

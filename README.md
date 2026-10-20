@@ -23,18 +23,18 @@ Built with [Astro](https://astro.build), [Tailwind CSS](https://tailwindcss.com)
 
 ### Public site
 
-| Area | What it provides |
-| --- | --- |
-| Home | Next event, latest news and league links |
-| News | Articles, including auto-generated race recaps |
-| Roster and driver profiles | Teams, drivers, per-driver career pages |
-| Calendar | Upcoming and past events with local-time display and add-to-calendar |
-| Race results | Race, qualifying and practice results with penalties, best laps and expandable rows |
-| Incident reports | Per-race incident list with a detail view and appeal submission |
-| Standings | List, Matrix and Graph views; Season, Championship and Class filters; a "Standings by Round" slider; team standings |
-| Champions, Awards, Hall of Fame | League history and honours |
-| Driver and team stats | Career and season statistics |
-| Circuits and media | Circuit records and layouts, photo galleries |
+| Area                            | What it provides                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Home                            | Next event, latest news and league links                                                                            |
+| News                            | Articles, including auto-generated race recaps                                                                      |
+| Roster and driver profiles      | Teams, drivers, per-driver career pages                                                                             |
+| Calendar                        | Upcoming and past events with local-time display and add-to-calendar                                                |
+| Race results                    | Race, qualifying and practice results with penalties, best laps and expandable rows                                 |
+| Incident reports                | Per-race incident list with a detail view and appeal submission                                                     |
+| Standings                       | List, Matrix and Graph views; Season, Championship and Class filters; a "Standings by Round" slider; team standings |
+| Champions, Awards, Hall of Fame | League history and honours                                                                                          |
+| Driver and team stats           | Career and season statistics                                                                                        |
+| Circuits and media              | Circuit records and layouts, photo galleries                                                                        |
 
 ### Admin portal
 
@@ -79,25 +79,25 @@ See [Database](#database) for the one caveat about the results pipeline tables.
 
 ### Scripts
 
-| Command | Purpose |
-| --- | --- |
-| `npm run dev` | Start the local development server |
-| `npm run build` | Production build into `dist/` |
-| `npm run preview` | Preview the production build locally |
-| `npm run deploy` | Build and deploy with Wrangler |
+| Command                 | Purpose                                                |
+| ----------------------- | ------------------------------------------------------ |
+| `npm run dev`           | Start the local development server                     |
+| `npm run build`         | Production build into `dist/`                          |
+| `npm run preview`       | Preview the production build locally                   |
+| `npm run deploy`        | Build and deploy with Wrangler                         |
 | `npm run generate-seed` | Regenerate roster seed SQL from the roster spreadsheet |
-| `npx astro check` | Type-check `.astro` and `.ts` files |
+| `npx astro check`       | Type-check `.astro` and `.ts` files                    |
 
 ## Configuration
 
 The site reads four runtime variables. All are public values and are safe to commit.
 
-| Variable | Purpose |
-| --- | --- |
-| `PUBLIC_SUPABASE_URL` | Supabase project URL |
-| `PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) key |
-| `PUBLIC_DISCORD_URL` | Discord invite link shown in the menu |
-| `PUBLIC_REDBUBBLE_URL` | Merchandise link shown in the menu |
+| Variable                   | Purpose                               |
+| -------------------------- | ------------------------------------- |
+| `PUBLIC_SUPABASE_URL`      | Supabase project URL                  |
+| `PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) key            |
+| `PUBLIC_DISCORD_URL`       | Discord invite link shown in the menu |
+| `PUBLIC_REDBUBBLE_URL`     | Merchandise link shown in the menu    |
 
 Locally they come from `.env`. In production they come from the `vars` block in `wrangler.jsonc`.
 
@@ -126,16 +126,16 @@ wrangler.jsonc    Cloudflare Workers configuration
 
 Key modules in `src/lib`:
 
-| Module | Responsibility |
-| --- | --- |
-| `supabase.ts` | Fetch-based Supabase client and environment resolution |
-| `auth.ts` | Sessions, roles and display names |
-| `results.ts` | Results, standings and season context |
-| `penalties.ts`, `penaltyActions.ts` | Penalty engine and admin actions |
-| `incidents.ts`, `incidentReports.ts`, `incidentAppeals.ts` | Incident reporting, posting and appeals |
-| `raceResultsImport.ts`, `importTemplates.ts`, `orphanRounds.ts` | Results import and orphaned-round handling |
-| `newsRecap.ts` | Automatic race recap articles |
-| `siteSettings.ts`, `pageBanners.ts`, `activityLog.ts` | Site configuration and auditing |
+| Module                                                          | Responsibility                                         |
+| --------------------------------------------------------------- | ------------------------------------------------------ |
+| `supabase.ts`                                                   | Fetch-based Supabase client and environment resolution |
+| `auth.ts`                                                       | Sessions, roles and display names                      |
+| `results.ts`                                                    | Results, standings and season context                  |
+| `penalties.ts`, `penaltyActions.ts`                             | Penalty engine and admin actions                       |
+| `incidents.ts`, `incidentReports.ts`, `incidentAppeals.ts`      | Incident reporting, posting and appeals                |
+| `raceResultsImport.ts`, `importTemplates.ts`, `orphanRounds.ts` | Results import and orphaned-round handling             |
+| `newsRecap.ts`                                                  | Automatic race recap articles                          |
+| `siteSettings.ts`, `pageBanners.ts`, `activityLog.ts`           | Site configuration and auditing                        |
 
 ## Database
 

@@ -20,7 +20,7 @@ const brand = {
   pink: '#F5426E',
   gold: '#F5C642',
 
-  ink: '#0B0B0E',    // near-black background — not an official brand color, just this site's dark canvas
+  ink: '#0B0B0E', // near-black background — not an official brand color, just this site's dark canvas
 };
 
 /** @type {import('tailwindcss').Config} */

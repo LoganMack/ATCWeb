@@ -18,7 +18,13 @@
  * database.
  */
 
-import { type SupabaseEnv, restGetAll, getPenaltiesForSubsessions, getPenaltyOffenses, getStandingsExcludedRoundIds } from './supabase';
+import {
+  type SupabaseEnv,
+  restGetAll,
+  getPenaltiesForSubsessions,
+  getPenaltyOffenses,
+  getStandingsExcludedRoundIds,
+} from './supabase';
 import { getAllRounds, driversSelect, computeDisplayRoundNumbers, type DriverBasic } from './results';
 import { getPostedSubsessionIds } from './incidentReports';
 import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from './penalties';
@@ -104,43 +110,50 @@ export async function getIncidentsForSubsessions(
   env: SupabaseEnv,
   onlySubsessionIds: number[],
   /** Admin tools (the layout map's pin editor) need incidents from rounds that aren't posted yet; public pages never pass this. */
-  options: { includeUnposted?: boolean } = {}
+  options: { includeUnposted?: boolean } = {},
 ): Promise<IncidentRow[]> {
   if (onlySubsessionIds.length === 0) return [];
   return (await loadIncidents(env, onlySubsessionIds, options.includeUnposted === true)).all;
 }
 
-async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[], includeUnposted = false): Promise<IncidentsData> {
+async function loadIncidents(
+  env: SupabaseEnv,
+  onlySubsessionIds?: number[],
+  includeUnposted = false,
+): Promise<IncidentsData> {
   const rounds = await getAllRounds(env);
   // Round numbers are per season, so they're always worked out from every round; only the penalty fetch narrows down.
   const subsessionIds = onlySubsessionIds ?? rounds.map((r) => r.subsession_id);
 
-  const [allPenalties, postedRoundIds, driversBasic, offenses, excludedRoundIds, raceStartRows] = await Promise.all([
-    getPenaltiesForSubsessions(env, subsessionIds),
-    // Only rounds whose incident report stewards have POSTED (admin >
-    // Incident Reporting, 0092_incident_posting.sql) show up on the public
-    // Incidents page — everything earlier was backfilled as posted.
-    getPostedSubsessionIds(env),
-    // includeAi: true — a penalty could in principle tag an AI-flagged
-    // entrant (an exhibition-only synthetic driver, see DriverBasic's own
-    // doc comment); excluding them here would leave that incident's driver
-    // unresolved (rendered as "—") instead of showing the actual name.
-    driversSelect(env, { includeAi: true }),
-    getPenaltyOffenses(env),
-    getStandingsExcludedRoundIds(env),
-    // Minimal columns straight off race_scores — just enough to count each
-    // driver's distinct (subsession, race_number) starts for the By Driver
-    // table's Inc/Race and Pen/Race columns. Deliberately not routed through
-    // results.ts's standings engine (see this file's header comment).
-    subsessionIds.length === 0 || onlySubsessionIds
-      ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
-      : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
-          env,
-          `race_scores_public?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`
-        ),
-  ]);
+  const [allPenalties, postedRoundIds, driversBasic, offenses, excludedRoundIds, raceStartRows] =
+    await Promise.all([
+      getPenaltiesForSubsessions(env, subsessionIds),
+      // Only rounds whose incident report stewards have POSTED (admin >
+      // Incident Reporting, 0092_incident_posting.sql) show up on the public
+      // Incidents page — everything earlier was backfilled as posted.
+      getPostedSubsessionIds(env),
+      // includeAi: true — a penalty could in principle tag an AI-flagged
+      // entrant (an exhibition-only synthetic driver, see DriverBasic's own
+      // doc comment); excluding them here would leave that incident's driver
+      // unresolved (rendered as "—") instead of showing the actual name.
+      driversSelect(env, { includeAi: true }),
+      getPenaltyOffenses(env),
+      getStandingsExcludedRoundIds(env),
+      // Minimal columns straight off race_scores — just enough to count each
+      // driver's distinct (subsession, race_number) starts for the By Driver
+      // table's Inc/Race and Pen/Race columns. Deliberately not routed through
+      // results.ts's standings engine (see this file's header comment).
+      subsessionIds.length === 0 || onlySubsessionIds
+        ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
+        : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
+            env,
+            `race_scores_public?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`,
+          ),
+    ]);
 
-  const penalties = includeUnposted ? allPenalties : allPenalties.filter((p) => postedRoundIds.has(p.subsession_id));
+  const penalties = includeUnposted
+    ? allPenalties
+    : allPenalties.filter((p) => postedRoundIds.has(p.subsession_id));
 
   const racesStartedByDriver = new Map<string, Set<string>>();
   for (const row of raceStartRows) {
@@ -162,7 +175,8 @@ async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[], inc
   }
   const displayRoundNumbers = new Map<number, number | null>();
   for (const seasonRounds of roundsBySeason.values()) {
-    for (const [id, n] of computeDisplayRoundNumbers(seasonRounds, excludedRoundIds, new Set())) displayRoundNumbers.set(id, n);
+    for (const [id, n] of computeDisplayRoundNumbers(seasonRounds, excludedRoundIds, new Set()))
+      displayRoundNumbers.set(id, n);
   }
 
   const all: IncidentRow[] = [];
@@ -186,7 +200,9 @@ async function loadIncidents(env: SupabaseEnv, onlySubsessionIds?: number[], inc
       incidentNumber: p.incident_number,
       lap: p.lap,
       driver: p.driver_id ? (driverById.get(p.driver_id) ?? null) : null,
-      involvedDrivers: p.involved_driver_ids.map((id) => driverById.get(id)).filter((d): d is DriverBasic => !!d),
+      involvedDrivers: p.involved_driver_ids
+        .map((id) => driverById.get(id))
+        .filter((d): d is DriverBasic => !!d),
       offenseIds: p.offense_ids,
       offenseNames: p.offense_ids.map((id) => offenseById.get(id)?.name ?? '?'),
       penaltyPoints: effectivePenaltyPoints(p),

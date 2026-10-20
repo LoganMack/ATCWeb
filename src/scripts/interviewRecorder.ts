@@ -113,7 +113,11 @@ async function startRecording(dialog: HTMLDialogElement) {
   const p = parts(dialog);
   const maxSeconds = Number(dialog.dataset.maxSeconds) || 60;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-    setStatus(dialog, 'Your browser can’t record audio. Try a recent version of Chrome, Edge, Firefox or Safari.', 'error');
+    setStatus(
+      dialog,
+      'Your browser can’t record audio. Try a recent version of Chrome, Edge, Firefox or Safari.',
+      'error',
+    );
     return;
   }
   discardTake(dialog);
@@ -126,11 +130,23 @@ async function startRecording(dialog: HTMLDialogElement) {
     p.record.disabled = false;
     const name = err instanceof DOMException ? err.name : '';
     if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-      setStatus(dialog, 'No microphone was found. Plug one in or check your system sound settings, then try again.', 'error');
+      setStatus(
+        dialog,
+        'No microphone was found. Plug one in or check your system sound settings, then try again.',
+        'error',
+      );
     } else if (name === 'NotReadableError' || name === 'AbortError') {
-      setStatus(dialog, 'Your microphone is in use by another app or unavailable. Close other apps using it and try again.', 'error');
+      setStatus(
+        dialog,
+        'Your microphone is in use by another app or unavailable. Close other apps using it and try again.',
+        'error',
+      );
     } else {
-      setStatus(dialog, 'Microphone access was blocked. Allow it in your browser’s site settings and try again.', 'error');
+      setStatus(
+        dialog,
+        'Microphone access was blocked. Allow it in your browser’s site settings and try again.',
+        'error',
+      );
     }
     return;
   }
@@ -197,7 +213,10 @@ function stopRecording(dialog: HTMLDialogElement) {
   const maxSeconds = Number(dialog.dataset.maxSeconds) || 60;
   state.recording = false;
   cancelAnimationFrame(state.raf);
-  state.durationSeconds = Math.min(maxSeconds, Math.max(1, Math.round((performance.now() - state.startedAt) / 1000)));
+  state.durationSeconds = Math.min(
+    maxSeconds,
+    Math.max(1, Math.round((performance.now() - state.startedAt) / 1000)),
+  );
   const p = parts(dialog);
   p.record.disabled = true; // re-enabled once the recorder has flushed its last chunk
   try {
@@ -226,14 +245,20 @@ async function submitTake(dialog: HTMLDialogElement) {
     body.set('intent', 'submit-interview');
     body.set('duration', String(state.durationSeconds));
     body.set('audio', new File([state.blob], `interview.${ext}`, { type }));
-    const res = await fetch(dialog.dataset.action ?? '', { method: 'POST', body, headers: { Accept: 'application/json' } });
+    const res = await fetch(dialog.dataset.action ?? '', {
+      method: 'POST',
+      body,
+      headers: { Accept: 'application/json' },
+    });
     const json = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
     if (!res.ok || !json?.ok) throw new Error(json?.error || 'failed');
     discardTake(dialog);
     p.record.disabled = true;
     setStatus(dialog, 'Thanks! Your interview was submitted to the media team.', 'ok');
     // One interview per driver per round: lock the page's microphone button right away.
-    document.querySelectorAll<HTMLButtonElement>('[data-open-interview-dialog]').forEach((b) => (b.disabled = true));
+    document
+      .querySelectorAll<HTMLButtonElement>('[data-open-interview-dialog]')
+      .forEach((b) => (b.disabled = true));
     window.setTimeout(() => {
       if (dialog.open) dialog.close();
     }, 1800);
@@ -241,7 +266,13 @@ async function submitTake(dialog: HTMLDialogElement) {
     state.submitting = false;
     p.submit.disabled = false;
     p.record.disabled = false;
-    setStatus(dialog, err instanceof Error && err.message !== 'failed' ? err.message : 'Couldn’t submit your interview right now. Please try again.', 'error');
+    setStatus(
+      dialog,
+      err instanceof Error && err.message !== 'failed'
+        ? err.message
+        : 'Couldn’t submit your interview right now. Please try again.',
+      'error',
+    );
   }
 }
 
@@ -282,7 +313,7 @@ function initInterviewRecorder() {
       const t = e.target;
       if (t instanceof HTMLDialogElement && t.hasAttribute('data-interview-dialog')) resetDialog(t);
     },
-    true
+    true,
   );
 }
 

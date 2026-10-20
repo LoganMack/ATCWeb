@@ -33,7 +33,12 @@ function toneFor(img: HTMLImageElement): string {
 
       // An opaque rectangle (all four corners solid) is its own background.
       const corner = (x: number, y: number) => data[(y * SAMPLE + x) * 4 + 3]!;
-      const opaqueBox = [corner(0, 0), corner(SAMPLE - 1, 0), corner(0, SAMPLE - 1), corner(SAMPLE - 1, SAMPLE - 1)].every((a) => a > 200);
+      const opaqueBox = [
+        corner(0, 0),
+        corner(SAMPLE - 1, 0),
+        corner(0, SAMPLE - 1),
+        corner(SAMPLE - 1, SAMPLE - 1),
+      ].every((a) => a > 200);
 
       if (!opaqueBox) {
         let visible = 0;
@@ -74,7 +79,7 @@ document.addEventListener(
     const t = e.target;
     if (t instanceof HTMLImageElement && t.hasAttribute('data-contrast-logo')) apply(t);
   },
-  true
+  true,
 );
 
 function sweep() {

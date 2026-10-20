@@ -74,7 +74,7 @@ export function zonedTimeToUtc(dateStr: string, timeStr: string, timeZone: strin
     Number(parts.day),
     hourPart,
     Number(parts.minute),
-    Number(parts.second)
+    Number(parts.second),
   );
 
   // asIfLocalMs is what the guess LOOKS LIKE when read as a `timeZone` wall
@@ -86,7 +86,11 @@ export function zonedTimeToUtc(dateStr: string, timeStr: string, timeZone: strin
 }
 
 /** Same as `zonedTimeToUtc`, returned as an ISO string (or null) — the shape every caller in this app actually wants, to embed in a `data-utc-time` attribute. */
-export function zonedTimeToUtcIso(dateStr: string | null | undefined, timeStr: string | null | undefined, timeZone: string): string | null {
+export function zonedTimeToUtcIso(
+  dateStr: string | null | undefined,
+  timeStr: string | null | undefined,
+  timeZone: string,
+): string | null {
   if (!dateStr || !timeStr) return null;
   const d = zonedTimeToUtc(dateStr, timeStr, timeZone);
   return d ? d.toISOString() : null;

@@ -83,7 +83,8 @@ export const GET: APIRoute = async ({ url }) => {
     let thumb: string | null = null;
     try {
       const t = new URL(String(data.thumbnail_url ?? ''));
-      if (t.protocol === 'https:' && /(^|\.)(staticflickr|flickr)\.com$/i.test(t.hostname)) thumb = t.toString();
+      if (t.protocol === 'https:' && /(^|\.)(staticflickr|flickr)\.com$/i.test(t.hostname))
+        thumb = t.toString();
     } catch {
       thumb = null;
     }

@@ -57,7 +57,11 @@ function components(mask: Uint8Array, width: number, height: number): Comp[] {
   const stack: number[] = [];
   for (let start = 0; start < mask.length; start++) {
     if (!mask[start] || seen[start]) continue;
-    let x0 = width, y0 = height, x1 = 0, y1 = 0, area = 0;
+    let x0 = width,
+      y0 = height,
+      x1 = 0,
+      y1 = 0,
+      area = 0;
     stack.push(start);
     seen[start] = 1;
     while (stack.length) {
@@ -96,7 +100,9 @@ function median(values: number[]): number {
 export function findNumberClusters(mask: Uint8Array, width: number, height: number): Cluster[] {
   const comps = components(mask, width, height);
   // Glyph height = the typical height of the many small shapes (the track line and any big outline are far bigger).
-  const sizes = comps.filter((c) => c.area >= 12 && c.y1 - c.y0 >= 6 && c.y1 - c.y0 <= width * 0.06 && c.x1 - c.x0 <= width * 0.08);
+  const sizes = comps.filter(
+    (c) => c.area >= 12 && c.y1 - c.y0 >= 6 && c.y1 - c.y0 <= width * 0.06 && c.x1 - c.x0 <= width * 0.08,
+  );
   if (sizes.length < 2) return [];
   const glyphH = median(sizes.map((c) => c.y1 - c.y0));
   const glyphs = sizes.filter((c) => c.y1 - c.y0 >= glyphH * 0.35 && c.y1 - c.y0 <= glyphH * 1.7);
@@ -111,10 +117,15 @@ export function findNumberClusters(mask: Uint8Array, width: number, height: numb
     const next: Cluster[] = [];
     while (boxes.length) {
       let b = boxes.pop()!;
-      for (let i = 0; i < boxes.length; ) {
+      for (let i = 0; i < boxes.length;) {
         const c = boxes[i];
         if (b.x0 - gx <= c.x1 && c.x0 - gx <= b.x1 && b.y0 - gy <= c.y1 && c.y0 - gy <= b.y1) {
-          b = { x0: Math.min(b.x0, c.x0), y0: Math.min(b.y0, c.y0), x1: Math.max(b.x1, c.x1), y1: Math.max(b.y1, c.y1) };
+          b = {
+            x0: Math.min(b.x0, c.x0),
+            y0: Math.min(b.y0, c.y0),
+            x1: Math.max(b.x1, c.x1),
+            y1: Math.max(b.y1, c.y1),
+          };
           boxes.splice(i, 1);
           merged = true;
         } else i++;
@@ -196,15 +207,27 @@ export async function readClusters(
   width: number,
   height: number,
   clusters: Cluster[],
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
 ): Promise<DetectedCorner[]> {
   type TesseractApi = {
-    createWorker: (lang: string, oem: number, opts: Record<string, unknown>, config: Record<string, unknown>) => Promise<OcrWorker & { setParameters: (p: Record<string, string>) => Promise<unknown> }>;
+    createWorker: (
+      lang: string,
+      oem: number,
+      opts: Record<string, unknown>,
+      config: Record<string, unknown>,
+    ) => Promise<OcrWorker & { setParameters: (p: Record<string, string>) => Promise<unknown> }>;
   };
   // The ESM build only has a default export (the whole library); fall back to named in case that changes.
-  const imported = (await import(/* @vite-ignore */ TESSERACT_URL)) as TesseractApi & { default?: TesseractApi };
+  const imported = (await import(/* @vite-ignore */ TESSERACT_URL)) as TesseractApi & {
+    default?: TesseractApi;
+  };
   const mod: TesseractApi = imported.default?.createWorker ? imported.default : imported;
-  const worker = await mod.createWorker('eng', 1, { logger: () => undefined }, { load_system_dawg: '0', load_freq_dawg: '0' });
+  const worker = await mod.createWorker(
+    'eng',
+    1,
+    { logger: () => undefined },
+    { load_system_dawg: '0', load_freq_dawg: '0' },
+  );
   try {
     await worker.setParameters({ tessedit_char_whitelist: '0123456789abcd', tessedit_pageseg_mode: '7' });
     const out: DetectedCorner[] = [];
@@ -218,8 +241,8 @@ export async function readClusters(
       if (!valid && text === '' && c.x1 - c.x0 > (c.y1 - c.y0) * 1.5) continue;
       out.push({
         label: valid ? text : null,
-        x: Math.round((((c.x0 + c.x1) / 2) / width) * 10000) / 100,
-        y: Math.round((((c.y0 + c.y1) / 2) / height) * 10000) / 100,
+        x: Math.round(((c.x0 + c.x1) / 2 / width) * 10000) / 100,
+        y: Math.round(((c.y0 + c.y1) / 2 / height) * 10000) / 100,
         uncertain: !valid || text.length !== expectedChars(c),
       });
     }

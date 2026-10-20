@@ -9,7 +9,7 @@
  * (e.g. an "All seasons" row).
  */
 export function seasonOptionAttrs(
-  season: { logo_url?: string | null; logo_url_light?: string | null } | null | undefined
+  season: { logo_url?: string | null; logo_url_light?: string | null } | null | undefined,
 ): Record<string, string> {
   const attrs: Record<string, string> = {};
   if (season?.logo_url) attrs['data-logo'] = season.logo_url;
@@ -18,6 +18,8 @@ export function seasonOptionAttrs(
 }
 
 /** Same, for callers that hold a SeasonLogoPair ({ dark, light }) instead of a Season row. */
-export function logoPairOptionAttrs(pair: { dark: string; light?: string | null } | null | undefined): Record<string, string> {
+export function logoPairOptionAttrs(
+  pair: { dark: string; light?: string | null } | null | undefined,
+): Record<string, string> {
   return seasonOptionAttrs(pair ? { logo_url: pair.dark, logo_url_light: pair.light ?? null } : null);
 }

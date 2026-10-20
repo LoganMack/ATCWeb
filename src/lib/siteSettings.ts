@@ -48,12 +48,18 @@ export const DRIVER_SETTING_DEFAULTS: Record<string, number> = {
 };
 
 /** Looks up one setting's value, or null if unset. */
-export function siteSettingValue(settings: { setting_key: string; value: string | null }[], key: string): string | null {
+export function siteSettingValue(
+  settings: { setting_key: string; value: string | null }[],
+  key: string,
+): string | null {
   return settings.find((s) => s.setting_key === key)?.value ?? null;
 }
 
 /** Same as siteSettingValue, but parsed as a positive integer — falls back to DRIVER_SETTING_DEFAULTS[key] (or 0 if that's also unset) when the stored value is missing, blank, zero, or not a valid number. Zero is treated as invalid rather than "instantly trigger" so it can't be set by accident — same reasoning sync_driver_statuses() (0041_driver_settings.sql) applies on the DB side, kept consistent here. */
-export function siteSettingInt(settings: { setting_key: string; value: string | null }[], key: string): number {
+export function siteSettingInt(
+  settings: { setting_key: string; value: string | null }[],
+  key: string,
+): number {
   const raw = siteSettingValue(settings, key);
   const n = raw === null ? NaN : Number(raw);
   if (!Number.isFinite(n) || n <= 0) return DRIVER_SETTING_DEFAULTS[key] ?? 0;

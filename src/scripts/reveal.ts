@@ -23,7 +23,7 @@ function initReveal() {
         }
       }
     },
-    { threshold: 0.01, rootMargin: '0px 0px 15% 0px' }
+    { threshold: 0.01, rootMargin: '0px 0px 15% 0px' },
   );
 
   els.forEach((el) => observer.observe(el));

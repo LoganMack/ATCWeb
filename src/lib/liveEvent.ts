@@ -133,7 +133,10 @@ export async function getLiveBannerInfo(env: SupabaseEnv): Promise<LiveBannerInf
       try {
         bestLapSeconds = await getLayoutBestLapSeconds(env, event.circuits?.name ?? null, event.layout);
       } catch (err) {
-        console.error("Failed to estimate this race's duration from historical lap times — falling back to a flat default:", err);
+        console.error(
+          "Failed to estimate this race's duration from historical lap times — falling back to a flat default:",
+          err,
+        );
       }
       endUtcMs =
         bestLapSeconds != null

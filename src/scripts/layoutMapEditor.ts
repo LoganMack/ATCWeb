@@ -10,16 +10,26 @@ interface Pt {
   x: number;
   y: number;
 }
-type Armed = { kind: 'pin'; id: string } | { kind: 'pit'; which: 'entry' | 'exit' } | { kind: 'corner'; label: string } | null;
+type Armed =
+  | { kind: 'pin'; id: string }
+  | { kind: 'pit'; which: 'entry' | 'exit' }
+  | { kind: 'corner'; label: string }
+  | null;
 
 const tracer = imageTracer as unknown as {
-  imagedataToSVG: (img: { width: number; height: number; data: Uint8ClampedArray }, opts: Record<string, unknown>) => string;
+  imagedataToSVG: (
+    img: { width: number; height: number; data: Uint8ClampedArray },
+    opts: Record<string, unknown>,
+  ) => string;
 };
 
 const MAX_TRACE_SIDE = 900;
 
 /** Black/white-ify the image (padded to a square), trace it, and return a transparent SVG of just the white shapes. */
-async function traceToSvg(file: File, opts: { threshold: number; invert: boolean; speck: number }): Promise<string> {
+async function traceToSvg(
+  file: File,
+  opts: { threshold: number; invert: boolean; speck: number },
+): Promise<string> {
   const bmp = await createImageBitmap(file);
   const scale = Math.min(1, MAX_TRACE_SIDE / Math.max(bmp.width, bmp.height));
   const w = Math.max(1, Math.round(bmp.width * scale));
@@ -60,7 +70,7 @@ async function traceToSvg(file: File, opts: { threshold: number; invert: boolean
       roundcoords: 1,
       viewbox: true,
       desc: false,
-    }
+    },
   );
   const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
   const svg = doc.documentElement;
@@ -144,7 +154,9 @@ function initLayoutMapEditor() {
       const p = pit[which];
       form.querySelector<HTMLInputElement>(`input[name="pit_${which}_x"]`)!.value = p ? String(p.x) : '';
       form.querySelector<HTMLInputElement>(`input[name="pit_${which}_y"]`)!.value = p ? String(p.y) : '';
-      form.querySelector<HTMLElement>(`[data-pit-state="${which}"]`)!.textContent = p ? 'Placed on map' : 'Not placed';
+      form.querySelector<HTMLElement>(`[data-pit-state="${which}"]`)!.textContent = p
+        ? 'Placed on map'
+        : 'Not placed';
       form.querySelector<HTMLElement>(`[data-pit-clear="${which}"]`)?.classList.toggle('hidden', !p);
     }
     for (const row of rows) {
@@ -174,7 +186,7 @@ function initLayoutMapEditor() {
         el.style.left = `${p.x}%`;
         el.style.top = `${p.y}%`;
         return el;
-      })
+      }),
     );
     cornerLayer.replaceChildren(
       ...Array.from(corners, ([label, p]) => {
@@ -187,7 +199,7 @@ function initLayoutMapEditor() {
         el.style.left = `${p.x}%`;
         el.style.top = `${p.y}%`;
         return el;
-      })
+      }),
     );
     cornerList.replaceChildren(
       ...Array.from(corners.keys()).map((label) => {
@@ -211,13 +223,14 @@ function initLayoutMapEditor() {
         x.textContent = '✕';
         li.append(x);
         return li;
-      })
+      }),
     );
     flagLayer.replaceChildren(
       ...(['entry', 'exit'] as const).flatMap((which) => {
         const p = pit[which];
         if (!p) return [];
-        const level = form.querySelector<HTMLSelectElement>(`select[name="pit_${which}_difficulty"]`)?.value || 'none';
+        const level =
+          form.querySelector<HTMLSelectElement>(`select[name="pit_${which}_difficulty"]`)?.value || 'none';
         const el = document.createElement('span');
         el.className = 'map-flag';
         el.dataset.level = level;
@@ -226,7 +239,7 @@ function initLayoutMapEditor() {
         el.style.top = `${p.y}%`;
         el.innerHTML = `<i></i>${which === 'entry' ? 'PIT IN' : 'PIT OUT'}`;
         return [el];
-      })
+      }),
     );
     sync();
   }
@@ -286,7 +299,8 @@ function initLayoutMapEditor() {
       if (armed.kind === 'pin') pins.set(armed.id, p);
       else if (armed.kind === 'corner') {
         // A label already in use is moved, not duplicated (case-insensitively).
-        for (const existing of Array.from(corners.keys())) if (existing.toLowerCase() === armed.label.toLowerCase()) corners.delete(existing);
+        for (const existing of Array.from(corners.keys()))
+          if (existing.toLowerCase() === armed.label.toLowerCase()) corners.delete(existing);
         corners.set(armed.label, p);
         cornerInput.value = /^\d+$/.test(armed.label) ? String(Number(armed.label) + 1) : '';
       } else pit[armed.which] = p;
@@ -371,8 +385,18 @@ function initLayoutMapEditor() {
       const nw = pic.naturalWidth || DETECT_SIDE;
       const nh = pic.naturalHeight || DETECT_SIDE;
       const scale = Math.min(DETECT_SIDE / nw, DETECT_SIDE / nh);
-      ctx.drawImage(pic, (DETECT_SIDE - nw * scale) / 2, (DETECT_SIDE - nh * scale) / 2, nw * scale, nh * scale);
-      const mask = foregroundMask(ctx.getImageData(0, 0, DETECT_SIDE, DETECT_SIDE).data, DETECT_SIDE, DETECT_SIDE);
+      ctx.drawImage(
+        pic,
+        (DETECT_SIDE - nw * scale) / 2,
+        (DETECT_SIDE - nh * scale) / 2,
+        nw * scale,
+        nh * scale,
+      );
+      const mask = foregroundMask(
+        ctx.getImageData(0, 0, DETECT_SIDE, DETECT_SIDE).data,
+        DETECT_SIDE,
+        DETECT_SIDE,
+      );
       const clusters = findNumberClusters(mask, DETECT_SIDE, DETECT_SIDE);
       if (clusters.length === 0) {
         detectStatus.textContent = 'No numbers found on this image.';
@@ -409,7 +433,8 @@ function initLayoutMapEditor() {
           : `Added ${added} corner${added === 1 ? '' : 's'}.${flagged > 0 ? ` ${flagged} in amber ${flagged === 1 ? 'needs' : 'need'} a check${unread > 0 ? ' (labelled ?1, ?2… — type the right number)' : ''}.` : ' Check them against the map, then Save.'}`;
     } catch (err) {
       console.error('Corner detection failed:', err);
-      detectStatus.textContent = 'Couldn’t read this image automatically. You can still place corners by hand.';
+      detectStatus.textContent =
+        'Couldn’t read this image automatically. You can still place corners by hand.';
     } finally {
       detectBtn.disabled = false;
     }
@@ -463,7 +488,11 @@ function initLayoutMapEditor() {
     const run = ++traceRun;
     traceStatus.textContent = 'Tracing…';
     try {
-      const svg = await traceToSvg(file, { threshold: Number(thresholdInput.value), invert: invertInput.checked, speck: Number(speckInput.value) });
+      const svg = await traceToSvg(file, {
+        threshold: Number(thresholdInput.value),
+        invert: invertInput.checked,
+        speck: Number(speckInput.value),
+      });
       if (run !== traceRun) return;
       traced = new File([svg], 'layout-map.svg', { type: 'image/svg+xml' });
       setPreview(URL.createObjectURL(traced));
@@ -522,7 +551,8 @@ function initLayoutMapEditor() {
     if (Array.from(corners.keys()).some((l) => l.startsWith('?'))) {
       e.preventDefault();
       e.stopPropagation();
-      cornerError.textContent = 'Give every detected corner its number (the ones labelled ?1, ?2…) or remove it before saving.';
+      cornerError.textContent =
+        'Give every detected corner its number (the ones labelled ?1, ?2…) or remove it before saving.';
       cornerError.classList.remove('hidden');
       cornerError.scrollIntoView({ block: 'center', behavior: 'smooth' });
       return;

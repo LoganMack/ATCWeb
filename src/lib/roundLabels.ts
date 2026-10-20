@@ -40,7 +40,10 @@ export function formatMonthDayYear(input: string | null | undefined): string {
  * `maxTrackChars` to cut a long track name short with an ellipsis (the Race
  * Results page's round picker no longer uses this — see roundTrackLabel).
  */
-export function roundOptionLabel(round: { start_time: string; track_name: string }, maxTrackChars?: number): string {
+export function roundOptionLabel(
+  round: { start_time: string; track_name: string },
+  maxTrackChars?: number,
+): string {
   const track =
     maxTrackChars !== undefined && round.track_name.length > maxTrackChars
       ? `${round.track_name.slice(0, maxTrackChars).trimEnd()}…`
@@ -54,7 +57,9 @@ export function roundOptionLabel(round: { start_time: string; track_name: string
  * where the date is left off so the dropdown can stay narrow.
  */
 export function roundTrackLabel(round: { track_name: string }, maxChars: number): string {
-  return round.track_name.length > maxChars ? `${round.track_name.slice(0, maxChars).trimEnd()}…` : round.track_name;
+  return round.track_name.length > maxChars
+    ? `${round.track_name.slice(0, maxChars).trimEnd()}…`
+    : round.track_name;
 }
 
 export interface RoundGroup<T> {
@@ -67,7 +72,7 @@ export interface RoundGroup<T> {
  * the most recent round in each) and each group's rounds are newest first.
  */
 export function groupRoundsBySeason<T extends { season_label: string | null; start_time: string }>(
-  rounds: T[]
+  rounds: T[],
 ): RoundGroup<T>[] {
   const groups = new Map<string, T[]>();
   for (const r of rounds) {

@@ -8,7 +8,8 @@ function countdownText(closesAt: number): string {
   const ms = closesAt - Date.now();
   if (ms <= 0) return 'The incident reporting period has ended.';
   const minutes = Math.ceil(ms / 60000);
-  if (minutes <= 120) return `Incident reporting period ends in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+  if (minutes <= 120)
+    return `Incident reporting period ends in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
   return `Incident reporting period ends in ${Math.floor(ms / 3600000)} hours.`;
 }
 function refreshIncidentCountdowns() {

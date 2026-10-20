@@ -30,7 +30,7 @@ Design for routing driver sign-ups from the ATC Discord bot into the website, so
    - **Returning drivers** are spotted by matching iRacing ID, or case-insensitive name when either side has no iRacing ID (two different IDs are two different people). The page shows "Looks like returning driver X (status, current number)".
    - **Number clashes** with other pending requests are flagged ("#33 is also requested by another pending sign-up").
    - **Approve:** the admin can correct the name and iRacing ID and picks a class (default Alpha).
-     - **New driver:** a roster entry is created with today's `sign_up_date`, the rookie flag, and the first of their requested numbers that is free *at approval time*.
+     - **New driver:** a roster entry is created with today's `sign_up_date`, the rookie flag, and the first of their requested numbers that is free _at approval time_.
      - **Returning driver:** the existing entry is reactivated: Active if they've raced before, New if not, and Veterans stay Veteran. Their original `sign_up_date` is left alone. They keep their current number if they still hold one; otherwise they get the first free number from this request. An existing iRacing ID is never replaced; if the sign-up gives a different one, approval stops and asks the admin to check.
      - **Either way,** `last_signed_up_at` is set to now (see "Change to automatic status").
      - **If none of their numbers is free any more,** Approve is blocked and the admin rejects instead.
@@ -58,13 +58,24 @@ Request:
 Responses:
 
 ```json
-{ "status": "pending", "request_id": "…", "assigned_number": 2,
-  "taken": [{ "number": 1, "holder": "John Smith" }], "replaced_previous": false }
+{
+  "status": "pending",
+  "request_id": "…",
+  "assigned_number": 2,
+  "taken": [{ "number": 1, "holder": "John Smith" }],
+  "replaced_previous": false
+}
 ```
 
 ```json
-{ "status": "all_taken",
-  "taken": [{ "number": 1, "holder": "John Smith" }, { "number": 2, "holder": "…" }, { "number": 3, "holder": "…" }] }
+{
+  "status": "all_taken",
+  "taken": [
+    { "number": 1, "holder": "John Smith" },
+    { "number": 2, "holder": "…" },
+    { "number": 3, "holder": "…" }
+  ]
+}
 ```
 
 `assigned_number` is the number they'd get if approved now. It isn't reserved: it's re-checked at approval. A `400` with a message covers invalid input (no name, no valid numbers, more than 3, `discord_user_id` not sent as a string, and so on). `discord_user_id` must be a JSON string: Discord IDs are too large for JSON numbers.
@@ -89,19 +100,19 @@ Marks those rejections as delivered.
 
 New table `signup_requests`:
 
-| Column | Notes |
-|---|---|
-| `id` | uuid |
-| `discord_user_id`, `discord_username` | Who submitted; used only for the rejection DM |
-| `name` | As submitted |
-| `iracing_cust_id` | Optional |
-| `requested_numbers` | Integer array, preference order, 1–3 entries |
-| `status` | `pending` / `approved` / `rejected` |
-| `reason` | Rejection reason |
-| `driver_id` | The roster entry created or reactivated on approval |
-| `decided_by`, `decided_at` | Which admin, when |
-| `notified_at` | When the bot confirmed the rejection DM |
-| `created_at` | |
+| Column                                | Notes                                               |
+| ------------------------------------- | --------------------------------------------------- |
+| `id`                                  | uuid                                                |
+| `discord_user_id`, `discord_username` | Who submitted; used only for the rejection DM       |
+| `name`                                | As submitted                                        |
+| `iracing_cust_id`                     | Optional                                            |
+| `requested_numbers`                   | Integer array, preference order, 1–3 entries        |
+| `status`                              | `pending` / `approved` / `rejected`                 |
+| `reason`                              | Rejection reason                                    |
+| `driver_id`                           | The roster entry created or reactivated on approval |
+| `decided_by`, `decided_at`            | Which admin, when                                   |
+| `notified_at`                         | When the bot confirmed the rejection DM             |
+| `created_at`                          |                                                     |
 
 Access: admins only (RLS). The API endpoints are the only other way in.
 
@@ -119,7 +130,7 @@ Access: admins only (RLS). The API endpoints are the only other way in.
 **Fix:** a new column, `drivers.last_signed_up_at`, set every time a sign-up for that driver is approved. Inactivity is measured from whichever is later, the driver's last race or `last_signed_up_at`, so an approval restarts the clock.
 
 - `sign_up_date` keeps meaning "when they first joined" and is never overwritten for a returning driver.
-- The existing `updated_at` column can't be used for this: it changes on *any* edit to the driver (a photo, a bio, a class fix), which would keep inactive drivers looking active.
+- The existing `updated_at` column can't be used for this: it changes on _any_ edit to the driver (a photo, a bio, a class fix), which would keep inactive drivers looking active.
 
 ## Bot changes (`atc_discord_bot`)
 
@@ -131,7 +142,7 @@ Access: admins only (RLS). The API endpoints are the only other way in.
 ## For Logan to review
 
 - **Service-role key on Cloudflare.** The bot endpoints need the Supabase service-role key (full database access, bypasses RLS) stored as a Cloudflare secret. It never reaches the browser, the repo or the Pi, and it's only used to call the three sign-up database functions, which only the service role can execute. This is the standard pattern for server-side Supabase access, but it's the first time this site would hold that key.
-- **Secrets aren't vars.** Per the README, `wrangler.jsonc`'s `vars` block replaces dashboard *variables* on every deploy. The two values here must be set as *secrets* (`wrangler secret put`), which deploys don't touch. Worth confirming on the first deploy.
+- **Secrets aren't vars.** Per the README, `wrangler.jsonc`'s `vars` block replaces dashboard _variables_ on every deploy. The two values here must be set as _secrets_ (`wrangler secret put`), which deploys don't touch. Worth confirming on the first deploy.
 - **Migration.** Adds `signup_requests`, `drivers.last_signed_up_at`, the sign-up database functions, and a change to `sync_driver_statuses()` (inactivity measured from the later of last race and `last_signed_up_at`).
 - **Number rule.** The website's rule becomes the only one. The bot's old protection (last holder raced within 90 days, has 75+ appearances, or is a champion) goes away; anything like it would need to live in the website's Veteran handling.
 

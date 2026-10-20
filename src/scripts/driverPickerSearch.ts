@@ -51,12 +51,14 @@ function sortPicker(picker: HTMLElement, by: string) {
   options.sort((a, b) =>
     by === 'name'
       ? name(a).localeCompare(name(b)) || num(a) - num(b)
-      : num(a) - num(b) || name(a).localeCompare(name(b))
+      : num(a) - num(b) || name(a).localeCompare(name(b)),
   );
   const parent = options[0].parentElement!;
   const empty = parent.querySelector(':scope > [data-driver-search-empty]');
   for (const o of options) parent.insertBefore(o, empty);
-  picker.querySelectorAll<HTMLElement>('[data-driver-sort]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.driverSort === by)));
+  picker
+    .querySelectorAll<HTMLElement>('[data-driver-sort]')
+    .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.driverSort === by)));
 }
 
 function init() {

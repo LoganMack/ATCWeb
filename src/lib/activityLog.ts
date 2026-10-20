@@ -72,7 +72,12 @@ export function importObjectPath(fileUrl: string | null | undefined): string | n
 }
 
 /** Uploads an import spreadsheet and returns its object path (the value to store in file_url). Throws on failure. */
-export async function storeImportSpreadsheet(env: SupabaseEnv, accessToken: string, path: string, file: File): Promise<string> {
+export async function storeImportSpreadsheet(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+  file: File,
+): Promise<string> {
   await uploadToStorage(env, accessToken, IMPORTS_BUCKET, path, file);
   return path;
 }
@@ -84,7 +89,7 @@ export async function storeImportSpreadsheet(env: SupabaseEnv, accessToken: stri
 export async function signImportFileUrls(
   env: SupabaseEnv,
   accessToken: string,
-  fileUrls: (string | null)[]
+  fileUrls: (string | null)[],
 ): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   const pathByUrl = new Map<string, string>();
@@ -96,7 +101,11 @@ export async function signImportFileUrls(
   try {
     const res = await fetch(`${env.url}/storage/v1/object/sign/${IMPORTS_BUCKET}`, {
       method: 'POST',
-      headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ expiresIn: 3600, paths: [...new Set(pathByUrl.values())] }),
     });
     if (!res.ok) throw new Error(`Storage sign error ${res.status}: ${await res.text()}`);
@@ -104,7 +113,10 @@ export async function signImportFileUrls(
     const signedByPath = new Map<string, string>();
     for (const row of rows) {
       if (row.path && row.signedURL) {
-        signedByPath.set(row.path, `${env.url}/storage/v1${row.signedURL.startsWith('/') ? '' : '/'}${row.signedURL}`);
+        signedByPath.set(
+          row.path,
+          `${env.url}/storage/v1${row.signedURL.startsWith('/') ? '' : '/'}${row.signedURL}`,
+        );
       }
     }
     for (const [url, path] of pathByUrl) {
@@ -140,7 +152,7 @@ export async function logActivity(
   env: SupabaseEnv,
   accessToken: string,
   actor: { id: string; name: string },
-  input: LogActivityInput
+  input: LogActivityInput,
 ): Promise<void> {
   try {
     await restPost(env, accessToken, 'activity_log', {

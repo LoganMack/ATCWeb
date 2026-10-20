@@ -38,7 +38,14 @@ import {
   type CircuitLayout,
   type SupabaseEnv,
 } from './supabase';
-import { getRoundBySubsessionId, getRoundResults, topTeamScorers, type DriverBasic, type RoundResults, type RaceResultRow } from './results';
+import {
+  getRoundBySubsessionId,
+  getRoundResults,
+  topTeamScorers,
+  type DriverBasic,
+  type RoundResults,
+  type RaceResultRow,
+} from './results';
 import { applyPenaltiesToRoundResults } from './penalties';
 
 interface RawBestLapRow {
@@ -61,7 +68,7 @@ async function fetchBestLaps(env: SupabaseEnv, subsessionId: number): Promise<Ra
   try {
     return await restGet<RawBestLapRow[]>(
       env,
-      `curated_race_results?select=race_number,cust_id,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`
+      `curated_race_results?select=race_number,cust_id,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`,
     );
   } catch (err) {
     console.error('News recap: failed to fetch fastest-lap data, omitting that stat:', err);
@@ -84,7 +91,7 @@ async function fetchRoundLayout(env: SupabaseEnv, subsessionId: number): Promise
   try {
     const rows = await restGet<{ layout: string | null }[]>(
       env,
-      `curated_rounds?select=layout&subsession_id=eq.${subsessionId}`
+      `curated_rounds?select=layout&subsession_id=eq.${subsessionId}`,
     );
     return rows[0]?.layout ?? null;
   } catch (err) {
@@ -223,7 +230,7 @@ function matchCircuitLayout(
   trackName: string,
   roundLayout: string | null,
   circuits: Circuit[],
-  layouts: CircuitLayout[]
+  layouts: CircuitLayout[],
 ): LayoutMatchResult {
   const targetTrack = normalize(trackName);
   const circuit = circuits.find((c) => normalize(c.name) === targetTrack) ?? null;
@@ -262,16 +269,17 @@ function matchCircuitLayout(
 }
 
 export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number): Promise<RoundRecap | null> {
-  const [round, rawResults, penalties, classes, circuits, layouts, bestLapRows, roundLayout] = await Promise.all([
-    getRoundBySubsessionId(env, subsessionId),
-    getRoundResults(env, subsessionId),
-    getPenaltiesForSubsession(env, subsessionId),
-    getDriverClasses(env),
-    getCircuits(env),
-    getAllCircuitLayouts(env),
-    fetchBestLaps(env, subsessionId),
-    fetchRoundLayout(env, subsessionId),
-  ]);
+  const [round, rawResults, penalties, classes, circuits, layouts, bestLapRows, roundLayout] =
+    await Promise.all([
+      getRoundBySubsessionId(env, subsessionId),
+      getRoundResults(env, subsessionId),
+      getPenaltiesForSubsession(env, subsessionId),
+      getDriverClasses(env),
+      getCircuits(env),
+      getAllCircuitLayouts(env),
+      fetchBestLaps(env, subsessionId),
+      fetchRoundLayout(env, subsessionId),
+    ]);
   if (!round) return null;
 
   // This round's season's scoring ruleset — see results/[subsessionId].astro's
@@ -280,7 +288,10 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   // SAME base_points/class_podium table the round was actually scored with.
   let ruleset: Awaited<ReturnType<typeof getScoringRulesets>>[number] | null = null;
   try {
-    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(env, round.season_id), getScoringRulesets(env)]);
+    const [rulesetSeason, rulesets] = await Promise.all([
+      getSeasonById(env, round.season_id),
+      getScoringRulesets(env),
+    ]);
     ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
   } catch (err) {
     console.error('Failed to resolve round scoring ruleset for recap:', err);
@@ -292,7 +303,14 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
   const roundResults: RoundResults =
     penalties.length > 0
-      ? applyPenaltiesToRoundResults(rawResults, penalties, round.format, classPointsEligibleByClassId, ruleset?.rules ?? null, subsessionId)
+      ? applyPenaltiesToRoundResults(
+          rawResults,
+          penalties,
+          round.format,
+          classPointsEligibleByClassId,
+          ruleset?.rules ?? null,
+          subsessionId,
+        )
       : rawResults;
 
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));
@@ -302,7 +320,7 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     round.track_name,
     roundLayout,
     circuits,
-    layouts
+    layouts,
   );
 
   // cust_id -> driver, built once from the round's own results — best_lap
@@ -313,7 +331,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   const driverByCustId = new Map<number, DriverBasic>();
   for (const rows of roundResults.overall.values()) {
     for (const row of rows) {
-      if (!row.notInRoster && row.driver.iracing_cust_id !== null) driverByCustId.set(row.driver.iracing_cust_id, row.driver);
+      if (!row.notInRoster && row.driver.iracing_cust_id !== null)
+        driverByCustId.set(row.driver.iracing_cust_id, row.driver);
     }
   }
   const bestLapsByRace = new Map<number, RawBestLapRow[]>();
@@ -366,10 +385,15 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     // of that external table is.
     let fastestLap: RecapFastestLap | null = null;
     const withLaps = (bestLapsByRace.get(raceNumber) ?? []).filter(
-      (r) => r.best_lap_ten_thousandths !== null && r.best_lap_ten_thousandths > 0 && driverByCustId.has(r.cust_id)
+      (r) =>
+        r.best_lap_ten_thousandths !== null &&
+        r.best_lap_ten_thousandths > 0 &&
+        driverByCustId.has(r.cust_id),
     );
     if (withLaps.length > 0) {
-      const best = withLaps.reduce((min, r) => (r.best_lap_ten_thousandths! < min.best_lap_ten_thousandths! ? r : min));
+      const best = withLaps.reduce((min, r) =>
+        r.best_lap_ten_thousandths! < min.best_lap_ten_thousandths! ? r : min,
+      );
       const bestSeconds = best.best_lap_ten_thousandths! / 10000;
       const recordSeconds = matchedLayout?.lap_record_seconds ?? null;
       fastestLap = {
@@ -442,7 +466,12 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   const overallPointsOf = (row: RaceResultRow) => row.totalPoints - row.classPoints;
   const deltaPointsOf = (row: RaceResultRow) => row.totalPoints;
 
-  function addEntry(map: Map<string, RecapTeamBreakdown>, row: RaceResultRow, raceNumber: number, points: number) {
+  function addEntry(
+    map: Map<string, RecapTeamBreakdown>,
+    row: RaceResultRow,
+    raceNumber: number,
+    points: number,
+  ) {
     const key = row.team!.name;
     if (!map.has(key)) map.set(key, { teamName: key, logoUrl: row.team!.logoUrl, entries: [] });
     map.get(key)!.entries.push({
@@ -471,7 +500,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
       for (const row of topTeamScorers(teamRows, overallPointsOf)) {
         const key = row.team!.name;
         const points = overallPointsOf(row);
-        if (!overallByTeam.has(key)) overallByTeam.set(key, { name: key, logoUrl: row.team!.logoUrl, points: 0 });
+        if (!overallByTeam.has(key))
+          overallByTeam.set(key, { name: key, logoUrl: row.team!.logoUrl, points: 0 });
         overallByTeam.get(key)!.points += points;
         addEntry(breakdownByTeam, row, raceNumber, points);
       }
@@ -481,7 +511,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
         for (const row of topTeamScorers(deltaRows, deltaPointsOf)) {
           const key = row.team!.name;
           const points = deltaPointsOf(row);
-          if (!deltaByTeam.has(key)) deltaByTeam.set(key, { name: key, logoUrl: row.team!.logoUrl, points: 0 });
+          if (!deltaByTeam.has(key))
+            deltaByTeam.set(key, { name: key, logoUrl: row.team!.logoUrl, points: 0 });
           deltaByTeam.get(key)!.points += points;
           addEntry(deltaBreakdownByTeam, row, raceNumber, points);
         }
@@ -498,9 +529,13 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   }
 
   const teamBreakdown = [...breakdownByTeam.values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
-  const deltaTeamBreakdown = [...deltaBreakdownByTeam.values()].sort((a, b) => a.teamName.localeCompare(b.teamName));
+  const deltaTeamBreakdown = [...deltaBreakdownByTeam.values()].sort((a, b) =>
+    a.teamName.localeCompare(b.teamName),
+  );
   for (const t of [...teamBreakdown, ...deltaTeamBreakdown]) {
-    t.entries.sort((a, b) => a.raceNumber - b.raceNumber || (a.carNumber ?? Infinity) - (b.carNumber ?? Infinity));
+    t.entries.sort(
+      (a, b) => a.raceNumber - b.raceNumber || (a.carNumber ?? Infinity) - (b.carNumber ?? Infinity),
+    );
   }
 
   return {

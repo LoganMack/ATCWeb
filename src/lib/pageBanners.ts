@@ -37,7 +37,11 @@ export const BANNER_STRIP_HEIGHT = 224;
 export const BANNER_PHONE_ASPECT = 390 / 160;
 
 export const BANNER_PAGES: BannerPageDef[] = [
-  { key: 'home', label: 'Home', description: 'The hero section behind the "Alpha Touring Challenge" headline.' },
+  {
+    key: 'home',
+    label: 'Home',
+    description: 'The hero section behind the "Alpha Touring Challenge" headline.',
+  },
   { key: 'standings', label: 'Standings', description: '/standings', width: 1152 },
   { key: 'team-standings', label: 'Team Standings', description: '/team-standings', width: 1152 },
   { key: 'roster', label: 'Driver Roster', description: '/roster', width: 1152 },
@@ -47,8 +51,18 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'news', label: 'News', description: '/news', width: 1152 },
   { key: 'circuits', label: 'Circuits', description: '/circuits', width: 1024 },
   { key: 'results', label: 'Race Results', description: '/results', width: 1024 },
-  { key: 'round-results', label: 'Round Results', description: 'One round\'s results page (/results/…) — shown on every round', width: 1024 },
-  { key: 'incident-report', label: 'Incident Report', description: 'One round\'s incident report page (/results/…/incidents) — shown on every round', width: 1152 },
+  {
+    key: 'round-results',
+    label: 'Round Results',
+    description: "One round's results page (/results/…) — shown on every round",
+    width: 1024,
+  },
+  {
+    key: 'incident-report',
+    label: 'Incident Report',
+    description: "One round's incident report page (/results/…/incidents) — shown on every round",
+    width: 1152,
+  },
   { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats', width: 1152 },
   { key: 'team-stats', label: 'Team Stats', description: '/team-stats', width: 1152 },
   { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame', width: 1024 },
@@ -67,7 +81,10 @@ import { resizedImageUrl } from './supabase';
  * once via resizedImageUrl (see that function's own doc comment for the
  * Cloudflare Transformations setup this depends on).
  */
-export function bannerUrlFor(banners: { page_key: string; image_url: string }[], pageKey: string): string | null {
+export function bannerUrlFor(
+  banners: { page_key: string; image_url: string }[],
+  pageKey: string,
+): string | null {
   const url = banners.find((b) => b.page_key === pageKey)?.image_url ?? null;
   return resizedImageUrl(url, { width: 1600 });
 }

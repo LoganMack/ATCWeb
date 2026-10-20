@@ -118,7 +118,10 @@ export async function createDotMap<T>(opts: DotMapOptions<T>): Promise<DotMap> {
 
   function applyView() {
     clampView();
-    svg.setAttribute('viewBox', `${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.w.toFixed(2)} ${vb.h.toFixed(2)}`);
+    svg.setAttribute(
+      'viewBox',
+      `${vb.x.toFixed(2)} ${vb.y.toFixed(2)} ${vb.w.toFixed(2)} ${vb.h.toFixed(2)}`,
+    );
     // Zoom level changed: pins may need to merge or split. Panning alone only moves them.
     if (Math.abs(vb.w - clusteredAtW) > 1e-6) renderPins();
     else placePins();
@@ -263,7 +266,12 @@ export async function createDotMap<T>(opts: DotMapOptions<T>): Promise<DotMap> {
   // (not pointer capture) so a plain click still reaches the pin under the cursor.
   const pointers = new Map<number, { x: number; y: number }>();
   let pan: { x: number; y: number; vx: number; vy: number } | null = null;
-  let pinch: { dist: number; vb: { x: number; y: number; w: number; h: number }; mx: number; my: number } | null = null;
+  let pinch: {
+    dist: number;
+    vb: { x: number; y: number; w: number; h: number };
+    mx: number;
+    my: number;
+  } | null = null;
 
   const startPan = () => {
     const [p] = [...pointers.values()];
@@ -273,7 +281,12 @@ export async function createDotMap<T>(opts: DotMapOptions<T>): Promise<DotMap> {
   const startPinch = () => {
     const [a, b] = [...pointers.values()];
     pan = null;
-    pinch = { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), vb: { ...vb }, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+    pinch = {
+      dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      vb: { ...vb },
+      mx: (a.x + b.x) / 2,
+      my: (a.y + b.y) / 2,
+    };
     moved = true; // a pinch is never a click
     hideTip();
   };
@@ -340,9 +353,13 @@ export async function createDotMap<T>(opts: DotMapOptions<T>): Promise<DotMap> {
       e.preventDefault();
       const r = svg.getBoundingClientRect();
       const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
-      zoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+      zoomAt(
+        Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)),
+        (e.clientX - r.left) / r.width,
+        (e.clientY - r.top) / r.height,
+      );
     },
-    { passive: false }
+    { passive: false },
   );
   box.querySelectorAll<HTMLButtonElement>('[data-map-zoom]').forEach((btn) => {
     btn.addEventListener('click', () => {

@@ -5,10 +5,12 @@
 // navigations; the submit button stays disabled until Session, Lap, Turn,
 // Description and at least one car are filled in (server re-checks all of it).
 function updateReportSubmit(form: HTMLFormElement) {
-  const val = (name: string) => (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
+  const val = (name: string) =>
+    (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
   const anyCar = form.querySelector('input[name="involved_driver_ids"]:checked') !== null;
   const submit = form.querySelector<HTMLButtonElement>('[data-report-submit]');
-  if (submit) submit.disabled = !(val('session') && val('lap') !== '' && val('turn') && val('description') && anyCar);
+  if (submit)
+    submit.disabled = !(val('session') && val('lap') !== '' && val('turn') && val('description') && anyCar);
 }
 
 function initReportDialog() {

@@ -57,10 +57,21 @@ export function interviewAudioPath(driverId: string, subsessionId: number, ext: 
  * same path after a failed record step; storage refuses the overwrite once the
  * clip has been submitted (0114). Throws on failure.
  */
-export async function uploadInterviewAudio(env: SupabaseEnv, accessToken: string, path: string, file: Blob, contentType: string): Promise<void> {
+export async function uploadInterviewAudio(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+  file: Blob,
+  contentType: string,
+): Promise<void> {
   const res = await fetch(`${env.url}/storage/v1/object/${INTERVIEW_BUCKET}/${path}`, {
     method: 'POST',
-    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': contentType, 'x-upsert': 'true' },
+    headers: {
+      apikey: env.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    },
     body: file,
   });
   if (!res.ok) throw new Error(`Interview upload failed (${res.status}): ${await res.text()}`);
@@ -70,11 +81,21 @@ export async function uploadInterviewAudio(env: SupabaseEnv, accessToken: string
 export async function createRaceInterview(
   env: SupabaseEnv,
   accessToken: string,
-  input: { id: string; subsession_id: number; audio_path: string; audio_type: string; duration_seconds: number }
+  input: {
+    id: string;
+    subsession_id: number;
+    audio_path: string;
+    audio_type: string;
+    duration_seconds: number;
+  },
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/submit_race_interview`, {
     method: 'POST',
-    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    headers: {
+      apikey: env.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify({
       p_id: input.id,
       p_subsession_id: input.subsession_id,
@@ -83,15 +104,24 @@ export async function createRaceInterview(
       p_duration_seconds: input.duration_seconds,
     }),
   });
-  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on submit_race_interview: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase rpc error ${res.status} on submit_race_interview: ${await res.text()}`);
 }
 
 /** Whether the signed-in user's linked driver already has an interview for this round. False when it can't be checked (e.g. before migration 0109). */
-export async function hasSubmittedInterview(env: SupabaseEnv, accessToken: string, subsessionId: number): Promise<boolean> {
+export async function hasSubmittedInterview(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+): Promise<boolean> {
   try {
     const res = await fetch(`${env.url}/rest/v1/rpc/has_submitted_race_interview`, {
       method: 'POST',
-      headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ p_subsession_id: subsessionId }),
     });
     if (!res.ok) return false;
@@ -106,16 +136,24 @@ export async function getRaceInterviews(env: SupabaseEnv, accessToken: string): 
   return restGetAuthed<RaceInterview[]>(
     env,
     accessToken,
-    'race_interviews?select=*,driver:drivers!driver_id(name,car_number)&order=created_at.desc&limit=500'
+    'race_interviews?select=*,driver:drivers!driver_id(name,car_number)&order=created_at.desc&limit=500',
   );
 }
 
 /** Admin: a one-hour playback link (the bucket is private). Null when it can't be signed. */
-export async function signInterviewUrl(env: SupabaseEnv, accessToken: string, path: string): Promise<string | null> {
+export async function signInterviewUrl(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+): Promise<string | null> {
   try {
     const res = await fetch(`${env.url}/storage/v1/object/sign/${INTERVIEW_BUCKET}/${path}`, {
       method: 'POST',
-      headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ expiresIn: 3600 }),
     });
     if (!res.ok) return null;
@@ -128,7 +166,11 @@ export async function signInterviewUrl(env: SupabaseEnv, accessToken: string, pa
 }
 
 /** Admin: removes the audio file, then the row. */
-export async function deleteRaceInterview(env: SupabaseEnv, accessToken: string, interview: Pick<RaceInterview, 'id' | 'audio_path'>): Promise<void> {
+export async function deleteRaceInterview(
+  env: SupabaseEnv,
+  accessToken: string,
+  interview: Pick<RaceInterview, 'id' | 'audio_path'>,
+): Promise<void> {
   await fetch(`${env.url}/storage/v1/object/${INTERVIEW_BUCKET}/${interview.audio_path}`, {
     method: 'DELETE',
     headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}` },

@@ -30,7 +30,9 @@ export const GET: APIRoute = async ({ locals }) => {
     ]);
     const displayRoundNumbers = computeDisplayRoundNumbers(seasonRounds, exhibitionRoundIds, testRoundIds);
     const rounds = isChampionshipSeason(season.name)
-      ? seasonRounds.filter((r) => !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id))
+      ? seasonRounds.filter(
+          (r) => !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id),
+        )
       : seasonRounds;
 
     const out = [...rounds]

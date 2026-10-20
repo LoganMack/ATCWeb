@@ -65,7 +65,10 @@ export async function getAppealPeriodHours(env: SupabaseEnv): Promise<number> {
 
 /** When this round's appeals close (UTC), or null when they can't be opened at all (round not posted / no posted time). */
 export async function getAppealClosesAt(env: SupabaseEnv, subsessionId: number): Promise<Date | null> {
-  const [postedAt, hours] = await Promise.all([getRoundPostedAt(env, subsessionId), getAppealPeriodHours(env)]);
+  const [postedAt, hours] = await Promise.all([
+    getRoundPostedAt(env, subsessionId),
+    getAppealPeriodHours(env),
+  ]);
   if (!postedAt) return null;
   return new Date(postedAt.getTime() + hours * 3_600_000);
 }
@@ -76,12 +79,20 @@ export function isAppealOpen(closesAt: Date | null, now: Date = new Date()): boo
 
 /** File name made safe to use inside a storage object path. */
 export function safeAppealFileName(name: string): string {
-  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '').slice(-80);
+  const cleaned = name
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^\.+/, '')
+    .slice(-80);
   return cleaned || 'file';
 }
 
 /** Uploads one attached file into the private bucket, under the signed-in user's own `<user id>/` folder (the bucket's insert policy, 0113). Throws on failure. */
-export async function uploadAppealFile(env: SupabaseEnv, accessToken: string, path: string, file: File): Promise<void> {
+export async function uploadAppealFile(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+  file: File,
+): Promise<void> {
   const res = await fetch(`${env.url}/storage/v1/object/${APPEAL_BUCKET}/${path}`, {
     method: 'POST',
     headers: {
@@ -98,7 +109,7 @@ export async function uploadAppealFile(env: SupabaseEnv, accessToken: string, pa
 export async function createIncidentAppeal(
   env: SupabaseEnv,
   accessToken: string,
-  input: { id: string; penalty_id: string; message: string; files: AppealFileMeta[] }
+  input: { id: string; penalty_id: string; message: string; files: AppealFileMeta[] },
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/rpc/submit_incident_appeal`, {
     method: 'POST',
@@ -107,31 +118,53 @@ export async function createIncidentAppeal(
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ p_id: input.id, p_penalty_id: input.penalty_id, p_message: input.message, p_files: input.files }),
+    body: JSON.stringify({
+      p_id: input.id,
+      p_penalty_id: input.penalty_id,
+      p_message: input.message,
+      p_files: input.files,
+    }),
   });
-  if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on submit_incident_appeal: ${await res.text()}`);
+  if (!res.ok)
+    throw new Error(`Supabase rpc error ${res.status} on submit_incident_appeal: ${await res.text()}`);
 }
 
 /** Admin read. */
-export async function getIncidentAppealsForSubsession(env: SupabaseEnv, accessToken: string, subsessionId: number): Promise<IncidentAppeal[]> {
-  return restGetAuthed<IncidentAppeal[]>(env, accessToken, `incident_appeals?select=*&subsession_id=eq.${subsessionId}&order=created_at.asc`);
+export async function getIncidentAppealsForSubsession(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+): Promise<IncidentAppeal[]> {
+  return restGetAuthed<IncidentAppeal[]>(
+    env,
+    accessToken,
+    `incident_appeals?select=*&subsession_id=eq.${subsessionId}&order=created_at.asc`,
+  );
 }
 
 export async function setIncidentAppealStatus(
   env: SupabaseEnv,
   accessToken: string,
   appealId: string,
-  status: 'open' | 'reviewed' | 'dismissed'
+  status: 'open' | 'reviewed' | 'dismissed',
 ): Promise<void> {
   await restPatch(env, accessToken, `incident_appeals?id=eq.${encodeURIComponent(appealId)}`, { status });
 }
 
 /** Admin: a one-hour download link for one attached file (the bucket is private). Null when it can't be signed. */
-export async function signAppealFileUrl(env: SupabaseEnv, accessToken: string, path: string): Promise<string | null> {
+export async function signAppealFileUrl(
+  env: SupabaseEnv,
+  accessToken: string,
+  path: string,
+): Promise<string | null> {
   try {
     const res = await fetch(`${env.url}/storage/v1/object/sign/${APPEAL_BUCKET}/${path}`, {
       method: 'POST',
-      headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ expiresIn: 3600 }),
     });
     if (!res.ok) return null;

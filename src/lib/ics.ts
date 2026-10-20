@@ -30,7 +30,11 @@ const NL = '\n';
 
 /** Escapes TEXT-valued content per RFC 5545 §3.3.11 — backslash first, so the escapes added for the others don't themselves get re-escaped. */
 function escapeIcsText(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n');
 }
 
 /** Folds one logical content line to <=75 octets per line per RFC 5545 §3.1, continuation lines prefixed with a single space. Assumes ASCII-ish content (driver/circuit names in this app always are), so octet count == character count here. */
@@ -73,7 +77,7 @@ function toIcsUtc(iso: string): string {
  */
 export function buildEventIcsBlock(
   event: EventWithCircuit,
-  layouts: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[]
+  layouts: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[],
 ): string | null {
   const sessions = getEventSessions(event);
   const timed = sessions.filter((s) => s.startTimeUtcIso !== null);
@@ -92,7 +96,9 @@ export function buildEventIcsBlock(
     descriptionParts.push(`${event.seasons?.name ?? 'Season'} — Round ${event.round_number}`);
   }
   for (const s of sessions) {
-    descriptionParts.push(`${s.label}: ${s.startTime ? `${formatSessionTime(s.startTime)} ET` : 'TBD'}${s.detail ? ` (${s.detail})` : ''}`);
+    descriptionParts.push(
+      `${s.label}: ${s.startTime ? `${formatSessionTime(s.startTime)} ET` : 'TBD'}${s.detail ? ` (${s.detail})` : ''}`,
+    );
   }
   descriptionParts.push('https://alphatouringchallenge.com/calendar');
 

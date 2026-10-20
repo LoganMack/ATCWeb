@@ -41,7 +41,8 @@ export const KUDOS_MAX_LAP = 10000;
 export function normalizeClipUrl(raw: string): string | null {
   const v = raw.trim();
   if (!v) return null;
-  if (v.length > KUDOS_CLIP_URL_MAX_LENGTH || !/^https?:\/\/\S+$/i.test(v)) throw new Error('invalid clip link');
+  if (v.length > KUDOS_CLIP_URL_MAX_LENGTH || !/^https?:\/\/\S+$/i.test(v))
+    throw new Error('invalid clip link');
   try {
     new URL(v);
   } catch {
@@ -54,7 +55,7 @@ export function normalizeClipUrl(raw: string): string | null {
 export async function getKudosForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Kudos[]> {
   const rows = await restGet<(Omit<Kudos, 'driver_ids'> & { kudos_drivers: { driver_id: string }[] })[]>(
     env,
-    `kudos?select=*,kudos_drivers(driver_id)&subsession_id=eq.${subsessionId}&order=created_at.asc`
+    `kudos?select=*,kudos_drivers(driver_id)&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
   return rows.map(({ kudos_drivers, ...k }) => ({ ...k, driver_ids: kudos_drivers.map((d) => d.driver_id) }));
 }
@@ -91,7 +92,12 @@ export async function createKudos(env: SupabaseEnv, accessToken: string, input: 
  * row out (or it already being gone) is still a 2xx from PostgREST. Scoped to
  * the round whose page the Delete came from; a malformed id deletes nothing.
  */
-export async function deleteKudos(env: SupabaseEnv, accessToken: string, subsessionId: number, kudosId: string): Promise<boolean> {
+export async function deleteKudos(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+  kudosId: string,
+): Promise<boolean> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(kudosId)) return false;
   const res = await fetch(`${env.url}/rest/v1/kudos?id=eq.${kudosId}&subsession_id=eq.${subsessionId}`, {
     method: 'DELETE',
