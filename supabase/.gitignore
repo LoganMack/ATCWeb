@@ -1,0 +1,5 @@
+# Local state the Supabase CLI writes next to config.toml.
+.temp
+.branches
+.env
+.env.*
