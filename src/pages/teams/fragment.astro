@@ -13,7 +13,9 @@ import {
 import { getDrivers, resolveSupabaseEnv } from '../../lib/db/client';
 import { getSeasons, type Season } from '../../lib/db/seasons';
 import { displayDriverName } from '../../lib/db/circuits';
-import { driversSelect, getAllRounds, isChampionshipSeason, type DriverBasic } from '../../lib/results';
+import { driversSelect, type DriverBasic } from '../../lib/results/rows';
+import { getAllRounds } from '../../lib/results/rounds';
+import { isChampionshipSeason } from '../../lib/results/shared';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverLink from '../../components/DriverLink.astro';

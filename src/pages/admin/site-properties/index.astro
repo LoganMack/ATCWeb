@@ -48,7 +48,8 @@ import { BANNER_PAGES, BANNER_STRIP_HEIGHT, BANNER_PHONE_ASPECT } from '../../..
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getSiteSettings, upsertSiteSetting } from '../../../lib/db/assets';
 import { INCIDENT_REPORT_PERIOD_HOURS_KEY, INCIDENT_APPEAL_PERIOD_HOURS_KEY, siteSettingInt } from '../../../lib/siteSettings';
-import { getChampions, driversSelect } from '../../../lib/results';
+import { getChampions } from '../../../lib/results/champions';
+import { driversSelect } from '../../../lib/results/rows';
 import { requireAdmin } from '../../../lib/auth';
 
 const admin = requireAdmin(Astro);

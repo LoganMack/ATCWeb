@@ -10,7 +10,7 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, restGetAuthed } from '../../../lib/db/client';
 import { getStandingsExcludedRoundIds } from '../../../lib/db/rounds';
-import { getAllRounds, computeDisplayRoundNumbers } from '../../../lib/results';
+import { getAllRounds, computeDisplayRoundNumbers } from '../../../lib/results/rounds';
 import { getPostedSubsessionIds, setRoundPosted } from '../../../lib/incidentReports';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';

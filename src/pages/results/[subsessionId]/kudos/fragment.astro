@@ -7,7 +7,9 @@ import KudosDialog from '../../../../components/KudosDialog.astro';
 import DriverLink from '../../../../components/DriverLink.astro';
 import { resolveSupabaseEnv } from '../../../../lib/db/client';
 import { formatDate } from '../../../../lib/db/circuits';
-import { getRoundBySubsessionId, getRoundResults, type DriverBasic, type RoundSummary, type RoundResults } from '../../../../lib/results';
+import { getRoundBySubsessionId } from '../../../../lib/results/rounds';
+import { getRoundResults, type RoundResults } from '../../../../lib/results/roundResults';
+import type { DriverBasic, RoundSummary } from '../../../../lib/results/rows';
 import {
   getKudosForSubsession,
   createKudos,

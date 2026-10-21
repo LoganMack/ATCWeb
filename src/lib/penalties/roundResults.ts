@@ -1,4 +1,4 @@
-import type { RaceResultRow, RoundResults } from '../results';
+import type { RaceResultRow, RoundResults } from '../results/roundResults';
 import { formatLapTime } from '../db/circuits';
 import type { PenaltyLike } from './effective';
 import {

@@ -21,27 +21,26 @@ import {
   formatLapTime,
   type Circuit,
 } from '../../lib/db/circuits';
+import { computeSeasonStandings, computeOverallSeasonStandings } from '../../lib/results/standings';
+import { computeTeamSeasonStandings, type TeamSeasonStanding } from '../../lib/results/teamStandings';
 import {
-  computeSeasonStandings,
-  computeTeamSeasonStandings,
-  computeOverallSeasonStandings,
   computeSeasonStandingsRoundColumns,
-  computeDisplayRoundNumbers,
-  normalizeTrackOrLayoutName,
   BASELINE_DROP_WEEKS,
   seasonDropWeeks,
   MIN_ROUNDS_FOR_DROPS,
-  getSeasonCarTeamStats,
-  getSeasonDriverExtendedStats,
-  getSeasonOverallContext,
-  driversSelect,
-  isChampionshipSeason,
   type DriverSeasonStanding,
-  type TeamSeasonStanding,
-  type DriverSeasonExtras,
-  type DriverSeasonExtendedStats,
   type SeasonStandingsRoundColumn,
-} from '../../lib/results';
+} from '../../lib/results/standingsCore';
+import { computeDisplayRoundNumbers } from '../../lib/results/rounds';
+import { normalizeTrackOrLayoutName } from '../../lib/results/layouts';
+import { getSeasonCarTeamStats, type DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
+import {
+  getSeasonDriverExtendedStats,
+  type DriverSeasonExtendedStats,
+} from '../../lib/results/extendedStats';
+import { getSeasonOverallContext } from '../../lib/results/seasonContext';
+import { driversSelect } from '../../lib/results/rows';
+import { isChampionshipSeason } from '../../lib/results/shared';
 import { classTagFull } from '../../lib/classColors';
 import { slugify } from '../../lib/slug';
 

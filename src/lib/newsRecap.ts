@@ -35,14 +35,10 @@ import {
   type CircuitLayout,
 } from './db/circuits';
 import { getSeasonById, getScoringRulesets, resolveSeasonRuleset } from './db/seasons';
-import {
-  getRoundBySubsessionId,
-  getRoundResults,
-  topTeamScorers,
-  type DriverBasic,
-  type RoundResults,
-  type RaceResultRow,
-} from './results';
+import { getRoundBySubsessionId } from './results/rounds';
+import { getRoundResults, type RoundResults, type RaceResultRow } from './results/roundResults';
+import { topTeamScorers } from './results/seasonCarTeam';
+import type { DriverBasic } from './results/rows';
 import { applyPenaltiesToRoundResults } from './penalties/roundResults';
 
 interface RawBestLapRow {

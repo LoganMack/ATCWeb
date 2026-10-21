@@ -3,7 +3,7 @@ import { resolveSupabaseEnv } from '../../lib/db/client';
 import { getSeasons } from '../../lib/db/seasons';
 import { getDriverClasses } from '../../lib/db/lookups';
 import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
-import { computeDriverCareerStats } from '../../lib/results';
+import { computeDriverCareerStats } from '../../lib/results/careerStats';
 
 export const prerender = false;
 

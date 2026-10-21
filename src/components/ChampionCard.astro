@@ -1,7 +1,8 @@
 ---
 import DriverLink from './DriverLink.astro';
-import type { ChampionEntry, DriverSeasonExtras } from '../lib/results';
-import { pctOf } from '../lib/results';
+import type { ChampionEntry } from '../lib/results/champions';
+import type { DriverSeasonExtras } from '../lib/results/seasonCarTeam';
+import { pctOf } from '../lib/results/format';
 import type { ChampionPhoto } from '../lib/db/photos';
 import { displayDriverName } from '../lib/db/circuits';
 import { resizedImageUrl } from '../lib/db/drivers';

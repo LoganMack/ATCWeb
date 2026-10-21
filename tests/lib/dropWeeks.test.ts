@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rulesetBaseDropWeeks, seasonDropWeeks } from '../../src/lib/results';
+import { rulesetBaseDropWeeks, seasonDropWeeks } from '../../src/lib/results/standingsCore';
 import type { ScoringRuleset } from '../../src/lib/db/seasons';
 
 function ruleset(id: string, rules: unknown, isDefault = false): ScoringRuleset {

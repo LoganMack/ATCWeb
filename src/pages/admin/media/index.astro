@@ -27,7 +27,8 @@ import {
   getTestRoundIds,
   type RaceLinks,
 } from '../../../lib/db/rounds';
-import { getAllRounds, driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results';
+import { getAllRounds } from '../../../lib/results/rounds';
+import { driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results/rows';
 import { isHttpUrl } from '../../../lib/security';
 import { requireAdmin } from '../../../lib/auth';
 

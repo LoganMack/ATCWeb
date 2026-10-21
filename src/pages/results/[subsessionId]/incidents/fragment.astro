@@ -34,7 +34,11 @@ import {
 } from '../../../../lib/db/seasons';
 import { getLayoutMapDetails } from '../../../../lib/db/layoutMaps';
 import SectionIcon from '../../../../components/SectionIcon.astro';
-import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, getRoundLayoutsForSubsessions, resolveLayout, type RoundResults, type DriverBasic } from '../../../../lib/results';
+import { getRoundBySubsessionId, getRoundsForSeason } from '../../../../lib/results/rounds';
+import { getRoundResults, type RoundResults } from '../../../../lib/results/roundResults';
+import { getRoundLayoutsForSubsessions } from '../../../../lib/results/layoutLaps';
+import { resolveLayout } from '../../../../lib/results/layouts';
+import type { DriverBasic } from '../../../../lib/results/rows';
 import { matchCorners, turnLabelsFrom, type MapCorner } from '../../../../lib/turnMatch';
 import { applyPenaltiesToRoundResults } from '../../../../lib/penalties/roundResults';
 import {

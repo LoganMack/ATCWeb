@@ -21,7 +21,8 @@
 import { type SupabaseEnv, restGetAll } from './db/client';
 import { getPenaltiesForSubsessions, getPenaltyOffenses } from './db/penalties';
 import { getStandingsExcludedRoundIds } from './db/rounds';
-import { getAllRounds, driversSelect, computeDisplayRoundNumbers, type DriverBasic } from './results';
+import { getAllRounds, computeDisplayRoundNumbers } from './results/rounds';
+import { driversSelect, type DriverBasic } from './results/rows';
 import { getPostedSubsessionIds } from './incidentReports';
 import {
   effectiveTimePenaltySeconds,

@@ -12,11 +12,10 @@ import { getManualAwards, type ManualAward } from '../../lib/db/awards';
 import { displayDriverName } from '../../lib/db/circuits';
 import {
   computeSeasonAwardsHistory,
-  driversSelect,
   type SeasonAwardWinner,
   type SeasonMarginAwardWinner,
-  type DriverBasic,
-} from '../../lib/results';
+} from '../../lib/results/awards';
+import { driversSelect, type DriverBasic } from '../../lib/results/rows';
 
 /**
  * Pilot for the sitewide "shell renders instantly, data fills in after"

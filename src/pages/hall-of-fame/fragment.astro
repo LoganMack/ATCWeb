@@ -16,7 +16,11 @@ import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
 import { getHallOfFameDrivers } from '../../lib/db/drivers';
 import { getAllHallOfFamePhotos, type HallOfFamePhoto } from '../../lib/db/photos';
 import { displayDriverName } from '../../lib/db/circuits';
-import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
+import {
+  computeDriverCareerStats,
+  aggregateDriverCareerStats,
+  type DriverCareerStats,
+} from '../../lib/results/careerStats';
 import { classTagFull } from '../../lib/classColors';
 
 /**
