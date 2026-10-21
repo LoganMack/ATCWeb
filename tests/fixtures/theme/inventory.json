@@ -1,0 +1,4037 @@
+{
+  "generatedFrom": "tailwind.config.mjs + src/styles/global.css over src/**/*.{astro,html,js,jsx,md,mdx,svelte,ts,tsx,vue}",
+  "counts": {
+    "utilities": 126,
+    "withLightRule": 79,
+    "withoutLightRule": 47,
+    "tokenised": 70,
+    "needsFixed": 11,
+    "lightRules": 123
+  },
+  "utilities": [
+    {
+      "class": "accent-brand-primary",
+      "declarations": [
+        "accent-color: #4369F5"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/standings/fragment.astro"
+      ]
+    },
+    {
+      "class": "active:bg-white/5",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.05)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/IncidentsAllTable.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "aria-pressed:bg-white/10",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "aria-pressed:bg-fixed-white/10",
+      "files": [
+        "src/components/ReportIncidentDialog.astro"
+      ]
+    },
+    {
+      "class": "aria-pressed:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "aria-pressed:text-fixed-white",
+      "files": [
+        "src/components/ReportIncidentDialog.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-blue/10",
+      "declarations": [
+        "background-color: rgb(67 105 245 / 0.1)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-blue/15",
+      "declarations": [
+        "background-color: rgb(67 105 245 / 0.15)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-blue/20",
+      "declarations": [
+        "background-color: rgb(22 30 60)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": []
+    },
+    {
+      "class": "bg-brand-gold",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(245 198 66 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/LayoutMap.astro",
+        "src/components/Nav.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro"
+      ]
+    },
+    {
+      "class": "bg-brand-gold/10",
+      "declarations": [
+        "background-color: rgb(245 198 66 / 0.1)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-gold/15",
+      "declarations": [
+        "background-color: rgb(245 198 66 / 0.15)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/ReportIncidentButton.astro",
+        "src/components/ResultsTable.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/news/[slug].astro"
+      ]
+    },
+    {
+      "class": "bg-brand-gold/20",
+      "declarations": [
+        "background-color: rgb(58 48 24)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": []
+    },
+    {
+      "class": "bg-brand-gold/5",
+      "declarations": [
+        "background-color: rgb(245 198 66 / 0.05)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-ink",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(11 11 14 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ChampionCard.astro",
+        "src/components/EventDetailCard.astro",
+        "src/components/EventSessionFields.astro",
+        "src/components/HistoryTabs.astro",
+        "src/components/IncidentButton.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/Nav.astro",
+        "src/components/NewsCard.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentButton.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/TeamChampionCard.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/awards.astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/hall-of-fame.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/incidents.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/media.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/roster.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "bg-brand-ink/80",
+      "declarations": [
+        "background-color: rgb(11 11 14 / 0.8)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Nav.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-pink",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(245 66 110 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/LayoutMap.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro"
+      ]
+    },
+    {
+      "class": "bg-brand-pink/10",
+      "declarations": [
+        "background-color: rgb(245 66 110 / 0.1)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/LoadError.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/login.astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/signup.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-pink/15",
+      "declarations": [
+        "background-color: rgb(245 66 110 / 0.15)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-pink/20",
+      "declarations": [
+        "background-color: rgb(58 22 33)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": []
+    },
+    {
+      "class": "bg-brand-primary",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(67 105 245 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/CarLogos.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/Nav.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/incident-reporting/index.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-primary/10",
+      "declarations": [
+        "background-color: rgb(67 105 245 / 0.1)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/signup.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-primary/15",
+      "declarations": [
+        "background-color: rgb(67 105 245 / 0.15)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/InterviewDialog.astro",
+        "src/components/NewsCard.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/news/[slug].astro"
+      ]
+    },
+    {
+      "class": "bg-brand-primary/20",
+      "declarations": [
+        "background-color: rgb(67 105 245 / 0.2)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/[id]/edit.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-primary/70",
+      "declarations": [
+        "background-color: rgb(67 105 245 / 0.7)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/analytics/fragment.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-tertiary/10",
+      "declarations": [
+        "background-color: rgb(245 198 66 / 0.1)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/events/[id].astro",
+        "src/pages/login.astro"
+      ]
+    },
+    {
+      "class": "bg-brand-tertiary/20",
+      "declarations": [
+        "background-color: rgb(245 198 66 / 0.2)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "bg-emerald-400/10",
+      "declarations": [
+        "background-color: rgb(52 211 153 / 0.1)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro"
+      ]
+    },
+    {
+      "class": "bg-white",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(255 255 255 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Nav.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/seasons/index.astro"
+      ]
+    },
+    {
+      "class": "bg-white/[0.02]",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.02)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ChampionCard.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/TeamChampionCard.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/incidents.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos.astro",
+        "src/pages/results/[subsessionId].astro",
+        "src/pages/roster.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/pages/teams.astro"
+      ]
+    },
+    {
+      "class": "bg-white/[0.03]",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.03)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/awards.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/hall-of-fame.astro",
+        "src/pages/incidents.astro",
+        "src/pages/index.astro",
+        "src/pages/media.astro",
+        "src/pages/news/index.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos.astro",
+        "src/pages/results/[subsessionId].astro",
+        "src/pages/results.astro",
+        "src/pages/roster.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams.astro"
+      ]
+    },
+    {
+      "class": "bg-white/[0.05]",
+      "declarations": [
+        "background-color: rgb(23 23 26)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": []
+    },
+    {
+      "class": "bg-white/10",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/DriverRow.astro",
+        "src/components/NewsCard.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/TeamLogo.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/circuits.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "bg-white/15",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.15)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "bg-fixed-white/15",
+      "files": [
+        "src/pages/admin/incident-reporting/index.astro"
+      ]
+    },
+    {
+      "class": "bg-white/5",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.05)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/EventSessionFields.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/PhotoGrid.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/login.astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-brand-blue/40",
+      "declarations": [
+        "border-color: rgb(67 105 245 / 0.4)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "border-brand-gold/30",
+      "declarations": [
+        "border-color: rgb(245 198 66 / 0.3)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-brand-gold/40",
+      "declarations": [
+        "border-color: rgb(245 198 66 / 0.4)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-brand-gold/60",
+      "declarations": [
+        "border-color: rgb(245 198 66 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/LayoutMap.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-brand-gold/70",
+      "declarations": [
+        "border-color: rgb(245 198 66 / 0.7)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/scripts/layoutMapEditor.ts"
+      ]
+    },
+    {
+      "class": "border-brand-pink/30",
+      "declarations": [
+        "border-color: rgb(245 66 110 / 0.3)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/LoadError.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/login.astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/signup.astro"
+      ]
+    },
+    {
+      "class": "border-brand-pink/40",
+      "declarations": [
+        "border-color: rgb(245 66 110 / 0.4)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "border-brand-pink/60",
+      "declarations": [
+        "border-color: rgb(245 66 110 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/LayoutMap.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-brand-primary",
+      "declarations": [
+        "--tw-border-opacity: 1",
+        "border-color: rgb(67 105 245 / var(--tw-border-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/LayoutMap.astro",
+        "src/components/StandingsTabs.astro"
+      ]
+    },
+    {
+      "class": "border-brand-primary/30",
+      "declarations": [
+        "border-color: rgb(67 105 245 / 0.3)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/signup.astro"
+      ]
+    },
+    {
+      "class": "border-brand-primary/40",
+      "declarations": [
+        "border-color: rgb(67 105 245 / 0.4)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "border-brand-tertiary/30",
+      "declarations": [
+        "border-color: rgb(245 198 66 / 0.3)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/events/[id].astro",
+        "src/pages/login.astro"
+      ]
+    },
+    {
+      "class": "border-emerald-400/30",
+      "declarations": [
+        "border-color: rgb(52 211 153 / 0.3)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/results/[subsessionId]/kudos/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-emerald-400/60",
+      "declarations": [
+        "border-color: rgb(52 211 153 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-white/10",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ChampionCard.astro",
+        "src/components/EventDetailCard.astro",
+        "src/components/EventSessionFields.astro",
+        "src/components/Footer.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/Nav.astro",
+        "src/components/NewsCard.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/StandingsTabs.astro",
+        "src/components/TeamChampionCard.astro",
+        "src/layouts/AdminLayout.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/awards.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/hall-of-fame.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/incidents.astro",
+        "src/pages/index.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/media.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/news/index.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos.astro",
+        "src/pages/results/[subsessionId].astro",
+        "src/pages/results.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/roster.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/pages/teams.astro"
+      ]
+    },
+    {
+      "class": "border-white/15",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.15)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/EventSessionFields.astro",
+        "src/components/HistoryTabs.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/layoutMapEditor.ts",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "border-white/20",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.2)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/standings/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-white/5",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.05)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/DriverRow.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/components/Nav.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/ResultsTable.astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/teams/fragment.astro"
+      ]
+    },
+    {
+      "class": "border-white/70",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.7)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "border-fixed-white/70",
+      "files": [
+        "src/pages/admin/site-properties/index.astro"
+      ]
+    },
+    {
+      "class": "decoration-white/20",
+      "declarations": [
+        "text-decoration-color: rgb(255 255 255 / 0.2)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Footer.astro"
+      ]
+    },
+    {
+      "class": "decoration-white/25",
+      "declarations": [
+        "text-decoration-color: rgb(255 255 255 / 0.25)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro"
+      ]
+    },
+    {
+      "class": "decoration-white/30",
+      "declarations": [
+        "text-decoration-color: rgb(255 255 255 / 0.3)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/rulesets/index.astro"
+      ]
+    },
+    {
+      "class": "divide-white/10",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results.astro"
+      ]
+    },
+    {
+      "class": "file:bg-brand-primary",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(67 105 245 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro"
+      ]
+    },
+    {
+      "class": "file:bg-white/10",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "file:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "focus-visible:border-white/30",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.3)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "focus-visible:border-fixed-white/30",
+      "files": [
+        "src/pages/admin/fragment.astro"
+      ]
+    },
+    {
+      "class": "focus-within:border-brand-primary",
+      "declarations": [
+        "--tw-border-opacity: 1",
+        "border-color: rgb(67 105 245 / var(--tw-border-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "focus-within:ring-brand-primary",
+      "declarations": [
+        "--tw-ring-opacity: 1",
+        "--tw-ring-color: rgb(67 105 245 / var(--tw-ring-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/drivers/[id].astro"
+      ]
+    },
+    {
+      "class": "focus:bg-white/10",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "focus:bg-fixed-white/10",
+      "files": [
+        "src/scripts/layoutMapEditor.ts"
+      ]
+    },
+    {
+      "class": "focus:bg-white/5",
+      "declarations": [
+        "background-color: rgb(23 23 26)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/HistoryTabs.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "focus:border-brand-primary",
+      "declarations": [
+        "--tw-border-opacity: 1",
+        "border-color: rgb(67 105 245 / var(--tw-border-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/EventSessionFields.astro",
+        "src/components/HistoryTabs.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "from-brand-blue/25",
+      "declarations": [
+        "--tw-gradient-from: rgb(67 105 245 / 0.25) var(--tw-gradient-from-position)",
+        "--tw-gradient-to: rgb(67 105 245 / 0) var(--tw-gradient-to-position)",
+        "--tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts"
+      ]
+    },
+    {
+      "class": "group-focus-within:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "group-focus-within:text-fixed-white",
+      "files": [
+        "src/components/Nav.astro"
+      ]
+    },
+    {
+      "class": "group-hover:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "group-hover:text-fixed-white",
+      "files": [
+        "src/components/Nav.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-brand-blue/20",
+      "declarations": [
+        "background-color: rgb(22 30 60)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-brand-gold/20",
+      "declarations": [
+        "background-color: rgb(58 48 24)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-brand-gold/25",
+      "declarations": [
+        "background-color: rgb(245 198 66 / 0.25)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ReportIncidentButton.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-brand-pink/20",
+      "declarations": [
+        "background-color: rgb(58 22 33)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-brand-primary",
+      "declarations": [
+        "--tw-bg-opacity: 1",
+        "background-color: rgb(67 105 245 / var(--tw-bg-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/analytics/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-brand-primary/20",
+      "declarations": [
+        "background-color: rgb(22 30 60)"
+      ],
+      "tokenised": false,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-white/[0.02]",
+      "declarations": [
+        "background-color: rgb(16 16 19)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ChampionCard.astro",
+        "src/pages/hall-of-fame/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-white/[0.03]",
+      "declarations": [
+        "background-color: rgb(18 18 21)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/NewsCard.astro",
+        "src/components/ResultsTable.astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-white/[0.04]",
+      "declarations": [
+        "background-color: rgb(21 21 24)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/DriverRow.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/teams/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:bg-white/[0.06]",
+      "declarations": [
+        "background-color: rgb(26 26 28)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Nav.astro",
+        "src/lib/eventFormatting.ts"
+      ]
+    },
+    {
+      "class": "hover:bg-white/10",
+      "declarations": [
+        "background-color: rgb(35 35 38)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/home/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/standings.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "hover:bg-white/5",
+      "declarations": [
+        "background-color: rgb(23 23 26)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/HistoryTabs.astro",
+        "src/layouts/AdminLayout.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "hover:border-brand-blue/60",
+      "declarations": [
+        "border-color: rgb(67 105 245 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts"
+      ]
+    },
+    {
+      "class": "hover:border-brand-gold/60",
+      "declarations": [
+        "border-color: rgb(245 198 66 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts"
+      ]
+    },
+    {
+      "class": "hover:border-brand-pink/60",
+      "declarations": [
+        "border-color: rgb(245 66 110 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts"
+      ]
+    },
+    {
+      "class": "hover:border-white/20",
+      "declarations": [
+        "border-color: rgb(255 255 255 / 0.2)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/NewsCard.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:file:bg-white/20",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.2)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "hover:file:bg-fixed-white/20",
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:ring-brand-primary/50",
+      "declarations": [
+        "--tw-ring-color: rgb(67 105 245 / 0.5)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/media/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:text-brand-pink",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(245 66 110 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:text-brand-primary",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(67 105 245 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro"
+      ]
+    },
+    {
+      "class": "hover:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/EventDetailCard.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/Nav.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/StandingsTabs.astro",
+        "src/layouts/AdminLayout.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos.astro",
+        "src/pages/results/[subsessionId].astro",
+        "src/scripts/layoutMapEditor.ts",
+        "src/scripts/lightbox.ts",
+        "src/scripts/sortable-table.ts"
+      ]
+    },
+    {
+      "class": "hover:text-white/60",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.6)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Footer.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/news/[slug].astro"
+      ]
+    },
+    {
+      "class": "hover:text-white/70",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.7)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "hover:text-white/80",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.8)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Footer.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/pages/admin/circuits/[id].astro"
+      ]
+    },
+    {
+      "class": "peer-checked/class:bg-white/10",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/drivers/[id]/fragment.astro"
+      ]
+    },
+    {
+      "class": "peer-checked/class:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/drivers/[id]/fragment.astro"
+      ]
+    },
+    {
+      "class": "peer-checked/overall:bg-white/10",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/drivers/[id]/fragment.astro"
+      ]
+    },
+    {
+      "class": "peer-checked/overall:text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/drivers/[id]/fragment.astro"
+      ]
+    },
+    {
+      "class": "placeholder:text-white/30",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.3)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "placeholder:text-fixed-white/30",
+      "files": [
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro"
+      ]
+    },
+    {
+      "class": "ring-brand-gold/30",
+      "declarations": [
+        "--tw-ring-color: rgb(245 198 66 / 0.3)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ReportIncidentButton.astro"
+      ]
+    },
+    {
+      "class": "ring-brand-primary",
+      "declarations": [
+        "--tw-ring-opacity: 1",
+        "--tw-ring-color: rgb(67 105 245 / var(--tw-ring-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/calendar.astro"
+      ]
+    },
+    {
+      "class": "ring-brand-primary/60",
+      "declarations": [
+        "--tw-ring-color: rgb(67 105 245 / 0.6)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/InterviewDialog.astro"
+      ]
+    },
+    {
+      "class": "ring-white/10",
+      "declarations": [
+        "--tw-ring-color: rgb(255 255 255 / 0.1)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/media/fragment.astro"
+      ]
+    },
+    {
+      "class": "ring-white/15",
+      "declarations": [
+        "--tw-ring-color: rgb(255 255 255 / 0.15)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/IncidentButton.astro",
+        "src/components/Nav.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentButton.astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-brand-blue",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(67 105 245 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ResultsTable.astro",
+        "src/lib/classColors.ts",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-brand-gold",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(245 198 66 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/IncidentsAllTable.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/ReportIncidentButton.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/TrophyIcon.astro",
+        "src/lib/classColors.ts",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/scripts/layoutMapEditor.ts"
+      ]
+    },
+    {
+      "class": "text-brand-gold/70",
+      "declarations": [
+        "color: rgb(245 198 66 / 0.7)"
+      ],
+      "tokenised": true,
+      "hasLightRule": false,
+      "needsFixed": true,
+      "fixed": "text-brand-fixed-gold/70",
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-brand-gold/80",
+      "declarations": [
+        "color: rgb(245 198 66 / 0.8)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/events/index.astro"
+      ]
+    },
+    {
+      "class": "text-brand-ink",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(11 11 14 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/Nav.astro"
+      ]
+    },
+    {
+      "class": "text-brand-pink",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(245 66 110 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/DriverRow.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/ResultsTable.astro",
+        "src/lib/classColors.ts",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/scripts/interviewRecorder.ts"
+      ]
+    },
+    {
+      "class": "text-brand-pink/90",
+      "declarations": [
+        "color: rgb(245 66 110 / 0.9)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/IncidentDetailsDialog.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-brand-primary",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(67 105 245 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/EventDetailCard.astro",
+        "src/components/EventSessionFields.astro",
+        "src/components/NewsCard.astro",
+        "src/components/ResultsTable.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/signup.astro",
+        "src/scripts/interviewRecorder.ts"
+      ]
+    },
+    {
+      "class": "text-brand-tertiary",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(245 198 66 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/results/[subsessionId]/incidents/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-emerald-400",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(52 211 153 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/LayoutMap.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro"
+      ]
+    },
+    {
+      "class": "text-red-300",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(252 165 165 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/analytics/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-white",
+      "declarations": [
+        "--tw-text-opacity: 1",
+        "color: rgb(255 255 255 / var(--tw-text-opacity, 1))"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/CarLogos.astro",
+        "src/components/EventSessionFields.astro",
+        "src/components/HistoryTabs.astro",
+        "src/components/IncidentButton.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/Nav.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentButton.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/StandingsTabs.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "text-white/20",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.2)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/PhotoGrid.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/standings/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-white/25",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.25)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/teams/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-white/30",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.3)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/CarLogos.astro",
+        "src/components/ChampionCard.astro",
+        "src/components/EventDetailCard.astro",
+        "src/components/Footer.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/WeatherIcon.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/teams/fragment.astro"
+      ]
+    },
+    {
+      "class": "text-white/35",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.35)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro"
+      ]
+    },
+    {
+      "class": "text-white/40",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.4)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ChampionCard.astro",
+        "src/components/EventSessionFields.astro",
+        "src/components/Footer.astro",
+        "src/components/HistoryTabs.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/Nav.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/StatBlock.astro",
+        "src/components/TeamChampionCard.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/incidents.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/media.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/circuitLayoutDetail.ts",
+        "src/scripts/layoutMapEditor.ts",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "text-white/50",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.5)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ChampionCard.astro",
+        "src/components/EventDetailCard.astro",
+        "src/components/Footer.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/LoadError.astro",
+        "src/components/NewsCard.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/StandingsTabs.astro",
+        "src/components/TeamChampionCard.astro",
+        "src/components/TeamLogo.astro",
+        "src/components/UpcomingEventCard.astro",
+        "src/lib/eventFormatting.ts",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/calendar.astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/media.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos.astro",
+        "src/pages/results/[subsessionId].astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/interviewRecorder.ts",
+        "src/scripts/logoSelect.ts"
+      ]
+    },
+    {
+      "class": "text-white/60",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.6)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/DriverRow.astro",
+        "src/components/EventDetailCard.astro",
+        "src/components/EventSessionFields.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/IncidentsAllTable.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/UpcomingEventCard.astro",
+        "src/layouts/AdminLayout.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/fragment.astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/awards.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar/fragment.astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/fragment.astro",
+        "src/pages/champions.astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/driver-stats.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/hall-of-fame.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/incidents.astro",
+        "src/pages/index.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/media.astro",
+        "src/pages/news/fragment.astro",
+        "src/pages/news/index.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/fragment.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos.astro",
+        "src/pages/results/[subsessionId].astro",
+        "src/pages/results.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/roster.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/team-stats.astro",
+        "src/pages/teams/fragment.astro",
+        "src/pages/teams.astro"
+      ]
+    },
+    {
+      "class": "text-white/70",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.7)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/DriverFlag.astro",
+        "src/components/DriverRow.astro",
+        "src/components/Footer.astro",
+        "src/components/IncidentDetailsDialog.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/KudosDialog.astro",
+        "src/components/NewsCard.astro",
+        "src/components/PracticeResultsTable.astro",
+        "src/components/QualifyingResultsTable.astro",
+        "src/components/ReportIncidentDialog.astro",
+        "src/components/ResultsTable.astro",
+        "src/components/TeamChampionCard.astro",
+        "src/components/UpcomingEventCard.astro",
+        "src/layouts/AdminLayout.astro",
+        "src/lib/classColors.ts",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/briefing/[eventId].astro",
+        "src/pages/calendar.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/circuits/layout-detail/[layoutId].astro",
+        "src/pages/circuits.astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/incidents/fragment.astro",
+        "src/pages/login.astro",
+        "src/pages/media.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/teams/fragment.astro",
+        "src/scripts/lightbox.ts"
+      ]
+    },
+    {
+      "class": "text-white/80",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.8)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/EventSessionFields.astro",
+        "src/components/InterviewDialog.astro",
+        "src/components/LayoutMap.astro",
+        "src/components/LoadError.astro",
+        "src/components/Nav.astro",
+        "src/components/RaceLinksBlock.astro",
+        "src/components/WeatherIcon.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/analytics/fragment.astro",
+        "src/pages/admin/awards/index.astro",
+        "src/pages/admin/champions/hall-of-fame/[driverId].astro",
+        "src/pages/admin/champions/[seasonId]/[classId].astro",
+        "src/pages/admin/circuits/index.astro",
+        "src/pages/admin/circuits/[id]/map/[layoutId].astro",
+        "src/pages/admin/circuits/[id].astro",
+        "src/pages/admin/drivers/fragment.astro",
+        "src/pages/admin/drivers/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/events/index.astro",
+        "src/pages/admin/events/[id].astro",
+        "src/pages/admin/import/index.astro",
+        "src/pages/admin/import-tools/index.astro",
+        "src/pages/admin/incident-reporting/index.astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/admin/media/index.astro",
+        "src/pages/admin/news/index.astro",
+        "src/pages/admin/news/new.astro",
+        "src/pages/admin/news/tags/index.astro",
+        "src/pages/admin/news/[id]/edit.astro",
+        "src/pages/admin/organizations/index.astro",
+        "src/pages/admin/organizations/[id].astro",
+        "src/pages/admin/rulesets/index.astro",
+        "src/pages/admin/seasons/index.astro",
+        "src/pages/admin/signups/index.astro",
+        "src/pages/admin/site-properties/index.astro",
+        "src/pages/admin/teams/index.astro",
+        "src/pages/admin/teams/[id].astro",
+        "src/pages/admin/users/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/forgot-password.astro",
+        "src/pages/home/fragment.astro",
+        "src/pages/login.astro",
+        "src/pages/media/fragment.astro",
+        "src/pages/news/[slug].astro",
+        "src/pages/reset-password.astro",
+        "src/pages/results/[subsessionId]/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/results/[subsessionId]/kudos/fragment.astro",
+        "src/pages/roster/fragment.astro",
+        "src/pages/signup.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/scripts/layoutMapEditor.ts"
+      ]
+    },
+    {
+      "class": "text-white/90",
+      "declarations": [
+        "color: rgb(255 255 255 / 0.9)"
+      ],
+      "tokenised": true,
+      "hasLightRule": true,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/components/ResultsTable.astro",
+        "src/pages/admin/activity-log/index.astro",
+        "src/pages/admin/drivers/[id].astro",
+        "src/pages/admin/interviews/index.astro",
+        "src/pages/awards/fragment.astro",
+        "src/pages/champions/season-results/[seasonId]/[driverId].astro",
+        "src/pages/driver-stats/fragment.astro",
+        "src/pages/drivers/[id]/fragment.astro",
+        "src/pages/drivers/[id].astro",
+        "src/pages/hall-of-fame/fragment.astro",
+        "src/pages/results/[subsessionId]/incidents/fragment.astro",
+        "src/pages/standings/fragment.astro",
+        "src/pages/standings.astro",
+        "src/pages/team-stats/fragment.astro",
+        "src/pages/teams/fragment.astro"
+      ]
+    },
+    {
+      "class": "to-brand-gold/25",
+      "declarations": [
+        "--tw-gradient-to: rgb(245 198 66 / 0.25) var(--tw-gradient-to-position)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts"
+      ]
+    },
+    {
+      "class": "via-brand-pink/25",
+      "declarations": [
+        "--tw-gradient-to: rgb(245 66 110 / 0)  var(--tw-gradient-to-position)",
+        "--tw-gradient-stops: var(--tw-gradient-from), rgb(245 66 110 / 0.25) var(--tw-gradient-via-position), var(--tw-gradient-to)"
+      ],
+      "tokenised": false,
+      "hasLightRule": false,
+      "needsFixed": false,
+      "fixed": null,
+      "files": [
+        "src/lib/eventFormatting.ts"
+      ]
+    }
+  ],
+  "lightRules": [
+    {
+      "selector": ".light body",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)",
+        "background-color: rgb(247 247 249 / 1)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light [data-sticky-thead] thead th",
+      "declarations": [
+        "background-color: rgb(247 247 249 / 1)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light",
+      "declarations": [
+        "color-scheme: light"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light body",
+      "declarations": [
+        "background-color: rgb(247 247 249 / 1)",
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light .divide-white\\/10 > :not([hidden]) ~ :not([hidden])",
+      "declarations": [
+        "border-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "divide-white/10"
+      ]
+    },
+    {
+      "selector": ".light .border-white\\/5",
+      "declarations": [
+        "border-color: rgb(17 17 20 / 0.05)"
+      ],
+      "classes": [
+        "border-white/5"
+      ]
+    },
+    {
+      "selector": ".light .border-white\\/10",
+      "declarations": [
+        "border-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "border-white/10"
+      ]
+    },
+    {
+      "selector": ".light .border-white\\/15",
+      "declarations": [
+        "border-color: rgb(17 17 20 / 0.15)"
+      ],
+      "classes": [
+        "border-white/15"
+      ]
+    },
+    {
+      "selector": ".light .border-white\\/20",
+      "declarations": [
+        "border-color: rgb(17 17 20 / 0.2)"
+      ],
+      "classes": [
+        "border-white/20"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:border-white\\/20:hover",
+      "declarations": [
+        "border-color: rgb(17 17 20 / 0.2)"
+      ],
+      "classes": [
+        "hover:border-white/20"
+      ]
+    },
+    {
+      "selector": ".light .bg-white\\/5",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.05)"
+      ],
+      "classes": [
+        "bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light .bg-white\\/10",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light .bg-white\\/\\[0\\.02\\]",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.02)"
+      ],
+      "classes": [
+        "bg-white/[0.02]"
+      ]
+    },
+    {
+      "selector": ".light .bg-white\\/\\[0\\.03\\]",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.03)"
+      ],
+      "classes": [
+        "bg-white/[0.03]"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/5:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.05)"
+      ],
+      "classes": [
+        "hover:bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light .focus\\:bg-white\\/5:focus",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.05)"
+      ],
+      "classes": [
+        "focus:bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/10:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "hover:bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/20:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.2)"
+      ],
+      "classes": [
+        "hover:bg-white/20"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/\\[0\\.02\\]:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.02)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.02]"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/\\[0\\.03\\]:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.03)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.03]"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/\\[0\\.04\\]:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.04)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.04]"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:bg-white\\/\\[0\\.06\\]:hover",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.06)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.06]"
+      ]
+    },
+    {
+      "selector": ".light .active\\:bg-white\\/5:active",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.05)"
+      ],
+      "classes": [
+        "active:bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light .open\\:bg-white\\/\\[0\\.05\\][open]",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.05)"
+      ],
+      "classes": [
+        "open:bg-white/[0.05]"
+      ]
+    },
+    {
+      "selector": ".light .file\\:bg-white\\/10::file-selector-button",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "file:bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light .peer\\/class:checked ~ .peer-checked\\/class\\:bg-white\\/10",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "peer/class",
+        "peer-checked/class:bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light .peer\\/overall:checked ~ .peer-checked\\/overall\\:bg-white\\/10",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "peer/overall",
+        "peer-checked/overall:bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light .ring-white\\/10",
+      "declarations": [
+        "--tw-ring-color: rgb(17 17 20 / 0.1)"
+      ],
+      "classes": [
+        "ring-white/10"
+      ]
+    },
+    {
+      "selector": ".light .ring-white\\/15",
+      "declarations": [
+        "--tw-ring-color: rgb(17 17 20 / 0.15)"
+      ],
+      "classes": [
+        "ring-white/15"
+      ]
+    },
+    {
+      "selector": ".light .decoration-white\\/20",
+      "declarations": [
+        "text-decoration-color: rgb(17 17 20 / 0.2)"
+      ],
+      "classes": [
+        "decoration-white/20"
+      ]
+    },
+    {
+      "selector": ".light .decoration-white\\/25",
+      "declarations": [
+        "text-decoration-color: rgb(17 17 20 / 0.25)"
+      ],
+      "classes": [
+        "decoration-white/25"
+      ]
+    },
+    {
+      "selector": ".light .decoration-white\\/30",
+      "declarations": [
+        "text-decoration-color: rgb(17 17 20 / 0.3)"
+      ],
+      "classes": [
+        "decoration-white/30"
+      ]
+    },
+    {
+      "selector": ".light .text-white",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "text-white"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/20",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.28)"
+      ],
+      "classes": [
+        "text-white/20"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/25",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.33)"
+      ],
+      "classes": [
+        "text-white/25"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/30",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.38)"
+      ],
+      "classes": [
+        "text-white/30"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/35",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.43)"
+      ],
+      "classes": [
+        "text-white/35"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/40",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.48)"
+      ],
+      "classes": [
+        "text-white/40"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/50",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.58)"
+      ],
+      "classes": [
+        "text-white/50"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/60",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.68)"
+      ],
+      "classes": [
+        "text-white/60"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/70",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.78)"
+      ],
+      "classes": [
+        "text-white/70"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/80",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.88)"
+      ],
+      "classes": [
+        "text-white/80"
+      ]
+    },
+    {
+      "selector": ".light .text-white\\/90",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.98)"
+      ],
+      "classes": [
+        "text-white/90"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:text-white:hover",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "hover:text-white"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:text-white\\/60:hover",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.68)"
+      ],
+      "classes": [
+        "hover:text-white/60"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:text-white\\/70:hover",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.78)"
+      ],
+      "classes": [
+        "hover:text-white/70"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:text-white\\/80:hover",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.88)"
+      ],
+      "classes": [
+        "hover:text-white/80"
+      ]
+    },
+    {
+      "selector": ".light .file\\:text-white::file-selector-button",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "file:text-white"
+      ]
+    },
+    {
+      "selector": ".light .peer\\/class:checked ~ .peer-checked\\/class\\:text-white",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "peer/class",
+        "peer-checked/class:text-white"
+      ]
+    },
+    {
+      "selector": ".light .peer\\/overall:checked ~ .peer-checked\\/overall\\:text-white",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "peer/overall",
+        "peer-checked/overall:text-white"
+      ]
+    },
+    {
+      "selector": ".light .bg-brand-ink",
+      "declarations": [
+        "background-color: rgb(247 247 249 / 1)"
+      ],
+      "classes": [
+        "bg-brand-ink"
+      ]
+    },
+    {
+      "selector": ".light .bg-brand-ink\\/80",
+      "declarations": [
+        "background-color: rgb(247 247 249 / 0.8)"
+      ],
+      "classes": [
+        "bg-brand-ink/80"
+      ]
+    },
+    {
+      "selector": ".light .from-brand-ink\\/30",
+      "declarations": [
+        "--tw-gradient-from: rgb(247 247 249 / 0.3) var(--tw-gradient-from-position)",
+        "--tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position)"
+      ],
+      "classes": [
+        "from-brand-ink/30"
+      ]
+    },
+    {
+      "selector": ".light .via-brand-ink\\/80",
+      "declarations": [
+        "--tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position)",
+        "--tw-gradient-stops: var(--tw-gradient-from), rgb(247 247 249 / 0.8) var(--tw-gradient-via-position), var(--tw-gradient-to)"
+      ],
+      "classes": [
+        "via-brand-ink/80"
+      ]
+    },
+    {
+      "selector": ".light .to-brand-ink",
+      "declarations": [
+        "--tw-gradient-to: rgb(247 247 249 / 1) var(--tw-gradient-to-position)"
+      ],
+      "classes": [
+        "to-brand-ink"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-blue",
+      "declarations": [
+        "color: rgb(66 104 245 / 1)"
+      ],
+      "classes": [
+        "text-brand-blue"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-primary",
+      "declarations": [
+        "color: rgb(66 104 245 / 1)"
+      ],
+      "classes": [
+        "text-brand-primary"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:text-brand-primary:hover",
+      "declarations": [
+        "color: rgb(66 104 245 / 1)"
+      ],
+      "classes": [
+        "hover:text-brand-primary"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-pink",
+      "declarations": [
+        "color: rgb(232 12 66 / 1)"
+      ],
+      "classes": [
+        "text-brand-pink"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-pink\\/90",
+      "declarations": [
+        "color: rgb(232 12 66 / 0.9)"
+      ],
+      "classes": [
+        "text-brand-pink/90"
+      ]
+    },
+    {
+      "selector": ".light .hover\\:text-brand-pink:hover",
+      "declarations": [
+        "color: rgb(232 12 66 / 1)"
+      ],
+      "classes": [
+        "hover:text-brand-pink"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-gold",
+      "declarations": [
+        "color: rgb(148 111 8 / 1)"
+      ],
+      "classes": [
+        "text-brand-gold"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-gold\\/80",
+      "declarations": [
+        "color: rgb(148 111 8 / 0.8)"
+      ],
+      "classes": [
+        "text-brand-gold/80"
+      ]
+    },
+    {
+      "selector": ".light .text-emerald-400",
+      "declarations": [
+        "color: rgb(4 120 87 / 1)"
+      ],
+      "classes": [
+        "text-emerald-400"
+      ]
+    },
+    {
+      "selector": ".light .text-red-300",
+      "declarations": [
+        "color: rgb(185 28 28 / 1)"
+      ],
+      "classes": [
+        "text-red-300"
+      ]
+    },
+    {
+      "selector": ".light .bg-brand-primary",
+      "declarations": [
+        "color: rgb(255 255 255 / 1)"
+      ],
+      "classes": [
+        "bg-brand-primary"
+      ]
+    },
+    {
+      "selector": ".light .bg-white",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "bg-white"
+      ]
+    },
+    {
+      "selector": ".light .text-brand-ink",
+      "declarations": [
+        "color: rgb(247 247 249 / 1)"
+      ],
+      "classes": [
+        "text-brand-ink"
+      ]
+    },
+    {
+      "selector": ".light .data-\\[active\\=true\\]\\:bg-white[data-active='true']",
+      "declarations": [
+        "background-color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "data-[active=true]:bg-white"
+      ]
+    },
+    {
+      "selector": ".light .data-\\[active\\=true\\]\\:text-brand-ink[data-active='true']",
+      "declarations": [
+        "color: rgb(247 247 249 / 1)"
+      ],
+      "classes": [
+        "data-[active=true]:text-brand-ink"
+      ]
+    },
+    {
+      "selector": ".light [data-marquee-viewport].bg-white",
+      "declarations": [
+        "background-color: rgb(255 255 255 / 1)"
+      ],
+      "classes": [
+        "bg-white"
+      ]
+    },
+    {
+      "selector": ".light [data-sticky-thead] thead th",
+      "declarations": [
+        "background-color: rgb(247 247 249 / 1)",
+        "box-shadow: 0 1px 0 0 rgba(17, 17, 20, 0.1)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light .theme-tint",
+      "declarations": [
+        "filter: brightness(0)"
+      ],
+      "classes": [
+        "theme-tint"
+      ]
+    },
+    {
+      "selector": ".light .btn-primary, .light .btn-active, .light .btn[data-active='true']",
+      "declarations": [
+        "--btn-text: rgb(67 105 245)"
+      ],
+      "classes": [
+        "btn-primary",
+        "btn-active",
+        "btn"
+      ]
+    },
+    {
+      "selector": ".light .btn-danger",
+      "declarations": [
+        "--btn-text: rgb(232 12 66)"
+      ],
+      "classes": [
+        "btn-danger"
+      ]
+    },
+    {
+      "selector": ".light .btn-gold",
+      "declarations": [
+        "--btn-text: rgb(148 111 8)",
+        "--btn-rgb: 214 160 20"
+      ],
+      "classes": [
+        "btn-gold"
+      ]
+    },
+    {
+      "selector": ".light .btn-neutral",
+      "declarations": [
+        "--btn-rgb: 17 17 20",
+        "--btn-text: rgb(17 17 20 / 0.78)"
+      ],
+      "classes": [
+        "btn-neutral"
+      ]
+    },
+    {
+      "selector": ".light .btn-neutral:hover:not(:disabled)",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)"
+      ],
+      "classes": [
+        "btn-neutral"
+      ]
+    },
+    {
+      "selector": ".light .btn-neutral[data-active='true'], .light .btn-neutral.btn-active",
+      "declarations": [
+        "--btn-rgb: 67 105 245",
+        "--btn-text: rgb(67 105 245)"
+      ],
+      "classes": [
+        "btn-neutral",
+        "btn-neutral",
+        "btn-active"
+      ]
+    },
+    {
+      "selector": ".light input[type='file']::file-selector-button",
+      "declarations": [
+        "color: rgb(17 17 20 / 0.78)",
+        "box-shadow: inset 0 0 0 1.5px rgb(17 17 20 / 0.25)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light input[type='file']:hover::file-selector-button",
+      "declarations": [
+        "color: rgb(17 17 20 / 1)",
+        "background-color: rgb(17 17 20 / 0.12)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light",
+      "declarations": [
+        "--card-blue: rgb(229 233 249)",
+        "--card-pink: rgb(247 229 235)",
+        "--card-gold: rgb(247 242 231)",
+        "--card-blue-h: rgb(211 219 248)",
+        "--card-pink-h: rgb(247 211 221)",
+        "--card-gold-h: rgb(247 237 212)"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light [class~='bg-white/5']",
+      "declarations": [
+        "background-color: rgb(236 236 238)"
+      ],
+      "classes": [
+        "bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-white/5']:hover",
+      "declarations": [
+        "background-color: rgb(236 236 238)"
+      ],
+      "classes": [
+        "hover:bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light [class~='focus:bg-white/5']:focus",
+      "declarations": [
+        "background-color: rgb(236 236 238)"
+      ],
+      "classes": [
+        "focus:bg-white/5"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-white/[0.02]']",
+      "declarations": [
+        "background-color: rgb(242 242 244)"
+      ],
+      "classes": [
+        "bg-white/[0.02]"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-white/[0.02]']:hover",
+      "declarations": [
+        "background-color: rgb(242 242 244)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.02]"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-white/[0.03]']",
+      "declarations": [
+        "background-color: rgb(240 240 242)"
+      ],
+      "classes": [
+        "bg-white/[0.03]"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-white/[0.03]']:hover",
+      "declarations": [
+        "background-color: rgb(240 240 242)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.03]"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-white/[0.04]']:hover",
+      "declarations": [
+        "background-color: rgb(238 238 240)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.04]"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-white/[0.05]']",
+      "declarations": [
+        "background-color: rgb(236 236 238)"
+      ],
+      "classes": [
+        "bg-white/[0.05]"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-white/[0.06]']:hover",
+      "declarations": [
+        "background-color: rgb(233 233 235)"
+      ],
+      "classes": [
+        "hover:bg-white/[0.06]"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-white/10']",
+      "declarations": [
+        "background-color: rgb(224 224 226)"
+      ],
+      "classes": [
+        "bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-white/10']:hover",
+      "declarations": [
+        "background-color: rgb(224 224 226)"
+      ],
+      "classes": [
+        "hover:bg-white/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-blue/10']",
+      "declarations": [
+        "background-color: rgb(229 233 249)"
+      ],
+      "classes": [
+        "bg-brand-blue/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-blue/15']",
+      "declarations": [
+        "background-color: rgb(220 226 248)"
+      ],
+      "classes": [
+        "bg-brand-blue/15"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-blue/20']",
+      "declarations": [
+        "background-color: rgb(211 219 248)"
+      ],
+      "classes": [
+        "bg-brand-blue/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-brand-blue/20']:hover",
+      "declarations": [
+        "background-color: rgb(211 219 248)"
+      ],
+      "classes": [
+        "hover:bg-brand-blue/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-pink/10']",
+      "declarations": [
+        "background-color: rgb(247 229 235)"
+      ],
+      "classes": [
+        "bg-brand-pink/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-pink/15']",
+      "declarations": [
+        "background-color: rgb(247 220 228)"
+      ],
+      "classes": [
+        "bg-brand-pink/15"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-pink/20']",
+      "declarations": [
+        "background-color: rgb(247 211 221)"
+      ],
+      "classes": [
+        "bg-brand-pink/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-brand-pink/20']:hover",
+      "declarations": [
+        "background-color: rgb(247 211 221)"
+      ],
+      "classes": [
+        "hover:bg-brand-pink/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-gold/5']",
+      "declarations": [
+        "background-color: rgb(247 245 240)"
+      ],
+      "classes": [
+        "bg-brand-gold/5"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-gold/10']",
+      "declarations": [
+        "background-color: rgb(247 242 231)"
+      ],
+      "classes": [
+        "bg-brand-gold/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-gold/15']",
+      "declarations": [
+        "background-color: rgb(247 240 222)"
+      ],
+      "classes": [
+        "bg-brand-gold/15"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-gold/20']",
+      "declarations": [
+        "background-color: rgb(247 237 212)"
+      ],
+      "classes": [
+        "bg-brand-gold/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-brand-gold/20']:hover",
+      "declarations": [
+        "background-color: rgb(247 237 212)"
+      ],
+      "classes": [
+        "hover:bg-brand-gold/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-emerald-400/10']",
+      "declarations": [
+        "background-color: rgb(231 245 239)"
+      ],
+      "classes": [
+        "bg-emerald-400/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-primary/10']",
+      "declarations": [
+        "background-color: rgb(229 233 249)"
+      ],
+      "classes": [
+        "bg-brand-primary/10"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-primary/15']",
+      "declarations": [
+        "background-color: rgb(220 226 248)"
+      ],
+      "classes": [
+        "bg-brand-primary/15"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-primary/20']",
+      "declarations": [
+        "background-color: rgb(211 219 248)"
+      ],
+      "classes": [
+        "bg-brand-primary/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='hover:bg-brand-primary/20']:hover",
+      "declarations": [
+        "background-color: rgb(211 219 248)"
+      ],
+      "classes": [
+        "hover:bg-brand-primary/20"
+      ]
+    },
+    {
+      "selector": ".light [class~='bg-brand-tertiary/10']",
+      "declarations": [
+        "background-color: rgb(247 242 231)"
+      ],
+      "classes": [
+        "bg-brand-tertiary/10"
+      ]
+    },
+    {
+      "selector": ".light .round-slider",
+      "declarations": [
+        "--rs-track: rgba(17, 17, 20, 0.15)",
+        "--rs-tick: rgba(17, 17, 20, 0.3)",
+        "--rs-thumb: #fff"
+      ],
+      "classes": [
+        "round-slider"
+      ]
+    },
+    {
+      "selector": ".light",
+      "declarations": [
+        "--banner-ink: 247 247 249",
+        "--banner-grain: 0.28"
+      ],
+      "classes": []
+    },
+    {
+      "selector": ".light .dot-map",
+      "declarations": [
+        "--m-bg: #f1f1f4",
+        "--m-border: rgba(17, 17, 20, 0.12)",
+        "--m-land: #d0d0d9",
+        "--m-ring: #f7f7f9",
+        "--m-ink: rgba(17, 17, 20, 0.85)",
+        "--m-muted: rgba(17, 17, 20, 0.5)",
+        "--m-ctl-bg: rgba(247, 247, 249, 0.9)",
+        "--m-ctl-ink: rgba(17, 17, 20, 0.8)",
+        "--m-pin-sprint: #e0a800"
+      ],
+      "classes": [
+        "dot-map"
+      ]
+    },
+    {
+      "selector": ".light .layout-map-plate",
+      "declarations": [
+        "background: #fff"
+      ],
+      "classes": [
+        "layout-map-plate"
+      ]
+    },
+    {
+      "selector": ".light .layout-map-plate > img.layout-map-img",
+      "declarations": [
+        "filter: invert(1)"
+      ],
+      "classes": [
+        "layout-map-plate",
+        "layout-map-img"
+      ]
+    },
+    {
+      "selector": ".light .map-pin",
+      "declarations": [
+        "border-color: #fff"
+      ],
+      "classes": [
+        "map-pin"
+      ]
+    },
+    {
+      "selector": ".light .map-pin-tip",
+      "declarations": [
+        "background: #fff",
+        "color: #111114",
+        "border-color: rgb(17 17 20 / 0.15)"
+      ],
+      "classes": [
+        "map-pin-tip"
+      ]
+    },
+    {
+      "selector": ".light .map-flag",
+      "declarations": [
+        "background: #fff",
+        "color: #111114"
+      ],
+      "classes": [
+        "map-flag"
+      ]
+    },
+    {
+      "selector": ".light .\\[\\.light_\\&\\]\\:block",
+      "declarations": [
+        "display: block"
+      ],
+      "classes": [
+        "[.light_&]:block"
+      ]
+    },
+    {
+      "selector": ".light .\\[\\.light_\\&\\]\\:hidden",
+      "declarations": [
+        "display: none"
+      ],
+      "classes": [
+        "[.light_&]:hidden"
+      ]
+    }
+  ]
+}

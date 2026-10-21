@@ -60,7 +60,7 @@
     --btn-ring: 0.25;
   }
   .btn-neutral:hover:not(:disabled) {
-    color: rgb(255 255 255 / 1);
+    color: rgb(var(--fg) / 1);
   }
 
   /* Selected state for filter/tab style toggles: tinted fill, stronger ring. */
@@ -359,7 +359,7 @@ th[data-sort-key][data-sort-dir='desc']::after {
   top: var(--sticky-header-offset);
   z-index: 20;
   @apply bg-brand-ink;
-  box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 1px 0 0 var(--thead-rule);
 }
 
 /* ============================================================
@@ -370,325 +370,76 @@ th[data-sort-key][data-sort-dir='desc']::after {
    `.light` class, persisted to localStorage, and read back before first
    paint by the inline script in Layout.astro's <head> (FOUC prevention).
 
-   This is a single additive override sheet rather than per-component
-   edits — every color utility actually used across the site (extracted by
-   compiling this file's real Tailwind output against the real component
-   markup) got one of a few generic transforms:
+   Every colour that differs between the themes is a CSS variable: the
+   dark value is set on :root below and the light value is set by
+   redefining the same variable under .light. Rules under .light set
+   variables (and color-scheme) only, never a property directly.
 
-     - white, at any opacity, in any color-bearing property -> "ink"
-       (rgb(17 17 20), a near-black foreground). Covers running text,
-       borders, and the translucent white tints used everywhere as
-       dark-mode surface treatments (card backgrounds, hover states,
-       dividers, rings).
-     - brand-ink (#0B0B0E, the site's near-black) -> "paper"
-       (rgb(247 247 249), a near-white background). Covers solid dark
-       backgrounds (page body, sticky headers) and the hero gradient
-       stops built from it.
+     - --fg: the foreground. Tailwind's `white` reads it, so every white
+       utility, at any opacity and in any property (text, borders, the
+       translucent tints used as surfaces, rings, dividers), becomes "ink"
+       (rgb(17 17 20)) in light mode.
+     - --canvas: the page colour. Tailwind's `brand.ink` reads it (page
+       body, sticky headers, hero gradient stops): "paper"
+       (rgb(247 247 249)) in light mode.
+     - --fg-text-boost: light mode draws white TEXT 0.08 more opaque than
+       its class says (text-white/50 renders at 0.58), because grey running
+       text read as too washed out on paper. Text only, flat, capped at 1.
+     - --text-*: brand blue/pink/gold (and emerald-400 / red-300) used as
+       TEXT get darkened, contrast-checked values in light mode. Their
+       background, border and ring uses keep the brand hex values.
+     - the fixed colour family (fixed-white, fixed-ink, brand-fixed-*) never
+       changes with the theme. It is for the few things that stay the same
+       in both themes: the "Happening Now" marquee strip, white text on a
+       solid blue badge, hover states that stay white.
      - true black (bg-black, backdrop overlays) and box-shadows are left
-       unchanged — those read as "shadow/scrim", not "theme foreground/
-       background", in either mode.
-     - the three brand hues (blue/pink/gold) keep their normal tint/badge/
-       border/ring usage unchanged, but get darkened, WCAG-contrast-
-       checked variants where they're used as *text* — the values tuned
-       for text on the dark brand-ink background don't have enough
-       contrast against a light one on their own.
-
-   A few selectors don't fit that generic rule and get their own explicit
-   override below, each with its own comment: the "selected pill" bg-white
-   + text-brand-ink pairing used site-wide for active tabs/filters, the
-   "Happening Now" nav marquee (a fixed white/black strip in both themes
-   by design), and the sticky table header (its background comes from a
-   Sass-style `@apply`, not a `.bg-brand-ink` class on the element, so the
-   generic override below doesn't reach it).
+       alone: they read as shadow or scrim in either theme.
    ============================================================ */
+
+:root {
+  --fg: 255 255 255;
+  --fg-text-boost: 0;
+  --canvas: 11 11 14;
+  --text-blue: 67 105 245;
+  --text-pink: 245 66 110;
+  --text-gold: 245 198 66;
+  --text-emerald-400: 52 211 153;
+  --text-red-300: 252 165 165;
+
+  /* Component colours, read by the rules named after them further down. */
+  --thead-rule: rgba(255, 255, 255, 0.1);
+  --file-btn-text-alpha: 0.72;
+  --file-btn-tint: transparent;
+  --map-plate-bg: #000;
+  --map-plate-img-filter: none;
+  --map-pin-border: #0b0b0e;
+  --map-label-bg: #121218;
+  --map-label-fg: #f2f2f5;
+  --map-tip-border: rgb(255 255 255 / 0.15);
+}
 
 .light {
   color-scheme: light;
-}
 
-/* The `body` rule above comes from `@apply bg-brand-ink text-white ...`,
-   which compiles straight into this plain-element selector rather than
-   the `.bg-brand-ink`/`.text-white` utility classes (the <body> tag itself
-   carries no class attribute) — so it needs its own override here, same
-   as the sticky table header below. */
-.light body {
-  background-color: rgb(247 247 249 / 1);
-  color: rgb(17 17 20 / 1);
-}
+  --fg: 17 17 20;
+  --fg-text-boost: 0.08;
+  --canvas: 247 247 249;
+  --text-blue: 66 104 245;
+  --text-pink: 232 12 66;
+  --text-gold: 148 111 8;
+  --text-emerald-400: 4 120 87;
+  --text-red-300: 185 28 28;
 
-/* ---- borders: white/NN -> ink/NN ---- */
-.light .divide-white\/10 > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgb(17 17 20 / 0.1);
-}
-.light .border-white\/5 {
-  border-color: rgb(17 17 20 / 0.05);
-}
-.light .border-white\/10 {
-  border-color: rgb(17 17 20 / 0.1);
-}
-.light .border-white\/15 {
-  border-color: rgb(17 17 20 / 0.15);
-}
-.light .border-white\/20 {
-  border-color: rgb(17 17 20 / 0.2);
-}
-.light .hover\:border-white\/20:hover {
-  border-color: rgb(17 17 20 / 0.2);
-}
-
-/* ---- backgrounds: translucent white tints -> ink tints ---- */
-.light .bg-white\/5 {
-  background-color: rgb(17 17 20 / 0.05);
-}
-.light .bg-white\/10 {
-  background-color: rgb(17 17 20 / 0.1);
-}
-.light .bg-white\/\[0\.02\] {
-  background-color: rgb(17 17 20 / 0.02);
-}
-.light .bg-white\/\[0\.03\] {
-  background-color: rgb(17 17 20 / 0.03);
-}
-.light .hover\:bg-white\/5:hover {
-  background-color: rgb(17 17 20 / 0.05);
-}
-.light .focus\:bg-white\/5:focus {
-  background-color: rgb(17 17 20 / 0.05);
-}
-.light .hover\:bg-white\/10:hover {
-  background-color: rgb(17 17 20 / 0.1);
-}
-.light .hover\:bg-white\/20:hover {
-  background-color: rgb(17 17 20 / 0.2);
-}
-.light .hover\:bg-white\/\[0\.02\]:hover {
-  background-color: rgb(17 17 20 / 0.02);
-}
-.light .hover\:bg-white\/\[0\.03\]:hover {
-  background-color: rgb(17 17 20 / 0.03);
-}
-.light .hover\:bg-white\/\[0\.04\]:hover {
-  background-color: rgb(17 17 20 / 0.04);
-}
-.light .hover\:bg-white\/\[0\.06\]:hover {
-  background-color: rgb(17 17 20 / 0.06);
-}
-.light .active\:bg-white\/5:active {
-  background-color: rgb(17 17 20 / 0.05);
-}
-.light .open\:bg-white\/\[0\.05\][open] {
-  background-color: rgb(17 17 20 / 0.05);
-}
-.light .file\:bg-white\/10::file-selector-button {
-  background-color: rgb(17 17 20 / 0.1);
-}
-.light .peer\/class:checked ~ .peer-checked\/class\:bg-white\/10 {
-  background-color: rgb(17 17 20 / 0.1);
-}
-.light .peer\/overall:checked ~ .peer-checked\/overall\:bg-white\/10 {
-  background-color: rgb(17 17 20 / 0.1);
-}
-.light .ring-white\/10 {
-  --tw-ring-color: rgb(17 17 20 / 0.1);
-}
-.light .ring-white\/15 {
-  --tw-ring-color: rgb(17 17 20 / 0.15);
-}
-.light .decoration-white\/20 {
-  text-decoration-color: rgb(17 17 20 / 0.2);
-}
-.light .decoration-white\/25 {
-  text-decoration-color: rgb(17 17 20 / 0.25);
-}
-.light .decoration-white\/30 {
-  text-decoration-color: rgb(17 17 20 / 0.3);
-}
-
-/* ---- text: white/NN -> ink/NN. This is the big one — the base body text
-   color (global.css `body` rule above) is full-opacity `text-white`, so
-   this single override is what makes ordinary running text legible.
-
-   Every opacity step here runs +0.08 darker than its literal Tailwind
-   value (e.g. `text-white/50` -> 0.58, not 0.5) — grey running text was
-   reading as too washed-out/low-contrast against this theme's light
-   background per Logan, and since the underlying color is already the
-   theme's ink (rgb(17 17 20)), opacity is the only lever that controls
-   how dark a given "grey" actually renders here. Flat, not scaled, so
-   every step (the near-invisible /20 tags through the near-solid /90
-   labels) gets the same nudge rather than compounding unevenly. `text-
-   white` itself (opacity 1, full ink) is already as dark as this scale
-   goes, so it's untouched, same as every hover: variant below. ---- */
-.light .text-white {
-  color: rgb(17 17 20 / 1);
-}
-.light .text-white\/20 {
-  color: rgb(17 17 20 / 0.28);
-}
-.light .text-white\/25 {
-  color: rgb(17 17 20 / 0.33);
-}
-.light .text-white\/30 {
-  color: rgb(17 17 20 / 0.38);
-}
-.light .text-white\/35 {
-  color: rgb(17 17 20 / 0.43);
-}
-.light .text-white\/40 {
-  color: rgb(17 17 20 / 0.48);
-}
-.light .text-white\/50 {
-  color: rgb(17 17 20 / 0.58);
-}
-.light .text-white\/60 {
-  color: rgb(17 17 20 / 0.68);
-}
-.light .text-white\/70 {
-  color: rgb(17 17 20 / 0.78);
-}
-.light .text-white\/80 {
-  color: rgb(17 17 20 / 0.88);
-}
-.light .text-white\/90 {
-  color: rgb(17 17 20 / 0.98);
-}
-.light .hover\:text-white:hover {
-  color: rgb(17 17 20 / 1);
-}
-.light .hover\:text-white\/60:hover {
-  color: rgb(17 17 20 / 0.68);
-}
-.light .hover\:text-white\/70:hover {
-  color: rgb(17 17 20 / 0.78);
-}
-.light .hover\:text-white\/80:hover {
-  color: rgb(17 17 20 / 0.88);
-}
-.light .file\:text-white::file-selector-button {
-  color: rgb(17 17 20 / 1);
-}
-.light .peer\/class:checked ~ .peer-checked\/class\:text-white {
-  color: rgb(17 17 20 / 1);
-}
-.light .peer\/overall:checked ~ .peer-checked\/overall\:text-white {
-  color: rgb(17 17 20 / 1);
-}
-
-/* ---- solid dark backgrounds (brand-ink) -> paper ---- */
-.light .bg-brand-ink {
-  background-color: rgb(247 247 249 / 1);
-}
-.light .bg-brand-ink\/80 {
-  background-color: rgb(247 247 249 / 0.8);
-}
-.light .from-brand-ink\/30 {
-  --tw-gradient-from: rgb(247 247 249 / 0.3) var(--tw-gradient-from-position);
-  --tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position);
-}
-.light .via-brand-ink\/80 {
-  --tw-gradient-to: rgb(247 247 249 / 0) var(--tw-gradient-to-position);
-  --tw-gradient-stops:
-    var(--tw-gradient-from), rgb(247 247 249 / 0.8) var(--tw-gradient-via-position), var(--tw-gradient-to);
-}
-.light .to-brand-ink {
-  --tw-gradient-to: rgb(247 247 249 / 1) var(--tw-gradient-to-position);
-}
-
-/* ---- brand-color TEXT gets darkened, WCAG-checked variants. Background/
-   border/ring usages of the same brand colors (badges, tinted panels,
-   focus rings) are left unchanged — those are low-opacity tints, not the
-   thing that has to stay readable at body-text size. ---- */
-.light .text-brand-blue {
-  color: rgb(66 104 245 / 1);
-}
-.light .text-brand-primary {
-  color: rgb(66 104 245 / 1);
-}
-.light .hover\:text-brand-primary:hover {
-  color: rgb(66 104 245 / 1);
-}
-.light .text-brand-pink {
-  color: rgb(232 12 66 / 1);
-}
-.light .text-brand-pink\/90 {
-  color: rgb(232 12 66 / 0.9);
-}
-.light .hover\:text-brand-pink:hover {
-  color: rgb(232 12 66 / 1);
-}
-.light .text-brand-gold {
-  color: rgb(148 111 8 / 1);
-}
-.light .text-brand-gold\/80 {
-  color: rgb(148 111 8 / 0.8);
-}
-/* Steward reviews' "all stewards agree" green (incident report View Incidents). */
-.light .text-emerald-400 {
-  color: rgb(4 120 87 / 1);
-}
-.light .text-red-300 {
-  color: rgb(185 28 28 / 1);
-}
-
-/* ---- solid blue buttons: text stays white in light mode ----
-   `bg-brand-primary` (SOLID, full-opacity — not the low-opacity
-   `bg-brand-primary/NN` tinted-panel pattern, e.g. news/[slug].astro's
-   "View Race Results" pill, left untouched on purpose) is this site's
-   "blue button" convention — Sign-Up, every admin form's Save/Add/New
-   button, the active state of a pill/tab filter, the Nav "Beta" badge.
-   These almost never spell out `text-white` in their own class list (they
-   just inherit the page's base text color), so in light mode they were
-   silently inheriting `.light body`'s dark ink color instead — dark text
-   on a still-blue background, unreadable. Declaring `color` directly on
-   the same element `.bg-brand-primary` is on beats inheritance outright,
-   and (since it's declared after `.text-white`'s own override above) wins
-   the source-order tie against the rare button that also spells out
-   `text-white` explicitly — either way, every solid blue button keeps
-   white text in both themes. */
-.light .bg-brand-primary {
-  color: rgb(255 255 255 / 1);
-}
-
-/* ---- "selected" pill/tab convention: `bg-white` + `text-brand-ink`
-   together, used site-wide for active filters/tabs (roster, calendar,
-   standings, champions, media, results, driver-stats, team-stats,
-   team-standings, admin/site-properties). In dark mode this reads as a
-   light chip with dark text, standing out against the dark page — the
-   same generic white->ink / brand-ink->paper transform above happens to
-   invert it correctly on its own: light mode gets a dark chip with light
-   text, the same "stands out" affordance, just flipped. The
-   `data-[active=true]` variant (roster/calendar) is a separate compiled
-   selector from the plain utility classes, so it needs its own copy of
-   the same override. ---- */
-.light .bg-white {
-  background-color: rgb(17 17 20 / 1);
-}
-.light .text-brand-ink {
-  color: rgb(247 247 249 / 1);
-}
-.light .data-\[active\=true\]\:bg-white[data-active='true'] {
-  background-color: rgb(17 17 20 / 1);
-}
-.light .data-\[active\=true\]\:text-brand-ink[data-active='true'] {
-  color: rgb(247 247 249 / 1);
-}
-
-/* ---- "Happening Now" nav marquee (src/components/Nav.astro) is a fixed
-   white-strip-with-black-text treatment by design, not a themed surface —
-   it stays white/black in both modes. More specific than the generic
-   `.light .bg-white` rule above (scoped to its own attribute selector), so
-   it wins regardless of source order. ---- */
-.light [data-marquee-viewport].bg-white {
-  background-color: rgb(255 255 255 / 1);
-}
-
-/* ---- sticky table headers (see the [data-sticky-thead] rule above): its
-   background comes from `@apply bg-brand-ink`, which compiles straight
-   into this selector's own background-color rather than a separate
-   `.bg-brand-ink` class — so it needs its own override here, same as the
-   hardcoded border box-shadow right next to it. ---- */
-.light [data-sticky-thead] thead th {
-  background-color: rgb(247 247 249 / 1);
-  box-shadow: 0 1px 0 0 rgba(17, 17, 20, 0.1);
+  --thead-rule: rgba(17, 17, 20, 0.1);
+  --file-btn-text-alpha: 0.78;
+  --file-btn-tint: rgb(17 17 20 / 0.1);
+  --theme-tint: brightness(0);
+  --map-plate-bg: #fff;
+  --map-plate-img-filter: invert(1);
+  --map-pin-border: #fff;
+  --map-label-bg: #fff;
+  --map-label-fg: #111114;
+  --map-tip-border: rgb(17 17 20 / 0.15);
 }
 
 /* ---- `.theme-tint`: car logos. Most of this
@@ -700,9 +451,15 @@ th[data-sort-key][data-sort-dir='desc']::after {
    not a recolor. Applied via a plain class (not the white/ink transform
    above) since these are raster images, not CSS colors: TeamLogo.astro's
    `tint` prop adds it for car logos specifically (real team logos keep
-   their own colors in both themes). */
-.light .theme-tint {
-  filter: brightness(0);
+   their own colors in both themes).
+   --theme-tint is only defined in light mode; in dark mode the fallback is
+   Tailwind's own filter stack, so a logo's `grayscale` class still works. */
+.theme-tint {
+  filter: var(
+    --theme-tint,
+    var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate)
+      var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)
+  );
 }
 
 /* ---- Primary track logos (`img[data-logo-bg]`). An admin can pick a light
@@ -738,9 +495,6 @@ img[data-logo-bg='dark'] {
   --btn-rgb: 17 17 20;
   --btn-text: rgb(17 17 20 / 0.78);
 }
-.light .btn-neutral:hover:not(:disabled) {
-  color: rgb(17 17 20 / 1);
-}
 .light .btn-neutral[data-active='true'],
 .light .btn-neutral.btn-active {
   --btn-rgb: 67 105 245;
@@ -757,24 +511,21 @@ input[type='file']::file-selector-button {
   border-radius: 3px;
   padding: 0.375rem 0.75rem;
   font-weight: 600;
-  color: rgb(255 255 255 / 0.72);
+  color: rgb(var(--fg) / var(--file-btn-text-alpha));
   background-color: transparent;
-  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.25);
+  box-shadow: inset 0 0 0 1.5px rgb(var(--fg) / 0.25);
   transition:
     background-color 150ms,
     color 150ms;
 }
 input[type='file']:hover::file-selector-button {
-  color: rgb(255 255 255 / 1);
-  background-color: rgb(255 255 255 / 0.12);
+  color: rgb(var(--fg) / 1);
+  background-color: rgb(var(--fg) / 0.12);
 }
-.light input[type='file']::file-selector-button {
-  color: rgb(17 17 20 / 0.78);
-  box-shadow: inset 0 0 0 1.5px rgb(17 17 20 / 0.25);
-}
-.light input[type='file']:hover::file-selector-button {
-  color: rgb(17 17 20 / 1);
-  background-color: rgb(17 17 20 / 0.12);
+/* An input's `file:bg-white/10` tint has only ever shown in light mode: in dark mode the rule
+   above outranks the utility. */
+input[class~='file:bg-white/10']::file-selector-button {
+  background-color: var(--file-btn-tint);
 }
 
 /* ============================================================
@@ -786,8 +537,8 @@ input[type='file']:hover::file-selector-button {
    through. On a plain page the result looks identical to the old tint.
    This block is deliberately last and unlayered so it wins over the
    utility classes; the class names in markup stay as they were. To
-   change a surface color, edit the value here (and add new tints to
-   this list), not the markup.
+   change a surface color, edit its --surface-* value here (dark on
+   :root, light under .light; add new tints to this list), not the markup.
    Not touched on purpose: black scrims (modal backdrops, image fades),
    the blurred sticky nav, progress-bar fills and toggle tracks.
    ============================================================ */
@@ -798,199 +549,184 @@ input[type='file']:hover::file-selector-button {
   --card-blue-h: rgb(22 30 60);
   --card-pink-h: rgb(58 22 33);
   --card-gold-h: rgb(58 48 24);
+
+  --surface-white-2: rgb(16 16 19);
+  --surface-white-3: rgb(18 18 21);
+  --surface-white-4: rgb(21 21 24);
+  --surface-white-5: rgb(23 23 26);
+  --surface-white-6: rgb(26 26 28);
+  --surface-white-10: rgb(35 35 38);
+  --surface-blue-10: rgb(17 20 37);
+  --surface-blue-15: rgb(19 25 49);
+  --surface-blue-20: rgb(22 30 60);
+  --surface-pink-10: rgb(34 16 24);
+  --surface-pink-15: rgb(46 19 28);
+  --surface-pink-20: rgb(58 22 33);
+  --surface-gold-5: rgb(23 20 17);
+  --surface-gold-10: rgb(34 30 19);
+  --surface-gold-15: rgb(46 39 22);
+  --surface-gold-20: rgb(58 48 24);
+  /* Dark mode keeps the translucent Tailwind tint for this one. */
+  --surface-emerald-10: rgb(52 211 153 / 0.1);
+
+  /* Hover and focus tints. In dark mode Tailwind's own translucent hover:/focus: utility has
+     always won here (it is compiled after this block), so dark keeps that tint; light mode
+     shows the solid colour. */
+  --surface-hover-white-2: rgb(255 255 255 / 0.02);
+  --surface-hover-white-3: rgb(255 255 255 / 0.03);
+  --surface-hover-white-4: rgb(255 255 255 / 0.04);
+  --surface-hover-white-5: rgb(255 255 255 / 0.05);
+  --surface-hover-white-6: rgb(255 255 255 / 0.06);
+  --surface-hover-white-10: rgb(255 255 255 / 0.1);
+  --surface-hover-blue-20: rgb(67 105 245 / 0.2);
+  --surface-hover-pink-20: rgb(245 66 110 / 0.2);
+  --surface-hover-gold-20: rgb(245 198 66 / 0.2);
+  /* A hovered row that is also pressed (`active:bg-white/5`): the active tint
+     wins in dark mode, the hover surface in light mode, as before. */
+  --surface-pressed-white-3: rgb(255 255 255 / 0.05);
+  --surface-pressed-white-4: rgb(255 255 255 / 0.05);
 }
 .light {
+  --surface-pressed-white-3: rgb(240 240 242);
+  --surface-pressed-white-4: rgb(238 238 240);
   --card-blue: rgb(229 233 249);
   --card-pink: rgb(247 229 235);
   --card-gold: rgb(247 242 231);
   --card-blue-h: rgb(211 219 248);
   --card-pink-h: rgb(247 211 221);
   --card-gold-h: rgb(247 237 212);
+
+  --surface-white-2: rgb(242 242 244);
+  --surface-white-3: rgb(240 240 242);
+  --surface-white-4: rgb(238 238 240);
+  --surface-white-5: rgb(236 236 238);
+  --surface-white-6: rgb(233 233 235);
+  --surface-white-10: rgb(224 224 226);
+  --surface-blue-10: rgb(229 233 249);
+  --surface-blue-15: rgb(220 226 248);
+  --surface-blue-20: rgb(211 219 248);
+  --surface-pink-10: rgb(247 229 235);
+  --surface-pink-15: rgb(247 220 228);
+  --surface-pink-20: rgb(247 211 221);
+  --surface-gold-5: rgb(247 245 240);
+  --surface-gold-10: rgb(247 242 231);
+  --surface-gold-15: rgb(247 240 222);
+  --surface-gold-20: rgb(247 237 212);
+  --surface-emerald-10: rgb(231 245 239);
+
+  --surface-hover-white-2: rgb(242 242 244);
+  --surface-hover-white-3: rgb(240 240 242);
+  --surface-hover-white-4: rgb(238 238 240);
+  --surface-hover-white-5: rgb(236 236 238);
+  --surface-hover-white-6: rgb(233 233 235);
+  --surface-hover-white-10: rgb(224 224 226);
+  --surface-hover-blue-20: rgb(211 219 248);
+  --surface-hover-pink-20: rgb(247 211 221);
+  --surface-hover-gold-20: rgb(247 237 212);
 }
+
+/* The hover and focus rules below repeat their attribute selector so they outrank Tailwind's
+   hover:/focus: utilities in both themes (the specificity the old `.light` copies had); their
+   dark values above equal what those utilities draw. */
 
 [class~='bg-white/5'] {
-  background-color: rgb(23 23 26);
+  background-color: var(--surface-white-5);
 }
-[class~='hover:bg-white/5']:hover {
-  background-color: rgb(23 23 26);
+[class~='hover:bg-white/5'][class~='hover:bg-white/5']:hover {
+  background-color: var(--surface-hover-white-5);
 }
-[class~='focus:bg-white/5']:focus {
-  background-color: rgb(23 23 26);
+[class~='focus:bg-white/5'][class~='focus:bg-white/5']:focus {
+  background-color: var(--surface-hover-white-5);
 }
 [class~='bg-white/[0.02]'] {
-  background-color: rgb(16 16 19);
+  background-color: var(--surface-white-2);
 }
-[class~='hover:bg-white/[0.02]']:hover {
-  background-color: rgb(16 16 19);
+[class~='hover:bg-white/[0.02]'][class~='hover:bg-white/[0.02]']:hover {
+  background-color: var(--surface-hover-white-2);
 }
 [class~='bg-white/[0.03]'] {
-  background-color: rgb(18 18 21);
+  background-color: var(--surface-white-3);
 }
-[class~='hover:bg-white/[0.03]']:hover {
-  background-color: rgb(18 18 21);
+[class~='hover:bg-white/[0.03]'][class~='hover:bg-white/[0.03]']:hover {
+  background-color: var(--surface-hover-white-3);
 }
-[class~='hover:bg-white/[0.04]']:hover {
-  background-color: rgb(21 21 24);
+[class~='hover:bg-white/[0.04]'][class~='hover:bg-white/[0.04]']:hover {
+  background-color: var(--surface-hover-white-4);
+}
+[class~='hover:bg-white/[0.03]'][class~='active:bg-white/5']:hover:active {
+  background-color: var(--surface-pressed-white-3);
+}
+[class~='hover:bg-white/[0.04]'][class~='active:bg-white/5']:hover:active {
+  background-color: var(--surface-pressed-white-4);
 }
 [class~='bg-white/[0.05]'] {
-  background-color: rgb(23 23 26);
+  background-color: var(--surface-white-5);
 }
-[class~='hover:bg-white/[0.06]']:hover {
-  background-color: rgb(26 26 28);
+[class~='hover:bg-white/[0.06]'][class~='hover:bg-white/[0.06]']:hover {
+  background-color: var(--surface-hover-white-6);
 }
 [class~='bg-white/10'] {
-  background-color: rgb(35 35 38);
+  background-color: var(--surface-white-10);
 }
-[class~='hover:bg-white/10']:hover {
-  background-color: rgb(35 35 38);
+[class~='hover:bg-white/10'][class~='hover:bg-white/10']:hover {
+  background-color: var(--surface-hover-white-10);
 }
 [class~='bg-brand-blue/10'] {
-  background-color: rgb(17 20 37);
+  background-color: var(--surface-blue-10);
 }
 [class~='bg-brand-blue/15'] {
-  background-color: rgb(19 25 49);
+  background-color: var(--surface-blue-15);
 }
 [class~='bg-brand-blue/20'] {
-  background-color: rgb(22 30 60);
+  background-color: var(--surface-blue-20);
 }
-[class~='hover:bg-brand-blue/20']:hover {
-  background-color: rgb(22 30 60);
+[class~='hover:bg-brand-blue/20'][class~='hover:bg-brand-blue/20']:hover {
+  background-color: var(--surface-hover-blue-20);
 }
 [class~='bg-brand-pink/10'] {
-  background-color: rgb(34 16 24);
+  background-color: var(--surface-pink-10);
 }
 [class~='bg-brand-pink/15'] {
-  background-color: rgb(46 19 28);
+  background-color: var(--surface-pink-15);
 }
 [class~='bg-brand-pink/20'] {
-  background-color: rgb(58 22 33);
+  background-color: var(--surface-pink-20);
 }
-[class~='hover:bg-brand-pink/20']:hover {
-  background-color: rgb(58 22 33);
+[class~='hover:bg-brand-pink/20'][class~='hover:bg-brand-pink/20']:hover {
+  background-color: var(--surface-hover-pink-20);
 }
 [class~='bg-brand-gold/5'] {
-  background-color: rgb(23 20 17);
+  background-color: var(--surface-gold-5);
 }
 [class~='bg-brand-gold/10'] {
-  background-color: rgb(34 30 19);
+  background-color: var(--surface-gold-10);
 }
 [class~='bg-brand-gold/15'] {
-  background-color: rgb(46 39 22);
+  background-color: var(--surface-gold-15);
 }
 [class~='bg-brand-gold/20'] {
-  background-color: rgb(58 48 24);
+  background-color: var(--surface-gold-20);
 }
-[class~='hover:bg-brand-gold/20']:hover {
-  background-color: rgb(58 48 24);
+[class~='hover:bg-brand-gold/20'][class~='hover:bg-brand-gold/20']:hover {
+  background-color: var(--surface-hover-gold-20);
+}
+[class~='bg-emerald-400/10'] {
+  background-color: var(--surface-emerald-10);
 }
 [class~='bg-brand-primary/10'] {
-  background-color: rgb(17 20 37);
+  background-color: var(--surface-blue-10);
 }
 [class~='bg-brand-primary/15'] {
-  background-color: rgb(19 25 49);
+  background-color: var(--surface-blue-15);
 }
 [class~='bg-brand-primary/20'] {
-  background-color: rgb(22 30 60);
+  background-color: var(--surface-blue-20);
 }
-[class~='hover:bg-brand-primary/20']:hover {
-  background-color: rgb(22 30 60);
+[class~='hover:bg-brand-primary/20'][class~='hover:bg-brand-primary/20']:hover {
+  background-color: var(--surface-hover-blue-20);
 }
 [class~='bg-brand-tertiary/10'] {
-  background-color: rgb(34 30 19);
-}
-
-.light [class~='bg-white/5'] {
-  background-color: rgb(236 236 238);
-}
-.light [class~='hover:bg-white/5']:hover {
-  background-color: rgb(236 236 238);
-}
-.light [class~='focus:bg-white/5']:focus {
-  background-color: rgb(236 236 238);
-}
-.light [class~='bg-white/[0.02]'] {
-  background-color: rgb(242 242 244);
-}
-.light [class~='hover:bg-white/[0.02]']:hover {
-  background-color: rgb(242 242 244);
-}
-.light [class~='bg-white/[0.03]'] {
-  background-color: rgb(240 240 242);
-}
-.light [class~='hover:bg-white/[0.03]']:hover {
-  background-color: rgb(240 240 242);
-}
-.light [class~='hover:bg-white/[0.04]']:hover {
-  background-color: rgb(238 238 240);
-}
-.light [class~='bg-white/[0.05]'] {
-  background-color: rgb(236 236 238);
-}
-.light [class~='hover:bg-white/[0.06]']:hover {
-  background-color: rgb(233 233 235);
-}
-.light [class~='bg-white/10'] {
-  background-color: rgb(224 224 226);
-}
-.light [class~='hover:bg-white/10']:hover {
-  background-color: rgb(224 224 226);
-}
-.light [class~='bg-brand-blue/10'] {
-  background-color: rgb(229 233 249);
-}
-.light [class~='bg-brand-blue/15'] {
-  background-color: rgb(220 226 248);
-}
-.light [class~='bg-brand-blue/20'] {
-  background-color: rgb(211 219 248);
-}
-.light [class~='hover:bg-brand-blue/20']:hover {
-  background-color: rgb(211 219 248);
-}
-.light [class~='bg-brand-pink/10'] {
-  background-color: rgb(247 229 235);
-}
-.light [class~='bg-brand-pink/15'] {
-  background-color: rgb(247 220 228);
-}
-.light [class~='bg-brand-pink/20'] {
-  background-color: rgb(247 211 221);
-}
-.light [class~='hover:bg-brand-pink/20']:hover {
-  background-color: rgb(247 211 221);
-}
-.light [class~='bg-brand-gold/5'] {
-  background-color: rgb(247 245 240);
-}
-.light [class~='bg-brand-gold/10'] {
-  background-color: rgb(247 242 231);
-}
-.light [class~='bg-brand-gold/15'] {
-  background-color: rgb(247 240 222);
-}
-.light [class~='bg-brand-gold/20'] {
-  background-color: rgb(247 237 212);
-}
-.light [class~='hover:bg-brand-gold/20']:hover {
-  background-color: rgb(247 237 212);
-}
-.light [class~='bg-emerald-400/10'] {
-  background-color: rgb(231 245 239);
-}
-.light [class~='bg-brand-primary/10'] {
-  background-color: rgb(229 233 249);
-}
-.light [class~='bg-brand-primary/15'] {
-  background-color: rgb(220 226 248);
-}
-.light [class~='bg-brand-primary/20'] {
-  background-color: rgb(211 219 248);
-}
-.light [class~='hover:bg-brand-primary/20']:hover {
-  background-color: rgb(211 219 248);
-}
-.light [class~='bg-brand-tertiary/10'] {
-  background-color: rgb(247 242 231);
+  background-color: var(--surface-gold-10);
 }
 
 /* ============================================================
@@ -1331,7 +1067,7 @@ input[type='file']:hover::file-selector-button {
   width: 100%;
   overflow: hidden;
   border-radius: 0.75rem;
-  background: #000;
+  background: var(--map-plate-bg);
 }
 .layout-map-plate > img.layout-map-img {
   position: absolute;
@@ -1341,12 +1077,7 @@ input[type='file']:hover::file-selector-button {
   object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
-}
-.light .layout-map-plate {
-  background: #fff;
-}
-.light .layout-map-plate > img.layout-map-img {
-  filter: invert(1);
+  filter: var(--map-plate-img-filter);
 }
 
 .map-pin {
@@ -1355,14 +1086,11 @@ input[type='file']:hover::file-selector-button {
   height: 16px;
   margin: -8px 0 0 -8px;
   border-radius: 9999px;
-  border: 2px solid #0b0b0e;
+  border: 2px solid var(--map-pin-border);
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.5);
   cursor: pointer;
   transition: transform 0.12s;
   padding: 0;
-}
-.light .map-pin {
-  border-color: #fff;
 }
 .map-pin:hover,
 .map-pin:focus-visible,
@@ -1398,9 +1126,9 @@ input[type='file']:hover::file-selector-button {
   max-width: 14rem;
   padding: 0.4rem 0.6rem;
   border-radius: 0.5rem;
-  border: 1px solid rgb(255 255 255 / 0.15);
-  background: #121218;
-  color: #f2f2f5;
+  border: 1px solid var(--map-tip-border);
+  background: var(--map-label-bg);
+  color: var(--map-label-fg);
   font-size: 11px;
   line-height: 1.35;
   text-align: left;
@@ -1409,11 +1137,6 @@ input[type='file']:hover::file-selector-button {
   opacity: 0;
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.4);
   transition: opacity 0.1s;
-}
-.light .map-pin-tip {
-  background: #fff;
-  color: #111114;
-  border-color: rgb(17 17 20 / 0.15);
 }
 .map-pin:hover > .map-pin-tip,
 .map-pin:focus-visible > .map-pin-tip {
@@ -1458,17 +1181,13 @@ input[type='file']:hover::file-selector-button {
   padding: 0.15rem 0.5rem 0.15rem 0.4rem;
   border-radius: 9999px;
   border: 1.5px solid;
-  background: #121218;
-  color: #f2f2f5;
+  background: var(--map-label-bg);
+  color: var(--map-label-fg);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
   pointer-events: none;
-}
-.light .map-flag {
-  background: #fff;
-  color: #111114;
 }
 .map-flag > i {
   width: 8px;

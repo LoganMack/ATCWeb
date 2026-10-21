@@ -27,6 +27,8 @@
     "eslint": "10.13.0",
     "eslint-plugin-astro": "3.2.1",
     "globals": "17.13.0",
+    "postcss": "8.5.22",
+    "postcss-selector-parser": "6.1.4",
     "prettier": "^3.3.3",
     "prettier-plugin-astro": "^0.14.1",
     "prettier-plugin-tailwindcss": "^0.6.8",
