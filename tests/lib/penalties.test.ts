@@ -1,25 +1,33 @@
 import { describe, expect, it } from 'vitest';
+import { applyPenaltiesToRoundResults } from '../../src/lib/penalties/roundResults';
 import {
-  applyPenaltiesToRoundResults,
   applyPenaltyPointsToDriver,
-  classPointsForPosition,
   computeRoundPPSummary,
-  computeSeasonClassAdjustments,
-  computeSeasonOverallAdjustments,
   computeSeasonPPState,
   countWarnings,
+  isOnProbationNow,
+  type DriverPPState,
+} from '../../src/lib/penalties/penaltyPoints';
+import {
+  classPointsForPosition,
+  finishPointsForPosition,
+  resolvePointsTables,
+  type Format,
+} from '../../src/lib/penalties/points';
+import {
+  computeSeasonClassAdjustments,
+  computeSeasonOverallAdjustments,
+} from '../../src/lib/penalties/seasonAdjustments';
+import {
   effectivePenaltyPoints,
   effectivePointsPenalty,
   effectiveTimePenaltySeconds,
-  finishPointsForPosition,
-  isOnProbationNow,
+} from '../../src/lib/penalties/effective';
+import {
   reorderByTimePenalty,
-  resolvePointsTables,
   sumPenaltiesByRaceDriver,
-  type DriverPPState,
-  type Format,
   type Positionable,
-} from '../../src/lib/penalties';
+} from '../../src/lib/penalties/reorder';
 import {
   bySubsession,
   loadPenaltyCases,

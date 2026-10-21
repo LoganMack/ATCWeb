@@ -27,7 +27,11 @@ import {
 } from './supabase';
 import { getAllRounds, driversSelect, computeDisplayRoundNumbers, type DriverBasic } from './results';
 import { getPostedSubsessionIds } from './incidentReports';
-import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints } from './penalties';
+import {
+  effectiveTimePenaltySeconds,
+  effectivePointsPenalty,
+  effectivePenaltyPoints,
+} from './penalties/effective';
 
 export interface IncidentRow {
   id: string;
