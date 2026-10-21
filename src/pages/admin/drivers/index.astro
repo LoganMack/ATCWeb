@@ -14,10 +14,14 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, upsertSiteSetting, syncDriverStatuses, syncRookieStatus, syncResultsWithRoster } from '../../../lib/supabase';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY } from '../../../lib/siteSettings';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
-const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
 
 let error: string | null = null;
 let saved = false;

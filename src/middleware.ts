@@ -187,10 +187,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (cache && cacheEligible) {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const hit = new Response(cached.body, {
+      // Cloudflare's ReadableStream and Headers types differ from the DOM ones Response expects; the objects are the same at runtime.
+      const hit = new Response(cached.body as BodyInit | null, {
         status: cached.status,
         statusText: cached.statusText,
-        headers: cached.headers,
+        headers: cached.headers as unknown as HeadersInit,
       });
       hit.headers.set('X-ATC-Cache', 'HIT');
       if (broadcasterMode) hit.headers.set('Cache-Control', 'private, no-store');
@@ -298,7 +299,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
       !response.headers.has('Set-Cookie') &&
       (response.headers.get('Cache-Control') ?? '').includes('public');
     if (storable) {
-      context.locals.runtime.ctx.waitUntil(cache!.put(cacheKey, response.clone()));
+      // cache.put is typed with Cloudflare's Response, not the DOM one Astro returns; the object is the same at runtime.
+      context.locals.runtime.ctx.waitUntil(
+        cache!.put(cacheKey, response.clone() as unknown as Parameters<NonNullable<typeof cache>['put']>[1]),
+      );
       response.headers.set('X-ATC-Cache', 'MISS');
     }
   }

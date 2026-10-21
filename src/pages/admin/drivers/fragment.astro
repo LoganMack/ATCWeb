@@ -15,6 +15,10 @@ import {
 } from '../../../lib/supabase';
 import { getOfficialRoundStartTimes } from '../../../lib/results';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 /**
  * Same shell-then-spinner split as admin/fragment.astro — admin/drivers/
@@ -39,7 +43,7 @@ import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVI
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 // Same plain query-string pill as the shell — re-read here since this route
 // is fetched independently with its own ?filter= passed through by the

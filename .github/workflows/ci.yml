@@ -24,13 +24,8 @@ jobs:
       # A gate: a failing unit test blocks the merge (and deploy.yml's gates job runs the same).
       - run: npm test
 
-      # Type-checks .astro frontmatter and .ts alike. NOT a gate yet: the
-      # codebase has ~98 older type errors (implicit `any`s, Cloudflare Request
-      # typings, etc.) that predate CI. The step still runs and shows them in
-      # the log, but doesn't fail the build. Once the count reaches 0, delete
-      # the `continue-on-error` line to make it a gate.
+      # A gate: any type error in .astro frontmatter or .ts blocks the merge.
       - run: npm run check
-        continue-on-error: true
 
       # The real gate: the site must build.
       - run: npm run build

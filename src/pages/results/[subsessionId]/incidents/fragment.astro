@@ -51,7 +51,7 @@ import {
   type RoundPPSummary,
 } from '../../../../lib/penalties';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../../lib/penaltyActions';
-import { isAdminView } from '../../../../lib/auth';
+import { isAdminView, requireAdminSession } from '../../../../lib/auth';
 import {
   getRoundPenaltyData,
   createRoundPenalty,
@@ -107,11 +107,13 @@ import {
 // toggle actually hides this page's admin-only UI — and blocks the POST
 // handlers below — while previewing.
 const isAdmin = isAdminView(Astro.locals);
+// Non-null exactly when isAdmin is true; used where the admin's session is read.
+const adminSession = isAdmin ? requireAdminSession(Astro.locals) : null;
 // Admins read as themselves: an unposted round's penalties and score
 // deductions are hidden from the anon key (0112). Signed-in pages are never
 // edge-cached (src/middleware.ts), so this can't leak into a public copy.
-const supabaseEnv = isAdmin
-  ? withAccessToken(resolveSupabaseEnv(Astro.locals), Astro.locals.session!.accessToken)
+const supabaseEnv = adminSession
+  ? withAccessToken(resolveSupabaseEnv(Astro.locals), adminSession.accessToken)
   : resolveSupabaseEnv(Astro.locals);
 const subsessionId = Number(Astro.params.subsessionId);
 // id of the Reported Incidents panel. Dismiss/Reopen and saving a review
@@ -189,11 +191,11 @@ if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') {
   return back('ok');
 }
 
-if (isAdmin && postForm) {
+if (adminSession && postForm) {
   const form = postForm;
   const intent = String(form.get('intent') ?? '');
-  const accessToken = Astro.locals.session!.accessToken;
-  const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+  const accessToken = adminSession.accessToken;
+  const actor = { id: adminSession.user.id, name: actorNameFor(adminSession) };
   // round (below) isn't loaded yet at this point — this POST-handling block
   // runs before that section — so fetch a fresh copy here for every
   // branch's activity_log entry label.
@@ -707,9 +709,9 @@ const raceNumbers = [...originalResults.overall.keys()].sort((a, b) => a - b);
 // shown above the incident list; RLS already limits non-admins to nothing
 // but their own rows, but this page only ever renders it for admins.
 let incidentReports: IncidentReport[] = [];
-if (isAdmin) {
+if (adminSession) {
   try {
-    incidentReports = await getIncidentReportsForSubsession(supabaseEnv, Astro.locals.session!.accessToken, subsessionId);
+    incidentReports = await getIncidentReportsForSubsession(supabaseEnv, adminSession.accessToken, subsessionId);
   } catch (err) {
     console.error('Failed to load incident reports:', err);
   }
@@ -850,9 +852,9 @@ function isInvolved(r: IncidentReport): boolean {
 const reviewsByReport = new Map<string, IncidentReportReview[]>();
 let reviewCounts = new Map<string, number>();
 let reviewsLoadFailed = false;
-if (viewReports && incidentReports.length > 0) {
+if (adminSession && viewReports && incidentReports.length > 0) {
   try {
-    const token = Astro.locals.session!.accessToken;
+    const token = adminSession.accessToken;
     const [reviews, counts] = await Promise.all([
       getVisibleReviewsForSubsession(supabaseEnv, token, subsessionId),
       getReviewCountsForSubsession(supabaseEnv, token, subsessionId),
@@ -927,9 +929,9 @@ const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
 // one-hour signed download link here.
 let incidentAppeals: IncidentAppeal[] = [];
 const appealFileUrls = new Map<string, string | null>();
-if (isAdmin) {
+if (adminSession) {
   try {
-    const token = Astro.locals.session!.accessToken;
+    const token = adminSession.accessToken;
     incidentAppeals = await getIncidentAppealsForSubsession(supabaseEnv, token, subsessionId);
     await Promise.all(
       incidentAppeals.flatMap((a) => a.files.map(async (f) => { appealFileUrls.set(f.path, await signAppealFileUrl(supabaseEnv, token, f.path)); }))

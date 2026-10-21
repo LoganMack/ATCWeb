@@ -130,7 +130,8 @@ const loadNewsTags = async () => {
 // via getAllBroadcastVideos() (results.ts), which already returns every
 // broadcast link on file joined with its round, newest first — [0] is all
 // this needs.
-let previousBroadcast: Awaited<ReturnType<typeof getAllBroadcastVideos>>[number] | null = null;
+// Cast so TypeScript keeps the full type: it's assigned inside an async loader, which control-flow narrowing can't see.
+let previousBroadcast = null as Awaited<ReturnType<typeof getAllBroadcastVideos>>[number] | null;
 let broadcastEmbedUrl: string | null = null;
 // "ATC18: Round 3 at Charlotte Motor Speedway, Roval No Chicanes" — built
 // from the broadcast's round (season label, display round number, track,
@@ -165,7 +166,8 @@ const loadPreviousBroadcast = async () => {
 // own deliberately cheap computation — see its own doc comment in
 // results.ts for why it's nowhere near as expensive as the standings
 // widget below.
-let previousResult: Awaited<ReturnType<typeof getPreviousResultWidget>> = null;
+// Cast for the same reason as previousBroadcast above.
+let previousResult = null as Awaited<ReturnType<typeof getPreviousResultWidget>>;
 // The link beside "Full race result": the round's incident report once stewards
 // have posted it, "Submit Incident Report" while the reporting window is still
 // open, and nothing in between (window closed, report not posted yet).

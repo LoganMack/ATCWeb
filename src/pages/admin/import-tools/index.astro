@@ -34,8 +34,11 @@ import {
 } from '../../../lib/supabase';
 import { parseCsv } from '../../../lib/csv';
 import { slugify } from '../../../lib/slug';
-import { userDisplayName } from '../../../lib/auth';
+import { userDisplayName, requireAdmin } from '../../../lib/auth';
 import { logActivity, actorNameFor, storeImportSpreadsheet } from '../../../lib/activityLog';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -44,8 +47,8 @@ type ImportKind = 'events' | 'circuits' | 'news';
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
-  const accessToken = Astro.locals.session!.accessToken;
-  const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+  const accessToken = admin.accessToken;
+  const actor = { id: admin.user.id, name: actorNameFor(admin) };
 
   const redirectWithCounts = (kind: ImportKind, imported: number, skipped: number) =>
     Astro.redirect(`/admin/import-tools?kind=${kind}&imported=${imported}&skipped=${skipped}`, 302);
@@ -297,7 +300,7 @@ if (Astro.request.method === 'POST') {
     let uploadedFile: File | null = null;
     try {
       const file = form.get('csv_file');
-      const displayName = userDisplayName(Astro.locals.session!.profile, Astro.locals.session!.user.email);
+      const displayName = userDisplayName(admin.profile, admin.user.email);
       if (file instanceof File) {
         uploadedFile = file;
         const existingPosts = await getAllNewsPosts(supabaseEnv, accessToken);

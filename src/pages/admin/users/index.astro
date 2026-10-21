@@ -3,13 +3,16 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getDrivers } from '../../../lib/supabase';
-import { getAllProfiles, setProfileRole, setProfileDriver, deleteUser, getUserEmails, userDisplayName } from '../../../lib/auth';
+import { getAllProfiles, setProfileRole, setProfileDriver, deleteUser, getUserEmails, userDisplayName, requireAdmin } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
-const currentUserId = Astro.locals.session!.user.id;
-const actor = { id: currentUserId, name: actorNameFor(Astro.locals.session!) };
+const accessToken = admin.accessToken;
+const currentUserId = admin.user.id;
+const actor = { id: currentUserId, name: actorNameFor(admin) };
 
 let error: string | null = null;
 

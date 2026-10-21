@@ -5040,7 +5040,10 @@ export function getOfficialRoundStartTimes(env: SupabaseEnv) {
   );
 }
 
-export async function getRoundBySubsessionId(env: SupabaseEnv, subsessionId: number) {
+export async function getRoundBySubsessionId(
+  env: SupabaseEnv,
+  subsessionId: number,
+): Promise<RoundSummary | null> {
   const rounds = await restGet<RoundSummary[]>(
     env,
     `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`,

@@ -32,16 +32,20 @@ import {
   type EventResultCoverage,
 } from '../../../lib/raceResultsImport';
 import { logActivity, actorNameFor, storeImportSpreadsheet } from '../../../lib/activityLog';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 type ImportKind = 'race-results' | 'qualifying-results' | 'practice-results';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
-  const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+  const actor = { id: admin.user.id, name: actorNameFor(admin) };
 
   const redirectWithCounts = (kind: ImportKind, imported: number, skipped: number) =>
     Astro.redirect(`/admin/import?kind=${kind}&imported=${imported}&skipped=${skipped}`, 302);

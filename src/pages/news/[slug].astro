@@ -49,7 +49,8 @@ const date = formatDate(post.published_at);
 
 // season_label is freeform text, not an FK to `seasons` — best-effort name
 // match so the season tag can show that season's logo, same as NewsCard.
-let seasonLogo: SeasonLogoPair | null = null;
+// Cast so TypeScript keeps the full type: it's assigned inside an async loader, which control-flow narrowing can't see.
+let seasonLogo = null as SeasonLogoPair | null;
 async function loadSeasonLogo() {
   if (!post!.season_label) return;
   try {
@@ -91,7 +92,8 @@ async function loadTaggedDrivers() {
 // stored, both are recomputed from the round's current data on every view
 // (see src/lib/newsRecap.ts's header for why).
 let roundTrackName: string | null = null;
-let recap: RoundRecap | null = null;
+// Cast for the same reason as seasonLogo above.
+let recap = null as RoundRecap | null;
 async function loadRoundAndRecap() {
   if (post!.round_subsession_id === null) return;
   try {

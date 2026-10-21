@@ -21,10 +21,14 @@ import {
   type SignupRosterDriver,
 } from '../../../lib/signups';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
-const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
 
 // A failed approve/reject re-renders the page with the database's message
 // (written to be shown to the admin) instead of redirecting it away.

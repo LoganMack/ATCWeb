@@ -15,6 +15,10 @@ import {
   restGetAuthed,
 } from '../../lib/supabase';
 import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
+import { requireAdmin } from '../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 /**
  * Same shell-then-spinner split as the public site's awards/fragment.astro,
@@ -37,7 +41,7 @@ import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 let driverCount = 0;
 let teamCount = 0;

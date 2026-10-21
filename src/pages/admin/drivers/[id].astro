@@ -35,14 +35,17 @@ import {
   type DriverSeasonCarNumber,
 } from '../../../lib/supabase';
 import { getOfficialRoundStartTimes } from '../../../lib/results';
-import { getAllProfiles } from '../../../lib/auth';
+import { getAllProfiles, requireAdmin } from '../../../lib/auth';
 import { COUNTRIES } from '../../../lib/countries';
 import { INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
-const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
 const { id } = Astro.params;
 const isNew = id === 'new';
 
