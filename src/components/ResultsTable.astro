@@ -36,7 +36,12 @@ import DriverLink from './DriverLink.astro';
 import type { RaceResultRow } from '../lib/results';
 import type { Penalty } from '../lib/supabase';
 import { displayDriverName, shortDriverName } from '../lib/supabase';
-import { effectiveTimePenaltySeconds, effectivePointsPenalty, effectivePenaltyPoints, scoringRaceNumber } from '../lib/penalties';
+import {
+  effectiveTimePenaltySeconds,
+  effectivePointsPenalty,
+  effectivePenaltyPoints,
+} from '../lib/penalties/effective';
+import { scoringRaceNumber } from '../lib/penalties/reorder';
 import { classTagFull } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';

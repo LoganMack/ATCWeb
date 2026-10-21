@@ -46,7 +46,7 @@ import {
   type RoundResults,
   type RaceResultRow,
 } from './results';
-import { applyPenaltiesToRoundResults } from './penalties';
+import { applyPenaltiesToRoundResults } from './penalties/roundResults';
 
 interface RawBestLapRow {
   race_number: number;

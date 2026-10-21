@@ -40,16 +40,18 @@ import {
 import SectionIcon from '../../../../components/SectionIcon.astro';
 import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, getRoundLayoutsForSubsessions, resolveLayout, type RoundResults, type DriverBasic } from '../../../../lib/results';
 import { matchCorners, turnLabelsFrom, type MapCorner } from '../../../../lib/turnMatch';
+import { applyPenaltiesToRoundResults } from '../../../../lib/penalties/roundResults';
 import {
-  applyPenaltiesToRoundResults,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
-  scoringRaceNumber,
+} from '../../../../lib/penalties/effective';
+import { scoringRaceNumber } from '../../../../lib/penalties/reorder';
+import {
   computeRoundPPSummary,
   countWarnings,
   type RoundPPSummary,
-} from '../../../../lib/penalties';
+} from '../../../../lib/penalties/penaltyPoints';
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../../lib/penaltyActions';
 import { isAdminView, requireAdminSession } from '../../../../lib/auth';
 import {

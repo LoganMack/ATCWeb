@@ -77,20 +77,24 @@ import type {
 import {
   computeSeasonOverallAdjustments,
   computeSeasonClassAdjustments,
-  applyPenaltiesToRoundResults,
-  effectivePenaltyPoints,
-  effectiveTimePenaltySeconds,
-  effectivePointsPenalty,
-  reorderByTimePenalty,
-  sumPenaltiesByRaceDriver,
-  scoringRaceNumber,
   type SeasonScoreRow,
   type SeasonClassScoreRow,
   type SeasonOverallAdjustment,
+} from './penalties/seasonAdjustments';
+import { applyPenaltiesToRoundResults } from './penalties/roundResults';
+import {
+  effectivePenaltyPoints,
+  effectiveTimePenaltySeconds,
+  effectivePointsPenalty,
+} from './penalties/effective';
+import {
+  reorderByTimePenalty,
+  sumPenaltiesByRaceDriver,
+  scoringRaceNumber,
   type LeaderRaceStats,
   type Positionable,
-  type Format,
-} from './penalties';
+} from './penalties/reorder';
+import type { Format } from './penalties/points';
 import { LEAGUE_TIME_ZONE } from './timezone';
 
 /**

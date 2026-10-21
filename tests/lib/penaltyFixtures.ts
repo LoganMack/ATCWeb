@@ -8,12 +8,9 @@
  * engine reads (joined on driver). Omitted columns take the table defaults, and total_points is
  * computed the way the generated column computes it.
  */
-import type {
-  LeaderRaceStats,
-  PenaltyLike,
-  SeasonClassScoreRow,
-  SeasonScoreRow,
-} from '../../src/lib/penalties';
+import type { LeaderRaceStats } from '../../src/lib/penalties/reorder';
+import type { PenaltyLike } from '../../src/lib/penalties/effective';
+import type { SeasonClassScoreRow, SeasonScoreRow } from '../../src/lib/penalties/seasonAdjustments';
 import type { DriverBasic, RaceResultRow, RoundResults } from '../../src/lib/results';
 
 // Bundled by Vite's glob import, so the tests need no Node file-system access.

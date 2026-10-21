@@ -16,7 +16,7 @@ import {
   type SupabaseEnv,
 } from './supabase';
 import { getCurrentSeasonRounds } from './results';
-import { computeSeasonPPState } from './penalties';
+import { computeSeasonPPState } from './penalties/penaltyPoints';
 
 /**
  * Recomputes one driver's CURRENT SEASON PP tally/probation state from
