@@ -43,12 +43,17 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   </div>
 
   <script>
-    // Same fetch-fragment-then-drop-in pattern as awards.astro/
-    // champions.astro/team-stats.astro — see admin/fragment.astro's own
-    // top-of-file comment for the full reasoning (reveal.ts re-dispatch
-    // included).
+    import { bindFragment, reloadOnRedirect } from '../../scripts/fragmentLoader';
 
-    // Reads a fragment response's HTML. If the admin session expired (or the
+    bindFragment('[data-admin-dashboard]', {
+      label: 'Admin dashboard',
+      logMessage: 'Failed to load admin dashboard:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load the dashboard right now — try refreshing the page.</p>',
+      checkResponse: reloadOnRedirect,
+    });
+
+    // Reads an analytics response's HTML. If the admin session expired (or the
     // user lost admin) while this page sat open, middleware answers the
     // fragment request with a 302 to /login, which fetch() follows silently —
     // so a "successful" response would be the entire login page, dropped
@@ -63,26 +68,6 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       if (!res.ok) throw new Error(`${label} fragment request failed (${res.status})`);
       return res.text();
     }
-
-    function initAdminDashboard() {
-      const container = document.querySelector<HTMLElement>('[data-admin-dashboard]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      delete container.dataset.fragmentUrl;
-
-      fetch(url)
-        .then((res) => fragmentHtml(res, 'Admin dashboard'))
-        .then((html) => {
-          container.innerHTML = html;
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load admin dashboard:', err);
-          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load the dashboard right now — try refreshing the page.</p>';
-        });
-    }
-
-    document.addEventListener('astro:page-load', initAdminDashboard);
 
     // Site Analytics range buttons (30 Days / 90 Days / 1 Year / All Time) —
     // they arrive inside the dashboard fragment's innerHTML (whose own

@@ -65,41 +65,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Fetches incidents/fragment.astro (the expensive getAllIncidents()
-    // computation) client-side once this shell has already painted — see
-    // this file's top-of-file comment and incidents/fragment.astro for the
-    // full explanation.
-    function initIncidentsResults() {
-      const container = document.querySelector<HTMLElement>('[data-incidents-results]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      // Cleared immediately, before the fetch even resolves — same guard
-      // driver-stats.astro/team-stats.astro use, so the synthetic
-      // astro:page-load dispatched below (once the fragment lands) doesn't
-      // see this same data-fragment-url and fetch it all over again.
-      delete container.dataset.fragmentUrl;
+    import { bindFragment } from '../scripts/fragmentLoader';
 
-      fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Incidents fragment request failed (${res.status})`);
-          return res.text();
-        })
-        .then((html) => {
-          container.innerHTML = html;
-          // sortable-table.ts and expandRows.ts (both sitewide, delegated/
-          // per-element-guarded listeners) only bind against content that
-          // exists at astro:page-load time — re-dispatching it here is the
-          // established fix for "content changed without a real
-          // navigation" (see driver-stats.astro's identical comment).
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load incidents:', err);
-          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load incidents right now — try refreshing the page.</p>';
-        });
-    }
-
-    document.addEventListener('astro:page-load', initIncidentsResults);
+    bindFragment('[data-incidents-results]', {
+      label: 'Incidents',
+      logMessage: 'Failed to load incidents:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load incidents right now — try refreshing the page.</p>',
+    });
 
     // The All Incidents / By Driver / By Offense dropdown switch — see this
     // file's markup comment above for why this has to be a delegated

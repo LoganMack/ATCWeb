@@ -816,58 +816,18 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </script>
 
 <script>
-  // Shell-then-skeleton: fetches the incident fragment (the expensive data work)
-  // client-side once this shell has already painted — same pattern as
-  // results.astro / standings.astro; see the matching fragment.astro for the
-  // full explanation.
-  function initIncidentResults() {
-    const container = document.querySelector<HTMLElement>('[data-incident-results]');
-    const url = container?.dataset.fragmentUrl;
-    if (!container || !url) return;
-    // Cleared immediately so the synthetic astro:page-load dispatched below
-    // doesn't see this same data-fragment-url and fetch it all over again.
-    delete container.dataset.fragmentUrl;
+  import { bindFragment, hashScroll, pageTitle, redirectHeader } from '../../../scripts/fragmentLoader';
 
-    fetch(url)
-      .then((res) => {
-        // The fragment answers with X-Redirect-To for an unknown round, or an
-        // unposted report a non-admin may not see.
-        const redirectTo = res.headers.get('X-Redirect-To');
-        if (redirectTo) {
-          window.location.replace(redirectTo);
-          throw new Error('redirecting');
-        }
-        if (!res.ok) throw new Error(`incident fragment request failed (${res.status})`);
-        return res.text();
-      })
-      .then((html) => {
-        container.innerHTML = html;
-        // reveal.ts only observes `.reveal` elements present at page-load
-        // time; this content lands later, so mark it visible right away.
-        const pageTitle = container.querySelector<HTMLElement>('[data-page-title]')?.dataset.pageTitle;
-        if (pageTitle) document.title = `${pageTitle} · Alpha Touring Challenge`;
-        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
-        // Sortable tables, row expanders and this page's own scripts bind
-        // against whatever exists at astro:page-load, so re-dispatch it now
-        // that the real content is in place.
-        document.dispatchEvent(new Event('astro:page-load'));
-        // The browser's own jump to #hash happened before this content existed
-        // (e.g. #reported-incidents after saving a review), so do it now — then
-        // drop the hash, or every later refresh would yank the steward back here.
-        if (location.hash) {
-          try {
-            document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
-          } catch {
-            // Malformed hash — not worth losing the page over.
-          }
-          history.replaceState(history.state, '', location.pathname + location.search);
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load incident:', err);
-        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
-      });
-  }
-
-  document.addEventListener('astro:page-load', initIncidentResults);
+  // The fragment answers with X-Redirect-To for an unknown round, or an
+  // unposted report a non-admin may not see. The hash scroll covers links such
+  // as #reported-incidents after saving a review.
+  bindFragment('[data-incident-results]', {
+    label: 'incident',
+    logMessage: 'Failed to load incident:',
+    errorHtml: '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>',
+    checkResponse: redirectHeader,
+    afterInsert: pageTitle,
+    reveal: true,
+    afterDispatch: hashScroll,
+  });
 </script>
