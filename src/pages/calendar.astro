@@ -813,38 +813,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </Layout>
 
 <script>
-  // Shell-then-skeleton: fetches the calendar fragment (the expensive data work)
-  // client-side once this shell has already painted — same pattern as
-  // results.astro / standings.astro; see the matching fragment.astro for the
-  // full explanation.
-  function initCalendarResults() {
-    const container = document.querySelector<HTMLElement>('[data-calendar-results]');
-    const url = container?.dataset.fragmentUrl;
-    if (!container || !url) return;
-    // Cleared immediately so the synthetic astro:page-load dispatched below
-    // doesn't see this same data-fragment-url and fetch it all over again.
-    delete container.dataset.fragmentUrl;
+  import { bindFragment } from '../scripts/fragmentLoader';
 
-    fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`calendar fragment request failed (${res.status})`);
-        return res.text();
-      })
-      .then((html) => {
-        container.innerHTML = html;
-        // reveal.ts only observes `.reveal` elements present at page-load
-        // time; this content lands later, so mark it visible right away.
-        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
-        // Sortable tables, row expanders and this page's own scripts bind
-        // against whatever exists at astro:page-load, so re-dispatch it now
-        // that the real content is in place.
-        document.dispatchEvent(new Event('astro:page-load'));
-      })
-      .catch((err) => {
-        console.error('Failed to load calendar:', err);
-        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
-      });
-  }
-
-  document.addEventListener('astro:page-load', initCalendarResults);
+  bindFragment('[data-calendar-results]', {
+    label: 'calendar',
+    logMessage: 'Failed to load calendar:',
+    errorHtml: '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>',
+    reveal: true,
+  });
 </script>

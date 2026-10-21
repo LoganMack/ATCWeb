@@ -52,38 +52,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </script>
 
 <script>
-  // Shell-then-skeleton loader — same as results/[subsessionId].astro's.
-  function initKudosPage() {
-    const container = document.querySelector<HTMLElement>('[data-kudos-page]');
-    const url = container?.dataset.fragmentUrl;
-    if (!container || !url) return;
-    // Cleared immediately so the synthetic astro:page-load dispatched below
-    // doesn't see this same data-fragment-url and fetch it all over again.
-    delete container.dataset.fragmentUrl;
+  import { bindFragment, pageTitle, redirectHeader } from '../../../scripts/fragmentLoader';
 
-    fetch(url)
-      .then((res) => {
-        // Unknown round: the fragment answers with X-Redirect-To instead of redirecting.
-        const redirectTo = res.headers.get('X-Redirect-To');
-        if (redirectTo) {
-          window.location.replace(redirectTo);
-          throw new Error('redirecting');
-        }
-        if (!res.ok) throw new Error(`kudos fragment request failed (${res.status})`);
-        return res.text();
-      })
-      .then((html) => {
-        container.innerHTML = html;
-        const pageTitle = container.querySelector<HTMLElement>('[data-page-title]')?.dataset.pageTitle;
-        if (pageTitle) document.title = `${pageTitle} · Alpha Touring Challenge`;
-        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
-        document.dispatchEvent(new Event('astro:page-load'));
-      })
-      .catch((err) => {
-        console.error('Failed to load kudos:', err);
-        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
-      });
-  }
-
-  document.addEventListener('astro:page-load', initKudosPage);
+  bindFragment('[data-kudos-page]', {
+    label: 'kudos',
+    logMessage: 'Failed to load kudos:',
+    errorHtml: '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>',
+    checkResponse: redirectHeader,
+    afterInsert: pageTitle,
+    reveal: true,
+  });
 </script>

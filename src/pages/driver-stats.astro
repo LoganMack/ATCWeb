@@ -92,48 +92,14 @@ if (loadError) markUncacheable(Astro);
   </section>
 
   <script>
-    // Fetches driver-stats/fragment.astro (the expensive
-    // computeDriverCareerStats table) client-side once this shell has
-    // already painted — see this file's top-of-file comment and
-    // driver-stats/fragment.astro for the full explanation.
-    function initDriverStatsResults() {
-      const container = document.querySelector<HTMLElement>('[data-driver-stats-results]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      // Cleared immediately, before the fetch even resolves — this
-      // function re-runs on every astro:page-load, including the
-      // synthetic one dispatched below once the fragment lands. Without
-      // this guard that synthetic dispatch would see the same
-      // data-fragment-url still sitting on the container and kick off
-      // another fetch, which would dispatch again, forever.
-      delete container.dataset.fragmentUrl;
+    import { bindFragment } from '../scripts/fragmentLoader';
 
-      fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Driver stats fragment request failed (${res.status})`);
-          return res.text();
-        })
-        .then((html) => {
-          container.innerHTML = html;
-          // This table (and this page's own search box, via
-          // initDriverStatsSearch below) only bind up at astro:page-load
-          // time — sortable-table.ts binds each <table data-sortable>'s
-          // headers then, and initDriverStatsSearch looks up
-          // #driver-stats-body then. Both already ran once against a shell
-          // that had neither element yet. Re-dispatching the same event is
-          // the codebase's own established fix for "content changed
-          // without a real navigation" (see hard-form-submit.ts's doc
-          // comment) — every sitewide astro:page-load listener re-scans or
-          // is guarded per-element, so firing it again here is safe.
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load driver stats:', err);
-          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load driver stats right now — try refreshing the page.</p>';
-        });
-    }
-
-    document.addEventListener('astro:page-load', initDriverStatsResults);
+    bindFragment('[data-driver-stats-results]', {
+      label: 'Driver stats',
+      logMessage: 'Failed to load driver stats:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load driver stats right now — try refreshing the page.</p>',
+    });
 
     // Click-to-expand itself is handled globally now — see
     // src/scripts/expandRows.ts (a single delegated listener for every
@@ -150,7 +116,7 @@ if (loadError) markUncacheable(Astro);
     // disappeared, since the summary and detail rows are two independent
     // <tr> elements and only the summary row carries data-search. No-ops
     // until driver-stats/fragment.astro's table has actually landed in the
-    // DOM (see initDriverStatsResults above) — re-runs on the synthetic
+    // DOM (see the fragment loader above) — re-runs on the synthetic
     // astro:page-load it dispatches once that happens.
     function initDriverStatsSearch() {
       const body = document.getElementById('driver-stats-body');

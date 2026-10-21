@@ -238,6 +238,8 @@ const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all
 </AdminLayout>
 
 <script>
+  import { bindFragment } from '../../../scripts/fragmentLoader';
+
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
@@ -246,31 +248,10 @@ const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all
     });
   });
 
-  // Same fetch-fragment-then-drop-in pattern as admin/index.astro/
-  // driver-stats.astro — see admin/drivers/fragment.astro's own top-of-file
-  // comment for the full reasoning (astro:page-load re-dispatch included so
-  // sortable-table.ts binds the newly-inserted table).
-  function initAdminDriversList() {
-    const container = document.querySelector<HTMLElement>('[data-admin-drivers-list]');
-    const url = container?.dataset.fragmentUrl;
-    if (!container || !url) return;
-    delete container.dataset.fragmentUrl;
-
-    fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Admin drivers fragment request failed (${res.status})`);
-        return res.text();
-      })
-      .then((html) => {
-        container.innerHTML = html;
-        document.dispatchEvent(new Event('astro:page-load'));
-      })
-      .catch((err) => {
-        console.error('Failed to load admin drivers list:', err);
-        container.innerHTML =
-          '<p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">Couldn’t load drivers right now — try refreshing the page.</p>';
-      });
-  }
-
-  document.addEventListener('astro:page-load', initAdminDriversList);
+  bindFragment('[data-admin-drivers-list]', {
+    label: 'Admin drivers',
+    logMessage: 'Failed to load admin drivers list:',
+    errorHtml:
+      '<p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">Couldn’t load drivers right now — try refreshing the page.</p>',
+  });
 </script>

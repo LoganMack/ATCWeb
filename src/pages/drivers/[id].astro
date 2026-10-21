@@ -322,40 +322,7 @@ if (loadError) markUncacheable(Astro);
   </section>
 
   <script>
-    // Fetches drivers/[id]/fragment.astro (the expensive
-    // computeDriverCareerStats/getDriverRaceHistory/computeSeasonAwardsHistory
-    // work) client-side once this shell has already painted — see this
-    // file's top-of-file comment and the fragment's own doc comment.
-    function initDriverResults() {
-      const container = document.querySelector<HTMLElement>('[data-driver-results]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      // Cleared immediately, before the fetch even resolves — same guard
-      // as every other history page's shell (this function re-runs on the
-      // synthetic astro:page-load dispatched below once the fragment
-      // lands, and without this it would refetch forever).
-      delete container.dataset.fragmentUrl;
-
-      fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Driver profile fragment request failed (${res.status})`);
-          return res.text();
-        })
-        .then((html) => {
-          container.innerHTML = html;
-          // Same reasoning as hall-of-fame.astro/driver-stats.astro:
-          // reveal.ts's IntersectionObserver only ever looked at what
-          // existed in the DOM at the real astro:page-load — this content
-          // lands well after that. Re-dispatching is the codebase's
-          // established fix (see hard-form-submit.ts's doc comment).
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load driver profile data:', err);
-          container.innerHTML =
-            '<p class="mt-10 text-white/60">Couldn’t load this driver’s stats right now — try refreshing the page.</p>';
-        });
-    }
+    import { bindFragment } from '../../scripts/fragmentLoader';
 
     // Keeps the Splits card's Overall/Class row-sets' <details> open/closed
     // state in sync with each other — see the fragment's own doc comment on
@@ -386,7 +353,12 @@ if (loadError) markUncacheable(Astro);
       });
     }
 
-    document.addEventListener('astro:page-load', initDriverResults);
+    bindFragment('[data-driver-results]', {
+      label: 'Driver profile',
+      logMessage: 'Failed to load driver profile data:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load this driver’s stats right now — try refreshing the page.</p>',
+    });
     document.addEventListener('astro:page-load', initSplitsSync);
 
     // Own-profile editing. The nav's Edit button (only rendered on your own driver
@@ -474,8 +446,7 @@ if (loadError) markUncacheable(Astro);
       }
     });
 
-    // The Seasons / Races / Splits / Bests tab switch — same reasoning as
-    // initDriverResults' own doc comment on why this has to be a delegated
+    // The Seasons / Races / Splits / Bests tab switch has to be a delegated
     // listener living here in the shell rather than a <script> inside the
     // fragment: the fragment's tab buttons/panels don't exist yet when this
     // script first runs, and a <script> tag set via `innerHTML` never

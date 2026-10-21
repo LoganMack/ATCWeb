@@ -50,45 +50,16 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Fetches hall-of-fame/fragment.astro (the expensive
-    // computeDriverCareerStats + photos work) client-side once this shell
-    // has already painted — see this file's top-of-file comment and
-    // hall-of-fame/fragment.astro for the full explanation.
-    function initHallOfFameResults() {
-      const container = document.querySelector<HTMLElement>('[data-hof-results]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      // Cleared immediately, before the fetch even resolves — same guard
-      // as driver-stats.astro/team-stats.astro, for the same reason (this
-      // function re-runs on the synthetic astro:page-load dispatched below
-      // once the fragment lands, and without this it would refetch
-      // forever).
-      delete container.dataset.fragmentUrl;
+    import { bindFragment } from '../scripts/fragmentLoader';
 
-      fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Hall of Fame fragment request failed (${res.status})`);
-          return res.text();
-        })
-        .then((html) => {
-          container.innerHTML = html;
-          // Same reasoning as driver-stats.astro/team-stats.astro:
-          // reveal.ts's IntersectionObserver (for the `.reveal` member
-          // cards) only ever looked at what existed in the DOM at the real
-          // astro:page-load — this content lands well after that.
-          // Re-dispatching is the codebase's established fix (see
-          // hard-form-submit.ts's doc comment); expandRows.ts and
-          // lightbox.ts (used inside each card's PhotoGrid) are both fully
-          // delegation-based already, so they need no re-init at all — this
-          // dispatch is here purely for reveal.ts.
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load Hall of Fame:', err);
-          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load the Hall of Fame right now — try refreshing the page.</p>';
-        });
-    }
-
-    document.addEventListener('astro:page-load', initHallOfFameResults);
+    // The re-dispatched astro:page-load is here for reveal.ts (the `.reveal`
+    // member cards); expandRows.ts and lightbox.ts are delegation-based and
+    // need no re-init.
+    bindFragment('[data-hof-results]', {
+      label: 'Hall of Fame',
+      logMessage: 'Failed to load Hall of Fame:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load the Hall of Fame right now — try refreshing the page.</p>',
+    });
   </script>
 </Layout>

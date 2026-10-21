@@ -72,49 +72,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Fetches team-stats/fragment.astro (the expensive
-    // computeTeamCareerStats table) client-side once this shell has
-    // already painted — see this file's top-of-file comment and
-    // team-stats/fragment.astro for the full explanation.
-    function initTeamStatsResults() {
-      const container = document.querySelector<HTMLElement>('[data-team-stats-results]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      // Cleared immediately, before the fetch even resolves — see
-      // driver-stats.astro's identical guard for why (this function
-      // re-runs on the synthetic astro:page-load dispatched below once the
-      // fragment lands, and without this it would refetch forever).
-      delete container.dataset.fragmentUrl;
+    import { bindFragment } from '../scripts/fragmentLoader';
 
-      fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Team stats fragment request failed (${res.status})`);
-          return res.text();
-        })
-        .then((html) => {
-          container.innerHTML = html;
-          // Same reasoning as driver-stats.astro: sortable-table.ts and
-          // this page's own initTeamStatsSearch below only bind up at
-          // astro:page-load time, which already fired against a shell that
-          // had neither the table nor #team-stats-body yet. Re-dispatching
-          // is the codebase's established fix (see hard-form-submit.ts's
-          // doc comment) and every sitewide listener is safe against
-          // firing twice.
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load team stats:', err);
-          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load team stats right now — try refreshing the page.</p>';
-        });
-    }
-
-    document.addEventListener('astro:page-load', initTeamStatsResults);
+    bindFragment('[data-team-stats-results]', {
+      label: 'Team stats',
+      logMessage: 'Failed to load team stats:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load team stats right now — try refreshing the page.</p>',
+    });
 
     // Click-to-expand itself is handled globally — see src/scripts/expandRows.ts.
     // Search-filter logic mirrors driver-stats.astro's own (see that page's
     // trailing script for the full reasoning on force-collapsing a filtered-
     // out row's detail panel). No-ops until team-stats/fragment.astro's
-    // table has actually landed in the DOM (see initTeamStatsResults
+    // table has actually landed in the DOM (see the fragment loader
     // above) — re-runs on the synthetic astro:page-load it dispatches once
     // that happens.
     function initTeamStatsSearch() {

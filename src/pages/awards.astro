@@ -49,30 +49,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Same fetch-fragment-then-drop-in pattern as hall-of-fame.astro/
-    // champions.astro — see hall-of-fame.astro's own <script> comment for
-    // the full reasoning (reveal.ts re-dispatch included).
-    function initAwardsResults() {
-      const container = document.querySelector<HTMLElement>('[data-awards-results]');
-      const url = container?.dataset.fragmentUrl;
-      if (!container || !url) return;
-      delete container.dataset.fragmentUrl;
+    import { bindFragment } from '../scripts/fragmentLoader';
 
-      fetch(url)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Awards fragment request failed (${res.status})`);
-          return res.text();
-        })
-        .then((html) => {
-          container.innerHTML = html;
-          document.dispatchEvent(new Event('astro:page-load'));
-        })
-        .catch((err) => {
-          console.error('Failed to load Awards:', err);
-          container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load Awards right now — try refreshing the page.</p>';
-        });
-    }
-
-    document.addEventListener('astro:page-load', initAwardsResults);
+    bindFragment('[data-awards-results]', {
+      label: 'Awards',
+      logMessage: 'Failed to load Awards:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load Awards right now — try refreshing the page.</p>',
+    });
   </script>
 </Layout>

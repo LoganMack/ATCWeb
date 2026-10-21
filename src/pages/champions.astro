@@ -143,41 +143,19 @@ if (loadError) markUncacheable(Astro);
 </Layout>
 
 <script>
-  // Pilot for the sitewide "shell renders instantly, data fills in after"
-  // pattern — see champions.astro's own top-of-file comment and
-  // champions/fragment.astro for the full explanation. This runs on every
-  // soft navigation (including switching class/team tabs, since those are
-  // real ?class=/?team= navigations, not client-side toggles — each lands
-  // here fresh with its own skeleton already in the server-rendered shell).
-  function initChampionsResults() {
-    const container = document.querySelector<HTMLElement>('[data-champions-results]');
-    const url = container?.dataset.fragmentUrl;
-    if (!container || !url) return;
+  import { bindFragment } from '../scripts/fragmentLoader';
 
-    fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Champions fragment request failed (${res.status})`);
-        return res.text();
-      })
-      .then((html) => {
-        container.innerHTML = html;
-        // reveal.ts's IntersectionObserver only ever looks at `.reveal`
-        // elements that exist in the DOM at astro:page-load time — these
-        // cards land well after that, via this fetch, so without this
-        // they'd sit at opacity:0 forever (see global.css's `.reveal`
-        // rule). Marking them visible immediately (rather than replicating
-        // reveal.ts's scroll-triggered observer here) is the right call
-        // anyway: this content is appearing because a load just finished,
-        // not because the user scrolled to it.
-        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
-      })
-      .catch((err) => {
-        console.error('Failed to load champions results:', err);
-        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load champions right now — try refreshing the page.</p>';
-      });
-  }
-
-  document.addEventListener('astro:page-load', initChampionsResults);
+  // Runs on every soft navigation, including switching class/team tabs: those
+  // are real ?class=/?team= navigations, each landing with its own skeleton.
+  // This page never re-dispatches astro:page-load, so the URL is left in place.
+  bindFragment('[data-champions-results]', {
+    label: 'Champions',
+    logMessage: 'Failed to load champions results:',
+    errorHtml: '<p class="mt-10 text-white/60">Couldn’t load champions right now — try refreshing the page.</p>',
+    reveal: true,
+    clearUrl: false,
+    dispatch: false,
+  });
 
   // Opening a champion card loads that champion's race-by-race season (the open/close
   // toggle itself is expandRows.ts). Delegated and bound once, since the cards only

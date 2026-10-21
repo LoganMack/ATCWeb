@@ -79,46 +79,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </script>
 
 <script>
-  // Shell-then-skeleton: fetches the race fragment (the expensive data work)
-  // client-side once this shell has already painted — same pattern as
-  // results.astro / standings.astro; see the matching fragment.astro for the
-  // full explanation.
-  function initRaceResults() {
-    const container = document.querySelector<HTMLElement>('[data-race-results]');
-    const url = container?.dataset.fragmentUrl;
-    if (!container || !url) return;
-    // Cleared immediately so the synthetic astro:page-load dispatched below
-    // doesn't see this same data-fragment-url and fetch it all over again.
-    delete container.dataset.fragmentUrl;
+  import { bindFragment, pageTitle, redirectHeader } from '../../scripts/fragmentLoader';
 
-    fetch(url)
-      .then((res) => {
-        // Unknown round: the fragment answers with X-Redirect-To instead of redirecting.
-        const redirectTo = res.headers.get('X-Redirect-To');
-        if (redirectTo) {
-          window.location.replace(redirectTo);
-          throw new Error('redirecting');
-        }
-        if (!res.ok) throw new Error(`race fragment request failed (${res.status})`);
-        return res.text();
-      })
-      .then((html) => {
-        container.innerHTML = html;
-        // reveal.ts only observes `.reveal` elements present at page-load
-        // time; this content lands later, so mark it visible right away.
-        const pageTitle = container.querySelector<HTMLElement>('[data-page-title]')?.dataset.pageTitle;
-        if (pageTitle) document.title = `${pageTitle} · Alpha Touring Challenge`;
-        container.querySelectorAll('.reveal').forEach((el) => el.classList.add('is-visible'));
-        // Sortable tables, row expanders and this page's own scripts bind
-        // against whatever exists at astro:page-load, so re-dispatch it now
-        // that the real content is in place.
-        document.dispatchEvent(new Event('astro:page-load'));
-      })
-      .catch((err) => {
-        console.error('Failed to load race:', err);
-        container.innerHTML = '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>';
-      });
-  }
-
-  document.addEventListener('astro:page-load', initRaceResults);
+  bindFragment('[data-race-results]', {
+    label: 'race',
+    logMessage: 'Failed to load race:',
+    errorHtml: '<p class="mt-10 text-white/60">Couldn’t load this page right now — try refreshing.</p>',
+    checkResponse: redirectHeader,
+    afterInsert: pageTitle,
+    reveal: true,
+  });
 </script>
