@@ -6,7 +6,9 @@ import { markUncacheable } from '../lib/security';
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getDriverClasses, getPageBanners } from '../lib/supabase';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getDriverClasses } from '../lib/db/lookups';
+import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 // Same shell-then-spinner split as champions.astro/champions/fragment.astro

@@ -18,13 +18,9 @@
  * database.
  */
 
-import {
-  type SupabaseEnv,
-  restGetAll,
-  getPenaltiesForSubsessions,
-  getPenaltyOffenses,
-  getStandingsExcludedRoundIds,
-} from './supabase';
+import { type SupabaseEnv, restGetAll } from './db/client';
+import { getPenaltiesForSubsessions, getPenaltyOffenses } from './db/penalties';
+import { getStandingsExcludedRoundIds } from './db/rounds';
 import { getAllRounds, driversSelect, computeDisplayRoundNumbers, type DriverBasic } from './results';
 import { getPostedSubsessionIds } from './incidentReports';
 import {

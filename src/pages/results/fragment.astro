@@ -3,7 +3,16 @@ export const prerender = false;
 import LoadError from '../../components/LoadError.astro';
 import { markUncacheable } from '../../lib/security';
 
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds, formatDate, displayLayoutName, getCircuits, getCircuitLogoBackgrounds, type LogoBackground } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons } from '../../lib/db/seasons';
+import { getExhibitionRoundIds, getTestRoundIds } from '../../lib/db/rounds';
+import {
+  formatDate,
+  displayLayoutName,
+  getCircuits,
+  getCircuitLogoBackgrounds,
+  type LogoBackground,
+} from '../../lib/db/circuits';
 import TeamLogo from '../../components/TeamLogo.astro';
 import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions, normalizeTrackOrLayoutName } from '../../lib/results';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';

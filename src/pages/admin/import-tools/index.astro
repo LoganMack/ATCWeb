@@ -15,23 +15,17 @@ export const prerender = false;
 // why (a static file can silently drift from what the importer actually
 // reads; a generated one can't).
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getEvents, createEvent, updateEvent, type EventFormat, type Weather } from '../../../lib/db/events';
 import {
-  resolveSupabaseEnv,
-  getEvents,
   getCircuits,
-  createEvent,
-  updateEvent,
   createCircuit,
   updateCircuit,
   getAllCircuitLayouts,
   createCircuitLayout,
   updateCircuitLayout,
-  getAllNewsPosts,
-  createNewsPost,
-  updateNewsPost,
-  type EventFormat,
-  type Weather,
-} from '../../../lib/supabase';
+} from '../../../lib/db/circuits';
+import { getAllNewsPosts, createNewsPost, updateNewsPost } from '../../../lib/db/news';
 import { parseCsv } from '../../../lib/csv';
 import { slugify } from '../../../lib/slug';
 import { userDisplayName, requireAdmin } from '../../../lib/auth';

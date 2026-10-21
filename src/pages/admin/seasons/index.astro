@@ -2,21 +2,21 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getSeasons,
   getSeasonById,
   updateSeasonLogo,
   updateSeasonRuleset,
   updateSeasonClassFlags,
   setCurrentSeason,
-  uploadToStorage,
   getScoringRulesets,
   resolveSeasonRuleset,
   recalculateSeasonScores,
   type ScoringRuleset,
   type SeasonRecalcResult,
-} from '../../../lib/supabase';
+} from '../../../lib/db/seasons';
+import { uploadToStorage } from '../../../lib/db/assets';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

@@ -2,15 +2,15 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getScoringRulesets,
   createScoringRuleset,
   updateScoringRuleset,
   deleteScoringRuleset,
   setDefaultScoringRuleset,
   type ScoringRuleset,
-} from '../../../lib/supabase';
+} from '../../../lib/db/seasons';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

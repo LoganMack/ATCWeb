@@ -1,5 +1,6 @@
-import type { EventWithCircuit, SupabaseEnv } from './supabase';
-import { getEventsForLiveBanner } from './supabase';
+import type { EventWithCircuit } from './db/events';
+import type { SupabaseEnv } from './db/client';
+import { getEventsForLiveBanner } from './db/events';
 import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from './timezone';
 import { CATEGORY_LABELS } from './eventFormatting';
 import { getLayoutBestLapSeconds } from './results';

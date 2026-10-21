@@ -5,7 +5,7 @@
  * open the same Incident Details popup (IncidentDetailsDialog.astro,
  * src/scripts/incidentDetails.ts), so the labels they show come from one place.
  */
-import { displayDriverName, shortDriverName, formatDateShort } from './supabase';
+import { displayDriverName, shortDriverName, formatDateShort } from './db/circuits';
 import type { IncidentRow } from './incidents';
 
 export function sessionLabel(row: IncidentRow): string {

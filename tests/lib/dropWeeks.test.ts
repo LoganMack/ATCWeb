@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { rulesetBaseDropWeeks, seasonDropWeeks } from '../../src/lib/results';
-import type { ScoringRuleset } from '../../src/lib/supabase';
+import type { ScoringRuleset } from '../../src/lib/db/seasons';
 
 function ruleset(id: string, rules: unknown, isDefault = false): ScoringRuleset {
   return {

@@ -1,5 +1,7 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv, getSeasons, getExhibitionRoundIds, getTestRoundIds } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons } from '../../lib/db/seasons';
+import { getExhibitionRoundIds, getTestRoundIds } from '../../lib/db/rounds';
 import { getRoundsForSeason, computeDisplayRoundNumbers, isChampionshipSeason } from '../../lib/results';
 
 export const prerender = false;

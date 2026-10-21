@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getOrganizations, getAllOrganizationTeamSeasons } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getOrganizations, getAllOrganizationTeamSeasons } from '../../../lib/db/teams';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 

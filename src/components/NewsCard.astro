@@ -1,6 +1,8 @@
 ---
-import type { NewsPost, NewsTag, SeasonLogoPair } from '../lib/supabase';
-import { formatDate } from '../lib/supabase';
+import type { NewsPost } from '../lib/db/client';
+import type { NewsTag } from '../lib/db/news';
+import type { SeasonLogoPair } from '../lib/db/seasons';
+import { formatDate } from '../lib/db/circuits';
 import SeasonLogo from './SeasonLogo.astro';
 
 interface Props {

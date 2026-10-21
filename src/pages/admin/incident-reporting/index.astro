@@ -8,7 +8,8 @@ export const prerender = false;
 // an Edit link to the round's incident report page where reports are logged
 // or dismissed.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, restGetAuthed, getStandingsExcludedRoundIds } from '../../../lib/supabase';
+import { resolveSupabaseEnv, restGetAuthed } from '../../../lib/db/client';
+import { getStandingsExcludedRoundIds } from '../../../lib/db/rounds';
 import { getAllRounds, computeDisplayRoundNumbers } from '../../../lib/results';
 import { getPostedSubsessionIds, setRoundPosted } from '../../../lib/incidentReports';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';

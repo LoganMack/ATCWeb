@@ -1,5 +1,7 @@
 ---
-import { formatDateShort, PIT_DIFFICULTY_LABELS, resizedImageUrl, logoBgAttrs, type LayoutMapDetails, type LogoBackground, type PitLaneInfo } from '../lib/supabase';
+import { formatDateShort, logoBgAttrs, type LogoBackground } from '../lib/db/circuits';
+import { PIT_DIFFICULTY_LABELS, type LayoutMapDetails, type PitLaneInfo } from '../lib/db/layoutMaps';
+import { resizedImageUrl } from '../lib/db/drivers';
 import type { IncidentRow } from '../lib/incidents';
 import { driverNumberLabel, roundLabel } from '../lib/incidentDisplay';
 

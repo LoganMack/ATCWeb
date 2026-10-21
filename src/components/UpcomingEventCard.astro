@@ -1,6 +1,8 @@
 ---
-import type { EventWithCircuit, CircuitLayout } from '../lib/supabase';
-import { displayLayoutName, eventImageUrl, logoBgAttrs, resizedImageUrl, type LogoBackground } from '../lib/supabase';
+import type { EventWithCircuit } from '../lib/db/events';
+import type { CircuitLayout } from '../lib/db/circuits';
+import { displayLayoutName, eventImageUrl, logoBgAttrs, type LogoBackground } from '../lib/db/circuits';
+import { resizedImageUrl } from '../lib/db/drivers';
 import {
   formatEventDate,
   formatEventDateShort,

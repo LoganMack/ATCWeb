@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getCircuits, getCircuitLogoBackgrounds, logoBgAttrs } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getCircuits, getCircuitLogoBackgrounds, logoBgAttrs } from '../../../lib/db/circuits';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 

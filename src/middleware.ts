@@ -25,7 +25,8 @@
  */
 
 import { defineMiddleware } from 'astro:middleware';
-import { resolveSupabaseEnv, logPageView, restGet, type SupabaseEnv } from './lib/supabase';
+import { resolveSupabaseEnv, restGet, type SupabaseEnv } from './lib/db/client';
+import { logPageView } from './lib/db/analytics';
 import {
   ACCESS_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE,

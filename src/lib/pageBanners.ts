@@ -71,7 +71,7 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'incidents', label: 'Incidents', description: '/incidents', width: 1152 },
 ];
 
-import { resizedImageUrl } from './supabase';
+import { resizedImageUrl } from './db/drivers';
 
 /**
  * Looks up one page's configured banner URL, or null if none is set.

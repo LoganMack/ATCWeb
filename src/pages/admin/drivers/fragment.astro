@@ -2,17 +2,16 @@
 export const prerender = false;
 
 import DriverFlag from '../../../components/DriverFlag.astro';
+import { resolveSupabaseEnv, getDrivers } from '../../../lib/db/client';
+import { getSiteSettings } from '../../../lib/db/assets';
 import {
-  resolveSupabaseEnv,
-  getDrivers,
-  getSiteSettings,
   syncDriverStatuses,
   syncRookieStatus,
   getAllDriverLastRaces,
   buildInactivityNote,
   roundsSinceDate,
-  formatDate,
-} from '../../../lib/supabase';
+} from '../../../lib/db/drivers';
+import { formatDate } from '../../../lib/db/circuits';
 import { getOfficialRoundStartTimes } from '../../../lib/results';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../../lib/siteSettings';
 import { requireAdmin } from '../../../lib/auth';

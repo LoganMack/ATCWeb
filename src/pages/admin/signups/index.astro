@@ -8,7 +8,8 @@ export const prerender = false;
 // the driver. Both go through database functions that re-check everything,
 // so the number previews here are informational only.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDriverClasses } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getDriverClasses } from '../../../lib/db/lookups';
 import {
   getSignupRequests,
   getSignupRoster,

@@ -7,7 +7,8 @@ export const prerender = false;
 // how long after the race it came in (the "recorded early enough" cue), with an
 // audio player (private bucket, one-hour signed links) and a Delete button.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { formatDate } from '../../../lib/db/circuits';
 import { getAllRounds } from '../../../lib/results';
 import { getRaceInterviews, signInterviewUrl, deleteRaceInterview, type RaceInterview } from '../../../lib/raceInterviews';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';

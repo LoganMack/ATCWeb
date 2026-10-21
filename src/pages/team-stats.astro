@@ -4,7 +4,8 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 // Same shell-then-spinner split as champions.astro / driver-stats.astro

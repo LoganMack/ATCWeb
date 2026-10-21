@@ -1,4 +1,4 @@
-import type { EventCategory, EventFormat, EventRecord, Weather } from './supabase';
+import type { EventCategory, EventFormat, EventRecord, Weather } from './db/events';
 import { zonedTimeToUtcIso, LEAGUE_TIME_ZONE } from './timezone';
 
 // Re-exported for components that take a weather value alongside WEATHER_LABELS.

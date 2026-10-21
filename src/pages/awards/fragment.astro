@@ -6,7 +6,10 @@ import { markUncacheable } from '../../lib/security';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import SeasonLogo from '../../components/SeasonLogo.astro';
-import { resolveSupabaseEnv, getSeasons, getManualAwards, displayDriverName, type Season, type ManualAward, type SeasonLogoPair } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons, type Season, type SeasonLogoPair } from '../../lib/db/seasons';
+import { getManualAwards, type ManualAward } from '../../lib/db/awards';
+import { displayDriverName } from '../../lib/db/circuits';
 import {
   computeSeasonAwardsHistory,
   driversSelect,

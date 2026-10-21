@@ -15,7 +15,8 @@
  * below needs to change.
  */
 
-import { restGet, restGetAuthed, restPatch, getSiteSettings, type SupabaseEnv } from './supabase';
+import { restGet, restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
+import { getSiteSettings } from './db/assets';
 import { siteSettingInt, INCIDENT_REPORT_PERIOD_HOURS_KEY } from './siteSettings';
 import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from './timezone';
 

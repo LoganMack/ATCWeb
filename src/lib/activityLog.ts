@@ -17,7 +17,8 @@
  * admin tab, not a reason to fail (or worse, appear to fail while actually
  * succeeding) the real action underneath it.
  */
-import { restPost, uploadToStorage, type SupabaseEnv } from './supabase';
+import { restPost, type SupabaseEnv } from './db/client';
+import { uploadToStorage } from './db/assets';
 import { userDisplayName } from './auth';
 
 export type ActivityAction = 'add' | 'edit' | 'delete';

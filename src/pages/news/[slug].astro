@@ -3,20 +3,11 @@ export const prerender = false;
 
 import Layout from '../../layouts/Layout.astro';
 import DriverLink from '../../components/DriverLink.astro';
-import {
-  getNewsPostBySlug,
-  getSeasons,
-  resolveSupabaseEnv,
-  formatDate,
-  displayDriverName,
-  shortDriverName,
-  getTagsForPost,
-  getDriversForPost,
-  MENTION_PATTERN,
-  type NewsTag,
-  type DriverOption,
-  type SeasonLogoPair,
-} from '../../lib/supabase';
+import { getNewsPostBySlug, resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
+import { formatDate, displayDriverName, shortDriverName } from '../../lib/db/circuits';
+import { getTagsForPost, getDriversForPost, MENTION_PATTERN, type NewsTag } from '../../lib/db/news';
+import type { DriverOption } from '../../lib/db/drivers';
 import { getRoundBySubsessionId } from '../../lib/results';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classTagFull } from '../../lib/classColors';

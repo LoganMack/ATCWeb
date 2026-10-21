@@ -3,14 +3,12 @@ export const prerender = false;
 
 import { safeJson } from '../../../lib/security';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getDriverById,
   createDriver,
   updateDriver,
   deleteDriver,
-  getDriverStatuses,
-  getDriverClasses,
   getDriversForNumberCheck,
   getDriversForCustIdCheck,
   getDriversBasic,
@@ -18,8 +16,6 @@ import {
   buildInactivityNote,
   roundsSinceDate,
   setDriverCarNumber,
-  getSiteSettings,
-  getSeasons,
   getDriverSeasonClassesForDriver,
   upsertDriverSeasonClass,
   deleteDriverSeasonClass,
@@ -27,13 +23,14 @@ import {
   getDriverSeasonCarNumbersForSeason,
   upsertDriverSeasonCarNumber,
   deleteDriverSeasonCarNumber,
-  uploadToStorage,
-  formatDate,
   type DriverRecord,
-  type Season,
   type DriverSeasonClass,
   type DriverSeasonCarNumber,
-} from '../../../lib/supabase';
+} from '../../../lib/db/drivers';
+import { getDriverStatuses, getDriverClasses } from '../../../lib/db/lookups';
+import { getSiteSettings, uploadToStorage } from '../../../lib/db/assets';
+import { getSeasons, type Season } from '../../../lib/db/seasons';
+import { formatDate } from '../../../lib/db/circuits';
 import { getOfficialRoundStartTimes } from '../../../lib/results';
 import { getAllProfiles, requireAdmin } from '../../../lib/auth';
 import { COUNTRIES } from '../../../lib/countries';

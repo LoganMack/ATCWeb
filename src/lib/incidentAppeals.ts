@@ -11,7 +11,8 @@
  * per-user limits and the upload folder too (0113).
  */
 
-import { restGetAuthed, restPatch, getSiteSettings, type SupabaseEnv } from './supabase';
+import { restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
+import { getSiteSettings } from './db/assets';
 import { siteSettingInt, INCIDENT_APPEAL_PERIOD_HOURS_KEY } from './siteSettings';
 import { getRoundPostedAt } from './incidentReports';
 

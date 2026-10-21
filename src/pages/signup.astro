@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import { resolveSupabaseEnv } from '../lib/supabase';
+import { resolveSupabaseEnv } from '../lib/db/client';
 import { signUp, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
 import { validatePassword, PASSWORD_MIN_CHARS, PASSWORD_MAX_BYTES } from '../lib/password';
 

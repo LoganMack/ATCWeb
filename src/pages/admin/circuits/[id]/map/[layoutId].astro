@@ -12,24 +12,26 @@ export const prerender = false;
 // traces a PNG/JPG/WebP into an SVG in the browser and swaps that into the
 // upload when the form is submitted, so what lands in storage is the SVG.
 import AdminLayout from '../../../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getCircuitById,
   getCircuitLayoutById,
   getCircuits,
   getAllCircuitLayouts,
   updateCircuitLayout,
-  uploadToStorage,
-  getLayoutMapDetails,
-  saveLayoutMapDetails,
   displayLayoutName,
   formatDateShort,
+} from '../../../../../lib/db/circuits';
+import { uploadToStorage } from '../../../../../lib/db/assets';
+import {
+  getLayoutMapDetails,
+  saveLayoutMapDetails,
   PIT_DIFFICULTY_LABELS,
   PIT_NOTE_MAX,
   type PitDifficulty,
   type MapPoint,
   type LayoutCorner,
-} from '../../../../../lib/supabase';
+} from '../../../../../lib/db/layoutMaps';
 import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout } from '../../../../../lib/results';
 import { getIncidentsForSubsessions } from '../../../../../lib/incidents';
 import { getPostedSubsessionIds } from '../../../../../lib/incidentReports';

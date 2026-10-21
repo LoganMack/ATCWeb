@@ -5,13 +5,11 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import {
   getCircuitLogoBackgrounds,
   type LogoBackground,
-  resolveSupabaseEnv,
   getCircuitById,
   getCircuitCoordinates,
   createCircuit,
   updateCircuit,
   deleteCircuit,
-  uploadToStorage,
   getCircuitLayouts,
   createCircuitLayout,
   updateCircuitLayout,
@@ -25,7 +23,9 @@ import {
   type Circuit,
   type CircuitLayout,
   type TrackGuide,
-} from '../../../lib/supabase';
+} from '../../../lib/db/circuits';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { uploadToStorage } from '../../../lib/db/assets';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

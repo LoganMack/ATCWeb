@@ -21,8 +21,8 @@ export const prerender = false;
 // visit to this page even when you only wanted to change a setting.
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getPageBanners,
   upsertPageBanner,
   deletePageBanner,
@@ -30,22 +30,23 @@ import {
   upsertCarLogo,
   deleteCarLogo,
   getDistinctDriverCarNames,
+  uploadToStorage,
+} from '../../../lib/db/assets';
+import {
   getPenaltyOffenses,
   createPenaltyOffense,
   updatePenaltyOffense,
   deletePenaltyOffense,
-  uploadToStorage,
-  getDriverClasses,
-  getSeasons,
-  getChampionPhotosForClass,
-  getHallOfFameDrivers,
-  getAllHallOfFamePhotos,
-  displayDriverName,
   type PenaltyOffense,
-} from '../../../lib/supabase';
+} from '../../../lib/db/penalties';
+import { getDriverClasses } from '../../../lib/db/lookups';
+import { getSeasons } from '../../../lib/db/seasons';
+import { getChampionPhotosForClass, getAllHallOfFamePhotos } from '../../../lib/db/photos';
+import { getHallOfFameDrivers } from '../../../lib/db/drivers';
+import { displayDriverName } from '../../../lib/db/circuits';
 import { BANNER_PAGES, BANNER_STRIP_HEIGHT, BANNER_PHONE_ASPECT } from '../../../lib/pageBanners';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
-import { getSiteSettings, upsertSiteSetting } from '../../../lib/supabase';
+import { getSiteSettings, upsertSiteSetting } from '../../../lib/db/assets';
 import { INCIDENT_REPORT_PERIOD_HOURS_KEY, INCIDENT_APPEAL_PERIOD_HOURS_KEY, siteSettingInt } from '../../../lib/siteSettings';
 import { getChampions, driversSelect } from '../../../lib/results';
 import { requireAdmin } from '../../../lib/auth';

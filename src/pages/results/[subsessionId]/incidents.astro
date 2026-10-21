@@ -2,7 +2,9 @@
 export const prerender = false;
 
 import Layout from '../../../layouts/Layout.astro';
-import { resolveSupabaseEnv, getPenaltiesForSubsession, getPageBanners } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getPenaltiesForSubsession } from '../../../lib/db/penalties';
+import { getPageBanners } from '../../../lib/db/assets';
 import { bannerUrlFor } from '../../../lib/pageBanners';
 import PageBanner from '../../../components/PageBanner.astro';
 import { getRoundBySubsessionId } from '../../../lib/results';

@@ -3,12 +3,15 @@ export const prerender = false;
 
 import { safeJson, markUncacheable } from '../../lib/security';
 import LoadError from '../../components/LoadError.astro';
+import { resolveSupabaseEnv } from '../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getAllMediaGraphics,
   getMediaVideosByCategory,
   getAllMediaMeetups,
   getAllMeetupDriverLinks,
+  type MediaVideoCategory,
+} from '../../lib/db/media';
+import {
   getAllCircuitLayouts,
   getAllTrackGuides,
   getCircuits,
@@ -16,9 +19,8 @@ import {
   displayLayoutName,
   displayDriverName,
   youtubeThumbnailUrl,
-  resizedImageUrl,
-  type MediaVideoCategory,
-} from '../../lib/supabase';
+} from '../../lib/db/circuits';
+import { resizedImageUrl } from '../../lib/db/drivers';
 import {
   getAllBroadcastVideos,
   getAllPhotoAlbumLinks,

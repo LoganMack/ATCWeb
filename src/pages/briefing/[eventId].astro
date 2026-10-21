@@ -12,14 +12,11 @@ import { markUncacheable } from '../../lib/security';
 // /results/[subsessionId].astro's own pages.
 import Layout from '../../layouts/Layout.astro';
 import DriverLink from '../../components/DriverLink.astro';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getEventById, type EventRecord } from '../../lib/db/events';
 import {
-  resolveSupabaseEnv,
-  getEventById,
   getCircuits,
   getAllCircuitLayouts,
-  getDriverClasses,
-  getCarLogos,
-  getRaceLinksForSubsessions,
   formatDateShort,
   formatLapTime,
   displayLayoutName,
@@ -27,17 +24,15 @@ import {
   layoutImageUrl,
   getCircuitLogoBackgrounds,
   getCircuitCoordinates,
-  getLayoutMapDetails,
-  emptyLayoutMapDetails,
   logoBgAttrs,
-  type LayoutMapDetails,
   type LogoBackground,
-  type EventRecord,
   type Circuit,
   type CircuitLayout,
-  type CarLogo,
-  type RaceLinks,
-} from '../../lib/supabase';
+} from '../../lib/db/circuits';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getCarLogos, type CarLogo } from '../../lib/db/assets';
+import { getRaceLinksForSubsessions, type RaceLinks } from '../../lib/db/rounds';
+import { getLayoutMapDetails, emptyLayoutMapDetails, type LayoutMapDetails } from '../../lib/db/layoutMaps';
 import { getEventSessions, formatSessionTime, CATEGORY_LABELS } from '../../lib/eventFormatting';
 import {
   resolveLayout,

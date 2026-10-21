@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv, restGetAuthed } from '../../lib/supabase';
+import { resolveSupabaseEnv, restGetAuthed } from '../../lib/db/client';
 import { isAdminView } from '../../lib/auth';
 
 export const prerender = false;

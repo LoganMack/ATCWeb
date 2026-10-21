@@ -22,8 +22,9 @@
  * before the actual file bytes get produced, so it's the one place that
  * decides that once, correctly, rather than everyone upstream guessing.
  */
-import type { EventWithCircuit, CircuitLayout } from './supabase';
-import { displayLayoutName } from './supabase';
+import type { EventWithCircuit } from './db/events';
+import type { CircuitLayout } from './db/circuits';
+import { displayLayoutName } from './db/circuits';
 import { getEventSessions, formatSessionTime } from './eventFormatting';
 
 const NL = '\n';

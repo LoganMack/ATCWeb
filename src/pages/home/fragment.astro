@@ -7,22 +7,19 @@ import CarLogos from '../../components/CarLogos.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
+import { getNewsPosts, resolveSupabaseEnv } from '../../lib/db/client';
+import { getUpcomingEvents } from '../../lib/db/events';
 import {
-  getNewsPosts,
-  getUpcomingEvents,
   getAllCircuitLayouts,
   getCircuitLogoBackgrounds,
-  getSeasons,
-  getDriverClasses,
-  getStandingsExcludedRoundIds,
-  resolveSupabaseEnv,
   displayLayoutName,
   shortDriverName,
   formatDate,
-  getAllNewsPostTags,
-  type NewsTag,
-  type SeasonLogoPair,
-} from '../../lib/supabase';
+} from '../../lib/db/circuits';
+import { getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
+import { getAllNewsPostTags, type NewsTag } from '../../lib/db/news';
 import {
   computeSeasonStandings,
   computeOverallSeasonStandings,

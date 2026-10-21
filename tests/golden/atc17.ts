@@ -17,14 +17,9 @@ import {
   type RoundSummary,
   type SeasonOverallContext,
 } from '../../src/lib/results';
-import {
-  resolveSeasonRuleset,
-  toPenalty,
-  type Lookup,
-  type PenaltyRow,
-  type ScoringRuleset,
-  type Season,
-} from '../../src/lib/supabase';
+import { resolveSeasonRuleset, type ScoringRuleset, type Season } from '../../src/lib/db/seasons';
+import { toPenalty, type PenaltyRow } from '../../src/lib/db/penalties';
+import type { Lookup } from '../../src/lib/db/lookups';
 
 // Bundled by Vite's glob import, so the tests need no Node file-system access.
 const FILES = import.meta.glob('../fixtures/golden/atc17/*.json', { eager: true, import: 'default' });

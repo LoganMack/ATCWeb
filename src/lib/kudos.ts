@@ -5,7 +5,7 @@
  * author or an admin can delete it.
  */
 
-import { restGet, type SupabaseEnv } from './supabase';
+import { restGet, type SupabaseEnv } from './db/client';
 
 export interface Kudos {
   id: string;

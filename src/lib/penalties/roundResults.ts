@@ -1,5 +1,5 @@
 import type { RaceResultRow, RoundResults } from '../results';
-import { formatLapTime } from '../supabase';
+import { formatLapTime } from '../db/circuits';
 import type { PenaltyLike } from './effective';
 import {
   classPointsFromTables,

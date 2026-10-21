@@ -5,16 +5,14 @@ import { markUncacheable } from '../../lib/security';
 
 import {
   getTeams,
-  getDrivers,
-  getSeasons,
   getTeamRosterForSeason,
   getAllTeamRosters,
   getAllTeamSeasonLogos,
-  displayDriverName,
-  resolveSupabaseEnv,
-  type Season,
   type Team,
-} from '../../lib/supabase';
+} from '../../lib/db/teams';
+import { getDrivers, resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons, type Season } from '../../lib/db/seasons';
+import { displayDriverName } from '../../lib/db/circuits';
 import { driversSelect, getAllRounds, isChampionshipSeason, type DriverBasic } from '../../lib/results';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import TeamLogo from '../../components/TeamLogo.astro';

@@ -6,7 +6,10 @@ import { markUncacheable } from '../lib/security';
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import PageBanner from '../components/PageBanner.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getPageBanners } from '../lib/supabase';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getDriverClasses } from '../lib/db/lookups';
+import { getSeasons } from '../lib/db/seasons';
+import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 // Pilot for the sitewide "shell renders instantly, data fills in after"

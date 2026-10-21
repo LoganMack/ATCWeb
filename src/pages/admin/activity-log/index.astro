@@ -6,7 +6,8 @@ export const prerender = false;
 // that file's header comment for the full list of call sites). Read-only —
 // nothing on this page writes to activity_log itself, it only queries it.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, restGetAuthed, formatDate } from '../../../lib/supabase';
+import { resolveSupabaseEnv, restGetAuthed } from '../../../lib/db/client';
+import { formatDate } from '../../../lib/db/circuits';
 import { signImportFileUrls, type ActivityAction, type ActivityLogRow } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

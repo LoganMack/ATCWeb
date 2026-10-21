@@ -12,7 +12,8 @@ export const prerender = false;
 // Meetups) already follow for lists this size.
 
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsTags, createNewsTag, deleteNewsTag } from '../../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../../lib/db/client';
+import { getAllNewsTags, createNewsTag, deleteNewsTag } from '../../../../lib/db/news';
 import { requireAdmin } from '../../../../lib/auth';
 
 const admin = requireAdmin(Astro);

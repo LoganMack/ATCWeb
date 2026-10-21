@@ -7,7 +7,11 @@ import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import TrophyIcon from '../../components/TrophyIcon.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getStandingsExcludedRoundIds, displayDriverName } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getSeasons } from '../../lib/db/seasons';
+import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
+import { displayDriverName } from '../../lib/db/circuits';
 import { computeTeamCareerStats, type TeamCareerStats } from '../../lib/results';
 import { classBadgeLetter, classTagShort } from '../../lib/classColors';
 

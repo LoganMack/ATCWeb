@@ -6,23 +6,13 @@ import { markUncacheable } from '../../../lib/security';
 import CarLogos from '../../../components/CarLogos.astro';
 import TeamLogo from '../../../components/TeamLogo.astro';
 import NewsCard from '../../../components/NewsCard.astro';
-import {
-  resolveSupabaseEnv,
-  getDriverClasses,
-  getSeasons,
-  getStandingsExcludedRoundIds,
-  getManualAwards,
-  formatDateShort,
-  getNewsPosts,
-  getAllNewsPostDrivers,
-  getAllNewsPostTags,
-  formatLapTime,
-  displayLayoutName,
-  shortDriverName,
-  type NewsPost,
-  type NewsTag,
-  type SeasonLogoPair,
-} from '../../../lib/supabase';
+import { resolveSupabaseEnv, getNewsPosts, type NewsPost } from '../../../lib/db/client';
+import { getDriverClasses } from '../../../lib/db/lookups';
+import { getSeasons, type SeasonLogoPair } from '../../../lib/db/seasons';
+import { getStandingsExcludedRoundIds } from '../../../lib/db/rounds';
+import { getManualAwards } from '../../../lib/db/awards';
+import { formatDateShort, formatLapTime, displayLayoutName, shortDriverName } from '../../../lib/db/circuits';
+import { getAllNewsPostDrivers, getAllNewsPostTags, type NewsTag } from '../../../lib/db/news';
 import {
   computeDriverCareerStats,
   getDriverRaceHistory,

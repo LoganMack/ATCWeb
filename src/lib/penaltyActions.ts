@@ -7,14 +7,10 @@
  * than maintaining two copies of this logic.
  */
 
-import {
-  getDriverById,
-  updateDriver,
-  getEvents,
-  getPenaltiesForSubsessions,
-  withAccessToken,
-  type SupabaseEnv,
-} from './supabase';
+import { getDriverById, updateDriver } from './db/drivers';
+import { getEvents } from './db/events';
+import { getPenaltiesForSubsessions } from './db/penalties';
+import { withAccessToken, type SupabaseEnv } from './db/client';
 import { getCurrentSeasonRounds } from './results';
 import { computeSeasonPPState } from './penalties/penaltyPoints';
 

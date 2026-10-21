@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getDrivers } from '../../../lib/supabase';
+import { resolveSupabaseEnv, getDrivers } from '../../../lib/db/client';
 import { getAllProfiles, setProfileRole, setProfileDriver, deleteUser, getUserEmails, userDisplayName, requireAdmin } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 

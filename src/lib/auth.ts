@@ -19,7 +19,7 @@
  * call — that's a Supabase-wide REST requirement, not specific to auth.
  */
 
-import type { SupabaseEnv } from './supabase';
+import type { SupabaseEnv } from './db/client';
 
 export interface AuthUser {
   id: string;

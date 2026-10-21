@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { computeRoundRecap } from '../../../lib/newsRecap';
 
 export const prerender = false;

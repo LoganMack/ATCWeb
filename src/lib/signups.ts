@@ -11,7 +11,7 @@
  *     admin write (RLS / is_admin() do the gating).
  */
 
-import { resolveSupabaseEnv, restGetAll, restGetAuthed, type SupabaseEnv } from './supabase';
+import { resolveSupabaseEnv, restGetAll, restGetAuthed, type SupabaseEnv } from './db/client';
 
 // --- Bot API side ------------------------------------------------------------
 

@@ -4,19 +4,21 @@ import LoadError from '../../components/LoadError.astro';
 import { markUncacheable } from '../../lib/security';
 
 import EventDetailCard from '../../components/EventDetailCard.astro';
+import { getEvents } from '../../lib/db/events';
 import {
-  getEvents,
   getCircuits,
   getCircuitCoordinates,
   getCircuitLogoBackgrounds,
   getAllCircuitLayouts,
-  resolveSupabaseEnv,
   eventImageUrl,
+} from '../../lib/db/circuits';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import {
   getSeasons,
   getScoringRulesets,
   resolveSeasonRuleset,
   resolveIncidentLimit,
-} from '../../lib/supabase';
+} from '../../lib/db/seasons';
 import {
   getAllRounds,
   isChampionshipSeason,

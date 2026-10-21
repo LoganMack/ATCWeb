@@ -1,11 +1,7 @@
 import type { APIRoute } from 'astro';
-import {
-  resolveSupabaseEnv,
-  getCircuits,
-  getAllCircuitLayouts,
-  getExhibitionRoundIds,
-  getTestRoundIds,
-} from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getCircuits, getAllCircuitLayouts } from '../../lib/db/circuits';
+import { getExhibitionRoundIds, getTestRoundIds } from '../../lib/db/rounds';
 import {
   getAllRounds,
   getRoundLayoutsForSubsessions,

@@ -3,16 +3,13 @@ export const prerender = false;
 
 import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getTeams,
   getTeamById,
   createTeam,
   updateTeam,
   deleteTeam,
-  uploadToStorage,
-  getSeasons,
-  getDriversBasic,
   getTeamRosterForSeason,
   getTeamRosterForTeamSeason,
   addTeamRosterEntry,
@@ -21,11 +18,12 @@ import {
   upsertTeamSeasonLogo,
   deleteTeamSeasonLogo,
   type Team,
-  type Season,
-  type DriverOption,
   type TeamRosterEntry,
   type TeamSeasonLogo,
-} from '../../../lib/supabase';
+} from '../../../lib/db/teams';
+import { uploadToStorage } from '../../../lib/db/assets';
+import { getSeasons, type Season } from '../../../lib/db/seasons';
+import { getDriversBasic, type DriverOption } from '../../../lib/db/drivers';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

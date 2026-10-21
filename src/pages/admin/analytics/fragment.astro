@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import StatBlock from '../../../components/StatBlock.astro';
-import { resolveSupabaseEnv, getPageViewStats } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getPageViewStats } from '../../../lib/db/analytics';
 import { resolveAnalyticsRange } from '../../../lib/analyticsRanges';
 import { requireAdmin } from '../../../lib/auth';
 

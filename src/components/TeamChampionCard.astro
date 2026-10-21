@@ -7,11 +7,11 @@
 import DriverLink from './DriverLink.astro';
 import type { TeamChampionEntry } from '../lib/results';
 import type { DriverBasic } from '../lib/results';
-import { displayDriverName } from '../lib/supabase';
+import { displayDriverName } from '../lib/db/circuits';
 import StatBlock from './StatBlock.astro';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
-import { resizedImageUrl } from '../lib/supabase';
+import { resizedImageUrl } from '../lib/db/drivers';
 
 interface Props {
   entry: TeamChampionEntry;
