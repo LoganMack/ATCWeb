@@ -11,17 +11,13 @@ import { markUncacheable } from '../../../../lib/security';
 // All penalty add/edit/remove lives here instead of on the results page
 // (src/pages/results/[subsessionId].astro), which is read-only for
 // penalties as of this version.
-import { resolveSupabaseEnv, withAccessToken, getDrivers, restGet } from '../../../../lib/db/client';
+import { resolveSupabaseEnv, withAccessToken, getDrivers } from '../../../../lib/db/client';
 import {
   getPenaltiesForSubsession,
   getPenaltiesForSubsessions,
   getPenaltyOffenses,
-  createPenalty,
-  updatePenalty,
-  deletePenalty,
   type Penalty,
   type PenaltyOffense,
-  type PenaltyInput,
 } from '../../../../lib/db/penalties';
 import { getEvents } from '../../../../lib/db/events';
 import { formatDate, shortDriverName, getCircuits, getAllCircuitLayouts } from '../../../../lib/db/circuits';
@@ -52,17 +48,10 @@ import {
   countWarnings,
   type RoundPPSummary,
 } from '../../../../lib/penalties/penaltyPoints';
-import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../../../../lib/penaltyActions';
 import { isAdminView, requireAdminSession } from '../../../../lib/auth';
 import {
   getRoundPenaltyData,
-  createRoundPenalty,
-  getRoundPenaltiesForDriver,
-  updateRoundPenalty,
-  setRoundPenaltyServed,
-  deleteRoundPenalty,
   roundPenaltyLabel,
-  isRoundPenaltyKind,
   ROUND_PENALTY_KINDS,
   ROUND_PENALTY_LABELS,
   ROUND_PENALTY_NOTE_MAX_LENGTH,
@@ -72,31 +61,23 @@ import {
 } from '../../../../lib/roundPenalties';
 import { ppPenaltyTier, type PPPenaltyTier } from '../../../../lib/ppPenaltyTable';
 import RowIcon from '../../../../components/RowIcon.astro';
-import { logActivity, actorNameFor } from '../../../../lib/activityLog';
+import { actorNameFor } from '../../../../lib/activityLog';
 import {
   getAppealClosesAt,
   isAppealOpen,
-  createIncidentAppeal,
-  uploadAppealFile,
-  safeAppealFileName,
   getIncidentAppealsForSubsession,
-  setIncidentAppealStatus,
   signAppealFileUrl,
   APPEAL_MAX_FILES,
-  APPEAL_MAX_FILE_BYTES,
   APPEAL_MAX_FILE_MB,
   APPEAL_MAX_MESSAGE_LENGTH,
   APPEAL_ALLOWED_MIME_TYPES,
-  type AppealFileMeta,
   type IncidentAppeal,
 } from '../../../../lib/incidentAppeals';
 import {
   getIncidentReportsForSubsession,
-  setIncidentReportStatus,
   isRoundPosted,
   getVisibleReviewsForSubsession,
   getReviewCountsForSubsession,
-  saveIncidentReportReview,
   reviewAgreement,
   reviewPenaltyLabel,
   REVIEW_PENALTIES,
@@ -104,6 +85,18 @@ import {
   type IncidentReport,
   type IncidentReportReview,
 } from '../../../../lib/incidentReports';
+import { REPORTS_ANCHOR, ROUND_PENALTIES_ANCHOR, ROUND_SUMMARY_ANCHOR, OWED_PENALTIES_ANCHOR } from '../../../../lib/incidentActions/anchors';
+import type { IncidentActionContext, IncidentActionRedirect } from '../../../../lib/incidentActions/context';
+import { handleSubmitAppeal } from '../../../../lib/incidentActions/submitAppeal';
+import { handleSaveIncident } from '../../../../lib/incidentActions/saveIncident';
+import { handleSaveRoundPenalty } from '../../../../lib/incidentActions/saveRoundPenalty';
+import { handleSaveDriverRoundPenalties } from '../../../../lib/incidentActions/saveDriverRoundPenalties';
+import { handleDeleteRoundPenalty } from '../../../../lib/incidentActions/deleteRoundPenalty';
+import { handleSetRoundPenaltyServed } from '../../../../lib/incidentActions/setRoundPenaltyServed';
+import { handleSetReportStatus } from '../../../../lib/incidentActions/setReportStatus';
+import { handleSaveReview } from '../../../../lib/incidentActions/saveReview';
+import { handleSetAppealStatus } from '../../../../lib/incidentActions/setAppealStatus';
+import { handleDeleteIncident } from '../../../../lib/incidentActions/deleteIncident';
 
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI — and blocks the POST
@@ -118,15 +111,6 @@ const supabaseEnv = adminSession
   ? withAccessToken(resolveSupabaseEnv(Astro.locals), adminSession.accessToken)
   : resolveSupabaseEnv(Astro.locals);
 const subsessionId = Number(Astro.params.subsessionId);
-// id of the Reported Incidents panel. Dismiss/Reopen and saving a review
-// redirect to it, so the steward lands back on their review queue instead of
-// the top of the page; the shell scrolls to it once the fragment is in.
-const REPORTS_ANCHOR = 'reported-incidents';
-// ids the round-penalty forms redirect back to: the Round Penalties table, the Round Summary and
-// the stewards' owed-penalties box.
-const ROUND_PENALTIES_ANCHOR = 'round-penalties';
-const ROUND_SUMMARY_ANCHOR = 'round-summary';
-const OWED_PENALTIES_ANCHOR = 'owed-penalties';
 // Where this report's visible page lives — every POST below redirects back to it, not to this fragment URL.
 const shellPath = `/results/${Astro.params.subsessionId}/incidents`;
 // The fragment owns the POST handling, so its forms post here and carry the page's query string along (the redirect lands back on the same view).
@@ -147,51 +131,37 @@ async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
 const postForm: FormData | null =
   Astro.request.method === 'POST' && Number.isFinite(subsessionId) ? await Astro.request.formData() : null;
 
-// --- Submit an appeal (signed-in users only) -------------------------------
-// Open only while the Incident Appeal Window is (see lib/incidentAppeals.ts);
-// re-checked here server-side and again in the database. The files go into
-// the private 'incident-appeals' bucket under the user's own folder first,
-// then one SECURITY DEFINER call records the appeal text + file list
-// (0093_incident_appeals.sql, 0113_bound_incident_submissions.sql).
-if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') {
-  const back = (code: string) => {
-    const url = new URL(Astro.url);
-    url.searchParams.set('appeal', code);
-    return Astro.redirect(`${shellPath}${url.search}`, 302);
-  };
-  // Honeypot — real users never fill this hidden field.
-  if (String(postForm.get('website') ?? '').trim() !== '') return back('ok');
-  const appealSession = Astro.locals.session;
-  if (!appealSession) return back('signin');
-  const appealCloses = await getAppealClosesAt(supabaseEnv, subsessionId);
-  if (!isAppealOpen(appealCloses)) return back('closed');
+// What the POST handlers (src/lib/incidentActions) get in place of the Astro global.
+const ctx = {
+  supabaseEnv,
+  subsessionId,
+  shellPath,
+  url: Astro.url,
+  session: Astro.locals.session,
+  redirect: (location: string): IncidentActionRedirect => ({ location, status: 302 }),
+};
+const toResponse = (r: IncidentActionRedirect) => Astro.redirect(r.location, r.status);
+// A Map, not an object literal, so an intent such as `constructor` finds no handler and falls
+// through to the render like any other unknown intent.
+const ADMIN_HANDLERS = new Map<
+  string,
+  (ctx: IncidentActionContext, form: FormData, intent: string) => Promise<IncidentActionRedirect>
+>([
+  ['add-incident', handleSaveIncident],
+  ['update-incident', handleSaveIncident],
+  ['add-round-penalty', handleSaveRoundPenalty],
+  ['update-round-penalty', handleSaveRoundPenalty],
+  ['save-driver-round-penalties', handleSaveDriverRoundPenalties],
+  ['delete-round-penalty', handleDeleteRoundPenalty],
+  ['set-round-penalty-served', handleSetRoundPenaltyServed],
+  ['set-report-status', handleSetReportStatus],
+  ['save-review', handleSaveReview],
+  ['set-appeal-status', handleSetAppealStatus],
+  ['delete-incident', handleDeleteIncident],
+]);
 
-  const penaltyId = String(postForm.get('penalty_id') ?? '');
-  const message = String(postForm.get('message') ?? '').trim();
-  const files = postForm.getAll('files').filter((f): f is File => typeof f !== 'string' && f.size > 0);
-  if (!/^[0-9a-f-]{36}$/i.test(penaltyId) || !message || message.length > APPEAL_MAX_MESSAGE_LENGTH) return back('invalid');
-  if (files.length > APPEAL_MAX_FILES) return back('toomany');
-  if (files.some((f) => f.size > APPEAL_MAX_FILE_BYTES)) return back('toolarge');
-  if (files.some((f) => !APPEAL_ALLOWED_MIME_TYPES.includes(f.type))) return back('badtype');
-
-  try {
-    const owned = await restGet<{ id: string }[]>(supabaseEnv, `penalties?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`);
-    if (owned.length === 0) return back('invalid');
-    const appealId = crypto.randomUUID();
-    const token = appealSession.accessToken;
-    const uploaded: AppealFileMeta[] = [];
-    for (const [i, file] of files.entries()) {
-      const path = `${appealSession.user.id}/${appealId}/${i + 1}-${safeAppealFileName(file.name)}`;
-      await uploadAppealFile(supabaseEnv, token, path, file);
-      uploaded.push({ path, name: file.name, size: file.size, type: file.type });
-    }
-    await createIncidentAppeal(supabaseEnv, token, { id: appealId, penalty_id: penaltyId, message, files: uploaded });
-  } catch (err) {
-    console.error('Failed to save incident appeal:', err);
-    return back('failed');
-  }
-  return back('ok');
-}
+// Submitting an appeal is open to any signed-in user; every other intent is admin-only (below).
+if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') return toResponse(await handleSubmitAppeal(ctx, postForm));
 
 if (adminSession && postForm) {
   const form = postForm;
@@ -204,375 +174,8 @@ if (adminSession && postForm) {
   const roundForLog = await getRoundBySubsessionId(supabaseEnv, subsessionId);
   const roundLabel = roundForLog ? `${roundForLog.track_name} (${formatDate(roundForLog.start_time)})` : `Round ${subsessionId}`;
 
-  if (intent === 'add-incident' || intent === 'update-incident') {
-    // The Session field's value encodes both what kind of session this
-    // incident happened in and (for a real race) which one — "race:2",
-    // "qualifying:0", "practice:0". Qualifying/practice always carry the
-    // race_number sentinel 0 (see 0056_penalty_session_type.sql) — it can
-    // never collide with a real race (curated_race_results.race_number is
-    // always 1-5); it's purely a display/grouping value. For SCORING, a
-    // qualifying/practice incident's penalty always applies to Race 1 (see
-    // scoringRaceNumber in src/lib/penalties.ts, which every recalculation
-    // pass reads instead of this raw field).
-    const [sessionTypeRaw, raceNumberRaw] = String(form.get('session') ?? '').split(':');
-    const sessionType: 'race' | 'qualifying' | 'practice' =
-      sessionTypeRaw === 'qualifying' || sessionTypeRaw === 'practice' ? sessionTypeRaw : 'race';
-    const raceNumber = sessionType === 'race' ? Number(raceNumberRaw) : 0;
-    const isRaceSession = sessionType === 'race';
-    // Cars at fault (fault_driver_ids — the incident dialog's checklist, see
-    // src/scripts/faultCards.ts): one penalty row per car, each with its own
-    // PP/Warning, time penalty, points penalty and offenses (the fields named
-    // "<field>:<driver id>"); session, #, lap, description and involved cars
-    // are shared. Nothing ticked is a Racing Incident: one row with no driver
-    // (0020_penalty_racing_incident.sql) and, server-side regardless of what
-    // was submitted, no penalty or offenses. An edit updates one existing row,
-    // so only the first car counts there (the dialog only allows one).
-    const faultDriverIds = [...new Set(form.getAll('fault_driver_ids').map(String).filter(Boolean))];
-    const penalizedDriverIds = intent === 'update-incident' ? faultDriverIds.slice(0, 1) : faultDriverIds;
-    const involvedDriverIds = form.getAll('involved_driver_ids').map(String);
-
-    const shared = {
-      subsession_id: subsessionId,
-      race_number: raceNumber,
-      session_type: sessionType,
-      incident_number: strOrNullField(form, 'incident_number'),
-      lap: numOrNullField(form, 'lap'),
-      description: strOrNullField(form, 'description'),
-      // Appeals are edit-only in the dialog (they're about one car's existing
-      // penalty), so these are blank on every Add.
-      is_appealed: form.get('is_appealed') === 'on',
-      appeal_result: strOrNullField(form, 'appeal_result'),
-      appeal_time_penalty_seconds: numOrNullField(form, 'appeal_time_penalty_seconds'),
-      appeal_points_penalty: numOrZeroField(form, 'appeal_points_penalty'),
-      appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
-    };
-
-    // PP and the warning flag come from one dropdown per car: "warning" is a
-    // Warning (rulebook: 2 warnings escalates to +1 PP, so it has no PP value
-    // of its own — stored as penalty_points 0, see
-    // 0059_penalty_points_warning_dropdown.sql), blank is "no PP/warning"
-    // (also 0), and 1-7 is a literal PP award. Qualifying/practice incidents
-    // can carry a real penalty too — per Logan, it always applies to Race 1
-    // (see scoringRaceNumber in src/lib/penalties.ts).
-    function penaltyFor(driverId: string | null): { data: PenaltyInput; offenseIds: string[] } {
-      if (!driverId) {
-        return {
-          data: { ...shared, driver_id: null, time_penalty_seconds: null, points_penalty: 0, penalty_points: 0, is_warning: false },
-          offenseIds: [],
-        };
-      }
-      const ppChoice = String(form.get(`penalty_points_choice:${driverId}`) ?? '');
-      return {
-        data: {
-          ...shared,
-          driver_id: driverId,
-          time_penalty_seconds: numOrNullField(form, `time_penalty_seconds:${driverId}`),
-          points_penalty: numOrZeroField(form, `points_penalty:${driverId}`),
-          penalty_points: ppChoice === 'warning' ? 0 : Number(ppChoice) || 0,
-          is_warning: ppChoice === 'warning',
-        },
-        offenseIds: form.getAll(`offense_ids:${driverId}`).map(String),
-      };
-    }
-
-    try {
-      const savedPenaltyIds: string[] = [];
-      if (intent === 'add-incident' && Number.isFinite(raceNumber)) {
-        for (const driverId of penalizedDriverIds.length > 0 ? penalizedDriverIds : [null]) {
-          const { data, offenseIds } = penaltyFor(driverId);
-          const created = await createPenalty(supabaseEnv, accessToken, data, offenseIds, involvedDriverIds);
-          if (created?.id) savedPenaltyIds.push(created.id);
-        }
-      } else if (intent === 'update-incident') {
-        const penaltyId = String(form.get('penalty_id') ?? '');
-        if (penaltyId) {
-          const { data, offenseIds } = penaltyFor(penalizedDriverIds[0] ?? null);
-          await updatePenalty(supabaseEnv, accessToken, penaltyId, data, offenseIds, involvedDriverIds);
-          savedPenaltyIds.push(penaltyId);
-        }
-      }
-      // Re-tally every car whose season PP may have changed — on an edit that
-      // moved the penalty to a different car, the car it was taken off too.
-      const originalDriverId = intent === 'update-incident' ? String(form.get('original_driver_id') ?? '') : '';
-      for (const driverId of new Set([...penalizedDriverIds, originalDriverId].filter(Boolean))) {
-        await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
-      }
-      // Logged from a driver's incident report ("Log incident" in the
-      // Reported Incidents panel) — mark that report as handled.
-      const fromReportId = String(form.get('from_report_id') ?? '');
-      if (intent === 'add-incident' && fromReportId) await setIncidentReportStatus(supabaseEnv, accessToken, fromReportId, 'logged');
-      const sessionLabel = isRaceSession ? `Race ${raceNumber}` : sessionType === 'qualifying' ? 'Qualifying' : 'Practice';
-      await logActivity(supabaseEnv, accessToken, actor, {
-        action: intent === 'add-incident' ? 'add' : 'edit',
-        entity_type: 'incident',
-        entity_label: `${roundLabel} — ${sessionLabel}${shared.incident_number ? ` #${shared.incident_number}` : ''}${savedPenaltyIds.length > 1 ? ` (${savedPenaltyIds.length} cars at fault)` : ''}`,
-        entity_id: savedPenaltyIds[0] ?? null,
-      });
-    } catch (err) {
-      console.error('Failed to save incident:', err);
-    }
-    // Logged from the Reported Incidents panel → back to it, like Dismiss/Reopen below.
-    const fromReport = intent === 'add-incident' && Boolean(form.get('from_report_id'));
-    return Astro.redirect(`${shellPath}${Astro.url.search}${fromReport ? `#${REPORTS_ANCHOR}` : ''}`, 302);
-  }
-
-  // Round penalties (0104_round_penalties.sql): log one against a driver for
-  // this round, remove one, or mark one (from this or an earlier round)
-  // served at this round / owed again.
-  // ?roundpenalty=failed drives the flash at the top of the page (roundPenaltyFlash
-  // below); a successful save clears one left over from an earlier failure.
-  const roundPenaltyBack = (anchor: string, failed: boolean) => {
-    const url = new URL(Astro.url);
-    if (failed) url.searchParams.set('roundpenalty', 'failed');
-    else url.searchParams.delete('roundpenalty');
-    return Astro.redirect(`${shellPath}${url.search}${failed ? '' : `#${anchor}`}`, 302);
-  };
-  if (intent === 'add-round-penalty' || intent === 'update-round-penalty') {
-    const driverId = String(form.get('driver_id') ?? '');
-    const kind = String(form.get('kind') ?? '');
-    const note = strOrNullField(form, 'note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
-    const id = String(form.get('round_penalty_id') ?? '');
-    let failed = false;
-    if (driverId && isRoundPenaltyKind(kind) && (kind !== 'other' || note) && (intent === 'add-round-penalty' || id)) {
-      try {
-        if (intent === 'add-round-penalty') {
-          await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note, created_by: actor.id });
-        } else {
-          await updateRoundPenalty(supabaseEnv, accessToken, id, { driver_id: driverId, kind, note, markOwed: form.get('status') === 'owed' });
-        }
-        await logActivity(supabaseEnv, accessToken, actor, {
-          action: intent === 'add-round-penalty' ? 'add' : 'edit',
-          entity_type: 'incident',
-          entity_label: `${roundLabel} — round penalty (${ROUND_PENALTY_LABELS[kind]})`,
-          entity_id: null,
-        });
-      } catch (err) {
-        console.error('Failed to save round penalty:', err);
-        failed = true;
-      }
-    }
-    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
-  }
-
-  // The Round Summary row's Edit: tick boxes for the fixed kinds plus one Other
-  // note. Ticked kinds with nothing logged are added, unticked logged ones are
-  // removed (served ones too — this popup is the one place a penalty is
-  // waived, and unticking it drops where it was served); ones left ticked keep
-  // their note and served status.
-  // These are separate writes, not one transaction: if one fails partway, the
-  // ones before it stay saved, get logged, and the flash says to check.
-  if (intent === 'save-driver-round-penalties') {
-    const driverId = String(form.get('driver_id') ?? '');
-    const wanted = new Set(form.getAll('kinds').map(String).filter(isRoundPenaltyKind));
-    const otherNote = strOrNullField(form, 'other_note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
-    let changes = 0;
-    let failed = false;
-    if (driverId) {
-      try {
-        const existing = await getRoundPenaltiesForDriver(supabaseEnv, subsessionId, driverId);
-        for (const kind of ROUND_PENALTY_KINDS) {
-          if (kind === 'other') continue;
-          const logged = existing.filter((rp) => rp.kind === kind);
-          if (wanted.has(kind) && logged.length === 0) {
-            await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note: null, created_by: actor.id });
-            changes++;
-          } else if (!wanted.has(kind)) {
-            for (const rp of logged) {
-              await deleteRoundPenalty(supabaseEnv, accessToken, rp.id);
-              changes++;
-            }
-          }
-        }
-        // Only the first Other is edited here; any more stay in the Round Penalties table.
-        const other = existing.find((rp) => rp.kind === 'other');
-        if (otherNote && !other) {
-          await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind: 'other', note: otherNote, created_by: actor.id });
-          changes++;
-        } else if (otherNote && other && other.note !== otherNote) {
-          await updateRoundPenalty(supabaseEnv, accessToken, other.id, { driver_id: driverId, kind: 'other', note: otherNote, markOwed: false });
-          changes++;
-        } else if (!otherNote && other) {
-          await deleteRoundPenalty(supabaseEnv, accessToken, other.id);
-          changes++;
-        }
-      } catch (err) {
-        console.error('Failed to save driver round penalties:', err);
-        failed = true;
-      }
-      if (changes > 0) {
-        try {
-          await logActivity(supabaseEnv, accessToken, actor, {
-            action: 'edit',
-            entity_type: 'incident',
-            entity_label: `${roundLabel} — round penalties${failed ? ' (partly saved)' : ''}`,
-            entity_id: null,
-          });
-        } catch (err) {
-          console.error('Failed to log driver round penalties:', err);
-        }
-      }
-    }
-    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
-  }
-
-  if (intent === 'delete-round-penalty') {
-    const id = String(form.get('round_penalty_id') ?? '');
-    let failed = false;
-    if (id) {
-      try {
-        await deleteRoundPenalty(supabaseEnv, accessToken, id);
-        await logActivity(supabaseEnv, accessToken, actor, {
-          action: 'delete',
-          entity_type: 'incident',
-          entity_label: `${roundLabel} — round penalty`,
-          entity_id: null,
-        });
-      } catch (err) {
-        console.error('Failed to delete round penalty:', err);
-        failed = true;
-      }
-    }
-    return roundPenaltyBack(ROUND_SUMMARY_ANCHOR, failed);
-  }
-
-  if (intent === 'set-round-penalty-served') {
-    const id = String(form.get('round_penalty_id') ?? '');
-    const served = form.get('served') === '1';
-    let failed = false;
-    if (id) {
-      try {
-        await setRoundPenaltyServed(supabaseEnv, accessToken, id, served ? subsessionId : null);
-        await logActivity(supabaseEnv, accessToken, actor, {
-          action: 'edit',
-          entity_type: 'incident',
-          entity_label: `${roundLabel} — round penalty ${served ? 'served' : 'marked owed'}`,
-          entity_id: null,
-        });
-      } catch (err) {
-        console.error('Failed to update round penalty:', err);
-        failed = true;
-      }
-    }
-    return roundPenaltyBack(OWED_PENALTIES_ANCHOR, failed);
-  }
-
-  if (intent === 'set-report-status') {
-    const reportId = String(form.get('report_id') ?? '');
-    const status = String(form.get('status') ?? '');
-    // Dismissing needs a reason (the dismiss popup's textarea; 0111).
-    const dismissalReason = String(form.get('reason') ?? '').trim().slice(0, 500);
-    let statusFlash: 'dismissreason' | 'dismissfailed' | 'reasonnotsaved' | null = null;
-    if (reportId && (status === 'open' || status === 'dismissed' || status === 'logged')) {
-      if (status === 'dismissed' && !dismissalReason) {
-        statusFlash = 'dismissreason';
-      } else {
-        try {
-          await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status, dismissalReason);
-        } catch (err) {
-          console.error('Failed to update incident report status:', err);
-          if (status === 'dismissed') {
-            statusFlash = 'dismissfailed';
-            // Migration 0111 (the dismissal_reason column) hasn't been run yet: still dismiss
-            // the report, and say plainly that the reason couldn't be saved.
-            if (err instanceof Error && err.message.includes('dismissal_reason')) {
-              try {
-                await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status);
-                statusFlash = 'reasonnotsaved';
-              } catch (retryErr) {
-                console.error('Failed to dismiss incident report (without a reason):', retryErr);
-              }
-            }
-          }
-        }
-      }
-    }
-    // Back to the top of the reports list (see REPORTS_ANCHOR), not the top of
-    // the page, without a ?review= failure left over from an earlier save
-    // (or with one for a dismissal that didn't go through).
-    const url = new URL(Astro.url);
-    url.searchParams.delete('review');
-    if (statusFlash) url.searchParams.set('review', statusFlash);
-    return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
-  }
-
-  // Steward review of a driver-submitted report (0096) — the database
-  // enforces admin-only, one review per admin, and the lock once logged.
-  if (intent === 'save-review') {
-    const reportId = String(form.get('report_id') ?? '');
-    const explanation = String(form.get('explanation') ?? '').trim();
-    // Every ticked car with its own suggested penalty ("penalty:<driver id>",
-    // src/scripts/faultCards.ts), or explicitly Racing Incident with none (0100).
-    const racingIncident = form.get('racing_incident') === 'on';
-    const faultDriverIds = [...new Set(form.getAll('fault_driver_ids').map(String).filter(Boolean))];
-    const faults = faultDriverIds.map((driver_id) => ({
-      driver_id,
-      penalty: REVIEW_PENALTIES.find((p) => p === String(form.get(`penalty:${driver_id}`) ?? '')),
-    }));
-    // ?review=<code> drives the message above the reports (reviewFlash below);
-    // a successful save clears any code left over from an earlier failure.
-    const back = (code: 'locked' | 'involved' | 'invalid' | 'failed' | null) => {
-      const url = new URL(Astro.url);
-      if (code) url.searchParams.set('review', code);
-      else url.searchParams.delete('review');
-      return Astro.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`, 302);
-    };
-    const validFaults = racingIncident ? faults.length === 0 : faults.length > 0 && faults.every((f) => f.penalty);
-    if (!reportId || !validFaults || !explanation) return back('invalid');
-    try {
-      await saveIncidentReportReview(supabaseEnv, accessToken, {
-        report_id: reportId,
-        faults: faults.map((f) => ({ driver_id: f.driver_id, penalty: f.penalty! })),
-        explanation,
-      });
-    } catch (err) {
-      console.error('Failed to save incident report review:', err);
-      // Expected when another admin logs the report mid-review — see 0096's save function —
-      // or when the steward was one of the report's drivers (0099).
-      const message = err instanceof Error ? err.message : '';
-      return back(message.includes('reviews are locked') ? 'locked' : message.includes('involved in this incident') ? 'involved' : 'failed');
-    }
-    // No verdict in the log entry — that would undo the blind voting.
-    await logActivity(supabaseEnv, accessToken, actor, {
-      action: 'edit',
-      entity_type: 'incident_report',
-      entity_label: `${roundLabel} — steward review`,
-      entity_id: reportId,
-    });
-    return back(null);
-  }
-
-  if (intent === 'set-appeal-status') {
-    const appealId = String(form.get('appeal_id') ?? '');
-    const status = String(form.get('status') ?? '');
-    if (appealId && (status === 'open' || status === 'reviewed' || status === 'dismissed')) {
-      try {
-        await setIncidentAppealStatus(supabaseEnv, accessToken, appealId, status);
-      } catch (err) {
-        console.error('Failed to update incident appeal status:', err);
-      }
-    }
-    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
-  }
-
-  if (intent === 'delete-incident') {
-    const penaltyId = String(form.get('penalty_id') ?? '');
-    const driverId = String(form.get('driver_id') ?? '');
-    try {
-      if (penaltyId) {
-        await deletePenalty(supabaseEnv, accessToken, penaltyId);
-        await logActivity(supabaseEnv, accessToken, actor, {
-          action: 'delete',
-          entity_type: 'incident',
-          entity_label: roundLabel,
-          entity_id: penaltyId,
-        });
-      }
-      if (driverId) await recomputeDriverSeasonPP(supabaseEnv, accessToken, driverId);
-    } catch (err) {
-      console.error('Failed to delete incident:', err);
-    }
-    return Astro.redirect(`${shellPath}${Astro.url.search}`, 302);
-  }
+  const handler = ADMIN_HANDLERS.get(intent);
+  if (handler) return toResponse(await handler({ ...ctx, accessToken, actor, roundLabel }, form, intent));
 }
 
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;

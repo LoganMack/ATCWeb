@@ -1,0 +1,82 @@
+{
+  "$comment": "The incidents fragment's 10 POST intents moved into src/lib/incidentActions/ (functional spec W1 'Incidents fragment', W4.4-W4.5). The page keeps its frontmatter, so each handler is a wrapper compared with its original if-body after the named rewrites, and the page-side dispatch is listed. Read by scripts/move-check.mjs; see its header for every field.",
+  "original": "src/pages/results/[subsessionId]/incidents/fragment.astro",
+  "originalDeleted": false,
+  "folders": ["src/lib/incidentActions"],
+  "modules": {
+    "REPORTS_ANCHOR": "src/lib/incidentActions/anchors.ts",
+    "ROUND_PENALTIES_ANCHOR": "src/lib/incidentActions/anchors.ts",
+    "ROUND_SUMMARY_ANCHOR": "src/lib/incidentActions/anchors.ts",
+    "OWED_PENALTIES_ANCHOR": "src/lib/incidentActions/anchors.ts"
+  },
+  "newDeclarations": ["IncidentActionContext", "IncidentActionRedirect", "ctx", "toResponse", "ADMIN_HANDLERS"],
+  "rewrites": [
+    { "name": "astro-redirect", "from": "Astro.redirect(X, 302)", "to": "ctx.redirect(X)" },
+    { "name": "astro-url", "from": "Astro.url", "to": "ctx.url" },
+    { "name": "astro-session", "from": "Astro.locals.session", "to": "ctx.session" },
+    { "name": "round-penalty-back", "from": "roundPenaltyBack(", "to": "roundPenaltyBack(ctx, " }
+  ],
+  "wrappers": [
+    {
+      "name": "handleSubmitAppeal",
+      "module": "src/lib/incidentActions/submitAppeal.ts",
+      "source": { "type": "if", "condition": "postForm && String(postForm.get('intent') ?? '') === 'submit-appeal'" }
+    },
+    {
+      "name": "handleSaveIncident",
+      "module": "src/lib/incidentActions/saveIncident.ts",
+      "source": { "type": "if", "condition": "intent === 'add-incident' || intent === 'update-incident'" }
+    },
+    {
+      "name": "roundPenaltyBack",
+      "module": "src/lib/incidentActions/shared.ts",
+      "source": { "type": "closure", "name": "roundPenaltyBack" }
+    },
+    {
+      "name": "handleSaveRoundPenalty",
+      "module": "src/lib/incidentActions/saveRoundPenalty.ts",
+      "source": { "type": "if", "condition": "intent === 'add-round-penalty' || intent === 'update-round-penalty'" }
+    },
+    {
+      "name": "handleSaveDriverRoundPenalties",
+      "module": "src/lib/incidentActions/saveDriverRoundPenalties.ts",
+      "source": { "type": "if", "condition": "intent === 'save-driver-round-penalties'" }
+    },
+    {
+      "name": "handleDeleteRoundPenalty",
+      "module": "src/lib/incidentActions/deleteRoundPenalty.ts",
+      "source": { "type": "if", "condition": "intent === 'delete-round-penalty'" }
+    },
+    {
+      "name": "handleSetRoundPenaltyServed",
+      "module": "src/lib/incidentActions/setRoundPenaltyServed.ts",
+      "source": { "type": "if", "condition": "intent === 'set-round-penalty-served'" }
+    },
+    {
+      "name": "handleSetReportStatus",
+      "module": "src/lib/incidentActions/setReportStatus.ts",
+      "source": { "type": "if", "condition": "intent === 'set-report-status'" }
+    },
+    {
+      "name": "handleSaveReview",
+      "module": "src/lib/incidentActions/saveReview.ts",
+      "source": { "type": "if", "condition": "intent === 'save-review'" }
+    },
+    {
+      "name": "handleSetAppealStatus",
+      "module": "src/lib/incidentActions/setAppealStatus.ts",
+      "source": { "type": "if", "condition": "intent === 'set-appeal-status'" }
+    },
+    {
+      "name": "handleDeleteIncident",
+      "module": "src/lib/incidentActions/deleteIncident.ts",
+      "source": { "type": "if", "condition": "intent === 'delete-incident'" }
+    }
+  ],
+  "listedRemovals": [],
+  "listedAdditions": [
+    "if (postForm && String(postForm.get('intent') ?? '') === 'submit-appeal') return toResponse(",
+    "const handler = ADMIN_HANDLERS.get(intent)",
+    "if (handler) return toResponse("
+  ]
+}

@@ -25,7 +25,9 @@
 // Map fields (scripts/module-maps/<name>.json; see scripts/module-map.mjs):
 //   original          the file being split, e.g. "src/lib/penalties.ts"
 //   originalDeleted   true for a library split (default); false for a page that keeps its frontmatter
-//   folders           folders that must hold only mapped modules (default: the modules' folders)
+//   folders           folders that must hold only mapped modules (default: the modules' folders);
+//                     for a page (originalDeleted false) every .ts file in them is compared, so a
+//                     support module's declarations must be mapped or on newDeclarations
 //   modules           { "<declaration>": "<module path>" }; a page keeps a declaration by mapping it
 //                     to its own path
 //   newDeclarations   names the modules may declare that the original did not
@@ -39,9 +41,13 @@
 //                         top-level statements from the first one starting with `from` through the
 //                         first one starting with `to` (declarations the map moves elsewhere excluded);
 //                       source { "type": "if", "condition": "<tokens>" } is the body of the one
-//                         `if (<condition>)` anywhere in the original.
+//                         `if (<condition>)` anywhere in the original;
+//                       source { "type": "closure", "name": "<name>" } is the body of the one
+//                         `const <name> = (…) => { … };` anywhere in the original.
 //                     The body is compared after the named rewrites (all of them when "rewrites" is
-//                     omitted). One leading `const { … } = <contextParam>;` (default ctx) is allowed.
+//                     omitted; a placeholder's tokens are rewritten too), and the rewrites applied
+//                     are listed per wrapper. One leading `const { … } = <contextParam>;` (default
+//                     ctx) is allowed.
 //                     "returns": true requires the body to end with `return { names }`, each a name
 //                     the run declares. "pageCall": true requires the page to replace the run with
 //                     `const|let { the same names } = [await] name(…);` in the same place.
@@ -206,8 +212,12 @@ export function applyRewrites(tokens, rules) {
       if (!m) continue;
       const at = tokens[i];
       for (const t of rule.to) {
-        if (isPlaceholder(t) && m.binds[t]) out.push(...m.binds[t]);
-        else out.push({ text: t, line: at.line, file: at.file });
+        if (isPlaceholder(t) && m.binds[t]) {
+          // A placeholder's tokens are rewritten too: `Astro.redirect(`…${Astro.url.search}`, 302)`.
+          const inner = applyRewrites(m.binds[t], rules);
+          out.push(...inner.tokens);
+          for (const [name, n] of inner.counts) counts.set(name, counts.get(name) + n);
+        } else out.push({ text: t, line: at.line, file: at.file });
       }
       counts.set(rule.name, counts.get(rule.name) + 1);
       i = m.end;
@@ -308,6 +318,15 @@ function wrapperFunction(file, name) {
   return null;
 }
 
+/** `const name = (…) => { … };` → the arrow function, or null. */
+function closureFunction(stmt, name) {
+  if (!ts.isVariableStatement(stmt) || stmt.declarationList.declarations.length !== 1) return null;
+  const d = stmt.declarationList.declarations[0];
+  const init = d.initializer;
+  if (!ts.isIdentifier(d.name) || d.name.text !== name || !init || !ts.isArrowFunction(init)) return null;
+  return ts.isBlock(init.body) ? init : null;
+}
+
 const sameSet = (a, b) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
 /**
@@ -390,8 +409,18 @@ export function compareMove({ original, after, modules, config }) {
       const then = found[0].thenStatement;
       body = ts.isBlock(then) ? [...then.statements] : [then];
       consume(origFile, found[0], consumedTop, consumedNested);
+    } else if (w.source?.type === 'closure') {
+      const found = findStatements(origFile, patternTokens(`const ${w.source.name} =`))
+        .map((s) => ({ s, fn: closureFunction(s, w.source.name) }))
+        .filter((c) => c.fn);
+      if (found.length !== 1) {
+        differences.push(`${label}: ${found.length} \`const ${w.source.name} = (…) => { … }\` in ${original.path}`);
+        continue;
+      }
+      body = [...found[0].fn.body.statements];
+      consume(origFile, found[0].s, consumedTop, consumedNested);
     } else {
-      differences.push(`${label}: source.type must be "run" or "if"`);
+      differences.push(`${label}: source.type must be "run", "if" or "closure"`);
       continue;
     }
 
@@ -403,6 +432,8 @@ export function compareMove({ original, after, modules, config }) {
       rules,
     );
     for (const [name, n] of rewritten.counts) rewriteTotals.set(name, (rewriteTotals.get(name) ?? 0) + n);
+    const applied = [...rewritten.counts].filter(([, n]) => n > 0).map(([name, n]) => `${name} x${n}`);
+    notes.push(`${label}: rewrites ${applied.length > 0 ? applied.join(', ') : 'none'}`);
 
     const modFile =
       modFiles.find((f) => f.fileName === w.module) ?? (afterFile?.fileName === w.module ? afterFile : null);
@@ -775,6 +806,86 @@ const PAGE_CONFIG = {
   listedAdditions: ['const ctx =', "if (intent === 'save')"],
 };
 
+// A page whose POST handlers and their shared closure move out, dispatched from a handler map.
+const HANDLERS_ORIGINAL = `---
+const form = await Astro.request.formData();
+const intent = String(form.get('intent') ?? '');
+if (form) {
+  const back = (anchor: string) => {
+    const url = new URL(Astro.url);
+    return Astro.redirect(\`/p\${url.search}#\${anchor}\`, 302);
+  };
+  if (intent === 'one') {
+    return back('a');
+  }
+  if (intent === 'two') {
+    return Astro.redirect(\`/p\${Astro.url.search}\`, 302);
+  }
+}
+const shown = intent.toUpperCase();
+---
+<p>{shown}</p>
+`;
+
+const HANDLERS_AFTER = `---
+import { HANDLERS } from '../lib/actions/map';
+const form = await Astro.request.formData();
+const intent = String(form.get('intent') ?? '');
+const ctx = { url: Astro.url, redirect: (location: string) => ({ location, status: 302 as const }) };
+const toResponse = (r: { location: string; status: 302 }) => Astro.redirect(r.location, r.status);
+if (form) {
+  const handler = HANDLERS.get(intent);
+  if (handler) return toResponse(await handler(ctx, form, intent));
+}
+const shown = intent.toUpperCase();
+---
+<p>{shown}</p>
+`;
+
+const HANDLERS_MODULES = {
+  'lib/actions/shared.ts': `export function back(ctx: Ctx, anchor: string) {
+  const url = new URL(ctx.url);
+  return ctx.redirect(\`/p\${url.search}#\${anchor}\`);
+}
+`,
+  'lib/actions/one.ts': `export async function handleOne(ctx: Ctx, form: FormData, intent: string) {
+  return back(ctx, 'a');
+}
+`,
+  'lib/actions/two.ts': `export async function handleTwo(ctx: Ctx, form: FormData, intent: string) {
+  return ctx.redirect(\`/p\${ctx.url.search}\`);
+}
+`,
+};
+
+const HANDLERS_CONFIG = {
+  original: 'pages/h.astro',
+  originalDeleted: false,
+  modules: {},
+  newDeclarations: ['ctx', 'toResponse'],
+  rewrites: [
+    { name: 'astro-redirect', from: 'Astro.redirect(X, 302)', to: 'ctx.redirect(X)' },
+    { name: 'astro-url', from: 'Astro.url', to: 'ctx.url' },
+    { name: 'back-ctx', from: 'back(', to: 'back(ctx, ' },
+  ],
+  wrappers: [
+    { name: 'back', module: 'lib/actions/shared.ts', source: { type: 'closure', name: 'back' } },
+    { name: 'handleOne', module: 'lib/actions/one.ts', source: { type: 'if', condition: "intent === 'one'" } },
+    { name: 'handleTwo', module: 'lib/actions/two.ts', source: { type: 'if', condition: "intent === 'two'" } },
+  ],
+  listedRemovals: [],
+  listedAdditions: ['const handler = HANDLERS.get(intent)', 'if (handler) return toResponse('],
+};
+
+function handlersCase(edit = (files) => files) {
+  return compareMove({
+    original: { path: 'pages/h.astro', text: HANDLERS_ORIGINAL },
+    after: { path: 'pages/h.astro', text: HANDLERS_AFTER },
+    modules: Object.entries(edit({ ...HANDLERS_MODULES })).map(([p, text]) => ({ path: p, text })),
+    config: HANDLERS_CONFIG,
+  });
+}
+
 function splitCase(edit = (files) => files) {
   const files = edit({ 'lib/thing/a.ts': SPLIT_A, 'lib/thing/b.ts': SPLIT_B });
   return compareMove({
@@ -802,7 +913,7 @@ function replaceOnce(text, from, to) {
   return text.replace(from, to);
 }
 
-/** The planted cases W4.7 requires. Each must produce at least one difference. */
+/** The planted cases W4.7 requires, plus one for page handler moves. Each must produce at least one difference. */
 export const SELF_TEST_CASES = [
   {
     name: 'a one-token change',
@@ -856,6 +967,15 @@ export const SELF_TEST_CASES = [
       pageCase({ ...PAGE_CONFIG, rewrites: PAGE_CONFIG.rewrites.filter((r) => r.name !== 'astro-url') }),
     expect: /^wrapper handleSave: .*ctx \. url/,
   },
+  {
+    name: 'a changed shared closure',
+    run: () =>
+      handlersCase((f) => ({
+        ...f,
+        'lib/actions/shared.ts': replaceOnce(f['lib/actions/shared.ts'], '#${anchor}', '#x${anchor}'),
+      })),
+    expect: /^wrapper back: /,
+  },
 ];
 
 /** Runs both clean fixtures (which must show no difference) and every planted case. */
@@ -863,6 +983,7 @@ export function runSelfTest() {
   const baselines = [
     { name: 'clean split', result: splitCase() },
     { name: 'clean page with wrappers and rewrites', result: pageCase() },
+    { name: 'clean page with a handler map and a shared closure', result: handlersCase() },
   ];
   const cases = SELF_TEST_CASES.map((c) => {
     const result = c.run();
@@ -922,6 +1043,11 @@ export function runCheck(root, originalArg, { mapFile, base } = {}) {
 
   const modulePaths = new Set(Object.values(config.modules));
   for (const w of config.wrappers) modulePaths.add(w.module);
+  if (!config.originalDeleted) {
+    for (const folder of config.folders) {
+      for (const abs of listTs(path.join(root, folder))) modulePaths.add(toPosix(path.relative(root, abs)));
+    }
+  }
   modulePaths.delete(config.original);
 
   const missingFiles = [];
