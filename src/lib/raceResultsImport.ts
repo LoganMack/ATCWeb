@@ -54,12 +54,12 @@ import {
   restPost,
   restPatch,
   restDelete,
-  getCircuits,
-  getSeasons,
-  getEvents,
-  getAllDriverSeasonCarNumbers,
   type SupabaseEnv,
-} from './supabase';
+} from './db/client';
+import { getCircuits } from './db/circuits';
+import { getSeasons } from './db/seasons';
+import { getEvents } from './db/events';
+import { getAllDriverSeasonCarNumbers } from './db/drivers';
 
 export interface ImportDriver {
   id: string;

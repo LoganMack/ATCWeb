@@ -8,7 +8,10 @@ import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import TrophyIcon from '../../components/TrophyIcon.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, displayDriverName } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getSeasons } from '../../lib/db/seasons';
+import { displayDriverName } from '../../lib/db/circuits';
 import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
 import { classTagFull } from '../../lib/classColors';
 

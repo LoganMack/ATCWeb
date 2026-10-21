@@ -4,23 +4,25 @@ export const prerender = false;
 import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import EventSessionFields from '../../../components/EventSessionFields.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getEventById,
   createEvent,
   updateEvent,
   deleteEvent,
-  getCircuits,
-  getCircuitById,
-  getAllCircuitLayouts,
-  displayLayoutName,
-  getSeasons,
-  formatDate,
   type EventRecord,
   type EventFormat,
   type EventCategory,
   type Weather,
-} from '../../../lib/supabase';
+} from '../../../lib/db/events';
+import {
+  getCircuits,
+  getCircuitById,
+  getAllCircuitLayouts,
+  displayLayoutName,
+  formatDate,
+} from '../../../lib/db/circuits';
+import { getSeasons } from '../../../lib/db/seasons';
 import { getEventRound } from '../../../lib/results';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';

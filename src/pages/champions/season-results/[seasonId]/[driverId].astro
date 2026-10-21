@@ -14,7 +14,8 @@ import { markUncacheable } from '../../../../lib/security';
 // one season, so the numbers here (class-relative finish, penalty-adjusted positions,
 // margin, incidents) always match the profile page.
 import TeamLogo from '../../../../components/TeamLogo.astro';
-import { resolveSupabaseEnv, formatDateShort } from '../../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../../lib/db/client';
+import { formatDateShort } from '../../../../lib/db/circuits';
 import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../../../../lib/results';
 
 const { seasonId = '', driverId = '' } = Astro.params;

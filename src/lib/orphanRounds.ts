@@ -15,16 +15,9 @@
  * Season + Event picker; associateRound() below applies the choice and then
  * re-scores the round so it shows up with points straight away.
  */
-import {
-  restGet,
-  restGetAll,
-  restPatch,
-  getEvents,
-  getSeasons,
-  type EventWithCircuit,
-  type Season,
-  type SupabaseEnv,
-} from './supabase';
+import { restGet, restGetAll, restPatch, type SupabaseEnv } from './db/client';
+import { getEvents, type EventWithCircuit } from './db/events';
+import { getSeasons, type Season } from './db/seasons';
 import { LEAGUE_TIME_ZONE } from './timezone';
 
 export interface OrphanRound {

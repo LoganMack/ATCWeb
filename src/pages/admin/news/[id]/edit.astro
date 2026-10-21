@@ -3,20 +3,20 @@ export const prerender = false;
 
 import { safeJson } from '../../../../lib/security';
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getNewsPostByIdAdmin,
   updateNewsPost,
   deleteNewsPost,
-  uploadToStorage,
-  displayDriverName,
   getAllNewsTags,
   getTagIdsForPost,
   setPostTags,
-  getDriversBasic,
   setPostDrivers,
   extractMentionedDriverIds,
-} from '../../../../lib/supabase';
+} from '../../../../lib/db/news';
+import { uploadToStorage } from '../../../../lib/db/assets';
+import { displayDriverName } from '../../../../lib/db/circuits';
+import { getDriversBasic } from '../../../../lib/db/drivers';
 import { getAllRounds } from '../../../../lib/results';
 import { groupRoundsBySeason, roundOptionLabel } from '../../../../lib/roundLabels';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';

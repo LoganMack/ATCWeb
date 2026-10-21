@@ -2,8 +2,9 @@
 import DriverLink from './DriverLink.astro';
 import type { ChampionEntry, DriverSeasonExtras } from '../lib/results';
 import { pctOf } from '../lib/results';
-import type { ChampionPhoto } from '../lib/supabase';
-import { displayDriverName, resizedImageUrl } from '../lib/supabase';
+import type { ChampionPhoto } from '../lib/db/photos';
+import { displayDriverName } from '../lib/db/circuits';
+import { resizedImageUrl } from '../lib/db/drivers';
 import StatBlock from './StatBlock.astro';
 import CarLogos from './CarLogos.astro';
 import TeamLogo from './TeamLogo.astro';

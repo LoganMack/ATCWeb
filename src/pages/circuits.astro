@@ -6,8 +6,8 @@ import { markUncacheable } from '../lib/security';
 import Layout from '../layouts/Layout.astro';
 import HistoryTabs from '../components/HistoryTabs.astro';
 import PageBanner from '../components/PageBanner.astro';
+import { resolveSupabaseEnv } from '../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getCircuits,
   getAllCircuitLayouts,
   getCircuitLogoBackgrounds,
@@ -17,10 +17,10 @@ import {
   formatDate,
   displayLayoutName,
   layoutImageUrl,
-  getPageBanners,
   type Circuit,
   type CircuitLayout,
-} from '../lib/supabase';
+} from '../lib/db/circuits';
+import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);

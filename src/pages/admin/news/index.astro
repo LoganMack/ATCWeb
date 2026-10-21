@@ -2,7 +2,9 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getAllNewsPosts, getNewsPostViewCounts } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getAllNewsPosts } from '../../../lib/db/news';
+import { getNewsPostViewCounts } from '../../../lib/db/analytics';
 import { formatMonthDayYear } from '../../../lib/roundLabels';
 import { requireAdmin } from '../../../lib/auth';
 

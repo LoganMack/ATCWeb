@@ -21,7 +21,8 @@ export const prerender = false;
 // see that file's own header comment for exactly what gets filled in and
 // why.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, formatDateShort } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { formatDateShort } from '../../../lib/db/circuits';
 import { parseCsv } from '../../../lib/csv';
 import { safeJson } from '../../../lib/security';
 import {

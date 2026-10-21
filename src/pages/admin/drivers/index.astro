@@ -11,7 +11,9 @@ export const prerender = false;
 // loading and table/settings-panel rendering moved to the fragment.
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, upsertSiteSetting, syncDriverStatuses, syncRookieStatus, syncResultsWithRoster } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { upsertSiteSetting } from '../../../lib/db/assets';
+import { syncDriverStatuses, syncRookieStatus, syncResultsWithRoster } from '../../../lib/db/drivers';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY } from '../../../lib/siteSettings';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';

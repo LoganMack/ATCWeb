@@ -20,22 +20,21 @@ import { markUncacheable } from '../../../lib/security';
 // need to repeat it here). Every query below is the exact "expensive
 // per-layout" version circuits.astro's own frontmatter comment explains
 // this page deliberately avoids running for every layout up front.
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getCircuitById,
   getCircuitLayoutById,
   getCircuits,
   getAllCircuitLayouts,
-  getDriverClasses,
-  getPenaltiesForSubsessions,
-  getCarLogos,
-  getRaceLinksForSubsessions,
   getAllTrackGuides,
   formatDate,
   formatLapTime,
   displayDriverName,
-  type RaceLinks,
-} from '../../../lib/supabase';
+} from '../../../lib/db/circuits';
+import { getDriverClasses } from '../../../lib/db/lookups';
+import { getPenaltiesForSubsessions } from '../../../lib/db/penalties';
+import { getCarLogos } from '../../../lib/db/assets';
+import { getRaceLinksForSubsessions, type RaceLinks } from '../../../lib/db/rounds';
 import {
   findRoundsForLayout,
   getAllRounds,

@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getImportTemplateCsv, type RoundColumnPrefill } from '../../../lib/importTemplates';
-import { resolveSupabaseEnv, getSeasons } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getSeasons } from '../../../lib/db/seasons';
 import { getEventsMissingResults, suggestImportKey } from '../../../lib/raceResultsImport';
 
 export const prerender = false;

@@ -8,7 +8,7 @@
  * list and play them under Admin > Interviews.
  */
 
-import { restGetAuthed, type SupabaseEnv } from './supabase';
+import { restGetAuthed, type SupabaseEnv } from './db/client';
 
 export const INTERVIEW_BUCKET = 'race-interviews';
 export const INTERVIEW_MAX_SECONDS = 60;

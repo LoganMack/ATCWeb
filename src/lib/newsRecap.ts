@@ -24,20 +24,17 @@
  * notice on the article (see news/[slug].astro) — never shown to visitors.
  */
 
+import { restGet, type SupabaseEnv } from './db/client';
+import { getPenaltiesForSubsession } from './db/penalties';
+import { getDriverClasses } from './db/lookups';
 import {
-  restGet,
-  getPenaltiesForSubsession,
-  getDriverClasses,
   getCircuits,
   getAllCircuitLayouts,
   formatLapTime,
-  getSeasonById,
-  getScoringRulesets,
-  resolveSeasonRuleset,
   type Circuit,
   type CircuitLayout,
-  type SupabaseEnv,
-} from './supabase';
+} from './db/circuits';
+import { getSeasonById, getScoringRulesets, resolveSeasonRuleset } from './db/seasons';
 import {
   getRoundBySubsessionId,
   getRoundResults,

@@ -6,7 +6,8 @@
 // for car logos (race results/standings rows) — both just need "a name, an
 // optional logo, show it small, and reveal the full name/label on hover."
 import { teamInitials } from '../lib/teamLogo';
-import { logoBgAttrs, resizedImageUrl, type LogoBackground } from '../lib/supabase';
+import { logoBgAttrs, type LogoBackground } from '../lib/db/circuits';
+import { resizedImageUrl } from '../lib/db/drivers';
 
 interface Props {
   name: string;

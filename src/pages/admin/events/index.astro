@@ -4,7 +4,14 @@ export const prerender = false;
 import { safeJson } from '../../../lib/security';
 import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
-import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl, getCircuitLogoBackgrounds, logoBgAttrs } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getEvents } from '../../../lib/db/events';
+import {
+  getAllCircuitLayouts,
+  eventImageUrl,
+  getCircuitLogoBackgrounds,
+  logoBgAttrs,
+} from '../../../lib/db/circuits';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
 import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';

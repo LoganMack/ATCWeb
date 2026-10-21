@@ -19,7 +19,9 @@ import {
   type RoundSummary,
   type StandingsAccum,
 } from '../../src/lib/results';
-import type { Lookup, Penalty, ScoringRuleset, Season } from '../../src/lib/supabase';
+import type { Lookup } from '../../src/lib/db/lookups';
+import type { Penalty } from '../../src/lib/db/penalties';
+import type { ScoringRuleset, Season } from '../../src/lib/db/seasons';
 
 const ALPHA = 1;
 const GAMMA = 2;

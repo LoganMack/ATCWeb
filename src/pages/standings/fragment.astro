@@ -8,21 +8,19 @@ import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getSeasons, getScoringRulesets, resolveSeasonRuleset } from '../../lib/db/seasons';
+import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
 import {
-  resolveSupabaseEnv,
-  getDriverClasses,
-  getSeasons,
-  getStandingsExcludedRoundIds,
   displayDriverName,
   shortDriverName,
   getCircuits,
   getCircuitLogoBackgrounds,
   type LogoBackground,
-  getScoringRulesets,
-  resolveSeasonRuleset,
   formatLapTime,
   type Circuit,
-} from '../../lib/supabase';
+} from '../../lib/db/circuits';
 import {
   computeSeasonStandings,
   computeTeamSeasonStandings,

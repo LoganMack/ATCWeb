@@ -9,16 +9,13 @@ import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import StatBlock from '../../components/StatBlock.astro';
 import PhotoGrid from '../../components/PhotoGrid.astro';
-import {
-  resolveSupabaseEnv,
-  getDriverClasses,
-  getSeasons,
-  getStandingsExcludedRoundIds,
-  getHallOfFameDrivers,
-  getAllHallOfFamePhotos,
-  displayDriverName,
-  type HallOfFamePhoto,
-} from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getSeasons } from '../../lib/db/seasons';
+import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
+import { getHallOfFameDrivers } from '../../lib/db/drivers';
+import { getAllHallOfFamePhotos, type HallOfFamePhoto } from '../../lib/db/photos';
+import { displayDriverName } from '../../lib/db/circuits';
 import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
 import { classTagFull } from '../../lib/classColors';
 

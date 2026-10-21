@@ -1,19 +1,13 @@
 ---
 export const prerender = false;
 
-import {
-  resolveSupabaseEnv,
-  getDrivers,
-  getTeams,
-  getAllNewsPosts,
-  getEvents,
-  getCircuits,
-  getSeasons,
-  getOrganizations,
-  getMissingRaceResultsCount,
-  getActivityLogCountSince,
-  restGetAuthed,
-} from '../../lib/supabase';
+import { resolveSupabaseEnv, getDrivers, restGetAuthed } from '../../lib/db/client';
+import { getTeams, getOrganizations } from '../../lib/db/teams';
+import { getAllNewsPosts } from '../../lib/db/news';
+import { getEvents } from '../../lib/db/events';
+import { getCircuits } from '../../lib/db/circuits';
+import { getSeasons } from '../../lib/db/seasons';
+import { getMissingRaceResultsCount, getActivityLogCountSince } from '../../lib/db/analytics';
 import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
 import { requireAdmin } from '../../lib/auth';
 

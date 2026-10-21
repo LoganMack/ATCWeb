@@ -7,7 +7,7 @@
  * applied to results, points or PP.
  */
 
-import { restGet, restPost, restPatch, restDelete, type SupabaseEnv } from './supabase';
+import { restGet, restPost, restPatch, restDelete, type SupabaseEnv } from './db/client';
 import { NEXT_ROUND_LABELS } from './ppPenaltyTable';
 
 export type RoundPenaltyKind = 'qualifying_ban' | 'pit_lane_start' | 'race_ban' | 'round_ban' | 'other';

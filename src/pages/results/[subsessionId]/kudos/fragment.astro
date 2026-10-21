@@ -5,7 +5,8 @@ import { markUncacheable } from '../../../../lib/security';
 
 import KudosDialog from '../../../../components/KudosDialog.astro';
 import DriverLink from '../../../../components/DriverLink.astro';
-import { resolveSupabaseEnv, formatDate } from '../../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../../lib/db/client';
+import { formatDate } from '../../../../lib/db/circuits';
 import { getRoundBySubsessionId, getRoundResults, type DriverBasic, type RoundSummary, type RoundResults } from '../../../../lib/results';
 import {
   getKudosForSubsession,

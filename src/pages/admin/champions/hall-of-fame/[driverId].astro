@@ -2,15 +2,11 @@
 export const prerender = false;
 
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
-import {
-  resolveSupabaseEnv,
-  getDriverById,
-  getHallOfFamePhotos,
-  upsertHallOfFamePhoto,
-  deleteHallOfFamePhoto,
-  uploadToStorage,
-  displayDriverName,
-} from '../../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../../lib/db/client';
+import { getDriverById } from '../../../../lib/db/drivers';
+import { getHallOfFamePhotos, upsertHallOfFamePhoto, deleteHallOfFamePhoto } from '../../../../lib/db/photos';
+import { uploadToStorage } from '../../../../lib/db/assets';
+import { displayDriverName } from '../../../../lib/db/circuits';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';
 import { requireAdmin } from '../../../../lib/auth';
 

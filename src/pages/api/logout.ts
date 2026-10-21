@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { resolveSupabaseEnv } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
 import { revokeSession, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, AUTH_COOKIE_PATH } from '../../lib/auth';
 
 export const prerender = false;

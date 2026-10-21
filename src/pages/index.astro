@@ -2,7 +2,8 @@
 export const prerender = false;
 
 import Layout from '../layouts/Layout.astro';
-import { resolveSupabaseEnv, getPageBanners } from '../lib/supabase';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
 // Shell-then-skeleton split (same pattern as results.astro / standings.astro):

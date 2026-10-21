@@ -11,32 +11,28 @@ import { markUncacheable } from '../../../../lib/security';
 // All penalty add/edit/remove lives here instead of on the results page
 // (src/pages/results/[subsessionId].astro), which is read-only for
 // penalties as of this version.
+import { resolveSupabaseEnv, withAccessToken, getDrivers, restGet } from '../../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
-  withAccessToken,
   getPenaltiesForSubsession,
   getPenaltiesForSubsessions,
-  getDrivers,
-  getEvents,
   getPenaltyOffenses,
   createPenalty,
   updatePenalty,
   deletePenalty,
-  formatDate,
-  getDriverClasses,
-  restGet,
-  getSeasonById,
-  getScoringRulesets,
-  resolveSeasonRuleset,
-  shortDriverName,
-  getCircuits,
-  getAllCircuitLayouts,
-  getLayoutMapDetails,
   type Penalty,
   type PenaltyOffense,
   type PenaltyInput,
+} from '../../../../lib/db/penalties';
+import { getEvents } from '../../../../lib/db/events';
+import { formatDate, shortDriverName, getCircuits, getAllCircuitLayouts } from '../../../../lib/db/circuits';
+import { getDriverClasses } from '../../../../lib/db/lookups';
+import {
+  getSeasonById,
+  getScoringRulesets,
+  resolveSeasonRuleset,
   type ScoringRuleset,
-} from '../../../../lib/supabase';
+} from '../../../../lib/db/seasons';
+import { getLayoutMapDetails } from '../../../../lib/db/layoutMaps';
 import SectionIcon from '../../../../components/SectionIcon.astro';
 import { getRoundBySubsessionId, getRoundResults, getRoundsForSeason, getRoundLayoutsForSubsessions, resolveLayout, type RoundResults, type DriverBasic } from '../../../../lib/results';
 import { matchCorners, turnLabelsFrom, type MapCorner } from '../../../../lib/turnMatch';

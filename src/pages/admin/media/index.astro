@@ -2,9 +2,9 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { uploadToStorage } from '../../../lib/db/assets';
 import {
-  resolveSupabaseEnv,
-  uploadToStorage,
   getAllMediaVideos,
   createMediaVideo,
   deleteMediaVideo,
@@ -17,16 +17,16 @@ import {
   getAllMeetupDriverLinks,
   addMeetupDriver,
   removeMeetupDriver,
-  displayDriverName,
+  type MediaVideo,
+  type MediaVideoCategory,
+} from '../../../lib/db/media';
+import { displayDriverName, formatDate, youtubeThumbnailUrl } from '../../../lib/db/circuits';
+import {
   getAllPhotoAlbumRaceLinks,
   upsertRaceLinks,
   getTestRoundIds,
-  formatDate,
-  youtubeThumbnailUrl,
-  type MediaVideo,
-  type MediaVideoCategory,
   type RaceLinks,
-} from '../../../lib/supabase';
+} from '../../../lib/db/rounds';
 import { getAllRounds, driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results';
 import { isHttpUrl } from '../../../lib/security';
 import { requireAdmin } from '../../../lib/auth';

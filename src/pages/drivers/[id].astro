@@ -22,24 +22,23 @@ import { markUncacheable } from '../../lib/security';
 import Layout from '../../layouts/Layout.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
+import { resolveSupabaseEnv, getDriverProfileById } from '../../lib/db/client';
+import { getSiteSettings } from '../../lib/db/assets';
+import { getEvents } from '../../lib/db/events';
 import {
-  resolveSupabaseEnv,
-  getDriverProfileById,
-  getSiteSettings,
-  getEvents,
   getDriverLastRace,
-  displayDriverName,
   resizedImageUrl,
   buildInactivityNote,
   roundsSinceDate,
-  getSeasons,
-  getTeamRosterWithTeamsForSeason,
   uploadDriverAvatar,
   updateMyDriverProfile,
   DRIVER_BIO_MAX,
   DRIVER_AVATAR_MAX_BYTES,
   DRIVER_AVATAR_TYPES,
-} from '../../lib/supabase';
+} from '../../lib/db/drivers';
+import { displayDriverName } from '../../lib/db/circuits';
+import { getSeasons } from '../../lib/db/seasons';
+import { getTeamRosterWithTeamsForSeason } from '../../lib/db/teams';
 import { getOfficialRoundStartTimes } from '../../lib/results';
 import { isOnProbationNow } from '../../lib/penalties/penaltyPoints';
 import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';

@@ -2,7 +2,7 @@
 export const prerender = false;
 
 import Layout from '../../../layouts/Layout.astro';
-import { resolveSupabaseEnv } from '../../../lib/supabase';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getRoundBySubsessionId } from '../../../lib/results';
 
 // Shell-then-skeleton split (same pattern as the results and Incident Report

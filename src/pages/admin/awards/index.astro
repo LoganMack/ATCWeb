@@ -9,18 +9,16 @@ export const prerender = false;
 // one is ever set — there's no "recalculate" for a manual pick.
 import { seasonOptionAttrs } from '../../../lib/seasonSelect';
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { getSeasons, type Season } from '../../../lib/db/seasons';
+import { getDriversBasic, type DriverOption } from '../../../lib/db/drivers';
 import {
-  resolveSupabaseEnv,
-  getSeasons,
-  getDriversBasic,
   getManualAwardsForSeason,
   addManualAward,
   removeManualAward,
-  type Season,
-  type DriverOption,
   type ManualAward,
   type ManualAwardKey,
-} from '../../../lib/supabase';
+} from '../../../lib/db/awards';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

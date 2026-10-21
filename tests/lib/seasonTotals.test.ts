@@ -8,7 +8,7 @@ import {
   type DriverBasic,
   type StandingsAccum,
 } from '../../src/lib/results';
-import { resolveSeasonRuleset, type Season } from '../../src/lib/supabase';
+import { resolveSeasonRuleset, type Season } from '../../src/lib/db/seasons';
 import { totalAsOf } from '../../src/lib/seasonTotals';
 import {
   buildContext,

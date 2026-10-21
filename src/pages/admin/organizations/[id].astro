@@ -2,8 +2,8 @@
 export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
-  resolveSupabaseEnv,
   getOrganizations,
   getOrganizationById,
   createOrganization,
@@ -11,10 +11,10 @@ import {
   deleteOrganization,
   getOrganizationTeamSeasons,
   setOrganizationTeamForSeason,
-  getSeasons,
   getTeams,
   type Organization,
-} from '../../../lib/supabase';
+} from '../../../lib/db/teams';
+import { getSeasons } from '../../../lib/db/seasons';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 

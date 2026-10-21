@@ -5,7 +5,9 @@ import { markUncacheable } from '../../lib/security';
 
 import { logoPairOptionAttrs } from '../../lib/seasonSelect';
 import NewsCard from '../../components/NewsCard.astro';
-import { getNewsPosts, getSeasons, resolveSupabaseEnv, getAllNewsPostTags, type NewsTag, type SeasonLogoPair } from '../../lib/supabase';
+import { getNewsPosts, resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
+import { getAllNewsPostTags, type NewsTag } from '../../lib/db/news';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 

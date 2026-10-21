@@ -5,7 +5,11 @@ import { markUncacheable } from '../../lib/security';
 
 import ChampionCard from '../../components/ChampionCard.astro';
 import TeamChampionCard from '../../components/TeamChampionCard.astro';
-import { resolveSupabaseEnv, getDriverClasses, getSeasons, getChampionPhotosForClass, displayDriverName } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getSeasons } from '../../lib/db/seasons';
+import { getChampionPhotosForClass } from '../../lib/db/photos';
+import { displayDriverName } from '../../lib/db/circuits';
 import {
   getChampionsWithExtras,
   getTeamChampions,

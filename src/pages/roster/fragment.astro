@@ -4,17 +4,12 @@ import LoadError from '../../components/LoadError.astro';
 import { markUncacheable } from '../../lib/security';
 
 import DriverRow from '../../components/DriverRow.astro';
-import {
-  getDrivers,
-  getEvents,
-  getSiteSettings,
-  resolveSupabaseEnv,
-  getAllDriverLastRaces,
-  buildInactivityNote,
-  roundsSinceDate,
-  getSeasons,
-  getTeamRosterWithTeamsForSeason,
-} from '../../lib/supabase';
+import { getDrivers, resolveSupabaseEnv } from '../../lib/db/client';
+import { getEvents } from '../../lib/db/events';
+import { getSiteSettings } from '../../lib/db/assets';
+import { getAllDriverLastRaces, buildInactivityNote, roundsSinceDate } from '../../lib/db/drivers';
+import { getSeasons } from '../../lib/db/seasons';
+import { getTeamRosterWithTeamsForSeason } from '../../lib/db/teams';
 import { getOfficialRoundStartTimes } from '../../lib/results';
 import { isOnProbationNow } from '../../lib/penalties/penaltyPoints';
 import { PROBATION_DAYS_KEY, PROBATION_ROUNDS_KEY, INACTIVITY_DAYS_KEY, INACTIVITY_ROUNDS_KEY, siteSettingInt } from '../../lib/siteSettings';

@@ -3,7 +3,8 @@ export const prerender = false;
 import LoadError from '../../components/LoadError.astro';
 import { markUncacheable } from '../../lib/security';
 
-import { resolveSupabaseEnv, displayDriverName, formatDateShort } from '../../lib/supabase';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { displayDriverName, formatDateShort } from '../../lib/db/circuits';
 import HistoryTabs from '../../components/HistoryTabs.astro';
 import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
 import IncidentDetailsDialog from '../../components/IncidentDetailsDialog.astro';

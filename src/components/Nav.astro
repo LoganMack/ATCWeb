@@ -1,7 +1,8 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
 import { isAdminView } from '../lib/auth';
-import { resolveSupabaseEnv, getSeasons } from '../lib/supabase';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getSeasons } from '../lib/db/seasons';
 import { getLiveBannerInfo } from '../lib/liveEvent';
 import SeasonLogo from './SeasonLogo.astro';
 
