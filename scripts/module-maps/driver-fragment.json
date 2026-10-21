@@ -1,0 +1,47 @@
+{
+  "$comment": "The driver profile fragment's data loading moved into src/lib/driverPage/ (functional spec W1 'Driver fragment', W4.5). The page keeps its frontmatter, so each loader is a wrapper compared with its original run of top-level statements, and the page must call it in the run's place. buildCarRows stays inside buildDriverPageGroups because it reads carGroups, which that run declares. Read by scripts/move-check.mjs; see its header for every field.",
+  "original": "src/pages/drivers/[id]/fragment.astro",
+  "originalDeleted": false,
+  "folders": ["src/lib/driverPage"],
+  "modules": {
+    "CareerMove": "src/lib/driverPage/helpers.ts",
+    "ClassMove": "src/lib/driverPage/helpers.ts",
+    "AwardEntry": "src/lib/driverPage/helpers.ts",
+    "AwardGroup": "src/lib/driverPage/helpers.ts",
+    "trimNum": "src/lib/driverPage/helpers.ts",
+    "signedNum": "src/lib/driverPage/helpers.ts",
+    "incidentDriverLabel": "src/lib/driverPage/helpers.ts",
+    "SplitRow": "src/lib/driverPage/helpers.ts",
+    "SplitGroup": "src/lib/driverPage/helpers.ts",
+    "overallPos": "src/lib/driverPage/helpers.ts",
+    "classPos": "src/lib/driverPage/helpers.ts",
+    "overallQualPos": "src/lib/driverPage/helpers.ts",
+    "classQualPos": "src/lib/driverPage/helpers.ts",
+    "buildSplitRows": "src/lib/driverPage/helpers.ts",
+    "MONTH_NAMES": "src/lib/driverPage/helpers.ts",
+    "ROUND_BUCKETS": "src/lib/driverPage/helpers.ts",
+    "roundBucketLabel": "src/lib/driverPage/helpers.ts",
+    "buildUnorderedRows": "src/lib/driverPage/helpers.ts",
+    "LayoutBestRow": "src/lib/driverPage/helpers.ts"
+  },
+  "newDeclarations": [],
+  "rewrites": [],
+  "wrappers": [
+    {
+      "name": "loadDriverPage",
+      "module": "src/lib/driverPage/load.ts",
+      "source": { "type": "run", "from": "let loadError", "to": "try { const incidentsData" },
+      "returns": true,
+      "pageCall": true
+    },
+    {
+      "name": "buildDriverPageGroups",
+      "module": "src/lib/driverPage/groups.ts",
+      "source": { "type": "run", "from": "const awardGroups", "to": "const layoutBests" },
+      "returns": true,
+      "pageCall": true
+    }
+  ],
+  "listedRemovals": [],
+  "listedAdditions": []
+}
