@@ -14,7 +14,7 @@ describe('move check self-test (W4.7)', () => {
     expect(b.result.differences).toEqual([]);
   });
 
-  it('plants all six required cases', () => {
+  it('plants all six required cases, plus a page handler-move case', () => {
     expect(selfTest.cases.map((c) => c.name)).toEqual([
       'a one-token change',
       'an inserted statement',
@@ -22,6 +22,7 @@ describe('move check self-test (W4.7)', () => {
       'a duplicated declaration',
       'a missing declaration',
       'an unlisted rewrite',
+      'a changed shared closure',
     ]);
   });
 
@@ -43,6 +44,18 @@ describe('named token rewrites', () => {
       'return ctx . redirect ( `${ a }#b` ) ; ctx . redirect ( f ( 1 , 2 ) ) ;',
     );
     expect(out.counts.get('astro-redirect')).toBe(2);
+  });
+
+  it('rewrites inside a placeholder as well', () => {
+    const rules = [
+      { name: 'astro-redirect', from: 'Astro.redirect(X, 302)', to: 'ctx.redirect(X)' },
+      { name: 'astro-url', from: 'Astro.url', to: 'ctx.url' },
+    ];
+    const out = applyRewrites(tokens('Astro.redirect(`${p}${Astro.url.search}`, 302);'), rules);
+    expect(out.tokens.map((t: { text: string }) => t.text).join(' ')).toBe(
+      'ctx . redirect ( `${ p }${ ctx . url . search }` ) ;',
+    );
+    expect(out.counts.get('astro-url')).toBe(1);
   });
 
   it('leaves a redirect with another status alone', () => {
