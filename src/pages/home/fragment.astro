@@ -274,33 +274,13 @@ try {
     ]);
     carTeamExtrasByDriverId = carTeamExtras;
 
-    // Per-class driver standings and per-class team standings deliberately
-    // do NOT reuse the Overall tab's own `overallContext` object above (see
-    // README v0.39 — sharing it there was the suspected cause of Alpha's
-    // driver/team tabs once showing wrong numbers). But building a whole
-    // separate ~5-query context PER TAB (3 classes + 2 team tabs = 5 more
-    // full rebuilds) turned out to have its own real cost: stacked on top
-    // of everything else this page already fetches, it pushed a single
-    // homepage load over Cloudflare Workers' per-request subrequest limit —
-    // which doesn't fail loudly, it just makes every fetch downstream of
-    // the limit (this widget, then the Previous Broadcast section right
-    // after it) silently return nothing, exactly what "No standings yet."
-    // plus a vanished YouTube embed looked like. The fix keeping both
-    // things true at once: build ONE second context here (still never
-    // shared with the Overall tab above) and share THAT one across all 5
-    // of these secondary tabs — same "isolated from Overall, shared among
-    // themselves" shape as before, at 1/5th the query cost. Everything
-    // else cheap and non-adjustment-related (driversBasic, classes,
-    // teamsBasic, seasonLogoRows) is shared with every tab, Overall
-    // included, same as it already safely was.
-    const perClassContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
-
+    // Every tab shares the one context: compute functions never write to it (tests/lib/contextReadOnly.test.ts).
     const perClassDriver = await Promise.all(
       classes.map(async (c) => ({
         key: c.name,
         label: c.name,
         type: 'driver' as const,
-        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, perClassContext),
+        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, overallContext),
       }))
     );
 
@@ -327,7 +307,7 @@ try {
           teamsBasic,
           seasonLogoRows,
           classes,
-          perClassContext
+          overallContext
         ),
       }))
     );
