@@ -23,13 +23,44 @@ const brand = {
   ink: '#0B0B0E', // near-black background — not an official brand color, just this site's dark canvas
 };
 
+// Theme colours. `white` (the foreground) and `brand.ink` (the canvas) read CSS variables
+// that global.css sets on :root (dark) and redefines under .light, so every utility built from
+// them follows the theme. Text colours that light mode darkens read their own variables.
+// The fixed family never changes with the theme: use it where a colour must stay the same in
+// both themes (the Nav marquee strip, white text on a solid blue badge, hover states that stay
+// white).
+const themed = (variable) => `rgb(var(${variable}) / <alpha-value>)`;
+const fixedBrand = {
+  primary: brand.primary,
+  secondary: brand.secondary,
+  tertiary: brand.tertiary,
+  blue: brand.blue,
+  pink: brand.pink,
+  gold: brand.gold,
+};
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./src/**/*.{astro,html,js,jsx,md,mdx,svelte,ts,tsx,vue}'],
   theme: {
     extend: {
       colors: {
-        brand,
+        brand: { ...brand, ink: themed('--canvas'), fixed: fixedBrand },
+        white: themed('--fg'),
+        'fixed-white': '#fff',
+        'fixed-ink': brand.ink,
+      },
+      // Light mode lifts grey text by --fg-text-boost (0.08) so it stays readable on paper.
+      textColor: {
+        white: 'rgb(var(--fg) / min(1, calc(<alpha-value> + var(--fg-text-boost))))',
+        brand: {
+          blue: themed('--text-blue'),
+          primary: themed('--text-blue'),
+          pink: themed('--text-pink'),
+          gold: themed('--text-gold'),
+        },
+        emerald: { 400: themed('--text-emerald-400') },
+        red: { 300: themed('--text-red-300') },
       },
       // Site-wide corner style: "slightly rounded". Every rounded-* utility in
       // the markup resolves through this scale, so changing the whole site's

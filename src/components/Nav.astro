@@ -115,7 +115,7 @@ const links: NavLink[] = [
         alt="Alpha Touring Challenge"
         class="h-9 w-auto object-contain"
       />
-      <span class="absolute -bottom-1 -right-2 rounded bg-brand-primary px-1 py-px text-[8px] font-display font-semibold uppercase leading-none tracking-wide text-white sm:-right-2.5 sm:text-[9px]">
+      <span class="absolute -bottom-1 -right-2 rounded bg-brand-primary px-1 py-px text-[8px] font-display font-semibold uppercase leading-none tracking-wide text-fixed-white sm:-right-2.5 sm:text-[9px]">
         Beta
       </span>
     </a>
@@ -128,7 +128,7 @@ const links: NavLink[] = [
           // the pointer can travel from the link to the panel without leaving the
           // group, and there's deliberately no arrow next to the label.
           <div class="group relative" data-nav-menu data-nav-rounds-menu={link.rounds ? '' : undefined}>
-            <a href={link.href} class="text-white/80 transition hover:text-white group-hover:text-white group-focus-within:text-white">
+            <a href={link.href} class="text-white/80 transition hover:text-white group-hover:text-fixed-white group-focus-within:text-fixed-white">
               {link.label}
             </a>
             <div class="invisible absolute left-0 top-full z-50 -ml-3 pt-3 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
@@ -234,7 +234,7 @@ const links: NavLink[] = [
     // vertically outright on any sub-pixel line-height/font-metric mismatch
     // (e.g. before the Teko webfont swaps in), which is exactly the "text
     // doesn't show up" symptom Logan reported.
-    <div class="overflow-x-hidden bg-white" data-marquee-viewport>
+    <div class="overflow-x-hidden bg-fixed-white" data-marquee-viewport>
       <a href="/calendar" class="group block py-2 transition hover:bg-black/5">
         <div
           class="flex w-max shrink-0 animate-marquee items-center whitespace-nowrap font-display text-base uppercase tracking-widest text-black group-hover:[animation-play-state:paused]"

@@ -1626,7 +1626,7 @@ if (loadError) markUncacheable(Astro);
         {!viewReports && isAdmin && roundPenaltyData.carriedIn.length > 0 && (
           <details id={OWED_PENALTIES_ANCHOR} open class="group mt-6 scroll-mt-24 rounded-xl border border-brand-gold/30 bg-brand-gold/5 p-4">
             <summary class="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-              <span class="inline-block text-[10px] text-brand-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
+              <span class="inline-block text-[10px] text-brand-fixed-gold/70 transition-transform duration-150 group-open:rotate-90" aria-hidden="true">&#9654;</span>
               <SectionIcon name="pending" class="h-5 w-5 flex-none text-brand-gold" />
               <h2 class="font-display text-xl text-brand-gold">
                 Pending Penalties
@@ -1714,7 +1714,7 @@ if (loadError) markUncacheable(Astro);
                         >
                           <td class="py-2.5 pl-4 pr-3 text-white/60">
                             {p.is_appealed ? (
-                              <span class="-ml-1.5 rounded bg-brand-tertiary/20 px-1.5 py-0.5 font-bold text-brand-tertiary" title="Appealed">{formatIncidentNumber(p.incident_number)}</span>
+                              <span class="-ml-1.5 rounded bg-brand-tertiary/20 px-1.5 py-0.5 font-bold text-brand-fixed-tertiary" title="Appealed">{formatIncidentNumber(p.incident_number)}</span>
                             ) : (
                               formatIncidentNumber(p.incident_number)
                             )}
@@ -2354,7 +2354,7 @@ if (loadError) markUncacheable(Astro);
                 multiple
                 accept={APPEAL_ALLOWED_MIME_TYPES.join(',')}
                 data-appeal-files
-                class="mt-1 block w-full text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:bg-white/20"
+                class="mt-1 block w-full text-xs text-white/60 file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white file:transition hover:file:bg-fixed-white/20"
               />
               <span class="mt-1 block text-[11px] text-white/30">Images, PDFs, videos (MP4/WebM/MOV) or text files.</span>
             </label>

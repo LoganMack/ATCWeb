@@ -179,7 +179,7 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
                   role="switch"
                   aria-checked={r.posted ? 'true' : 'false'}
                   aria-label={`${r.posted ? 'Unpost' : 'Post'} ${r.trackName} incident report`}
-                  class={`relative h-6 w-11 rounded-full transition ${r.posted ? 'bg-brand-primary' : 'bg-white/15'}`}
+                  class={`relative h-6 w-11 rounded-full transition ${r.posted ? 'bg-brand-primary text-fixed-white' : 'bg-fixed-white/15'}`}
                 >
                   <span class={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${r.posted ? 'left-[22px]' : 'left-0.5'}`}></span>
                 </button>

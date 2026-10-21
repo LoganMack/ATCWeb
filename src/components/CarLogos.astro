@@ -25,7 +25,7 @@ const hoverText = cars.map((c) => `${c.carName}: ${c.races} race${c.races === 1 
     <TeamLogo name={primary.carName} logoUrl={primary.logoUrl} size={size} title={hoverText} tint />
     {cars.length > 1 && (
       <span
-        class="absolute -right-1.5 -top-1.5 flex h-3 w-3 cursor-help items-center justify-center rounded-full bg-brand-primary text-[10px] font-bold leading-none text-white"
+        class="absolute -right-1.5 -top-1.5 flex h-3 w-3 cursor-help items-center justify-center rounded-full bg-brand-primary text-[10px] font-bold leading-none text-fixed-white"
         aria-label={hoverText.replace(/\n/g, ', ')}
       >
         +
