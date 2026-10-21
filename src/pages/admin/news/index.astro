@@ -4,9 +4,13 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getAllNewsPosts, getNewsPostViewCounts } from '../../../lib/supabase';
 import { formatMonthDayYear } from '../../../lib/roundLabels';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 // Independent fetches — the post list and the (separate, page_views-backed)
 // view counts don't depend on each other, so they run concurrently rather

@@ -285,7 +285,7 @@ export function getNewsPosts(env: SupabaseEnv, limit?: number) {
 }
 
 /** A single published news post by slug. */
-export async function getNewsPostBySlug(env: SupabaseEnv, slug: string) {
+export async function getNewsPostBySlug(env: SupabaseEnv, slug: string): Promise<NewsPost | null> {
   const posts = await restGet<NewsPost[]>(
     env,
     `news_posts?select=${NEWS_PUBLIC_SELECT}&slug=eq.${encodeURIComponent(slug)}&limit=1`,

@@ -455,6 +455,35 @@ export function isAdminView(locals: App.Locals): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Typed admin session (replaces `Astro.locals.session!` in pages)
+// ---------------------------------------------------------------------------
+
+/** A signed-in session whose profile has the real `admin` role. */
+export type AdminSession = NonNullable<App.Locals['session']> & { profile: Profile & { role: 'admin' } };
+
+/** The session when it belongs to an admin (real role, as in the middleware), otherwise null. Never redirects. */
+export function requireAdminSession(locals: App.Locals): AdminSession | null {
+  const session = locals.session;
+  return session?.profile?.role === 'admin' ? (session as AdminSession) : null;
+}
+
+/**
+ * The signed-in admin's session, or a redirect to the login page when there
+ * isn't one. Same role test, target and status as the middleware's /admin
+ * gate, so on /admin pages this is a second line of defence.
+ */
+export function requireAdmin(ctx: {
+  locals: App.Locals;
+  url: URL;
+  redirect: (path: string, status?: 301 | 302 | 303 | 307 | 308) => Response;
+}): AdminSession | Response {
+  return (
+    requireAdminSession(ctx.locals) ??
+    ctx.redirect('/login?next=' + encodeURIComponent(ctx.url.pathname), 302)
+  );
+}
+
+// ---------------------------------------------------------------------------
 // "View as Broadcaster" (spoiler-free viewing for delayed broadcasts)
 // ---------------------------------------------------------------------------
 

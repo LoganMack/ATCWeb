@@ -8,6 +8,10 @@ import { resolveSupabaseEnv, getEvents, getAllCircuitLayouts, eventImageUrl, get
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
 import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -15,8 +19,8 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   if (String(form.get('intent') ?? '') === 'associate-round') {
-    const accessToken = Astro.locals.session!.accessToken;
-    const actor = { id: Astro.locals.session!.user.id, name: actorNameFor(Astro.locals.session!) };
+    const accessToken = admin.accessToken;
+    const actor = { id: admin.user.id, name: actorNameFor(admin) };
     const back = (params: Record<string, string>) => {
       const url = new URL(Astro.url);
       url.search = '';

@@ -4,6 +4,10 @@ export const prerender = false;
 import StatBlock from '../../../components/StatBlock.astro';
 import { resolveSupabaseEnv, getPageViewStats } from '../../../lib/supabase';
 import { resolveAnalyticsRange } from '../../../lib/analyticsRanges';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 /**
  * The dashboard's "Site Analytics" block, split out of admin/fragment.astro
@@ -20,7 +24,7 @@ import { resolveAnalyticsRange } from '../../../lib/analyticsRanges';
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 const range = resolveAnalyticsRange(Astro.url.searchParams.get('range'));
 const pageViewStats = await getPageViewStats(supabaseEnv, accessToken, range.days);

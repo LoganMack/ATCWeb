@@ -72,7 +72,8 @@ let categoryVideos: Awaited<ReturnType<typeof getMediaVideosByCategory>> = [];
 // are populated instead, from the same query results, once `?layout=` names
 // one of them.
 let trackGuideLayouts: { layoutId: string; circuitName: string; layoutName: string; guideCount: number; firstUrl: string }[] = [];
-let selectedLayout: { circuitName: string; layoutName: string } | null = null;
+// Cast so TypeScript keeps the full type: it's assigned inside the async loader below, which control-flow narrowing can't see.
+let selectedLayout = null as { circuitName: string; layoutName: string } | null;
 let trackGuidesForLayout: { title: string | null; url: string }[] = [];
 let graphics: Awaited<ReturnType<typeof getAllMediaGraphics>> = [];
 let photoAlbums: PhotoAlbumLink[] = [];

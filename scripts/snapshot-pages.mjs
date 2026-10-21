@@ -3,11 +3,13 @@
 // such as the one-time Prettier pass or a refactor.
 //
 // Usage:
-//   node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>]
+//   node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>] [--extra <path>]...
 //       Fetches the public pages below, plus every fragment they load
 //       (data-fragment-url), from a running Worker and saves normalised HTML,
 //       one file per page. Needs: npm run build && npx wrangler dev --persist-to <new empty dir>.
 //       --fresh-cache confirms the Worker was started on an empty cache; capture refuses without it.
+//       --extra <path> (repeatable, e.g. --extra /admin/login --extra /news/<slug>) captures that
+//       page, and its fragments, alongside the default list. The path must start with a single /.
 //   node scripts/snapshot-pages.mjs --compare <dirA> <dirB>
 //       Prints a per-page summary and exits 1 on any difference.
 //   node scripts/snapshot-pages.mjs --self-test
@@ -132,6 +134,15 @@ function selfTest() {
     ],
     ['capture refused without --fresh-cache', checkCaptureArgs(['--base', 'x']) !== null, true],
     ['capture allowed with --fresh-cache', checkCaptureArgs(['--base', 'x', '--fresh-cache']), null],
+    [
+      'repeated --extra parsed and removed',
+      (() => {
+        const args = ['http://x', 'out', '--extra', '/admin/login', '--fresh-cache', '--extra', '/news/a-b'];
+        const extras = flagValues(args, '--extra');
+        return JSON.stringify({ extras, args });
+      })(),
+      JSON.stringify({ extras: ['/admin/login', '/news/a-b'], args: ['http://x', 'out', '--fresh-cache'] }),
+    ],
   ];
   const failed = cases.filter(([, got, want]) => got !== want);
   for (const [name] of failed) console.error(`self-test FAILED: ${name}`);
@@ -177,6 +188,14 @@ function flagValue(args, flag) {
   return value;
 }
 
+/** Every value of a repeatable flag, in order, removed from args. */
+function flagValues(args, flag) {
+  const values = [];
+  let value;
+  while ((value = flagValue(args, flag)) !== null) values.push(value);
+  return values;
+}
+
 /**
  * Null when a capture may run, otherwise why not. A Worker started on an old cache can serve pages
  * from an earlier build and hide a change, so the caller must confirm a fresh cache.
@@ -196,12 +215,16 @@ async function capture(rawArgs) {
   const args = rawArgs.filter((a) => a !== '--fresh-cache');
   const subsessionFlag = flagValue(args, '--subsession');
   const driverFlag = flagValue(args, '--driver');
+  const extraPaths = flagValues(args, '--extra');
   if (args.length !== 2) usage('capture needs <baseUrl> <outDir>');
   const base = args[0].replace(/\/$/, '');
   const outDir = path.resolve(args[1]);
 
   if (subsessionFlag && !/^\d+$/.test(subsessionFlag)) usage('--subsession must be a number');
   if (driverFlag && !/^[0-9a-f-]{36}$/i.test(driverFlag)) usage('--driver must be a UUID');
+  // A single leading slash keeps every extra page on the Worker being captured.
+  for (const p of extraPaths)
+    if (!/^\/(?!\/)/.test(p)) usage(`--extra must be a path starting with one /: ${p}`);
 
   try {
     await fetchText(base, '/');
@@ -221,6 +244,7 @@ async function capture(rawArgs) {
     `/results/${subsessionId}`,
     `/results/${subsessionId}/incidents`,
     `/drivers/${driverId}`,
+    ...extraPaths,
   ];
   await mkdir(outDir, { recursive: true });
   const failures = [];
@@ -302,7 +326,7 @@ async function compare(args) {
 function usage(message) {
   console.error(`snapshot-pages: ${message}`);
   console.error(
-    'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>]',
+    'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>] [--extra <path>]...',
   );
   console.error('       node scripts/snapshot-pages.mjs --compare <dirA> <dirB>');
   console.error('       node scripts/snapshot-pages.mjs --self-test');

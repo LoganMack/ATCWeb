@@ -1,6 +1,9 @@
 import type { EventCategory, EventFormat, EventRecord, Weather } from './supabase';
 import { zonedTimeToUtcIso, LEAGUE_TIME_ZONE } from './timezone';
 
+// Re-exported for components that take a weather value alongside WEATHER_LABELS.
+export type { Weather };
+
 /**
  * `event_date` comes back from PostgREST as a plain 'YYYY-MM-DD' string with
  * no time/zone info. Parsing it with `new Date('YYYY-MM-DD')` treats it as

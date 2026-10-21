@@ -13,9 +13,13 @@ export const prerender = false;
 
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getAllNewsTags, createNewsTag, deleteNewsTag } from '../../../../lib/supabase';
+import { requireAdmin } from '../../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 let error: string | null = null;
 

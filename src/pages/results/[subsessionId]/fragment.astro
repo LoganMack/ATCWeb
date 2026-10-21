@@ -60,7 +60,7 @@ import {
   createIncidentReport,
 } from '../../../lib/incidentReports';
 import { EVENT_TAG_CLASSES } from '../../../lib/eventFormatting';
-import { isAdminView } from '../../../lib/auth';
+import { isAdminView, requireAdminSession } from '../../../lib/auth';
 import {
   INTERVIEW_MAX_SECONDS,
   INTERVIEW_MAX_BYTES,
@@ -76,6 +76,8 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI while previewing.
 const isAdmin = isAdminView(Astro.locals);
+// Non-null exactly when isAdmin is true; used where the admin's session is read.
+const adminSession = isAdmin ? requireAdminSession(Astro.locals) : null;
 
 // iRacing subsession IDs are ordinary (non-bigint-range) integers in
 // practice, so Number() parsing here is safe — well under
@@ -97,7 +99,7 @@ const formAction = `/results/${Astro.params.subsessionId}/fragment${Astro.url.se
 const postForm: FormData | null =
   Astro.request.method === 'POST' && Number.isFinite(subsessionId) ? await Astro.request.formData() : null;
 
-if (isAdmin && postForm) {
+if (adminSession && postForm) {
   const form = postForm;
   const intent = String(form.get('intent') ?? '');
 
@@ -130,7 +132,7 @@ if (isAdmin && postForm) {
       backParams.set('links_error', badField);
     } else if (Number.isFinite(raceNumber)) {
       try {
-        await upsertRaceLinks(supabaseEnv, Astro.locals.session!.accessToken, {
+        await upsertRaceLinks(supabaseEnv, adminSession.accessToken, {
           subsession_id: subsessionId,
           race_number: raceNumber,
           ...linkFields,

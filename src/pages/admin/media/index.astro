@@ -29,9 +29,13 @@ import {
 } from '../../../lib/supabase';
 import { getAllRounds, driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results';
 import { isHttpUrl } from '../../../lib/security';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 let error: string | null = null;
 

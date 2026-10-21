@@ -8,9 +8,13 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, restGetAuthed, formatDate } from '../../../lib/supabase';
 import { signImportFileUrls, type ActivityAction, type ActivityLogRow } from '../../../lib/activityLog';
+import { requireAdmin } from '../../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
-const accessToken = Astro.locals.session!.accessToken;
+const accessToken = admin.accessToken;
 
 // Two independent filter dimensions, per Logan: action (add/edit/delete)
 // and category (all/imports/incident reports). "All" is the default for
