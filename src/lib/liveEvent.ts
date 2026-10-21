@@ -3,7 +3,7 @@ import type { SupabaseEnv } from './db/client';
 import { getEventsForLiveBanner } from './db/events';
 import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from './timezone';
 import { CATEGORY_LABELS } from './eventFormatting';
-import { getLayoutBestLapSeconds } from './results';
+import { getLayoutBestLapSeconds } from './results/layoutLaps';
 
 /**
  * Powers the site-wide "Happening Now" banner attached to the bottom of the

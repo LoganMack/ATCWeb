@@ -16,7 +16,7 @@ import { markUncacheable } from '../../../../lib/security';
 import TeamLogo from '../../../../components/TeamLogo.astro';
 import { resolveSupabaseEnv } from '../../../../lib/db/client';
 import { formatDateShort } from '../../../../lib/db/circuits';
-import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../../../../lib/results';
+import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../../../../lib/results/raceHistory';
 
 const { seasonId = '', driverId = '' } = Astro.params;
 const classId = Number(Astro.url.searchParams.get('class'));

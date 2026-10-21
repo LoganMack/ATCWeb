@@ -4,19 +4,17 @@
  * computeOverallSeasonStandings do on the live page (src/pages/standings/fragment.astro).
  * Shared by the golden test and the season-totals parity test.
  */
-import {
-  buildOverallSeasonStandings,
-  buildSeasonOverallContext,
-  buildSeasonStandings,
-  type CuratedRaceResultRow,
-  type DriverBasic,
-  type DriverSeasonStanding,
-  type RaceScoreOverallRow,
-  type RaceScoreRow,
-  type RawLapStatsRow,
-  type RoundSummary,
-  type SeasonOverallContext,
-} from '../../src/lib/results';
+import { buildOverallSeasonStandings, buildSeasonStandings } from '../../src/lib/results/standings';
+import { buildSeasonOverallContext, type SeasonOverallContext } from '../../src/lib/results/seasonContext';
+import type {
+  CuratedRaceResultRow,
+  DriverBasic,
+  RaceScoreOverallRow,
+  RaceScoreRow,
+  RawLapStatsRow,
+  RoundSummary,
+} from '../../src/lib/results/rows';
+import type { DriverSeasonStanding } from '../../src/lib/results/standingsCore';
 import { resolveSeasonRuleset, type ScoringRuleset, type Season } from '../../src/lib/db/seasons';
 import { toPenalty, type PenaltyRow } from '../../src/lib/db/penalties';
 import type { Lookup } from '../../src/lib/db/lookups';

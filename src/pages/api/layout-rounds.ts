@@ -2,12 +2,9 @@ import type { APIRoute } from 'astro';
 import { resolveSupabaseEnv } from '../../lib/db/client';
 import { getCircuits, getAllCircuitLayouts } from '../../lib/db/circuits';
 import { getExhibitionRoundIds, getTestRoundIds } from '../../lib/db/rounds';
-import {
-  getAllRounds,
-  getRoundLayoutsForSubsessions,
-  findRoundsForLayout,
-  type LayoutRoundSummary,
-} from '../../lib/results';
+import { getAllRounds } from '../../lib/results/rounds';
+import { getRoundLayoutsForSubsessions } from '../../lib/results/layoutLaps';
+import { findRoundsForLayout, type LayoutRoundSummary } from '../../lib/results/layouts';
 
 export const prerender = false;
 

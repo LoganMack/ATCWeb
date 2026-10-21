@@ -11,7 +11,7 @@ import { getDriverById, updateDriver } from './db/drivers';
 import { getEvents } from './db/events';
 import { getPenaltiesForSubsessions } from './db/penalties';
 import { withAccessToken, type SupabaseEnv } from './db/client';
-import { getCurrentSeasonRounds } from './results';
+import { getCurrentSeasonRounds } from './results/seasonContext';
 import { computeSeasonPPState } from './penalties/penaltyPoints';
 
 /**

@@ -20,23 +20,15 @@ import { getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
 import { getDriverClasses } from '../../lib/db/lookups';
 import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
 import { getAllNewsPostTags, type NewsTag } from '../../lib/db/news';
-import {
-  computeSeasonStandings,
-  computeOverallSeasonStandings,
-  computeTeamSeasonStandings,
-  getSeasonOverallContext,
-  getSeasonCarTeamStats,
-  getTeamsBasic,
-  getAllTeamSeasonLogosSafe,
-  isChampionshipSeason,
-  driversSelect,
-  getPreviousResultWidget,
-  getAllBroadcastVideos,
-  getBroadcastRoundDetails,
-  type DriverSeasonStanding,
-  type TeamSeasonStanding,
-  type DriverSeasonExtras,
-} from '../../lib/results';
+import { computeSeasonStandings, computeOverallSeasonStandings } from '../../lib/results/standings';
+import { computeTeamSeasonStandings, type TeamSeasonStanding } from '../../lib/results/teamStandings';
+import { getSeasonOverallContext } from '../../lib/results/seasonContext';
+import { getSeasonCarTeamStats, type DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
+import { getTeamsBasic, getAllTeamSeasonLogosSafe, driversSelect } from '../../lib/results/rows';
+import { isChampionshipSeason } from '../../lib/results/shared';
+import { getPreviousResultWidget } from '../../lib/results/previousResult';
+import { getAllBroadcastVideos, getBroadcastRoundDetails } from '../../lib/results/broadcasts';
+import type { DriverSeasonStanding } from '../../lib/results/standingsCore';
 import { youtubeEmbedUrl } from '../../lib/siteSettings';
 import { classTagFull } from '../../lib/classColors';
 import { getReportingWindowForRound, getReportingPeriodHours, isReportingOpen, isRoundPosted } from '../../lib/incidentReports';

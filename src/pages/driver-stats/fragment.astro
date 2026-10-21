@@ -12,7 +12,11 @@ import { resolveSupabaseEnv } from '../../lib/db/client';
 import { getDriverClasses } from '../../lib/db/lookups';
 import { getSeasons } from '../../lib/db/seasons';
 import { displayDriverName } from '../../lib/db/circuits';
-import { computeDriverCareerStats, aggregateDriverCareerStats, type DriverCareerStats } from '../../lib/results';
+import {
+  computeDriverCareerStats,
+  aggregateDriverCareerStats,
+  type DriverCareerStats,
+} from '../../lib/results/careerStats';
 import { classTagFull } from '../../lib/classColors';
 
 /**

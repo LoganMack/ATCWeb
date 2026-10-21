@@ -37,16 +37,18 @@ import { getCarLogos } from '../../../lib/db/assets';
 import { getRaceLinksForSubsessions, type RaceLinks } from '../../../lib/db/rounds';
 import {
   findRoundsForLayout,
-  getAllRounds,
-  getRoundLayoutsForSubsessions,
   getLayoutClassHighlights,
-  getLayoutClassBestLaps,
-  driversSelect,
-  describePenaltyResolution,
   type LayoutRoundSummary,
   type LayoutHighlights,
+} from '../../../lib/results/layouts';
+import { getAllRounds } from '../../../lib/results/rounds';
+import {
+  getRoundLayoutsForSubsessions,
+  getLayoutClassBestLaps,
   type ClassBestLap,
-} from '../../../lib/results';
+} from '../../../lib/results/layoutLaps';
+import { driversSelect } from '../../../lib/results/rows';
+import { describePenaltyResolution } from '../../../lib/results/standingsCore';
 import DriverLink from '../../../components/DriverLink.astro';
 import { CATEGORY_LABELS } from '../../../lib/eventFormatting';
 import { classBadgeLetter, classTagFull, classTagShort } from '../../../lib/classColors';

@@ -13,13 +13,9 @@ import { getStandingsExcludedRoundIds } from '../../../lib/db/rounds';
 import { getManualAwards } from '../../../lib/db/awards';
 import { formatDateShort, formatLapTime, displayLayoutName, shortDriverName } from '../../../lib/db/circuits';
 import { getAllNewsPostDrivers, getAllNewsPostTags, type NewsTag } from '../../../lib/db/news';
-import {
-  computeDriverCareerStats,
-  getDriverRaceHistory,
-  computeSeasonAwardsHistory,
-  type DriverCareerStats,
-  type DriverRaceHistoryRow,
-} from '../../../lib/results';
+import { computeDriverCareerStats, type DriverCareerStats } from '../../../lib/results/careerStats';
+import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../../../lib/results/raceHistory';
+import { computeSeasonAwardsHistory } from '../../../lib/results/awards';
 import { getAllIncidents, type IncidentRow } from '../../../lib/incidents';
 import { classBadgeLetter, classTextColorClass, classTagShort } from '../../../lib/classColors';
 

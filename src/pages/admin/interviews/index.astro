@@ -9,7 +9,7 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { formatDate } from '../../../lib/db/circuits';
-import { getAllRounds } from '../../../lib/results';
+import { getAllRounds } from '../../../lib/results/rounds';
 import { getRaceInterviews, signInterviewUrl, deleteRaceInterview, type RaceInterview } from '../../../lib/raceInterviews';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';

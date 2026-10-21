@@ -32,7 +32,9 @@ import {
   type MapPoint,
   type LayoutCorner,
 } from '../../../../../lib/db/layoutMaps';
-import { getAllRounds, getRoundLayoutsForSubsessions, findRoundsForLayout } from '../../../../../lib/results';
+import { getAllRounds } from '../../../../../lib/results/rounds';
+import { getRoundLayoutsForSubsessions } from '../../../../../lib/results/layoutLaps';
+import { findRoundsForLayout } from '../../../../../lib/results/layouts';
 import { getIncidentsForSubsessions } from '../../../../../lib/incidents';
 import { getPostedSubsessionIds } from '../../../../../lib/incidentReports';
 import { driverNumberLabel, roundLabel, sessionLabel } from '../../../../../lib/incidentDisplay';

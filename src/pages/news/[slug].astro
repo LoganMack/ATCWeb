@@ -8,7 +8,7 @@ import { getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
 import { formatDate, displayDriverName, shortDriverName } from '../../lib/db/circuits';
 import { getTagsForPost, getDriversForPost, MENTION_PATTERN, type NewsTag } from '../../lib/db/news';
 import type { DriverOption } from '../../lib/db/drivers';
-import { getRoundBySubsessionId } from '../../lib/results';
+import { getRoundBySubsessionId } from '../../lib/results/rounds';
 import { computeRoundRecap, type RoundRecap } from '../../lib/newsRecap';
 import { classTagFull } from '../../lib/classColors';
 import { isAdminView } from '../../lib/auth';

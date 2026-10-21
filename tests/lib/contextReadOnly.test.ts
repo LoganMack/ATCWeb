@@ -4,7 +4,7 @@
  * static scan covers the rest of the results code, which fetches and so cannot run here.
  */
 import { describe, expect, it } from 'vitest';
-import type { SeasonOverallContext } from '../../src/lib/results';
+import type { SeasonOverallContext } from '../../src/lib/results/seasonContext';
 import { buildContext, expected, inputs, standingsFor, type GoldenRow } from '../golden/atc17';
 
 // ---------------------------------------------------------------------------------------------------

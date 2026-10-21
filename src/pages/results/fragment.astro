@@ -14,7 +14,10 @@ import {
   type LogoBackground,
 } from '../../lib/db/circuits';
 import TeamLogo from '../../components/TeamLogo.astro';
-import { getRoundsForSeason, getAllRounds, isChampionshipSeason, computeDisplayRoundNumbers, getRoundLayoutsForSubsessions, normalizeTrackOrLayoutName } from '../../lib/results';
+import { getRoundsForSeason, getAllRounds, computeDisplayRoundNumbers } from '../../lib/results/rounds';
+import { isChampionshipSeason } from '../../lib/results/shared';
+import { getRoundLayoutsForSubsessions } from '../../lib/results/layoutLaps';
+import { normalizeTrackOrLayoutName } from '../../lib/results/layouts';
 import { EVENT_TAG_CLASSES } from '../../lib/eventFormatting';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
 

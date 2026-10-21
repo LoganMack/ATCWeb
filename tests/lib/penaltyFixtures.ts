@@ -11,7 +11,8 @@
 import type { LeaderRaceStats } from '../../src/lib/penalties/reorder';
 import type { PenaltyLike } from '../../src/lib/penalties/effective';
 import type { SeasonClassScoreRow, SeasonScoreRow } from '../../src/lib/penalties/seasonAdjustments';
-import type { DriverBasic, RaceResultRow, RoundResults } from '../../src/lib/results';
+import type { DriverBasic } from '../../src/lib/results/rows';
+import type { RaceResultRow, RoundResults } from '../../src/lib/results/roundResults';
 
 // Bundled by Vite's glob import, so the tests need no Node file-system access.
 const FIXTURES = import.meta.glob('../fixtures/penalties/*/*.json', { eager: true, import: 'default' });

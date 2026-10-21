@@ -37,16 +37,18 @@ import { getEventSessions, formatSessionTime, CATEGORY_LABELS } from '../../lib/
 import {
   resolveLayout,
   findRoundsForLayout,
-  getAllRounds,
-  getRoundLayoutsForSubsessions,
   getLayoutClassHighlights,
-  getLayoutClassBestLaps,
-  resolveLapRecordCar,
-  driversSelect,
   type LayoutRoundSummary,
   type LayoutHighlights,
+} from '../../lib/results/layouts';
+import { getAllRounds } from '../../lib/results/rounds';
+import {
+  getRoundLayoutsForSubsessions,
+  getLayoutClassBestLaps,
+  resolveLapRecordCar,
   type ClassBestLap,
-} from '../../lib/results';
+} from '../../lib/results/layoutLaps';
+import { driversSelect } from '../../lib/results/rows';
 import { classBadgeLetter, classTagFull, classTagShort } from '../../lib/classColors';
 import { getIncidentsForSubsessions, type IncidentRow } from '../../lib/incidents';
 import WeatherIcon from '../../components/WeatherIcon.astro';

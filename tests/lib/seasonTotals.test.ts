@@ -5,9 +5,9 @@ import {
   findFinalRoundSubsessionId,
   MIN_ROUNDS_FOR_DROPS,
   seasonDropWeeks,
-  type DriverBasic,
   type StandingsAccum,
-} from '../../src/lib/results';
+} from '../../src/lib/results/standingsCore';
+import type { DriverBasic } from '../../src/lib/results/rows';
 import { resolveSeasonRuleset, type Season } from '../../src/lib/db/seasons';
 import { totalAsOf } from '../../src/lib/seasonTotals';
 import {

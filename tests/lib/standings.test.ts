@@ -4,21 +4,22 @@
  * (points tables in src/lib/penalties.ts; drop weeks and tiebreakers in finalizeStandings' doc comment).
  */
 import { describe, expect, it } from 'vitest';
+import { buildOverallSeasonStandings, buildSeasonStandings } from '../../src/lib/results/standings';
+import { buildSeasonOverallContext } from '../../src/lib/results/seasonContext';
 import {
-  buildOverallSeasonStandings,
-  buildSeasonOverallContext,
-  buildSeasonStandings,
   finalizeStandings,
   findFinalRoundSubsessionId,
-  type CuratedRaceResultRow,
-  type DriverBasic,
   type DriverSeasonStanding,
-  type RaceScoreOverallRow,
-  type RaceScoreRow,
-  type RawLapStatsRow,
-  type RoundSummary,
   type StandingsAccum,
-} from '../../src/lib/results';
+} from '../../src/lib/results/standingsCore';
+import type {
+  CuratedRaceResultRow,
+  DriverBasic,
+  RaceScoreOverallRow,
+  RaceScoreRow,
+  RawLapStatsRow,
+  RoundSummary,
+} from '../../src/lib/results/rows';
 import type { Lookup } from '../../src/lib/db/lookups';
 import type { Penalty } from '../../src/lib/db/penalties';
 import type { ScoringRuleset, Season } from '../../src/lib/db/seasons';
