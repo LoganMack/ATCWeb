@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Theme inventory: the frozen "before" state for the theme-token change (FR11.1, NFR1).
 //
 // Usage:

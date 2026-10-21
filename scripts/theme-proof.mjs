@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Compile-time colour proof for the theme-token change (spec W3.1; BR2.2, BR2.3).
 //
 // Usage:
