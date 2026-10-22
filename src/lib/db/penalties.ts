@@ -50,7 +50,11 @@ export interface Penalty {
   subsession_id: number;
   /** For session_type 'qualifying'/'practice' this is always the sentinel 0 — quali/practice aren't split by race, and race_number = 0 can never collide with a real race (curated_race_results.race_number is always 1-5). See session_type below and 0056_penalty_session_type.sql. */
   race_number: number;
-  /** 'race' (default) | 'qualifying' | 'practice' (0056_penalty_session_type.sql). Purely a display/grouping concern — the Incident Report page groups by this field instead of race_number alone so Qualifying/Practice get their own sections. For SCORING, a qualifying/practice incident's own penalty (offenses, PP, time, points) always applies to Race 1, same as if it had been logged directly against it — see scoringRaceNumber in src/lib/penalties.ts, which every recalculation pass keys off instead of the raw race_number. */
+  /**
+   * 'race' (default) | 'qualifying' | 'practice' (0056). Groups incidents by session on the Incident Report
+   * page. A qualifying or practice penalty scores on race 1 (score_round in the database; scoringRaceNumber
+   * in src/lib/penalties/effective.ts for display).
+   */
   session_type: 'race' | 'qualifying' | 'practice';
   /** Null means "Racing Incident" — reviewed and judged nobody's fault, so no driver is attached (0020_penalty_racing_incident.sql). Shown as "RI" in the Incident Report's Driver column instead of a car number, and never affects anyone's position/points — the recalculation engine keys everything off driver_id, so a row with none can't touch any driver's result. */
   driver_id: string | null;
@@ -68,12 +72,9 @@ export interface Penalty {
   /** Other drivers' cars that were part of the same incident — descriptive only, same as offense_ids. */
   involved_driver_ids: string[];
   /**
-   * Appeal fields (0016_penalty_appeals.sql). Once is_appealed is set, every
-   * place src/lib/penalties.ts reads this penalty's time/points/PP uses the
-   * appeal_* values instead of the original ones (see its effective* helpers)
-   * — the original fields stay put as a record of what was first logged.
-   * appeal_result is a free-text ruling ("Upheld", "Reduced to 5s", etc.),
-   * shown alongside the penalty but not itself consumed by any calculation.
+   * Appeal fields (0016_penalty_appeals.sql). Once is_appealed is set, the appeal_* values replace the
+   * originals wherever time/points/PP are read (src/lib/penalties/effective.ts); the originals stay as the
+   * record. appeal_result is free-text, display only.
    */
   is_appealed: boolean;
   appeal_result: string | null;
@@ -130,24 +131,16 @@ export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: 
 }
 
 /**
- * Every penalty logged against any of the given rounds, oldest first — the
- * bulk version of getPenaltiesForSubsession, used wherever a whole season
- * (not just one round) needs to be recalculated: season standings
- * (src/lib/results.ts) and a driver's season-scoped PP/warning tally (see
- * computeSeasonPPState/countWarnings in src/lib/penalties.ts). Returns an
- * empty list (no query) for an empty input, since PostgREST's `in.()` with
- * nothing inside it isn't a meaningful filter.
+ * Every penalty in the given rounds, oldest first, for season standings and a driver's season PP/warning
+ * tally (computeSeasonPPState/countWarnings in src/lib/penalties/penaltyPoints.ts). No query for an empty
+ * list, since `in.()` isn't a filter.
  */
 export async function getPenaltiesForSubsessions(
   env: SupabaseEnv,
   subsessionIds: number[],
 ): Promise<Penalty[]> {
   if (subsessionIds.length === 0) return [];
-  // restGetAll (not restGet) — a whole-career query (src/lib/results.ts's
-  // computeDriverCareerStats) can span hundreds of rounds across every
-  // season at once, and a plain restGet would silently truncate at
-  // Supabase's default 1000-row response cap instead of erroring. See
-  // restGetAll's own doc comment.
+  // restGetAll: a whole-career query (computeDriverCareerStats) can pass Supabase's 1000-row cap.
   const rows = await restGetAll<PenaltyRow>(
     env,
     `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`,
@@ -204,16 +197,9 @@ export async function createPenalty(
 }
 
 /**
- * Updates a penalty's own fields, then replaces its offense/involved-driver
- * links wholesale (delete everything currently linked, insert the new
- * selection) rather than trying to diff them — simplest correct way to
- * handle a checkbox list that can add and remove entries in the same edit.
- * Unlike in v0.13/v0.14, editing a penalty's PP (or its own is_appealed
- * override) DOES now ripple through to the driver's season PP tally — the
- * caller (src/pages/results/[subsessionId].astro) re-runs
- * computeSeasonPPState over the driver's whole season after every mutation
- * rather than incrementally patching a stored counter, so there's no
- * separate "retroactive adjustment" step needed here.
+ * Updates a penalty, then replaces its offense and driver links wholesale, the simplest correct handling of a
+ * checkbox list. The caller recomputes the driver's season PP from scratch afterwards, so no stored counter
+ * needs adjusting.
  */
 export async function updatePenalty(
   env: SupabaseEnv,
@@ -250,12 +236,9 @@ export function deletePenalty(env: SupabaseEnv, accessToken: string, id: string)
 }
 
 /**
- * driver_id -> how many warnings (is_warning penalties) they have, scoped to
- * whichever subsession IDs the caller passes in — pass the current season's
- * round subsession_ids (see getCurrentSeasonRounds in src/lib/results.ts) to
- * get a season-scoped count, per Logan: "Warnings should be season-scoped,
- * not career-scoped." Used to surface "this driver has already been warned
- * N times this season" while logging a new penalty.
+ * driver_id -> warning count within the given rounds; pass the current season's rounds
+ * (getCurrentSeasonRounds in src/lib/results/seasonContext.ts), since warnings are season-scoped (Logan).
+ * Shown while logging a new penalty.
  */
 export async function getWarningCounts(
   env: SupabaseEnv,

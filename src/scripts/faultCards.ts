@@ -1,29 +1,10 @@
 /**
- * "Cars at fault" picker with one penalty card per car — used by the incident
- * dialog (Log/Add/Edit incident) and the steward review dialog, where several
- * cars can be at fault for one incident, each with its own penalty.
- *
- *   <div data-fault-root>
- *     <div data-fault-picker data-driver-picker>        (data-driver-picker = driverPickerSearch.ts search)
- *       <input type="search" data-driver-search />
- *       <label><input type="checkbox" data-fault-racing-incident /> Racing Incident</label>
- *       <label data-driver-option data-search="#14 jane doe" data-fault-label="#14 Jane Doe">
- *         <input type="checkbox" name="fault_driver_ids" value="<driver id>" />…
- *       </label>
- *     </div>
- *     <div data-fault-cards></div>
- *     <template data-fault-card-template>
- *       <div data-fault-card>
- *         <span data-fault-card-label></span>
- *         <select name="pp_choice:__ID__">…</select>       (every `name` with __ID__ gets the car's driver id)
- *       </div>
- *     </template>
- *   </div>
- *
- * Ticking a car adds its card (in car-number order, i.e. the picker's order),
- * unticking removes it. Racing Incident and cars at fault are mutually
- * exclusive. In single mode (editing one existing penalty row) ticking a car
- * unticks any other. Every change dispatches `fault-change` on the root.
+ * "Cars at fault" picker with one penalty card per car, for the incident and steward review dialogs. Markup:
+ * [data-fault-root] holds a [data-fault-picker][data-driver-picker] (search, a [data-fault-racing-incident]
+ * checkbox, and one [data-driver-option] per car with a `fault_driver_ids` checkbox), a [data-fault-cards] list
+ * and a <template data-fault-card-template> whose `name`s contain __ID__ (replaced by the driver id).
+ * Ticking a car adds its card in picker order; Racing Incident and cars at fault exclude each other; single mode
+ * (editing one row) allows one car. Every change dispatches `fault-change` on the root.
  */
 
 export interface FaultPicker {

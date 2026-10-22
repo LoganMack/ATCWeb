@@ -3,21 +3,8 @@ export const prerender = false;
 import LoadError from '../../components/LoadError.astro';
 import { markUncacheable } from '../../lib/security';
 
-// Public driver profile page — reached by clicking a row on the Roster
-// (see src/components/DriverRow.astro / src/pages/roster.astro).
-//
-// Same shell-then-spinner split as champions.astro/driver-stats.astro/
-// team-stats.astro/hall-of-fame.astro (PERFORMANCE_AUDIT.md #5) — this page
-// used to await computeDriverCareerStats() (every driver's whole
-// season-by-season history, just to pick one out), getDriverRaceHistory(),
-// and computeSeasonAwardsHistory() all right here in its own frontmatter,
-// which blocked Astro's client router from swapping the DOM until every
-// bit of that finished. This shell now only fetches what the HEADER needs
-// (the driver's own profile row, plus their probation/inactivity status —
-// all cheap, single-row-scoped queries) and renders a loading skeleton in
-// place of the season/race/career-moves/awards tables. That expensive part
-// moved to drivers/[id]/fragment.astro, fetched client-side by the
-// <script> below once this shell has already painted.
+// Public driver profile, reached from the Roster. Shell: fetches only the header's driver row and status,
+// renders a skeleton, then loads drivers/[id]/fragment.astro for the tables.
 
 import Layout from '../../layouts/Layout.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
@@ -53,10 +40,9 @@ import {
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
 
-// A signed-in user whose login is linked to THIS roster driver can edit their own
-// photo and bio here (0104_driver_self_service_profile.sql). Signed-in requests
-// are never stored in the shared edge cache (see middleware.ts), so rendering the
-// edit controls server-side for them is safe.
+// A user linked to this driver can edit their own photo and bio
+// (supabase/migrations/archive/0105_driver_self_service_profile.sql). Signed-in responses are never
+// edge-cached (middleware.ts), so rendering the edit controls server-side is safe.
 const session = Astro.locals.session;
 const isOwner = Boolean(session && session.profile?.driver_id && session.profile.driver_id === driverId);
 
@@ -137,18 +123,13 @@ if (!loadError && driver) {
         inactivityDays,
         inactivityRounds,
         driver.sign_up_date,
-        // roundsSinceDate() needs real officially-scored rounds (matching
-        // sync_driver_statuses()'s own definition), NOT the calendar
-        // `events` isOnProbationNow() uses just above for its own,
-        // deliberately different clock — see roundsSinceDate's doc comment.
+        // Officially scored rounds, as sync_driver_statuses() counts them, not the calendar events
+        // isOnProbationNow() uses (see roundsSinceDate).
         driver.sign_up_date ? roundsSinceDate(officialRounds, driver.sign_up_date) : null
       ) ?? undefined;
 
-    // Same fix as roster.astro: show this driver's real CURRENT-season team
-    // (team_rosters), not the possibly-stale drivers.team_id getDriverProfileById
-    // embeds — see getTeamRosterWithTeamsForSeason's doc comment for why the
-    // two can drift. No team_rosters entry for the current season means
-    // Independent, not a fallback to the stale value.
+    // The current season's team from team_rosters, not the possibly stale drivers.team_id; no roster entry
+    // means Independent.
     const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0];
     if (currentSeason) {
       const entries = await getTeamRosterWithTeamsForSeason(supabaseEnv, currentSeason.id);
@@ -188,11 +169,8 @@ if (loadError) markUncacheable(Astro);
           class="reveal relative grid gap-6 rounded-xl border border-white/10 bg-brand-ink p-6 sm:grid-cols-[176px_1fr] sm:p-8"
           {...(isOwner ? { method: 'post', enctype: 'multipart/form-data', 'data-profile-form': '' } : {})}
         >
-          <!-- Activity status: pinned to the top-right corner, right-aligned.
-               Hidden entirely on mobile (Logan) — the reserved `pr-24` gutter
-               on the name column below is dropped there too, so the driver
-               name/number get the full card width back instead of leaving a
-               gap for a status block that's no longer shown. -->
+          <!-- Activity status, top right; hidden on mobile (Logan), where the name column has no gutter for it
+               (sm:pr-32). -->
           <div class="absolute right-6 top-6 hidden flex-col items-end gap-1 text-right sm:right-8 sm:top-8 sm:flex">
             <div class="flex flex-wrap items-center justify-end gap-2">
               <span class="text-sm font-semibold text-white/90">{statusName}</span>
@@ -201,15 +179,8 @@ if (loadError) markUncacheable(Astro);
               )}
             </div>
             {statusTooltip && (
-              // buildInactivityNote() returns one semicolon-joined string
-              // shared verbatim with the admin driver edit page and the
-              // admin Drivers list tooltip (see its own doc comment in
-              // supabase.ts) — for the New/Active case that's "Last raced
-              // X; N/M rounds absent; N/M days absent", which this page
-              // (only this page) breaks onto its own line per segment
-              // rather than changing the shared string itself. Any other
-              // status message (Veteran/Inactive/etc.) has no semicolons,
-              // so it just renders as a single line same as before.
+              // buildInactivityNote()'s shared "a; b; c" string (src/lib/db/drivers.ts), shown one segment
+              // per line here only; other statuses have no semicolons and stay one line.
               <div class="max-w-[12rem]">
                 {statusTooltip.split('; ').map((line) => (
                   <p class="text-xs text-white/40">{line}</p>
@@ -294,13 +265,8 @@ if (loadError) markUncacheable(Astro);
           </div>
         </HeaderTag>
 
-        <!-- Body: season/race/career-moves/awards tables live in
-             drivers/[id]/fragment.astro — fetched client-side below. Hall of
-             Fame status is threaded through via query param since the
-             fragment has no access to this shell's in-memory `driver` row
-             (see fragment.astro's own doc comment) — it's pinned as its own
-             row at the top of the Awards card there instead of shown as a
-             header badge. -->
+        <!-- The tables come from drivers/[id]/fragment.astro; Hall of Fame status is passed as a query
+             param. -->
         <div data-driver-results data-fragment-url={`/drivers/${driverId}/fragment?hof=${driver.is_hall_of_fame ? 1 : 0}`}>
           <div class="mt-8 grid gap-8 lg:grid-cols-3" aria-live="polite" aria-busy="true">
             <span class="sr-only">Loading driver stats…</span>
@@ -323,14 +289,8 @@ if (loadError) markUncacheable(Astro);
   <script>
     import { bindFragment } from '../../scripts/fragmentLoader';
 
-    // Keeps the Splits card's Overall/Class row-sets' <details> open/closed
-    // state in sync with each other — see the fragment's own doc comment on
-    // the Splits card for why this can't be pure CSS. The two row-sets are
-    // fully separate DOM subtrees (one per data-splits-rows value), each
-    // with its own <details data-split-name="Month"|"Round"|"Car">; every
-    // time either one is toggled, its same-named counterpart in the OTHER
-    // row-set is set to match. Setting .open to a value it already has
-    // doesn't fire another 'toggle' event, so this doesn't ping-pong.
+    // Keeps the Splits Overall/Class <details> in step: toggling one sets its same-named counterpart. Setting
+    // .open to its current value fires no event, so it doesn't loop.
     function initSplitsSync() {
       const overallRows = document.querySelector<HTMLElement>('[data-splits-rows="overall"]');
       const classRows = document.querySelector<HTMLElement>('[data-splits-rows="class"]');
@@ -445,15 +405,8 @@ if (loadError) markUncacheable(Astro);
       }
     });
 
-    // The Seasons / Races / Splits / Bests tab switch has to be a delegated
-    // listener living here in the shell rather than a <script> inside the
-    // fragment: the fragment's tab buttons/panels don't exist yet when this
-    // script first runs, and a <script> tag set via `innerHTML` never
-    // executes at all. Bound once at module scope (same "no re-init guard
-    // needed" reasoning as incidents.astro's identical All Incidents/By
-    // Driver/By Offense switch, which this mirrors) — a delegated listener
-    // on `document` naturally keeps working for tab buttons that don't
-    // exist yet at the time this line runs.
+    // The tab switch is a delegated listener here in the shell: the fragment's buttons don't exist yet, and
+    // its scripts never run. Bound once at module scope.
     document.addEventListener('click', (e) => {
       const tab = (e.target as HTMLElement).closest<HTMLElement>('[data-driver-tab]');
       if (!tab) return;

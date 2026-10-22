@@ -1,22 +1,8 @@
 /**
- * Auth — interim implementation.
- *
- * The user's explicit long-term requirement is "Login with iRacing" OAuth
- * (see https://oauth.iracing.com/oauth2/book/), for GDPR/EU-privacy reasons
- * (iRacing's profile endpoint returns only { iracing_cust_id, iracing_name }
- * — no email). iRacing has currently PAUSED new OAuth client registration,
- * so a real integration can't be built/tested yet. Per the user's explicit
- * choice, this file implements a working interim login using Supabase's own
- * Auth (GoTrue) REST API — plain `fetch`, no @supabase/supabase-js, matching
- * the rest of this codebase — so admin tools are usable today. The schema
- * (see supabase/migrations/0002_auth_admin.sql — `profiles.iracing_cust_id`
- * / `iracing_name`) is already shaped so a real iRacing login can be added
- * later as an additional way to populate/link the same `profiles` row,
- * without reworking anything built on top of it.
- *
- * All of GoTrue's REST endpoints require the `apikey` header (the anon key)
- * in addition to whatever `Authorization` bearer token is relevant to the
- * call — that's a Supabase-wide REST requirement, not specific to auth.
+ * Interim auth on Supabase Auth (GoTrue) over plain `fetch`. The goal is "Login with iRacing" OAuth for
+ * privacy (no email), but iRacing has paused new OAuth clients; the `profiles` schema (0002) already has the
+ * iRacing fields so it can be added later. Every GoTrue call needs the `apikey` header as well as any bearer
+ * token.
  */
 
 import type { SupabaseEnv } from './db/client';
@@ -78,14 +64,8 @@ function authHeaders(env: SupabaseEnv, accessToken?: string) {
 }
 
 /**
- * GoTrue error responses are JSON (e.g. `{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}`),
- * not plain text — every call site used to throw that raw JSON blob as the
- * error message, which is both ugly (long unbroken string, prone to
- * overflowing a fixed-width error box) and unnecessary, since GoTrue always
- * puts the actual human-readable text in `msg` or `error_description`. This
- * pulls that out, falling back to the raw body only if it genuinely isn't
- * JSON (a real network/proxy error page, say) so nothing is ever silently
- * swallowed.
+ * The readable message from a GoTrue JSON error (`msg` or `error_description`), falling back to the raw body
+ * when it isn't JSON.
  */
 function goTrueErrorMessage(status: number, body: string): string {
   try {
@@ -129,12 +109,8 @@ export async function signInWithPassword(
 }
 
 /**
- * Result of a sign-up attempt. `session` is null when the account needs
- * email confirmation before it can sign in (GoTrue's default "Confirm
- * email" setting) — the account was still created, there's just no active
- * session yet. `session` is populated when confirmation isn't required
- * (or wasn't required for this particular attempt), exactly like a normal
- * sign-in, so the caller can log the person straight in.
+ * `session` is null when the account needs email confirmation first (it was still created); otherwise it's a
+ * normal sign-in session.
  */
 export interface SignUpResult {
   session: Session | null;
@@ -150,17 +126,8 @@ interface GoTrueSignUpResponse {
 }
 
 /**
- * Public self-service sign-up against Supabase Auth. A `profiles` row
- * (role: 'driver') is created automatically by the `on_auth_user_created`
- * trigger (see supabase/migrations/0002_auth_admin.sql) — no app-side
- * plumbing needed for that part.
- *
- * Note on existing emails: GoTrue deliberately avoids confirming or denying
- * whether an email is already registered (a standard anti-enumeration
- * measure), so a repeat sign-up for an existing, already-confirmed address
- * can come back looking like success without actually creating or changing
- * anything — there's no reliable way to distinguish that case from a
- * genuine new sign-up from this response alone.
+ * Public self-service sign-up; the `on_auth_user_created` trigger (0002) creates the driver profile. GoTrue
+ * won't reveal whether an email already exists (anti-enumeration), so a repeat sign-up can look like success.
  */
 export async function signUp(
   env: SupabaseEnv,
@@ -170,15 +137,8 @@ export async function signUp(
   redirectTo?: string,
 ): Promise<SignUpResult> {
   const url = new URL(`${env.url}/auth/v1/signup`);
-  // Without this, GoTrue falls back to whatever "Site URL" is configured in
-  // the Supabase dashboard for the confirmation email's link — which
-  // defaults to localhost and has nothing to do with where this request
-  // actually came from. Passing it explicitly per-request means the link
-  // always points back to the real origin (this domain, or localhost during
-  // local dev) regardless of what the dashboard default is set to. GoTrue
-  // still only honors values that are also in that project's Redirect URLs
-  // allowlist (Authentication > URL Configuration) — an admin has to add
-  // this origin there once, this param alone isn't enough.
+  // Without redirect_to the confirmation link uses the dashboard's Site URL (localhost by default). GoTrue
+  // only honours origins in the project's Redirect URLs allowlist, which an admin sets once.
   if (redirectTo) url.searchParams.set('redirect_to', redirectTo);
 
   const res = await fetch(url, {
@@ -211,18 +171,9 @@ export async function signUp(
 }
 
 /**
- * Sends a "reset your password" email via GoTrue. Deliberately never throws
- * on "no account with that email" — GoTrue itself returns 200 either way
- * (a standard anti-enumeration measure, same reasoning as signUp's own doc
- * comment), so callers should always show the same generic confirmation
- * regardless of whether anything was actually sent. Only a genuine
- * request/network failure throws.
- *
- * `redirectTo` matters here even more than it does for signUp: the emailed
- * link's destination is entirely controlled by this (and by the project's
- * Redirect URLs allowlist in the Supabase dashboard — see signUp's doc
- * comment) — get it wrong and the link goes to a `localhost` that doesn't
- * exist for whoever clicks it.
+ * Sends a password reset email. GoTrue returns 200 for unknown emails (anti-enumeration), so callers always
+ * show the same confirmation; only a request failure throws. `redirectTo` decides where the link goes
+ * (allowlisted as for signUp).
  */
 export async function requestPasswordReset(
   env: SupabaseEnv,
@@ -242,12 +193,8 @@ export async function requestPasswordReset(
 }
 
 /**
- * Sets a new password using the access token from a password-recovery
- * email link (the `#access_token=...&type=recovery` fragment GoTrue
- * redirects to — see src/pages/reset-password.astro for how that token
- * gets from the URL fragment into this call). That token is a normal,
- * short-lived session access token, so it doubles as proof the request is
- * legitimate — no separate "old password" check needed.
+ * Sets a new password with the access token from the recovery link (see reset-password.astro). That
+ * short-lived session token proves the request, so no old password is needed.
  */
 export async function updatePassword(
   env: SupabaseEnv,
@@ -411,15 +358,8 @@ export const REFRESH_TOKEN_COOKIE = 'atc_rt';
 export const AUTH_COOKIE_PATH = '/';
 
 /**
- * Cookie options shared by both auth cookies — HttpOnly so client JS can
- * never read the tokens. `secure` is derived from the request's own URL
- * rather than hardcoded `true`: a `Secure` cookie is silently dropped by the
- * browser on a plain-http origin (e.g. `astro dev` on http://localhost),
- * which otherwise looks exactly like "login silently fails" — the sign-in
- * call succeeds and the redirect to /admin fires, but the cookie never
- * actually gets stored, so the middleware immediately bounces you back to
- * /login with nothing on screen to explain why. On the real Cloudflare
- * deployment (always https) this still resolves to `true` as before.
+ * Shared options for both auth cookies, HttpOnly. `secure` follows the request URL because browsers drop
+ * Secure cookies on http (astro dev), which looks like a silent login failure.
  */
 export function authCookieOptions(url: URL) {
   return {
@@ -435,20 +375,14 @@ export function authCookieOptions(url: URL) {
 // ---------------------------------------------------------------------------
 
 /**
- * Set to 'visitor' when a real admin has toggled "View as Visitor" in the
- * footer, so they can click through the site the way a non-admin would to
- * assess UI changes without actually signing out. Read/written in
- * src/middleware.ts and src/pages/api/view-mode.ts; httpOnly like the auth
- * cookies since there's no reason client JS needs to touch it.
+ * 'visitor' while an admin uses "View as Visitor" to browse as a non-admin without signing out. Set in
+ * src/middleware.ts and api/view-mode.ts; httpOnly.
  */
 export const VIEW_MODE_COOKIE = 'atc_view_mode';
 
 /**
- * The one check every admin-gated page/component OUTSIDE of /admin itself
- * should use instead of `locals.session?.profile?.role === 'admin'` — see
- * `viewAsVisitor`'s doc comment in src/env.d.ts for why /admin/* pages
- * deliberately don't use this (they stay real-admin-only regardless of the
- * preview toggle).
+ * The admin check for pages outside /admin, which respects "View as Visitor"; /admin pages stay
+ * real-admin-only (see `viewAsVisitor` in src/env.d.ts).
  */
 export function isAdminView(locals: App.Locals): boolean {
   return locals.session?.profile?.role === 'admin' && !locals.viewAsVisitor;
@@ -488,11 +422,8 @@ export function requireAdmin(ctx: {
 // ---------------------------------------------------------------------------
 
 /**
- * Set to '1' when ANY visitor (no sign-in needed) toggles "View as
- * Broadcaster" in the footer. While set, src/middleware.ts hides the most
- * recent round from every statistic on the site (see SupabaseEnv.
- * hiddenSubsessionIds in src/lib/supabase.ts) and keeps the response out of
- * the shared edge cache. Read/written in src/middleware.ts and
- * src/pages/api/broadcaster-mode.ts.
+ * '1' while any visitor uses "View as Broadcaster": src/middleware.ts hides the latest round from every
+ * statistic (SupabaseEnv.hiddenSubsessionIds in src/lib/db/client.ts) and skips the edge cache. Set by
+ * api/broadcaster-mode.ts.
  */
 export const BROADCASTER_COOKIE = 'atc_broadcaster';

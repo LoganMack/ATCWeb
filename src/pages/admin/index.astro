@@ -3,16 +3,7 @@ export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
 
-// Same shell-then-spinner split as the public site's awards.astro/
-// champions.astro/etc. (see admin/fragment.astro's own top-of-file comment)
-// — this page used to await seven-plus parallel Supabase queries (every
-// driver/team/news/event/circuit/season/organization row, plus page-view
-// stats and two more counts) right here before sending any HTML, so opening
-// /admin always meant a blank page for however long that round-trip took.
-// Now the shell renders instantly with a loading-cards skeleton below, and
-// admin/fragment.astro is fetched client-side for the actual dashboard, per
-// Logan ("add the loading cards animation to the admin panel so we can
-// access it faster").
+// Dashboard shell: renders at once with a skeleton and fetches admin/fragment.astro for the dashboard.
 ---
 
 <AdminLayout title="Dashboard">
@@ -53,13 +44,9 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       checkResponse: reloadOnRedirect,
     });
 
-    // Reads an analytics response's HTML. If the admin session expired (or the
-    // user lost admin) while this page sat open, middleware answers the
-    // fragment request with a 302 to /login, which fetch() follows silently —
-    // so a "successful" response would be the entire login page, dropped
-    // into the dashboard. Reload instead: middleware then redirects this
-    // real page to /login?next=/admin. The never-settling promise stops the
-    // caller's .then/.catch from flashing anything while the reload happens.
+    // If the session expired, middleware redirects the fragment request to /login and fetch() follows
+    // silently, so the body would be the login page. Reload instead; the never-settling promise keeps
+    // anything from flashing.
     function fragmentHtml(res: Response, label: string): Promise<string> {
       if (res.redirected) {
         window.location.reload();
@@ -69,13 +56,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       return res.text();
     }
 
-    // Site Analytics range buttons (30 Days / 90 Days / 1 Year / All Time) —
-    // they arrive inside the dashboard fragment's innerHTML (whose own
-    // <script>s would never run), so they're handled here by delegation.
-    // Registered once at module level: this bundled script only executes once
-    // per full page load, and a document-level listener survives
-    // view-transition navigations, so re-adding it on every astro:page-load
-    // would stack duplicate handlers.
+    // The analytics range buttons arrive in fragment HTML, whose scripts never run, so one document-level
+    // listener handles them; registered once, since it survives navigations.
     document.addEventListener('click', (event) => {
       const button = (event.target as Element | null)?.closest<HTMLButtonElement>('[data-load-analytics]');
       const section = button?.closest<HTMLElement>('[data-analytics-section]');

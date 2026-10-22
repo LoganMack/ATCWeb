@@ -35,10 +35,7 @@ const { event, featured = false, index = 0, layouts = [], logoBackgrounds = {} }
 const circuitName = event.title ?? event.circuits?.name ?? 'TBA';
 const sessions = featured ? getEventSessions(event) : [];
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 80 });
-// Only the featured card gets its own "Add to Calendar" button — the
-// compact list rows below it are plain links into /calendar (a whole row
-// is itself an <a>), where a nested <button> would be invalid markup and
-// every event already has its own button on the full card there anyway.
+// Only the featured card gets Add to Calendar: the compact rows are links, where a nested button is invalid.
 const icsBlock = featured ? buildEventIcsBlock(event, layouts) : null;
 const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
 ---
@@ -77,10 +74,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
       </div>
     </div>
 
-    {/* A real <table> (no visible borders/header) rather than a flex list —
-        lets the ET time, in-sim time, and detail line up in their own
-        columns across every session row instead of each row's right-hand
-        content just being crammed against its own left edge. */}
+    {/* A borderless <table> so the ET time, in-sim time and detail line up across session rows. */}
     <table class="mt-4 w-full border-separate border-spacing-y-1.5 text-left text-sm">
       <tbody>
         {sessions.map((s) => (
@@ -101,12 +95,8 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
               {s.simTime && `${formatSessionTime(s.simTime)} iRacing`}
             </td>
             <td class="pl-2 align-middle text-white/50">
-              {/* Qualifying's own detail (via getEventSessions) also includes
-                  the qualifying_minutes time length when set, joined with the
-                  laps count — this card only wants the laps count, so it's
-                  re-derived directly from the raw field rather than reusing
-                  that shared, pre-joined string. Every other session's detail
-                  (practice/race laps) is shown as-is. */}
+              {/* This card wants only qualifying's lap count, not the shared detail that also includes its
+                 minutes. */}
               {s.label === 'Qualifying' ? (event.qualifying_laps ? `${event.qualifying_laps} laps` : null) : s.detail}
             </td>
           </tr>
@@ -114,13 +104,8 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
       </tbody>
     </table>
 
-    {/* Event Briefing + Add to Calendar — both only ever render here, i.e.
-        only for the single next upcoming event (index.astro passes
-        featured={i === 0}); every other event on the page gets neither.
-        Event Briefing links to src/pages/briefing/[eventId].astro, which
-        isn't itself access-restricted to only the next event — this is
-        simply the only place in the site that links to it. Placed before
-        "Add to Calendar" per Logan ("to the left of"). */}
+    {/* Event Briefing and Add to Calendar, only on the featured next event; the briefing goes left of Add
+       to Calendar (Logan). */}
     <div class="mt-4 flex flex-wrap items-center gap-2">
       <a
         href={`/briefing/${event.id}`}

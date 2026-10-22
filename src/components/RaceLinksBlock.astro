@@ -1,16 +1,6 @@
 ---
-// Race links (iRacing Results / Replay / Broadcast / Photo Album) — one set
-// per ROUND, not per race (a round's races all share the same iRacing
-// session/broadcast/photo album in practice — see this migration's own
-// header comment on why this used to be modeled per-race:
-// 0007_race_links.sql). Always saved/read against the round's first race
-// number as the canonical row; the table's schema is unchanged, this is
-// just no longer shown/edited per race.
-//
-// Renders as ONE blue "Event Media" icon button (on desktop and mobile alike) that
-// opens a dialog listing the individual link buttons — used to be a row of
-// inline buttons on the first race table's title line. Admins also get an
-// "Edit links" form inside that same dialog.
+// Race links (iRacing Results, Replay, Broadcast, Photo Album), one set per round, stored on the round's
+// first race number. Shown as one "Event Media" button opening a dialog, where admins can also edit them.
 import { iracingResultsUrl } from '../lib/results/format';
 import { isHttpUrl } from '../lib/security';
 import type { RaceLinks } from '../lib/db/rounds';
@@ -43,13 +33,8 @@ const FIELD_LABELS: Record<string, string> = {
   photo_album_url: 'Photo album URL',
 };
 const fieldErrorLabel = fieldError ? FIELD_LABELS[fieldError] ?? null : null;
-// The iRacing Results link is derived, not edited: a real pipeline round's
-// own `subsession_id` IS iRacing's subsession id (always positive), so the
-// button can just link straight to it. A manually-imported round instead
-// carries a synthetic NEGATIVE subsession_id (see raceResultsImport.ts) that
-// means nothing to iRacing, so those fall back to whatever legacy
-// `race_links.iracing_subsession_id` was saved before this field stopped
-// being editable (null when none — no button in that case).
+// A pipeline round's positive subsession_id is iRacing's own, so the link is derived; a manual round's
+// synthetic negative id isn't, so it falls back to a legacy saved `iracing_subsession_id`, or no button.
 const iracingSubsessionId = subsessionId > 0 ? subsessionId : links?.iracing_subsession_id ?? null;
 const hasAnyLink = iracingSubsessionId || links?.replay_url || links?.broadcast_url || links?.photo_album_url;
 const dialogId = `race-links-dialog-${subsessionId}`;
@@ -79,10 +64,8 @@ const dialogId = `race-links-dialog-${subsessionId}`;
       </button>
       <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Event Media</span>
     </span>
-    {/* A native modal <dialog> (same pattern as the site's other dialogs —
-        incidents.astro, admin/rulesets): showModal() renders in the
-        browser's top layer, above the sticky site header (z-50) and every
-        transformed `.reveal` ancestor's own stacking context. */}
+    {/* A native modal <dialog>: showModal() puts it in the top layer, above the sticky header and `.reveal`
+       stacking contexts. */}
     <dialog
       id={dialogId}
       data-race-links-dialog

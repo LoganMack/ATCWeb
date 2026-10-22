@@ -41,11 +41,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Search-only now — the Active/Inactive/All status filter (and the
-    // Status/Founded shared-column toggle it drove) is gone; the current
-    // season's team list is hard-filtered to active teams server-side (see
-    // sortedTeams in the frontmatter above), so there's nothing left to
-    // filter by on the client except the search box.
+    // Search only: the server already lists only active teams for the current season.
     function initTeamFilters() {
       const input = document.getElementById('team-search') as HTMLInputElement | null;
       const list = document.getElementById('team-list');

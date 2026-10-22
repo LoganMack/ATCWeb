@@ -3,13 +3,8 @@ import { resolveSiteLinks } from '../lib/links';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
-// "View as Visitor" — lets a real admin preview the site with all
-// admin-only UI hidden, without actually signing out, to assess how a
-// change looks/behaves for a non-admin. Deliberately checks the REAL role
-// (Astro.locals.isRealAdmin), not the impersonation-aware isAdminView(),
-// so the toggle itself stays visible and clickable to switch back even
-// while a preview is active. See src/lib/auth.ts's isAdminView and
-// src/middleware.ts for how the rest of the site respects this.
+// "View as Visitor" lets a real admin preview the site with admin UI hidden. It checks the real role, not
+// isAdminView(), so the toggle stays visible to switch back.
 const isRealAdmin = Astro.locals.isRealAdmin;
 const viewAsVisitor = Astro.locals.viewAsVisitor;
 const currentPath = `${Astro.url.pathname}${Astro.url.search}`;

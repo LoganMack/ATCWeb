@@ -28,16 +28,8 @@ import { getRoundLayoutsForSubsessions } from './layoutLaps';
 import { getAllRounds, computeDisplayRoundNumbers } from './rounds';
 import { formatMargin } from './format';
 
-// ---------------------------------------------------------------------------
-// Driver race history — every individual race (not season-aggregated) a
-// driver has ever run, powering the driver profile page's race-by-race
-// table (src/pages/drivers/[id].astro). Deliberately a much simpler
-// computation than computeDriverCareerStats above: that function re-derives
-// class-relative standings positions across every driver in a season
-// (needed for wins/podiums/etc.); this one only needs THIS ONE driver's own
-// race_score_results_public + curated_race_results rows, so it never touches
-// the standings engine at all.
-// ---------------------------------------------------------------------------
+// A driver's race-by-race history for the driver profile page. Reads only this driver's rows, so it never
+// runs the standings engine.
 
 export interface DriverRaceHistoryRow {
   subsessionId: number;
@@ -86,35 +78,15 @@ export interface DriverRaceHistoryRow {
   /** The raw curated_rounds.layout text for this specific race (e.g. "Junior", or null when unset) — NOT the same as layoutLabel above, which is trackName plus this value already combined into one display string. Kept separately so the Bests tab can show Track and Layout as two distinct sortable columns rather than having to re-split layoutLabel back apart. Null (rather than "N/A"'s own sentinel — see displayLayoutName) when this round never had a layout value on file at all. */
   roundLayoutText: string | null;
   /**
-   * This layout's curated Track Record (`circuit_layouts.lap_record_seconds`
-   * — the same admin-entered figure shown on the Circuits and Event
-   * Briefing pages, via `resolveLayout`'s same trackName/layout matching
-   * used for `totalCorners` above), in seconds. Per Logan: the Bests tab's
-   * "Track Record" column should read this curated figure, not a freshly
-   * computed "fastest ATC lap on file" — that field can be null (no record
-   * entered yet) or even predate/exceed ATC's own results (see
-   * resolveLapRecordCar's own doc comment), same caveats as everywhere else
-   * on the site this field is shown. Null whenever resolveLayout can't pin
-   * this round to one specific circuit_layouts row, or that row has no
-   * record on file.
+   * The layout's curated Track Record (circuit_layouts.lap_record_seconds) for the Bests tab, not a computed
+   * fastest lap (Logan). Null when the layout can't be resolved or has no record.
    */
   layoutRecordSeconds: number | null;
 }
 
 /**
- * Every race this driver has ever run, most recent first. Exhibition and
- * test rounds are excluded — same "excluded from all statistics" rule
- * every other career/season stat in this file follows (see
- * `isChampionshipSeason`'s own doc comment) — this is a driver's
- * competitive race history, not a literal server log of every session
- * their cust_id ever appeared in.
- *
- * Bulk-fetch-once throughout, same discipline as computeDriverCareerStats:
- * one race_score_results_public query filtered to this driver (however many
- * seasons that spans), one curated_race_results query across the resulting
- * subsession_ids (which also pulls in every OTHER driver's row for those
- * same subsessions — needed to find each race's leader for formatMargin),
- * and one getAllRounds() — never a per-season or per-round loop.
+ * Every championship race this driver has run, most recent first (exhibition and test rounds excluded).
+ * Fetches are bulk: one per table, never per season or round.
  */
 export async function getDriverRaceHistory(
   env: SupabaseEnv,
@@ -175,10 +147,7 @@ export async function getDriverRaceHistory(
     ),
     getLapStatsForSubsessions(env, subsessionIds),
     driversSelect(env, {}),
-    // circuits/circuitLayouts/roundLayouts back the Splits card's CPI stat
-    // (DriverRaceHistoryRow.totalCorners) — same "degrade the one feature,
-    // never the whole page" isolation getSeasonDriverExtendedStats uses for
-    // the identical lookup.
+    // Backs only the CPI stat, so a failure degrades that stat, not the page.
     getCircuits(env).catch((err) => {
       console.error(
         'Failed to fetch circuits for driver race-history corners-per-incident stats — CPI will be omitted:',
@@ -235,10 +204,7 @@ export async function getDriverRaceHistory(
     }
   }
 
-  // Round numbering is scoped per season (see computeDisplayRoundNumbers'
-  // own doc comment and every existing caller) — group ALL rounds (not just
-  // this driver's own) by season once, then number each season's rounds off
-  // its own full round list, exactly like a single-season page would.
+  // Round numbers are per season and depend on all of its rounds, so every round is grouped by season first.
   const roundsBySeason = new Map<string, RoundSummary[]>();
   for (const r of allRounds) {
     if (!roundsBySeason.has(r.season_id)) roundsBySeason.set(r.season_id, []);
@@ -264,24 +230,12 @@ export async function getDriverRaceHistory(
     }),
   );
 
-  // Corners-per-incident numerator (see DriverRaceHistoryRow.totalCorners'
-  // own doc comment) — same resolveLayout-based lookup
-  // getSeasonDriverExtendedStats uses, just keyed across this driver's whole
-  // career's subsessions instead of one season's.
+  // Corners-per-incident numerator, resolved per subsession like getSeasonDriverExtendedStats.
   const cornersBySubsession = new Map<number, number | null>();
-  // See DriverRaceHistoryRow.layoutLabel's own doc comment — this is just
-  // trackName plus curated_rounds.layout (the round's own raw configuration
-  // text, e.g. "Grand Prix"), NOT resolveLayout's resolved circuit_layouts
-  // row (that lookup can fail to match a row at all — see resolveLayout's
-  // doc comment — and this label should still distinguish configurations
-  // even then, straight off the source data).
+  // Track name plus the round's raw layout text, so configurations stay distinct even when resolveLayout
+  // finds no row.
   const layoutLabelBySubsession = new Map<number, string>();
-  // The same resolved circuit_layouts row this loop already looks up for
-  // totalCorners' corner count — also carries lap_record_seconds, the
-  // Bests tab's "Track Record" column (see DriverRaceHistoryRow.
-  // layoutRecordSeconds' own doc comment for why this reuses the curated
-  // figure rather than computing one fresh). No extra fetch: `layout` below
-  // is the one resolveLayout() call this loop already makes per subsession.
+  // The Track Record comes from the same resolved layout row, so no extra fetch.
   const layoutRecordBySubsession = new Map<number, number | null>();
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
@@ -297,15 +251,8 @@ export async function getDriverRaceHistory(
     );
   }
 
-  // Qualifying (see DriverRaceHistoryRow.qualPosition/classQualPosition's own
-  // doc comments) — overall position comes straight off curated_qualifying;
-  // class-relative position is re-derived the same way classPosition is
-  // above, grouping by (subsession, classId) rather than (subsession,
-  // raceNumber, classId) since qualifying is one session per ROUND, not per
-  // race. A driver's class for a round is read off any of their
-  // `classFieldRows` for that subsession (class doesn't change
-  // race-to-race within one round — see getQualifyingForSubsession's own
-  // comment for the same assumption).
+  // Qualifying is one session per round, so class qualifying position groups by (subsession, class); a
+  // driver's class is read from any of their rows in that round.
   const classIdBySubsessionDriver = new Map<string, number>();
   for (const s of classFieldRows) {
     const key = `${s.subsession_id}:${s.driver_id}`;

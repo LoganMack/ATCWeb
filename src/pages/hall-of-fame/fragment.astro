@@ -24,17 +24,8 @@ import {
 import { classTagFull } from '../../lib/classColors';
 
 /**
- * Same shell-then-spinner split as champions/fragment.astro,
- * driver-stats/fragment.astro, and team-stats/fragment.astro —
- * hall-of-fame.astro now only renders the page banner and a loading
- * skeleton, then fetches THIS route client-side for the actual member
- * cards. This is where the expensive computeDriverCareerStats() call
- * (filtered down to Hall of Fame members) plus their photos now live, so
- * it no longer blocks the shell.
- *
- * Returns a bare HTML fragment — no <Layout>, no <html>/<head> — meant only
- * to be dropped into hall-of-fame.astro's results container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * Hall of Fame member cards as a fragment for the hall-of-fame.astro shell (career stats plus photos).
+ * Returns bare HTML; never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -51,11 +42,7 @@ try {
   ]);
   const bioById = new Map(hofDrivers.map((d) => [d.id, d.bio]));
   if (bioById.size > 0) {
-    // Reuses the exact same career-stats computation Driver Stats uses (see
-    // src/lib/results.ts) rather than a separate query, so a Hall of Fame
-    // member's numbers here can never drift from their Driver Stats row —
-    // this just filters that full list down to the marked members
-    // (0027_hall_of_fame.sql / admin/drivers' "Hall of Fame member" toggle).
+    // Driver Stats' own career-stats computation, filtered to members (0027), so the numbers can't drift.
     const [careerStats, allPhotos] = await Promise.all([
       computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds),
       getAllHallOfFamePhotos(supabaseEnv),
@@ -77,11 +64,7 @@ function raceWord(n: number): string {
   return `${n} race${n === 1 ? '' : 's'}`;
 }
 
-// Overall/Alpha/Gamma/Delta stat filter on each card (per Logan) — see the
-// buttons below in the template for the full reasoning. Kept as a plain
-// tuple (not `classes` from getDriverClasses) since these four labels are
-// fixed regardless of what's actually on file, and "Overall" isn't a real
-// driver_classes row to begin with.
+// Fixed labels for the card's stat filter (Logan); "Overall" isn't a driver_classes row.
 const HOF_CLASS_KEYS = ['Overall', 'Alpha', 'Gamma', 'Delta'] as const;
 type HofClassKey = (typeof HOF_CLASS_KEYS)[number];
 
@@ -90,14 +73,8 @@ interface HofExtras {
   defaultClass: HofClassKey;
 }
 
-// Precomputed here (frontmatter), not inline in the template's own
-// members.map() below, because a `Record<HofClassKey, ...>` type
-// annotation written INSIDE a template `{}` expression trips up Astro's
-// compiler — the `<`/`>` of the generic reads as the start of a JSX tag to
-// its expression-boundary scan, corrupting everything after it (reproduced
-// live: adding that one annotated const inside the template map callback
-// broke the whole file's build with an unrelated-looking esbuild parse
-// error many lines later). Plain TS in frontmatter has no such issue.
+// Precomputed in frontmatter: a generic type annotation inside a template expression is misread as a JSX tag
+// and breaks the build.
 const hofExtrasByDriverId = new Map<string, HofExtras>();
 for (const entry of members) {
   const statsByClass: Record<HofClassKey, DriverCareerStats> = {
@@ -107,12 +84,8 @@ for (const entry of members) {
     Delta: aggregateDriverCareerStats(entry.driver, entry.seasons.filter((r) => r.className === 'Delta')),
   };
 
-  // Defaults to whichever class this member has made the most career
-  // starts in — Overall instead if Alpha wins that tiebreak, per Logan
-  // (Alpha is the default/entry class every driver starts in, so it isn't
-  // informative to call out on its own the way a Gamma/Delta specialist's
-  // class is; Overall already covers an Alpha-heavy career same as it
-  // would for anyone else).
+  // Default to the class with the most career starts, but Overall when that is Alpha, the entry class
+  // (Logan).
   let defaultClass: HofClassKey = 'Overall';
   let mostStarts = -1;
   for (const key of ['Alpha', 'Gamma', 'Delta'] as const) {
@@ -170,15 +143,8 @@ if (loadError) markUncacheable(Astro);
                 </h3>
                 <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
 
-                {/* Overall/Alpha/Gamma/Delta stat filter (per Logan) — one
-                    independent toggle per card, pushed to the right end of
-                    the driver-name line via ml-auto. Click handling lives
-                    in src/scripts/hofClassFilter.ts (delegated, scoped to
-                    this card's own [data-hof-card] ancestor); expandRows.ts
-                    has a matching guard so clicking a button here doesn't
-                    also toggle the card's season-table row open/closed
-                    underneath it, same as it already does for PhotoGrid's
-                    lightbox buttons nested the same way. */}
+                {/* Per-card stat filter (Logan), handled by src/scripts/hofClassFilter.ts; expandRows.ts
+                   ignores it so it doesn't toggle the row. */}
                 <select
                   aria-label="Stats class"
                   data-hof-class-select
@@ -192,10 +158,7 @@ if (loadError) markUncacheable(Astro);
 
               {entry.bio && <p class="mt-3 max-w-2xl text-sm text-white/70">{entry.bio}</p>}
 
-              {/* All four class variants render server-side; only the
-                  default one starts visible, and hofClassFilter.ts just
-                  toggles `hidden` on click rather than re-fetching or
-                  re-rendering anything. */}
+              {/* All four variants render; hofClassFilter.ts only toggles `hidden`. */}
               {HOF_CLASS_KEYS.map((key) => (
                 <dl
                   class={`mt-6 grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4 ${key === hof.defaultClass ? '' : 'hidden'}`}

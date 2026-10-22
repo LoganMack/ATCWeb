@@ -1,26 +1,8 @@
 /**
- * Minimal RFC 5545 (iCalendar) generation for the "Add to Calendar" buttons
- * on event cards (EventDetailCard.astro, UpcomingEventCard.astro) and the
- * calendar/homepage's own "add every upcoming event" bulk buttons.
- *
- * Deliberately built server-side, at render time, from data the page has
- * already fetched — no new API route, no client-side network round trip.
- * Each event's VEVENT text is embedded as a data attribute on its card (see
- * those two components); src/scripts/addToCalendar.ts reads it back out
- * client-side, wraps it in a VCALENDAR, and triggers a plain Blob download.
- * That keeps this feature free (no extra Cloudflare Workers CPU/subrequest
- * cost per click — see the Standings page's Error 1102 fix in the same
- * batch as this feature for why that budget is worth protecting) and means
- * a "download every upcoming event" button is just string concatenation of
- * blocks already sitting in the DOM, not a second server computation.
- *
- * Lines here are joined with plain '\n', not RFC 5545's real CRLF — this
- * text's next stop is an HTML attribute (see the components above), and
- * HTML attribute-value normalization collapses any CR/CRLF down to a bare
- * LF on the way through the DOM regardless of what's written here. The
- * client script does the CRLF normalization at the very last step, right
- * before the actual file bytes get produced, so it's the one place that
- * decides that once, correctly, rather than everyone upstream guessing.
+ * Minimal iCalendar (RFC 5545) text for the "Add to Calendar" buttons, built at render time from data the
+ * page already has and embedded on each card; src/scripts/addToCalendar.ts wraps and downloads it, so a click
+ * costs no Worker CPU or request. Lines use '\n' because HTML attributes normalise CR anyway; the client
+ * converts to CRLF last.
  */
 import type { EventWithCircuit } from './db/events';
 import type { CircuitLayout } from './db/circuits';
@@ -61,20 +43,9 @@ function toIcsUtc(iso: string): string {
 }
 
 /**
- * One VEVENT block (no VCALENDAR wrapper — see this file's header) for a
- * single event, or null when there's genuinely no start time to build one
- * from (getEventSessions() found nothing timed — happens for a Test Session
- * saved with no races at all, see 0054_test_session_no_race_required.sql;
- * every other category still always has at least race1_start_time). The
- * card's "Add to Calendar" button just doesn't render when this is null.
- *
- * The block covers every scheduled session (Practice through Race 3) as one
- * calendar entry rather than one entry per session — DTSTART is the
- * earliest known session start, DTEND is the latest known session start
- * plus a flat 2-hour buffer (the pipeline has no actual session-length data
- * reliable enough to compute a real end time from — see EventRecord's
- * *_minutes/*_laps fields, which aren't consistently filled in — so this is
- * a deliberately generous round-trip estimate, not a precise one).
+ * One VEVENT (no wrapper) covering every scheduled session, or null when nothing is timed (a test session
+ * with no races, 0054), in which case the button isn't shown. DTEND is the last session start plus 2 hours,
+ * since session lengths aren't reliably recorded.
  */
 export function buildEventIcsBlock(
   event: EventWithCircuit,
@@ -121,13 +92,8 @@ export function buildEventIcsBlock(
 }
 
 /**
- * Wraps one or more VEVENT blocks (from buildEventIcsBlock, joined with
- * '\n') in a complete VCALENDAR document. Not used by the browser flow
- * (src/scripts/addToCalendar.ts has its own copy, on the client side where
- * the actual download happens — see this file's header) — kept here for
- * any future server-side-only consumer (e.g. an API route) that wants a
- * ready-to-serve .ics without duplicating this shape itself. Normalizes to
- * real CRLF right at the end, same as the client copy does.
+ * Wraps VEVENT blocks in a VCALENDAR with CRLF line ends. Unused by the browser flow (addToCalendar.ts has
+ * its own copy); kept for a server-side consumer.
  */
 export function wrapVCalendar(veventBlocks: string): string {
   const CRLF = '\r\n';

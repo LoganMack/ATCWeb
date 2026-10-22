@@ -1,9 +1,6 @@
-// Report Incident dialog behavior (open/close, submit enabling) — delegated, register-once listeners.
-// Imported by src/pages/results/[subsessionId].astro (the shell), because the dialog markup
-// now renders inside a fetched fragment where <script> tags never execute.
-// One delegated listener set (registered once) so it survives client-side
-// navigations; the submit button stays disabled until Session, Lap, Turn,
-// Description and at least one car are filled in (server re-checks all of it).
+// Report Incident dialog, delegated and bound once; imported by the results shell because the dialog renders
+// in a fetched fragment. Submit stays disabled until Session, Lap, Turn, Description and a car are set (the
+// server re-checks).
 function updateReportSubmit(form: HTMLFormElement) {
   const val = (name: string) =>
     (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';
@@ -42,10 +39,8 @@ function initReportDialog() {
   document.addEventListener('input', onFormChange);
   document.addEventListener('change', onFormChange);
 }
-// The homepage's "Submit Incident Report" link lands here as ?submit=incident:
-// open the Report Incident dialog as soon as the fetched fragment has put it
-// on the page (the loader re-dispatches astro:page-load once it has), then
-// drop the param so a refresh doesn't pop it open again.
+// The homepage's "Submit Incident Report" link arrives as ?submit=incident: open the dialog once the fragment
+// is in, then drop the param so a refresh doesn't reopen it.
 function openDialogFromLink() {
   const url = new URL(window.location.href);
   if (url.searchParams.get('submit') !== 'incident') return;

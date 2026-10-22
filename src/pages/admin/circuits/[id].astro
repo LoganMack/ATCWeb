@@ -56,10 +56,7 @@ function extFromFile(file: File): string {
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'save');
-  // circuit (below) isn't loaded yet at this point in the script — this
-  // POST-handling block runs before that section — so fetch a fresh copy
-  // here for any branch below that needs the circuit's current name for its
-  // activity_log entry.
+  // The circuit isn't loaded yet when the POST runs, so fetch it for the activity log name.
   const circuitForLog = !isNew && id ? await getCircuitById(supabaseEnv, id) : null;
 
   if (intent === 'add-layout' || intent === 'update-layout') {
@@ -191,7 +188,7 @@ if (Astro.request.method === 'POST') {
     const newLogoBg: LogoBackground | null = bgRaw === 'light' || bgRaw === 'dark' ? bgRaw : null;
     const logoBgChanged = (newLogoBg ?? '') !== String(form.get('had_logo_background') ?? '');
 
-    // Map coordinates (0098_circuit_coordinates.sql). Only sent when something is
+    // Map coordinates (00981_circuit_coordinates.sql). Only sent when something is
     // being set or cleared, so saving other fields never touches these columns.
     const latRaw = String(form.get('latitude') ?? '').trim();
     const lngRaw = String(form.get('longitude') ?? '').trim();

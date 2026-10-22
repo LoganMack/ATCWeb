@@ -8,14 +8,8 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Same shell-then-spinner split as driver-stats.astro/team-stats.astro/
-// hall-of-fame.astro — getAllIncidents() (src/lib/incidents.ts) fetches
-// EVERY penalty ever logged across the site's whole history, which is
-// cheaper than computeDriverCareerStats but still not something worth
-// blocking this page's first paint on. This shell only fetches the page
-// banner, renders the tab switcher shell + a loading skeleton, and leaves
-// the actual three tables to incidents/fragment.astro, fetched client-side
-// once this shell has already painted.
+// Shell: only the banner, tab switcher and a skeleton; getAllIncidents() reads every penalty ever logged, so
+// the tables load from incidents/fragment.astro after first paint.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -75,18 +69,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         '<p class="mt-10 text-white/60">Couldn’t load incidents right now — try refreshing the page.</p>',
     });
 
-    // The All Incidents / By Driver / By Offense dropdown switch — see this
-    // file's markup comment above for why this has to be a delegated
-    // listener living in the shell rather than a script inside the
-    // fragment itself. Bound once (module scripts run at most once per
-    // page load, soft navigations included — see expandRows.ts's own doc
-    // comment on this exact pattern), so no re-init guard is needed here
-    // the way per-element setup functions need one.
-    // The "Incident Details" popup for any incident row is handled by
-    // src/scripts/incidentDetails.ts (imported in its own <script> below).
-    // The three-view dropdown switch below is a delegated listener living in
-    // this shell rather than the fragment, for the reason in this file's
-    // markup comment above; bound once, so no re-init guard is needed.
+    // The All / By Driver / By Offense switch: a delegated listener in the shell, since scripts in the
+    // fragment never run; bound once. Row popups are src/scripts/incidentDetails.ts.
     document.addEventListener('change', (e) => {
       const select = (e.target as HTMLElement).closest<HTMLSelectElement>('[data-incidents-select]');
       if (!select) return;

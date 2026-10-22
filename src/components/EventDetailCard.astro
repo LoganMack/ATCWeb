@@ -23,62 +23,24 @@ interface Props {
   event: EventWithCircuit;
   index?: number;
   /**
-   * How many historical rounds have ever been run at this event's own
-   * circuit+layout — see src/lib/results.ts's findRoundsForLayout(). Just
-   * the count, computed ONCE per page (calendar.astro) and passed in per
-   * card rather than fetched here, since a page can show many cards that
-   * repeat the same circuit. The actual round LIST is fetched lazily,
-   * client-side, only when this card's "Race Recaps at this Layout"
-   * summary is first expanded — see /api/layout-rounds.ts and this file's
-   * `data-layout-rounds-summary`/`data-layout-rounds-body` below — so the
-   * page never has to ship rows nobody asked to see. `0` (as opposed to
-   * `undefined`) is a meaningful value here, not just "no data" — it means
-   * this circuit+layout combination has never been raced before, and
-   * renders "This is a new layout!" in this collapsible's place. Optional/
-   * omittable for any future caller that doesn't have this data on hand —
-   * leaving it `undefined` renders neither that message nor the collapsible
-   * (same as any other optional section on this card), rather than a false
-   * "new layout" claim for a layout nobody actually checked. This is also
-   * exactly what calendar.astro now passes for a circuitless HOLIDAY/IRACING
-   * event (0073_holiday_iracing_events.sql) — those have no circuit+layout
-   * at all, so "This is a new layout!" would be a nonsense claim for them;
-   * `0` stays reserved for an event that DOES have a circuit+layout that
-   * genuinely has never been raced.
+   * Past rounds at this circuit+layout (findRoundsForLayout in src/lib/results/layouts.ts), counted once per
+   * page by the caller; the list loads lazily when "Race Recaps at this Layout" opens. 0 shows "This is a new
+   * layout!"; undefined (no data, or a circuitless HOLIDAY/IRACING event) shows neither.
    */
   layoutRoundsCount?: number;
   /**
-   * Which curated_rounds row this specific event represents, if any — see
-   * getEventRound()'s own doc comment in src/lib/results.ts for how this
-   * resolves (season_id+round_number auto-match, or the subsession_id
-   * manual override). Null for an event with no season/round set, one
-   * that's upcoming, or one whose round hasn't had results imported yet.
-   * Computed by the caller (calendar.astro), same "once per page, not once
-   * per card" reasoning as layoutRounds above.
+   * The curated_rounds row this event represents (getEventRound() in src/lib/results/rounds.ts), resolved
+   * once per page by the caller; null when there is none yet.
    */
   linkedRound?: RoundSummary | null;
   /**
-   * This event's "Incident Limit" (e.g. "15x"), resolved from its SEASON's
-   * scoring ruleset — see src/lib/supabase.ts's resolveIncidentLimit() for
-   * the sprint/endurance + race_overrides resolution logic (the same one
-   * results/[subsessionId].astro uses for an already-imported round, just
-   * keyed off the event's own format/season instead of a round's, so it
-   * still resolves for an upcoming event with no imported round yet).
-   * Computed by the caller (calendar.astro), same "once per page, not once
-   * per card" reasoning as layoutRoundsCount above. `null` (as opposed to
-   * `undefined`) means "resolved, but no limit configured" — renders
-   * nothing, same as undefined; the two are functionally identical here
-   * (there's no analogous "0 means something" case like layoutRoundsCount
-   * has), `undefined` is just the default for a caller that hasn't
-   * computed this at all.
+   * The event's Incident Limit (e.g. "15x") from its season's ruleset (resolveIncidentLimit() in
+   * src/lib/db/seasons.ts), so it works before a round is imported. null and undefined both render nothing.
    */
   incidentLimit?: number | null;
   /**
-   * Every circuit_layouts row on file — used to look up this event's own
-   * layout image (by circuit_id + layout name, since events.layout has no
-   * FK) so it can take priority over the circuit's generic logo. Same
-   * "computed/fetched once per page, passed in per card" reasoning as
-   * layoutRounds above. Optional — falls back to just the circuit logo
-   * (the old behavior) if a caller doesn't have this on hand.
+   * Every circuit_layouts row, so the event's own layout image (found by circuit + name) can take priority
+   * over the circuit logo. Optional.
    */
   layouts?: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[];
   /** Circuit id -> light/dark plate behind the track logo (getCircuitLogoBackgrounds). Optional — no plate if a caller doesn't pass it. */
@@ -136,10 +98,8 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
             {FORMAT_LABELS[event.format]}
           </span>
         ) : (
-          // TEST/HOLIDAY/IRACING events don't use the format field at all
-          // (see eventFormatting.ts) — the badge shows the category label
-          // with the same styling the category badge would've used, rather
-          // than a second/duplicate pill below.
+          // Test/Holiday/iRacing events have no format, so this badge shows the category with its styling
+          // instead of a second pill.
           <span class={`${EVENT_TAG_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
             {CATEGORY_LABELS[event.category]}
           </span>
@@ -155,15 +115,8 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
   </div>
 
   {(sessions.length > 0 || event.fuel_limit_pct !== null || event.rules || incidentLimit !== null) && (
-    // Sessions (with their start times), the fuel limit, the free-text
-    // Rules note, and the ruleset-derived Incident Limit are the bulk of
-    // each card's height — with a full month of events in List view that
-    // adds up fast, so this is collapsed by default and only the summary
-    // line shows until a visitor opens it. Native <details>, same pattern
-    // as "Race Recaps at this Layout" below — no JS needed either place.
-    // The results links below stay OUTSIDE this collapse and always
-    // visible. Add to Calendar sits further down, sharing a line with the
-    // "Race Recaps at this Layout" summary — see that block below.
+    // Sessions, fuel limit, rules note and incident limit make up most of a card's height, so they sit in a
+    // native <details>, collapsed by default. The results links stay outside it.
     <details class="group mt-5">
       <summary class="cursor-pointer list-none text-sm font-semibold text-white/60 transition hover:text-white">
         <span

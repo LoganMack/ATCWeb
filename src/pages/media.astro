@@ -7,13 +7,8 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
-// this file only fetches the page banner and paints the heading plus a
-// loading skeleton right away. The tab bar and the tab's content (videos,
-// photos, posters, replays, meetups) live in media/fragment.astro and are
-// fetched client-side once this shell has painted. The page's scripts (grid
-// search, album thumbnails, the meetup map) stay here, bound per-element at
-// astro:page-load, because a <script> inside fetched HTML never executes.
+// Shell: fetches only the banner and paints a skeleton; tabs and content come from media/fragment.astro. The
+// scripts stay here, bound per element on astro:page-load, because scripts in fetched HTML never run.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let bannerUrl: string | null = null;
@@ -48,14 +43,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Shared client-side search for the Videos, Posters, and Replays tabs —
-    // each renders a plain grid or list of already-server-rendered
-    // `[data-search]` items (never more than one of these search inputs
-    // exists on a given page load, since `tab` is a real server-side query
-    // param, not a client-side toggle), so this is just show/hide filtering,
-    // same pattern as driver-stats.astro's own search box. Meetups gets its
-    // own handler (see the dot-map script below) since map pins can't be
-    // hidden with a CSS class the way a grid/list item can.
+    // Show/hide search for the Videos, Posters and Replays tabs (one per page, since `tab` is a server query
+    // param). Meetups has its own, since map pins can't be hidden with a class.
     function initGridSearch(inputId: string, gridId: string, emptyId: string | null) {
       const input = document.getElementById(inputId) as HTMLInputElement | null;
       const grid = document.getElementById(gridId);
@@ -76,18 +65,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       });
     }
 
-    // Graphics tab's "Round Photo Albums" list (src/pages/media.astro,
-    // above) renders each card with a plain placeholder div — there's no
-    // synchronous thumbnail the way YouTube broadcasts get one, since
-    // Flickr has no predictable per-album image URL (see
-    // /api/photo-album-thumbnail's own doc comment). This fetches one small
-    // JSON response per album and swaps the placeholder for a real <img>
-    // if a thumbnail comes back; a Flickr link with no resolvable thumbnail
-    // (or a non-Flickr album URL) just keeps its placeholder, same as a
-    // broadcast video whose URL didn't parse. Re-running this against
-    // already-swapped cards is harmless — replaceWith() removes the
-    // placeholder from the DOM, so it simply won't match `[data-album-thumb]`
-    // a second time.
+    // Swaps each album placeholder for the thumbnail from /api/photo-album-thumbnail, when one comes back.
+    // Safe to re-run: swapped placeholders are gone.
     function initAlbumThumbnails() {
       document.querySelectorAll<HTMLElement>('[data-album-thumb]').forEach((el) => {
         const albumUrl = el.dataset.albumUrl;
@@ -116,15 +95,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </script>
 
   <script>
-    // Meetups map: the shared dot-matrix world map (src/scripts/dotMap.ts), the
-    // same one the Calendar's Map view uses — no tile server or third-party script.
-    // Pins come from the fragment's #meetup-pins JSON element. Hovering a pin shows
-    // a short tooltip; clicking one lists its meetup(s) under the map (photo,
-    // location and date, who attended). The search box above filters the pins.
-    //
-    // This tab's content is swapped in by the client router, so binding happens on
-    // astro:page-load and is guarded per element; a failed attempt releases the
-    // guard so the next page-load can retry.
+    // Meetups map: the shared dot map (src/scripts/dotMap.ts) with pins from the fragment's #meetup-pins
+    // JSON; clicking lists the meetups under the map, and the search filters pins. Bound on astro:page-load
+    // with a per-element guard that a failed attempt releases.
     interface MeetupPin {
       title: string;
       locationLabel: string | null;

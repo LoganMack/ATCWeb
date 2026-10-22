@@ -8,18 +8,9 @@ import { getPageBanners } from '../../lib/db/assets';
 import { bannerUrlFor } from '../../lib/pageBanners';
 import PageBanner from '../../components/PageBanner.astro';
 
-// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
-// this file paints the frame, the back link and a loading skeleton right away;
-// everything that needs the round's data — results, penalties, ruleset,
-// incident-report state, the admin/incident POST handling — lives in
-// [subsessionId]/fragment.astro and is fetched client-side once this shell has
-// painted. The fragment's forms POST straight to the fragment (which owns that
-// handling) and redirect back here.
-//
-// The dialog/countdown scripts below used to live inside their components;
-// those components now render inside the fetched fragment, where <script> tags
-// never execute, so the scripts are loaded here instead (all are delegated,
-// register-once listeners that don't need their elements to exist yet).
+// Shell: paints the frame, back link and a skeleton; [subsessionId]/fragment.astro holds the round's data and
+// POST handling (its forms post to it and redirect here). The dialog and countdown scripts load here, because
+// scripts in fetched HTML never run; they are delegated, register-once listeners.
 const subsessionId = Astro.params.subsessionId;
 
 // Only the round's name, for the <title> and link-preview (Discord/Slack)

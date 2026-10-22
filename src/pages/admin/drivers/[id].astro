@@ -62,23 +62,9 @@ function extFromFile(file: File): string {
   return map[file.type] ?? 'png';
 }
 
-// car_number, status_id, is_rookie, appearances/starts/seasons_count/
-// penalty_points(-max), car, and team_id are all deliberately absent here —
-// see the template for why each one is no longer a plain form field:
-//   - car_number: goes through setDriverCarNumber() separately below, not
-//     a plain field on this payload, since it needs the conflict-resolution
-//     logic that function implements (see its own doc comment)
-//   - status_id: fully automatic (sync_driver_statuses(), called from the
-//     Drivers list page)
-//   - is_rookie: fully automatic (sync_rookie_status()) — every new driver
-//     starts a rookie (set directly in the create call below), and it's
-//     only ever cleared by that sync, never set here
-//   - appearances/starts/seasons_count/penalty_points/penalty_points_max:
-//     only ever computed by other logic (results/penalties pages)
-//   - car: "totally irrelevant" per Logan — determined by race results, not
-//     something this roster record should claim to know in advance
-//   - team_id: team roster assignment lives solely on the Teams admin page
-//     now, not duplicated here
+// Not plain form fields: car_number (setDriverCarNumber() resolves conflicts), status_id and is_rookie
+// (automatic syncs), the computed counters and PP, car (comes from results, Logan) and team_id (set on the
+// Teams page).
 function readForm(form: FormData): Partial<DriverRecord> {
   const iratingRaw = String(form.get('starting_irating') ?? '').trim();
   const custIdRaw = String(form.get('iracing_cust_id') ?? '').trim();
@@ -86,18 +72,11 @@ function readForm(form: FormData): Partial<DriverRecord> {
     name: String(form.get('name') ?? '').trim(),
     class_id: Number(form.get('class_id')),
     starting_irating: iratingRaw ? Number(iratingRaw) : null,
-    // The only column that actually links this driver to their real race
-    // results (see supabase.ts's DriverRecord.iracing_cust_id and
-    // raceResultsImport.ts's syncResultsWithRoster) — editable here mainly
-    // so a mistakenly-created duplicate from that sync can be fixed by hand
-    // (move the id onto the correct existing driver, delete the duplicate)
-    // rather than needing a direct database edit.
+    // The link to the driver's race results; editable so a duplicate created by "Sync Results with Roster"
+    // can be fixed by hand.
     iracing_cust_id: custIdRaw ? Number(custIdRaw) : null,
     bio: String(form.get('bio') ?? '').trim() || null,
-    // Only ever present on the edit form (see template) — absent on create
-    // just reads back as false/null here, which are exactly the right
-    // defaults for a driver who was never on probation and has no override
-    // sign-up date typed in yet.
+    // Edit form only; absent on create, giving the right defaults.
     on_probation: form.get('on_probation') === 'on',
     probation_started_at: String(form.get('probation_started_at') ?? '').trim() || null,
     is_hall_of_fame: form.get('is_hall_of_fame') === 'on',
@@ -115,12 +94,7 @@ function readCarNumber(form: FormData): number | null {
   return raw ? Number(raw) : null;
 }
 
-/**
- * File upload takes priority over the fallback URL field, which takes
- * priority over leaving the existing photo untouched. There's no "clear the
- * photo" affordance here (both being empty just means "don't change it") —
- * a driver going photo-less isn't something this form needs to support.
- */
+/** Upload first, then the URL field, else keep the photo; clearing a photo isn't supported. */
 async function resolvePhotoUrl(
   form: FormData,
   pathId: string,
@@ -143,11 +117,8 @@ const [statuses, classes, seasons] = await Promise.all([
 ]);
 const newStatusId = statuses.find((s) => s.name === 'New')?.id ?? statuses[0]?.id;
 
-// Which classes existed in a given season — Alpha has always existed;
-// Gamma/Delta are opt-in per season (see seasons.gamma_enabled/
-// delta_enabled, 0037_class_and_scoring_fixes.sql). Powers both the radio
-// options below and server-side validation that a submitted class_id
-// actually existed in the season it's being set for.
+// Classes in a season: Alpha always, Gamma/Delta per season (0037). Used for the options and to validate a
+// submitted class.
 function classesForSeason(season: Season) {
   return classes.filter(
     (c) => c.name === 'Alpha' || (c.name === 'Gamma' && season.gamma_enabled) || (c.name === 'Delta' && season.delta_enabled)
@@ -216,15 +187,8 @@ if (Astro.request.method === 'POST') {
           if (!carNumberRaw || !Number.isFinite(seasonCarNumber) || seasonCarNumber < 0) {
             seasonNumberError = 'Enter a valid car number.';
           } else {
-            // Validate against every OTHER driver's EFFECTIVE number for
-            // this season — their own override if they have one for this
-            // season, else their current drivers.car_number — not just
-            // other explicit overrides, since an unedited driver's current
-            // number is still "the number they used that season" as far as
-            // this check is concerned. The table's own unique(season_id,
-            // car_number) constraint (0044_driver_season_car_numbers.sql)
-            // is the hard backstop; this is just what turns that into a
-            // readable error instead of a raw constraint violation.
+            // Check against every other driver's effective number this season (override, else current number)
+            // for a readable error; unique(season_id, car_number) (0044) is the backstop.
             const [allDriversBasic, seasonCarNumbers] = await Promise.all([
               getDriversBasic(supabaseEnv),
               getDriverSeasonCarNumbersForSeason(supabaseEnv, seasonId),
@@ -276,10 +240,7 @@ if (Astro.request.method === 'POST') {
       data.iracing_cust_id !== undefined &&
       (await getDriversForCustIdCheck(supabaseEnv)).some((other) => other.iracing_cust_id === data.iracing_cust_id && other.id !== id)
     ) {
-      // Two drivers rows sharing one iracing_cust_id would make
-      // score_round()'s join match BOTH of them against the
-      // same raw curated_race_results row, double-counting that result —
-      // see getDriversForCustIdCheck's own doc comment.
+      // Two drivers with one cust_id would both match the same result and double-count it.
       error = `iRacing Customer ID ${data.iracing_cust_id} is already assigned to another driver.`;
     } else {
       try {
@@ -292,13 +253,8 @@ if (Astro.request.method === 'POST') {
             error = 'Failed to upload that photo.';
           }
           if (!error) {
-            // Created with no car_number — set separately below via
-            // setDriverCarNumber() so the same conflict-resolution logic
-            // (block if held by anyone not Inactive, free it up if they
-            // are) applies on creation exactly like it does on every later
-            // edit, instead of a plain insert bypassing it. is_rookie:true
-            // and today's sign_up_date are set directly here since neither
-            // is a visible field on the create form (see the template).
+            // Created without a car_number, which is set next through setDriverCarNumber() so creation
+            // follows the same conflict rule. is_rookie and today's sign_up_date aren't on the create form.
             const created = await createDriver(supabaseEnv, accessToken, {
               ...data,
               status_id: newStatusId,
@@ -309,11 +265,7 @@ if (Astro.request.method === 'POST') {
             try {
               await setDriverCarNumber(supabaseEnv, accessToken, created.id, carNumber);
             } catch (numErr) {
-              // Driver row already exists at this point (no real
-              // cross-request transaction here, same tradeoff this
-              // codebase already accepts elsewhere, e.g. setCurrentSeason).
-              // Land them on the new driver's own edit page instead of a
-              // dead end, so fixing the number is a one-field retry.
+              // The driver exists already (no transaction), so land on their edit page to retry the number.
               return Astro.redirect(
                 `/admin/drivers/${created.id}?error=${encodeURIComponent(numErr instanceof Error ? numErr.message : String(numErr))}`,
                 302
@@ -337,21 +289,12 @@ if (Astro.request.method === 'POST') {
             error = 'Failed to upload that photo.';
           }
           if (!error) {
-            // Car number set FIRST, deliberately — it's the one part of
-            // this save that can fail on a conflict (see
-            // setDriverCarNumber's own doc comment), and this driver row
-            // already exists either way, so checking/claiming the number
-            // before touching anything else means a conflict blocks the
-            // whole save atomically instead of silently committing the
-            // other field changes (name, bio, etc.) while only the number
-            // change gets rejected.
+            // The number first: it's the part that can fail, and a conflict should block the whole save
+            // rather than commit the other fields.
             await setDriverCarNumber(supabaseEnv, accessToken, id, carNumber);
             await updateDriver(supabaseEnv, accessToken, id, {
               ...data,
-              // sign_up_date isn't in readForm's return (it's edit-only,
-              // read separately here) — only overwritten if the field was
-              // actually present on this form (it always is on the edit
-              // page), so this never accidentally blanks it.
+              // Edit-only field, read separately; only written when present.
               sign_up_date: String(form.get('sign_up_date') ?? '').trim() || null,
               photo_url,
             });
@@ -448,26 +391,13 @@ try {
   console.error('Failed to load driver settings for inactivity note:', err);
 }
 
-// Countdown note — same "both configured thresholds since their last race"
-// rule sync_driver_statuses() itself uses (see driver_last_race's own doc
-// comment / 0041_driver_settings.sql). Both thresholds have to be crossed —
-// whichever takes longer is effectively what's being waited on. Always the
-// same "progress toward both thresholds" wording/format regardless of
-// which threshold(s) are already met — a single-line, semicolon-separated
-// summary — rather than switching to different phrasing per case, which
-// just made an already-simple status harder to scan for no real benefit.
-// Only meaningful for New/Active (Veteran is exempt; Inactive already IS
-// inactive) and only once the driver actually exists (a not-yet-created
-// driver has no id to look up race history for).
+// Countdown toward both inactivity thresholds since the last race (sync_driver_statuses(), 0041), in one
+// consistent line. Only for New/Active drivers that exist.
 let inactivityNote: string | null = null;
 if (!isNew && driver) {
   const lastRace = statusName === 'New' || statusName === 'Active' ? await getDriverLastRace(supabaseEnv, driver.id) : null;
-  // Only needed for the no-races-yet branch (a driver with sign_up_date set
-  // but no lastRace.last_race_at) — buildInactivityNote ignores this param
-  // entirely once lastRace.last_race_at is set, so skip the fetch otherwise.
-  // Real officially-scored rounds (matching sync_driver_statuses()'s own
-  // never-raced-driver definition), not calendar events — see
-  // roundsSinceDate's doc comment in lib/supabase.ts.
+  // Only for a driver who has never raced: officially scored rounds since sign-up (roundsSinceDate in
+  // src/lib/db/drivers.ts).
   let roundsSinceSignup: number | null = null;
   if (!lastRace?.last_race_at && driver.sign_up_date) {
     try {
@@ -480,10 +410,7 @@ if (!isNew && driver) {
   inactivityNote = buildInactivityNote(statusName, lastRace, inactivityDays, inactivityRounds, driver.sign_up_date, roundsSinceSignup);
 }
 
-// Live "is this number taken?" lookup — fetched once, matched client-side
-// as the admin types (see the script below), rather than a round trip per
-// keystroke. Excludes this driver's own current number so editing a driver
-// without changing their number never flags itself as a conflict.
+// Taken-number lookup fetched once and matched as the admin types, excluding this driver's own number.
 const numberLookup = (await getDriversForNumberCheck(supabaseEnv)).filter((r) => r.id !== d.id);
 
 let profileNameById = new Map<string, string>();

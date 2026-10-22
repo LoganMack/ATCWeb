@@ -1,11 +1,7 @@
 /**
- * DOCUMENTED SIMPLIFICATIONS (deliberately out of scope for this pass):
- *   - Rule 58 (DSQ instead of reset if the PP limit is hit in the season's
- *     final round) and rule 62 (10-round ban for hitting the limit again
- *     while already on probation) aren't automated — both describe
- *     real-world consequences this app has nowhere to track or enforce.
- *     The admin UI surfaces a note when either applies so stewards handle
- *     it manually.
+ * Not automated (no place to track or enforce them): rule 58 (DSQ instead of a reset when the PP limit is hit
+ * in the final round) and rule 62 (10-round ban for hitting it again on probation). The admin UI shows a note
+ * so stewards handle them by hand.
  */
 
 import { effectivePenaltyPoints, type PenaltyLike } from './effective';
@@ -22,24 +18,9 @@ export interface DriverPPState {
 }
 
 /**
- * Whether a driver's probation is still in effect as of `today` (defaults
- * to right now). Rule 61: "Probation lasts for either N rounds or M days,
- * whichever is longer" — confirmed with Logan that "rounds" means every
- * scheduled calendar round, not just ones this driver actually starts, so
- * this counts events rather than race_score_results appearances. Requiring both
- * conditions to clear (probationDays elapsed AND probationRounds qualifying
- * rounds passed) is equivalent to "whichever threshold is later."
- *
- * probationDays/probationRounds default to the rulebook's original 45/4
- * (rule 61), but as of 0041_driver_settings.sql they're admin-editable from
- * the "Driver Settings" panel above the admin Drivers list —
- * src/pages/roster.astro (the only real caller) loads them from
- * site_settings and passes them through, so the defaults here only apply if
- * a future caller forgets to.
- *
- * Probation runs on this independent calendar clock regardless of season
- * boundaries — only the PP tally that triggers it (computeSeasonPPState) is
- * season-scoped.
+ * Whether probation is still in effect on `today`. Rule 61: N rounds or M days, whichever is longer; "rounds"
+ * are scheduled calendar rounds, not this driver's starts (Logan). Defaults are the rulebook's 45/4; the
+ * admin values (0041) are passed in. Runs on its own clock across seasons.
  */
 export function isOnProbationNow(
   driver: { on_probation: boolean; probation_started_at: string | null },
@@ -73,11 +54,8 @@ export interface ApplyPPResult {
 }
 
 /**
- * Applies one penalty's PP award to a driver's running tally, doubling it
- * first if they're currently mid-probation (rule 60), and triggers the
- * hard-reset-to-0 + enter/renew-probation behavior once the total reaches
- * the limit (confirmed with Logan: any amount over the limit is simply
- * discarded, not carried over).
+ * Adds one penalty's PP to the tally, doubled while on probation (rule 60); reaching the limit resets to 0
+ * and starts or renews probation, discarding any excess (Logan).
  */
 export function applyPenaltyPointsToDriver(
   driver: DriverPPState,
@@ -113,36 +91,10 @@ export interface SeasonPPState {
 }
 
 /**
- * Recomputes a driver's PP TALLY from scratch by replaying every penalty
- * logged against them THIS SEASON, in entry order — rather than
- * incrementally mutating a stored counter on each new penalty (the
- * v0.13/v0.14 approach). Replaying means:
- *   - PP is season-scoped (confirmed with Logan: "penalty points... should
- *     be season-scoped, not career-scoped") — a penalty from a previous
- *     season isn't in `penalties`' input list, so it can't contribute here,
- *     however long ago the tally was last touched.
- *   - Editing or deleting a penalty correctly ripples through: since this
- *     always starts the tally from 0 and replays the current set of season
- *     penalties, there's no separate "undo" step — the caller just re-runs
- *     this and persists the result after any mutation.
- *   - Doubling-during-probation (rule 60) still applies correctly even
- *     retroactively, since each step checks whether probation was active
- *     AS OF that specific penalty's created_at.
- *
- * Probation itself is NOT reset to this function's season scope — it's
- * seeded from `driver`'s ACTUAL on_probation/probation_started_at, since
- * rule 61 probation runs its own 45-day/4-round calendar clock independent
- * of season boundaries. A driver whose probation was triggered by a penalty
- * from a PREVIOUS season and is still active today must stay on probation
- * here; replaying only this season's penalties must never silently clear
- * that. If none of this season's penalties push the tally to a fresh
- * limit-hit, the returned on_probation/probation_started_at just pass the
- * seed through unchanged.
- *
- * `penalties` should be pre-filtered to this driver and the current season
- * by the caller (getPenaltiesForSubsessions + getCurrentSeasonRounds in
- * src/lib/supabase.ts / src/lib/results.ts) — this function doesn't filter
- * itself.
+ * A driver's season PP tally, replayed from 0 over this season's penalties in entry order, so PP stays
+ * season-scoped (Logan), edits and deletions need no undo, and probation doubling (rule 60) is judged as of
+ * each penalty. Probation is seeded from the driver's stored state, since it outlives seasons. `penalties`
+ * must already be filtered to this driver and season.
  */
 export function computeSeasonPPState(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },
@@ -155,14 +107,9 @@ export function computeSeasonPPState(
 type ProbationSeed = { on_probation: boolean; probation_started_at: string | null };
 
 /**
- * The probation a season replay starts from. The stored probation is the
- * driver's latest one, so when replaying `penalties` from scratch arrives at
- * that same start date, these penalties produced it and the replay re-derives
- * it at the right penalty — seeding it as well would double everything logged
- * before it began (probation_started_at is a date, so isOnProbationNow can't
- * tell apart penalties logged earlier that same day). Any other stored
- * probation (a previous season's, or one set by hand on the driver page) is
- * kept as the seed, per the doc comment above.
+ * The probation a season replay starts from. When the replay reaches the stored start date itself, these
+ * penalties produced it, so seeding it too would double everything before it (the start is only a date). Any
+ * other stored probation is kept as the seed.
  */
 function probationSeed(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },
@@ -222,15 +169,10 @@ export interface RoundPPSummary {
 }
 
 /**
- * One driver's season PP going into and coming out of one round — the
- * Incident Report's cumulative summary table. Replays `earlierPenalties` (the
- * season's rounds before this one) the same way computeSeasonPPState does,
- * then this round's own penalties one at a time so it can tell whether they
- * were doubled or hit the limit. Both lists should already be filtered to
- * this driver. The ordering is by round, then entry order within a round —
- * computeSeasonPPState orders the whole season by entry time alone, so the
- * two only disagree when an earlier round's penalty was logged after a later
- * round's.
+ * One driver's season PP before and after one round, for the Incident Report summary: earlier rounds replayed
+ * like computeSeasonPPState, then this round's penalties one by one to see doubling and limit hits. Ordered
+ * by round, then entry; differs from computeSeasonPPState only when an earlier round's penalty was logged
+ * after a later one's.
  */
 export function computeRoundPPSummary(
   driver: { penalty_points_max: number; on_probation: boolean; probation_started_at: string | null },

@@ -33,11 +33,8 @@ const loadTeams = async () => {
   }
 };
 
-// Season picker — which season's rosters/logos to show (defaults to
-// whichever season is marked current). Fetched up front (rather than inside
-// loadRoster below, as it used to be) so both the season <select> in the
-// template and the roster/logo/founded-date computations below can all use
-// the same resolved `selectedSeason`.
+// Seasons, fetched first so the picker and the roster, logo and founded-date loads share `selectedSeason`
+// (current season by default).
 let seasons: Season[] = [];
 const loadSeasons = async () => {
   try {
@@ -47,11 +44,8 @@ const loadSeasons = async () => {
   }
 };
 
-// Current roster (drivers.team_id — the same "current team" every driver's
-// profile shows, not the season-scoped team_rosters table) grouped by team
-// NAME (getDrivers's embedded `teams` has no id, just name/color/logo — see
-// its own doc comment), so the search box below can match on a team's
-// current member names too.
+// Current members by team name (from drivers.team_id; getDrivers' embedded team has no id), so search also
+// matches member names.
 let memberNamesByTeamName = new Map<string, string[]>();
 const loadMemberNames = async () => {
   try {
@@ -66,10 +60,7 @@ const loadMemberNames = async () => {
   }
 };
 
-// Drivers list, needed to resolve the roster's driver_id entries into
-// displayable rows (name/car number) — independent of everything else, so
-// it's fetched alongside the rest in the first Promise.all below rather than
-// nested inside the (now season-dependent) roster load.
+// Drivers, to turn roster driver_ids into rows; independent, so fetched in the first batch.
 let driversBasic: DriverBasic[] = [];
 const loadDriversBasic = async () => {
   try {
@@ -86,11 +77,8 @@ await Promise.all([loadTeams(), loadSeasons(), loadMemberNames(), loadDriversBas
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
-// Which season's rosters/logos to show — a `?season=` query param (set by
-// the <select> below, GET-submitted so the whole page re-renders server-side
-// same as the admin team editor's identical season picker) falling back to
-// whichever season is marked current.
-// Same Championships / Exhibitions split as the Race Results season picker.
+// `?season=` from the GET-submitted picker, else the current season; split into Championships and Exhibitions
+// like the Race Results picker.
 const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
 const exhibitionSeasons = seasons.filter((s) => !isChampionshipSeason(s.name));
 const currentSeason = seasons.find((s) => s.is_current) ?? seasons[0] ?? null;
@@ -98,15 +86,8 @@ const requestedSeasonId = Astro.url.searchParams.get('season');
 const selectedSeason = (requestedSeasonId ? seasons.find((s) => s.id === requestedSeasonId) : undefined) ?? currentSeason;
 const isPastSeason = !!selectedSeason && selectedSeason.id !== currentSeason?.id;
 
-// The roster columns, sourced from the season-scoped team_rosters table for
-// whichever season is selected above — deliberately NOT the same
-// drivers.team_id list used for search above, since a driver's "current
-// team" field can drift out of sync with which season roster they were
-// actually locked into (team_rosters is the source of truth the scoring
-// engine itself uses for team eligibility). Most seasons cap teams at 3
-// drivers, but some historical seasons allowed 4 — rather than tracking that
-// as a per-season flag, it's just read off the data: if any team's roster
-// for the selected season has a 4th entry, a 4th driver column is shown.
+// Roster columns from the selected season's team_rosters (what scoring trusts), not drivers.team_id. Most
+// seasons allow 3 drivers, some 4; a 4th column appears when any roster has a 4th entry.
 let rosterByTeamId = new Map<string, DriverBasic[]>();
 const loadSeasonRoster = async () => {
   if (!selectedSeason) return;
@@ -127,11 +108,7 @@ const loadSeasonRoster = async () => {
   }
 };
 
-// Contemporary logo for the selected season — team_season_logos holds
-// historical overrides (see admin team edit page's "Logos by Season"); a
-// team with no override on file for this season just falls back to its
-// current logo_url (the common case, including for the current season,
-// which normally has no override at all).
+// The selected season's logo override (team_season_logos), else the current logo_url.
 let logoOverrideByTeamId = new Map<string, string>();
 const loadSeasonLogos = async () => {
   if (!selectedSeason) return;
@@ -145,21 +122,9 @@ const loadSeasonLogos = async () => {
   }
 };
 
-// "Founded" date (see the current-season table's Founded column below):
-// this team's EARLIEST actually-raced round, resolved by cross-referencing
-// EVERY season this team ever had a team_rosters entry for (regardless of
-// which season is currently selected above — this is deliberately season
-// AGNOSTIC) against that season's own earliest curated_rounds.start_time.
-// Deliberately NOT seasons.start_date — every season row in this database
-// currently has start_date left null (an unpopulated column, not a data
-// error specific to any one season), which used to make this whole
-// computation silently no-op and fall back to teams.created_at for nearly
-// every team, showing a "Founded" date that was really just whenever that
-// team's DB row happened to be (re)created — often a recent bulk-import
-// timestamp with nothing to do with the team's actual history. Falls back
-// to teams.created_at only when a team has no roster history with any
-// resolvable round date at all (a brand-new team with no rounds on file
-// yet) — see Team.created_at's own doc comment in supabase.ts.
+// "Founded": the team's earliest raced round across every season it had a roster, regardless of the selected
+// season. seasons.start_date is never filled in, so it isn't used; teams.created_at is the fallback for a
+// team with no raced rounds.
 let earliestRaceDateByTeamId = new Map<string, string>();
 const loadFoundingDates = async () => {
   try {
@@ -180,10 +145,7 @@ const loadFoundingDates = async () => {
   }
 };
 
-// These three all depend on `selectedSeason`/`seasons` resolved just above
-// (loadFoundingDates doesn't, strictly, but is kept alongside its two
-// siblings here for the same "independent, run together" reasoning), but
-// not on each other, so they still run concurrently rather than in series.
+// Independent of each other, so they run together.
 await Promise.all([loadSeasonRoster(), loadSeasonLogos(), loadFoundingDates()]);
 
 function foundedDateFor(team: Team): string {
@@ -210,12 +172,8 @@ function formatFoundedDate(iso: string): string {
 }
 
 /**
- * Splits a display name into its first token and everything after it, so
- * the mobile roster columns below can stack a driver's first name above
- * their last (or "middle last", for a 3-part name — this only ever splits
- * once, on the FIRST space) rather than letting the whole name wrap
- * mid-word in a column this narrow. Desktop keeps the normal single-line
- * "First Last #Number" — this is mobile-only, per Logan.
+ * Splits a name at its first space so the narrow mobile roster columns stack first name over the rest
+ * (Logan); desktop keeps one line.
  */
 function splitFirstName(fullName: string): { first: string; rest: string } {
   const trimmed = fullName.trim();
@@ -224,18 +182,8 @@ function splitFirstName(fullName: string): { first: string; rest: string } {
   return { first: trimmed.slice(0, spaceIdx), rest: trimmed.slice(spaceIdx + 1) };
 }
 
-// Only teams with drivers on the roster for the selected season are shown.
-// A team's "active" status is no longer a separate stored flag an admin sets
-// by hand (see admin/teams/[id].astro) — having at least one driver on the
-// CURRENT season's roster now IS the definition of active, so the single
-// roster-membership filter below already does double duty: for the current
-// season it's exactly "active teams only" (an inactive team simply has no
-// current-season roster entry, so it drops out here on its own), and for a
-// PAST season it correctly leaves every team that actually raced that season
-// in, regardless of whether they're still fielding cars today — that's a
-// fixed historical fact, not something "active" should retroactively hide.
-// Once loaded, clicking a column header (src/scripts/sortable-table.ts)
-// re-sorts the whole table client-side.
+// Only teams with drivers on the selected season's roster: for the current season that is exactly the active
+// teams; past seasons keep every team that raced. Headers sort client-side (sortable-table.ts).
 const sortedTeams = teams
   .filter((team) => (rosterByTeamId.get(team.id)?.length ?? 0) > 0)
   .sort((a, b) => a.name.localeCompare(b.name));
@@ -299,10 +247,7 @@ if (loadError) markUncacheable(Astro);
                   whole row; desktop shows it as before. Still gated on
                   !isPastSeason. */}
               {!isPastSeason && <th class="hidden py-3 pr-4 font-medium sm:table-cell" data-sort-key="founded">Founded</th>}
-              {/* Mobile: hidden (sm:table-cell) — a driver list is instead
-                  reached by tapping a row to expand it (chevron +
-                  [data-expand-row]/[data-detail-row], src/scripts/
-                  expandRows.ts). Desktop renders these exactly as before. */}
+              {/* Hidden on mobile, where tapping a row expands its driver list instead. */}
               <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 1</th>
               <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 2</th>
               <th class="hidden py-3 pr-4 font-medium sm:table-cell">Driver 3</th>
@@ -375,14 +320,8 @@ if (loadError) markUncacheable(Astro);
                     );
                   })}
                 </tr>
-                {/* Mobile-only driver list, reached by tapping the row above
-                    -- replaces the always-visible driver columns there (see
-                    those columns' own comment). `sm:hidden` here is
-                    permanent (unlike the `hidden` class, which
-                    expandRows.ts toggles on click) -- it stacks with
-                    `hidden` so that even if this row's aria-expanded state
-                    were ever toggled true at a desktop width, it still can
-                    never actually render at sm+, no matter what. */}
+                {/* Mobile-only driver list for the row above; `sm:hidden` stays even when expandRows.ts
+                   removes `hidden`, so it never shows at sm+. */}
                 <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs sm:hidden">
                   <td colspan={!isPastSeason ? 2 : 1} class="px-4 py-4">
                     <div class="text-[10px] uppercase tracking-wide text-white/30">Drivers</div>

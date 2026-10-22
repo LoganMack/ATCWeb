@@ -1,11 +1,7 @@
 ---
 /**
- * Share Kudos dialog — opened by any [data-open-kudos-dialog] button on the
- * round's Kudos page. Same layout as ReportIncidentDialog.astro (Session /
- * Lap / Turn on one row on sm+, then Description, Clip link and Cars
- * Involved), plus an optional clip link. Posts to the Kudos fragment
- * (`intent=submit-kudos`), which re-validates everything server-side.
- * Only rendered for signed-in users.
+ * Share Kudos dialog for [data-open-kudos-dialog] buttons, laid out like ReportIncidentDialog.astro plus a
+ * clip link; posts `intent=submit-kudos` (re-validated server-side). Signed-in users only.
  */
 interface Props {
   sessionOptions: { value: string; label: string }[];

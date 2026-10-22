@@ -14,26 +14,15 @@ import { buildDriverPageGroups } from '../../../lib/driverPage/groups';
 import { incidentDriverLabel } from '../../../lib/driverPage/helpers';
 
 /**
- * The expensive part of the driver profile page — see drivers/[id].astro's
- * own doc comment for the full shell/fragment split explanation.
- * computeDriverCareerStats() in particular recomputes standings for every
- * driver across every season/class just to pick one driver's rows back out
- * (the same cost hall-of-fame/driver-stats already pay), which is what was
- * making this page slow.
- *
- * Returns a bare HTML fragment — no <Layout>, no header — meant only to be
- * dropped into drivers/[id].astro's results container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * The driver profile's expensive part as a fragment for the drivers/[id].astro shell:
+ * computeDriverCareerStats() computes every driver's standings to pick out one. Returns bare HTML; never
+ * linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
-// Hall of Fame status is threaded through from the shell (drivers/[id].astro)
-// as a query param rather than re-fetched here — this fragment has no
-// access to that page's in-memory `driver` row (see this file's own doc
-// comment above), and it's cheaper than a second profile lookup for one
-// boolean. Shown as its own pinned row atop the Awards card below instead
-// of a header badge.
+// Hall of Fame status comes from the shell as a query param (cheaper than another lookup) and is pinned atop
+// the Awards card.
 const isHallOfFame = Astro.url.searchParams.get('hof') === '1';
 
 const {
@@ -61,17 +50,8 @@ if (loadError) markUncacheable(Astro);
   <>
   <div class="mt-8 grid gap-8 lg:grid-cols-3">
     <div class="flex flex-col gap-8 lg:col-span-2">
-      <!-- Seasons / Races / Splits / Bests — one card, four tabs, instead of
-           three separate always-visible collapsible cards (plus the new
-           Bests tab) per Logan. Same delegated tab-button pattern as
-           incidents.astro's All Incidents / By Driver / By Offense switch —
-           see that file's own markup comment for why the click listener has
-           to live in the shell (drivers/[id].astro) rather than a <script>
-           here: this fragment is injected via `container.innerHTML =`, and
-           a <script> tag added that way never executes. Splits' own
-           internal Overall/Class radio toggle and per-split-type <details>
-           are untouched by this — only the outer "three separate cards"
-           shell became "one card, tab-selected panels." -->
+      <!-- Seasons / Races / Splits / Bests: one card with four tabs (Logan). The tab click listener lives
+           in the shell, because scripts in innerHTML never run. -->
       <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4" data-driver-tabs>
         <div class="mb-3 flex flex-wrap gap-2" role="tablist">
           <button
@@ -82,10 +62,7 @@ if (loadError) markUncacheable(Astro);
             data-active="true"
             class="btn btn-neutral"
           >
-            {/* No separate color class on this count — it inherits whatever
-                color the tab-switch script gives its parent button (white
-                when active, white/60 when not), so it doesn't stay dim after
-                this tab becomes the active one. Same for every count below. */}
+            {/* No colour class: the count inherits the tab button's active/inactive colour. */}
             Seasons <span>({career?.seasons.length ?? 0})</span>
           </button>
           <button
@@ -160,18 +137,8 @@ if (loadError) markUncacheable(Astro);
                   return (
                     <tr class="border-b border-white/5">
                       <td class="py-2 pr-2 font-semibold text-white/90" data-col="season" data-sort-value={r.season?.number ?? ''}>
-                        <!--
-                          Trophy is absolutely positioned inside a
-                          permanently-reserved left gutter (pl-4 on this
-                          span), not a flex sibling of the season name — a
-                          flex layout would push the name itself further
-                          right on trophy rows only, misaligning every
-                          season name in the column depending on whether
-                          that particular row won a championship. Reserving
-                          the gutter unconditionally means the name always
-                          starts at the same x whether or not a trophy is
-                          drawn into it.
-                        -->
+                        <!-- The trophy sits in a reserved left gutter, so season names line up whether or
+                             not a row has one. -->
                         <span class="relative inline-block pl-4">
                           {/* Not r.season.is_current — no trophy for a still-in-progress
                               season's current P1, per Logan (same gate the Awards card
@@ -291,28 +258,10 @@ if (loadError) markUncacheable(Astro);
                     </td>
                     <td class="py-2 pr-2 text-center text-white/70" data-col="start">{r.classStartingPosition ?? r.startingPosition ?? '—'}</td>
                     <td class="py-2 pr-2 text-center text-white/90" data-col="finish" data-sort-value={r.dsq ? 9999 : (r.classPosition ?? r.finishPosition)}>
-                      <!--
-                        The penalty asterisk is absolutely-positioned off the
-                        RIGHT edge of a relatively-positioned wrapper sized
-                        to the number alone, rather than sitting inline next
-                        to it — an inline asterisk widens the centered
-                        content every time it toggles on/off, shifting the
-                        number's own visual center (same class of bug the NC
-                        tag used to have here, and that ResultsTable.astro's
-                        header comment describes for the driver-name case).
-                        Taking the asterisk out of flow like this means
-                        Tailwind's centering only ever measures the number.
-                        The number itself is this driver's CLASS-relative
-                        finish (classPosition), not the raw overall running
-                        order — see DriverRaceHistoryRow.classPosition's doc
-                        comment in results.ts for why those two differ for
-                        anyone not in Alpha. data-sort-value above mirrors
-                        the same number (DSQ pushed to the bottom of an
-                        ascending sort via a large sentinel) so the asterisk
-                        glyph itself never leaks into the sort comparison —
-                        see sortable-table.ts's own doc comment for why that
-                        matters.
-                      -->
+                      <!-- The asterisk is positioned off a wrapper sized to the number, so it never
+                           shifts the centred number. The number is the class-relative finish;
+                           data-sort-value mirrors it (DSQ sorts last), so the glyph never affects
+                           sorting. -->
                       <span class="relative inline-block">
                         {r.dsq ? <span class="text-brand-pink">DSQ</span> : (r.classPosition ?? r.finishPosition)}
                         {r.wasAdjusted && (
@@ -338,43 +287,16 @@ if (loadError) markUncacheable(Astro);
         )}
         </div>
 
-        <!-- Splits: per-Month/Round/Car aggregate stats. Each split group is
-             its own nested collapsible (default collapsed), independent of
-             the other four and of the outer panel's own tab visibility. The
-             Overall/Class toggle below is pure CSS (paired radio inputs +
-             Tailwind's peer-checked variant, same "no JS needed" approach as
-             the <details> collapses) — this fragment is injected via
-             `innerHTML` by drivers/[id].astro, and a <script> tag added that
-             way never executes, so both row sets are rendered once up front
-             and the toggle just switches which one is visible.
-
-             Each mode's row-set is its own independent DOM subtree (below),
-             so a <details> a visitor opens under Overall isn't the same
-             element as its counterpart under Class — CSS alone can't keep
-             them showing the same open/closed state across a toggle. Each
-             <details> here carries data-split-name (matching by split group
-             name, e.g. "Month"), and drivers/[id].astro's shell script (the
-             one place a <script> in this page actually runs — see above)
-             mirrors open/closed state between the two same-named elements on
-             every toggle event, so opening either one opens both. -->
+        <!-- Splits by Month/Round/Car, each a collapsed <details>. The Overall/Class toggle is pure CSS
+             (peer-checked radios) because scripts in this fragment never run, so both row sets render;
+             the shell script mirrors open/closed state between same-named <details> (data-split-name). -->
         <div data-driver-panel="splits" class="hidden">
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
           <>
-            <!--
-              The radios, labels, hint text, and both row-set <div>s below
-              are all deliberately kept as DIRECT siblings of one another
-              (all children of this one flex-wrap container) — Tailwind's
-              peer-checked variant only ever matches a TRUE sibling of the
-              checked input via CSS's `~` combinator, not "a sibling of an
-              ancestor," so nesting the radios inside their own wrapper row
-              would silently break every peer-checked reference below.
-              `w-full` on the two content divs is what pushes them onto
-              their own line within this same flex-wrap row, giving a
-              normal-looking "toggle row, then content" layout without
-              actually nesting anything.
-            -->
+            <!-- The radios, labels and both row sets must be direct siblings: peer-checked only matches
+                 true siblings. `w-full` puts the row sets on their own line. -->
             <div class="mb-3 flex flex-wrap items-center gap-1 text-xs">
               <input type="radio" name="splits-mode" id="splits-mode-overall" class="peer/overall sr-only" checked />
               <input type="radio" name="splits-mode" id="splits-mode-class" class="peer/class sr-only" />
@@ -516,10 +438,7 @@ if (loadError) markUncacheable(Astro);
         )}
         </div>
 
-        <!-- Bests: one row per layout this driver has ever raced, sorted
-             alphabetically by track then layout — see the layoutBests
-             computation above for exactly how Personal Best/Track Record are
-             derived. -->
+        <!-- Bests: one row per layout raced, by track then layout (see layoutBests). -->
         <div data-driver-panel="bests" class="hidden">
         {layoutBests.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
@@ -562,16 +481,8 @@ if (loadError) markUncacheable(Astro);
         )}
         </div>
 
-        <!-- Incidents: every steward-logged incident this driver appears in
-             at all (penalized party OR just tagged as involved), newest
-             first — see driverIncidents' own doc comment above for where
-             this comes from (getAllIncidents()'s byDriver rollup, the same
-             source History → Incidents' By Driver tab reads). "Penalized"
-             shows who actually took the PP/time/points on THIS incident —
-             brighter/bold when it was this driver themselves (the common
-             case), dimmer when it was someone else and this driver is only
-             tagged as involved (e.g. the other car in a contact incident
-             that got judged in their favor). -->
+        <!-- Incidents this driver is penalised in or involved in, newest first (driverIncidents).
+             "Penalized" is bright when it was this driver, dim when someone else took the penalty. -->
         <div data-driver-panel="incidents" class="hidden">
         {driverIncidents.length === 0 ? (
           <p class="text-sm text-white/40">No incidents on file yet.</p>

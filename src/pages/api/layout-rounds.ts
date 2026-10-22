@@ -9,36 +9,14 @@ import { findRoundsForLayout, type LayoutRoundSummary } from '../../lib/results/
 export const prerender = false;
 
 /**
- * JSON endpoint behind the calendar page's "Race Recaps at this Layout"
- * collapsible (src/components/EventDetailCard.astro + calendar.astro's own
- * client script) — returns the LIST of historical rounds run at one event's
- * circuit+layout (see findRoundsForLayout(), src/lib/results.ts), the same
- * list calendar.astro used to compute up front for every event on the page.
- *
- * Deliberately lazy/per-event rather than computed server-side for every
- * event card: with a full month of events (each potentially matching dozens
- * of historical rounds at a repeated circuit), eagerly rendering every
- * round's <details> for every card was measured to add hundreds of DOM
- * nodes to the page that most visitors never open — the exact "ships work
- * nobody asked for" problem src/pages/api/round-recap/[subsessionId].ts
- * already solved one level down (the recap CONTENT within a round). This
- * route does the same thing one level up, for the round LIST itself:
- * fetched client-side only once a visitor actually expands a given event's
- * "Race Recaps at this Layout" summary.
- *
- * No admin gating — this is the same publicly-viewable round history the
- * calendar page already lists for anyone, just computed on demand instead
- * of unconditionally for every event up front.
+ * The round list for an event's "Race Recaps at this Layout" (findRoundsForLayout() in
+ * src/lib/results/layouts.ts), fetched when a visitor expands it, because rendering every list for every
+ * event added hundreds of unused DOM nodes. Public data.
  */
 export const GET: APIRoute = async ({ url, locals }) => {
   const circuitId = url.searchParams.get('circuitId');
   const layoutParam = url.searchParams.get('layout');
-  // A missing `layout` query param and an event with a genuinely null
-  // layout both mean the same thing here (no specific layout name on
-  // file) — the URLSearchParams API can't distinguish "absent" from
-  // "present but empty" on its own, so an empty string is also treated as
-  // null, matching how EventDetailCard/calendar.astro already pass
-  // event.layout (string | null) through.
+  // A missing or empty `layout` both mean no layout name.
   const layout = layoutParam && layoutParam.length > 0 ? layoutParam : null;
 
   if (!circuitId) {
@@ -54,10 +32,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
       getCircuits(supabaseEnv),
       getAllCircuitLayouts(supabaseEnv),
       getAllRounds(supabaseEnv),
-      // Needed so findRoundsForLayout can populate each round's
-      // displayRoundNumber (the recap title's "Round X") — see that
-      // function's own doc comment for why these are optional there but
-      // required for this specific caller to get real numbers back.
+      // So each round gets its display "Round X".
       getExhibitionRoundIds(supabaseEnv),
       getTestRoundIds(supabaseEnv),
     ]);
@@ -80,10 +55,7 @@ export const GET: APIRoute = async ({ url, locals }) => {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        // Same short edge cache as round-recap — this list only changes
-        // when a new round is imported or a circuit/layout is edited,
-        // both rare — so repeat expand-clicks stay cheap without
-        // meaningfully risking staleness.
+        // Short edge cache, as for round-recap: the list rarely changes.
         'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=600',
       },
     });

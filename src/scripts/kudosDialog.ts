@@ -1,9 +1,6 @@
-// Share Kudos dialog behavior (open/close, submit enabling) — same pattern as
-// reportIncidentDialog.ts: delegated, register-once listeners, imported by the
-// Kudos page shell (src/pages/results/[subsessionId]/kudos.astro) because the
-// dialog markup renders inside a fetched fragment where <script> tags never
-// execute. The submit button stays disabled until Session, Lap, Turn and at
-// least one car are filled in (the server re-checks all of it).
+// Share Kudos dialog, delegated and bound once like reportIncidentDialog.ts; imported by the Kudos shell
+// because the dialog renders in a fetched fragment. Submit stays disabled until Session, Lap, Turn and a car
+// are set (the server re-checks).
 function updateKudosSubmit(form: HTMLFormElement) {
   const val = (name: string) =>
     (form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement | null)?.value.trim() ?? '';

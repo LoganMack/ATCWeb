@@ -1,11 +1,7 @@
 /**
- * Post-race "media pen" interviews (0109_race_interviews.sql).
- *
- * A signed-in user linked to a roster driver records up to INTERVIEW_MAX_SECONDS
- * of audio on a round's results page; the browser posts the clip to the results
- * fragment (`intent=submit-interview`), which uploads it to the private
- * 'race-interviews' bucket and records it through submit_race_interview. Admins
- * list and play them under Admin > Interviews.
+ * Post-race "media pen" interviews (0109). A driver-linked user records up to INTERVIEW_MAX_SECONDS on the
+ * results page; the fragment uploads it to the private 'race-interviews' bucket and records it via
+ * submit_race_interview. Admins play them under Admin > Interviews.
  */
 
 import { restGetAuthed, type SupabaseEnv } from './db/client';

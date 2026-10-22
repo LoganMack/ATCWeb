@@ -1,11 +1,7 @@
 /**
- * Edge-cache key rules for src/middleware.ts.
- *
- * The key keeps only the query parameters a route actually reads, so
- * `?x=<random>` can't force an uncached render. Shell pages forward their whole
- * query string to their fragment, so a shell lists its fragment's parameters
- * too. A route missing from this list is cached under its bare path: add its
- * parameters here whenever a cacheable page starts reading a new one.
+ * Edge-cache key rules for src/middleware.ts. The key keeps only the query parameters a route reads, so
+ * `?x=<random>` can't force an uncached render; shells list their fragment's parameters too. Add a route's
+ * new parameters here, or it is cached under its bare path.
  */
 
 const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [

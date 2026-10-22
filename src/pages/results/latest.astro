@@ -4,15 +4,9 @@ export const prerender = false;
 import { resolveSupabaseEnv, restGet } from '../../lib/db/client';
 
 /**
- * Permanent link to the most recent round's results page: /results/latest.
- *
- * Redirects (302, never 301 — the destination changes every round) to
- * /results/<subsessionId> for the round with the newest start_time in
- * curated_rounds, carrying over any query string (?category=qualifying,
- * ?view=class, …). Goes through restGet with the env from
- * resolveSupabaseEnv(Astro.locals), so a visitor with "View as Broadcaster"
- * on is sent to the latest round they're actually allowed to see, not the
- * hidden one. A static route, so it takes priority over [subsessionId].
+ * /results/latest: 302 (the target changes every round) to the newest round's results, keeping the query
+ * string. Uses the request's env, so "View as Broadcaster" sends visitors to the latest round they may see.
+ * Static, so it wins over [subsessionId].
  */
 const env = resolveSupabaseEnv(Astro.locals);
 

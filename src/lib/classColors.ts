@@ -1,9 +1,6 @@
 /**
- * Alpha = blue, Gamma = pink, Delta = gold — matches the site-wide
- * primary/secondary/tertiary color hierarchy (see tailwind.config.mjs).
- * Originally lived only in DriverRow.astro for the Roster's class badge;
- * pulled out here so the race-results pages can color-code their new CLASS
- * column the same way instead of re-implementing the mapping.
+ * Alpha = blue, Gamma = pink, Delta = gold, following the primary/secondary/tertiary brand order
+ * (tailwind.config.mjs). Shared so every class badge colours the same way.
  */
 export const CLASS_BADGE_COLOR: Record<string, string> = {
   Alpha: 'text-brand-blue',
@@ -21,24 +18,17 @@ export function classTextColorClass(className: string): string {
 }
 
 /**
- * Single-letter shorthand for a class badge ("Alpha" -> "A") — for tight
- * inline spaces where the full class name competes with a name/flag/car
- * number on one line (see the per-driver badges in team-stats/fragment.astro's
- * expanded roster). Colors still come from classBadgeClasses; this only
- * shortens the label.
+ * "Alpha" -> "A", for tight inline spots such as the team-stats roster badges; colours still come from
+ * classBadgeClasses.
  */
 export function classBadgeLetter(className: string): string {
   return className.charAt(0).toUpperCase();
 }
 
 /**
- * Shared shape for every class tag on the site (plain bold text — no border or fill, per Logan), so they can never drift
- * apart again: always bold + uppercase, and a FIXED width per variant —
- * every full-name pill ("ALPHA"/"GAMMA"/"DELTA") is the same width as every
- * other full-name pill, and every one-letter pill ("A"/"G"/"D") is the same
- * width as every other one-letter pill. Text is centered in that fixed width.
- * Full literal class strings (Tailwind's JIT only sees names verbatim in
- * source).
+ * Shared shape for every class tag (plain bold uppercase text, per Logan) with one fixed width per variant,
+ * so full-name and one-letter tags each line up. Full literal class strings, since Tailwind only sees names
+ * verbatim.
  */
 const CLASS_TAG_BASE =
   'inline-flex flex-none items-center justify-start py-0.5 font-bold uppercase tracking-wide';

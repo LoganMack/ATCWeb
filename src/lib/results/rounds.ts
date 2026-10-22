@@ -20,32 +20,14 @@ export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {
 
 /** Every round across every season, most recent first — powers the "link to a round" picker on the news post editor (src/pages/admin/news/*), which needs to search/pick across all of history rather than one season at a time. One query rather than N getRoundsForSeason() calls, since a per-season loop would be exactly the kind of N+1 this file's header already warns against on pages that list many seasons at once. */
 export function getAllRounds(env: SupabaseEnv) {
-  // restGetAll — this app now has enough seasons/rounds on file (and
-  // computeDriverCareerStats reuses this exact function for its own
-  // whole-history fetch) that a plain restGet risks silently truncating at
-  // Supabase's default 1000-row response cap instead of erroring. See
-  // restGetAll's own doc comment.
+  // restGetAll: there are enough rounds that a plain restGet could silently stop at Supabase's 1000-row cap.
   return restGetAll<RoundSummary>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`);
 }
 
 /**
- * Just the start_time of every officially-scored round — the minimal slice
- * of curated_rounds needed to count "rounds since date X" the same way
- * sync_driver_statuses() does for its never-raced-driver Inactive check
- * (0063_driver_never_raced_inactivity.sql's `curated_rounds.status =
- * 'official'` branch). Paired with supabase.ts's roundsSinceDate() to power
- * the "X/12 rounds absent" half of a New driver's inactivity tooltip
- * (buildInactivityNote) on the roster, driver profile, and admin drivers
- * pages.
- *
- * Deliberately NOT the same source as isOnProbationNow()'s own "rounds
- * since date X" clock (src/lib/penalties.ts), which counts calendar events
- * instead — that's an intentional difference for probation (a driver can't
- * outlast probation just because results haven't been imported yet), but
- * the inactivity rule's own DB-side automation only ever looks at real,
- * officially-scored rounds, so this display has to match that or it'll
- * claim a driver has "fulfilled the requirements" to go Inactive before the
- * database actually agrees and flips them.
+ * Start times of officially scored rounds, for the "X/12 rounds absent" inactivity tooltip, counted the way
+ * sync_driver_statuses() does (0063). Probation (isOnProbationNow in src/lib/penalties/penaltyPoints.ts)
+ * counts calendar events instead; inactivity must match the database rule or the tooltip runs ahead of it.
  */
 export function getOfficialRoundStartTimes(env: SupabaseEnv) {
   return restGetAll<{ start_time: string }>(
@@ -75,23 +57,9 @@ export async function getMostRecentRound(env: SupabaseEnv): Promise<RoundSummary
 }
 
 /**
- * Resolves an admin-scheduled Event to whichever curated_rounds row (real or
- * manually-imported) represents it, if any exists yet — live, with no stored
- * link (see events.season_id/round_number/subsession_id's own comments in
- * 0035_events_rounds_categories.sql). Two resolution paths, tried in the
- * order the migration's column comments prefer:
- *
- * 1. season_id + round_number auto-matching — curated_rounds.round_number's
- *    OWN numbering (set by the real iRacing pipeline), not the site's
- *    computed-for-display "Round N" (see computeDisplayRoundNumbers below —
- *    a different number entirely). Only populated for real pipeline
- *    imports; the manual CSV importer always leaves it null, which is fine
- *    since TEST/EXHIBITION events (what that importer's rounds tend to back)
- *    are season-agnostic and don't use this path anyway.
- * 2. subsession_id — the manual admin override/pin, used as a fallback when
- *    auto-matching isn't applicable (season-agnostic events, with no
- *    round_number to match on) or found nothing (auto-matching applies in
- *    principle but no matching round has been imported yet).
+ * Resolves an admin-scheduled event to its curated_rounds row, live (0035_events_rounds_categories.sql).
+ * First by season_id + the pipeline's own round_number (not the display "Round N"; manual imports leave it
+ * null), then by the admin-pinned subsession_id.
  */
 export async function getEventRound(env: SupabaseEnv, event: EventRecord): Promise<RoundSummary | null> {
   if (event.season_id && event.round_number != null) {
@@ -106,16 +74,9 @@ export async function getEventRound(env: SupabaseEnv, event: EventRecord): Promi
 }
 
 /**
- * Recomputes each round's displayed "Round N" number, chronological within
- * the season, skipping any round that's an exhibition or a test session —
- * either flagged individually (`round_overrides`) or, for exhibitions only,
- * because the whole season isn't a real championship (see
- * `isChampionshipSeason` — a test-flagged round is always inside an
- * otherwise-real season, there's no such thing as a whole "test season").
- * Per Logan: flagging round 1 as an exhibition (or a test) should make round
- * 2 become "Round 1", not leave a gap — Test Sessions follow the exact same
- * rule Exhibitions already did. Returns null for an excluded round; the UI
- * shows "Exhibition"/"Test" instead of "Round N" for those.
+ * Each round's displayed "Round N", chronological within the season, skipping exhibition and test rounds
+ * (flagged per round, or a non-championship season) so no gap is left (Logan). Null for an excluded round,
+ * which the UI labels "Exhibition" or "Test".
  */
 export function computeDisplayRoundNumbers(
   rounds: RoundSummary[],

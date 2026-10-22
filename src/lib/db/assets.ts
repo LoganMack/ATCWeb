@@ -38,15 +38,9 @@ export async function getDistinctDriverCarNames(env: SupabaseEnv): Promise<strin
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
-// --- Page banners (see 0024_season_logos_and_page_banners.sql) -----------
-//
-// One optional background image per public page, keyed by a stable
-// `page_key` the app itself defines (see src/lib/pageBanners.ts for the
-// full list) — not a foreign key to anything, just a natural key like
-// car_logos' car_name. A page with no row here renders with no banner
-// (plain black, matching the site's dark background — see PageBanner.astro
-// and the homepage hero for how each renders that "nothing configured"
-// state).
+// --- Page banners (0024_season_logos_and_page_banners.sql) ---
+// One optional background image per public page, keyed by the app's own `page_key` (src/lib/pageBanners.ts).
+// No row means no banner.
 
 export interface PageBannerRow {
   page_key: string;
@@ -74,17 +68,9 @@ export function deletePageBanner(env: SupabaseEnv, accessToken: string, pageKey:
   return restDelete(env, accessToken, `page_banners?page_key=eq.${encodeURIComponent(pageKey)}`);
 }
 
-// --- Site settings (see 0026_site_settings.sql) ---------------------------
-//
-// A generic key/value table for one-off, site-wide values that don't have
-// a natural table of their own — unlike page_banners above, these aren't
-// per-page. Current use: the driver probation/inactivity thresholds (see
-// src/lib/siteSettings.ts for the key constants), managed from the "Driver
-// Settings" panel above the admin Drivers list. The table used to also hold
-// a manually-pasted 'featured_broadcast_url' for the homepage; that's gone
-// now (see 0087_remove_featured_broadcast_setting.sql) — the homepage
-// derives its broadcast embed automatically instead, from whichever race
-// result most recently had a broadcast link attached.
+// --- Site settings (0026_site_settings.sql) ---
+// Key/value table for one-off site-wide values; today the driver probation/inactivity thresholds (keys in
+// src/lib/siteSettings.ts).
 
 export interface SiteSettingRow {
   setting_key: string;
@@ -111,11 +97,8 @@ export async function upsertSiteSetting(env: SupabaseEnv, accessToken: string, d
 // --- Storage (team logos, driver photos, page banners, import spreadsheets) -
 
 /**
- * Uploads a file to a public Storage bucket and returns its public URL.
- * `x-upsert: true` lets re-uploading to the same path (e.g. replacing a
- * team's logo) overwrite in place instead of erroring. 'imports' (see
- * 0051_activity_log.sql) holds the raw spreadsheet behind each bulk import,
- * so its activity_log row can offer a direct download link back to it.
+ * Uploads to a public Storage bucket and returns the public URL; `x-upsert` overwrites in place. The
+ * 'imports' bucket (0051) keeps each bulk import's spreadsheet for its activity log download link.
  */
 export async function uploadToStorage(
   env: SupabaseEnv,

@@ -85,26 +85,14 @@ export interface RaceResultRow {
   laps: number | null;
   lapsLed: number | null;
   /**
-   * General-purpose result tags, e.g. "Unclassified" (finished under 50% of
-   * the leader's laps — driven by `race_score_results.classified`, not re-derived
-   * here). Deliberately a list rather than one string so a future tag (e.g.
-   * a penalty) can sit alongside it — replaces the old single `reasonOut`
-   * ("disconnected"-style) field, which added little value.
+   * Result tags such as "Unclassified" (taken from `race_score_results.classified`). A list so more tags can
+   * sit beside it.
    */
   tags: string[];
   /**
-   * Gap to the leader. Formatted "xx.xxx" (seconds) normally; "—" for the
-   * leader themselves (a 0.000 gap) or when there's no interval on record;
-   * "-xL" when the raw interval is negative, which iRacing uses to flag a
-   * driver who finished one or more laps down (x = leader's laps_complete
-   * minus this driver's) rather than a real time gap.
-   *
-   * "The leader" here means whichever leader this row's own view cares
-   * about: the race's leader for an Overall-view row, or that row's own
-   * class leader for a Per Class-view (byClass) row — the two are built as
-   * separate row objects, so the same driver's margin can legitimately read
-   * differently in each view. In a race with penalties the reader may see,
-   * it includes them (raceDisplay.ts).
+   * Gap to this view's leader (the race leader in Overall, the class leader in Per Class, so one driver's
+   * margin can differ between views): "xx.xxx" seconds, "—" for the leader or no interval, "-xL" when
+   * iRacing's negative interval means laps down. Includes visible penalties (raceDisplay.ts).
    */
   margin: string;
   /** The gap to the race leader in ten-thousandths of a second (negative = laps down). */
@@ -117,7 +105,10 @@ export interface RaceResultRow {
   team: { name: string; logoUrl: string | null } | null;
   /** The car this driver used for this specific race (`curated_race_results.car_name`), or null if not recorded. */
   car: { name: string; logoUrl: string | null } | null;
-  /** "1:42.512"-formatted average lap the race (see `formatLapTime` in src/lib/supabase.ts), from `curated_race_results.average_lap_ten_thousandths` (isolated fetch, see getLapStatsForSubsessions) — "—" when the pipeline hasn't got this for this driver/race. */
+  /**
+   * "1:42.512"-formatted average lap (`formatLapTime` in src/lib/db/circuits.ts) from an isolated fetch
+   * (getLapStatsForSubsessions); "—" when the pipeline has none.
+   */
   averageLapFormatted: string;
   /** Raw ten-thousandths-of-a-second value averageLapFormatted is formatted from — kept unformatted, same reasoning as intervalTenThousandths, so applyPenaltyDisplay can do exact integer math with it (rule 18.3.2's "own laps × own average lap") rather than round-tripping through the display string. Null when there's no data. */
   averageLapTenThousandths: number | null;
@@ -135,16 +126,9 @@ export interface RaceResultRow {
   /** Raw ten-thousandths-of-a-second value overallRaceTimeFormatted is formatted from — same reasoning as averageLapTenThousandths. Null when there's no data to compute it from. */
   overallRaceTimeTenThousandths: number | null;
   /**
-   * True for an entrant who actually raced this round (present in
-   * curated_race_results, the raw results pipeline data) but has no
-   * matching row in `drivers` at all — scoring joins to `drivers`, so a
-   * cust_id with no roster entry never gets a scored row and would
-   * otherwise vanish from this round's results entirely (see
-   * toUnrosteredRow). Only ever true in the Overall view — there's no way
-   * to know what class an unrostered entrant belongs to, so they can't be
-   * placed in any per-class view. Never scored: every points field above is
-   * 0. Its position is the next one the rostered rows leave free, in raw
-   * order (see fillUnrosteredPositions).
+   * An entrant who raced but has no `drivers` row, so scoring never produced a row for them. Overall view
+   * only (their class is unknown), never scored, placed in the next position the rostered rows leave free
+   * (fillUnrosteredPositions).
    */
   notInRoster: boolean;
 }
@@ -159,13 +143,9 @@ export interface RoundResults {
 }
 
 /**
- * Race-by-race results for one round, both grouped by class and as a single
- * overall field per race — the results page lets visitors toggle between the
- * two. Positions, points and (for a re-ordered race) gaps come from
- * race_score_results_public, so they already include the round's penalties
- * whenever the reader may see them (BR4.1, BR4.2). Rows stay in their raw
- * finishing order, as the results page has always listed them; a moved row
- * shows its new position beside the struck-through old one.
+ * Race-by-race results for one round, by class and overall. Positions, points and re-ordered gaps come from
+ * race_score_results_public, penalties included when the reader may see them (BR4.1, BR4.2). Rows keep raw
+ * finishing order; a moved row shows its new position beside the struck-through old one.
  */
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
   const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames, penalties] =
@@ -317,13 +297,8 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
   }
 
   /**
-   * A row for an entrant who actually raced this round but has no matching
-   * `drivers` row at all — see RaceResultRow.notInRoster's own doc comment
-   * for the mechanism. Deliberately mirrors toRow() above wherever real data
-   * exists for them (car, laps, margin, average/best lap all come straight
-   * from the same raw pipeline row every scored driver's row is built from)
-   * and zeroes out everything that would otherwise require a scored row to
-   * exist (points, team, pole/finesse/aggression bonuses, class).
+   * A row for an entrant with no `drivers` row (see RaceResultRow.notInRoster): real race data as in toRow(),
+   * with points, team, bonuses and class zeroed.
    */
   function toUnrosteredRow(raw: CuratedRaceResultRow, position: number | null, oldPosition: number | null): RaceResultRow {
     const lapStatsRow = lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id));

@@ -7,14 +7,8 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Shell-then-skeleton split (same pattern as champions.astro / incidents.astro):
-// this file only fetches the page banner and paints the heading plus a loading
-// skeleton right away; the roster itself (drivers, current teams, probation and
-// inactivity status — several Supabase round trips) lives in
-// roster/fragment.astro and is fetched client-side by the loader script below.
-// The roster's own filter/search/row-link scripts also live here, since a
-// <script> inside fetched HTML never executes — they bind to the fragment's
-// elements when its astro:page-load re-dispatch fires.
+// Shell: fetches only the banner and paints a skeleton; the roster loads from roster/fragment.astro. Its
+// filter, search and row-link scripts stay here, because scripts in fetched HTML never run.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let bannerUrl: string | null = null;
@@ -114,19 +108,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       if (state.status === 'Unassigned') return row.dataset.unassigned === 'true';
       if (state.status === 'All') return true;
       if (state.status === 'Active') return ACTIVE_STATUSES.includes(row.dataset.status ?? '');
-      // Inactive is the one status Unassigned deliberately does NOT also
-      // show up under — a numberless driver belongs to the Unassigned
-      // catch-all, not duplicated into Inactive too, even if their actual
-      // driver_statuses value is literally "Inactive".
+      // A numberless driver belongs under Unassigned, never also under Inactive.
       if (state.status === 'Inactive') return row.dataset.status === 'Inactive' && row.dataset.unassigned !== 'true';
       return row.dataset.status === state.status;
     }
 
-    // A separate, independent quick-filter from status above — "New" and
-    // "Veteran" match driver_statuses.name same as the status group would,
-    // but "Rookie" isn't a status at all, it's the separate is_rookie
-    // boolean (data-rookie, see DriverRow.astro), so it needs its own
-    // branch rather than a plain data-status comparison.
+    // New and Veteran compare data-status; Rookie is the is_rookie flag (data-rookie).
     function experienceMatches(row: HTMLElement) {
       if (state.experience === 'All') return true;
       if (state.experience === 'Rookie') return row.dataset.rookie === 'true';
@@ -177,10 +164,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       });
     });
 
-    // Plain toggle (not <details>/<summary>) so outside-click can close
-    // it below — <details> has no built-in "close when you click
-    // elsewhere on the page" behavior, and a checkbox panel left open
-    // after you've clicked away would be an easy miss.
+    // A plain toggle, not <details>, so an outside click can close it.
     nationalityToggle?.addEventListener('click', () => {
       const isOpen = !nationalityPanel?.classList.contains('hidden');
       nationalityPanel?.classList.toggle('hidden');
@@ -206,11 +190,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     applyFilters();
   }
 
-  // Clicking (or Enter/Space-ing, for keyboard users tabbing through the
-  // table — see DriverRow.astro's tabindex/role="link") anywhere on a
-  // roster row opens that driver's profile page. Event delegation on the
-  // whole table body rather than one listener per row, same reasoning
-  // sortable-table.ts's own header click handling uses.
+  // A click or Enter/Space anywhere on a row opens the driver's profile; one delegated listener on the table
+  // body.
   function initRosterRowLinks() {
     const body = document.getElementById('roster-body');
     if (!body) return;

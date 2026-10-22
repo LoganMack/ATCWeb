@@ -1,10 +1,6 @@
 /**
- * Shared server-side orchestration for the penalty admin forms — extracted
- * so both the round results page (src/pages/results/[subsessionId].astro)
- * and the Incident Report page (src/pages/results/[subsessionId]/
- * incidents.astro, where all penalty add/edit/remove now actually lives —
- * see v0.16's README section) read/write penalties the same way rather
- * than maintaining two copies of this logic.
+ * Server-side penalty form handling shared by the round results page and the Incident Report page, so both
+ * read and write penalties the same way.
  */
 
 import { getDriverById, updateDriver } from './db/drivers';
@@ -15,14 +11,8 @@ import { getCurrentSeasonRounds } from './results/seasonContext';
 import { computeSeasonPPState } from './penalties/penaltyPoints';
 
 /**
- * Recomputes one driver's CURRENT SEASON PP tally/probation state from
- * scratch (see computeSeasonPPState's own doc comment for why "from
- * scratch" beats incrementally patching a stored counter) and persists it.
- * Call after every penalty create/update/delete — not just creation like in
- * v0.13/v0.14 — so editing or removing a penalty correctly ripples through,
- * and so PP stays scoped to the CURRENT season (rule 57's season limit)
- * rather than accumulating across a driver's whole career. A no-op if no
- * season is currently flagged `is_current`.
+ * Recomputes and saves one driver's current-season PP and probation from scratch (computeSeasonPPState). Call
+ * after every penalty create, update or delete. No-op when no season is current.
  */
 export async function recomputeDriverSeasonPP(env: SupabaseEnv, accessToken: string, driverId: string) {
   const [driver, currentSeason, events] = await Promise.all([

@@ -1,10 +1,6 @@
 ---
-// Shared small logo tile — an uploaded logo image when one exists,
-// otherwise a placeholder tile with an acronym built from the name (see
-// src/lib/teamLogo.ts). Despite the name, this is generic: used for team
-// logos (roster, Teams page, race results/standings rows) and, identically,
-// for car logos (race results/standings rows) — both just need "a name, an
-// optional logo, show it small, and reveal the full name/label on hover."
+// Small logo tile, or a placeholder with initials (src/lib/teamLogo.ts). Used for both team and car logos,
+// with the full name on hover.
 import { teamInitials } from '../lib/teamLogo';
 import { logoBgAttrs, type LogoBackground } from '../lib/db/circuits';
 import { resizedImageUrl } from '../lib/db/drivers';
@@ -18,20 +14,13 @@ interface Props {
   /** Hover text — defaults to `name`. Pass an override (e.g. "Apex Racing — 4 races") when the caller has more to say than just the name, like the standings page's per-team/per-car race counts. */
   title?: string;
   /**
-   * Pixel width to request from Cloudflare Transformations (resizedImageUrl)
-   * — defaults to 96, comfortably covering every `size` this component is
-   * actually used at (h-4 through h-10, i.e. 16-40px, even at 2x retina)
-   * except TeamChampionCard's one large "h-28 w-28" (112px) champion-logo
-   * usage, which passes a bigger value explicitly.
+   * Width requested from Cloudflare Transformations; 96 covers every size up to h-10 at 2x.
+   * TeamChampionCard's 112px logo passes more.
    */
   resizeWidth?: number;
   /**
-   * Tints the logo solid black in light mode (see the `.light .theme-tint`
-   * rule in global.css) — for CAR logos specifically, most of which are
-   * light-colored artwork made to sit on the site's dark background and go
-   * near-invisible on a light one. Real TEAM logos keep their own colors in
-   * both themes (their usual callers never pass this); only pass `tint`
-   * from a call site that's rendering a car's logo.
+   * Tints the logo black in light mode (`.light .theme-tint`), for car logos, which are mostly light artwork.
+   * Team logos keep their colours.
    */
   tint?: boolean;
   /** Light/dark plate behind the logo — for track logos (circuits.logo_background). Pass INSTEAD of `tint`, which would turn a plated logo black. */

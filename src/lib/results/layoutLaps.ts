@@ -24,22 +24,8 @@ export interface ClassBestLap {
 }
 
 /**
- * Fastest lap ever recorded at one circuit+layout, broken down by class —
- * powers the Event Briefing page's expanded "Track Record" section (Gamma
- * and Delta bests, alongside the plain circuit_layouts.lap_record_seconds
- * figure that section already showed). Scoped to a specific, already-
- * resolved set of `rounds` (findRoundsForLayout()'s output for one layout)
- * rather than the whole site — see buildLayoutClassBestLaps just below for
- * the "every layout on one page" version circuits.astro needs instead, and
- * why the two aren't the same function.
- *
- * Class is resolved PER ROUND (`race_score_results.class_id` for that driver in
- * that specific subsession) — never off a driver's current/latest roster
- * class — so a driver who has since moved between classes doesn't
- * misattribute an old lap to whichever class they race today. Considers
- * every race (1/2/3), not just race 1 — unlike getLayoutClassHighlights'
- * winner/pole (each tied to one specific race), "fastest lap ever" isn't
- * scoped to any one race.
+ * Fastest lap ever at one circuit+layout, per class, for the Event Briefing's Track Record section. Class is
+ * read per round, not from today's roster, and every race counts, not just race 1.
  */
 export async function getLayoutClassBestLaps(
   env: SupabaseEnv,
@@ -117,33 +103,10 @@ export interface ResolvedLapRecordCar {
 }
 
 /**
- * Best-effort match of circuit_layouts' admin-curated lap record
- * (lap_record_seconds/lap_record_date, both free-typed — see
- * 0013_circuit_layout_lap_record_seconds.sql) back to the actual
- * curated_race_results row it came from, so its car can be read off that
- * row and looked up in car_logos — same idea as getLayoutClassBestLaps'
- * Gamma/Delta lines just above, just applied to a pre-existing record
- * instead of one this file computes itself.
- *
- * Matching strategy: narrow to rounds at this layout on the record's own
- * date (America/New_York, matching every other "IRL" date on the site —
- * see LEAGUE_TIME_ZONE), then find whichever curated_race_results row's lap
- * time is closest to lap_record_seconds, within a small tolerance. The
- * tolerance (rather than exact equality) exists because lap_record_seconds
- * was typed in from a formatted "1:42.512" display (3 decimals) while
- * curated_race_results stores raw ten-thousandths (4 decimals) — an exact
- * check would miss real matches on rounding alone. Falls back to searching
- * every historical round at this layout (still lap-time-scoped, same
- * tolerance) when no round matches the date, in case the date was entered
- * slightly off or left unset — a coincidental collision within 2ms across
- * unrelated rounds is vanishingly unlikely.
- *
- * Returns null, with no error, whenever nothing matches close enough — this
- * is the expected, correct outcome for a record that predates ATC's own
- * imported results or comes from a source broader than this league (this
- * field's own doc comment), not a bug to chase. The Event Briefing page
- * just shows no logo in that case, same graceful-degradation as everywhere
- * else a car_logos lookup can come up empty.
+ * Best-effort match of the admin-typed lap record back to the race result it came from, to show its car logo.
+ * It looks for the closest lap within a small tolerance (the record was typed with 3 decimals, results store
+ * 4) on the record's date, then at any date. Null is the normal answer for records older than ATC's imported
+ * results or from outside the league.
  */
 export async function resolveLapRecordCar(
   env: SupabaseEnv,
@@ -190,29 +153,9 @@ export async function resolveLapRecordCar(
 }
 
 /**
- * Builds a fast `(circuitId, eventLayoutName) -> count` lookup for "how many
- * historical rounds match this event's circuit+layout" — what calendar.astro
- * needs for every event's "Race Recaps at this Layout (N)" badge. (The round
- * LIST itself stays a lazy, per-event fetch via /api/layout-rounds.ts; only
- * the count is needed up front for every event on the page.)
- *
- * Calling findRoundsForLayout(...).length once per event, as calendar.astro
- * used to, re-resolves EVERY round's LayoutMatchKey from scratch for EVERY
- * event — O(events * rounds * (circuits + layouts)) total. With a real
- * season's worth of history (248 events × 237 rounds × ~157 circuits+layouts
- * at the time this was found) that's ~9 million redundant comparisons on
- * every calendar page load, for every visitor — enough synchronous CPU work
- * to occasionally trip Cloudflare's per-request CPU limit outright (Free
- * plan; see wrangler.jsonc's note on Error 1102). It also only gets worse as
- * more rounds/events are added, which is why this kept resurfacing without
- * any code changing.
- *
- * This resolves each round's LayoutMatchKey exactly ONCE (O(rounds *
- * (circuits + layouts))), tallies counts by key, and returns a closure that
- * looks up an event's count in O(layouts) + O(1) map lookup — total cost
- * across the whole page is O(rounds * (circuits + layouts) + events *
- * layouts): a few orders of magnitude cheaper, and scaling linearly rather
- * than multiplicatively as more history accumulates.
+ * A `(circuitId, eventLayoutName) -> count` lookup for the calendar's "Race Recaps at this Layout (N)"
+ * badges. Each round's match key is resolved once, so the cost grows with rounds + events instead of rounds ×
+ * events, which stays inside the Workers Free plan CPU limit.
  */
 export function buildLayoutRoundCounter(
   allRounds: RoundSummary[],
@@ -240,18 +183,8 @@ export function buildLayoutRoundCounter(
 }
 
 /**
- * Site-wide version of getLayoutClassBestLaps (see that function's own doc
- * comment for the by-class/class-at-time-of-lap reasoning both share) —
- * built for circuits.astro, which shows EVERY layout on one page and so
- * needs a per-layout answer for all of them at once, not just one. Same
- * "resolve every round's LayoutMatchKey exactly ONCE, then O(1) lookup per
- * layout" approach as buildLayoutRoundCounter just above (see its own doc
- * comment for the O(events * rounds) blowup a naive per-layout loop would
- * cause) — this is that same idea extended to bucket by class and track a
- * MIN lap time (not just a count) per bucket, from two whole-table bulk
- * fetches (every curated_race_results/race_score_results row with a lap time, not
- * scoped to any particular subsession_id list) rather than one pair of
- * queries per layout.
+ * Site-wide getLayoutClassBestLaps for circuits.astro, which shows every layout: rounds are resolved once and
+ * the per-class minimum lap is bucketed per layout, from two whole-table fetches.
  */
 export async function buildLayoutClassBestLaps(
   env: SupabaseEnv,
@@ -344,10 +277,8 @@ export async function getRoundLayoutsForSubsessions(
 ): Promise<Map<number, string | null>> {
   if (subsessionIds.length === 0) return new Map();
   try {
-    // restGetAll — same reasoning as getCuratedRaceResultsForSubsessions;
-    // a whole-career call can pass hundreds of subsession_ids at once.
-    // subsession_id alone is unique here (one curated_rounds row per
-    // round), so it's also a sufficient stable sort for pagination.
+    // restGetAll because a whole-career call can pass hundreds of subsession_ids; subsession_id is unique
+    // here, so it is a stable sort.
     const rows = await restGetAll<{ subsession_id: number; layout: string | null }>(
       env,
       `curated_rounds?select=subsession_id,layout&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc`,
@@ -363,20 +294,9 @@ export async function getRoundLayoutsForSubsessions(
 }
 
 /**
- * Every curated_rounds subsession_id run at a given track (optionally
- * narrowed to one specific layout name), for getLayoutBestLapSeconds below.
- * Matches on curated_rounds.track_name/layout directly rather than the full
- * resolveLayout/circuit_layouts disambiguation machinery elsewhere in this
- * file (findRoundsForLayout, resolveEventLayoutKey, etc.) — that machinery
- * needs the ENTIRE circuits + circuit_layouts + curated_rounds tables in
- * memory, an acceptable once-per-page-load cost on /calendar but far too
- * expensive to pay on every single page's nav render (see Nav.astro's
- * "Happening Now" banner, the only caller of this). Falls back to matching
- * the track alone if a specific layout name was given but doesn't match any
- * round on file (same "circuit-level fallback" reasoning as
- * resolveEventLayoutKey), then to a case-insensitive match on the track name
- * as a last resort for minor punctuation/casing drift between
- * events.circuits.name and curated_rounds.track_name.
+ * Subsessions run at a track (optionally one layout), matched on curated_rounds names directly: the full
+ * layout resolution needs whole tables, too costly for the nav's "Happening Now" banner. Falls back to the
+ * track alone, then a case-insensitive track match.
  */
 async function findSubsessionIdsForTrack(
   env: SupabaseEnv,
@@ -404,16 +324,9 @@ async function findSubsessionIdsForTrack(
 }
 
 /**
- * The fastest lap ever recorded at a track (optionally narrowed to one
- * layout name), in seconds — powers the "Happening Now" nav banner's race
- * duration ESTIMATE (see src/lib/liveEvent.ts): (this + a 5s buffer) × the
- * race's scheduled lap count, used only for whichever race is the LAST
- * scheduled session of a live event, since races are scored by lap count
- * rather than a fixed duration (see EventRecord's own comment) and there's
- * no later session to just count down to instead. Returns null (never
- * throws) on any failure or when no historical lap data exists yet (a
- * brand-new circuit/layout) — the caller falls back to a flat assumed
- * duration in that case.
+ * Fastest lap ever at a track (optionally one layout), in seconds, for the "Happening Now" banner's estimate
+ * of a final race's length (lap count × (this + 5 s)). Null on failure or with no history; the caller then
+ * assumes a flat duration.
  */
 export async function getLayoutBestLapSeconds(
   env: SupabaseEnv,
@@ -440,22 +353,9 @@ export async function getLayoutBestLapSeconds(
 }
 
 /**
- * Each driver's fastest-ever lap at a track (optionally narrowed to one
- * layout — same track_name/layout matching as findSubsessionIdsForTrack/
- * getLayoutBestLapSeconds just above, not the full circuit_layouts
- * disambiguation machinery), excluding one specific round — powers the
- * round results page's "beat their personal best at this track" detail-
- * panel indicator (per Logan: "like the track record logic in the race
- * recaps," but per-DRIVER rather than the whole-round-vs-official-record
- * comparison newsRecap.ts's matchCircuitLayout()/isTrackRecord do). Scoped
- * to just this one track's rounds and the given drivers (not every driver
- * on file), same bounded-bulk-fetch-once-per-page-load reasoning as
- * getLayoutClassBestLaps, to stay well under Cloudflare Workers' per-request
- * subrequest limit (see this file's own header comment on that class of
- * bug). Returns an empty map (never throws) rather than letting a lookup
- * failure here break the whole results page — callers should still wrap
- * this in their own try/catch the way every other page-level fetch here is,
- * since an empty map degrades gracefully (no PB indicator shown) either way.
+ * Each driver's fastest lap at a track, excluding one round, for the results page's personal-best marker
+ * (Logan). Bounded to this track and these drivers to stay under the subrequest limit; returns an empty map
+ * on failure.
  */
 export async function getDriverBestLapsAtTrack(
   env: SupabaseEnv,

@@ -1,9 +1,6 @@
 /**
- * Display helpers for the incident tables, shared by History → Incidents
- * (src/pages/incidents/fragment.astro) and the Event Briefing page's Past
- * Incidents table — both render the same IncidentsAllTable component and
- * open the same Incident Details popup (IncidentDetailsDialog.astro,
- * src/scripts/incidentDetails.ts), so the labels they show come from one place.
+ * Labels for the incident tables, shared by History → Incidents and the Event Briefing's Past Incidents,
+ * which use the same table and details popup.
  */
 import { displayDriverName, shortDriverName, formatDateShort } from './db/circuits';
 import type { IncidentRow } from './incidents';

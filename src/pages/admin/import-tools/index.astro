@@ -1,19 +1,8 @@
 ---
 export const prerender = false;
 
-// Events/Circuits/News CSV importers — split out of the old single
-// /admin/import page (which grew to 7 panels once qualifying/practice
-// results importers were added) so "bulk-load reference data" and "upload a
-// round's results" are two separate, focused pages rather than one long
-// scroll. Race/Qualifying/Practice Results stayed on /admin/import (now
-// "Add Race Result") since those three share one round per upload; Events/
-// Circuits/News never did. Each panel below still uses the exact same
-// matching/skip-on-bad-row conventions the original combined page did; only
-// the location (and each intent's name) changed. Every downloadable
-// template is generated on request from src/lib/importTemplates.ts rather
-// than a static file under public/ — see that file's header comment for
-// why (a static file can silently drift from what the importer actually
-// reads; a generated one can't).
+// Events/Circuits/News CSV importers (reference data), separate from the results importers on /admin/import.
+// Templates are generated from src/lib/importTemplates.ts so they can't drift from what the importers read.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getEvents, createEvent, updateEvent, type EventFormat, type Weather } from '../../../lib/db/events';
@@ -47,16 +36,8 @@ if (Astro.request.method === 'POST') {
   const redirectWithCounts = (kind: ImportKind, imported: number, skipped: number) =>
     Astro.redirect(`/admin/import-tools?kind=${kind}&imported=${imported}&skipped=${skipped}`, 302);
 
-  // Uploads the raw spreadsheet to the 'imports' Storage bucket (see
-  // 0051_activity_log.sql) and logs one activity_log row for the whole
-  // import, so the Activity Log page can offer a direct download of exactly
-  // what was uploaded. Best-effort — a failure here (or in logActivity
-  // itself, which already swallows its own errors) never blocks the import
-  // that already happened.
-  // Nouns mirror RESULT_LABELS further down this file (kept as a small
-  // local copy rather than shared — that const isn't declared until after
-  // this POST-handling block runs, so referencing it here directly would
-  // hit a temporal-dead-zone error).
+  // Stores the spreadsheet in the 'imports' bucket (0051) and logs one activity row; best-effort. The nouns
+  // copy RESULT_LABELS, which is declared later in the file (using it here would hit the temporal dead zone).
   const IMPORT_KIND_NOUNS: Record<ImportKind, string> = {
     events: 'event',
     circuits: 'circuit',

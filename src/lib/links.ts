@@ -1,14 +1,6 @@
 /**
- * Discord/Redbubble URLs — same runtime-vs-build-time issue that originally
- * broke the roster/news pages (see the README's "Why the roster/news
- * actually failed to load in production" note and src/lib/supabase.ts).
- * Nav.astro and Footer.astro render on every page, and every page in this
- * project has `export const prerender = false`, meaning they run per-request
- * on Cloudflare's Worker — where `import.meta.env.PUBLIC_*` is undefined
- * (it's only ever baked in at *build* time). Reading it directly there made
- * every Discord/Merch/Sign Up link render with no `href` at all — inert,
- * not just wrong. This resolves the runtime binding first, same pattern as
- * `resolveSupabaseEnv`.
+ * Discord/Redbubble URLs, read from the runtime binding first like `resolveSupabaseEnv`: Nav and Footer
+ * render per request on the Worker, where `import.meta.env.PUBLIC_*` is undefined.
  */
 
 export interface SiteLinks {

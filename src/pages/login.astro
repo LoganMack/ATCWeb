@@ -6,22 +6,16 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { safeNext } from '../lib/security';
 import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
 
-// The one sign-in page for every account — admin or driver. There's no
-// separate "admin login": role is just a property of the account
-// (profiles.role), checked by src/middleware.ts on every /admin/* request,
-// so signing in here and then visiting /admin works automatically for an
-// admin account and doesn't for anything else.
+// The one sign-in page for every account; middleware checks profiles.role on /admin, so there's no separate
+// admin login.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // Validated: `next` is attacker-controllable, so only same-site paths pass (open-redirect fix).
 const next = safeNext(Astro.url.searchParams.get('next'), '/');
 const session = Astro.locals.session;
 
-// Signed in already, but landed here anyway (e.g. a bookmarked
-// /login?next=/admin/... while already signed in as a non-admin) — if
-// they're not an admin and `next` points into /admin, redirecting them
-// straight there would just bounce them right back here via the middleware
-// gate. Show a "no admin access" notice instead of looping.
+// Already signed in as a non-admin with `next` in /admin: redirecting would bounce back here, so show a "no
+// admin access" notice.
 const needsPromotion = Boolean(session && next.startsWith('/admin') && session.profile?.role !== 'admin');
 if (session && !needsPromotion) {
   return Astro.redirect(next, 302);

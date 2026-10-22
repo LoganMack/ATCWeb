@@ -1,12 +1,8 @@
-// Behaviour that used to live in inline on*= attributes, which the strict
-// script CSP blocks. Listeners sit on document (registered once) so they also
-// cover markup injected later by the shell-then-fragment pages.
-//
+// Replaces inline on*= attributes, which the strict CSP blocks. Listeners sit on document (bound once), so
+// they also cover markup injected later by shell-then-fragment pages.
 //   <select data-navigate-on-change>            go to the selected option's value
 //   <select data-navigate-on-change="/x?y=">    go to that prefix + the encoded value
-//   <select data-submit-on-change>              submit the select's form
-//   <select data-submit-on-change data-disable-on-submit="round">
-//                                               also disable that form field first
+//   <select data-submit-on-change>              submit the form (data-disable-on-submit="f" disables field f first)
 //   <form data-confirm="Delete this?">          ask before submitting
 
 function onChange(e: Event): void {

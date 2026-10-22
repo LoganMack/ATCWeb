@@ -9,13 +9,8 @@ interface Props {
   title: string;
   description?: string;
   /**
-   * Absolute image URL for link-preview embeds (Discord, Slack, Twitter/X,
-   * iMessage, …) — omitted (no og:image/twitter:image at all) rather than
-   * falling back to a site-wide default, since a generic logo slapped on
-   * every embed is worse than no image for a page that doesn't have one
-   * (most pages). news/[slug].astro is the one caller that passes this
-   * today (a post's cover_image_url, already an absolute Supabase storage
-   * URL — see NewsPost's own doc comment).
+   * Absolute image URL for link previews; omitted rather than defaulted, since a generic logo on every embed
+   * is worse than none. Only news posts pass one (the cover image).
    */
   image?: string | null;
   /** og:type — 'article' for a news post (also gets its own byline-less article treatment from some embedders), 'website' for everything else. */
@@ -29,18 +24,8 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <!--
-      Theme FOUC prevention. Dark is the default/unprefixed styling
-      everywhere on the site; light mode is purely additive `.light`-scoped
-      CSS (see global.css) toggled by the footer button (src/scripts/theme.ts)
-      and persisted to localStorage. This has to run synchronously, before
-      the stylesheet below paints anything, or a returning light-mode visitor
-      would see a flash of dark styling on every load. Astro's View
-      Transitions keep the same <html> node across client-side navigations,
-      so the class this sets sticks around on its own after the first run —
-      no re-run needed on `astro:page-load` the way the rest of the site's
-      per-page scripts need.
-    -->
+    <!-- Sets the light theme before the stylesheet paints, so returning light-mode visitors see no dark
+         flash. View Transitions keep <html>, so it needn't re-run on navigation. -->
     <!-- The text lives in src/lib/csp.ts next to its CSP hash, so the two can't drift apart. -->
     <script is:inline set:html={THEME_INIT_SCRIPT} />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -50,18 +35,8 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
     <meta name="description" content={description} />
     <title>{title} · Alpha Touring Challenge</title>
 
-    <!--
-      Open Graph + Twitter Card — what a link-preview embed (Discord, Slack,
-      Twitter/X, iMessage, etc.) actually reads, completely independent of
-      the <title>/<meta name="description"> above (an embedder never renders
-      those). og:title deliberately uses the bare `title` prop, not the
-      "· Alpha Touring Challenge"-suffixed page <title> — og:site_name below
-      already carries that, so suffixing both would just repeat it in the
-      embed. `Astro.url.href` for og:url is the same "build it from the live
-      request, never hardcode a domain" convention already used elsewhere on
-      this site (see signup.astro/forgot-password.astro's Astro.url.origin
-      usage) — correct in production and any preview/staging deploy alike.
-    -->
+    <!-- Open Graph + Twitter Card for link previews. og:title is the bare title, since og:site_name
+         carries the site name. og:url comes from the live request, so it's right on any deployment. -->
     <meta property="og:site_name" content="Alpha Touring Challenge" />
     <meta property="og:type" content={type} />
     <meta property="og:url" content={Astro.url.href} />
@@ -74,11 +49,8 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
     {image && <meta name="twitter:image" content={image} />}
 
     <!--
-      Fonts: Teko (display/headlines) + Roboto (body), loaded from Google
-      Fonts. This needs no npm package and no local font files, so it works
-      as soon as this deploys — see the licensing note in the README for why
-      Teko stands in for Cuatra for now. If you'd rather self-host for
-      privacy/perf reasons later, swap this for Fontsource packages.
+      Teko (display) + Roboto (body) from Google Fonts, with no package or font files. Teko stands in for
+      Cuatra (see the licence note in src/styles/global.css).
     -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

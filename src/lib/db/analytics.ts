@@ -1,12 +1,7 @@
 import { restGet, restGetAuthed, writeHeaders, type SupabaseEnv } from './client';
 
-// --- Site analytics (0077_page_views.sql) -----------------------------------
-// Backs the admin dashboard's "site analytics" block. See that migration's
-// header comment for the full privacy design (no raw IP stored, daily-
-// rotating visitor hash, Cloudflare's own request.cf.country — no third
-// party involved anywhere). src/middleware.ts is the only caller of
-// logPageView — it has the Request/cf data this needs and decides which
-// requests actually count as a real page visit.
+// --- Site analytics (0077_page_views.sql; its header has the privacy design) ---
+// Only src/middleware.ts logs page views: it has the request data and decides what counts as a visit.
 
 /**
  * Fire-and-forget page view through record_page_view() (0114), which applies
@@ -48,10 +43,8 @@ export interface PageViewStats {
   visitors30d: number;
   views30d: number;
   /**
-   * The reporting window's own totals, and its length in days (null = all
-   * time) — added by 0103_page_view_stats_performance.sql along with the
-   * p_days argument. Optional because a database that hasn't run 0103 yet
-   * doesn't return them; callers fall back to visitors30d/views30d.
+   * The window's own totals and its length in days (null = all time), from 0103. Optional for a database
+   * without 0103; callers fall back to visitors30d/views30d.
    */
   rangeDays?: number | null;
   visitorsRange?: number;
@@ -69,12 +62,9 @@ export interface PageViewStats {
 }
 
 /**
- * Reads get_page_view_stats() (0077_page_views.sql) — the admin's own accessToken is what actually gets past that table's admin-only RLS read policy, same as every other admin-only RPC in this file. Returns null (rather than throwing) on any failure so the dashboard can just skip the analytics block instead of failing the whole page.
- *
- * `days` is the reporting window (null = all time). The default 30 sends no
- * argument at all, so it works against the function both before and after
- * 0103_page_view_stats_performance.sql added p_days; any other window
- * needs 0103 to have been run.
+ * get_page_view_stats() (0077) under the admin's token, which passes the admin-only RLS. Null on failure so
+ * the dashboard skips the block. `days` is the window (null = all time); the default 30 sends no argument, so
+ * it works before 0103 added p_days.
  */
 export async function getPageViewStats(
   env: SupabaseEnv,
@@ -101,14 +91,8 @@ export interface NewsPostViewCount {
 }
 
 /**
- * Reads get_news_post_view_counts() (news_post_view_counts migration) — one
- * row per `/news/<slug>` path that's ever actually been hit, with its
- * all-time unique (distinct visitor_hash) view count. Backs the "Views"
- * column on the admin News list. Same admin-only RLS gate as
- * getPageViewStats (the accessToken is what actually gets past
- * page_views' "admin read" policy). Returns null (rather than throwing) on
- * any failure so the admin news list can just skip the Views column
- * instead of failing the whole page.
+ * get_news_post_view_counts(): distinct-visitor views per `/news/<slug>` path, for the admin News list's
+ * Views column. Admin-only like getPageViewStats; null on failure so the column is skipped.
  */
 export async function getNewsPostViewCounts(
   env: SupabaseEnv,
@@ -128,29 +112,19 @@ export async function getNewsPostViewCounts(
   }
 }
 
-// --- Admin dashboard summary counts ----------------------------------------
-// Small, single-purpose count helpers backing the /admin dashboard card
-// subtitles — kept separate from each table's own CRUD functions above
-// since these exist purely to answer "how many," not to fetch real rows.
+// --- Admin dashboard summary counts (card subtitles) ---
 
 /**
- * Reads get_missing_race_results_count() (0078_curated_rounds_event_id_and_practice_results.sql)
- * — a championship event counts as "missing" once it's in the past and has
- * no curated_rounds row (linked via event_id) with a curated_race_results
- * row under it. Not admin-gated at the DB level (see that migration's own
- * comment — it exposes only a count over already-public tables), so this
- * calls it with the anon key via GET, same as any other public read.
+ * get_missing_race_results_count() (0078): past championship events with no race results. Only a count over
+ * public tables, so it runs with the anon key.
  */
 export async function getMissingRaceResultsCount(env: SupabaseEnv): Promise<number> {
   return restGet<number>(env, 'rpc/get_missing_race_results_count');
 }
 
 /**
- * Count of activity_log rows created since `sinceIso` — backs the Activity
- * Log dashboard card's "N in the last 24 hours" subtitle. Follows the same
- * fetch-then-.length convention as admin/activity-log/index.astro's own
- * query (activity_log has no dedicated count RPC — it's a small, admin-only
- * table, so a plain filtered select is plenty cheap).
+ * activity_log rows since `sinceIso`, for the Activity Log card. The table is small, so a plain select and
+ * .length is enough.
  */
 export async function getActivityLogCountSince(
   env: SupabaseEnv,

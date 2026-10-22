@@ -182,11 +182,8 @@ export interface RoundSummary {
   track_name: string;
   season_label: string | null;
   /**
-   * The results pipeline's own round number — NOT used for display anymore.
-   * An exhibition round (round_overrides, or a whole non-championship
-   * season) shouldn't shift every later round's displayed number, so the
-   * app computes its own "Round N" numbering — see
-   * `computeDisplayRoundNumbers`.
+   * The pipeline's own round number, not used for display: exhibitions mustn't shift later rounds, so the app
+   * numbers rounds itself (computeDisplayRoundNumbers).
    */
   round_number: number | null;
   format: 'endurance' | 'sprint' | null;
@@ -210,22 +207,9 @@ export interface DriverBasic {
 }
 
 /**
- * Exported so a caller needing MULTIPLE standings views for one season (e.g.
- * the homepage's standings widget) can fetch this once and pass it as
- * `driversBasic` to each call, same sharing reasoning as
- * `getSeasonOverallContext`.
- *
- * `includeAi` (default false) excludes AI-flagged drivers (0057_driver_ai_flag.sql)
- * from the returned driver map. That's correct for every standings/champions/
- * career-stats/team-stats consumer of this function — an AI driver only ever
- * appears in an exhibition round, which those computations already exclude
- * from counted results, so leaving them out of the driver map costs nothing
- * there. `getRoundResults()` and `getQualifyingForSubsession()` are the two
- * exceptions: they pass `{ includeAi: true }` because a round-results page
- * needs to resolve an AI driver's race_score_results row to a REAL driver, not let
- * it fall through to the synthetic "not in roster" path (see toUnrosteredRow) —
- * the entire reason an AI driver's row exists is to appear correctly on the
- * one exhibition round it raced in.
+ * Exported so a caller needing several standings views can fetch it once. AI-flagged drivers (0057) are left
+ * out by default, since they only race exhibitions; the round-results and qualifying pages pass `includeAi`
+ * so an AI row resolves to its driver instead of the "not in roster" path.
  */
 export function driversSelect(env: SupabaseEnv, { includeAi = false }: { includeAi?: boolean } = {}) {
   const aiFilter = includeAi ? '' : '&is_ai=eq.false';
@@ -244,12 +228,8 @@ export function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, 
 }
 
 /**
- * Every class's rows for EVERY given season, in one query — the
- * multi-season equivalent of `getRaceScoresForSeasonClass` +
- * `getRaceScoresForSeasonOverall`. Exists for the bulk career, champions and
- * awards computations, which need every championship season at once;
- * calling the single-season queries per season ran past Cloudflare Workers'
- * per-request subrequest limit.
+ * Every class's rows for many seasons in one query, for the bulk career, champions and awards computations;
+ * per-season queries exceed the Workers subrequest limit.
  */
 export function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
   if (seasonIds.length === 0) return Promise.resolve([] as ScoreRow[]);
@@ -287,13 +267,8 @@ export interface CuratedQualifyingBulkRow {
 }
 
 /**
- * Bulk qualifying positions across many subsessions — same restGetAll
- * reasoning as getCuratedRaceResultsForSubsessions below. Backs
- * getDriverRaceHistory's "Avg Qualify" split stat. Only race_number 1 of
- * each round has REAL qualifying (race 2/3 invert off it — see
- * computeOverallSeasonStandings' own "only race with real qualifying"
- * comment), so callers should only attribute a subsession's row here to
- * that round's race-1 DriverRaceHistoryRow, never to race 2/3.
+ * Bulk qualifying positions for the driver page's "Avg Qualify". Only race 1 has real qualifying (races 2/3
+ * invert off it), so attribute a row to the round's race 1 only.
  */
 export function getQualifyingForSubsessionsBulk(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedQualifyingBulkRow[]);
@@ -305,22 +280,12 @@ export function getQualifyingForSubsessionsBulk(env: SupabaseEnv, subsessionIds:
 
 export function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsessionIds: number[]) {
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedRaceResultRow[]);
-  // Deliberately does NOT select best_lap_ten_thousandths (fastest-lap data,
-  // needed only by the news recap's "fastest lap" stat — see
-  // src/lib/newsRecap.ts) even though that column exists on this same
-  // table: PostgREST fails the ENTIRE query if any selected column doesn't
-  // exist (see this file's header), and this function backs every results/
-  // standings/champions page in the app. Keeping that one column's fetch
-  // isolated to its own small query in newsRecap.ts means a typo'd or
-  // renamed column there can only ever degrade the recap, never take down
-  // the rest of the site.
+  // best_lap_ten_thousandths stays out: PostgREST fails the whole query on a missing column and this query
+  // backs every results page, so that column is fetched in its own query (newsRecap.ts).
   const select =
     'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,car_name,interval_ten_thousandths';
-  // restGetAll — see getPenaltiesForSubsessions' identical reasoning; a
-  // whole-career query can span hundreds of rounds, well past Supabase's
-  // default 1000-row response cap. Explicit order (unique per row, same
-  // reasoning as getRaceScoresForSeasonsBulk) keeps a paginated fetch
-  // stable across requests.
+  // restGetAll: a whole-career query can pass Supabase's 1000-row cap. The unique order keeps pagination
+  // stable.
   return restGetAll<CuratedRaceResultRow>(
     env,
     `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
@@ -338,18 +303,8 @@ export interface RawLapStatsRow {
 }
 
 /**
- * Isolated, try/catch-wrapped fetch of two `curated_race_results` columns
- * this file's SHARED query (getCuratedRaceResultsForSubsessions)
- * deliberately doesn't select — same reasoning as that function's own
- * comment: PostgREST fails an entire query if any one selected column
- * doesn't exist, and this file backs every results/standings/champions
- * page, so an unverified column can only be allowed to degrade its OWN
- * feature, never take down the rest of the site. On failure, every caller
- * below just proceeds without average/best lap data — average-lap-based
- * penalty ranking (rule 18.3.2, see reorderByTimePenalty in
- * src/lib/penalties.ts) falls back to its pre-existing, narrower
- * interval-only behavior, and the results page simply omits the
- * average/best lap stats.
+ * Two curated_race_results columns fetched apart from the shared query, so an unverified column only degrades
+ * its own feature. On failure callers carry on without average/best laps and the results page omits them.
  */
 export async function getLapStatsForSubsessions(
   env: SupabaseEnv,
@@ -381,12 +336,7 @@ interface RawDisplayNameRow {
 }
 
 /**
- * Same isolation reasoning as getLapStatsForSubsessions right above —
- * display_name isn't selected by the shared getCuratedRaceResultsForSubsessions
- * query, so a schema hiccup on this one column degrades only the "show an
- * unrostered entrant's real name" feature (getRoundResults falls back to
- * "Cust #<id>" per row when this comes back empty) rather than taking down
- * every page that shares that query.
+ * display_name, isolated like getLapStatsForSubsessions; on failure unrostered entrants show "Cust #<id>".
  */
 export async function getDisplayNamesForSubsessions(
   env: SupabaseEnv,
@@ -430,18 +380,8 @@ export function buildSeasonLogoMap(
 }
 
 /**
- * getAllTeamSeasonLogos(), wrapped in its own try/catch. This function is
- * now called from getRoundResults() and getSeasonCarTeamStats() — the
- * shared plumbing behind EVERY results/standings/news-recap page — so
- * unlike most queries in this file, it can't be allowed to fail the whole
- * Promise.all it's part of. Until 0019_team_season_logos.sql has actually
- * been run against the live database, this just means every team shows its
- * current logo everywhere (the same behavior as before this feature
- * existed) instead of every one of those pages throwing.
- *
- * Exported for the same sharing reason as `getTeamsBasic` just above — the
- * homepage standings widget's two team tabs can fetch this once and pass it
- * into both `computeTeamSeasonStandings` calls via `seasonLogoRowsParam`.
+ * getAllTeamSeasonLogos() that never throws: it backs every results, standings and recap page, so on failure
+ * teams just show their current logo. Exported so the homepage's two team tabs can share one fetch.
  */
 export async function getAllTeamSeasonLogosSafe(env: SupabaseEnv): ReturnType<typeof getAllTeamSeasonLogos> {
   try {

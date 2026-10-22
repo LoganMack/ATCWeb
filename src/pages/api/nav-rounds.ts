@@ -8,14 +8,9 @@ import { isChampionshipSeason } from '../../lib/results/shared';
 export const prerender = false;
 
 /**
- * JSON endpoint behind the Results dropdown in the top nav (src/components/Nav.astro):
- * the current season's rounds, newest first, as `{ id, round, track }`. Loaded the
- * first time a visitor hovers the Results link rather than on every page render,
- * since the nav appears on every page and almost no visits open that menu.
- *
- * Same round list the Results page shows by default: championship seasons leave out
- * exhibition and test rounds, and "Round N" is the app's own per-season numbering
- * (computeDisplayRoundNumbers). Public data, so no auth.
+ * The nav's Results dropdown: the current season's rounds, newest first, as `{ id, round, track }`. Loaded on
+ * first hover, since almost no visits open the menu. Same list as the Results page (no exhibition/test rounds
+ * in championship seasons; app "Round N" numbering). Public.
  */
 export const GET: APIRoute = async ({ locals }) => {
   try {

@@ -68,7 +68,10 @@ export interface StandingsRoundCell {
   penalties: string[];
 }
 
-/** One penalty, formatted for the Matrix cell hover tooltip — appeal-aware (mirrors whatever's actually in effect, same as everywhere else penalties are applied/displayed — see src/lib/penalties.ts's effective* helpers), e.g. "Contact — avoidable (12s, -3 pts, 2 PP)" or "Off track (warning)" for a bare warning with no other consequence. Exported so the Event Briefing page's "past incidents at this layout" list (src/pages/briefing/[eventId].astro) can reuse the exact same one-line formatting instead of re-deriving it. */
+/**
+ * One penalty for the Matrix cell tooltip, appeal-aware, e.g. "Contact — avoidable (12s, -3 pts, 2 PP)" or
+ * "Off track (warning)". Exported for the Event Briefing's past incidents list.
+ */
 export function summarizePenalty(p: Penalty): string {
   const consequences: string[] = [];
   const time = effectiveTimePenaltySeconds(p);
@@ -83,14 +86,8 @@ export function summarizePenalty(p: Penalty): string {
 }
 
 /**
- * Just the "resolution" half of summarizePenalty()'s formatting — e.g. "12s,
- * -3 pts, 2 PP" or "Warning" — with no description text folded in and no
- * wrapping parens. Null when this penalty carries no consequence at all (a
- * bare log entry — rare, but possible for a purely informational note).
- * Used by the Event Briefing page's "past incidents" list
- * (src/pages/briefing/[eventId].astro), which shows this on its own line
- * beneath the (collapsible) description rather than folded into one string
- * the way the standings Matrix's compact hover tooltip needs it.
+ * Just the resolution part of summarizePenalty(), e.g. "12s, -3 pts, 2 PP" or "Warning"; null when the
+ * penalty has no consequence. The Event Briefing shows it on its own line.
  */
 export function describePenaltyResolution(p: Penalty): string | null {
   const consequences: string[] = [];
@@ -105,12 +102,8 @@ export function describePenaltyResolution(p: Penalty): string | null {
 }
 
 /**
- * driver_id -> subsession_id -> every penalty logged against that driver in
- * that round, this season — the source for each Matrix cell's `penalties`
- * summary. Built once from the season's full penalty list
- * (SeasonOverallContext.penalties, already fetched by every standings
- * caller) and reused by every view that needs it, rather than each
- * re-scanning the penalty list itself.
+ * driver_id -> subsession_id -> that driver's penalties in that round, built once from the season's penalty
+ * list for every Matrix view.
  */
 export function buildPenaltiesByDriverAndRound(penalties: Penalty[]): Map<string, Map<number, Penalty[]>> {
   const map = new Map<string, Map<number, Penalty[]>>();
@@ -129,15 +122,8 @@ export function buildPenaltiesByDriverAndRound(penalties: Penalty[]): Map<string
 }
 
 /**
- * The standings Matrix view's shared column list — every round a season
- * actually had (already exhibition-filtered), sorted chronologically. Same
- * `seasonRounds` a SeasonOverallContext already carries, just narrowed to
- * the rounds a given view's `allSubsessionIds` pool actually contains (a
- * class-scoped view may not have raced every round the season had overall,
- * e.g. a class that skipped an exhibition-adjacent round). `displayRoundNumbers`
- * is `computeDisplayRoundNumbers`'s own output — the caller's to compute
- * since it needs the site's full exhibition/test-round sets, not just this
- * function's narrower `allSubsessionIds` pool.
+ * The Matrix view's round columns: the season's rounds this view's pool contains, in order. The caller
+ * computes `displayRoundNumbers`, since it needs the site-wide exhibition and test sets.
  */
 export function computeSeasonStandingsRoundColumns(
   seasonRounds: RoundSummary[],
@@ -181,12 +167,8 @@ export function seasonDropWeeks(
 export const MIN_ROUNDS_FOR_DROPS = 5;
 
 /**
- * The chronologically last non-excluded (exhibition/test) round of a
- * season, if it's raced yet — what "the final round" means for
- * ScoringRuleset.can_drop_final_round (see finalizeStandings below). Ties
- * on start_time (shouldn't normally happen) fall back to the higher
- * round_number; otherwise picking either would be equally arbitrary.
- * Returns null for a season with no eligible rounds at all yet.
+ * The last raced, non-excluded round of a season: "the final round" for can_drop_final_round. A start_time
+ * tie falls back to the higher round_number. Null when none has raced.
  */
 export function findFinalRoundSubsessionId(
   seasonRounds: RoundSummary[],
@@ -247,47 +229,11 @@ export function roundStatFor(a: StandingsAccum, subsessionId: number): Standings
 }
 
 /**
- * Shared by `computeSeasonStandings` and `computeOverallSeasonStandings` —
- * turns each one's per-driver accumulators into sorted, positioned
- * standings (worst-rounds-dropped point totals, then wins/podiums as
- * tiebreakers).
- *
- * `allSubsessionIds` is every round this season had (for the class being
- * computed, or every class for the overall view). The drop-week pool is
- * padded to that full set, not just the rounds a driver has a
- * `roundPoints` entry for — a round they scored 0 in already has a real
- * zero entry from the caller's loop, but a round they didn't show up for
- * at all wouldn't get one without this padding, and would vanish from
- * their pool instead of being an available (and likely-dropped) week.
- * Without it, the baseline drop count ate into real scored rounds on top
- * of whatever a driver had already missed, instead of the no-show weeks
- * themselves absorbing the drop.
- *
- * Ties are broken column by column, per Logan: "wins, podiums, top 5s,
- * top 10s, poles, laps led, laps, and appearances. If they are still tied,
- * alphabetical order." Whatever stats `accum` was built with are already
- * the right variant for the view being computed — computeSeasonStandings'
- * wins/podiums/top5s/top10s are already class-relative (and Gamma/Delta's
- * `poles` is already that class's own Class Pole count) — so one
- * comparator serves every view without needing to know which one it's
- * sorting.
- *
- * `finalRoundSubsessionId`/`canDropFinalRound` implement
- * ScoringRuleset.can_drop_final_round: when false (the default), the
- * season's final round can never be one of the dropped worst rounds, even
- * if its points would otherwise qualify — it's forced into the counted
- * set, and the drop count comes entirely from the remaining rounds. Either
- * way the total number of rounds counted is unchanged (see the two
- * branches below) — only which round is guaranteed counted.
- *
- * `allSubsessionIds.size` doubles as "how many rounds has this championship
- * actually run" (see its own param doc above — it's already the
- * exhibition-filtered pool both callers pass), which is also what gates
- * MIN_ROUNDS_FOR_DROPS below: too early in a season, dropping a driver's
- * worst round would mean a single lucky/unlucky week swings the standings
- * disproportionately, so no rounds drop at all until the season's raced
- * enough of them for a "worst round" to be a meaningful outlier rather than
- * a third of the season.
+ * Turns per-driver accumulators into ranked standings with the worst rounds dropped.
+ * - The pool is padded to every round of the season, so a missed round is a droppable zero.
+ * - Ties: wins, podiums, top 5s, top 10s, poles, laps led, laps, appearances, then name (Logan).
+ * - Unless can_drop_final_round, the final round always counts (the number counted doesn't change).
+ * - Nothing drops before MIN_ROUNDS_FOR_DROPS rounds, so one week can't swing an early season.
  */
 export function finalizeStandings(
   accum: Map<string, StandingsAccum>,
@@ -325,11 +271,8 @@ export function finalizeStandings(
       protectedRound,
     );
 
-    // Matrix view's per-round cells — only for rounds this driver actually
-    // attended (a.roundPoints only ever has an entry for a round this
-    // driver started at all, see newStandingsAccum's own doc comment); a
-    // round they skipped entirely gets no cell rather than a misleading
-    // dropped/0 one.
+    // Matrix cells only for rounds the driver attended; a skipped round gets no cell rather than a misleading
+    // 0.
     const roundCells = new Map<number, StandingsRoundCell>();
     for (const [subsessionId, points] of a.roundPoints) {
       roundCells.set(subsessionId, {

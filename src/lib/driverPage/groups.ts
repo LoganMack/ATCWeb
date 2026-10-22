@@ -19,10 +19,7 @@ import {
 
 /** The driver profile fragment's derived views (award groups, splits, bests), built from loadDriverPage's data without further fetches. */
 export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], awardEntries: AwardEntry[]) {
-  // Awards are displayed grouped by season (one heading per season, its
-  // awards listed underneath) rather than repeating the season name on every
-  // row. awardEntries is already sorted newest-season-first, so grouping is
-  // just a run-length pass over consecutive matching seasonNumber/seasonName.
+  // Awards are grouped by season; awardEntries is sorted newest first, so this is a run-length pass.
   const awardGroups: AwardGroup[] = [];
   for (const a of awardEntries) {
     const last = awardGroups[awardGroups.length - 1];
@@ -33,11 +30,8 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
     }
   }
 
-  // How many of THIS driver's own races share a subsession_id — a round with
-  // more than one counts as a multi-race (sprint) round for them, so every
-  // race in it (including race 1) gets its own "(Race N)" suffix in the
-  // Races table below; a round where they only have one row shows just the
-  // round number, nothing to disambiguate.
+  // Races per subsession for this driver: rounds with more than one race get a "(Race N)" suffix on every
+  // race.
   const raceCountBySubsession = new Map<number, number>();
   for (const r of raceHistory) {
     raceCountBySubsession.set(r.subsessionId, (raceCountBySubsession.get(r.subsessionId) ?? 0) + 1);
@@ -66,11 +60,8 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
     carGroups.get(label)!.push(r);
   }
 
-  // Team split — grouped by the team this driver raced FOR in each individual
-  // race (race_score_results.team_id, same per-race provenance DriverRaceHistoryRow.
-  // team already carries), not by season-roster membership. A race with no
-  // team assigned counts as "Independent" rather than being dropped, per the
-  // request that time spent as an independent get its own row.
+  // Team split by the team raced for in each race (race_score_results.team_id), not the season roster; no
+  // team counts as "Independent".
   const teamGroups = new Map<string, DriverRaceHistoryRow[]>();
   for (const r of raceHistory) {
     const label = r.team?.name ?? 'Independent';
@@ -78,10 +69,7 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
     teamGroups.get(label)!.push(r);
   }
 
-  // Layout split — grouped by DriverRaceHistoryRow.layoutLabel (trackName plus
-  // this round's specific circuit_layouts configuration when curated_rounds.
-  // layout resolves one), so e.g. Monza's "Grand Prix" and "Junior" configs
-  // don't get lumped into one Monza row the way a plain track-name split would.
+  // Layout split by layoutLabel, so a track's configurations (Monza "Grand Prix" vs "Junior") stay apart.
   const layoutGroups = new Map<string, DriverRaceHistoryRow[]>();
   for (const r of raceHistory) {
     const label = r.layoutLabel;
@@ -113,20 +101,10 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
     { name: 'Layout', rows: buildUnorderedRows(layoutGroups, classPos, classQualPos) },
   ];
 
-  // --- Bests: one row per layout this driver has ever raced (same layoutGroups
-  // grouping the Splits card's own Layout split uses above, so the two stay
-  // consistent about what counts as "one layout"), with this driver's own
-  // fastest lap there against the site's curated Track Record for that layout.
-  // Personal Best is the MINIMUM bestLapTenThousandths across every race in
-  // the group (DSQ'd/unclassified races still count — a lap time is a raw
-  // timing fact independent of classification, same reasoning
-  // getDriverBestLapsAtTrack/getLayoutClassBestLaps use). Track Record is the
-  // same circuit_layouts.lap_record_seconds figure shown on the Circuits and
-  // Event Briefing pages (results.ts resolves it once per race already, via
-  // the same resolveLayout() call totalCorners uses — see
-  // DriverRaceHistoryRow.layoutRecordSeconds' own doc comment), so it's
-  // identical across every race in a group; read off the first row rather
-  // than re-resolved here.
+  // --- Bests: one row per layout (the same grouping as the Layout split), the driver's fastest lap there
+  // against the curated Track Record.
+  // Personal Best counts every race, DSQ and unclassified included: a lap time is a timing fact. The Track
+  // Record is the same for every race in a group, so it's read from the first row.
   const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
     .map(([, rows]) => {
       const bestTimes = rows.map((r) => r.bestLapTenThousandths).filter((t): t is number => t !== null);

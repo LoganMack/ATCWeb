@@ -48,32 +48,17 @@ export interface DriverSeasonExtras {
 }
 
 /**
- * Ranks same-team, same-race rows by points and keeps just the top 2 —
- * Logan's team championship rule: "only the top 2 scoring drivers for each
- * team add their points to the team championship per race." The single
- * source of truth for this rule; every place that needs "who scored for
- * this team this race" (season car/team usage stats, the news recap's team
- * breakdown, Team Standings) calls this instead of re-deriving it.
- *
- * `pointsOf` lets each caller pick which points figure to rank (and
- * presumably then sum) by — the cross-class "overall" team competition
- * uses the class-blind formula (finish + finesse + pole + deduction,
- * matching `computeOverallSeasonStandings`' own formula), while a single
- * class's own team competition (e.g. Delta's) wants that class's full
- * total, class_points bonus included.
+ * Keeps each team's top 2 scorers per race: Logan's team championship rule, implemented only here. `pointsOf`
+ * picks the figure to rank by: class-blind points for the overall team competition, the full class total for
+ * a class's own.
  */
 export function topTeamScorers<T>(rows: T[], pointsOf: (row: T) => number): T[] {
   return [...rows].sort((a, b) => pointsOf(b) - pointsOf(a)).slice(0, 2);
 }
 
 /**
- * Per-driver "which cars/teams did they use this season, how often" —
- * computed once for the whole season (every class, regardless of which
- * standings view — overall or per-class — is actually being shown), since
- * a driver's car/team usage isn't itself a per-class-view concern.
- *
- * Team `racesScoredForTeam` implements `topTeamScorers()`'s rule (see its
- * own doc comment) for every (race, team) group.
+ * Per-driver car and team usage for a season, computed once across all classes. `racesScoredForTeam` applies
+ * topTeamScorers().
  */
 export async function getSeasonCarTeamStats(
   env: SupabaseEnv,
@@ -84,14 +69,8 @@ export async function getSeasonCarTeamStats(
   carLogosLookup?: CarLogo[],
   seasonLogoRowsParam?: { team_id: string; season_id: string; logo_url: string }[],
   /**
-   * When given, skips this function's own race_score_results/curated_race_results
-   * fetches entirely and reuses this season-wide context's
-   * `overallScores`/`rawByKey` instead — see `computeSeasonStandings`'
-   * identical param. Omit it (every existing single-season caller does) and
-   * this function fetches its own smaller, cheaper pair of queries exactly
-   * as before; pulling in the FULL context (penalties, lap stats,
-   * curated_rounds) unconditionally would cost those callers MORE, not
-   * less, since this function doesn't use any of that extra data itself.
+   * When given, reuses this context's scores and raw rows instead of fetching. Single-season callers omit it:
+   * the full context would cost them more than this function's two small queries.
    */
   precomputedOverallContext?: SeasonOverallContext,
 ): Promise<Map<string, DriverSeasonExtras>> {

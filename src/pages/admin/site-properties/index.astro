@@ -1,21 +1,9 @@
 ---
 export const prerender = false;
 
-// Combines the former Site Settings, Page Banners, Car Logos, Penalty
-// Offenses, and Photo Management (Champions/Hall of Fame) tabs — all were
-// small, one-off, site-wide configuration screens that didn't belong to any
-// single content type, so splitting them across separate nav entries just
-// added clicks for no real organizational benefit. All forms POST back to
-// this same route now; a hidden `form_section` field tells the previously-
-// separate handlers below apart. The Champions/Hall of Fame section below
-// has no form of its own — it's a display-only index linking out to the
-// existing per-season/per-driver photo-upload subpages, so it doesn't need
-// a `form_section` branch.
-//
-// The page is split into tabs (?tab=settings|banners|car-logos|offenses|
-// champions) and only the active tab's data is fetched — the Champions tab in
-// particular runs the whole champions computation, which used to delay every
-// visit to this page even when you only wanted to change a setting.
+// Site-wide configuration in tabs (?tab=settings|banners|car-logos|offenses|champions); only the active tab's
+// data is fetched, since the champions tab runs the full champions computation. Forms post here with a hidden
+// `form_section`; the champions tab is a display-only index.
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
@@ -316,10 +304,7 @@ if (activeTab === 'car-logos') {
   }
 }
 const logoByCarName = new Map(configuredCarLogos.map((c) => [c.car_name, c.logo_url]));
-// Every car name worth showing a row for: currently-configured logos, plus
-// every car currently listed on a driver's profile that doesn't have one
-// yet — see getDistinctDriverCarNames for why this (not a full scan of
-// historical race results) is the practical source for "cars in the data."
+// Every car worth a row: configured logos plus cars on driver profiles (see getDistinctDriverCarNames).
 const allCarNames = [...new Set([...logoByCarName.keys(), ...driverCarNames])].sort((a, b) => a.localeCompare(b));
 
 let offenses: PenaltyOffense[] = [];
@@ -332,14 +317,9 @@ if (activeTab === 'offenses') {
   }
 }
 
-// --- Champions & Hall of Fame (formerly /admin/champions, "Photo Management") ---
-// Display-only index — the champion for each season/class is computed
-// automatically from race results; this section is just for finding the
-// per-season/per-driver subpage where the (up to 5) photos shown on the
-// public Champions and Hall of Fame pages get uploaded. Those subpages
-// themselves (src/pages/admin/champions/[seasonId]/[classId].astro and
-// hall-of-fame/[driverId].astro) are unchanged and stay at their existing
-// routes — only this index moved.
+// --- Champions & Hall of Fame: display-only index of the per-season and per-driver photo pages
+// (admin/champions/[seasonId]/[classId].astro, hall-of-fame/[driverId].astro); champions themselves are
+// computed from results.
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 let championsLoadError: string | null = null;

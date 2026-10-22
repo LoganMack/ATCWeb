@@ -1,12 +1,7 @@
 /**
- * Attributes that give a season <option> its logo in the custom dropdown
- * (src/scripts/logoSelect.ts). Spread onto the <option>:
- *
- *   <option value={s.id} {...seasonOptionAttrs(s)}>{s.name}</option>
- *
- * The <select> itself also needs `data-logo-select`. Without any logo
- * attributes an option just renders as text, so a select can mix both
- * (e.g. an "All seasons" row).
+ * Attributes that give a season <option> its logo in the custom dropdown (src/scripts/logoSelect.ts):
+ * `<option value={s.id} {...seasonOptionAttrs(s)}>`. The <select> needs `data-logo-select`; options without
+ * them render as text.
  */
 export function seasonOptionAttrs(
   season: { logo_url?: string | null; logo_url_light?: string | null } | null | undefined,

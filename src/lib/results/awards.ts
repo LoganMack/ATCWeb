@@ -29,43 +29,14 @@ import { getRoundLayoutsForSubsessions } from './layoutLaps';
 import { penalisedGaps, timePenaltiesByRaceDriver, type LeaderLap } from './raceDisplay';
 import { getAllRounds } from './rounds';
 
-// ---------------------------------------------------------------------------
-// Season awards (History > Awards tab) — twelve season-scoped honors, one
-// winner per season. Confirmed with Logan:
-//
-// - Every award compares the WHOLE FIELD as one pool, not split by class —
-//   "the class moniker is totally based on skill, the drivers all actually
-//   are on a level playing field car-wise." Points-based awards therefore
-//   reuse `overall_total`, the class-blind total `computeOverallSeasonStandings`
-//   already ranks the site's own "Overall" competition on (class_points
-//   excluded — that field is Gamma/Delta's own per-race bonus, not something
-//   every driver can earn). Dominator/Defender are the one deliberate exception —
-//   a "class winning margin" is inherently about winning your OWN class, so
-//   those two alone still rank within each class, per race.
-// - Rookie of the Season eligibility is reconstructed the same way
-//   `sync_rookie_status()` (0041_driver_settings.sql) itself works, rather
-//   than reading the live (present-day) `is_rookie` flag: a driver counts as
-//   a rookie for season S if they had NOT yet had a season with 3+
-//   appearances in any season strictly before S. That mirrors the real
-//   rule's own "flips true -> false, permanently, the season you hit 3+
-//   appearances" logic — a driver can be a rookie candidate across more than
-//   one early low-participation season, and stops being one for good the
-//   season they finally cross the threshold.
-// - Ironman's "max distance possible that season" is: for each race the
-//   season actually ran, whoever (any driver, any class) completed the most
-//   laps in THAT race, times that round's own layout length — summed across
-//   every race of the season. Not the class-winner's or race-winner's own
-//   laps specifically, just the single furthest any entrant actually got.
-// - Speed Demon's "fastest lap" is one race-wide bragging right per race
-//   (not one per class) — ties (to the ten-thousandth of a second) credit
-//   every driver who shares it, though that's vanishingly rare in practice.
-// - Any award is SHARED on a tie — every award below picks the single best
-//   VALUE, then collects every driver (Dominator/Defender: every race) that
-//   actually hit it, rather than arbitrarily crowning one. Genuinely rare
-//   for the points/stat-total awards, but a real possibility for something
-//   like Speed Demon (an exact tie to the ten-thousandth) or a Dominator/
-//   Defender margin.
-// ---------------------------------------------------------------------------
+// Season awards (History > Awards): twelve season-scoped honors, rules confirmed with Logan.
+// - Every award pools the whole field (classes are skill tiers, not car tiers), so points awards use the
+//   class-blind `overall_total`; Dominator/Defender alone rank within each class, per race.
+// - Rookie eligibility is rebuilt per season the way `sync_rookie_status()` works (no earlier season with
+//   3+ appearances), not read from today's `is_rookie`.
+// - Ironman's possible distance sums, per race, the most laps any entrant completed times the layout
+//   length.
+// - Ties are shared: each award takes the best value and credits every driver (or race) that hit it.
 
 /** One or more drivers, tied for this award's value — see this section's own doc comment on why ties are shared rather than arbitrarily broken. */
 export interface SeasonAwardWinner {
@@ -163,11 +134,8 @@ function pickBestFromValueMap(
 }
 
 /**
- * For each race the season actually ran, the most laps ANY entrant (any
- * class) completed times that round's own resolved layout length — summed
- * across the whole season. See this section's own doc comment for why this,
- * not the class/race winner's own laps specifically, is "max distance
- * possible."
+ * Per race, the most laps any entrant completed times the layout length, summed over the season: the "max
+ * distance possible" for Ironman.
  */
 function computeMaxPossibleDistanceKm(
   overallContext: SeasonOverallContext,
@@ -201,11 +169,8 @@ function computeMaxPossibleDistanceKm(
 }
 
 /**
- * A round's Endurance/Sprint Specialist classification — its own
- * `curated_rounds.format` when set, otherwise (a "special event" round,
- * e.g. 0048_race_number_points_overrides.sql's per-race-table events) by
- * race count: more than one race in the round counts as a sprint round for
- * this, exactly one race counts as endurance (Logan's own rule).
+ * A round's Endurance/Sprint Specialist class: its `curated_rounds.format`, or for a special-event round, one
+ * race = endurance and more = sprint (Logan's rule).
  */
 function classifyRoundForSpecialistAwards(
   subsessionId: number,
@@ -219,15 +184,9 @@ function classifyRoundForSpecialistAwards(
 }
 
 /**
- * Full history of all twelve season awards, newest season first (matching
- * `seasons`' own order — see `getSeasons`). Skips any season with no
- * race_score_results data at all, same as `getChampions`. Bulk-fetches everything
- * once across every championship season (same "fetch once, slice in memory
- * per season" shape `getChampions`/`computeDriverCareerStats` already use)
- * rather than issuing each season's own round of queries — a from-scratch
- * per-season fetch here would multiply by every season on file and risk the
- * exact Cloudflare Workers subrequest-limit problem those functions' own
- * doc comments describe hitting before this same fix.
+ * All twelve season awards, newest season first; seasons with no results are skipped. Everything is
+ * bulk-fetched once and sliced per season in memory, because per-season queries exceed the Workers subrequest
+ * limit.
  */
 export async function computeSeasonAwardsHistory(
   env: SupabaseEnv,
@@ -378,10 +337,8 @@ export async function computeSeasonAwardsHistory(
           }
         : null;
 
-      // Consistency — best (lowest) average overall finish position per
-      // race, same minimum-50%-of-the-season's-rounds-attended (by
-      // appearances) gate as Sublime Finesse — otherwise a driver who
-      // showed up once and had a great day could win this outright.
+      // Consistency: best average overall finish, with the same 50%-of-rounds attendance gate as Sublime
+      // Finesse so one great race can't win it.
       const consistencyAccum = new Map<string, { sum: number; count: number }>();
       for (const s of overallContext.overallScores) {
         if (s.dsq) continue;
@@ -436,15 +393,9 @@ export async function computeSeasonAwardsHistory(
       }
       const speedDemon = pickBestFromValueMap(fastestLapCounts, driverById, 'max');
 
-      // Dominator/Defender — biggest/smallest class-winning margin of any
-      // single race this season (not a season total — see doc comment).
-      //
-      // Penalty-aware: for any race a penalty touched one of THIS class's own
-      // drivers (a penalty against a different class never changes this
-      // class's own margin), the class's lead-lap gaps include the time
-      // penalties, re-zeroed to the new class winner, the same way the round
-      // results page shows them (raceDisplay.ts). Untouched races read the
-      // raw pipeline intervals directly.
+      // Dominator/Defender: biggest/smallest class-winning margin of a single race. When a penalty touched
+      // this class in a race, the gaps include time penalties re-zeroed to the new winner, as on the results
+      // page (raceDisplay.ts).
       const classRaceGroups = new Map<string, ScoreRow[]>();
       for (const s of overallContext.overallScores) {
         const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
@@ -557,11 +508,8 @@ export async function computeSeasonAwardsHistory(
           trackName: trackNameBySubsession.get(subsessionId) ?? 'Unknown',
         });
       }
-      // Shared ties: collect every (driver, race) observation whose margin
-      // exactly matches the season's biggest/smallest, not just the first
-      // one encountered — a tie here can span different races (even
-      // different drivers), so there's no single "the" race once more than
-      // one observation ties (see SeasonMarginAwardWinner's own comment).
+      // Ties are shared, and can span races and drivers, so every observation matching the best margin is
+      // kept.
       let dominator: SeasonMarginAwardWinner | null = null;
       let defender: SeasonMarginAwardWinner | null = null;
       if (marginObservations.length > 0) {

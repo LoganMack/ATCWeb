@@ -5,12 +5,8 @@ import { isAdminView } from '../../lib/auth';
 export const prerender = false;
 
 /**
- * JSON endpoint behind the pending sign-ups badge on the nav's Admin Panel
- * gear (src/components/Nav.astro, #64): `{ count }` of sign-up requests still
- * waiting on a decision. Fetched by the browser after the page renders rather
- * than counted during it, since the nav appears on every admin page view and
- * those are never edge-cached. Same count as the admin dashboard's Sign-ups
- * card; the admin's own token, so the table's RLS still applies.
+ * `{ count }` of pending sign-ups for the admin gear badge (#64), fetched after render because admin pages
+ * aren't cached. Uses the admin's token, so RLS applies.
  */
 export const GET: APIRoute = async ({ locals }) => {
   const session = locals.session;

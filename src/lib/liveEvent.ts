@@ -6,13 +6,8 @@ import { CATEGORY_LABELS } from './eventFormatting';
 import { getLayoutBestLapSeconds } from './results/layoutLaps';
 
 /**
- * Powers the site-wide "Happening Now" banner attached to the bottom of the
- * main nav (src/components/Nav.astro) — computed server-side on every page
- * request from whichever admin-scheduled event's session schedule currently
- * contains "now". Purely schedule-driven (no dependency on results actually
- * having been imported yet, which normally happens well after a session
- * ends) — see getLiveBannerInfo below for how "currently happening" and
- * "remaining" are derived.
+ * The "Happening Now" banner under the nav, computed per request from whichever scheduled event contains
+ * "now". Schedule-driven only, since results arrive well after a session.
  */
 export interface LiveBannerInfo {
   /** "ATC18, Round 4" for a championship event with a season/round on file; the plain category label (Test Session / Exhibition / Holiday / iRacing) for anything else. */
@@ -39,19 +34,14 @@ interface RawSession {
 }
 
 /**
- * Last-resort assumed length, in minutes, for the final scheduled session of
- * a live event when no better estimate is available — a final practice/
- * qualifying session with no `minutes` value on file (shouldn't normally
- * happen) or a final race at a circuit/layout with no historical lap-time
- * data yet on file to estimate from (a brand-new track).
+ * Assumed minutes for a live event's final session when nothing better is known (no `minutes` on file, or no
+ * lap history at a new track).
  */
 const FALLBACK_FINAL_SESSION_MINUTES = 60;
 
 /**
- * A race's estimated per-lap time is its layout's all-time best lap plus
- * this buffer (per Logan) — real drivers don't run flat-out qualifying pace
- * for an entire race, so a small buffer keeps the estimate (and the banner)
- * from disappearing before the race has actually finished.
+ * Seconds added to the layout's best lap for a race's estimated lap time (Logan), since nobody runs
+ * qualifying pace all race.
  */
 const RACE_LAP_TIME_BUFFER_SECONDS = 5;
 
@@ -79,25 +69,9 @@ function roundLabelFor(event: EventWithCircuit): string {
 }
 
 /**
- * Finds whichever event (if any) is currently in progress and returns
- * everything the nav banner needs — or null when nothing's live right now.
- *
- * "Currently in progress" and "current session" are both purely schedule-
- * derived: the current session is the LAST one that's already started. That
- * deliberately keeps a session "happening" through any gap before the next
- * one actually begins (an admin's built-in buffer between sessions, or one
- * running long) rather than the banner going dark or its countdown running
- * past zero. A session's "end" (used both for its own countdown and to
- * decide when the whole event stops being "live") is the NEXT session's own
- * scheduled start when there is one — more accurate than any declared
- * length, since it reflects whatever gap the admin actually built into the
- * schedule — falling back to the session's own declared length (practice/
- * qualifying) or a lap-time-based estimate (races) only for the truly last
- * scheduled session of the day, which has no later start time to anchor to.
- *
- * Best-effort throughout: any failure (a bad fetch, missing historical lap
- * data) degrades to "no banner" or a flat fallback duration rather than
- * breaking every page's nav.
+ * The live event and its current session for the nav banner, or null. The current session is the last one
+ * started, and it ends when the next one is scheduled to start, so gaps between sessions keep it live. Only
+ * the day's last session uses its declared length or a lap-time estimate. Any failure means no banner.
  */
 export async function getLiveBannerInfo(env: SupabaseEnv): Promise<LiveBannerInfo | null> {
   let events: EventWithCircuit[];

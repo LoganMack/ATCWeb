@@ -17,14 +17,8 @@ try {
   loadError = true;
 }
 
-// Status is no longer a field an admin sets by hand (see admin/teams/[id].astro
-// — the old Active/Inactive radio buttons are gone) — a team is Active here
-// exactly when it has at least one driver on the CURRENT season's roster
-// (team_rosters), same rule the public Teams page already uses to decide
-// which teams show up in its current-season view (see that page's own
-// `sortedTeams` comment). teams.status itself is left alone in the database
-// (unused now, not deleted) rather than trying to keep it in sync from every
-// roster-mutating admin action.
+// A team is Active when it has a driver on the current season's roster, the public Teams page's rule;
+// teams.status is unused (left in the database).
 let activeTeamIds = new Set<string>();
 try {
   const seasons = await getSeasons(supabaseEnv);

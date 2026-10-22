@@ -1,9 +1,6 @@
-// Live "reporting period ends in X" hover text for the results page's incident button.
-// Imported by src/pages/results/[subsessionId].astro (the shell), because IncidentButton
-// itself now renders inside a fetched fragment where <script> tags never execute.
-// Keeps the "ends in X hours/minutes" hover text live (the page itself may
-// be a minute-old cached copy). Runs on load, page swaps, and every time
-// the button is hovered/focused, and re-ticks each 30s while visible.
+// Live "reporting period ends in X" hover text for the results page's incident button, imported by the shell
+// because the button renders in a fetched fragment where scripts don't run. The page may be a cached copy, so
+// it recomputes on load, swaps and hover, and every 30 s while visible.
 function countdownText(closesAt: number): string {
   const ms = closesAt - Date.now();
   if (ms <= 0) return 'The incident reporting period has ended.';

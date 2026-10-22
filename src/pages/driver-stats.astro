@@ -11,16 +11,8 @@ import { getDriverClasses } from '../lib/db/lookups';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Same shell-then-spinner split as champions.astro/champions/fragment.astro
-// (PERFORMANCE_AUDIT.md #5) — this page used to await the full
-// computeDriverCareerStats() call (every driver's whole season-by-season
-// history) right here in its own frontmatter, which blocked Astro's client
-// router from swapping the DOM until that finished. Now this shell only
-// fetches what it needs to render the class-filter tabs immediately
-// (driver classes — cheap, same shape as any other page's reference-table
-// lookup) and renders a loading skeleton in place of the table. The
-// expensive part moved to driver-stats/fragment.astro, fetched client-side
-// by the <script> below once this shell has already painted.
+// Shell: fetches only the driver classes for the filter tabs and renders a skeleton; the table comes from
+// driver-stats/fragment.astro after this paints.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -103,23 +95,10 @@ if (loadError) markUncacheable(Astro);
         '<p class="mt-10 text-white/60">Couldn’t load driver stats right now — try refreshing the page.</p>',
     });
 
-    // Click-to-expand itself is handled globally now — see
-    // src/scripts/expandRows.ts (a single delegated listener for every
-    // `[data-expand-row]`/`[data-detail-row]` pair on the site, fixing a
-    // real bug the old per-page copy of this had: no de-dup guard, so a
-    // second `astro:page-load` firing for the same content would double-
-    // bind every row's listener, making a click toggle open-then-closed
-    // in the same event — i.e. look like nothing happened until a full
-    // reload cleared the duplicate binding).
+    // Row expand/collapse is the global src/scripts/expandRows.ts.
 
-    // Filters the career table by driver name. A hidden row's detail panel
-    // (if it happened to be open) gets force-collapsed too — otherwise an
-    // expanded season table could be left dangling below a row that just
-    // disappeared, since the summary and detail rows are two independent
-    // <tr> elements and only the summary row carries data-search. No-ops
-    // until driver-stats/fragment.astro's table has actually landed in the
-    // DOM (see the fragment loader above) — re-runs on the synthetic
-    // astro:page-load it dispatches once that happens.
+    // Filters the table by driver name and collapses a hidden row's open detail row, which carries no
+    // data-search. Waits for the fragment, re-running on its astro:page-load.
     function initDriverStatsSearch() {
       const body = document.getElementById('driver-stats-body');
       const searchInput = document.getElementById('driver-stats-search') as HTMLInputElement | null;

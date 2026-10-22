@@ -30,18 +30,9 @@ export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
 }
 
 /**
- * Union of exhibition- and test-flagged round ids — every round that should
- * be excluded from season standings, champions, and career/team statistics.
- * Per Logan: Test Sessions now follow the exact same "doesn't count toward
- * the season" rule Exhibitions already did, even though the two flags stay
- * independent (0036_round_test_flag.sql) for display purposes — the Race
- * Results list still shows a separate "Exhibition" vs "Test" badge/filter
- * for each. Everywhere in src/lib/results.ts that fetches
- * `exhibitionRoundIds` to filter scores/standings uses this instead of
- * `getExhibitionRoundIds` alone now; callers that need the true
- * exhibition-only set for display (e.g. the round detail page's
- * Exhibition/Test badges) keep calling `getExhibitionRoundIds`/
- * `getTestRoundIds` separately.
+ * Exhibition- and test-flagged round ids together: every round excluded from standings, champions and career
+ * stats (Logan). The flags stay separate (0036) for the Exhibition/Test badges, which read
+ * getExhibitionRoundIds/getTestRoundIds.
  */
 export async function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Set<number>> {
   const [exhibition, test] = await Promise.all([getExhibitionRoundIds(env), getTestRoundIds(env)]);
@@ -49,18 +40,8 @@ export async function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Se
 }
 
 /**
- * Marks (or unmarks) one round as a non-points exhibition — upserts on
- * subsession_id. Only ever writes is_exhibition; a prior is_test flag on the
- * same row (if any) survives untouched — see 0036_round_test_flag.sql for
- * why these are independent.
- *
- * No longer called from the round detail page — that page's admin toggle
- * buttons were removed per Logan ("these should be set by the event that is
- * linked to this race result"), and both flags are now set entirely via the
- * linked event's own `category`, propagated at import time (see
- * src/pages/api/import-templates/[kind].ts and raceResultsImport.ts's
- * writeRoundRow). Left in place as a plain upsert helper in case a future
- * admin flow needs to write these flags directly again.
+ * Sets one round's is_exhibition flag (upsert on subsession_id), leaving is_test alone (0036). Unused: the
+ * flags now come from the linked event's category at import (Logan); kept for a future admin flow.
  */
 export async function setRoundExhibition(
   env: SupabaseEnv,
@@ -125,12 +106,8 @@ export async function getRaceLinksForSubsession(
 }
 
 /**
- * Every race's links across a given set of rounds — the bulk version of
- * getRaceLinksForSubsession above, same "one query for many rounds at once"
- * shape as getPenaltiesForSubsessions. Used by the Event Briefing page to
- * pull broadcast/photo-album links for every historical round at one
- * layout without a per-round fetch. Returns an empty list (no query) for
- * an empty input, same as getPenaltiesForSubsessions.
+ * Every race's links across the given rounds in one query, for the Event Briefing's past rounds. No query for
+ * an empty list.
  */
 export async function getRaceLinksForSubsessions(
   env: SupabaseEnv,
@@ -144,34 +121,25 @@ export async function getRaceLinksForSubsessions(
 }
 
 /**
- * Every race_links row across every round that has a broadcast_url set —
- * powers the Media page's Videos → Broadcasts filter (default filter),
- * which needs "every broadcast link on file" rather than one round at a
- * time like getRaceLinksForSubsession above. src/lib/results.ts's
- * getAllBroadcastVideos() joins this with getAllRounds() for track/date
- * display context; kept here (rather than there) since it's a plain
- * race_links read with no results-pipeline computation involved.
+ * race_links rows with a broadcast_url, for the Media page's Broadcasts filter; getAllBroadcastVideos()
+ * (src/lib/results/broadcasts.ts) adds the round context.
  */
 export function getAllBroadcastRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&broadcast_url=not.is.null`);
 }
 
 /**
- * Same idea as getAllBroadcastRaceLinks above, for photo_album_url instead
- * — every race_links row that has one set, across every round. Admins set
- * this field on the round's own results page (src/pages/results/
- * [subsessionId].astro) alongside broadcast_url/replay_url/etc.; it was
- * already there and already worked, it just had no public listing anywhere
- * outside that one round's own page. src/lib/results.ts's
- * getAllPhotoAlbumLinks() joins this with getAllRounds() for the Media
- * page's Graphics tab, the same way getAllBroadcastVideos() does for
- * Videos → Broadcasts.
+ * race_links rows with a photo_album_url, for the Media page's Graphics tab; joined with rounds by
+ * getAllPhotoAlbumLinks() (src/lib/results/broadcasts.ts).
  */
 export function getAllPhotoAlbumRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&photo_album_url=not.is.null`);
 }
 
-/** Same idea as getAllBroadcastRaceLinks above, for replay_url instead — every race_links row that has one set. src/lib/results.ts's getAllReplayLinks() joins this with getAllRounds() for the Media page's Replays tab. */
+/**
+ * race_links rows with a replay_url, for the Media page's Replays tab; joined by getAllReplayLinks()
+ * (src/lib/results/broadcasts.ts).
+ */
 export function getAllReplayRaceLinks(env: SupabaseEnv): Promise<RaceLinks[]> {
   return restGetAll<RaceLinks>(env, `race_links?select=${RACE_LINKS_SELECT}&replay_url=not.is.null`);
 }

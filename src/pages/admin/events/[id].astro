@@ -75,20 +75,13 @@ function checkbox(form: FormData, name: string): boolean {
 function readForm(form: FormData): Partial<EventRecord> {
   const category = optCategory(form, 'category');
   const circuitless = isCircuitlessCategory(category);
-  // TEST/EXHIBITION are season-agnostic (per Logan) — even if stale
-  // season/round values are sitting in the submitted form (e.g. the admin
-  // switched category after picking a season), don't persist them. A
-  // championship event keeps whatever season/round the form submitted,
-  // including both-blank (allowed — see events_season_round_paired; a
-  // championship event can be scheduled before its season/round is known).
+  // Test/exhibition events are season-agnostic (Logan), so stale season/round values from a category switch
+  // aren't saved. A championship event may leave both blank until known (events_season_round_paired).
   const seasonId = category === 'championship' ? optStr(form, 'season_id') : null;
   const roundNumber = category === 'championship' ? optInt(form, 'round_number') : null;
   return {
-    // HOLIDAY/IRACING events have no circuit/layout at all
-    // (0073_holiday_iracing_events.sql) — title/subtitle stand in for them
-    // instead, and vice versa: circuit_id/layout stay blank whenever
-    // title/subtitle apply, same "don't persist stale fields left over from
-    // switching category in the form" reasoning as season/round above.
+    // Holiday/iRacing events use title/subtitle instead of circuit/layout (0073); the unused pair is never
+    // saved.
     circuit_id: circuitless ? null : str(form, 'circuit_id'),
     layout: circuitless ? null : optStr(form, 'layout'),
     title: circuitless ? optStr(form, 'title') : null,
@@ -296,20 +289,8 @@ const d: Partial<EventRecord> = event ?? {
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
             <option value="" selected={!d.layout} class="bg-brand-ink text-white">Not set</option>
-            {/*
-              selected is scoped by circuit_id too, not just name — layout
-              names are NOT unique across circuits ("Grand Prix" alone appears
-              on 23 different circuits, "Full Course" on 7). events.layout is
-              plain text (no FK to circuit_layouts), so matching by name only
-              meant EVERY same-named option across EVERY circuit got the
-              `selected` HTML attribute at once; the browser then picks
-              whichever one is last in DOM order as the actually-selected
-              option (almost never this event's own circuit), and
-              initLayoutFilter() below — seeing that "selected" option doesn't
-              belong to the current circuit — reset the whole dropdown back to
-              "Not set". This is what made assigning a layout look like it
-              silently failed on save.
-            */}
+            {/* Selected only when the circuit matches too: layout names repeat across circuits ("Grand
+               Prix" on 23), and events.layout is plain text. */}
             {layouts.map((l) => (
               <option
                 value={l.name}
@@ -551,11 +532,8 @@ const d: Partial<EventRecord> = event ?? {
 </AdminLayout>
 
 <script>
-  // Layout <select> shows every circuit_layouts row up front (each <option>
-  // tagged data-circuit-id), then this filters which are actually visible
-  // to just the currently-chosen Circuit — re-run on Circuit change so
-  // switching circuits can't leave a mismatched layout selected. The blank
-  // "Not set" option (no data-circuit-id) always stays visible.
+  // Shows only the chosen circuit's layouts (plus "Not set"), re-run on circuit change so a mismatched layout
+  // can't stay selected.
   function initLayoutFilter() {
     const circuitSelect = document.getElementById('circuit_id') as HTMLSelectElement | null;
     const layoutSelect = document.getElementById('layout') as HTMLSelectElement | null;
@@ -580,27 +558,9 @@ const d: Partial<EventRecord> = event ?? {
     applyFilter();
   }
 
-  // Test/Exhibition are season-agnostic (per Logan) — hides the
-  // Season/Round inputs rather than removing them from the DOM, since
-  // readForm() server-side already ignores season_id/round_number for
-  // those two categories regardless of what's submitted (see its own
-  // comment) — this is purely about not showing fields that won't be used.
-  //
-  // Test Session additionally hides the Format field entirely (not used —
-  // see CATEGORY_LABELS/CATEGORY_BADGE_CLASSES in eventFormatting.ts, the
-  // format badge shows a literal "Test Session" override on cards instead)
-  // and drops `required` off Race 1's start time input, since Test Session
-  // events can now be saved with zero races
-  // (0054_test_session_no_race_required.sql) — mirrored here so the browser
-  // doesn't block submission on a field the server no longer requires
-  // either (see readForm()'s race1_start_time handling above).
-  //
-  // Holiday/iRacing (0073_holiday_iracing_events.sql) go a step further —
-  // they're circuit-less as well as season-agnostic, so Circuit/Layout swap
-  // for Title/Subtitle, and every race-only field (subsession override,
-  // fuel limit, results URL, every session block) hides outright, same
-  // "hide, don't remove — server ignores it either way" reasoning as
-  // Season/Round above.
+  // Hides fields the chosen category doesn't use; the server ignores them anyway. Test/exhibition hide
+  // Season/Round; test also hides Format and makes Race 1 optional (0054); holiday/iRacing swap
+  // Circuit/Layout for Title/Subtitle and hide every race field (0073).
   function initCategoryFields() {
     const categorySelect = document.getElementById('category') as HTMLSelectElement | null;
     const seasonRoundFields = document.getElementById('season-round-fields');
@@ -615,11 +575,8 @@ const d: Partial<EventRecord> = event ?? {
     if (!categorySelect || !seasonRoundFields) return;
 
     function applyVisibility() {
-      // Toggling inline `display` directly rather than Tailwind's `hidden`
-      // class — several of these elements already carry `contents` (so
-      // their child labels lay out as direct grid items, not nested inside
-      // a block wrapper) and `display: none` needs to win outright when
-      // hiding, not fight `display: contents` over class-order specificity.
+      // Inline `display` instead of `hidden`, because some of these carry `contents` and `display: none` must
+      // win.
       const category = categorySelect!.value;
       const circuitless = category === 'holiday' || category === 'iracing';
 

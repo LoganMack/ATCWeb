@@ -1,32 +1,15 @@
 /**
- * The full list of pages that can have an admin-managed banner image (see
- * 0024_season_logos_and_page_banners.sql / page_banners table). Drives both
- * /admin/site-properties (one row per entry here) and each public page's own
- * fetch (`banners.find((b) => b.page_key === 'standings')`, etc).
- *
- * Deliberately scoped to top-level/static pages only — dynamic detail pages
- * (an individual news post, a specific circuit) don't have a single stable
- * "page" to hang one banner off of, so they're left out rather than trying
- * to force a per-record banner into this same simple key-value shape. The only
- * exceptions are 'round-results' and 'incident-report': one banner shared by
- * every round's results (or incident report) page, not a per-round banner.
- *
- * 'home' is the one special case: it renders as the full hero section
- * behind the homepage headline (see src/pages/index.astro) rather than the
- * thin top-of-page strip every other entry here renders as (see
- * src/components/PageBanner.astro) — different enough visual treatment
- * that it's handled inline in index.astro instead of through PageBanner.
+ * Pages that can have an admin-managed banner (0024), driving /admin/site-properties and each page's lookup.
+ * Top-level pages only, plus one shared banner for all round results and one for all incident reports. 'home'
+ * renders as the full homepage hero inline in index.astro, not through PageBanner.
  */
 export interface BannerPageDef {
   key: string;
   label: string;
   description: string;
   /**
-   * Width in px of the page's content column (its <section>'s max-w), which
-   * is how wide the banner actually renders on desktop — PageBanner is
-   * absolutely positioned inside that section, not the full window. The
-   * admin crop frame is sized from this so what you crop is what shows.
-   * 1024 = max-w-5xl, 1152 = max-w-6xl. Omit for 'home' (full-width hero).
+   * Rendered width in px (the section's max-w), so the admin crop frame matches what shows: 1024 = max-w-5xl,
+   * 1152 = max-w-6xl. Omit for 'home'.
    */
   width?: number;
 }
@@ -74,12 +57,8 @@ export const BANNER_PAGES: BannerPageDef[] = [
 import { resizedImageUrl } from './db/drivers';
 
 /**
- * Looks up one page's configured banner URL, or null if none is set.
- * Banners are full-page-width background images — often the single
- * heaviest image on any given page — so this is the one place that fixes
- * all of them (every PageBanner.astro strip plus the homepage hero) at
- * once via resizedImageUrl (see that function's own doc comment for the
- * Cloudflare Transformations setup this depends on).
+ * One page's banner URL, or null. Banners are often a page's heaviest image, so all of them go through
+ * resizedImageUrl here.
  */
 export function bannerUrlFor(
   banners: { page_key: string; image_url: string }[],

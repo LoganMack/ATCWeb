@@ -1,10 +1,6 @@
 ---
-// Car logo(s) for a driver in a season-wide or career-wide context. A driver
-// can have raced several cars over that span; showing a logo for every one
-// wrecked column spacing, so this shows ONE logo (the most-raced car — `cars`
-// is already sorted by races, descending) and, when there's more than one, a
-// small "+" over its top-right corner. Hovering shows one line per car:
-// "Car name: x races". A single car's hover text uses the same format.
+// One logo for a driver's most-raced car (`cars` is sorted by races), with a small "+" when there are more,
+// because a logo per car broke column spacing. The hover lists "Car name: x races" per car.
 import TeamLogo from './TeamLogo.astro';
 
 interface Props {

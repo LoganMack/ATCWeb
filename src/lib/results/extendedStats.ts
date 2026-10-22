@@ -17,14 +17,8 @@ import { getSeasonOverallContext, type SeasonOverallContext } from './seasonCont
 import { resolveLayout } from './layouts';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
 
-// ---------------------------------------------------------------------------
-// Season driver "extended stats" — powers the Standings page's expandable
-// per-driver detail panel. Deliberately view-agnostic (computed once from
-// every class combined, via getSeasonOverallContext) rather than split
-// per-class/overall like DriverSeasonStanding — a driver only ever races in
-// one class in a given season, so "how many laps did they turn this season"
-// isn't a different number depending on which standings view is open.
-// ---------------------------------------------------------------------------
+// Season "extended stats" for the Standings page's expandable driver panel. Computed once across all classes,
+// since a driver races one class per season.
 
 export interface DriverSeasonExtendedStats {
   laps: number;
@@ -37,12 +31,8 @@ export interface DriverSeasonExtendedStats {
   /** Season total penalty points (PP) — sums every logged penalty's effective (appeal-aware) PP against this driver, same figure `effectivePenaltyPoints` produces everywhere else (rule 57's season PP limit). NOT the same thing as a race's `points_deduction` (that's the points-scoring effect of a penalty, already folded into totalPoints) — this is the separate PP counter. */
   penaltyPoints: number;
   /**
-   * Season total finesse + pole bonus points earned — deliberately excludes
-   * Gamma/Delta's own class_points bonus, matching computeOverallSeasonStandings'
-   * own reasoning for leaving class_points out of the "overall" competition
-   * (it's each of those classes' own per-race class-position bonus, not
-   * something every driver can earn). A Gamma/Delta driver's own class_points
-   * total isn't reflected here.
+   * Season finesse + pole bonus points. Excludes Gamma/Delta's own class_points bonus, as the overall
+   * competition does.
    */
   bonusPoints: number;
   /** Total km driven this season (laps completed × that round's matched circuit-layout length), or null if not even one of this driver's rounds could be matched to a circuit_layouts row — see resolveLayout. When only SOME rounds match, this is a lower bound (the unmatched rounds' laps are simply not counted) rather than null, so a driver with mostly-tracked rounds still shows a useful (if slightly conservative) figure. */
@@ -67,19 +57,9 @@ export interface ExtendedRoundStat {
 }
 
 /**
- * Combines `getCuratedRaceResultsForSubsessions`' columns with
- * `getLapStatsForSubsessions`' two extra ones into ONE query — for
- * `computeDriverCareerStats`' bulk path only. Every other caller keeps
- * using the two separate, isolated queries (see `getLapStatsForSubsessions`'
- * own doc comment for why they're isolated: an unverified column failing
- * shouldn't be able to take down the main results/standings pipeline). A
- * whole-career computation already issues several large paginated queries;
- * merging these two identical-scope ones into one, just for this path,
- * roughly halves that particular cost. Falls back to running the two
- * separate (still safely isolated) queries if the combined one fails for
- * any reason — e.g. those two columns genuinely missing on some
- * deployment — so this never makes career stats less resilient than
- * before, only faster in the common case.
+ * Both lap-stat columns and the race results in one query, for the career-stats bulk path only. Other callers
+ * keep the two isolated queries so an unverified column can't break results; if this combined query fails it
+ * falls back to them.
  */
 export async function getCuratedRaceResultsWithLapStatsBulk(
   env: SupabaseEnv,
@@ -108,11 +88,8 @@ export async function getCuratedRaceResultsWithLapStatsBulk(
 }
 
 /**
- * Per-driver season totals for the Standings page's expandable detail panel
- * — laps, laps led, net positions gained/lost, incidents/incidents-per-lap,
- * season penalty points, bonus points, and distance driven. See
- * `DriverSeasonExtendedStats`' own field comments for exactly what each
- * figure includes/excludes.
+ * Per-driver season totals for the Standings page's expandable panel; see DriverSeasonExtendedStats' field
+ * comments for what each figure includes.
  */
 export async function getSeasonDriverExtendedStats(
   env: SupabaseEnv,
@@ -271,10 +248,8 @@ export async function getSeasonDriverExtendedStats(
     extRound(a, p.subsession_id).penaltyPoints += effectivePenaltyPoints(p);
   }
 
-  // Whether at least one of this driver's rounds actually resolved to a
-  // known circuit length/corner count — distinguishes "0 because nothing
-  // matched" (show as unavailable) from "0 because they didn't drive" (show
-  // as 0).
+  // Whether any of the driver's rounds resolved a circuit length: tells "unavailable" apart from "didn't
+  // drive".
   const anyKmResolvedByDriver = new Map<string, boolean>();
   const anyCornersResolvedByDriver = new Map<string, boolean>();
   for (const s of scores) {

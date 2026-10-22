@@ -14,12 +14,9 @@ import { roundPenaltyBack } from './shared';
 import type { IncidentActionContext, IncidentActionRedirect } from './context';
 
 /**
- * `save-driver-round-penalties` (admin only), the Round Summary row's Edit: tick boxes for the fixed
- * kinds plus one Other note. Ticked kinds with nothing logged are added, unticked logged ones are
- * removed (served ones too — this popup is the one place a penalty is waived, and unticking it drops
- * where it was served); ones left ticked keep their note and served status.
- * These are separate writes, not one transaction: if one fails partway, the ones before it stay
- * saved, get logged, and the flash says to check.
+ * `save-driver-round-penalties` (admin only), the Round Summary row's Edit. Ticked kinds are added, unticked
+ * ones removed, served ones too: this popup is the one place a penalty is waived. Separate writes, not a
+ * transaction: on a partial failure the earlier writes stay, are logged, and the flash says to check.
  */
 export async function handleSaveDriverRoundPenalties(
   ctx: IncidentActionContext,

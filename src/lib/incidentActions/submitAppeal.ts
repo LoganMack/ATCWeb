@@ -14,11 +14,9 @@ import {
 import type { IncidentActionContext, IncidentActionRedirect } from './context';
 
 /**
- * `submit-appeal`, open to any signed-in user. Open only while the Incident Appeal Window is (see
- * lib/incidentAppeals.ts); re-checked here server-side and again in the database. The files go into
- * the private 'incident-appeals' bucket under the user's own folder first, then one SECURITY DEFINER
- * call records the appeal text + file list (0093_incident_appeals.sql, 0113_bound_incident_submissions.sql).
- * The admin-only fields of the context are not needed (or set) here.
+ * `submit-appeal`, any signed-in user, only while the Incident Appeal Window is open (checked here and in the
+ * database). Files go to the user's folder in the private 'incident-appeals' bucket first, then one SECURITY
+ * DEFINER call records the appeal (0093, 0113).
  */
 export async function handleSubmitAppeal(
   ctx: Omit<IncidentActionContext, 'accessToken' | 'actor' | 'roundLabel'>,

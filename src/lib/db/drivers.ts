@@ -12,18 +12,9 @@ export interface DriverRecord {
   class_id: number;
   team_id: string | null;
   /**
-   * Their iRacing customer id — the ONLY thing that links this drivers row
-   * to their actual race results (curated_race_results.cust_id,
-   * score_round()'s entrant join, driver_last_race — see those
-   * for the full list). Added to `drivers` outside this repo's migrations
-   * (see 0005_round_overrides.sql's grant-fix note), and until now had no
-   * admin UI field at all despite raceResultsImport.ts's own doc comment
-   * telling admins to "set it first on their Roster profile" — the Sync
-   * Results with Roster button (src/lib/raceResultsImport.ts's
-   * syncResultsWithRoster) is what actually needs this field editable, so
-   * a driver it links (rather than creates fresh) can be corrected by hand
-   * afterward, and so an admin can fix a genuine mismatch without a direct
-   * database edit.
+   * The iRacing customer id: the only link from this driver to their race results. Added outside this repo's
+   * migrations (see archive/00051_round_overrides.sql). Editable so an admin can correct a driver that "Sync Results
+   * with Roster" linked.
    */
   iracing_cust_id: number | null;
   is_rookie: boolean;
@@ -40,7 +31,11 @@ export interface DriverRecord {
   probation_started_at: string | null; // 'YYYY-MM-DD'
   /** 0027_hall_of_fame.sql — toggled by an admin, powers the public /hall-of-fame page. See getHallOfFameDrivers(). */
   is_hall_of_fame: boolean;
-  /** 0057_driver_ai_flag.sql — marks this row as an AI-controlled entrant that exists only to satisfy an exhibition result's FK. Excluded by default everywhere (getDrivers/driversSelect) except getRoundResults()/getQualifyingForSubsession() and the admin Drivers list's "AI" filter tab. See src/lib/results.ts's driversSelect() for the full reasoning. */
+  /**
+   * 0057_driver_ai_flag.sql: an AI entrant that exists only for an exhibition result's FK. Excluded by
+   * default except on round results, qualifying and the admin Drivers "AI" tab (see driversSelect() in
+   * src/lib/results/rows.ts).
+   */
   is_ai: boolean;
   /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. */
   nationality_1: string | null;
@@ -131,27 +126,9 @@ export function getAllDriverLastRaces(env: SupabaseEnv): Promise<DriverLastRaceR
 }
 
 /**
- * Number of officially-scored rounds (curated_rounds, via
- * getOfficialRoundStartTimes() in results.ts) strictly after `sinceDate` —
- * matches sync_driver_statuses()'s own never-raced-driver Inactive check
- * (0063_driver_never_raced_inactivity.sql: `curated_rounds.status =
- * 'official' and start_time > sign_up_date`) exactly, so buildInactivityNote()
- * shows a New driver's real progress toward the inactivity-rounds threshold
- * — the same rounds count the database itself uses to decide when to flip
- * them, not an approximation.
- *
- * Deliberately NOT calendar events, despite isOnProbationNow() (src/lib/
- * penalties.ts) using exactly that "events since X" shape for its own
- * "rounds since a driver's own anchor date" clock — an earlier version of
- * this function reused that same events-based approach, which overcounts
- * (a scheduled-but-not-yet-run event, a cancelled round, or a
- * holiday/iracing placeholder entry all count as a calendar "event" but
- * aren't a real scored round). That mismatch let this tooltip claim a
- * driver had "fulfilled the requirements" to go Inactive — showing e.g.
- * 12/12 rounds absent — while the database's own rule, counting only real
- * curated_rounds, still saw 11 and correctly left them New. Comparison is
- * against midnight UTC on `sinceDate`, matching how Postgres compares a
- * `date` column against curated_rounds.start_time's `timestamptz`.
+ * Officially scored rounds strictly after `sinceDate` (midnight UTC), counted exactly as
+ * sync_driver_statuses()' never-raced Inactive check (0063), so the inactivity tooltip matches when the
+ * database flips the driver. Calendar events would overcount (unrun, cancelled and holiday entries).
  */
 export function roundsSinceDate(rounds: { start_time: string }[], sinceDate: string): number {
   const sinceMidnightUtc = new Date(`${sinceDate}T00:00:00Z`).getTime();
@@ -159,20 +136,9 @@ export function roundsSinceDate(rounds: { start_time: string }[], sinceDate: str
 }
 
 /**
- * The same inactivity-countdown message shown on the admin driver edit page
- * (next to the Status pill) — pulled out here so the admin Drivers LIST page
- * can reuse it verbatim as a hover tooltip instead of re-deriving its own
- * copy that could drift out of sync. Always returns a message for any
- * recognized status (New/Active/Veteran/Inactive); null only for an
- * unrecognized/missing status name (e.g. a brand new driver with no status
- * yet), same as the edit page's own "only meaningful once the driver
- * actually exists" guard.
- *
- * signUpDate/roundsSinceSignup are only consulted for the New/Active-with-
- * no-races-yet case below — every caller that can supply them should (see
- * roundsSinceDate above for how to compute the latter); a caller that
- * doesn't (or a driver with no sign_up_date on file) just falls back to the
- * generic threshold description instead of a real progress breakdown.
+ * The inactivity countdown shown on the admin driver page, shared with the Drivers list tooltip so the two
+ * can't drift. Null only for an unknown status. Without signUpDate/roundsSinceSignup a never-raced driver
+ * gets the generic threshold text.
  */
 export function buildInactivityNote(
   statusName: string | null,
@@ -204,14 +170,9 @@ export function buildInactivityNote(
 }
 
 /**
- * The ONLY path for changing a driver's car_number — enforces Logan's rule
- * (block if held by anyone not Inactive; silently free it up if the holder
- * IS Inactive) inside one DB transaction via set_driver_car_number()
- * (0039_driver_admin_overhaul.sql), so the two writes involved (freeing the
- * old holder, assigning the new one) can never leave two drivers sharing a
- * number even momentarily. Throws with a message fit to show directly to
- * the admin (e.g. "Car #7 is already in use by Jane Doe (Active)") when the
- * number is taken by anyone not Inactive.
+ * The only way to change a car_number. set_driver_car_number() (0039) applies Logan's rule in one
+ * transaction: blocked if a non-Inactive driver holds it, otherwise taken from the Inactive holder. Throws an
+ * admin-readable message.
  */
 export async function setDriverCarNumber(
   env: SupabaseEnv,
@@ -228,18 +189,9 @@ export async function setDriverCarNumber(
 }
 
 /**
- * Re-derives every driver's status from race activity — see
- * sync_driver_statuses() (0039_driver_admin_overhaul.sql, threshold made
- * dual day/round by 0040_inactivity_90d_or_12_rounds.sql, both thresholds
- * made admin-configurable via site_settings by 0041_driver_settings.sql)
- * for the exact rule (New/Active -> Inactive once BOTH the configured
- * inactivity-days and inactivity-rounds have passed since their last race;
- * Inactive -> Active on return; Veteran untouched). Status editing was
- * removed from the admin driver form entirely per Logan ("that should all
- * be automatic") — this is what keeps status current instead, called
- * opportunistically whenever an admin loads the Drivers pages (this app has
- * no cron/scheduled-worker infrastructure to run it on a real timer).
- * Returns how many rows changed.
+ * Re-derives every driver's status from race activity (sync_driver_statuses(), 0039/0040/0041). Status is
+ * automatic (Logan) and there is no scheduler, so this runs whenever an admin loads the Drivers pages.
+ * Returns rows changed.
  */
 export async function syncDriverStatuses(env: SupabaseEnv, accessToken: string): Promise<number> {
   const res = await fetch(`${env.url}/rest/v1/rpc/sync_driver_statuses`, {
@@ -251,14 +203,8 @@ export async function syncDriverStatuses(env: SupabaseEnv, accessToken: string):
 }
 
 /**
- * Re-derives is_rookie from career history — see sync_rookie_status()
- * (0041_driver_settings.sql). Once a driver reaches 3+ appearances in a
- * single season, they lose rookie status for good (this only ever flips
- * true -> false, never back). Rookie status is no longer admin-editable —
- * every new driver starts as a rookie (see createDriver's is_rookie: true
- * caller in the admin form) and this is what turns it off automatically.
- * Same opportunistic-call pattern as syncDriverStatuses. Returns how many
- * rows changed.
+ * Re-derives is_rookie (sync_rookie_status(), 0041): 3+ appearances in one season ends rookie status for
+ * good. Called like syncDriverStatuses. Returns rows changed.
  */
 export async function syncRookieStatus(env: SupabaseEnv, accessToken: string): Promise<number> {
   const res = await fetch(`${env.url}/rest/v1/rpc/sync_rookie_status`, {
@@ -292,28 +238,10 @@ export interface SyncResultsWithRosterOutcome {
 }
 
 /**
- * Admin > Drivers "Sync Results with Roster" button. Every cust_id that
- * raced in a real (non-exhibition) round but has no matching drivers row —
- * see results.ts's RaceResultRow.notInRoster for the front-end symptom this
- * fixes — either gets linked onto an existing same-named driver with no
- * cust_id yet, or gets a new minimal drivers row created for it. Linking or
- * creating the driver fires the drivers scoring triggers, which rescore
- * every round that cust_id already has raw results in (BR3.1); otherwise
- * those rounds would stay invisible on the results page with no "not in
- * roster" tag to explain why (the bug Jordyn Propst surfaced). No separate
- * rescore_season call is needed: the function does not say which seasons
- * it touched, and the triggers already cover exactly those rounds.
- *
- * Deliberately a single RPC call (same opportunistic-automation pattern as
- * syncDriverStatuses/syncRookieStatus above) rather than doing the lookup
- * and per-driver creates/updates from the Worker: an earlier version did
- * exactly that and could burn through dozens to hundreds of subrequests in
- * one click (paging through all of curated_race_results, then one REST call
- * per driver touched) — exactly what tripped Cloudflare's per-invocation
- * subrequest limit in production. See sync_results_with_roster()
- * (0047_sync_results_with_roster.sql) for the actual logic — it also
- * excludes exhibition rounds/seasons (Logan: "sometimes those include AI
- * drivers"), which the original version never did.
+ * Admin > Drivers "Sync Results with Roster": every cust_id that raced a real round with no drivers row is
+ * linked to a same-named driver without one, or gets a new row (sync_results_with_roster(), 0047; exhibitions
+ * excluded). The drivers scoring triggers then rescore those rounds (BR3.1). One RPC, because doing it from
+ * the Worker exceeded the subrequest limit.
  */
 export async function syncResultsWithRoster(
   env: SupabaseEnv,
@@ -462,14 +390,8 @@ export interface HallOfFameDriverInfo {
 }
 
 /**
- * Ids (+ bio, the one extra field the public Hall of Fame page needs that
- * career-stats' own `DriverBasic` doesn't already carry) of every driver an
- * admin has marked as a Hall of Fame member (0027_hall_of_fame.sql). The
- * page itself gets everything else — name, photo, career totals,
- * season-by-season breakdown — from `computeDriverCareerStats` in
- * src/lib/results.ts and just filters that down to these ids, so a
- * driver's HOF card always reflects the exact same numbers their Driver
- * Stats row would.
+ * Hall of Fame driver ids plus bio (0027). The page takes everything else from computeDriverCareerStats
+ * (src/lib/results/careerStats.ts), so a HOF card matches the Driver Stats row.
  */
 export function getHallOfFameDrivers(env: SupabaseEnv) {
   // &is_ai=eq.false is belt-and-suspenders (0057_driver_ai_flag.sql) — an AI
@@ -478,7 +400,7 @@ export function getHallOfFameDrivers(env: SupabaseEnv) {
   return restGet<HallOfFameDriverInfo[]>(env, 'drivers?select=id,bio&is_hall_of_fame=eq.true&is_ai=eq.false');
 }
 
-// --- Drivers editing their own profile (0104_driver_self_service_profile.sql) ---
+// --- Drivers editing their own profile (archive/0105_driver_self_service_profile.sql) ---
 
 export const DRIVER_BIO_MAX = 500;
 export const DRIVER_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
@@ -524,26 +446,10 @@ export async function updateMyDriverProfile(
 }
 
 /**
- * Wraps a Supabase Storage image URL in a Cloudflare Transformations
- * request (`/cdn-cgi/image/...`) so it's resized/re-encoded on Cloudflare's
- * edge (`format=auto` picks WebP/AVIF per the visitor's Accept header)
- * instead of shipping every logo/photo at its original upload resolution —
- * see PERFORMANCE_AUDIT.md #4. Requires Images > Transformations enabled on
- * the zone AND this project's Supabase Storage host allow-listed under
- * Transformations > Sources (both dashboard-only, done once).
- *
- * Root-relative on purpose (no origin baked in): `/cdn-cgi/image/...`
- * resolves against whatever origin the page is served from, so this works
- * unmodified on production and any preview deployment alike. Local
- * `astro dev` has no Transformations in front of it, so these URLs would
- * 404 there — acceptable, since local dev never needs the optimization and
- * every other Supabase-hosted `<img>` already just points at the origin
- * file today.
- *
- * Only rewrites actual Supabase Storage URLs — anything else (flagcdn.com,
- * a relative path, null/undefined) passes through unchanged, since only
- * this project's Storage bucket is allow-listed as a source. Also passes
- * through unchanged if no width/height was requested — nothing to resize.
+ * A Supabase Storage image through Cloudflare Image Transformations (`/cdn-cgi/image/...`, `format=auto`),
+ * resized at the edge. Needs Transformations enabled and the Storage host allow-listed (dashboard, once).
+ * Root-relative, so it works on any deployment but 404s under `astro dev`; other URLs, or no size, pass
+ * through.
  */
 export function resizedImageUrl(
   url: string | null | undefined,

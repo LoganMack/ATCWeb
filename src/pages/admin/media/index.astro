@@ -93,15 +93,8 @@ if (Astro.request.method === 'POST') {
       if (id) await deleteMediaGraphic(supabaseEnv, accessToken, id);
       return Astro.redirect('/admin/media', 302);
     } else if (intent === 'save-race-photo') {
-      // Same upsertRaceLinks() call the per-round Results page's own
-      // "save-race-links" form makes (src/pages/results/[subsessionId].astro)
-      // — this is just a second, consolidated place to reach it so an admin
-      // doesn't have to open every round's own page one at a time to set its
-      // photo album link. Only touches photo_album_url for this
-      // (subsession_id, race_number) — every other race_links field
-      // (replay/broadcast/incident report URLs) is left exactly as it was,
-      // since those aren't included in the request body at all (see
-      // upsertRaceLinks' own doc comment on omitted-vs-null fields).
+      // The results page's upsertRaceLinks() call, reachable here for many rounds at once. Only
+      // photo_album_url is sent, so the other race_links fields are left as they are.
       const subsessionId = Number(form.get('subsession_id'));
       const raceNumberRaw = Number(form.get('race_number'));
       const raceNumber = Number.isFinite(raceNumberRaw) && raceNumberRaw > 0 ? Math.round(raceNumberRaw) : 1;
@@ -202,12 +195,7 @@ for (const link of meetupDriverLinks) {
 const driverById = new Map(rosterDrivers.map((d) => [d.id, d]));
 const sortedRoster = [...rosterDrivers].sort((a, b) => displayDriverName(a.name).localeCompare(displayDriverName(b.name)));
 
-// Precomputed per-meetup (rather than inline in the template below) for two
-// reasons: it keeps the type-narrowing filter() out of a JSX callback body
-// (Astro's template expressions parse `<` ambiguously against JSX there,
-// which broke this exact "(d): d is X =>" predicate when it lived inline),
-// and it matches this file's own racePhotoRows just below — heavier
-// per-row derivation belongs up here, not in the markup.
+// Precomputed: a type-predicate filter inside the template is misparsed as JSX.
 interface MeetupAttendeeInfo {
   attendees: DriverBasic[];
   availableToAttach: DriverBasic[];
@@ -223,13 +211,8 @@ for (const m of meetups) {
   meetupAttendeeInfo.set(m.id, { attendees, availableToAttach });
 }
 
-// One row per real (non-test) round for the Race Photos consolidated
-// editor below — each prefilled with whichever race_links row already has
-// a photo_album_url set for it, if any (lowest race_number wins when a
-// round has more than one, since that's the common "one album for the
-// whole round" case; a round with a second race's album set separately can
-// still be reached from that round's own Results page). A round with
-// nothing set yet just gets an empty field defaulted to Race 1.
+// One row per real round for the Race Photos editor, prefilled from the lowest race_number that has an album
+// (the usual one album per round); empty rounds default to Race 1.
 const photoLinksBySubsession = new Map<number, RaceLinks>();
 for (const link of photoLinks) {
   if (!link.photo_album_url) continue;
@@ -592,11 +575,7 @@ const racePhotoRows = rounds
 </AdminLayout>
 
 <script>
-  // Client-side filter for the Race Photos list above — same show/hide-by-
-  // [data-search] pattern the public Media page's own search boxes use
-  // (see initGridSearch in src/pages/media.astro), just scoped to this one
-  // admin list instead of a shared script file since nothing else on this
-  // page needs it.
+  // Race Photos search, the same [data-search] show/hide as the public Media page.
   document.addEventListener('astro:page-load', () => {
     const input = document.getElementById('admin-race-photos-search') as HTMLInputElement | null;
     const list = document.getElementById('admin-race-photos-list');

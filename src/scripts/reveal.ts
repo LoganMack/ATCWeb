@@ -7,13 +7,8 @@ function initReveal() {
   const els = document.querySelectorAll<HTMLElement>('.reveal:not(.is-visible)');
   if (!els.length) return;
 
-  // A small positive bottom rootMargin means an element counts as "in view"
-  // slightly before it actually reaches the bottom of the screen, so by the
-  // time someone scrolls to it the reveal has already finished — instead of
-  // visibly popping in mid-scroll. Combined with the shorter, smaller
-  // transition in global.css, this keeps big lists (roster, calendar,
-  // teams) from looking like they're animating in one row at a time while
-  // the page whizzes by during a fast scroll.
+  // A small bottom rootMargin finishes the reveal just before an element reaches the screen, so long lists
+  // don't appear to animate in row by row on a fast scroll.
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {

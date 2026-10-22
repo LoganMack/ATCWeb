@@ -27,11 +27,8 @@ export interface CurrentSeasonRounds {
 }
 
 /**
- * The site's one `is_current` season's round subsession_ids — this is what
- * "this season" means for PP/warning scoping (rule 57's season PP limit),
- * as opposed to the arbitrary season a standings/champions page might be
- * showing. Returns an empty result (no rounds) if no season is currently
- * flagged current.
+ * The `is_current` season's round subsession_ids: what "this season" means for PP and warnings (rule 57),
+ * whatever season a page shows. Empty when no season is current.
  */
 export async function getCurrentSeasonRounds(env: SupabaseEnv): Promise<CurrentSeasonRounds> {
   const seasons = await getSeasons(env);
@@ -59,25 +56,10 @@ export interface SeasonOverallContext {
 }
 
 /**
- * Fetches the season-wide rows every standings view shares: every class's
- * scores (race_score_results_public), the raw results, lap stats, penalties
- * and rounds. Positions and points come straight from the view, so a
- * penalty logged on the incident page reaches both standings views without
- * any recompute here.
- *
- * A thin fetch-then-build wrapper around `buildSeasonOverallContext` below —
- * every single-season caller (Standings, Team Standings, Champions, Race
- * Results) goes through this one-season-at-a-time fetch. `computeDriverCareerStats`,
- * which needs this same context for MANY seasons at once, instead
- * bulk-fetches the same raw ingredients ONCE across every season and
- * calls `buildSeasonOverallContext` directly per season on its own
- * in-memory slice, with no network calls in that loop.
- *
- * Exported so any caller that needs MULTIPLE standings views for the same
- * season — e.g. the homepage's Overall/Alpha/Gamma/Delta/Rookies standings
- * widget — can build this once and pass it as `precomputedOverallContext`
- * to each of computeSeasonStandings/computeOverallSeasonStandings, instead
- * of each view re-fetching its own copy.
+ * Fetches the rows every standings view shares (scores from race_score_results_public, raw results, lap
+ * stats, penalties, rounds); positions and points come from the view, so nothing is recomputed. Exported so a
+ * page showing several views of one season builds it once; bulk callers use buildSeasonOverallContext on
+ * slices instead.
  */
 export async function getSeasonOverallContext(
   env: SupabaseEnv,

@@ -1,14 +1,8 @@
 ---
 export const prerender = false;
 
-// Same shell-then-spinner split as admin/index.astro (see admin/drivers/
-// fragment.astro's own top-of-file comment) — this page used to run two
-// opportunistic write RPCs (syncDriverStatuses/syncRookieStatus) plus fetch
-// every driver and their driver_last_race row, all before sending any HTML,
-// so opening /admin/drivers always meant a blank page for however long that
-// took. POST handling (the three form intents below) stays right here since
-// that's the URL every form on this page posts to — only the GET-time data
-// loading and table/settings-panel rendering moved to the fragment.
+// Shell for Admin > Drivers: the data loads in admin/drivers/fragment.astro; the three form POSTs are handled
+// here, since every form posts to this URL.
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
@@ -28,11 +22,7 @@ const actor = { id: admin.user.id, name: actorNameFor(admin) };
 let error: string | null = null;
 let saved = false;
 
-// How many names to actually list out in the post-sync banner below — a
-// season or two of backlog can mean dozens of newly-linked/created drivers,
-// which would otherwise make for an unreasonably long redirect URL (see the
-// redirect below, which is what actually carries this list across the
-// POST-then-render-same-page pattern every other admin page here uses).
+// Names listed in the post-sync banner, capped because the list travels in the redirect URL.
 const SYNC_NAMES_SHOWN = 20;
 
 if (Astro.request.method === 'POST') {
@@ -127,17 +117,9 @@ const syncedRecalcFailed = Astro.url.searchParams.get('synced_recalc_failed');
 const syncedStatuses = Astro.url.searchParams.get('synced_statuses');
 const syncedRookies = Astro.url.searchParams.get('synced_rookies');
 
-// Driver Settings (probation/inactivity values), the two opportunistic
-// syncDriverStatuses/syncRookieStatus RPCs, the drivers list itself, and the
-// bulk driver_last_race lookup all moved to admin/drivers/fragment.astro —
-// see that file's top-of-file comment. All that's left here is the cheap,
-// dependency-free query-string filter below, needed synchronously to render
-// the All/AI tabs and to build the fragment's URL.
+// Only the query-string filter is read here, to render the All/AI tabs and the fragment URL.
 
-// All vs. AI — same plain query-string pill pattern as the Activity Log's
-// category filter (src/pages/admin/activity-log/index.astro). AI-flagged
-// drivers (0057_driver_ai_flag.sql) exist only to satisfy an exhibition
-// result's FK and are never mixed into the default "All" list.
+// All vs. AI pills. AI-flagged drivers (0057) exist only for exhibition results and never mix into "All".
 const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all';
 ---
 

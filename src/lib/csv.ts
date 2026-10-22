@@ -1,8 +1,6 @@
 /**
- * Minimal RFC4180-ish CSV parser — used only by the Incident Report's CSV
- * import (src/pages/results/[subsessionId]/incidents.astro). Handles quoted
- * fields, commas/newlines inside quotes, and escaped `""` quotes. No
- * external dependency needed for something this small.
+ * Minimal RFC 4180-style CSV parser (quoted fields, embedded commas/newlines, `""` escapes) for the Incident
+ * Report's CSV import.
  */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];

@@ -10,33 +10,21 @@ export interface Season {
   name: string;
   logo_url: string | null;
   /**
-   * Light-mode variant of `logo_url` (0089_season_light_logo.sql) —
-   * `logo_url` itself is treated as the dark-mode logo everywhere it's
-   * shown (every logo an admin uploaded before the light/dark toggle
-   * existed is a dark-mode logo). Null just means no light variant has
-   * been uploaded yet, in which case every render site keeps showing the
-   * dark logo in light mode too (see SeasonLogo.astro) rather than
-   * showing nothing.
+   * Light-theme logo (0089); `logo_url` is the dark-theme one. When null, SeasonLogo.astro shows the dark
+   * logo in light mode too.
    */
   logo_url_light: string | null;
   start_date: string | null;
   end_date: string | null;
   is_current: boolean;
   /**
-   * Drop weeks beyond the standard baseline (see src/lib/results.ts —
-   * standings drop each driver's worst 2 + extra_drop_weeks rounds before
-   * totaling points). Column lives on `seasons` in the live database
-   * already; not created by this repo's migrations (see 0004_champions.sql
-   * for why).
+   * Drop weeks on top of the ruleset's base (standingsCore.ts). The column exists in the live database but
+   * not in this repo's migrations (see archive/00041_champions.sql).
    */
   extra_drop_weeks: number;
   /**
-   * Which scoring_ruleset applies to this season — null means "use whichever
-   * ruleset is marked default" (see ScoringRuleset.is_default / resolveSeasonRuleset
-   * below), not "no ruleset at all." Column lives on `seasons` in the live
-   * database already (0031_scoring_rulesets_default.sql only added
-   * scoring_rulesets.is_default/updated_at, not this column); admin-editable
-   * from /admin/seasons.
+   * The season's scoring ruleset; null means the default ruleset (resolveSeasonRuleset). The column predates
+   * this repo's migrations; edited on /admin/seasons.
    */
   scoring_ruleset_id: string | null;
   /** Whether the Gamma class competed this season — see 0037_class_and_scoring_fixes.sql. Gamma didn't exist before ATC16, so this is false for older seasons unless an admin turns it on. Controls whether Gamma standings/champions/tabs show for this season on the public site. */
@@ -44,21 +32,15 @@ export interface Season {
   /** Same idea as gamma_enabled, for Delta — didn't exist before ATC5. */
   delta_enabled: boolean;
   /**
-   * Whether the separate Delta TEAM championship ran this season — see
-   * 0052_delta_team_enabled.sql. NOT the same thing as delta_enabled: the
-   * Delta driver class existed from ATC5, but the standalone Delta Team
-   * competition/standings (shown alongside "Alpha Team" on /champions and
-   * /team-standings) didn't start until ATC10. Controls whether Delta Team
-   * standings/champions/positions show for this season on the public site.
+   * Whether the Delta Team championship ran this season (0052). Not delta_enabled: the Delta class began at
+   * ATC5, the team championship at ATC10.
    */
   delta_team_enabled: boolean;
 }
 
 /**
- * A season's logo pair as passed into SeasonLogo.astro — used by every page
- * that builds a `season name -> logo` lookup (news_label isn't an FK to
- * `seasons`, so these are best-effort name-matched maps rather than joins;
- * see news/index.astro, index.astro, drivers/[id]/fragment.astro).
+ * A season's logo pair for SeasonLogo.astro. news_label isn't an FK to `seasons`, so pages build best-effort
+ * name-matched lookups.
  */
 export interface SeasonLogoPair {
   dark: string;
@@ -82,11 +64,7 @@ export async function getSeasonById(env: SupabaseEnv, id: string) {
 }
 
 /**
- * Sets (or clears, with `null`) a season's dark-mode and/or light-mode logo
- * — the only fields seasons can be admin-edited from (0024_season_logos_and_page_banners.sql,
- * 0089_season_light_logo.sql). Pass only the field(s) that actually changed
- * — `logo_url`/`logo_url_light` are each independently optional, so e.g.
- * removing just the light variant doesn't touch the dark one.
+ * Sets or clears a season's dark and/or light logo (0024, 0089); each is optional, so pass only what changed.
  */
 export async function updateSeasonLogo(
   env: SupabaseEnv,
@@ -127,16 +105,8 @@ export interface SeasonRecalcResult {
 }
 
 /**
- * Admin > Seasons' "Recalculate" button — rescores every round in a season
- * into race_score_results via the admin-checked rescore_season() (BR3.4),
- * rather than looping N individual RPC calls from here (one round trip
- * instead of N, and the whole run stays inside one Postgres statement so a
- * slow round can't leave the UI hanging on a partially-done season).
- * A round-level failure doesn't abort the batch — it comes back as its own
- * row with `error_message` set, right alongside the rounds that succeeded,
- * so the caller can report exactly which rounds still need attention
- * (a missing ruleset, a round with no format set, etc.) instead of an
- * all-or-nothing outcome.
+ * Admin > Seasons "Recalculate": rescore_season() (BR3.4) rescores every round in one statement instead of N
+ * calls. A failing round comes back as its own row with `error_message`, so the rest still succeed.
  */
 export async function recalculateSeasonScores(
   env: SupabaseEnv,
@@ -154,16 +124,9 @@ export async function recalculateSeasonScores(
 }
 
 /**
- * Marks one season as the current one (is_current=true), the season the
- * public site's pickers default to (see standings.astro/team-standings.astro/
- * results.astro all falling back to `seasons.find((s) => s.is_current)`).
- * `seasons` has a partial unique index enforcing at most one is_current=true
- * row at a time (0001_init.sql) — so the old current season has to be
- * cleared to false FIRST, then the new one set to true, or the second PATCH
- * would violate that index while the old row is still true. Two requests,
- * not a transaction, since PostgREST doesn't expose one for plain REST
- * calls — a failure between them would leave no season marked current
- * rather than two, which is the safer of the two ways this could go wrong.
+ * Makes a season current (the public pickers' default). A partial unique index allows one current season
+ * (0001), so the old one is cleared first; if the second request fails, no season is current, which is the
+ * safer failure.
  */
 export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, seasonId: string) {
   await restPatch<Season>(
@@ -179,65 +142,24 @@ export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, se
   });
 }
 
-// --- Scoring rulesets (see 0031_scoring_rulesets_default.sql) --------------
-//
-// A ruleset's `rules` jsonb is what the DB-side score_round()
-// function reads to actually compute race_score_results from raw curated_race_results
-// (base points per finish position, class-podium bonuses, Sublime Finesse,
-// Class Pole, PP-penalty point deductions, drop-week count, team roster
-// size/eligibility — see that function for the exact shape). This app treats
-// it as an opaque JSON blob (edited as raw text in the admin UI) rather than
-// modeling every field, since nothing in this repo's own TypeScript
-// re-derives points from it today — see resolveSeasonRuleset's own doc
-// comment for what "applying" a ruleset currently means app-side.
+// --- Scoring rulesets (0031_scoring_rulesets_default.sql) ---
+// `rules` is read by the database's score_round(); the app keeps it as opaque JSON edited as text, since only
+// can_drop_final_round is read app-side.
 
 export interface ScoringRuleset {
   id: string;
   name: string;
   /**
-   * Parsed JSON (an object), NOT a string — PostgREST returns jsonb columns
-   * as native JSON on every read (GET, and the `return=representation` body
-   * of a create/update), same as any other jsonb column in this file.
-   * Treating this field as a string (it used to be typed that way) fed an
-   * already-parsed object into `JSON.parse`, which fails and falls through
-   * to the object's default `[object Object]` stringification — see
-   * splitRulesForForm() in src/pages/admin/rulesets/index.astro, which
-   * guards against a non-object `rules` value (e.g. a row corrupted by the
-   * bug described below) when prefilling the ruleset editor dialog.
-   *
-   * createScoringRuleset/updateScoringRuleset's `rules` param below is ALSO
-   * typed `unknown` (a parsed object), not a JSON string — a previous
-   * version of this comment claimed the write side should send a
-   * JSON-stringified string because "Postgres's ::jsonb cast re-parses that
-   * string back into the real object on the way in." That's wrong, and it
-   * corrupted this exact column in production: PostgREST doesn't run the
-   * request body through Postgres's jsonb TEXT INPUT parser at all — it
-   * extracts each field's value from the parsed JSON request body and hands
-   * it to the target column already typed as JSON. A JSON *string* value
-   * (e.g. `"rules": "{\"drops\":2,...}"`) lands in a jsonb column as a
-   * STRING SCALAR whose content happens to look like JSON — it is NOT
-   * re-parsed into an object. That's silent: no error, just a
-   * `scoring_rulesets.rules` row that reads back as `jsonb_typeof = 'string'`
-   * instead of `'object'`, so every `v_rules->'base_points'->...` lookup in
-   * score_round() evaluates to SQL NULL — and every round of a season using
-   * that ruleset is then recorded in scoring_issues ("no base_points")
-   * instead of being scored, which is easy to miss until results go
-   * missing. Sending the PARSED OBJECT (not a string) as `rules` is what makes
-   * PostgREST forward it as an actual JSON object value.
+   * A parsed JSON object, on reads and on writes. Sending it as a JSON string stores a jsonb string scalar,
+   * which score_round() can't read, so every round of the season lands in scoring_issues instead of being
+   * scored.
    */
   rules: unknown;
   /** At most one ruleset can have this true at a time (partial unique index) — the ruleset a season falls back to when its own scoring_ruleset_id is null. See resolveSeasonRuleset. */
   is_default: boolean;
   /**
-   * Whether the drop-week mechanic (src/lib/results.ts's finalizeStandings)
-   * is allowed to drop the season's final round for driver standings.
-   * `false` PROTECTS the final round — it's always counted, never one of
-   * the worst-N dropped rounds. `true` (the DB column default as of
-   * 0067_ruleset_overhaul_and_bonuses.sql — existing rulesets keep whatever
-   * value they already had) treats it like any other round, eligible to be
-   * dropped along with the rest. Read via resolveSeasonRuleset() in
-   * computeSeasonStandings/computeOverallSeasonStandings — see
-   * 0062_scoring_ruleset_can_drop_final_round.sql.
+   * Whether drop weeks may drop the season's final round (0062); false always counts it. The column defaults
+   * to true since 0067. Read through resolveSeasonRuleset() by the standings computations.
    */
   can_drop_final_round: boolean;
   created_at: string;
@@ -278,11 +200,8 @@ export function deleteScoringRuleset(env: SupabaseEnv, accessToken: string, id: 
 }
 
 /**
- * Marks one ruleset as THE default (the one seasons with no ruleset of their
- * own resolve to — see resolveSeasonRuleset). Same clear-then-set two-request
- * pattern as setCurrentSeason, for the same reason: the partial unique index
- * on is_default would reject setting a second row true while the old
- * default is still true.
+ * Makes a ruleset the default, clearing the old one first for the same partial-unique-index reason as
+ * setCurrentSeason.
  */
 export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: string, rulesetId: string) {
   await restPatch<ScoringRuleset>(
@@ -304,27 +223,8 @@ export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: st
 }
 
 /**
- * Resolves which ruleset actually applies to a season: the one it's
- * explicitly assigned, or whichever is marked default if it isn't assigned
- * one. Returns null only if neither exists (no ruleset assigned AND no
- * default configured yet).
- *
- * IMPORTANT SCOPE NOTE: this app's own standings/career-stats/news-recap
- * computations (src/lib/results/) read already-computed `race_score_results`
- * rows — they don't re-derive POINTS from a ruleset's `rules` jsonb
- * themselves (that derivation lives entirely in the DB-side
- * score_round() function). So for point values, "resolving" a
- * season's ruleset is a season-metadata/admin-display concern (showing
- * which ruleset is in effect, and which season rows still need one before
- * scores can be (re)computed for them) — it does not change the point
- * totals any standings page shows.
- *
- * The one field that IS consulted directly by the standings computation
- * itself (not just the DB-side scoring function) is
- * `can_drop_final_round` — computeSeasonStandings/computeOverallSeasonStandings
- * call this same resolveSeasonRuleset() to decide whether a season's final
- * round is protected from the drop-week mechanic. See that field's own doc
- * comment on ScoringRuleset.
+ * The season's assigned ruleset, else the default; null if neither exists. Points come from the database's
+ * score_round(), so in the app this only drives display and can_drop_final_round.
  */
 export function resolveSeasonRuleset(
   season: Pick<Season, 'scoring_ruleset_id'>,
@@ -338,22 +238,9 @@ export function resolveSeasonRuleset(
 }
 
 /**
- * Round incident limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) —
- * informational only, no scoring effect. Pulled out of
- * results/[subsessionId].astro (where it originated, for an
- * already-imported round) so EventDetailCard.astro/calendar.astro can show
- * the same "15x"/"8x" figure for an EVENT, which may not have an imported
- * round/subsession_id yet — both reduce to the same
- * ruleset.rules.round_incident_limit.sprint/.endurance lookup, with a
- * per-subsession race_overrides escape hatch for special events (checked
- * first, same as base_points/classified_minimum overrides elsewhere).
- *
- * Read straight off `rules` (jsonb, typed `unknown` — see ScoringRuleset's
- * own doc comment) with defensive optional-chaining since nothing
- * guarantees its shape. Returns null whenever nothing resolves (no
- * ruleset, a 'special'/null format, or no matching override) —
- * deliberately not 0, since 0 would read as "no incidents allowed" rather
- * than "no limit configured".
+ * Round incident limit (0067), informational only. Shared by the results page and the event cards, which may
+ * have no round yet: a per-subsession race_overrides value first, then the ruleset's sprint/endurance value.
+ * Null, never 0, when nothing is configured, since 0 would mean "no incidents allowed".
  */
 export function resolveIncidentLimit(
   ruleset: ScoringRuleset | null,

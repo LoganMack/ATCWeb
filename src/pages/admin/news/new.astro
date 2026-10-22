@@ -47,15 +47,8 @@ function extFromFile(file: File): string {
 // any other date, past or future, to backdate/schedule a post.
 const todayIso = new Date().toISOString().slice(0, 10);
 
-// Grouped by season for the round picker below — every round across every
-// season (not just the current one), since a post can reasonably recap a
-// round from any point in the site's history. Fetched up here, ahead of the
-// POST handling below (rather than after it, as this used to be laid out),
-// because that handling now needs this same list too: there's no more
-// manual "Season tag" field (see that field's own removal further down) —
-// a post's season_label is derived from whichever round ends up linked,
-// so the POST branch has to be able to look that round up by
-// round_subsession_id before it can save anything.
+// Every round of every season, for the round picker; loaded before the POST because the post's season_label
+// comes from the linked round.
 let allRounds: Awaited<ReturnType<typeof getAllRounds>> = [];
 try {
   allRounds = await getAllRounds(supabaseEnv);
@@ -77,17 +70,10 @@ if (Astro.request.method === 'POST') {
   const status = form.get('status') === 'published' ? 'published' : 'draft';
   const roundRaw = String(form.get('round_subsession_id') ?? '').trim();
   const round_subsession_id = roundRaw ? Number(roundRaw) : null;
-  // No more editable Season tag field either (removed per Logan) — driven
-  // entirely by whichever round ends up linked above, same season_label
-  // that round's own row already carries. No linked round means no season
-  // tag, same as leaving the old free-text field blank used to.
+  // The season tag comes from the linked round (Logan); no round, no tag.
   const season_label = round_subsession_id !== null ? (allRounds.find((r) => r.subsession_id === round_subsession_id)?.season_label ?? null) : null;
-  // Stored as noon UTC rather than midnight for whatever date was picked —
-  // a plain midnight-UTC timestamp can display as the PREVIOUS day once
-  // formatDate() renders it in a negative-offset local timezone (this
-  // column is timestamptz, not a bare date, so formatDate takes its
-  // `new Date(...)` branch, not the date-only-string one). Noon UTC stays
-  // within the chosen calendar day for every real-world timezone.
+  // Saved at noon UTC, which stays on the chosen day in every real time zone (midnight UTC can show as the
+  // previous day).
   const publishedDateRaw = String(form.get('published_date') ?? '').trim();
   const published_at = publishedDateRaw ? `${publishedDateRaw}T12:00:00.000Z` : new Date().toISOString();
   let slug = String(form.get('slug') ?? '').trim();
@@ -99,14 +85,8 @@ if (Astro.request.method === 'POST') {
     error = 'Could not generate a URL slug from that title — set one manually.';
   } else {
     try {
-      // Uploaded straight to Supabase Storage (same 'photos' bucket as
-      // driver/champion photos) rather than a manually-typed URL pointing
-      // at a static file checked into the repo — that used to mean adding
-      // a cover image required editing public/images/news and redeploying;
-      // now it's just an upload from this form. Path is keyed off the slug
-      // (known before the post row exists, unlike the post's id) plus a
-      // timestamp, so re-uploading later never collides with or silently
-      // overwrites an earlier upload.
+      // Cover images upload to the 'photos' bucket, keyed by slug plus a timestamp so a later upload never
+      // overwrites an earlier one.
       let cover_image_url: string | null = null;
       if (coverFile instanceof File && coverFile.size > 0) {
         const path = `news-${slug}-${Date.now()}.${extFromFile(coverFile)}`;
@@ -127,9 +107,7 @@ if (Astro.request.method === 'POST') {
       });
       const tagIds = form.getAll('tag_ids').map(String);
       if (tagIds.length > 0) await setPostTags(supabaseEnv, accessToken, post.id, tagIds);
-      // Tagged drivers aren't picked separately anymore — they're derived
-      // straight from whatever @-mentions ended up in the body text (see
-      // extractMentionedDriverIds's own doc comment in supabase.ts).
+      // Tagged drivers come from the body's @-mentions (extractMentionedDriverIds in src/lib/db/news.ts).
       await setPostDrivers(supabaseEnv, accessToken, post.id, extractMentionedDriverIds(body));
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'add',
@@ -158,11 +136,8 @@ try {
 } catch (err) {
   console.error('Failed to load drivers for the news editor:', err);
 }
-// Dataset for the Body field's @-mention autocomplete (see the inline
-// <script> below) — id + a ready-to-display label, so the client script
-// doesn't need its own copy of displayDriverName's formatting logic.
-// `<` escaped so a driver name can never prematurely close the
-// `<script type="application/json">` tag it's embedded in below.
+// Mention autocomplete data: id and display label, with `<` escaped so a name can't close the JSON <script>
+// tag.
 const mentionDriversJson = JSON.stringify(
   allDrivers.map((d) => ({ id: d.id, label: displayDriverName(d.name) + (d.car_number !== null ? ` #${d.car_number}` : '') }))
 ).replace(/</g, '\\u003c');
@@ -299,22 +274,10 @@ const mentionDriversJson = JSON.stringify(
 </AdminLayout>
 
 <script>
-  // Discord-style @-mention autocomplete for the Body textarea — typing "@"
-  // (at the start of the text or after whitespace, so a plain
-  // "someone@example.com" never triggers it) followed by driver-name
-  // characters opens a match list; picking one inserts
-  // `@[Display Name](driverId) ` right into the plain-text body. That token
-  // is both human-legible while editing (an admin skimming the textarea
-  // still sees a real name) and machine-parseable — see
-  // extractMentionedDriverIds/MENTION_PATTERN in src/lib/supabase.ts for the
-  // save-time parsing and news/[slug].astro for the render-time parsing that
-  // turns it into an actual link.
-  //
-  // The dropdown is a plain block anchored under the whole textarea (not
-  // floating at the caret's pixel position) — tracking a textarea's caret
-  // position on screen needs a mirror-element hack this app has no other use
-  // for; anchoring under the field is simpler, robust to window
-  // resizes/reflows, and still reads as "a list appeared because I typed @."
+  // @-mention autocomplete for the Body: "@" at the start or after whitespace (so emails don't trigger it)
+  // opens a match list, and picking one inserts `@[Display Name](driverId) ` (MENTION_PATTERN in
+  // src/lib/db/news.ts). The list sits under the textarea, not at the caret, which would need a
+  // mirror-element hack.
   function initMentionAutocomplete() {
     const textarea = document.getElementById('post-body') as HTMLTextAreaElement | null;
     const menu = document.getElementById('mention-menu') as HTMLDivElement | null;
@@ -413,18 +376,12 @@ const mentionDriversJson = JSON.stringify(
       }
     });
     textarea.addEventListener('blur', () => {
-      // Short delay so a click on a menu item (which itself blocks the
-      // textarea from ever actually blurring — see the menu's own
-      // mousedown handler below) still has a chance to land first for a
-      // click that DOES take focus elsewhere (e.g. straight to another
-      // field).
+      // Short delay so a click that moves focus elsewhere still lands first (menu clicks don't blur, see the
+      // mousedown handler).
       setTimeout(closeMenu, 150);
     });
     menu.addEventListener('mousedown', (e) => {
-      // Keeps focus (and selectionStart) on the textarea instead of
-      // shifting it to the button on click — insertMention needs the
-      // cursor position from BEFORE the click, not wherever focus lands
-      // after.
+      // Keep focus and selectionStart on the textarea: insertMention needs the caret from before the click.
       e.preventDefault();
     });
     menu.addEventListener('click', (e) => {

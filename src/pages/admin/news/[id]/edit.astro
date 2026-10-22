@@ -52,10 +52,7 @@ function extFromFile(file: File): string {
 let post = await getNewsPostByIdAdmin(supabaseEnv, accessToken, id);
 if (!post) return Astro.redirect('/admin/news', 302);
 
-// Grouped by season for the round picker below — see new.astro's matching
-// comment for why this is every round across every season, not just one.
-// Hoisted above POST handling since the season_label derivation below now
-// needs it there too.
+// Every round of every season for the picker (as in new.astro), loaded before the POST for the season_label.
 let allRounds: Awaited<ReturnType<typeof getAllRounds>> = [];
 try {
   allRounds = await getAllRounds(supabaseEnv);
@@ -87,26 +84,17 @@ if (Astro.request.method === 'POST') {
     const slug = String(form.get('slug') ?? '').trim();
     const excerpt = String(form.get('excerpt') ?? '').trim();
     const body = String(form.get('body') ?? '').trim();
-    // No more editable Author field (removed per Logan) — editing a post
-    // should never reassign its authorship, so author_name is simply left
-    // out of the updateNewsPost payload below and the existing value
-    // stands (partial-PATCH semantics).
+    // Author isn't editable (Logan): editing never reassigns authorship, so author_name is left out of the
+    // PATCH.
     const coverFile = form.get('cover_image');
     const removeCoverImage = form.get('remove_cover_image') === 'on';
     const status = form.get('status') === 'published' ? 'published' : 'draft';
     const roundRaw = String(form.get('round_subsession_id') ?? '').trim();
     const round_subsession_id = roundRaw ? Number(roundRaw) : null;
-    // No more editable Season tag field either (removed per Logan) — driven
-    // entirely by whichever round ends up linked above, same season_label
-    // that round's own row already carries. No linked round means no
-    // season tag, same as leaving the old free-text field blank used to.
+    // The season tag comes from the linked round (Logan); no round, no tag.
     const season_label = round_subsession_id !== null ? (allRounds.find((r) => r.subsession_id === round_subsession_id)?.season_label ?? null) : null;
-    // Same noon-UTC reasoning as new.astro — avoids the date rendering as
-    // the previous day in a negative-offset timezone. The field is always
-    // pre-filled from the post's current published_at (see below), so
-    // leaving it untouched is a no-op; changing it is how backdating
-    // works. This replaces the old "bump to now on draft→published" auto
-    // behavior — full manual control now, no hidden magic.
+    // Noon UTC as in new.astro. Prefilled from published_at, so leaving it is a no-op and changing it
+    // backdates the post.
     const publishedDateRaw = String(form.get('published_date') ?? '').trim();
     const published_at = publishedDateRaw ? `${publishedDateRaw}T12:00:00.000Z` : post.published_at;
 
@@ -114,10 +102,7 @@ if (Astro.request.method === 'POST') {
       error = 'Title, slug, and body are required.';
     } else {
       try {
-        // A newly uploaded file always wins; otherwise the checkbox clears
-        // the image outright; otherwise it's untouched. Uploading straight
-        // to Storage (see new.astro's matching comment) rather than a
-        // manually-typed URL.
+        // A new upload wins; otherwise the checkbox clears the image; otherwise it stays.
         let cover_image_url: string | null | undefined = undefined;
         if (coverFile instanceof File && coverFile.size > 0) {
           const path = `news-${slug}-${Date.now()}.${extFromFile(coverFile)}`;
@@ -138,11 +123,8 @@ if (Astro.request.method === 'POST') {
           published_at,
         });
         await setPostTags(supabaseEnv, accessToken, id, form.getAll('tag_ids').map(String));
-        // Tagged drivers aren't picked separately anymore — they're derived
-        // straight from whatever @-mentions ended up in the body text (see
-        // extractMentionedDriverIds's own doc comment in supabase.ts). A
-        // mention removed from the body un-tags that driver on this save,
-        // same as adding one tags it.
+        // Tagged drivers follow the body's @-mentions (extractMentionedDriverIds in src/lib/db/news.ts), so
+        // removing a mention un-tags the driver.
         await setPostDrivers(supabaseEnv, accessToken, id, extractMentionedDriverIds(body));
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
@@ -354,10 +336,7 @@ const mentionDriversJson = JSON.stringify(
 </script>
 
 <script>
-  // Discord-style @-mention autocomplete for the Body textarea — see
-  // new.astro's matching script for the full explanation (identical
-  // behavior, just wired to this page's own #post-body/#mention-menu/
-  // #mention-drivers-data elements).
+  // @-mention autocomplete, the same as new.astro's, on this page's elements.
   function initMentionAutocomplete() {
     const textarea = document.getElementById('post-body') as HTMLTextAreaElement | null;
     const menu = document.getElementById('mention-menu') as HTMLDivElement | null;
@@ -456,18 +435,12 @@ const mentionDriversJson = JSON.stringify(
       }
     });
     textarea.addEventListener('blur', () => {
-      // Short delay so a click on a menu item (which itself blocks the
-      // textarea from ever actually blurring — see the menu's own
-      // mousedown handler below) still has a chance to land first for a
-      // click that DOES take focus elsewhere (e.g. straight to another
-      // field).
+      // Short delay so a click that moves focus elsewhere still lands first (menu clicks don't blur, see the
+      // mousedown handler).
       setTimeout(closeMenu, 150);
     });
     menu.addEventListener('mousedown', (e) => {
-      // Keeps focus (and selectionStart) on the textarea instead of
-      // shifting it to the button on click — insertMention needs the
-      // cursor position from BEFORE the click, not wherever focus lands
-      // after.
+      // Keep focus and selectionStart on the textarea: insertMention needs the caret from before the click.
       e.preventDefault();
     });
     menu.addEventListener('click', (e) => {

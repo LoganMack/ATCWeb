@@ -1,12 +1,6 @@
-// "Incident Details" popup — opens when an incident row ([data-history-incident])
-// is clicked, tapped, or activated with Enter/Space. Shared by History →
-// Incidents (src/pages/incidents.astro) and the Event Briefing page's Past
-// Incidents table; the rows and the <dialog> come from IncidentsAllTable.astro
-// and IncidentDetailsDialog.astro. Listeners are delegated on `document`
-// because on History → Incidents the markup arrives via a fetched fragment,
-// where <script> tags never run (see drivers/[id]/fragment.astro's header).
-// Each row only carries its incident's id; the details live once in the
-// page's JSON block.
+// "Incident Details" popup for incident rows ([data-history-incident]) on History → Incidents and the Event
+// Briefing. Delegated on `document`, since the rows arrive in a fetched fragment where scripts don't run;
+// rows carry an id and the details live in the page's JSON block.
 let summaryCache: { source: Element; data: Record<string, any> } | null = null;
 
 function readSummaries(): Record<string, any> {

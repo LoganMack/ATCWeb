@@ -1,37 +1,8 @@
 ---
-// One race's results table — shared by both the overall (cross-class) and
-// per-class views on /results/[subsessionId]. Column order is fixed:
-// Pos, Driver / Number, (Class, overall view only), Margin, Start,
-// Incidents, Laps, Led, Best (best lap), Class Pts. There's deliberately no
-// separate "badges" column anymore — pole and the post-penalty adjustment
-// flag are shown as small inline markers on Start/Pos instead, and result
-// tags (e.g. "Unclassified") are shown next to the driver's name, so the
-// table stays to exactly these columns.
-//
-// v0.16: this table is READ-ONLY as far as penalties go — the tag next
-// to a driver's name is just a static badge (no add/edit/remove). All of
-// that (plus the full incident detail — description, offenses, involved
-// cars, appeal result) lives on the dedicated Incident Report page
-// (/results/[subsessionId]/incidents), reachable via the button above this
-// table on the round page.
-//
-// v0.22: every row is click-to-expand (see the `[data-expand-row]`/
-// `[data-detail-row]` pair below — the actual toggle behavior is the
-// shared src/scripts/expandRows.ts, loaded globally in Layout.astro, not
-// a script in this component) — clicking a
-// driver's row reveals a detail panel with their average/best lap, overall
-// race time (rule 18.3.2 — see src/lib/penalties.ts), and an itemized
-// points breakdown.
-//
-// v0.27: Laps Led and Best Lap came back out of the detail panel as their
-// own columns (`lg:table-cell` — hidden below that breakpoint alongside
-// Margin/Start/Incidents/Laps, same progressive-disclosure pattern), per
-// Logan. Left in the detail panel too rather than removed from there, since
-// that's still the only place a touch-screen visitor (no hover) can see
-// Best Lap's paired Average Lap, or a driver's overall race time. Best Lap's
-// `title` attribute shows that same average-lap figure on hover; the
-// Incidents column got the same treatment for this race's corners-per-
-// incident (see `cornersPerIncident` below).
+// One race's results table for both the overall and per-class views. Columns: Pos, Driver / Number, Class
+// (overall only), Margin, Start, Incidents, Laps, Led, Best, Class Pts; pole and penalty markers sit inline
+// on Start/Pos and tags beside the name. Penalties are read-only here (managed on the Incident Report). Each
+// row expands (expandRows.ts) to lap times, overall race time (rule 18.3.2) and a points breakdown.
 import DriverLink from './DriverLink.astro';
 import type { RaceResultRow } from '../lib/results/roundResults';
 import type { Penalty } from '../lib/db/penalties';
@@ -57,12 +28,8 @@ interface BreakdownLine {
 }
 
 /**
- * Every nonzero BONUS component of this driver's points, itemized, for the
- * expanded detail panel's points-breakdown table — everything besides the
- * "Base Points" row (finishPoints, above) and the penalty rows (pointsDeduction/
- * penaltyPointsDelta, rendered separately below). Only nonzero components
- * shown, same "no clutter for a component that didn't apply" reasoning as
- * every inline badge (FL/LL/A/SS/etc.) elsewhere in this table.
+ * Every nonzero bonus component, itemized for the points breakdown (base points and penalties are separate
+ * rows).
  */
 function bonusPointsLines(row: RaceResultRow): BreakdownLine[] {
   const lines: BreakdownLine[] = [];
@@ -83,27 +50,8 @@ function penaltyPointsDelta(row: RaceResultRow): number {
 }
 
 /**
- * "1PP" / "Warning" / "Penalty" / "Racing Incident" — the tag's own label,
- * so the headline is visible without visiting the Incident Report page.
- * Sums effective PP across every penalty logged against this driver in this
- * race; falls back to "Warning" only when nothing carries PP but at least
- * one entry is a warning. When a logged entry carries no real effect at all
- * (no PP, no warning, no time/points penalty — e.g. reviewed and cleared, or
- * appealed down to nothing), it reads as "Racing Incident" instead of
- * "Penalty" per Logan.
- *
- * The PP case reads just "XPP" (not "Penalty (XPP)"), and the warning case
- * reads just "Warning" (not "Penalty (Warning)") — both per Logan, so the
- * badge's text format matches regardless of which of the two applies. See
- * isRealPenalty below for why the badge styling no longer keys off a
- * "Penalty" text prefix now that neither branch says that word anymore.
- *
- * Note this is a DIFFERENT "Racing Incident" than the literal one on the
- * Incident Report page (a penalty entry with no driver_id at all — see
- * 0020_penalty_racing_incident.sql). That kind can never reach this
- * function in the first place: `rowPenalties` only ever holds entries
- * already matched to THIS driver's id (see penaltiesByDriver below), and a
- * driverless entry can't match anyone's id.
+ * The penalty tag label: a private copy of sharedPenaltyTagLabel (src/lib/penalties/effective.ts), because
+ * importing that broke `astro check` for this file. Change both together.
  */
 function penaltyTagLabel(rowPenalties: Penalty[]): string {
   if (rowPenalties.length === 0) return '';
@@ -117,11 +65,7 @@ function penaltyTagLabel(rowPenalties: Penalty[]): string {
 }
 
 /**
- * Pink when a time penalty (this driver's own, or a cascade from someone
- * else's) dropped them to a numerically worse position; blue when it's the
- * opposite — they benefited from another driver's penalty and moved up.
- * Per Logan: "blue if they actually gained positions due to another's
- * penalty."
+ * Pink when a time penalty moved this driver down, blue when another driver's penalty moved them up (Logan).
  */
 function positionChangeClass(row: RaceResultRow): string {
   if (row.penaltyOldPosition === null || row.position === null) return 'text-brand-pink';
@@ -135,15 +79,26 @@ interface Props {
   classNameById?: Map<number, string>;
   /** Every penalty logged anywhere in this round — filtered down to this race below. Passed unfiltered so callers don't need to slice it per race themselves. */
   penalties?: Penalty[];
-  /** `${raceNumber}:${driverId}` -> points that driver actually contributed toward their team's total for that race (only the team's top 2 scorers each race count — see results.ts's topTeamScorers()) — computed once at the page level from the round's overall (cross-class) rows, since a driver's team contribution is the same fact whether this table is the Overall or Per Class view. Missing entry (not just 0) means either no team or not one of the top 2 that race. */
+  /**
+   * `${raceNumber}:${driverId}` -> points the driver contributed to their team that race (top 2 scorers
+   * count; topTeamScorers() in src/lib/results/seasonCarTeam.ts), computed once per page. No entry: no team,
+   * or not in the top 2.
+   */
   teamPointsByRaceDriver?: Map<string, number>;
   /** This round's Incident Limit (item 6, 0067_ruleset_overhaul_and_bonuses.sql) — a PER-RACE cap, informational only, no scoring effect. Null when the season's ruleset has no limit configured for this round's format (or no ruleset resolves at all). Only used here for the marker's tooltip; see incidentLimitExceededDriverIds for who it's actually shown on. */
   incidentLimit?: number | null;
   /** Driver ids whose incidents in THIS SPECIFIC RACE exceed incidentLimit — computed once at the page level, per race_number (a driver who trips the limit in Race 1 isn't necessarily flagged in Race 2, and vice versa — see results/[subsessionId].astro's incidentTotalByRaceDriver), so only this table's own race gets the marker, not every race the driver ran this round. */
   incidentLimitExceededDriverIds?: Set<string>;
-  /** This round's resolved layout's corner count (circuit_layouts.corners, via results.ts's resolveLayout()) — computed once at the page level since it's the same figure for every race/view of this round. Null when the round's track/layout doesn't resolve to a circuit_layouts row with a corner count on file (see 0022_circuit_layout_corners.sql). Powers the Incidents column's hover tooltip below; same "corners navigated ÷ incidents" formula as the Sublime Finesse season stat (getSeasonDriverExtendedStats), just for this one race instead of a whole season. */
+  /**
+   * The round's layout corner count (resolveLayout() in src/lib/results/layouts.ts), for the Incidents
+   * column's corners-per-incident hover. Null when unknown.
+   */
   layoutCorners?: number | null;
-  /** driverId -> that driver's fastest-ever lap at this track BEFORE this round (results.ts's getDriverBestLapsAtTrack()), computed once at the page level since it's the same lookup for every race/view of this round. Missing entry means no prior lap on file at this track (first time here, or the lookup failed) — the "beat personal best" indicator in the expanded detail panel just stays hidden in that case, same graceful-degradation as every other optional lookup here. */
+  /**
+   * driverId -> fastest lap at this track before this round (getDriverBestLapsAtTrack() in
+   * src/lib/results/layoutLaps.ts), for the personal-best marker. No entry: no prior lap, or the lookup
+   * failed.
+   */
   driverBestLapsAtTrack?: Map<string, number>;
   /** The fastest lap of the whole race (ten-thousandths of a second), measured across every class — so it stays the same in the Per Class view. That lap's time is shown in ATC blue. Null/undefined when no lap times are on file. */
   raceBestLapTenThousandths?: number | null;
@@ -171,13 +126,7 @@ function displayMargin(margin: string): string {
   return /^\d/.test(margin) ? `+${margin}` : margin;
 }
 
-// Filtered by scoringRaceNumber (src/lib/penalties/effective.ts), not the raw
-// session_type/race_number fields — a qualifying/practice-logged penalty is
-// stored with race_number pinned to the sentinel 0, but per Logan it always
-// SCORES onto Race 1 (see scoringRaceNumber's own doc comment), so it needs
-// to show up here — both the tag badge and the Timings breakdown below —
-// on Race 1's table too, not just on whichever session it was literally
-// logged against.
+// By scoringRaceNumber, so qualifying/practice penalties (stored as race 0) show on race 1, where they score.
 const racePenalties = penalties.filter((p) => scoringRaceNumber(p) === raceNumber);
 // A Racing Incident entry (driver_id null) can't be attached to any
 // driver's row here — it has no driver — so it's simply excluded from this
@@ -212,38 +161,20 @@ for (const p of racePenalties) {
           const rowPenalties = penaltiesByDriver.get(row.driver.id) ?? [];
           const tagLabel = showPenaltyTags ? penaltyTagLabel(rowPenalties) : '';
           const isRaceBestLap = raceBestLapTenThousandths !== null && row.bestLapTenThousandths !== null && row.bestLapTenThousandths === raceBestLapTenThousandths;
-          // Not a "Penalty"-prefix check anymore — the PP case now reads
-          // just "XPP" (see penaltyTagLabel above) — so this is everything
-          // real EXCEPT the two non-penalty states: no tag at all, and a
-          // bare "Racing Incident" with no logged effect.
+          // Everything but no tag and a bare "Racing Incident" counts as a real penalty (the label no longer
+          // starts with "Penalty").
           const isRealPenalty = tagLabel !== '' && tagLabel !== 'Racing Incident';
-          // Total effective time penalty (seconds) from rowPenalties above —
-          // already baked into row.overallRaceTimeFormatted by
-          // applyPenaltyDisplay (src/lib/results/roundResults.ts, upstream of
-          // this display), itemized here so it's clear at a glance how much of
-          // that figure came from a penalty — same reasoning as the Points
-          // Breakdown table's own "Penalty Adjustment" delta below. Includes
-          // a qualifying/practice-logged penalty that scored onto this race
-          // (see racePenalties above), not just one logged directly against
-          // it.
+          // Total effective time penalty, already included in the overall race time (applyPenaltyDisplay) and
+          // itemized here; includes qualifying/practice penalties scored on this race.
           const timePenalty = rowPenalties.reduce((sum, p) => sum + (effectiveTimePenaltySeconds(p) ?? 0), 0);
           const bonusLines = bonusPointsLines(row);
-          // Modeled on newsRecap.ts's track-record check (matchCircuitLayout/
-          // isTrackRecord) but per-DRIVER: did this driver's best lap THIS
-          // race beat the fastest lap on file for them at this track from
-          // any PRIOR round (driverBestLapsAtTrack excludes this round
-          // itself — see results.ts's getDriverBestLapsAtTrack). Missing
-          // entry (no prior lap on file, or the lookup failed) just hides
-          // the indicator rather than claiming a false positive/negative.
+          // Did this race's best lap beat the driver's best at this track from any earlier round? No
+          // entry (no prior lap, or the lookup failed) hides the marker.
           const priorBestAtTrack = driverBestLapsAtTrack?.get(row.driver.id) ?? null;
           const beatPersonalBest =
             row.bestLapTenThousandths !== null && priorBestAtTrack !== null && row.bestLapTenThousandths < priorBestAtTrack;
-          // Same "corners navigated ÷ incidents" formula as the season-long
-          // Sublime Finesse stat (getSeasonDriverExtendedStats in
-          // results.ts), scoped to just this one race's laps/incidents —
-          // null (no tooltip) whenever the layout has no corner count on
-          // file, this driver has no lap count, or they had 0 incidents
-          // (an undefined/infinite ratio, not a real number to show).
+          // Corners navigated ÷ incidents for this race (the season stat is getSeasonDriverExtendedStats);
+          // null without a corner count, a lap count or any incidents.
           const cornersPerIncident =
             layoutCorners !== null && row.laps !== null && row.incidents !== null && row.incidents > 0
               ? (row.laps * layoutCorners) / row.incidents
@@ -293,29 +224,17 @@ for (const p of racePenalties) {
                 >
                   &#9654;
                 </span>
-                {/* Full name at sm+, "F. Lastname" below sm — this column
-                    has plenty of room on desktop but shrinks a lot on
-                    mobile once the table narrows, so a long name can wrap
-                    onto a second line there. */}
+                {/* Full name at sm+, "F. Lastname" below, where the column is narrow. */}
                 <span class="hidden sm:inline">
                   <DriverLink id={row.driver.id}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <span class="sm:hidden">
                   <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
-                {/* Flag/car/team logos and the tag badges below are all
-                    hidden on mobile (Logan) — `hidden sm:contents` rather
-                    than `sm:inline-flex`/`sm:inline-block` so a wrapper
-                    holding MULTIPLE tag spans (row.tags below) still lets
-                    each one be its own flex item for this row's own
-                    `gap-2` at sm+, instead of the wrapper eating that gap
-                    as a single item. */}
-                {/* Tags (Unclassified / AI / penalty ...), then flag / car logo / team logo, pinned to the right edge of the
-                    cell (ml-auto) in three FIXED-WIDTH slots so they line up
-                    in columns row to row: a driver with no team (or no car,
-                    or no flag) still gets an empty slot in its place, so the
-                    flag and car logo never shift left to fill the gap.
-                    Hidden on mobile like before. */}
+                {/* Hidden on mobile (Logan); `sm:contents` keeps each tag its own flex item for the row's
+                   gap. */}
+                {/* Tags, then flag / car / team logo in fixed-width slots at the right edge, so they line
+                   up row to row even when one is missing. Hidden on mobile. */}
                 <span class="ml-auto hidden items-center gap-2 sm:flex">
                     {row.tags.length > 0 && (
                     <span class="contents">
@@ -363,15 +282,8 @@ for (const p of racePenalties) {
             )}
             <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell">{displayMargin(row.margin)}</td>
             <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell">
-              {/* The "P" badge is absolutely positioned off a wrapper sized
-                  to just the number, rather than sitting inline after it —
-                  a plain inline sup here means text-center centers the
-                  number+badge pair as one block, so the number itself
-                  visibly drifts left of where it sits in every other row
-                  that has no badge. Pulling the badge out of flow like this
-                  keeps the number itself centered regardless of whether a
-                  badge is shown — same fix applied to the Incidents
-                  column's I/FI/! badges below, per Logan. */}
+              {/* The "P" badge is positioned off a wrapper around the number, so the number stays centred
+                 whether or not a badge shows (same for the Incidents badges). */}
               <span class="relative inline-block">
                 {row.startingPosition ?? '—'}
                 {row.polePosition && (
@@ -459,13 +371,8 @@ for (const p of racePenalties) {
                 <div>
                   <div class="text-[10px] uppercase tracking-wide text-white/30">Points Breakdown</div>
                   {row.notInRoster ? (
-                    // This entrant has no drivers roster entry at all, so
-                    // score_round() never produced a race_score_results
-                    // row for them (see RaceResultRow.notInRoster's own doc
-                    // comment) — there's no points formula to itemize here.
-                    // Use the admin "Sync Results with Roster" button on the
-                    // Drivers admin page to add them to the roster, which will
-                    // let them be scored on the next recalculation.
+                    // No roster entry, so no scored row and no breakdown; "Sync Results with Roster" (admin
+                    // Drivers) adds them for the next rescore.
                     <p class="mt-1 text-white/40">
                       Not scored — this driver isn't on the roster yet, so no points were calculated for this result.
                     </p>

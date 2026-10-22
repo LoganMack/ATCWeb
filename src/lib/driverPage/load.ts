@@ -20,10 +20,8 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
   let career: DriverCareerStats | null = null;
   let raceHistory: DriverRaceHistoryRow[] = [];
 
-  // Related News (see the isolated try/catch near the end of the main block
-  // below, after raceHistory/seasons are both available) — every published
-  // post that either explicitly tags this driver or links to a round this
-  // driver actually raced.
+  // Related News: posts that tag this driver or link a round they raced (loaded near the end of the main
+  // block).
   let relatedPosts: NewsPost[] = [];
   let relatedLogoBySeasonLabel = new Map<string, SeasonLogoPair>();
   let relatedTagsByPostId = new Map<string, NewsTag[]>();
@@ -49,13 +47,8 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     career = careerStatsAll.find((c) => c.driver.id === driverId) ?? null;
     raceHistory = history;
 
-    // --- Career Moves: walk this driver's seasons oldest-first, recording
-    // every time their PRIMARY team (highest racesUnderTeam that season —
-    // getSeasonCarTeamStats already sorts teams[] descending by that, so
-    // teams[0] is it) changed from the season before. "Independent" stands
-    // in for no team on either side — an intra-season team switch can't be
-    // ordered from this data (DriverTeamStat has no date field), so this is
-    // season-granularity only, same limitation the season table itself has.
+    // --- Career Moves: each season (oldest first) whose primary team (teams[0]) differs from the season
+    // before; "Independent" means no team. Season granularity only, since team stats have no dates.
     if (career) {
       const chronological = [...career.seasons].sort((a, b) => a.season.number - b.season.number);
       let prevTeamName: string | null = null;
@@ -79,12 +72,8 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
       careerMoves.reverse(); // newest first, matching every other table on this page
     }
 
-    // --- Class Moves: same walk as Career Moves above, but diffing each
-    // season's class instead of primary team. Unlike Career Moves, the
-    // driver's very first season on file does NOT get an entry here — that
-    // table intentionally documents "joined as Independent -> Team X" on
-    // debut, but a debut isn't a class *change*, so this list only starts
-    // recording once there's an actual prior season to compare against.
+    // --- Class Moves: like Career Moves but for class, and the debut season gets no entry, since a debut
+    // isn't a class change.
     if (career) {
       const chronological = [...career.seasons].sort((a, b) => a.season.number - b.season.number);
       let prevClassName: string | null = null;
@@ -101,13 +90,8 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
       classMoves.reverse(); // newest first, matching every other table on this page
     }
 
-    // --- Awards: championships + team championships (straight off this
-    // driver's own season rows), the 12 auto-computed season awards
-    // (filtered down to seasons this driver actually won), and the 2
-    // steward-picked manual awards. Hall of Fame induction (isHallOfFame,
-    // above) isn't season-scoped, so it's rendered as its own pinned row at
-    // the top of the Awards card in the template below rather than grouped
-    // into awardGroups here.
+    // --- Awards: championships, team championships, the 12 computed season awards this driver won, and the 2
+    // manual awards. Hall of Fame isn't season-scoped and is pinned separately.
     if (career) {
       for (const s of career.seasons) {
         // Not s.season.is_current — no championship of any kind granted for a
@@ -204,17 +188,9 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
 
     awardEntries.sort((a, b) => (b.seasonNumber - a.seasonNumber) || a.label.localeCompare(b.label));
 
-    // --- Related News: isolated in its own try/catch (rather than just
-    // living in this outer block) so a hiccup fetching news data can't take
-    // down Seasons/Races/Splits/Awards/etc., none of which depend on it.
-    // "Mentions this driver" covers two cases: the post explicitly tags them
-    // (news_post_drivers, 0082_news_post_drivers.sql), or the post links to a
-    // round (news_posts.round_subsession_id) that's one of THIS driver's own
-    // raceHistory rows — i.e. the recap is about a round they actually raced,
-    // rather than a literal text search of the live-computed recap's
-    // highlighted names (top-3/fastest-lap/etc.), which would mean
-    // recomputing every linked post's full recap (computeRoundRecap, ~8
-    // queries each) on every driver page view just to check membership.
+    // --- Related News, in its own try/catch so news can't break the rest of the page. A post counts if it
+    // tags the driver (0082) or links a round they raced; checking recap contents would recompute every recap
+    // (about 8 queries each).
     try {
       const [allPosts, driverLinks, tagLinks] = await Promise.all([
         getNewsPosts(supabaseEnv),
@@ -242,16 +218,8 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     loadError = err instanceof Error ? err.message : String(err);
   }
 
-  // --- Incidents: every steward-logged incident this driver appears in,
-  // either as the penalized party (driver_id) or just tagged as involved
-  // (involved_driver_ids) — isolated in its own try/catch (same reasoning as
-  // Related News above) so a hiccup loading site-wide incident history can't
-  // take down Seasons/Races/Splits/Bests/Awards, none of which depend on it.
-  // Reuses getAllIncidents()'s existing byDriver rollup (src/lib/incidents.ts,
-  // the same source History → Incidents' By Driver tab reads) rather than
-  // re-deriving IncidentRow[] from penalties/rounds/drivers/offenses a second
-  // time — this driver's own incidents[] list (newest first) is already
-  // fully computed there, penalty-appeal-aware PP/time/points and all.
+  // --- Incidents the driver is penalised in or involved in, in their own try/catch. Reuses
+  // getAllIncidents()' byDriver rollup (src/lib/incidents.ts), appeal-aware, rather than rebuilding it.
   let driverIncidents: IncidentRow[] = [];
   try {
     const incidentsData = await getAllIncidents(supabaseEnv);

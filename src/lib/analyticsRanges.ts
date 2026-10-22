@@ -1,9 +1,6 @@
 /**
- * Reporting windows the admin dashboard's Site Analytics can be loaded for —
- * the dashboard renders one button per entry (admin/fragment.astro) and
- * admin/analytics/fragment.astro resolves its `?range=` param back through
- * resolveAnalyticsRange. `days` is passed straight to get_page_view_stats()'s
- * p_days (0103_page_view_stats_performance.sql); null means all time.
+ * Reporting windows for the dashboard's Site Analytics, one button each; `?range=` resolves back through
+ * resolveAnalyticsRange. `days` goes to get_page_view_stats()'s p_days (0103); null means all time.
  */
 export interface AnalyticsRange {
   key: string;

@@ -1,18 +1,9 @@
 /**
- * Driver-submitted incident reports (0090_incident_reports.sql) — the
- * reporting-window math plus the small DB helpers the results page and the
- * steward-facing incidents page share.
- *
- * REPORTING WINDOW (per Logan): a round's reports stay open for 24 hours
- * after the race is "over", where over means
- *   - lap-limited races:  1.5 hours after the attached event's Race 1 start
- *   - time-limited races: 30 minutes after the FINAL race's time expires
- *
- * The events table has no race-length-in-minutes column (only race*_laps),
- * so the time-limited branch can't read a real duration yet: a final race
- * with no lap count is treated as running TIME_LIMITED_RACE_ASSUMED_MINUTES
- * from its own start. Once race-minutes fields exist, only `raceEndUtc`
- * below needs to change.
+ * Driver-submitted incident reports (0090): the reporting window and shared DB helpers.
+ * Reports stay open 24 hours after the race is over (Logan): 1.5 hours after Race 1's start for lap-limited
+ * races, 30 minutes after the final race's time expires for time-limited ones.
+ * events has no race-minutes column, so a final race with no lap count is assumed to run
+ * TIME_LIMITED_RACE_ASSUMED_MINUTES; only `raceEndUtc` changes once one exists.
  */
 
 import { restGet, restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
@@ -200,10 +191,8 @@ export async function setRoundPosted(
 }
 
 /**
- * Hover text for the results page's "Report Incident" button while the
- * period is open: "Incident reporting period ends in X hours." — switching
- * to minutes once 2 hours or less remain. (IncidentButton.astro's inline
- * script recomputes the same text live client-side, so a cached page stays right.)
+ * "Incident reporting period ends in X hours." for the Report Incident button, in minutes from 2 hours left.
+ * IncidentButton.astro recomputes it client-side, so cached pages stay right.
  */
 export function reportingCountdownText(closesUtc: Date, now: Date = new Date()): string {
   const ms = closesUtc.getTime() - now.getTime();

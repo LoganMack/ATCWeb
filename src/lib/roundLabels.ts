@@ -1,11 +1,6 @@
 /**
- * Shared formatting for "pick a round" lists and the compact "MMM DD, YYYY"
- * date style used in admin tables and round pickers (the news editor's linked
- * round, the race results page's round dropdown).
- *
- * Dates are rendered in the league's own time zone (Eastern), not the
- * server's (UTC on Cloudflare), so a late-evening race never shows up as the
- * next day.
+ * Round-picker labels and the compact "MMM DD, YYYY" date, in the league's Eastern time zone so a late race
+ * never shows as the next day.
  */
 import { LEAGUE_TIME_ZONE } from './timezone';
 

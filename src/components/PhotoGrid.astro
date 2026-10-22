@@ -1,12 +1,6 @@
 ---
-// Shared "1 large photo + 2 rows of 2 smaller photos" layout (up to 5
-// photos total) — originally built for the public Champions card
-// (ChampionCard.astro), and reused as-is by the Hall of Fame page so both
-// look identical, per Logan ("adapt the hall of fame to use a 5 photo
-// layout like the champions tab"). The second row exists purely to give
-// the photo column enough height to come closer to matching whatever's
-// next to it (stats/bio text), instead of leaving a lot of empty space at
-// the bottom of the card.
+// One large photo plus two rows of two (up to 5), shared by the Champions card and Hall of Fame so they match
+// (Logan). The second row gives the photo column enough height to match the text beside it.
 import { resizedImageUrl } from '../lib/db/drivers';
 
 interface PhotoLike {
@@ -21,11 +15,7 @@ interface Props {
 }
 
 const { photos, altText } = Astro.props;
-// Grid thumbnails are resized well down from whatever an admin originally
-// uploaded (these are the biggest single images anywhere on the site);
-// the lightbox "enlarge" view still gets a real, much larger image, just
-// bounded at 1600w rather than however many megapixels the original file
-// was — still gets format=auto's WebP/AVIF conversion either way.
+// Thumbnails are resized well down (the biggest images on the site); the lightbox gets up to 1600w.
 const LARGE_THUMB_WIDTH = 640;
 const SMALL_THUMB_WIDTH = 260;
 const LIGHTBOX_WIDTH = 1600;

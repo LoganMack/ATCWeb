@@ -23,7 +23,7 @@
 // For an .astro original only the frontmatter is read.
 //
 // Map fields (scripts/module-maps/<name>.json; see scripts/module-map.mjs):
-//   original          the file being split, e.g. "src/lib/penalties.ts"
+//   original          the file being split, e.g. "src/lib/bigModule.ts"
 //   originalDeleted   true for a library split (default); false for a page that keeps its frontmatter
 //   folders           folders that must hold only mapped modules (default: the modules' folders);
 //                     for a page (originalDeleted false) every .ts file in them is compared, so a

@@ -1,22 +1,13 @@
 /**
- * Key constants + helpers for the generic `site_settings` key/value table
- * (see 0026_site_settings.sql / src/lib/supabase.ts's getSiteSettings /
- * upsertSiteSetting). Mirrors src/lib/pageBanners.ts's role for
- * page_banners — the single place that knows what keys exist and what
- * they mean.
+ * Keys and helpers for the `site_settings` table (0026; getSiteSettings/upsertSiteSetting in
+ * src/lib/db/assets.ts): the one place that knows which keys exist.
  */
 
 /**
- * Driver settings (0041_driver_settings.sql) — set from the "Driver
- * Settings" panel above the admin Drivers list. Both pairs follow the same
- * "whichever is longer" shape: a driver only crosses over once BOTH the
- * days threshold AND the rounds threshold have been met, the same rule
- * 61 already used for probation and 0040 introduced for inactivity — this
- * just makes the numbers themselves editable instead of hardcoded.
- * sync_driver_statuses() reads INACTIVITY_* directly out of site_settings
- * itself (it's a DB function); isOnProbationNow() in src/lib/penalties.ts
- * takes PROBATION_* as plain params so callers (currently just
- * src/pages/roster.astro) load them once and pass them through.
+ * Driver settings (0041), set from the admin Drivers panel. Both pairs mean "whichever is longer": a driver
+ * crosses over only when the days and the rounds thresholds are both met (rule 61, 0040).
+ * sync_driver_statuses() reads INACTIVITY_* itself; PROBATION_* are passed to isOnProbationNow()
+ * (src/lib/penalties/penaltyPoints.ts).
  */
 export const PROBATION_DAYS_KEY = 'probation_days';
 export const PROBATION_ROUNDS_KEY = 'probation_rounds';
@@ -67,11 +58,8 @@ export function siteSettingInt(
 }
 
 /**
- * Turns a normal YouTube URL (watch?v=, youtu.be/, /live/, /shorts/, or an
- * already-correct /embed/ URL) into the `/embed/VIDEO_ID` form an <iframe>
- * needs. Returns null for anything that isn't recognizably a YouTube URL,
- * so the caller can just skip rendering the embed rather than pointing an
- * iframe at something broken.
+ * The `/embed/VIDEO_ID` form an <iframe> needs, from any YouTube URL shape; null otherwise so the embed is
+ * skipped.
  */
 export function youtubeEmbedUrl(rawUrl: string): string | null {
   const url = rawUrl.trim();

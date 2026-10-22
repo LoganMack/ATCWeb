@@ -1,18 +1,8 @@
 ---
 /**
- * The results page's yellow incident button, in one of two states:
- *
- *  - 'report' — the reporting period is open: reads "Report Incident" and
- *    opens the Report Incident dialog (ReportIncidentDialog.astro, via
- *    [data-open-report-dialog]). Hovering shows "Incident reporting period
- *    ends in X hours." (X minutes once 2 hours or less remain) — computed
- *    server-side for first paint and re-computed live by the script below,
- *    since this page is edge-cached for up to a minute.
- *  - 'view' — the round's incident report has been posted (or the viewer is
- *    an admin): reads "Incident Report" and links to the incident page.
- *
- * Between the two (period over, report not posted yet) the results page
- * renders no button at all (#75).
+ * The results page's yellow incident button. 'report' while reporting is open: opens the Report Incident
+ * dialog, with a live "ends in X hours/minutes" hover (the page can be cached for a minute). 'view' once the
+ * report is posted, or for admins: links to it. In between, no button (#75).
  */
 import { reportingCountdownText } from '../lib/incidentReports';
 

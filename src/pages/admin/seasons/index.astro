@@ -28,12 +28,8 @@ const accessToken = admin.accessToken;
 const actor = { id: admin.user.id, name: actorNameFor(admin) };
 
 let error: string | null = null;
-// Set only by the "recalculate" intent below, and deliberately NOT followed
-// by a redirect the way every other intent on this page is — a redirect
-// would throw away the per-round results before they could ever be shown,
-// and the whole point of rescore_season() returning a row per
-// round (see its own doc comment) is to surface exactly which rounds
-// failed and why, right here, instead of a single pass/fail toast.
+// Set by "recalculate" only, which re-renders instead of redirecting so the per-round results from
+// rescore_season() (which rounds failed and why) can be shown.
 let recalcResult: { seasonId: string; results: SeasonRecalcResult[] } | null = null;
 
 function extFromFile(file: File): string {
@@ -144,11 +140,7 @@ if (Astro.request.method === 'POST') {
     }
     if (!error) return Astro.redirect('/admin/seasons', 302);
   } else {
-    // Dark and light are independently optional here — an admin can submit
-    // just one side (e.g. adding a light variant to a season that already
-    // has a dark logo) without re-supplying the other. Only errors if
-    // NEITHER side has anything to save, same as the single-logo form this
-    // replaced.
+    // Dark and light logos are each optional; only an empty submission is an error.
     const logoUrlField = String(form.get('logo_url') ?? '').trim();
     const logoFile = form.get('logo');
     const logoUrlLightField = String(form.get('logo_url_light') ?? '').trim();

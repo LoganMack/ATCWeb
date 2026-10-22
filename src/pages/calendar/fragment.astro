@@ -28,10 +28,8 @@ import { seasonOptionAttrs } from '../../lib/seasonSelect';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// events and the circuits/layouts/allRounds bulk fetch don't depend on each
-// other — only the per-event loop below needs both — so both are kicked off
-// immediately and awaited together right before that loop runs, instead of
-// events being awaited first and the bulk fetch only starting afterward.
+// Events and the bulk circuits/layouts/rounds fetch are independent, so both start now and are awaited
+// together before the per-event loop.
 let loadError = false;
 const eventsPromise: Promise<Awaited<ReturnType<typeof getEvents>>> = (async () => {
   try {
@@ -43,33 +41,14 @@ const eventsPromise: Promise<Awaited<ReturnType<typeof getEvents>>> = (async () 
   }
 })();
 
-// Every event card's "Race Recaps at this Layout" collapsible (see
-// EventDetailCard.astro) needs to know how many historical rounds match its
-// own circuit+layout — computed here ONCE for the whole page (not per
-// card, several of which can repeat the same circuit) via a handful of
-// bulk fetches, then sliced in memory per event. Only the COUNT is kept —
-// the round list itself is fetched lazily, client-side, via
-// /api/layout-rounds.ts, only once a visitor actually expands a given
-// event's collapsible (see that route's own doc comment for why: eagerly
-// materializing every matching round for every event on the page used to
-// add hundreds of unopened <details> to the response). The recap CONTENT
-// one level deeper is separately and already lazy — see
-// src/pages/api/round-recap/[subsessionId].ts.
+// Each event card's past-round count, computed once for the page from bulk fetches; only the count is kept,
+// since the list loads lazily via /api/layout-rounds.ts.
 let layouts: Awaited<ReturnType<typeof getAllCircuitLayouts>> = [];
-// null (as opposed to a real count) means this event has no circuit at all
-// (HOLIDAY/IRACING — see the loop below) — EventDetailCard's own
-// layoutRoundsCount prop treats `undefined` as "nothing to show here"
-// (neither the collapsible nor the "This is a new layout!" message), which
-// is what a circuitless event needs; `0` there specifically means "this
-// circuit+layout has never been raced," a claim that doesn't make sense
-// for an event with no circuit/layout in the first place.
+// null for a circuitless (HOLIDAY/IRACING) event, which EventDetailCard receives as undefined; 0 would
+// wrongly claim a new layout.
 let layoutRoundsCountByEventId = new Map<string, number | null>();
-// Which curated_rounds row (if any) each event represents — same
-// season_id+round_number / subsession_id-override resolution as
-// getEventRound() (src/lib/results.ts), just done in bulk against the
-// allRounds fetch this page already needs for layoutRoundsByEventId above,
-// rather than issuing one more REST call per event on a page that can list
-// several dozen of them.
+// Each event's curated_rounds row, resolved like getEventRound() (src/lib/results/rounds.ts) but in bulk
+// against allRounds, instead of one request per event.
 let linkedRoundByEventId = new Map<string, RoundSummary | null>();
 // Circuit latitude/longitude for the Map view — tolerant of the columns not existing yet (returns []), so it can never take the page down.
 const coordsPromise = getCircuitCoordinates(supabaseEnv);
@@ -83,15 +62,8 @@ const bulkFetchPromise = (async () => {
   }
 })();
 
-// Each event's "Incident Limit" figure (see EventDetailCard.astro's Rules
-// line) — resolved from the SEASON's scoring ruleset (not the round, unlike
-// results/[subsessionId].astro's own copy of this logic — see
-// resolveIncidentLimit's doc comment) so it still shows for an upcoming
-// event that has no imported round/subsession_id yet. Independent of
-// events/bulkFetchPromise above, so kicked off alongside them; the
-// race_overrides check inside resolveIncidentLimit still needs a
-// subsession_id when one exists, so this map is actually filled in below,
-// once linkedRoundByEventId is known.
+// Each event's Incident Limit, from its season's ruleset so upcoming events show it too. Started early, but
+// filled in below once the linked rounds are known, for race_overrides.
 let incidentLimitByEventId = new Map<string, number | null>();
 const rulesetsFetchPromise = (async () => {
   try {
@@ -141,20 +113,13 @@ if (bulkResult) {
   );
   const roundsBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const roundsBySeasonRound = new Map(allRounds.map((r) => [`${r.season_id}:${r.round_number}`, r]));
-  // O(rounds * (circuits + layouts)) once, up front, instead of re-resolving
-  // every round's layout key for every event — see buildLayoutRoundCounter's
-  // own doc comment (src/lib/results.ts) for why the old
-  // findRoundsForLayout(...).length-per-event approach was expensive enough,
-  // at this site's real data volume, to occasionally trip Cloudflare's
-  // per-request CPU limit outright.
+  // Resolves every round once instead of once per event (buildLayoutRoundCounter in
+  // src/lib/results/layoutLaps.ts), which kept the page inside the Worker CPU limit.
   const countRoundsForLayout = buildLayoutRoundCounter(allRounds, roundLayoutBySubsession, circuits, layouts);
   for (const event of events) {
     layoutRoundsCountByEventId.set(
       event.id,
-      // HOLIDAY/IRACING events have no circuit_id at all (0073_holiday_iracing_events.sql)
-      // — nothing to find a layout's race-recap history for, so those get
-      // null (see this map's own doc comment above) rather than calling
-      // countRoundsForLayout with no real circuit id to pass it.
+      // Circuitless (HOLIDAY/IRACING, 0073) events get null.
       event.circuit_id ? countRoundsForLayout(event.circuit_id, event.layout) : null
     );
     const linked =
@@ -173,11 +138,8 @@ if (rulesetsResult) {
   for (const event of events) {
     const season = event.season_id ? (seasonById.get(event.season_id) ?? null) : null;
     const ruleset = season ? resolveSeasonRuleset(season, rulesets) : null;
-    // Prefer the linked round's own subsession_id (the one race_overrides
-    // would actually be listing) over event.subsession_id — the latter is
-    // just a manual override input to resolving the link in the first
-    // place, and can be null even when a round was matched via
-    // season_id+round_number instead.
+    // Prefer the linked round's subsession_id (what race_overrides lists); event.subsession_id is only a
+    // manual override and may be null.
     const subsessionId = linkedRoundByEventId.get(event.id)?.subsession_id ?? event.subsession_id ?? null;
     incidentLimitByEventId.set(event.id, resolveIncidentLimit(ruleset, event.format, subsessionId));
   }
@@ -187,15 +149,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 if (loadError) markUncacheable(Astro);
 
 const todayStr = new Date().toISOString().slice(0, 10);
-// getEvents() has no date filter (see src/lib/supabase.ts), so backdated
-// events are already fetched — this just splits them for the List view.
+// getEvents() has no date filter (src/lib/db/events.ts), so backdated events are already here; this splits
+// them for the List view.
 const upcoming = events.filter((e) => e.event_date >= todayStr);
 const past = [...events.filter((e) => e.event_date < todayStr)].reverse();
 
-// Lean payload for the client-side Calendar view (see the script at the
-// bottom) — just what a day cell / detail panel needs, serialized into a
-// data attribute (same JSON-in-a-data-attribute pattern the Incident Report
-// page uses for data-edit-incident) rather than fetched again client-side.
+// Lean JSON for the client Calendar view, embedded in a data attribute rather than fetched again.
 const calendarEvents = events.map((e) => ({
   id: e.id,
   date: e.event_date,
@@ -212,10 +171,7 @@ const calendarEvents = events.map((e) => ({
   category: e.category,
 }));
 
-// Every upcoming event's VEVENT block, pre-joined into one bundle for the
-// "Add All to Calendar" button below — see src/lib/ics.ts's own doc comment
-// for why this is built here (server-side, once) rather than re-derived
-// client-side from the individual per-card buttons.
+// Every upcoming VEVENT joined once for "Add All to Calendar" (src/lib/ics.ts).
 const upcomingIcsBundle = upcoming
   .map((e) => buildEventIcsBlock(e, layouts))
   .filter((b): b is string => b !== null)

@@ -5,12 +5,8 @@ import Layout from '../../../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getRoundBySubsessionId } from '../../../lib/results/rounds';
 
-// Shell-then-skeleton split (same pattern as the results and Incident Report
-// pages): this file paints the frame, the back link and a loading skeleton
-// right away; the round's kudos, drivers and the share/delete POST handling
-// live in kudos/fragment.astro, fetched client-side once this shell has
-// painted. The fragment's forms POST straight to the fragment and redirect
-// back here.
+// Shell: paints the frame, back link and a skeleton; kudos/fragment.astro holds the data and the POST
+// handling (its forms post to it and redirect here).
 const subsessionId = Astro.params.subsessionId;
 
 // Only the round's name, for the <title> and link-preview embeds — crawlers

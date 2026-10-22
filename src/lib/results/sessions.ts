@@ -24,13 +24,8 @@ interface CuratedQualifyingRow {
 }
 
 /**
- * One round's qualifying results — unlike race results, qualifying isn't
- * split by race_number (curated_qualifying has no such column; it's one
- * session per round), so there's no per-race grouping to do here, just
- * Overall (every class combined, ranked by qual_position) and Per Class
- * (the same rows filtered to one class and re-sorted by qual_position,
- * mirroring how getRoundResults' per-class output re-derives from a raw
- * position field rather than recomputing speed order from lap times).
+ * One round's qualifying: one session per round, so just Overall (by qual_position) and Per Class (the same
+ * rows filtered and re-sorted).
  */
 export async function getQualifyingForSubsession(
   env: SupabaseEnv,

@@ -1,13 +1,6 @@
-// Record Interview dialog behavior — delegated, register-once listeners.
-// Imported by src/pages/results/[subsessionId].astro (the shell): the dialog
-// markup (components/InterviewDialog.astro) renders inside a fetched fragment,
-// where <script> tags never execute.
-//
-// Flow: Record -> mic permission -> MediaRecorder runs for up to data-max-seconds
-// while the button's fill layer drains right-to-left and its label reads
-// "Finish" -> on Finish/timeout the take is kept, the button reads "Re-Record"
-// and Submit appears -> Submit POSTs the clip to the results fragment
-// (intent=submit-interview, which re-validates everything server-side).
+// Record Interview dialog, delegated and bound once; imported by the results shell because the dialog renders
+// in a fetched fragment. Record asks for the mic and runs up to data-max-seconds while the button drains;
+// Finish keeps the take ("Re-Record"), and Submit posts it (intent=submit-interview, re-checked server-side).
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 

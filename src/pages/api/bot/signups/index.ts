@@ -11,14 +11,10 @@ import {
 export const prerender = false;
 
 /**
- * POST /api/bot/signups — the Discord bot's /atcsignup submits here
- * (docs/signup-integration.md). Body (JSON):
+ * POST /api/bot/signups: the Discord bot's /atcsignup (docs/signup-integration.md). JSON body:
  *   { discord_user_id, discord_username?, name, numbers: [n, ...], iracing_id? }
- * Answers 200 with submit_signup_request()'s result — { status: 'pending', ... }
- * or { status: 'all_taken', ... } — 400 for bad input, 401 without the bot token.
- *
- * Must be sent as application/json: astro.config's checkOrigin only lets
- * cross-origin POSTs through when they aren't form-encoded.
+ * 200 with submit_signup_request()'s result ({ status: 'pending' | 'all_taken', ... }), 400 for bad input,
+ * 401 without the bot token. Must be application/json: checkOrigin only lets non-form cross-origin POSTs in.
  */
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = resolveBotApiEnv(locals);

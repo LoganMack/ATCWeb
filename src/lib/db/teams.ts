@@ -66,7 +66,10 @@ export async function getOrganizationById(env: SupabaseEnv, id: string) {
   return orgs[0] ?? null;
 }
 
-/** Every organization<->team season link, across every org — computeTeamCareerStats (src/lib/results.ts) fetches this once and builds a team+season -> organization lookup from it, rather than querying per-organization. */
+/**
+ * Every organization<->team season link, fetched once by computeTeamCareerStats
+ * (src/lib/results/teamCareer.ts).
+ */
 export function getAllOrganizationTeamSeasons(env: SupabaseEnv) {
   return restGet<OrganizationTeamSeason[]>(
     env,
@@ -99,14 +102,8 @@ export function deleteOrganization(env: SupabaseEnv, accessToken: string, id: st
 }
 
 /**
- * Sets (or clears) which team represents an organization for one season.
- * Both uniqueness rules (one team per org per season, one org per team per
- * season — see 0043_organizations.sql) mean this can't be a plain upsert:
- * assigning a team here first has to release any existing claim on that
- * exact (org, season) slot AND any existing claim another org has on that
- * exact (team, season) pair, before inserting the new link. Passing
- * `teamId: null` just clears this org's slot for that season without
- * creating a new link.
+ * Sets or clears the team representing an organization for one season. Two uniqueness rules (0043) mean the
+ * existing (org, season) and (team, season) claims are released before inserting; `teamId: null` only clears.
  */
 export async function setOrganizationTeamForSeason(
   env: SupabaseEnv,
@@ -183,18 +180,9 @@ export interface TeamRosterWithTeam {
 }
 
 /**
- * Every driver's team for one season, sourced from team_rosters (embedding
- * the matching teams row via PostgREST) rather than the driver's own
- * drivers.team_id field. The two can drift: team_id is set once on the
- * driver row and has to be remembered as a separate manual step, while
- * team_rosters is the season-scoped table admins actually maintain via the
- * team roster editor (src/pages/admin/teams/[id].astro) and the one the
- * scoring engine itself trusts (0045_team_rosters_in_scoring.sql). Public
- * pages that need to show "this driver's CURRENT team" — roster.astro,
- * drivers/[id].astro — should look here for whichever season is
- * `is_current`, not at driver.teams from getDrivers()/getDriverProfileById(),
- * so a team change takes effect the moment the roster is updated instead of
- * waiting on someone to separately edit every affected driver's team_id.
+ * Every driver's team for one season from team_rosters, which admins maintain and scoring trusts (0045), not
+ * drivers.team_id, which drifts. Pages showing a driver's current team should use this for the current
+ * season.
  */
 export function getTeamRosterWithTeamsForSeason(env: SupabaseEnv, seasonId: string) {
   return restGet<TeamRosterWithTeam[]>(
@@ -222,7 +210,7 @@ export function getTeamSeasonLogosForTeam(env: SupabaseEnv, teamId: string) {
   );
 }
 
-/** Every team's historical logo overrides, across every season — one query to build the season-aware logo lookup src/lib/results.ts's resolveTeamLogo() uses, rather than one query per team or per round. */
+/** Every team's per-season logo overrides in one query, for resolveTeamLogo() in src/lib/results/rows.ts. */
 export function getAllTeamSeasonLogos(env: SupabaseEnv) {
   return restGet<TeamSeasonLogo[]>(env, `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}`);
 }

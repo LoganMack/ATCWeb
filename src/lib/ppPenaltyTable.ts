@@ -1,15 +1,9 @@
 /**
- * The rulebook's "Table: PP Penalties" (section 5, Stewarding) — what a PP
- * level costs. Kept dependency-free so the incident dialog's browser script
- * can import it too (it fills in the time penalty from the PP picked).
- *
- * Per Logan, the level is the driver's PP total for the whole ROUND (every
- * race in it), not one incident. The time part still lands on the race each
- * incident happened in, at that incident's own PP (rule: "Penalties are
- * applied to the results of the race they occurred in"); what the round
- * total adds on top — the bans and pit-lane start, which can't be applied to
- * a race that's already been run — is served at the next round. See the
- * Round Summary / Round Penalties tables on the Incident Report.
+ * The rulebook's "Table: PP Penalties" (section 5): what a PP level costs. Dependency-free so the incident
+ * dialog's script can use it.
+ * The level is the driver's PP total for the whole round (Logan). Time penalties still land on each
+ * incident's own race at its own PP; the bans and pit-lane start the round total adds are served at the next
+ * round.
  */
 
 export type NextRoundPenaltyKind = 'qualifying_ban' | 'pit_lane_start' | 'race_ban';
