@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Regression check for the strict script CSP (FR5 / NFR2.5).
 //
-// Usage: node scripts/check-csp.mjs [baseUrl]        (default http://localhost:8787)
+// Usage: node scripts/check-csp.mjs [baseUrl] [--subsession <id>]   (default http://localhost:8787)
 // Needs the built Worker running locally: npm run build && npx wrangler dev
+// --subsession (or ATC_CHECK_SUBSESSION) picks the round for the results model pages; by default
+// it is the latest round, whose incident report may not be posted yet.
 //
 // For every page in the FR5.4 list, every fragment those pages load, and (when
 // an admin login is available) one admin page per file that used to hold an
@@ -23,7 +25,12 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const BASE = (process.argv[2] || process.env.ATC_BASE_URL || 'http://localhost:8787').replace(/\/$/, '');
+const ARGS = process.argv.slice(2);
+const SUBSESSION_FLAG = ARGS.indexOf('--subsession');
+const SUBSESSION =
+  (SUBSESSION_FLAG >= 0 ? ARGS[SUBSESSION_FLAG + 1] : undefined) || process.env.ATC_CHECK_SUBSESSION || null;
+const POSITIONAL = ARGS.filter((a, i) => !a.startsWith('--') && ARGS[i - 1] !== '--subsession');
+const BASE = (POSITIONAL[0] || process.env.ATC_BASE_URL || 'http://localhost:8787').replace(/\/$/, '');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const failures = [];
@@ -140,6 +147,16 @@ function checkHtml(where, html, csp) {
   }
 }
 
+/**
+ * Why a non-200 fragment is expected, or null when it is a failure. An unposted round's
+ * incident report refuses everyone but admins with 403 until the round is posted.
+ */
+function expectedFragmentStatus(fragPath, status) {
+  if (status === 403 && /^\/results\/\d+\/incidents\/fragment(\?|$)/.test(fragPath))
+    return 'round not posted: incident reports stay private until posting';
+  return null;
+}
+
 async function fetchPage(urlPath, cookie) {
   const res = await fetch(BASE + urlPath, { redirect: 'manual', headers: cookie ? { Cookie: cookie } : {} });
   const html = await res.text();
@@ -172,7 +189,9 @@ async function checkPage(urlPath, { cookie, label } = {}) {
     const fragPath = decodeEntities(fragmentUrl);
     const frag = await fetchPage(fragPath, cookie);
     if (frag.res.status !== 200) {
-      fail(`${fragPath} (from ${where})`, `HTTP ${frag.res.status}`);
+      const reason = expectedFragmentStatus(fragPath, frag.res.status);
+      if (reason) skipped.push(`${fragPath} (HTTP ${frag.res.status}, ${reason})`);
+      else fail(`${fragPath} (from ${where})`, `HTTP ${frag.res.status}`);
       continue;
     }
     checkedPages++;
@@ -282,6 +301,20 @@ function selfTest() {
     process.exit(1);
   }
   failures.length = before;
+
+  const statusCases = [
+    ['/results/89494354/incidents/fragment', 403, true],
+    ['/results/89494354/incidents/fragment?view=driver', 403, true],
+    ['/results/89494354/incidents/fragment', 500, false],
+    ['/results/89494354/fragment', 403, false],
+    ['/results/89494354/kudos/fragment', 403, false],
+  ];
+  for (const [fragPath, status, expected] of statusCases) {
+    if (Boolean(expectedFragmentStatus(fragPath, status)) !== expected) {
+      console.error(`Self-test failed: HTTP ${status} on ${fragPath} should be ${expected ? 'expected' : 'a failure'}`);
+      process.exit(1);
+    }
+  }
 }
 
 // --- Run ----------------------------------------------------------------------------
@@ -298,7 +331,7 @@ async function main() {
 
   await scanSources();
 
-  const subsessionId = await firstMatch('/results/fragment', /href="\/results\/(\d+)[?"]/);
+  const subsessionId = SUBSESSION ?? (await firstMatch('/results/fragment', /href="\/results\/(\d+)[?"]/));
   const driverId = await firstMatch('/roster/fragment', /\/drivers\/([0-9a-f-]{36})\b/);
 
   const publicPages = ['/', '/login', '/signup', '/standings'];
