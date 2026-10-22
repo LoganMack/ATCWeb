@@ -657,6 +657,10 @@ export async function importPracticeResultsCsv(
       continue;
     }
 
+    // The table's key is (subsession_id, cust_id), so a repeated driver is skipped here with a clear
+    // message instead of surfacing as a refused insert.
+    const writtenCustIds = new Set<number>();
+
     for (const row of groupRows) {
       const carNumberRaw = get(row, 'driver_car_number');
       const carNumber = carNumberRaw ? Number(carNumberRaw) : NaN;
@@ -675,6 +679,13 @@ export async function importPracticeResultsCsv(
         skipped++;
         continue;
       }
+      if (writtenCustIds.has(driver.iracing_cust_id)) {
+        console.error(
+          `Skipped a manual practice row (round "${importKey}", car #${carNumber}): this driver appears twice in the round; only their first row was imported.`,
+        );
+        skipped++;
+        continue;
+      }
 
       const lapsRaw = get(row, 'laps');
 
@@ -687,6 +698,7 @@ export async function importPracticeResultsCsv(
           laps: lapsRaw ? Number(lapsRaw) : null,
           best_lap_ten_thousandths: parseLapTimeToTenThousandths(get(row, 'best_lap_time')),
         });
+        writtenCustIds.add(driver.iracing_cust_id);
         imported++;
       } catch (err) {
         console.error(`Failed to import a practice row (round "${importKey}", car #${carNumber}):`, err);
