@@ -70,3 +70,17 @@ unpaged) was not truncated.
 - Steward penalty descriptions (`penalties[].description`) are kept verbatim. They mention car
   numbers and other drivers, as the public site already shows them.
 - The files were checked with `node supabase/tools/secret-scan.mjs` (clean) and read before commit.
+
+## View rows (added with the scoring switch)
+
+- **`view-rows.json`**: ATC17's 508 rows of `race_score_results_public` as a signed-out reader sees
+  them (every ATC17 round is posted, so every row is the final set). Captured 2026-10-22 with a
+  read-only `select` on the view; `is_admin()` was false for the session, so it returned the
+  non-admin view. Stored as `columns` plus one array per row; `season_id` is left out (it is
+  ATC17's) and added back by the loader. It holds driver and team ids only, no customer ids or names.
+  It predates the view's `raw_class_position`, `raw_overall_total` and `raw_class_total` columns
+  (migration 20261023120000); the loader sets them to null, and no standings code reads them.
+- Since the switch the standings read these rows instead of `scoresByClass`/`overallScores`, which
+  stay in `inputs.json` for `scripts/compute-timing.ts`. `expected.json` is unchanged. The totals that
+  differ from it are listed in `DECIDED` in `tests/golden/atc17.ts`, each with the comparison cause
+  the owner accepted (all cross-class-ripple, Gamma and Delta only; no position moved).

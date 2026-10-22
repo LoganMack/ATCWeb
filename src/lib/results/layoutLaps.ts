@@ -68,7 +68,7 @@ export async function getLayoutClassBestLaps(
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
-      `race_scores_public?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`,
+      `race_score_results_public?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`,
     ),
   ]);
 
@@ -277,7 +277,7 @@ export async function buildLayoutClassBestLaps(
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
-      `race_scores_public?select=subsession_id,driver_id,class_id`,
+      `race_score_results_public?select=subsession_id,driver_id,class_id`,
     ),
   ]);
 

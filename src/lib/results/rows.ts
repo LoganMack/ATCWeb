@@ -5,26 +5,158 @@ import { getAllTeamSeasonLogos } from '../db/teams';
 // Raw row shapes
 // ---------------------------------------------------------------------------
 
-export interface RaceScoreRow {
+/**
+ * One row of `race_score_results_public`, as PostgREST returns it. The view
+ * picks one set per row: the final (penalised) set for an admin or a posted
+ * round, otherwise the raw set with no deduction (BR4.1, BR4.2). Pages never
+ * recompute a race; they read these columns (BR1.2).
+ */
+export interface PublicScoreRow {
   subsession_id: number;
   race_number: number;
   driver_id: string;
-  /** Only needed by computeTeamSeasonStandings' per-class path (e.g. Delta's own team competition) — every other consumer of this row shape ignores it. */
+  season_id: string;
+  class_id: number;
   team_id: string | null;
-  total_points: number;
+  /** The raw finishing slot (adjusted ?? finish), DSQ'd rows included. */
+  finish_position: number;
+  classified: boolean;
+  dsq: boolean;
+  /** The raw overall position; null for a DSQ. */
+  raw_position: number | null;
+  shown_set: 'raw' | 'final';
+  shown_position: number | null;
+  shown_class_position: number | null;
+  shown_laps_down: number | null;
+  shown_gap_ms: number | null;
+  shown_race_time_ms: number | null;
+  shown_finish_points: number;
+  shown_class_points: number;
+  shown_finesse_bonus: number;
+  shown_pole_bonus: number;
+  shown_aggression_bonus: number;
+  shown_lap_led_bonus: number;
+  shown_fewest_incidents_bonus: number;
+  shown_fastest_lap_bonus: number;
+  shown_sprint_sweep_bonus: number;
+  /** Always >= 0 and already subtracted from both totals. */
+  shown_points_deduction: number;
+  shown_overall_total: number;
+  shown_class_total: number;
+  shown_penalised: boolean;
+  /** The raw set's class position and totals, whichever set is shown (migration 20261023120000). */
+  raw_class_position: number | null;
+  raw_overall_total: number;
+  raw_class_total: number;
+}
+
+/** Every column of the view, in the order PublicScoreRow lists them. */
+export const PUBLIC_SCORE_SELECT =
+  'subsession_id,race_number,driver_id,season_id,class_id,team_id,finish_position,classified,dsq,raw_position,' +
+  'shown_set,shown_position,shown_class_position,shown_laps_down,shown_gap_ms,shown_race_time_ms,' +
+  'shown_finish_points,shown_class_points,shown_finesse_bonus,shown_pole_bonus,shown_aggression_bonus,' +
+  'shown_lap_led_bonus,shown_fewest_incidents_bonus,shown_fastest_lap_bonus,shown_sprint_sweep_bonus,' +
+  'shown_points_deduction,shown_overall_total,shown_class_total,shown_penalised,' +
+  'raw_class_position,raw_overall_total,raw_class_total';
+
+/** One driver's race as every results reader uses it: a view row with the shown_ prefix dropped. */
+export interface ScoreRow {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  season_id: string;
+  class_id: number;
+  team_id: string | null;
+  classified: boolean;
+  dsq: boolean;
+  /** Raw finishing slot, DSQ'd rows included; orders rows that have no position. */
+  finish_position: number;
+  raw_position: number | null;
+  set: 'raw' | 'final';
+  /** Overall position in the shown set; null for a DSQ. */
+  position: number | null;
+  class_position: number | null;
+  laps_down: number | null;
+  gap_ms: number | null;
+  race_time_ms: number | null;
+  finish_points: number;
   class_points: number;
   finesse_bonus: number;
-  points_deduction: number;
   pole_bonus: number;
-  /** "Naked Aggression" bonus (0033_naked_aggression_bonus.sql) — folded into total_points same as every other bonus component; every reader that backs out finish_points from total_points, or recomputes it on a penalty, needs this. */
   aggression_bonus: number;
-  /** Four new per-class/per-race bonuses (0067_ruleset_overhaul_and_bonuses.sql) — same "folded into total_points" reasoning as aggression_bonus above. */
   lap_led_bonus: number;
   fewest_incidents_bonus: number;
   fastest_lap_bonus: number;
   sprint_sweep_bonus: number;
-  classified: boolean;
-  dsq: boolean;
+  /** Positive; already subtracted from both totals. */
+  points_deduction: number;
+  /** Every bonus less the deduction, without class points (BR2.6). */
+  overall_total: number;
+  /** overall_total plus class points. */
+  class_total: number;
+  penalised: boolean;
+  /** The raw set's class position and totals, before this round's penalties. */
+  raw_class_position: number | null;
+  raw_overall_total: number;
+  raw_class_total: number;
+}
+
+export function toScoreRow(v: PublicScoreRow): ScoreRow {
+  return {
+    subsession_id: v.subsession_id,
+    race_number: v.race_number,
+    driver_id: v.driver_id,
+    season_id: v.season_id,
+    class_id: v.class_id,
+    team_id: v.team_id,
+    classified: v.classified,
+    dsq: v.dsq,
+    finish_position: v.finish_position,
+    raw_position: v.raw_position,
+    set: v.shown_set,
+    position: v.shown_position,
+    class_position: v.shown_class_position,
+    laps_down: v.shown_laps_down,
+    gap_ms: v.shown_gap_ms,
+    race_time_ms: v.shown_race_time_ms,
+    finish_points: v.shown_finish_points,
+    class_points: v.shown_class_points,
+    finesse_bonus: v.shown_finesse_bonus,
+    pole_bonus: v.shown_pole_bonus,
+    aggression_bonus: v.shown_aggression_bonus,
+    lap_led_bonus: v.shown_lap_led_bonus,
+    fewest_incidents_bonus: v.shown_fewest_incidents_bonus,
+    fastest_lap_bonus: v.shown_fastest_lap_bonus,
+    sprint_sweep_bonus: v.shown_sprint_sweep_bonus,
+    points_deduction: v.shown_points_deduction,
+    overall_total: v.shown_overall_total,
+    class_total: v.shown_class_total,
+    penalised: v.shown_penalised,
+    raw_class_position: v.raw_class_position,
+    raw_overall_total: v.raw_overall_total,
+    raw_class_total: v.raw_class_total,
+  };
+}
+
+/**
+ * Whether a class's own championship ranks by class_total. Only the Gamma and
+ * Delta class championships do; Alpha, overall, awards, hall of fame and the
+ * driver page all rank by overall_total (BR2.6).
+ */
+export function rankedByClassTotal(className: string | undefined): boolean {
+  return className === 'Gamma' || className === 'Delta';
+}
+
+/** The per-race points a class championship (or, with false, every other view) counts for this row. */
+export function seasonPointsOf(row: ScoreRow, classTotal: boolean): number {
+  return classTotal ? row.class_total : row.overall_total;
+}
+
+async function fetchScoreRows(env: SupabaseEnv, path: string, paged: boolean): Promise<ScoreRow[]> {
+  const rows = paged
+    ? await restGetAll<PublicScoreRow>(env, path)
+    : await restGet<PublicScoreRow[]>(env, path);
+  return rows.map(toScoreRow);
 }
 
 export interface CuratedRaceResultRow {
@@ -104,109 +236,47 @@ export function driversSelect(env: SupabaseEnv, { includeAi = false }: { include
 }
 
 export function getRaceScoresForSeasonClass(env: SupabaseEnv, seasonId: string, classId: number) {
-  const select =
-    'subsession_id,race_number,driver_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,classified,dsq';
-  return restGet<RaceScoreRow[]>(
+  return fetchScoreRows(
     env,
-    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`,
+    `race_score_results_public?select=${PUBLIC_SCORE_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}`,
+    false,
   );
 }
 
 /**
- * Every field either `RaceScoreRow` (the per-class shape) or
- * `RaceScoreOverallRow` (the cross-class shape) ever needs, off the same
- * underlying `race_scores` table, plus `season_id` so a caller who fetched
- * rows for MANY seasons at once can group them back out by season
- * afterward. A value of this shape is structurally assignable anywhere a
- * `RaceScoreRow[]` or `RaceScoreOverallRow[]` is expected (it's a strict
- * superset of both), so `computeDriverCareerStats` can feed one bulk fetch
- * straight into both computations without converting anything.
- */
-interface RaceScoreBulkRow extends RaceScoreRow, RaceScoreOverallRowFields {
-  season_id: string;
-}
-interface RaceScoreOverallRowFields {
-  class_id: number;
-  finish_points: number;
-  scored_position: number | null;
-}
-
-/**
- * Every class's `race_scores` rows for EVERY given season, in one query —
- * the multi-season equivalent of `getRaceScoresForSeasonClass` +
- * `getRaceScoresForSeasonOverall` combined. Exists for
- * `computeDriverCareerStats`, which needs this data for every championship
- * season on file; calling either of those once per class per season (or
- * even once per season) was the actual remaining cause of that function's
- * subrequest-count problem even after its first optimization pass — see
- * that function's own doc comment. Every other/older caller still uses the
- * single-season queries above, unaffected.
+ * Every class's rows for EVERY given season, in one query — the
+ * multi-season equivalent of `getRaceScoresForSeasonClass` +
+ * `getRaceScoresForSeasonOverall`. Exists for the bulk career, champions and
+ * awards computations, which need every championship season at once;
+ * calling the single-season queries per season ran past Cloudflare Workers'
+ * per-request subrequest limit.
  */
 export function getRaceScoresForSeasonsBulk(env: SupabaseEnv, seasonIds: string[]) {
-  if (seasonIds.length === 0) return Promise.resolve([] as RaceScoreBulkRow[]);
-  const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,season_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,classified,dsq,finish_points,scored_position';
-  // restGetAll, not restGet — this is easily the biggest single result set
-  // in the app (every class, every race, every driver, every championship
-  // season at once) and can run well past Supabase's default 1000-row
-  // response cap. See restGetAll's own doc comment.
-  // A stable order (subsession_id/race_number/driver_id together are
-  // unique per row) matters once a query is paginated across several
-  // requests — an unordered result set's row order isn't guaranteed
-  // consistent between separate requests, which could skip or duplicate
-  // rows across pages.
-  return restGetAll<RaceScoreBulkRow>(
+  if (seasonIds.length === 0) return Promise.resolve([] as ScoreRow[]);
+  // Paged, and in a stable unique order so no row is skipped or repeated
+  // between pages: this is the biggest result set in the app.
+  return fetchScoreRows(
     env,
-    `race_scores_public?select=${select}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`,
+    `race_score_results_public?select=${PUBLIC_SCORE_SELECT}&season_id=in.(${seasonIds.map((id) => encodeURIComponent(id)).join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`,
+    true,
   );
-}
-
-export interface RaceScoreOverallRow {
-  subsession_id: number;
-  race_number: number;
-  driver_id: string;
-  class_id: number;
-  team_id: string | null;
-  finish_points: number;
-  finesse_bonus: number;
-  pole_bonus: number;
-  points_deduction: number;
-  /** "Naked Aggression" bonus (0033_naked_aggression_bonus.sql) — see RaceScoreRow's identical field for why every points-recompute path needs this. */
-  aggression_bonus: number;
-  dsq: boolean;
-  classified: boolean;
-  scored_position: number | null;
 }
 
 /** Every class combined — see `computeOverallSeasonStandings` and `getSeasonCarTeamStats`. */
 export function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string) {
-  const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
-  return restGet<RaceScoreOverallRow[]>(
+  return fetchScoreRows(
     env,
-    `race_scores_public?select=${select}&season_id=eq.${encodeURIComponent(seasonId)}`,
+    `race_score_results_public?select=${PUBLIC_SCORE_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}`,
+    false,
   );
 }
 
-/**
- * Same shape as `getRaceScoresForSeasonOverall` (every class, every driver),
- * but scoped by explicit subsession_ids instead of one season — for
- * `getDriverRaceHistory`, which spans one driver's WHOLE CAREER (many
- * seasons at once, not one at a time). computeSeasonOverallAdjustments'
- * time-penalty reorder needs a race's WHOLE field (every driver, not just
- * the one this page is about) to correctly cascade who moves where — see
- * src/lib/penalties.ts's reorderByTimePenalty — so a single driver's own
- * race_scores rows alone aren't enough to recompute their own position.
- * restGetAll, not restGet — a career spanning many rounds times every OTHER
- * driver in each one easily clears Supabase's default 1000-row cap.
- */
-export function getRaceScoresForSubsessionsOverall(env: SupabaseEnv, subsessionIds: number[]) {
-  if (subsessionIds.length === 0) return Promise.resolve([] as RaceScoreOverallRow[]);
-  const select =
-    'subsession_id,race_number,driver_id,class_id,team_id,finish_points,finesse_bonus,pole_bonus,points_deduction,aggression_bonus,dsq,classified,scored_position';
-  return restGetAll<RaceScoreOverallRow>(
+/** One round's rows, every class. */
+export function getRaceScoresForSubsession(env: SupabaseEnv, subsessionId: number) {
+  return fetchScoreRows(
     env,
-    `race_scores_public?select=${select}&subsession_id=in.(${subsessionIds.join(',')})`,
+    `race_score_results_public?select=${PUBLIC_SCORE_SELECT}&subsession_id=eq.${subsessionId}`,
+    false,
   );
 }
 

@@ -248,7 +248,7 @@ export interface ClassHighlight {
 }
 
 export interface LayoutHighlights {
-  /** classId -> that class's race-1 winners across every round in `rounds`, newest first. A round with no race_scores rows for a given class (it didn't run that class that weekend) simply contributes no entry for that class — never a placeholder gap. */
+  /** classId -> that class's race-1 winners across every round in `rounds`, newest first. A round with no scored rows for a given class (it didn't run that class that weekend) simply contributes no entry for that class — never a placeholder gap. */
   winnersByClass: Map<number, ClassHighlight[]>;
   /** Same shape, for each class's pole-sitter. */
   polesByClass: Map<number, ClassHighlight[]>;
@@ -259,7 +259,7 @@ interface RaceOneScoreRow {
   race_number: number;
   driver_id: string;
   class_id: number;
-  scored_position: number | null;
+  shown_position: number | null;
   classified: boolean;
   dsq: boolean;
 }
@@ -285,12 +285,12 @@ interface RaceOneCuratedRow {
  * one every other race-1-only stat in this file (e.g.
  * computeOverallPoleDriverBySubsession) already anchors to.
  *
- * Winner = the classified, non-DSQ'd race_scores row with the lowest
- * `scored_position` within that (subsession, class) — scored_position
- * already reflects any post-race penalty reclassification, the same source
- * of truth every other finishing-order figure on the site uses. Pole = the
+ * Winner = the classified, non-DSQ'd row with the lowest shown position
+ * within that (subsession, class) — race_score_results_public's position
+ * already reflects any posted penalty, the same source of truth every
+ * other finishing-order figure on the site uses. Pole = the
  * lowest `curated_race_results.starting_position` within that (subsession,
- * class) — deliberately NOT `race_scores.pole_bonus` (that's Gamma/Delta's
+ * class) — deliberately NOT `pole_bonus` (that's Gamma/Delta's
  * "Class Pole" BONUS; Alpha never earns it at all — see
  * computeOverallPoleDriverBySubsession's own doc comment — so it can't stand
  * in as a real pole-sitter for every class uniformly).
@@ -314,7 +314,7 @@ export async function getLayoutClassHighlights(
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     restGetAll<RaceOneScoreRow>(
       env,
-      `race_scores_public?select=subsession_id,race_number,driver_id,class_id,scored_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`,
+      `race_score_results_public?select=subsession_id,race_number,driver_id,class_id,shown_position,classified,dsq&subsession_id=in.(${subsessionIds.join(',')})${allRaces ? '' : '&race_number=eq.1'}`,
     ),
     restGetAll<RaceOneCuratedRow>(
       env,
@@ -336,11 +336,11 @@ export async function getLayoutClassHighlights(
     const classKey = `${s.subsession_id}:${s.class_id}`;
     if (!raceNumbersBySubClass.has(classKey)) raceNumbersBySubClass.set(classKey, new Set());
     raceNumbersBySubClass.get(classKey)!.add(s.race_number);
-    if (!s.classified || s.dsq || s.scored_position === null) continue;
+    if (!s.classified || s.dsq || s.shown_position === null) continue;
     const key = allRaces ? `${s.subsession_id}:${s.class_id}:${s.race_number}` : classKey;
     const existing = winnerBySubClass.get(key);
-    if (!existing || s.scored_position < existing.position) {
-      winnerBySubClass.set(key, { driverId: s.driver_id, position: s.scored_position });
+    if (!existing || s.shown_position < existing.position) {
+      winnerBySubClass.set(key, { driverId: s.driver_id, position: s.shown_position });
     }
   }
 

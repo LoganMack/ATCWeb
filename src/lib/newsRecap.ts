@@ -4,10 +4,10 @@
  * 3 per class, top 3 rookies, fastest lap (+ track record check), and team
  * points, all per race.
  *
- * Deliberately NOT stored text: every value here is recomputed fresh from
- * the same live, penalty-adjusted data the results pages themselves show
- * (getRoundResults() + applyPenaltiesToRoundResults(), exactly like
- * src/pages/results/[subsessionId].astro), so if a penalty gets logged
+ * Deliberately NOT stored text: every value here is read fresh from the
+ * same penalty-adjusted data the results pages themselves show
+ * (getRoundResults(), exactly like src/pages/results/[subsessionId].astro),
+ * so if a penalty gets logged
  * against this round after the post is published, the recap on the article
  * updates the next time it's viewed — no "regenerate" step, nothing to go
  * stale. src/pages/news/[slug].astro calls computeRoundRecap() at render
@@ -25,7 +25,6 @@
  */
 
 import { restGet, type SupabaseEnv } from './db/client';
-import { getPenaltiesForSubsession } from './db/penalties';
 import { getDriverClasses } from './db/lookups';
 import {
   getCircuits,
@@ -34,12 +33,10 @@ import {
   type Circuit,
   type CircuitLayout,
 } from './db/circuits';
-import { getSeasonById, getScoringRulesets, resolveSeasonRuleset } from './db/seasons';
 import { getRoundBySubsessionId } from './results/rounds';
-import { getRoundResults, type RoundResults, type RaceResultRow } from './results/roundResults';
+import { getRoundResults, type RaceResultRow } from './results/roundResults';
 import { topTeamScorers } from './results/seasonCarTeam';
 import type { DriverBasic } from './results/rows';
-import { applyPenaltiesToRoundResults } from './penalties/roundResults';
 
 interface RawBestLapRow {
   race_number: number;
@@ -262,49 +259,16 @@ function matchCircuitLayout(
 }
 
 export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number): Promise<RoundRecap | null> {
-  const [round, rawResults, penalties, classes, circuits, layouts, bestLapRows, roundLayout] =
-    await Promise.all([
-      getRoundBySubsessionId(env, subsessionId),
-      getRoundResults(env, subsessionId),
-      getPenaltiesForSubsession(env, subsessionId),
-      getDriverClasses(env),
-      getCircuits(env),
-      getAllCircuitLayouts(env),
-      fetchBestLaps(env, subsessionId),
-      fetchRoundLayout(env, subsessionId),
-    ]);
+  const [round, roundResults, classes, circuits, layouts, bestLapRows, roundLayout] = await Promise.all([
+    getRoundBySubsessionId(env, subsessionId),
+    getRoundResults(env, subsessionId),
+    getDriverClasses(env),
+    getCircuits(env),
+    getAllCircuitLayouts(env),
+    fetchBestLaps(env, subsessionId),
+    fetchRoundLayout(env, subsessionId),
+  ]);
   if (!round) return null;
-
-  // This round's season's scoring ruleset — see results/[subsessionId].astro's
-  // matching fetch for why applyPenaltiesToRoundResults below needs it: a
-  // repositioned driver's new finish/class points must be priced off the
-  // SAME base_points/class_podium table the round was actually scored with.
-  let ruleset: Awaited<ReturnType<typeof getScoringRulesets>>[number] | null = null;
-  try {
-    const [rulesetSeason, rulesets] = await Promise.all([
-      getSeasonById(env, round.season_id),
-      getScoringRulesets(env),
-    ]);
-    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
-  } catch (err) {
-    console.error('Failed to resolve round scoring ruleset for recap:', err);
-  }
-
-  // Same penalty recalculation every other results view uses — a recap
-  // built off pre-penalty data would show a driver's finish/points as if
-  // nothing had ever been logged against them.
-  const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
-  const roundResults: RoundResults =
-    penalties.length > 0
-      ? applyPenaltiesToRoundResults(
-          rawResults,
-          penalties,
-          round.format,
-          classPointsEligibleByClassId,
-          ruleset?.rules ?? null,
-          subsessionId,
-        )
-      : rawResults;
 
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));
   const orderedClassIds = classes.map((c) => c.id);

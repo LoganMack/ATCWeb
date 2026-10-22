@@ -1,7 +1,7 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds } from '../db/rounds';
 import { getCarLogos } from '../db/assets';
-import { getScoringRulesets, resolveSeasonRuleset, type Season } from '../db/seasons';
+import { getScoringRulesets, type Season } from '../db/seasons';
 import { getPenaltiesForSubsessions } from '../db/penalties';
 import type { Lookup } from '../db/lookups';
 import {
@@ -18,7 +18,7 @@ import {
   getAllTeamSeasonLogosSafe,
   getRaceScoresForSeasonsBulk,
   type DriverBasic,
-  type RaceScoreRow,
+  type ScoreRow,
 } from './rows';
 import { buildSeasonOverallContext } from './seasonContext';
 import { computeSeasonStandings, computeOverallSeasonStandings } from './standings';
@@ -264,10 +264,9 @@ export async function computeDriverCareerStats(
       seasonPenalties,
       seasonRounds,
       seasonLapStats,
-      resolveSeasonRuleset(season, rulesets)?.rules ?? null,
     );
 
-    const scoresByClassId = new Map<number, RaceScoreRow[]>();
+    const scoresByClassId = new Map<number, ScoreRow[]>();
     for (const row of seasonScores) {
       if (!scoresByClassId.has(row.class_id)) scoresByClassId.set(row.class_id, []);
       scoresByClassId.get(row.class_id)!.push(row);

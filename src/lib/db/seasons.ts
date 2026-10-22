@@ -119,7 +119,7 @@ export async function updateSeasonClassFlags(
   await restPatch<Season>(env, accessToken, `seasons?id=eq.${encodeURIComponent(id)}`, flags);
 }
 
-/** One curated_rounds row's outcome from a recalculateSeasonScores() call — see recalculate_season_scores() (0034_recalculate_season_scores.sql) for why this is per-round instead of one pass/fail for the whole season. */
+/** One curated_rounds row's outcome from a recalculateSeasonScores() call — per round rather than one pass/fail for the whole season. */
 export interface SeasonRecalcResult {
   subsession_id: number;
   rows_written: number | null;
@@ -127,11 +127,11 @@ export interface SeasonRecalcResult {
 }
 
 /**
- * Admin > Seasons' "Recalculate" button — re-runs recalculate_race_scores()
- * for every round in a season via the DB-side recalculate_season_scores()
- * wrapper, rather than looping N individual RPC calls from here (one round
- * trip instead of N, and the whole run stays inside one Postgres statement
- * so a slow round can't leave the UI hanging on a partially-done season).
+ * Admin > Seasons' "Recalculate" button — rescores every round in a season
+ * into race_score_results via the admin-checked rescore_season() (BR3.4),
+ * rather than looping N individual RPC calls from here (one round trip
+ * instead of N, and the whole run stays inside one Postgres statement so a
+ * slow round can't leave the UI hanging on a partially-done season).
  * A round-level failure doesn't abort the batch — it comes back as its own
  * row with `error_message` set, right alongside the rounds that succeeded,
  * so the caller can report exactly which rounds still need attention
@@ -143,13 +143,13 @@ export async function recalculateSeasonScores(
   accessToken: string,
   seasonId: string,
 ): Promise<SeasonRecalcResult[]> {
-  const res = await fetch(`${env.url}/rest/v1/rpc/recalculate_season_scores`, {
+  const res = await fetch(`${env.url}/rest/v1/rpc/rescore_season`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken),
     body: JSON.stringify({ p_season_id: seasonId }),
   });
   if (!res.ok)
-    throw new Error(`Supabase RPC error ${res.status} on recalculate_season_scores: ${await res.text()}`);
+    throw new Error(`Supabase RPC error ${res.status} on rescore_season: ${await res.text()}`);
   return res.json() as Promise<SeasonRecalcResult[]>;
 }
 

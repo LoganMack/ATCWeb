@@ -1,7 +1,10 @@
 /**
  * Standings: the pure helpers behind computeSeasonStandings / computeOverallSeasonStandings.
  * Every season here is hand-built and every expected value is worked out by hand from the rule
- * (points tables in src/lib/penalties.ts; drop weeks and tiebreakers in finalizeStandings' doc comment).
+ * (drop weeks and tiebreakers in finalizeStandings' doc comment). The scores are
+ * race_score_results_public rows: where a penalty applies, the entry gives the result the database
+ * stores after it, and the standings only add it up. An expectation that changed when the
+ * standings moved to the view cites the comparison cause the owner accepted.
  */
 import { describe, expect, it } from 'vitest';
 import { buildOverallSeasonStandings, buildSeasonStandings } from '../../src/lib/results/standings';
@@ -12,13 +15,13 @@ import {
   type DriverSeasonStanding,
   type StandingsAccum,
 } from '../../src/lib/results/standingsCore';
-import type {
-  CuratedRaceResultRow,
-  DriverBasic,
-  RaceScoreOverallRow,
-  RaceScoreRow,
-  RawLapStatsRow,
-  RoundSummary,
+import {
+  toScoreRow,
+  type CuratedRaceResultRow,
+  type DriverBasic,
+  type RawLapStatsRow,
+  type RoundSummary,
+  type ScoreRow,
 } from '../../src/lib/results/rows';
 import type { Lookup } from '../../src/lib/db/lookups';
 import type { Penalty } from '../../src/lib/db/penalties';
@@ -123,7 +126,7 @@ function penalty(over: Partial<Penalty> & { driver_id: string | null; subsession
   };
 }
 
-/** One driver's race, in database terms: a race_scores row plus its curated_race_results row. */
+/** One driver's race, in database terms: a race_score_results_public row plus its curated_race_results row. */
 interface Entry {
   sub: number;
   race?: number;
@@ -132,13 +135,16 @@ interface Entry {
   /** curated_race_results.finish_position (overall, pre-penalty). */
   finish: number;
   adjusted?: number | null;
-  /** race_scores.scored_position; defaults to adjusted ?? finish. */
-  scored?: number | null;
+  /** The shown overall position; defaults to adjusted ?? finish (null for a DSQ). */
+  pos?: number | null;
+  /** The shown class position; defaults to the raw order within the class (null for a DSQ). */
+  cpos?: number | null;
   fp?: number;
   cp?: number;
   finesse?: number;
   pole?: number;
   aggression?: number;
+  /** The points deduction, positive; subtracted from both totals. */
   deduction?: number;
   dsq?: boolean;
   start?: number;
@@ -148,68 +154,89 @@ interface Entry {
 
 interface World {
   drivers: DriverBasic[];
-  overall: RaceScoreOverallRow[];
+  scores: ScoreRow[];
   raw: CuratedRaceResultRow[];
   laps: RawLapStatsRow[];
-  byClass: (classId: number) => RaceScoreRow[];
+  byClass: (classId: number) => ScoreRow[];
 }
 
 const LAPS = 10;
 const AVG_LAP = 900000; // 90 s in ten-thousandths
 
+/** The class position a raw (unpenalised) set gives each entry: non-DSQ rows ranked by raw slot within race and class. */
+function rawClassPositions(entries: Entry[]): Map<Entry, number> {
+  const out = new Map<Entry, number>();
+  const groups = new Map<string, Entry[]>();
+  for (const e of entries) {
+    if (e.dsq) continue;
+    const key = `${e.sub}:${e.race ?? 1}:${e.cls}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(e);
+  }
+  for (const group of groups.values()) {
+    group
+      .sort((a, b) => (a.adjusted ?? a.finish) - (b.adjusted ?? b.finish))
+      .forEach((e, i) => out.set(e, i + 1));
+  }
+  return out;
+}
+
 /**
- * Builds the rows the standings code reads. Drivers get customer ids 1, 2, 3 ... in order of first
- * appearance, except those listed in `noCustId`, whose results carry an id no driver row has.
- * total_points is the generated column's sum (the other bonuses are 0 here). Unless given, the
- * gap to the leader is 1 s per place and every driver completes 10 laps at a 90 s average.
+ * Builds the rows the standings code reads, each score through the view adapter (toScoreRow).
+ * Drivers get customer ids 1, 2, 3 ... in order of first appearance, except those listed in
+ * `noCustId`, whose results carry an id no driver row has. The overall total is every bonus less the
+ * deduction; the class total adds class points (BR2.6). Unless given, the gap to the leader is 1 s
+ * per place and every driver completes 10 laps at a 90 s average.
  */
 function world(entries: Entry[], noCustId: string[] = []): World {
   const ids = [...new Set(entries.map((e) => e.driver))];
   const custOf = new Map(ids.map((id, i) => [id, noCustId.includes(id) ? 9000 + i : i + 1]));
   const drivers = ids.map((id) => driver(id, noCustId.includes(id) ? null : (custOf.get(id) as number)));
-  const scoreRows = entries.map((e) => {
+  const classPositions = rawClassPositions(entries);
+  const scores = entries.map((e) => {
     const fp = e.fp ?? 0;
     const cp = e.cp ?? 0;
     const finesse = e.finesse ?? 0;
     const pole = e.pole ?? 0;
     const aggression = e.aggression ?? 0;
     const deduction = e.deduction ?? 0;
-    return {
-      cls: e.cls,
-      score: {
-        subsession_id: e.sub,
-        race_number: e.race ?? 1,
-        driver_id: e.driver,
-        team_id: null,
-        total_points: fp + cp + finesse + pole + aggression + deduction,
-        class_points: cp,
-        finesse_bonus: finesse,
-        points_deduction: deduction,
-        pole_bonus: pole,
-        aggression_bonus: aggression,
-        lap_led_bonus: 0,
-        fewest_incidents_bonus: 0,
-        fastest_lap_bonus: 0,
-        sprint_sweep_bonus: 0,
-        classified: true,
-        dsq: e.dsq ?? false,
-      } satisfies RaceScoreRow,
-      overall: {
-        subsession_id: e.sub,
-        race_number: e.race ?? 1,
-        driver_id: e.driver,
-        class_id: e.cls,
-        team_id: null,
-        finish_points: fp,
-        finesse_bonus: finesse,
-        pole_bonus: pole,
-        points_deduction: deduction,
-        aggression_bonus: aggression,
-        dsq: e.dsq ?? false,
-        classified: true,
-        scored_position: e.scored !== undefined ? e.scored : (e.adjusted ?? e.finish),
-      } satisfies RaceScoreOverallRow,
-    };
+    const rawPosition = e.dsq ? null : (e.adjusted ?? e.finish);
+    const overallTotal = fp + finesse + pole + aggression - deduction;
+    return toScoreRow({
+      subsession_id: e.sub,
+      race_number: e.race ?? 1,
+      driver_id: e.driver,
+      season_id: 'season-99',
+      class_id: e.cls,
+      team_id: null,
+      finish_position: e.adjusted ?? e.finish,
+      classified: true,
+      dsq: e.dsq ?? false,
+      raw_position: rawPosition,
+      shown_set: 'final',
+      shown_position: e.pos !== undefined ? e.pos : rawPosition,
+      shown_class_position: e.cpos !== undefined ? e.cpos : (classPositions.get(e) ?? null),
+      shown_laps_down: 0,
+      shown_gap_ms: null,
+      shown_race_time_ms: null,
+      shown_finish_points: fp,
+      shown_class_points: cp,
+      shown_finesse_bonus: finesse,
+      shown_pole_bonus: pole,
+      shown_aggression_bonus: aggression,
+      shown_lap_led_bonus: 0,
+      shown_fewest_incidents_bonus: 0,
+      shown_fastest_lap_bonus: 0,
+      shown_sprint_sweep_bonus: 0,
+      shown_points_deduction: deduction,
+      shown_overall_total: overallTotal,
+      shown_class_total: overallTotal + cp,
+      shown_penalised: false,
+      // Penalties are already in the shown columns here; the raw ones are not read by standings.
+      raw_class_position: classPositions.get(e) ?? null,
+      raw_overall_total: overallTotal,
+      raw_class_total: overallTotal + cp,
+    });
   });
   const raw = entries.map((e): CuratedRaceResultRow => ({
     subsession_id: e.sub,
@@ -233,10 +260,10 @@ function world(entries: Entry[], noCustId: string[] = []): World {
   }));
   return {
     drivers,
-    overall: scoreRows.map((r) => r.overall),
+    scores,
     raw,
     laps,
-    byClass: (classId) => scoreRows.filter((r) => r.cls === classId).map((r) => r.score),
+    byClass: (classId) => scores.filter((r) => r.class_id === classId),
   };
 }
 
@@ -252,12 +279,11 @@ function contextFor(w: World, o: Opts) {
   return buildSeasonOverallContext(
     excluded,
     w.drivers,
-    w.overall,
+    w.scores,
     w.raw.filter((r) => !excluded.has(r.subsession_id)),
     o.penalties ?? [],
     o.rounds,
     w.laps.filter((r) => !excluded.has(r.subsession_id)),
-    null,
   );
 }
 
@@ -516,10 +542,7 @@ describe('buildSeasonOverallContext', () => {
     ]);
     expect(ctx.rawByKey.get('100:1:2')?.finish_position).toBe(2);
     expect(ctx.formatBySubsession.get(100)).toBe('sprint');
-    expect(ctx.leaderStatsByRace.get('100:1')).toEqual({
-      lapsComplete: LAPS,
-      averageLapTenThousandths: AVG_LAP,
-    });
+    expect(ctx.lapStatsByKey.get('100:1:1')?.average_lap_ten_thousandths).toBe(AVG_LAP);
     expect(ctx.seasonRounds).toBe(rounds);
   });
 
@@ -539,11 +562,11 @@ describe('buildSeasonOverallContext', () => {
     expect(rows.get('a1')).toMatchObject({ totalPoints: 100, laps: LAPS, lapsLed: 10 });
   });
 
-  it('makes no adjustments when there are no penalties', () => {
+  it('keeps the season’s penalties for the Matrix summaries', () => {
     const w = world([{ sub: 100, driver: 'a1', cls: ALPHA, finish: 1, fp: 100 }]);
-    const ctx = contextFor(w, { rounds });
-    expect(ctx.adjustments.size).toBe(0);
-    expect(ctx.penalties).toEqual([]);
+    const p = penalty({ subsession_id: 100, driver_id: 'a1', points_penalty: 5 });
+    expect(contextFor(w, { rounds }).penalties).toEqual([]);
+    expect(contextFor(w, { rounds, penalties: [p] }).penalties).toEqual([p]);
   });
 
   it('filters an excluded round out of overallScores', () => {
@@ -564,28 +587,19 @@ describe('buildSeasonOverallContext', () => {
     expect(ctx.custIdByDriverId.get('a1')).toBe(1);
   });
 
-  it('records the overall adjustment a time penalty causes', () => {
-    // g1 led a1 by 1 s; a 5 s penalty drops g1 behind, so a1 is P1 (100 pts) and g1 P2 (95).
+  it('takes positions and points from the view rows as given', () => {
+    // g1 led a1 by 1 s; after a 5 s penalty the view shows a1 P1 (100 pts) and g1 P2 (95).
     const w = world([
-      { sub: 100, driver: 'g1', cls: GAMMA, finish: 1, fp: 100, cp: 4 },
-      { sub: 100, driver: 'a1', cls: ALPHA, finish: 2, fp: 95 },
+      { sub: 100, driver: 'g1', cls: GAMMA, finish: 1, pos: 2, fp: 95, cp: 4 },
+      { sub: 100, driver: 'a1', cls: ALPHA, finish: 2, pos: 1, fp: 100 },
     ]);
     const ctx = contextFor(w, {
       rounds,
       penalties: [penalty({ subsession_id: 100, driver_id: 'g1', time_penalty_seconds: 5 })],
     });
-    expect(ctx.adjustments.get('100:1:a1')).toEqual({
-      newPosition: 1,
-      finishPoints: 100,
-      pointsDeduction: 0,
-      overallTotalPoints: 100,
-    });
-    expect(ctx.adjustments.get('100:1:g1')).toEqual({
-      newPosition: 2,
-      finishPoints: 95,
-      pointsDeduction: 0,
-      overallTotalPoints: 95,
-    });
+    const byId = new Map(ctx.overallScores.map((s) => [s.driver_id, s]));
+    expect(byId.get('a1')).toMatchObject({ position: 1, overall_total: 100 });
+    expect(byId.get('g1')).toMatchObject({ position: 2, overall_total: 95, class_total: 99 });
   });
 });
 
@@ -661,7 +675,7 @@ describe('buildSeasonStandings', () => {
   it('lowers a round’s points by a points deduction', () => {
     // g1: 100 + 4 class points - 10 = 94, now behind g2's 95 + 2 = 97; still the class winner.
     const w = world([
-      { sub: 100, driver: 'g1', cls: GAMMA, finish: 1, fp: 100, cp: 4 },
+      { sub: 100, driver: 'g1', cls: GAMMA, finish: 1, fp: 100, cp: 4, deduction: 10 },
       { sub: 100, driver: 'g2', cls: GAMMA, finish: 2, fp: 95, cp: 2 },
     ]);
     const rows = classStandings(w, GAMMA, {
@@ -680,9 +694,9 @@ describe('buildSeasonStandings', () => {
     // g1 (Gamma) led a1 by 1 s and a2 by 2 s. A 5 s penalty puts g1 behind both:
     // a1 P1 (100), a2 P2 (95), g1 P3 (90).
     const w = world([
-      { sub: 100, driver: 'g1', cls: GAMMA, finish: 1, fp: 100, cp: 4 },
-      { sub: 100, driver: 'a1', cls: ALPHA, finish: 2, fp: 95 },
-      { sub: 100, driver: 'a2', cls: ALPHA, finish: 3, fp: 90 },
+      { sub: 100, driver: 'g1', cls: GAMMA, finish: 1, pos: 3, fp: 90, cp: 4 },
+      { sub: 100, driver: 'a1', cls: ALPHA, finish: 2, pos: 1, fp: 100 },
+      { sub: 100, driver: 'a2', cls: ALPHA, finish: 3, pos: 2, fp: 95 },
     ]);
     const opts = {
       rounds,
@@ -702,20 +716,18 @@ describe('buildSeasonStandings', () => {
     });
   });
 
-  it('pins today’s behaviour: a Gamma driver does not pick up a ripple from a Delta penalty', () => {
+  it('gives a Gamma driver the ripple from a Delta penalty', () => {
     // d1 (Delta) led g1 by 1 s; a 5 s penalty makes g1 P1 overall (100 instead of 95).
-    // The overall view shows that, but the Gamma class pass only reprocesses a race when a Gamma
-    // driver was penalised, so g1's Gamma total stays at the raw 95 + 4 = 99, not 100 + 4 = 104.
-    // Logged as a follow-up; not fixed in this unit (BR1.3).
     const w = world([
-      { sub: 100, driver: 'd1', cls: DELTA, finish: 1, fp: 100, cp: 4 },
-      { sub: 100, driver: 'g1', cls: GAMMA, finish: 2, fp: 95, cp: 4 },
+      { sub: 100, driver: 'd1', cls: DELTA, finish: 1, pos: 2, fp: 95, cp: 4 },
+      { sub: 100, driver: 'g1', cls: GAMMA, finish: 2, pos: 1, fp: 100, cp: 4 },
     ]);
     const opts = {
       rounds,
       penalties: [penalty({ subsession_id: 100, driver_id: 'd1', time_penalty_seconds: 5 })],
     };
-    expect(order(classStandings(w, GAMMA, opts))).toEqual([[1, 'g1', 99]]);
+    // cross-class-ripple (accept-new): was 99, the raw 95 + 4; now 100 + 4.
+    expect(order(classStandings(w, GAMMA, opts))).toEqual([[1, 'g1', 104]]);
     expect(order(classStandings(w, DELTA, opts))).toEqual([[1, 'd1', 99]]);
     expect(order(overallStandings(w, opts))).toEqual([
       [1, 'g1', 100],
@@ -723,14 +735,14 @@ describe('buildSeasonStandings', () => {
     ]);
   });
 
-  it('takes Alpha points from the overall formula and Gamma points from total_points', () => {
-    // a1: finish 100 + finesse 2 + pole 0 - 3 deduction = 99; the aggression bonus (2) is in
-    // total_points (101) but not in the overall formula. g1: total_points 95 + 4 + 2 + 2 = 103.
+  it('takes Alpha points from the overall total and Gamma points from the class total', () => {
+    // a1: finish 100 + finesse 2 + aggression 2 - 3 deduction = 101. g1: 95 + 4 + 2 + 2 = 103.
     const w = world([
-      { sub: 100, driver: 'a1', cls: ALPHA, finish: 1, fp: 100, finesse: 2, aggression: 2, deduction: -3 },
+      { sub: 100, driver: 'a1', cls: ALPHA, finish: 1, fp: 100, finesse: 2, aggression: 2, deduction: 3 },
       { sub: 100, driver: 'g1', cls: GAMMA, finish: 2, fp: 95, cp: 4, finesse: 2, aggression: 2 },
     ]);
-    expect(order(classStandings(w, ALPHA, { rounds }))).toEqual([[1, 'a1', 99]]);
+    // overall-formula (accept-new): was 99, which left the aggression bonus out of Alpha's total.
+    expect(order(classStandings(w, ALPHA, { rounds }))).toEqual([[1, 'a1', 101]]);
     expect(order(classStandings(w, GAMMA, { rounds }))).toEqual([[1, 'g1', 103]]);
   });
 
@@ -787,14 +799,13 @@ describe('buildOverallSeasonStandings', () => {
     ]);
   });
 
-  it('takes wins from scored_position, or from the penalised position', () => {
-    // Round 100: a1 is P1 on scored_position. Round 200: g1 crossed the line first but a 5 s
-    // penalty makes a1 P1.
+  it('takes wins from the shown position, raw or penalised', () => {
+    // Round 100: a1 is P1. Round 200: g1 crossed the line first but a 5 s penalty makes a1 P1.
     const w = world([
       { sub: 100, driver: 'a1', cls: ALPHA, finish: 1, fp: 100 },
       { sub: 100, driver: 'g1', cls: GAMMA, finish: 2, fp: 95 },
-      { sub: 200, driver: 'g1', cls: GAMMA, finish: 1, fp: 100 },
-      { sub: 200, driver: 'a1', cls: ALPHA, finish: 2, fp: 95 },
+      { sub: 200, driver: 'g1', cls: GAMMA, finish: 1, pos: 2, fp: 95 },
+      { sub: 200, driver: 'a1', cls: ALPHA, finish: 2, pos: 1, fp: 100 },
     ]);
     const s = byDriver(
       overallStandings(w, {
@@ -806,9 +817,9 @@ describe('buildOverallSeasonStandings', () => {
     expect(s.get('g1')).toMatchObject({ wins: 0, podiums: 2, totalPoints: 190 });
   });
 
-  it('gives a disqualified driver no win even with a scored position', () => {
+  it('gives a disqualified driver no win even from the first finishing slot', () => {
     const w = world([
-      { sub: 100, driver: 'a1', cls: ALPHA, finish: 1, scored: 1, dsq: true },
+      { sub: 100, driver: 'a1', cls: ALPHA, finish: 1, dsq: true },
       { sub: 100, driver: 'a2', cls: ALPHA, finish: 2, fp: 95 },
     ]);
     const s = byDriver(overallStandings(w, { rounds }));

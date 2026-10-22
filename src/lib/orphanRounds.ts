@@ -3,9 +3,9 @@
  * inserted but that aren't fully wired into the site yet:
  *
  *  - no season_id  → the round doesn't appear under ANY season on the Results
- *                    page, and recalculate_race_scores() refuses to score it
- *                    ("Round is not linked to a season"). The pipeline only
- *                    fills in the free-text `season_label` (e.g. "ATC18").
+ *                    page, and it cannot be scored (scoring_issues records
+ *                    it). The pipeline only fills in the free-text
+ *                    `season_label` (e.g. "ATC18").
  *  - no event_id   → the round isn't tied to a calendar event, so the
  *                    incident-reporting window, event-based exhibition/test
  *                    flags and the event's "results" link have nothing to
@@ -29,7 +29,7 @@ export interface OrphanRound {
   season_id: string | null;
   event_id: string | null;
   format: string | null;
-  /** True when race_scores already has rows for this round. */
+  /** True when race_score_results already has rows for this round. */
   scored: boolean;
   /** League-local calendar date (YYYY-MM-DD) of the round's start — what events.event_date is compared against. */
   localDate: string;
@@ -52,7 +52,7 @@ export async function getOrphanedRounds(env: SupabaseEnv): Promise<OrphanRound[]
   const ids = rounds.map((r) => r.subsession_id).join(',');
   const scoredRows = await restGetAll<{ subsession_id: number }>(
     env,
-    `race_scores_public?select=subsession_id&subsession_id=in.(${ids})&race_number=eq.1`,
+    `race_score_results_public?select=subsession_id&subsession_id=in.(${ids})&race_number=eq.1`,
   );
   const scored = new Set(scoredRows.map((r) => r.subsession_id));
   return rounds.map((r) => ({
@@ -103,7 +103,7 @@ export function suggestEvent(
 }
 
 export interface AssociateResult {
-  /** Rows race_scores now holds for this round, or null when scoring wasn't attempted / failed. */
+  /** Rows race_score_results now holds for this round, or null when scoring wasn't attempted / failed. */
   rowsScored: number | null;
   /** Why scoring failed (no ruleset, standings locked, ...) — the association itself still went through. */
   scoreError: string | null;
@@ -116,7 +116,8 @@ export interface AssociateResult {
  *    (scoring can't pick a points table without a format);
  *  - an Exhibition / Test event flags the round the same way imports do
  *    (round_overrides);
- *  - then recalculate_race_scores() runs so the round has points right away.
+ *  - then rescore_season() rescores the round's season so it has points
+ *    right away (BR3.4).
  * Throws on a bad choice or a failed write; a scoring failure is reported in
  * the result instead (the link is still saved).
  */
@@ -194,14 +195,14 @@ export async function associateRound(
   const label = `${round.track_name}${season ? ` → ${season.name}` : ''}`;
   if (!season && !round.season_id) return { rowsScored: null, scoreError: null, label };
 
-  const res = await fetch(`${env.url}/rest/v1/rpc/recalculate_race_scores`, {
+  const res = await fetch(`${env.url}/rest/v1/rpc/rescore_season`, {
     method: 'POST',
     headers: {
       apikey: env.anonKey,
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ p_subsession_id: subsessionId }),
+    body: JSON.stringify({ p_season_id: season?.id ?? round.season_id }),
   });
   if (!res.ok) {
     let message = await res.text();
@@ -212,6 +213,16 @@ export async function associateRound(
     }
     return { rowsScored: null, scoreError: message, label };
   }
-  const written = (await res.json()) as number;
-  return { rowsScored: typeof written === 'number' ? written : null, scoreError: null, label };
+  // One row per round of the season; only this round's outcome is reported.
+  const results = (await res.json()) as RescoreRow[];
+  const mine = results.find((r) => r.subsession_id === subsessionId);
+  if (!mine) return { rowsScored: null, scoreError: 'The season rescore did not include this round.', label };
+  return { rowsScored: mine.rows_written, scoreError: mine.error_message, label };
+}
+
+/** One round's outcome from rescore_season(). */
+interface RescoreRow {
+  subsession_id: number;
+  rows_written: number | null;
+  error_message: string | null;
 }

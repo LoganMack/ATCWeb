@@ -275,16 +275,15 @@ export interface SyncResultsWithRosterOutcome {
   /** Existing drivers rows that just had their iracing_cust_id filled in. */
   linked: string[];
   /**
-   * How many rounds got their race_scores recomputed as a side effect of
-   * linking/creating a driver above (0060_sync_results_recalculates_
-   * history.sql) — every round that driver's cust_id already had raw
-   * results in before they were rostered, which otherwise stay invisible
-   * forever (no race_scores row, but also no longer flagged "not in
-   * roster" once their cust_id IS rostered — see that migration's own
-   * header for the mechanism, and the Jordyn Propst case that surfaced it).
+   * How many rounds the function recalculated in the legacy race_scores
+   * table for the drivers linked or created above — every round their
+   * cust_id already had raw results in. The results the site shows
+   * (race_score_results) are rescored for those same rounds by the drivers
+   * triggers in the same transaction (BR3.1), so this count still says
+   * which rounds were refreshed.
    */
   roundsRecalculated: number;
-  /** `"<subsession_id>: <error>"` for any round recalculate_race_scores() raised on (no ruleset yet, standings locked, etc.) — surfaced so it doesn't fail silently, not auto-retried. */
+  /** `"<subsession_id>: <error>"` for any round the legacy recalculation raised on (no ruleset yet, standings locked, etc.) — surfaced so it doesn't fail silently, not auto-retried. */
   recalcFailed: string[];
 }
 
@@ -293,12 +292,13 @@ export interface SyncResultsWithRosterOutcome {
  * raced in a real (non-exhibition) round but has no matching drivers row —
  * see results.ts's RaceResultRow.notInRoster for the front-end symptom this
  * fixes — either gets linked onto an existing same-named driver with no
- * cust_id yet, or gets a new minimal drivers row created for it. Also
- * recalculates every round that cust_id already has raw results in
- * (0060_sync_results_recalculates_history.sql) — otherwise those rounds'
- * race_scores rows stay permanently empty, invisible on the results page
- * with no "not in roster" tag to explain why (the bug Jordyn Propst
- * surfaced: an already-racing cust_id that hadn't been synced in yet).
+ * cust_id yet, or gets a new minimal drivers row created for it. Linking or
+ * creating the driver fires the drivers scoring triggers, which rescore
+ * every round that cust_id already has raw results in (BR3.1); otherwise
+ * those rounds would stay invisible on the results page with no "not in
+ * roster" tag to explain why (the bug Jordyn Propst surfaced). No separate
+ * rescore_season call is needed: the function does not say which seasons
+ * it touched, and the triggers already cover exactly those rounds.
  *
  * Deliberately a single RPC call (same opportunistic-automation pattern as
  * syncDriverStatuses/syncRookieStatus above) rather than doing the lookup

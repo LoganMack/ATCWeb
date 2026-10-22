@@ -1,7 +1,7 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds } from '../db/rounds';
 import { getCarLogos } from '../db/assets';
-import { getScoringRulesets, resolveSeasonRuleset, type Season } from '../db/seasons';
+import { getScoringRulesets, type Season } from '../db/seasons';
 import { getPenaltiesForSubsessions } from '../db/penalties';
 import { getDriverClasses } from '../db/lookups';
 import { isDecidedChampionshipSeason } from './shared';
@@ -83,7 +83,6 @@ export async function getChampions(
         seasonPenalties,
         seasonRounds,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
 
       const classScores = seasonScores.filter((s) => s.class_id === classId);
@@ -175,7 +174,6 @@ export async function getChampionsWithExtras(
         seasonPenalties,
         seasonRounds,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
 
       const classScores = seasonScores.filter((s) => s.class_id === classId);
@@ -247,7 +245,7 @@ export async function getTeamChampions(
   const championshipSeasons = seasons.filter((s) => isDecidedChampionshipSeason(s));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
-  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds, rulesets] =
+  const [drivers, exhibitionIds, classes, teamsBasic, seasonLogoRows, bulkScores, allRounds] =
     await Promise.all([
       driversSelect(env),
       getStandingsExcludedRoundIds(env),
@@ -256,7 +254,6 @@ export async function getTeamChampions(
       getAllTeamSeasonLogosSafe(env),
       getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
       getAllRounds(env),
-      getScoringRulesets(env),
     ]);
 
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
@@ -285,7 +282,6 @@ export async function getTeamChampions(
         seasonPenalties,
         seasonRounds,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
 
       const precomputedScoresRaw =

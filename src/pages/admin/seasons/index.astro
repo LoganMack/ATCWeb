@@ -31,7 +31,7 @@ let error: string | null = null;
 // Set only by the "recalculate" intent below, and deliberately NOT followed
 // by a redirect the way every other intent on this page is — a redirect
 // would throw away the per-round results before they could ever be shown,
-// and the whole point of recalculate_season_scores() returning a row per
+// and the whole point of rescore_season() returning a row per
 // round (see its own doc comment) is to surface exactly which rounds
 // failed and why, right here, instead of a single pass/fail toast.
 let recalcResult: { seasonId: string; results: SeasonRecalcResult[] } | null = null;
@@ -380,7 +380,7 @@ const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
         <form
           method="POST"
           data-astro-reload
-          data-confirm={`Recalculate every round in ${season.name}? This rescoring uses whatever ruleset is currently assigned and overwrites that season's existing race_scores.`}
+          data-confirm={`Recalculate every round in ${season.name}? This rescoring uses whatever ruleset is currently assigned and overwrites that season's stored race results and points.`}
         >
           <input type="hidden" name="intent" value="recalculate" />
           <input type="hidden" name="season_id" value={season.id} />
