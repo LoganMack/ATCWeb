@@ -26,12 +26,13 @@ cross join lateral (
 where d.differing_rows > 0
 order by cr.subsession_id;
 
--- 2. Positions (BR2.3): ranked final positions are unique and within 1..n (n = non-DSQ entrants
---    of the race, rostered or not), and a race with no effective time penalty keeps final = raw.
+-- 2. Positions (BR2.3): ranked final positions are unique and within 1..n, and a race with no
+--    effective time penalty keeps final = raw. n counts every entrant of the race, rostered or
+--    not and DSQ'd or not: a DSQ'd driver keeps their finishing slot, so ranked positions can run
+--    up to the full field size.
 with entrants as (
   select rr.subsession_id, rr.race_number, count(*) as n
   from public.curated_race_results rr
-  where rr.reason_out is distinct from 'Disqualified' and rr.reason_out is distinct from 'DQ/Scoring Invalidated'
   group by rr.subsession_id, rr.race_number
 ),
 timed as (
