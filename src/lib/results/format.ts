@@ -56,3 +56,11 @@ export function formatMargin(
 export function iracingResultsUrl(iracingSubsessionId: number): string {
   return `https://members-ng.iracing.com/web/racing/results-stats/results?subsessionid=${iracingSubsessionId}`;
 }
+
+/**
+ * "925.2 km" from a distance in km, to one decimal with halves rounded up. The small offset keeps an
+ * exact .x5 total (stored in binary as .x4999…) rounding up, whatever order its laps were summed in.
+ */
+export function formatDistanceKm(km: number): string {
+  return `${(Math.round(km * 10 + 1e-6) / 10).toFixed(1)} km`;
+}

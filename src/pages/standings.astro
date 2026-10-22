@@ -64,6 +64,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 <script>
   import { compareStandings, totalAsOf, type StandingKeys } from '../lib/seasonTotals';
+  import { formatDistanceKm } from '../lib/results/format';
 
   // "Standings by Round" slider: shows the standings as they were after round
   // N, for both the List and Matrix views, Drivers and Teams.
@@ -300,7 +301,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             setText(r.detail, 'dcpi', anyCor && inc > 0 ? (cor / inc).toFixed(1) : '—');
             setText(r.detail, 'dpp', String(pp));
             setText(r.detail, 'dbonus', String(bonus));
-            setText(r.detail, 'ddist', anyKm ? `${dist.toFixed(1)} km` : '—');
+            setText(r.detail, 'ddist', anyKm ? formatDistanceKm(dist) : '—');
           }
         } else {
           keys = { totalPoints: total, wins: 0, podiums: 0, top5s: 0, top10s: 0, poles: 0, lapsLed: 0, laps: 0, appearances: 0, name: r.name };

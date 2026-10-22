@@ -21,6 +21,7 @@ import {
   type CuratedQualifyingBulkRow,
   type PublicScoreRow,
   type RoundSummary,
+  type ScoreRow,
 } from './rows';
 import { resolveLayout } from './layouts';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
@@ -254,31 +255,14 @@ export async function getDriverRaceHistory(
     }
   }
 
-  // Class-relative starting position: this driver's grid slot among the
-  // drivers of their own class in that race, ranked in memory.
-  interface ClassFieldEntry {
-    driverId: string;
-    startPos: number | null;
-  }
-  const classFieldByRace = new Map<string, ClassFieldEntry[]>();
-  for (const s of classFieldRows) {
-    const rowCustId = custIdByDriverId.get(s.driver_id);
-    const rawForRow =
-      rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
-    const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
-    if (!classFieldByRace.has(key)) classFieldByRace.set(key, []);
-    classFieldByRace.get(key)!.push({ driverId: s.driver_id, startPos: rawForRow?.starting_position ?? null });
-  }
-  const classStartingPositionByKey = new Map<string, number>();
-  for (const [key, field] of classFieldByRace) {
-    // key is "subsessionId:raceNumber:classId"; the per-driver map keys on the subsession+race prefix.
-    const [subsessionIdStr, raceNumberStr] = key.split(':');
-    const prefix = `${subsessionIdStr}:${raceNumberStr}`;
-    field
-      .filter((f) => f.startPos !== null)
-      .sort((a, b) => (a.startPos as number) - (b.startPos as number))
-      .forEach((f, i) => classStartingPositionByKey.set(`${prefix}:${f.driverId}`, i + 1));
-  }
+  const classStartingPositionByKey = classStartingPositions(
+    classFieldRows.map((s) => {
+      const rowCustId = custIdByDriverId.get(s.driver_id);
+      const rawForRow =
+        rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+      return { ...s, starting_position: rawForRow?.starting_position ?? null };
+    }),
+  );
 
   // Corners-per-incident numerator (see DriverRaceHistoryRow.totalCorners'
   // own doc comment) — same resolveLayout-based lookup
@@ -360,7 +344,7 @@ export async function getDriverRaceHistory(
     const round = roundBySubsession.get(score.subsession_id) ?? null;
     const team = score.team_id ? (teamById.get(score.team_id) ?? null) : null;
 
-    const finishPosition = score.position ?? score.finish_position;
+    const { finishPosition, classPosition } = historyFinish(score);
     const leaderLaps = leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null;
 
     const cornersForRound = cornersBySubsession.get(score.subsession_id) ?? null;
@@ -391,7 +375,7 @@ export async function getDriverRaceHistory(
         : null,
       startingPosition: raw.starting_position,
       finishPosition,
-      classPosition: score.dsq ? null : score.class_position,
+      classPosition,
       classStartingPosition:
         classStartingPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
       wasAdjusted: finishPosition !== raw.finish_position,
@@ -425,4 +409,50 @@ export async function getDriverRaceHistory(
   });
 
   return out;
+}
+
+/** One field row: a driver's class and grid slot in one race. */
+export interface ClassFieldRow {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  class_id: number;
+  starting_position: number | null;
+}
+
+/**
+ * `${subsessionId}:${raceNumber}:${driverId}` -> that driver's grid slot among the drivers of their
+ * own class in that race. A driver listed twice counts once, so a repeated row can never push
+ * anyone's class start down.
+ */
+export function classStartingPositions(field: ClassFieldRow[]): Map<string, number> {
+  const byRaceClass = new Map<string, Map<string, number>>();
+  for (const f of field) {
+    if (f.starting_position === null) continue;
+    const key = `${f.subsession_id}:${f.race_number}:${f.class_id}`;
+    if (!byRaceClass.has(key)) byRaceClass.set(key, new Map());
+    byRaceClass.get(key)!.set(f.driver_id, f.starting_position);
+  }
+  const out = new Map<string, number>();
+  for (const [key, starts] of byRaceClass) {
+    const prefix = key.split(':').slice(0, 2).join(':');
+    [...starts]
+      .sort((a, b) => a[1] - b[1])
+      .forEach(([driverId], i) => out.set(`${prefix}:${driverId}`, i + 1));
+  }
+  return out;
+}
+
+/**
+ * The finish a race-history row shows: the shown overall position (raw for non-admins until the
+ * round is posted), the raw finishing slot for a DSQ, and the shown class position (none for a DSQ).
+ */
+export function historyFinish(score: Pick<ScoreRow, 'position' | 'finish_position' | 'class_position' | 'dsq'>): {
+  finishPosition: number;
+  classPosition: number | null;
+} {
+  return {
+    finishPosition: score.position ?? score.finish_position,
+    classPosition: score.dsq ? null : score.class_position,
+  };
 }

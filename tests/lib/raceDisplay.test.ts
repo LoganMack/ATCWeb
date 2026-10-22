@@ -15,6 +15,7 @@ import {
   timePenaltiesByRaceDriver,
   type GapInput,
 } from '../../src/lib/results/raceDisplay';
+import { formatDistanceKm } from '../../src/lib/results/format';
 
 const LEADER = { lapsComplete: 20, averageLapTenThousandths: 900000 };
 const row = (id: string, interval: number | null, laps = 20, avg: number | null = 900000): GapInput => ({
@@ -109,5 +110,16 @@ describe('fillUnrosteredPositions', () => {
     expect(fillUnrosteredPositions([1, 3], 1)).toEqual([2]);
     expect(fillUnrosteredPositions([1, 2], 2)).toEqual([3, 4]);
     expect(fillUnrosteredPositions([], 0)).toEqual([]);
+  });
+});
+
+describe('formatDistanceKm', () => {
+  it('rounds an exact half up, whatever order the laps were summed in', () => {
+    // Jason C Lin, ATC18: 925.15 km exactly; two float summation orders land either side of it.
+    expect(formatDistanceKm(925.1499999999999)).toBe('925.2 km');
+    expect(formatDistanceKm(925.1500000000001)).toBe('925.2 km');
+    expect(formatDistanceKm(925150 / 1000)).toBe('925.2 km');
+    expect(formatDistanceKm(937.04)).toBe('937.0 km');
+    expect(formatDistanceKm(0)).toBe('0.0 km');
   });
 });
