@@ -81,6 +81,15 @@ unpaged) was not truncated.
   It predates the view's `raw_class_position`, `raw_overall_total` and `raw_class_total` columns
   (migration 20261023120000); the loader sets them to null, and no standings code reads them.
 - Since the switch the standings read these rows instead of `scoresByClass`/`overallScores`, which
-  stay in `inputs.json` for `scripts/compute-timing.ts`. `expected.json` is unchanged. The totals that
+  stay in `inputs.json` for `scripts/compute-timing.ts` and `tests/lib/penaltyDisplay.test.ts`. `expected.json` is unchanged. The totals that
   differ from it are listed in `DECIDED` in `tests/golden/atc17.ts`, each with the comparison cause
   the owner accepted (all cross-class-ripple, Gamma and Delta only; no position moved).
+
+## Penalty display (added with the scoring contract)
+
+- **`penalty-display.json`**: for each of the 11 ATC17 rounds with penalties, the margins, intervals,
+  overall race times and penalty flags the results page shows (one sorted line per row and view).
+  Recorded on 2026-10-22 from the TypeScript penalty engine, just before the contract step deleted
+  it, when `applyPenaltyDisplay` matched it on every line. `tests/lib/penaltyDisplay.test.ts`
+  checks `applyPenaltyDisplay` against it. Like the files above, it is never refreshed to make a
+  test pass.

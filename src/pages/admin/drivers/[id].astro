@@ -277,7 +277,7 @@ if (Astro.request.method === 'POST') {
       (await getDriversForCustIdCheck(supabaseEnv)).some((other) => other.iracing_cust_id === data.iracing_cust_id && other.id !== id)
     ) {
       // Two drivers rows sharing one iracing_cust_id would make
-      // recalculate_race_scores()'s join match BOTH of them against the
+      // score_round()'s join match BOTH of them against the
       // same raw curated_race_results row, double-counting that result —
       // see getDriversForCustIdCheck's own doc comment.
       error = `iRacing Customer ID ${data.iracing_cust_id} is already assigned to another driver.`;

@@ -122,7 +122,7 @@ export interface RecapOvertakeEntry {
   startingPosition: number;
   finishPosition: number;
   positionsGained: number;
-  /** True when this driver actually earned the Naked Aggression bonus POINT this race (race_scores.aggression_bonus > 0 — the single best net gain that race, shared by every driver tied for it) — mirrors RaceResultRow.aggressionBonusWon. Distinct from just being ranked in this top-5 list: a driver can lead this list without the eligibility this bonus requires (classified, not DSQ'd, a real starting position — see recalculate_race_scores()), or several drivers can share the win at once. */
+  /** True when this driver actually earned the Naked Aggression bonus POINT this race (its shown_aggression_bonus > 0 — the single best net gain that race, shared by every driver tied for it) — mirrors RaceResultRow.aggressionBonusWon. Distinct from just being ranked in this top-5 list: a driver can lead this list without the eligibility this bonus requires (classified, not DSQ'd, a real starting position — see score_round()), or several drivers can share the win at once. */
   bonusAwarded: boolean;
 }
 

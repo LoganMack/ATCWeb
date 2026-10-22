@@ -84,7 +84,7 @@ if (!loadError && activeTeamView) {
   try {
     const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
     const classId = activeTeamView === 'delta' ? deltaClassId : undefined;
-    // getTeamChampions skips any season with no race_scores data for the
+    // getTeamChampions skips any season with no race_score_results data for the
     // requested competition, but that alone isn't enough for Delta: the
     // Delta CLASS raced from ATC5, well before the Delta TEAM championship
     // existed (ATC10) — without this filter, ATC5-ATC9 would each surface

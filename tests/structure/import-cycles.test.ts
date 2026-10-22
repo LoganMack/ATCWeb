@@ -13,7 +13,7 @@ const LIB = import.meta.glob('/src/lib/**/*.ts', { query: '?raw', import: 'defau
 
 describe('import cycles in src/lib (W5.2, BR1.4)', () => {
   it('reads the library, including the split modules', () => {
-    expect(Object.keys(LIB)).toContain('/src/lib/penalties/roundResults.ts');
+    expect(Object.keys(LIB)).toContain('/src/lib/penalties/effective.ts');
   });
 
   it('has no value-import cycle', () => {

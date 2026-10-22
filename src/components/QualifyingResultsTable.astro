@@ -9,7 +9,7 @@
 //
 // DOES show the same penalty tag ResultsTable.astro shows (per Logan) —
 // a penalty logged directly against qualifying always SCORES onto Race 1
-// (see src/lib/penalties.ts's scoringRaceNumber), but it was still LOGGED
+// (see scoringRaceNumber in src/lib/penalties/effective.ts), but it was still LOGGED
 // against this driver's qualifying result, so a visitor looking at
 // Qualifying needs to see it flagged here too, not just discover it later
 // on the Race 1 table it happens to score against. Shares the exact tag

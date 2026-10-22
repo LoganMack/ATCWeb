@@ -26,7 +26,7 @@ export interface DriverPPState {
  * to right now). Rule 61: "Probation lasts for either N rounds or M days,
  * whichever is longer" — confirmed with Logan that "rounds" means every
  * scheduled calendar round, not just ones this driver actually starts, so
- * this counts events rather than race_scores appearances. Requiring both
+ * this counts events rather than race_score_results appearances. Requiring both
  * conditions to clear (probationDays elapsed AND probationRounds qualifying
  * rounds passed) is equivalent to "whichever threshold is later."
  *

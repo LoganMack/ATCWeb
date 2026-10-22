@@ -40,8 +40,8 @@ import {
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
+  scoringRaceNumber,
 } from '../lib/penalties/effective';
-import { scoringRaceNumber } from '../lib/penalties/reorder';
 import { classTagFull } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
@@ -171,7 +171,7 @@ function displayMargin(margin: string): string {
   return /^\d/.test(margin) ? `+${margin}` : margin;
 }
 
-// Filtered by scoringRaceNumber (src/lib/penalties.ts), not the raw
+// Filtered by scoringRaceNumber (src/lib/penalties/effective.ts), not the raw
 // session_type/race_number fields — a qualifying/practice-logged penalty is
 // stored with race_number pinned to the sentinel 0, but per Logan it always
 // SCORES onto Race 1 (see scoringRaceNumber's own doc comment), so it needs
@@ -219,8 +219,8 @@ for (const p of racePenalties) {
           const isRealPenalty = tagLabel !== '' && tagLabel !== 'Racing Incident';
           // Total effective time penalty (seconds) from rowPenalties above —
           // already baked into row.overallRaceTimeFormatted by
-          // src/lib/penalties.ts's own recalculation engine (upstream of this
-          // display), itemized here so it's clear at a glance how much of
+          // applyPenaltyDisplay (src/lib/results/roundResults.ts, upstream of
+          // this display), itemized here so it's clear at a glance how much of
           // that figure came from a penalty — same reasoning as the Points
           // Breakdown table's own "Penalty Adjustment" delta below. Includes
           // a qualifying/practice-logged penalty that scored onto this race
@@ -460,7 +460,7 @@ for (const p of racePenalties) {
                   <div class="text-[10px] uppercase tracking-wide text-white/30">Points Breakdown</div>
                   {row.notInRoster ? (
                     // This entrant has no drivers roster entry at all, so
-                    // recalculate_race_scores() never produced a race_scores
+                    // score_round() never produced a race_score_results
                     // row for them (see RaceResultRow.notInRoster's own doc
                     // comment) — there's no points formula to itemize here.
                     // Use the admin "Sync Results with Roster" button on the

@@ -181,8 +181,8 @@ export async function setCurrentSeason(env: SupabaseEnv, accessToken: string, se
 
 // --- Scoring rulesets (see 0031_scoring_rulesets_default.sql) --------------
 //
-// A ruleset's `rules` jsonb is what the DB-side recalculate_race_scores()
-// function reads to actually compute race_scores from raw curated_race_results
+// A ruleset's `rules` jsonb is what the DB-side score_round()
+// function reads to actually compute race_score_results from raw curated_race_results
 // (base points per finish position, class-podium bonuses, Sublime Finesse,
 // Class Pole, PP-penalty point deductions, drop-week count, team roster
 // size/eligibility — see that function for the exact shape). This app treats
@@ -219,10 +219,10 @@ export interface ScoringRuleset {
    * re-parsed into an object. That's silent: no error, just a
    * `scoring_rulesets.rules` row that reads back as `jsonb_typeof = 'string'`
    * instead of `'object'`, so every `v_rules->'base_points'->...` lookup in
-   * recalculate_race_scores() evaluates to SQL NULL — which fails loudly
-   * only once, at the NOT NULL constraint on race_scores.finish_points when
-   * that round is next recalculated, by which point the mistake is long
-   * past. Sending the PARSED OBJECT (not a string) as `rules` is what makes
+   * score_round() evaluates to SQL NULL — and every round of a season using
+   * that ruleset is then recorded in scoring_issues ("no base_points")
+   * instead of being scored, which is easy to miss until results go
+   * missing. Sending the PARSED OBJECT (not a string) as `rules` is what makes
    * PostgREST forward it as an actual JSON object value.
    */
   rules: unknown;
@@ -310,10 +310,10 @@ export async function setDefaultScoringRuleset(env: SupabaseEnv, accessToken: st
  * default configured yet).
  *
  * IMPORTANT SCOPE NOTE: this app's own standings/career-stats/news-recap
- * computations (src/lib/results.ts) read already-computed `race_scores`
+ * computations (src/lib/results/) read already-computed `race_score_results`
  * rows — they don't re-derive POINTS from a ruleset's `rules` jsonb
  * themselves (that derivation lives entirely in the DB-side
- * recalculate_race_scores() function). So for point values, "resolving" a
+ * score_round() function). So for point values, "resolving" a
  * season's ruleset is a season-metadata/admin-display concern (showing
  * which ruleset is in effect, and which season rows still need one before
  * scores can be (re)computed for them) — it does not change the point

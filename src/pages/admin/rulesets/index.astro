@@ -39,7 +39,7 @@ let error: string | null = null;
  * overwrite with real numbers.
  *
  * Split into two groups so the shape itself documents which half
- * `recalculate_race_scores()` (see supabase/migrations/0046, 0048, 0067)
+ * `score_round()` (see supabase/migrations/20261021120000_race_score_results_expand.sql)
  * actually reads:
  *
  * READ BY THE SCORING ENGINE: base_points (+ sprint_race2/sprint_race3),
@@ -54,7 +54,7 @@ let error: string | null = null;
  * results.ts — plus the season's extra_drop_weeks), teams, probation, pp_penalties, classification,
  * season_pp_limit, and — easy to miss — classification.min_distance_pct:
  * the actual 50%-of-leader's-laps classification rule is HARDCODED in
- * recalculate_race_scores() (§2.25), not read from here. Editing this field
+ * score_round() (§2.25), not read from here. Editing this field
  * does nothing. round_incident_limit and race_overrides.incident_limit are
  * ALSO reference-only in the sense that the scoring engine never reads them
  * (no points effect) — they're read by the results page instead, purely to
@@ -62,8 +62,8 @@ let error: string | null = null;
  *
  * `can_drop_final_round` is NOT part of this object — it's a real column on
  * scoring_rulesets, not a `rules` jsonb field, because it's consulted
- * directly by src/lib/results.ts's standings computation rather than by
- * recalculate_race_scores().
+ * directly by the standings computation in src/lib/results/ rather than by
+ * score_round().
  */
 const descendingPlaceholder = (length: number) => Array.from({ length }, (_, i) => length - i);
 const rulesTemplate = {

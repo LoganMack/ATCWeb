@@ -19,8 +19,8 @@ export async function handleSaveIncident(
   // never collide with a real race (curated_race_results.race_number is
   // always 1-5); it's purely a display/grouping value. For SCORING, a
   // qualifying/practice incident's penalty always applies to Race 1 (see
-  // scoringRaceNumber in src/lib/penalties.ts, which every recalculation
-  // pass reads instead of this raw field).
+  // scoringRaceNumber in src/lib/penalties/effective.ts; score_round does
+  // the same).
   const [sessionTypeRaw, raceNumberRaw] = String(form.get('session') ?? '').split(':');
   const sessionType: 'race' | 'qualifying' | 'practice' =
     sessionTypeRaw === 'qualifying' || sessionTypeRaw === 'practice' ? sessionTypeRaw : 'race';
@@ -60,7 +60,7 @@ export async function handleSaveIncident(
   // 0059_penalty_points_warning_dropdown.sql), blank is "no PP/warning"
   // (also 0), and 1-7 is a literal PP award. Qualifying/practice incidents
   // can carry a real penalty too — per Logan, it always applies to Race 1
-  // (see scoringRaceNumber in src/lib/penalties.ts).
+  // (see scoringRaceNumber in src/lib/penalties/effective.ts).
   function penaltyFor(driverId: string | null): { data: PenaltyInput; offenseIds: string[] } {
     if (!driverId) {
       return {

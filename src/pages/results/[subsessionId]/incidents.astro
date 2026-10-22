@@ -98,7 +98,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   //     card — there's no one to penalize. Editing is one row, so one car.
   //     Penalties are available for every session type: a qualifying/practice
   //     incident's penalty always applies to Race 1 (see scoringRaceNumber in
-  //     src/lib/penalties.ts).
+  //     src/lib/penalties/effective.ts).
   //   - Ticking a car at fault also ticks it in the Involved list (a driver
   //     at fault is, at minimum, involved in their own incident) — see
   //     syncInvolvedWithFaults below. Only ever unticks a box IT ticked;
@@ -272,7 +272,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     // has no card: nobody to penalize. Available regardless of which session
     // is chosen — a qualifying/practice incident's penalty is just as real as
     // a race incident's, it always applies to Race 1 (see scoringRaceNumber in
-    // src/lib/penalties.ts).
+    // src/lib/penalties/effective.ts).
     const faultRoot = dialog.querySelector<HTMLElement>('[data-incident-faults]')!;
     const faults = initFaultPicker(faultRoot);
 

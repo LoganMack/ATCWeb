@@ -33,7 +33,7 @@ export interface ClassBestLap {
  * the "every layout on one page" version circuits.astro needs instead, and
  * why the two aren't the same function.
  *
- * Class is resolved PER ROUND (`race_scores.class_id` for that driver in
+ * Class is resolved PER ROUND (`race_score_results.class_id` for that driver in
  * that specific subsession) — never off a driver's current/latest roster
  * class — so a driver who has since moved between classes doesn't
  * misattribute an old lap to whichever class they race today. Considers
@@ -249,7 +249,7 @@ export function buildLayoutRoundCounter(
  * comment for the O(events * rounds) blowup a naive per-layout loop would
  * cause) — this is that same idea extended to bucket by class and track a
  * MIN lap time (not just a count) per bucket, from two whole-table bulk
- * fetches (every curated_race_results/race_scores row with a lap time, not
+ * fetches (every curated_race_results/race_score_results row with a lap time, not
  * scoped to any particular subsession_id list) rather than one pair of
  * queries per layout.
  */

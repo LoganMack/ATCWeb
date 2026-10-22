@@ -222,7 +222,7 @@ export interface DriverBasic {
  * from counted results, so leaving them out of the driver map costs nothing
  * there. `getRoundResults()` and `getQualifyingForSubsession()` are the two
  * exceptions: they pass `{ includeAi: true }` because a round-results page
- * needs to resolve an AI driver's race_scores row to a REAL driver, not let
+ * needs to resolve an AI driver's race_score_results row to a REAL driver, not let
  * it fall through to the synthetic "not in roster" path (see toUnrosteredRow) —
  * the entire reason an AI driver's row exists is to appear correctly on the
  * one exhibition round it raced in.
@@ -413,7 +413,7 @@ export interface TeamBasic {
   logo_url: string | null;
 }
 
-/** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_scores row — see `RaceResultRow.team`. Exported (like `driversSelect`) so a caller needing several team-scoped views at once — the homepage standings widget's Alpha/Delta team tabs — can fetch this once and share it via `teamsBasic`, instead of each tab re-fetching it. */
+/** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_score_results row — see `RaceResultRow.team`. Exported (like `driversSelect`) so a caller needing several team-scoped views at once — the homepage standings widget's Alpha/Delta team tabs — can fetch this once and share it via `teamsBasic`, instead of each tab re-fetching it. */
 export function getTeamsBasic(env: SupabaseEnv) {
   return restGet<TeamBasic[]>(env, 'teams?select=id,name,logo_url');
 }

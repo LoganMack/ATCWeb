@@ -221,7 +221,7 @@ function classifyRoundForSpecialistAwards(
 /**
  * Full history of all twelve season awards, newest season first (matching
  * `seasons`' own order — see `getSeasons`). Skips any season with no
- * race_scores data at all, same as `getChampions`. Bulk-fetches everything
+ * race_score_results data at all, same as `getChampions`. Bulk-fetches everything
  * once across every championship season (same "fetch once, slice in memory
  * per season" shape `getChampions`/`computeDriverCareerStats` already use)
  * rather than issuing each season's own round of queries — a from-scratch

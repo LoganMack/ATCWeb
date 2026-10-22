@@ -67,7 +67,7 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
   }
 
   // Team split — grouped by the team this driver raced FOR in each individual
-  // race (race_scores.team_id, same per-race provenance DriverRaceHistoryRow.
+  // race (race_score_results.team_id, same per-race provenance DriverRaceHistoryRow.
   // team already carries), not by season-roster membership. A race with no
   // team assigned counts as "Independent" rather than being dropped, per the
   // request that time spent as an independent get its own row.

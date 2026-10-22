@@ -13,10 +13,14 @@
 //       and the same for module load time. Exits 1 when any is over.
 //
 // The functions are found by name, not by path: the script reads every src/lib/**/*.ts and imports
-// the one module that declares `export function <name>`, so the same script runs on main (where
-// they live in src/lib/penalties.ts and src/lib/results.ts) and on a split branch. On a main
-// worktree, copy this file into its scripts/ folder and run it there; see the unit's test
-// instructions.
+// the one module that declares `export function <name>`, so it keeps working when a function moves
+// between modules. To compare with another commit, copy this file into that worktree's scripts/
+// folder and run it there.
+//
+// The results page's penalty work is applyPenaltyDisplay (margins, intervals and race times). The
+// TypeScript scoring engine it replaced (applyPenaltiesToRoundResults) was deleted at the scoring
+// contract step, so a --compare against a JSON result recorded before then lists that function as
+// missing.
 //
 // Each timed run is one sample of `reps` back-to-back calls, with `reps` chosen so a sample takes at
 // least --sample-ms (and at least four ticks of the process CPU clock), and the per-call time is
@@ -26,6 +30,7 @@
 // than 1 ms and the median otherwise.
 
 import type { PenaltyDbRow, ResultDbRow } from '../tests/lib/penaltyFixtures';
+import type { Penalty } from '../src/lib/db/penalties';
 
 declare const process: {
   argv: string[];
@@ -59,7 +64,7 @@ const ENTRY_FUNCTIONS = [
   'buildSeasonStandings',
   'buildOverallSeasonStandings',
   'finalizeStandings',
-  'applyPenaltiesToRoundResults',
+  'applyPenaltyDisplay',
 ];
 
 const SOURCES = import.meta.glob('../src/lib/**/*.ts', {
@@ -259,20 +264,17 @@ async function workloads(fns: Map<string, AnyFn>): Promise<[string, () => unknow
     rowsBySubsession.get(s.subsession_id)!.push(row);
   }
   const penalties = fixtures.toPenalties(inputs.penalties as unknown as PenaltyDbRow[]);
-  const formatBySubsession = new Map(inputs.seasonRounds.map((r) => [r.subsession_id, r.format]));
-  const rules = inputs.rulesets.find((r) => r.id === season.scoring_ruleset_id)?.rules ?? null;
   const rounds = [...rowsBySubsession]
     .map(([subsessionId, rows]) => ({
-      subsessionId,
-      results: fixtures.toRoundResults(rows),
-      penalties: penalties.filter((p) => p.subsession_id === subsessionId),
-      format: formatBySubsession.get(subsessionId) ?? null,
+      // The display reads only the scoring fields every Penalty has.
+      ...fixtures.toRoundResults(rows),
+      penalties: penalties.filter((p) => p.subsession_id === subsessionId) as unknown as Penalty[],
     }))
     .filter((r) => r.penalties.length > 0);
   if (rounds.length === 0) throw new Error('the golden fixture has no round with penalties');
 
   const finalize = fns.get('finalizeStandings')!;
-  const applyPenalties = fns.get('applyPenaltiesToRoundResults')!;
+  const applyPenaltyDisplay = fns.get('applyPenaltyDisplay')!;
   return [
     ['buildSeasonOverallContext', () => golden.buildContext()],
     ...inputs.classes.map(
@@ -282,10 +284,9 @@ async function workloads(fns: Map<string, AnyFn>): Promise<[string, () => unknow
     ['buildOverallSeasonStandings', () => golden.standingsFor(null, ctx)],
     ['finalizeStandings (overall)', () => finalize(accum, driverById, season, pool, null, true, 2)],
     [
-      `applyPenaltiesToRoundResults (${rounds.length} rounds)`,
+      `applyPenaltyDisplay (${rounds.length} rounds)`,
       () => {
-        for (const r of rounds)
-          applyPenalties(r.results, r.penalties, r.format, new Map(), rules, r.subsessionId);
+        for (const r of rounds) applyPenaltyDisplay(r);
       },
     ],
   ];

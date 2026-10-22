@@ -1,21 +1,17 @@
 /**
- * Loads penalty-engine cases from tests/fixtures/penalties/<function>/<case>.json and maps their rows,
- * written in database column names, onto the TypeScript shapes src/lib/penalties.ts takes. Keeping the
- * fixtures in column names lets the scoring move (U6) insert the same rows into a scratch database and
- * check its SQL against the same hand-derived expected values.
+ * Shared test inputs written in database column names.
  *
- * A result row is one driver's race: race_scores columns plus the curated_race_results columns the
- * engine reads (joined on driver). Omitted columns take the table defaults, and total_points is
- * computed the way the generated column computes it.
+ * loadPenaltyCases reads tests/fixtures/penalty-rules/<function>/<case>.json (the penalty rules still
+ * in TypeScript: effective values, penalty points and probation). toPenalties maps penalties rows,
+ * and toRoundResults builds a RoundResults from one row per driver's race (the race result and its
+ * stored points; omitted columns take the defaults), for the results page's display tests.
  */
-import type { LeaderRaceStats } from '../../src/lib/penalties/reorder';
 import type { PenaltyLike } from '../../src/lib/penalties/effective';
-import type { SeasonClassScoreRow, SeasonScoreRow } from '../../src/lib/penalties/seasonAdjustments';
 import type { DriverBasic } from '../../src/lib/results/rows';
 import type { RaceResultRow, RoundResults } from '../../src/lib/results/roundResults';
 
 // Bundled by Vite's glob import, so the tests need no Node file-system access.
-const FIXTURES = import.meta.glob('../fixtures/penalties/*/*.json', { eager: true, import: 'default' });
+const FIXTURES = import.meta.glob('../fixtures/penalty-rules/*/*.json', { eager: true, import: 'default' });
 
 export interface PenaltyCase<I = Record<string, unknown>, E = Record<string, unknown>> {
   file: string;
@@ -29,11 +25,11 @@ export interface PenaltyCase<I = Record<string, unknown>, E = Record<string, unk
 export function loadPenaltyCases<I = Record<string, unknown>, E = Record<string, unknown>>(
   fn: string,
 ): PenaltyCase<I, E>[] {
-  const prefix = `../fixtures/penalties/${fn}/`;
+  const prefix = `../fixtures/penalty-rules/${fn}/`;
   const paths = Object.keys(FIXTURES)
     .filter((p) => p.startsWith(prefix))
     .sort();
-  if (paths.length === 0) throw new Error(`No penalty fixtures in tests/fixtures/penalties/${fn}/`);
+  if (paths.length === 0) throw new Error(`No penalty fixtures in tests/fixtures/penalty-rules/${fn}/`);
   return paths.map((path) => {
     const file = path.slice(prefix.length);
     const parsed = FIXTURES[path] as Partial<PenaltyCase<I, E>>;
@@ -91,7 +87,7 @@ export function toPenalties(rows: PenaltyDbRow[] = []): MappedPenalty[] {
   }));
 }
 
-/** One driver's race: race_scores columns plus the curated_race_results columns the engine reads. */
+/** One driver's race: its stored points plus the curated_race_results columns the display reads. */
 export interface ResultDbRow {
   subsession_id?: number;
   race_number?: number;
@@ -144,7 +140,7 @@ function fill(r: ResultDbRow): FilledRow {
     laps_complete: r.laps_complete ?? null,
     average_lap_ten_thousandths: r.average_lap_ten_thousandths ?? null,
   };
-  // Same sum as race_scores.total_points (a generated column).
+  // Every points column, deduction included (the sum the results page showed before the switch).
   const total_points =
     filled.finish_points +
     filled.class_points +
@@ -259,79 +255,4 @@ export function toRoundResults(rows: ResultDbRow[]): RoundResults {
     }
   }
   return { byClass, overall, penalties: [] };
-}
-
-/** The rows computeSeasonOverallAdjustments takes, built as buildSeasonOverallContext builds them. */
-export function toSeasonScoreRows(rows: ResultDbRow[]): SeasonScoreRow[] {
-  return rows.map(fill).map((r) => ({
-    subsessionId: r.subsession_id,
-    raceNumber: r.race_number,
-    driverId: r.driver_id,
-    dsq: r.dsq,
-    classified: r.classified,
-    scoredPosition: r.scored_position,
-    intervalTenThousandths: r.interval_ten_thousandths,
-    finishPoints: r.finish_points,
-    finesseBonus: r.finesse_bonus,
-    poleBonus: r.pole_bonus,
-    aggressionBonus: r.aggression_bonus,
-    pointsDeduction: r.points_deduction,
-    lapsComplete: r.laps_complete,
-    averageLapTenThousandths: r.average_lap_ten_thousandths,
-  }));
-}
-
-/** One class's rows for computeSeasonClassAdjustments: DSQ rows dropped, class position re-derived per race. */
-export function toSeasonClassScoreRows(rows: ResultDbRow[], classId: number): SeasonClassScoreRow[] {
-  const filled = rows.map(fill).filter((r) => r.class_id === classId && !r.dsq);
-  const out: SeasonClassScoreRow[] = [];
-  const raceKeys = [...new Set(filled.map((r) => `${r.subsession_id}:${r.race_number}`))];
-  for (const key of raceKeys) {
-    const race = filled
-      .filter((r) => `${r.subsession_id}:${r.race_number}` === key)
-      .sort((a, b) => rawPosition(a) - rawPosition(b));
-    race.forEach((r, i) =>
-      out.push({
-        subsessionId: r.subsession_id,
-        raceNumber: r.race_number,
-        driverId: r.driver_id,
-        dsq: r.dsq,
-        classified: r.classified,
-        classPosition: i + 1,
-        intervalTenThousandths: r.interval_ten_thousandths,
-        totalPoints: r.total_points,
-        classPoints: r.class_points,
-        finesseBonus: r.finesse_bonus,
-        poleBonus: r.pole_bonus,
-        aggressionBonus: r.aggression_bonus,
-        lapLedBonus: r.lap_led_bonus,
-        fewestIncidentsBonus: r.fewest_incidents_bonus,
-        fastestLapBonus: r.fastest_lap_bonus,
-        sprintSweepBonus: r.sprint_sweep_bonus,
-        pointsDeduction: r.points_deduction,
-        lapsComplete: r.laps_complete,
-        averageLapTenThousandths: r.average_lap_ten_thousandths,
-      }),
-    );
-  }
-  return out;
-}
-
-/** Each race's on-track winner (finish_position 1), keyed `${subsession_id}:${race_number}`. */
-export function toLeaderStatsByRace(rows: ResultDbRow[]): Map<string, LeaderRaceStats> {
-  const out = new Map<string, LeaderRaceStats>();
-  for (const r of rows.map(fill)) {
-    if (r.finish_position === 1) {
-      out.set(`${r.subsession_id}:${r.race_number}`, {
-        lapsComplete: r.laps_complete,
-        averageLapTenThousandths: r.average_lap_ten_thousandths,
-      });
-    }
-  }
-  return out;
-}
-
-/** The same value for every subsession in the rows, as buildSeasonOverallContext repeats one season's value. */
-export function bySubsession<T>(rows: ResultDbRow[], value: T): Map<number, T> {
-  return new Map(rows.map(fill).map((r) => [r.subsession_id, value]));
 }

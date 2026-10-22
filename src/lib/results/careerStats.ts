@@ -36,7 +36,7 @@ import { getAllRounds } from './rounds';
 //
 // Nothing here is stored — like getChampions, it's fully recomputed by
 // looping every championship season (and, within each, every class), so a
-// driver who just got their first race_scores rows shows up automatically
+// driver who just got their first race_score_results rows shows up automatically
 // on the very next page load, with no separate "add them to career stats"
 // step anywhere in the app.
 // ---------------------------------------------------------------------------
@@ -231,7 +231,7 @@ export async function computeDriverCareerStats(
   // The one remaining set of per-subsession queries (curated_race_results,
   // penalties, average/best lap data, curated_rounds.layout) — each run
   // ONCE across the union of every subsession any championship season's
-  // race_scores rows touch, instead of once per season.
+  // race_score_results rows touch, instead of once per season.
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
   const [{ rawResults, lapStats }, penalties, roundLayouts] = await Promise.all([
     getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),

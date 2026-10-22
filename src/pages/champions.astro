@@ -41,7 +41,7 @@ const pageBannersPromise = getPageBanners(supabaseEnv);
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
 // Holds the actual thrown error message (not just a boolean) — the tables
-// this page reads (race_scores, curated_race_results) are newer/narrower
+// this page reads (race_score_results, curated_race_results) are newer/narrower
 // grants than the rest of the site's public data, so "something went
 // wrong" isn't precise enough to self-diagnose an RLS/policy problem vs. a
 // genuine misconfiguration. See supabase/migrations/0004_champions.sql.
