@@ -41,9 +41,6 @@ import { contentSecurityPolicy, newCspNonce } from './lib/csp';
 import { cacheKeyUrl, isCacheAnonymous } from './lib/edgeCache';
 
 const ADMIN_PREFIX = '/admin';
-// Paths under /admin that must stay reachable without a session (/admin/login
-// is a redirect stub to /login for old bookmarks).
-const PUBLIC_ADMIN_PATHS = new Set(['/admin/login']);
 
 // A fixed, non-secret salt for the page-view visitor hash below — see
 // 0077_page_views.sql's header for why a hardcoded value is an accepted
@@ -268,10 +265,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // paths count as admin paths (fail closed).
   const normalisedPath = normalisePath(pathname);
   const isAdminRoute = normalisedPath === null || normalisedPath.startsWith(ADMIN_PREFIX);
-  const isPublicAdminPath = normalisedPath !== null && PUBLIC_ADMIN_PATHS.has(normalisedPath);
 
   let response: Response;
-  if (isAdminRoute && !isPublicAdminPath) {
+  if (isAdminRoute) {
     const session = context.locals.session;
     if (!session || session.profile?.role !== 'admin') {
       response = context.redirect(`/login?next=${encodeURIComponent(pathname)}`, 302);

@@ -8,7 +8,7 @@
 //       (data-fragment-url), from a running Worker and saves normalised HTML,
 //       one file per page. Needs: npm run build && npx wrangler dev --persist-to <new empty dir>.
 //       --fresh-cache confirms the Worker was started on an empty cache; capture refuses without it.
-//       --extra <path> (repeatable, e.g. --extra /admin/login --extra /news/<slug>) captures that
+//       --extra <path> (repeatable, e.g. --extra /login --extra /news/<slug>) captures that
 //       page, and its fragments, alongside the default list. The path must start with a single /.
 //   node scripts/snapshot-pages.mjs --compare <dirA> <dirB>
 //       Prints a per-page summary and exits 1 on any difference.
@@ -137,11 +137,11 @@ function selfTest() {
     [
       'repeated --extra parsed and removed',
       (() => {
-        const args = ['http://x', 'out', '--extra', '/admin/login', '--fresh-cache', '--extra', '/news/a-b'];
+        const args = ['http://x', 'out', '--extra', '/login', '--fresh-cache', '--extra', '/news/a-b'];
         const extras = flagValues(args, '--extra');
         return JSON.stringify({ extras, args });
       })(),
-      JSON.stringify({ extras: ['/admin/login', '/news/a-b'], args: ['http://x', 'out', '--fresh-cache'] }),
+      JSON.stringify({ extras: ['/login', '/news/a-b'], args: ['http://x', 'out', '--fresh-cache'] }),
     ],
   ];
   const failed = cases.filter(([, got, want]) => got !== want);

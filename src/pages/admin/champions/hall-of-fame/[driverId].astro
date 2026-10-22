@@ -35,7 +35,7 @@ let error: string | null = null;
 const driver = driverId ? await getDriverById(supabaseEnv, driverId) : null;
 
 if (!driver || !driver.is_hall_of_fame) {
-  return Astro.redirect('/admin/champions', 302);
+  return Astro.redirect('/admin/site-properties?tab=champions', 302);
 }
 
 if (Astro.request.method === 'POST') {
@@ -96,7 +96,7 @@ const driverName = displayDriverName(driver.name);
 ---
 
 <AdminLayout title={`${driverName} — Hall of Fame Photos`}>
-  <a href="/admin/champions" class="text-sm text-white/50 hover:text-white">&larr; Back to Photo Management</a>
+  <a href="/admin/site-properties?tab=champions" class="text-sm text-white/50 hover:text-white">&larr; Back to Photo Management</a>
 
   <h1 class="reveal mt-3 font-display text-4xl" style="transition-delay: 40ms">
     {driverName}

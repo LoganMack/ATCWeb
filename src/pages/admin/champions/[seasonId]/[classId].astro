@@ -40,7 +40,7 @@ const classes = await getDriverClasses(supabaseEnv);
 const driverClass = classes.find((c) => c.id === classId);
 
 if (!season || !driverClass) {
-  return Astro.redirect('/admin/champions', 302);
+  return Astro.redirect('/admin/site-properties?tab=champions', 302);
 }
 
 const standings = await computeSeasonStandings(supabaseEnv, season, classId, undefined, undefined, classes);
@@ -111,7 +111,7 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
 ---
 
 <AdminLayout title={`${season.name} ${driverClass.name} Champion`}>
-  <a href="/admin/champions" class="text-sm text-white/50 hover:text-white">&larr; Back to Champions</a>
+  <a href="/admin/site-properties?tab=champions" class="text-sm text-white/50 hover:text-white">&larr; Back to Champions</a>
 
   <h1 class="reveal mt-3 font-display text-4xl" style="transition-delay: 40ms">
     {season.name} · {driverClass.name}

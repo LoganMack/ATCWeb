@@ -1,9 +1,0 @@
----
-// Admin Login was merged into the general /login page — there's no
-// separate admin sign-in anymore, since role is just a property of the
-// account and /admin/* is gated on it (see src/middleware.ts). Kept as a
-// redirect for anyone with an old bookmark/link.
-export const prerender = false;
-const next = Astro.url.searchParams.get('next');
-return Astro.redirect(next ? `/login?next=${encodeURIComponent(next)}` : '/login', 301);
----

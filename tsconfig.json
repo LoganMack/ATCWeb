@@ -1,5 +1,15 @@
 {
   "extends": "astro/tsconfigs/strict",
-  "include": [".astro/types.d.ts", "**/*"],
+  "include": [
+    ".astro/types.d.ts",
+    "src/**/*",
+    "tests/**/*",
+    "scripts/**/*",
+    "supabase/tools/**/*",
+    "astro.config.mjs",
+    "eslint.config.js",
+    "tailwind.config.mjs",
+    "vitest.config.ts"
+  ],
   "exclude": ["dist"]
 }
