@@ -44,7 +44,7 @@ export async function getQualifyingForSubsession(
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
       env,
-      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`,
+      `race_score_results_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`,
     ),
   ]);
 
@@ -149,7 +149,7 @@ export async function getPracticeForSubsession(
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
       env,
-      `race_scores_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`,
+      `race_score_results_public?select=driver_id,class_id&subsession_id=eq.${subsessionId}`,
     ),
   ]);
 

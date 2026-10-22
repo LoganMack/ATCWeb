@@ -63,14 +63,15 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 
 <script>
-  import { totalAsOf } from '../lib/seasonTotals';
+  import { compareStandings, totalAsOf, type StandingKeys } from '../lib/seasonTotals';
+  import { formatDistanceKm } from '../lib/results/format';
 
   // "Standings by Round" slider: shows the standings as they were after round
   // N, for both the List and Matrix views, Drivers and Teams.
   //  - Matrix: round columns after N are hidden.
   //  - Every number is recomputed from just the visible rounds. Driver totals
-  //    use the same drop-week rules as the real standings (src/lib/results.ts
-  //    finalizeStandings): skipped rounds count as 0 in the pool, no rounds
+  //    use the same drop-week rules as the real standings (src/lib/seasonTotals.ts,
+  //    shared with finalizeStandings): skipped rounds count as 0 in the pool, no rounds
   //    drop until 5+ are visible, then baseline + the season's extra drop
   //    weeks, and (unless the ruleset allows it) the last visible round can't
   //    be dropped. Teams never drop rounds.
@@ -247,7 +248,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         return;
       }
 
-      const visible: { r: (typeof rows)[number]; keys: number[] }[] = [];
+      const visible: { r: (typeof rows)[number]; keys: StandingKeys }[] = [];
       for (const r of rows) {
         const attended = r.rounds.slice(0, n).some((x) => x !== null);
         r.row.style.display = attended ? '' : 'none';
@@ -257,7 +258,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         const pts = r.rounds.map((x) => (x ? x[0] : null));
         const { total, dropped } = totalAsOf(pts, n, baseDrops, minDropRounds, canDropFinal);
         const apps = r.rounds.slice(0, n).filter((x) => x !== null).length;
-        let keys: number[];
+        let keys: StandingKeys;
 
         if (kind === 'drivers') {
           const wins = sumIdx(r.rounds, n, 1);
@@ -268,7 +269,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           const starts = sumIdx(r.rounds, n, 6);
           const ledTb = sumIdx(r.rounds, n, 7);
           const lapsTb = sumIdx(r.rounds, n, 8);
-          keys = [total, wins, podiums, top5, top10, poles, ledTb, lapsTb, apps];
+          keys = { totalPoints: total, wins, podiums, top5s: top5, top10s: top10, poles, lapsLed: ledTb, laps: lapsTb, appearances: apps, name: r.name };
 
           setText(r.row, 'total', String(total));
           setText(r.row, 'wins', String(wins));
@@ -300,10 +301,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             setText(r.detail, 'dcpi', anyCor && inc > 0 ? (cor / inc).toFixed(1) : '—');
             setText(r.detail, 'dpp', String(pp));
             setText(r.detail, 'dbonus', String(bonus));
-            setText(r.detail, 'ddist', anyKm ? `${dist.toFixed(1)} km` : '—');
+            setText(r.detail, 'ddist', anyKm ? formatDistanceKm(dist) : '—');
           }
         } else {
-          keys = [total];
+          keys = { totalPoints: total, wins: 0, podiums: 0, top5s: 0, top10s: 0, poles: 0, lapsLed: 0, laps: 0, appearances: 0, name: r.name };
           setText(r.row, 'total', String(total));
           const starts = sumIdx(r.rounds, n, 1);
           setText(r.row, 'starts', String(starts), starts);
@@ -321,12 +322,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         visible.push({ r, keys });
       }
 
-      visible.sort((a, b) => {
-        for (let i = 0; i < a.keys.length; i++) {
-          if (b.keys[i] !== a.keys[i]) return b.keys[i] - a.keys[i];
-        }
-        return a.r.name.localeCompare(b.r.name);
-      });
+      visible.sort((a, b) => compareStandings(a.keys, b.keys));
       const hiddenRows = rows.filter((r) => !visible.some((v) => v.r === r)).sort((a, b) => a.origIndex - b.origIndex);
       visible.forEach((v, i) => {
         setText(v.r.row, 'pos', String(i + 1));

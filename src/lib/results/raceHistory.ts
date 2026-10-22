@@ -1,24 +1,27 @@
 import { restGet, restGetAll, type SupabaseEnv } from '../db/client';
 import { getExhibitionRoundIds, getTestRoundIds } from '../db/rounds';
 import { getCarLogos } from '../db/assets';
-import { getSeasons, getScoringRulesets, resolveSeasonRuleset, type Season } from '../db/seasons';
-import { getPenaltiesForSubsessions } from '../db/penalties';
+import { getSeasons, type Season } from '../db/seasons';
 import { getDriverClasses } from '../db/lookups';
 import { getCircuits, getAllCircuitLayouts, type Circuit, type CircuitLayout } from '../db/circuits';
-import { computeSeasonOverallAdjustments, type SeasonScoreRow } from '../penalties/seasonAdjustments';
 import {
   getCuratedRaceResultsForSubsessions,
   getTeamsBasic,
   getAllTeamSeasonLogosSafe,
-  getRaceScoresForSubsessionsOverall,
   getLapStatsForSubsessions,
   driversSelect,
   getQualifyingForSubsessionsBulk,
+  rankedByClassTotal,
   resultKey,
+  seasonPointsOf,
+  toScoreRow,
   buildSeasonLogoMap,
   resolveTeamLogo,
+  PUBLIC_SCORE_SELECT,
   type CuratedQualifyingBulkRow,
+  type PublicScoreRow,
   type RoundSummary,
+  type ScoreRow,
 } from './rows';
 import { resolveLayout } from './layouts';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
@@ -32,8 +35,8 @@ import { formatMargin } from './format';
 // computation than computeDriverCareerStats above: that function re-derives
 // class-relative standings positions across every driver in a season
 // (needed for wins/podiums/etc.); this one only needs THIS ONE driver's own
-// race_scores + curated_race_results rows, so it never touches the
-// standings engine at all.
+// race_score_results_public + curated_race_results rows, so it never touches
+// the standings engine at all.
 // ---------------------------------------------------------------------------
 
 export interface DriverRaceHistoryRow {
@@ -51,34 +54,18 @@ export interface DriverRaceHistoryRow {
   classId: number;
   className: string;
   car: { name: string; logoUrl: string | null } | null;
-  /** The team this driver raced for in this specific race (race_scores.team_id) — same historical-logo resolution as RaceResultRow.team. */
+  /** The team this driver raced for in this specific race (team_id) — same historical-logo resolution as RaceResultRow.team. */
   team: { name: string; logoUrl: string | null } | null;
   /** Raw OVERALL grid position (every class combined) — see classStartingPosition for this driver's position within their own class that race. */
   startingPosition: number | null;
-  /** Post-penalty position from the live penalty-adjustment engine (computeSeasonOverallAdjustments — the same one every other page uses, recomputed from the CURRENT penalties table) when it repositions this race, falling back to the legacy curated_race_results.adjusted_position manual override, then to the raw finish_position — same fallback chain as RaceResultRow. An unclassified (NC/DSQ) row is never repositioned by the engine (canReposition requires classified === true), so it naturally falls through to the legacy/raw value. This is the OVERALL field position (every class combined) — see classPosition for this driver's position within their own class that race, which is what "wins"/"podiums"/etc. should always be judged against for a non-Alpha driver. */
+  /** The shown overall position (race_score_results_public: penalties applied once the round is posted), or the raw finishing slot for a DSQ, which has no position. This is the OVERALL field position (every class combined) — see classPosition for this driver's position within their own class that race, which is what "wins"/"podiums"/etc. should always be judged against for a non-Alpha driver. */
   finishPosition: number;
-  /**
-   * This driver's position within their OWN class that race — re-derived
-   * from curated_race_results restricted to the other drivers race_scores
-   * says shared their class that race, exactly like computeSeasonStandings/
-   * getRoundResults already do for their own per-class views (see this
-   * file's header comment: "Class-relative finishing position is NOT the
-   * same as race_scores.scored_position"). Ranked off `adjusted_position ??
-   * finish_position` (DSQ'd drivers excluded from ranking, same as
-   * computeSeasonStandings) — unlike `finishPosition` above, this does NOT
-   * re-run the live per-class penalty cascade (computeSeasonClassAdjustments
-   * is season/class-scoped and not practical to replay for one driver's
-   * whole cross-season career here), so on the rare race where a penalty
-   * actually reordered this class, this can lag that cascade by one
-   * increment. Null only if this driver's own raw result is missing (should
-   * not normally happen — see the "skip rather than fabricate a row" guard
-   * below).
-   */
+  /** This driver's shown position within their own class that race; null for a DSQ. */
   classPosition: number | null;
   /** This driver's grid position within their own class that race (raw curated_race_results.starting_position, re-ranked the same way as classPosition) — null if starting_position itself is missing. */
   classStartingPosition: number | null;
   wasAdjusted: boolean;
-  /** True when the penalty/adjustment engine MOVED this driver UP the order (finishPosition < the raw, pre-adjustment finish_position) — false for a loss or an unadjusted row. Lets a caller color the "adjusted" marker by direction (gained vs. lost) instead of one flat color. */
+  /** True when a penalty or adjustment MOVED this driver UP the order (finishPosition < the raw finish_position) — false for a loss or an unadjusted row. Lets a caller color the "adjusted" marker by direction (gained vs. lost) instead of one flat color. */
   gainedPositions: boolean;
   margin: string;
   intervalTenThousandths: number | null;
@@ -123,8 +110,8 @@ export interface DriverRaceHistoryRow {
  * their cust_id ever appeared in.
  *
  * Bulk-fetch-once throughout, same discipline as computeDriverCareerStats:
- * one race_scores query filtered to this driver (however many seasons that
- * spans), one curated_race_results query across the resulting
+ * one race_score_results_public query filtered to this driver (however many
+ * seasons that spans), one curated_race_results query across the resulting
  * subsession_ids (which also pulls in every OTHER driver's row for those
  * same subsessions — needed to find each race's leader for formatMargin),
  * and one getAllRounds() — never a per-season or per-round loop.
@@ -143,19 +130,12 @@ export async function getDriverRaceHistory(
   // nothing to show rather than a crash.
   if (custId === null) return [];
 
-  const scoreSelect = 'subsession_id,race_number,class_id,team_id,total_points,classified,dsq';
-  const scores = await restGetAll<{
-    subsession_id: number;
-    race_number: number;
-    class_id: number;
-    team_id: string | null;
-    total_points: number;
-    classified: boolean;
-    dsq: boolean;
-  }>(
-    env,
-    `race_scores_public?select=${scoreSelect}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`,
-  );
+  const scores = (
+    await restGetAll<PublicScoreRow>(
+      env,
+      `race_score_results_public?select=${PUBLIC_SCORE_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc,race_number.asc`,
+    )
+  ).map(toScoreRow);
   if (scores.length === 0) return [];
 
   const subsessionIds = [...new Set(scores.map((s) => s.subsession_id))];
@@ -170,15 +150,13 @@ export async function getDriverRaceHistory(
     exhibitionRoundIds,
     testRoundIds,
     seasonLogoRows,
-    overallScoresRaw,
-    penalties,
+    classFieldRows,
     lapStats,
     allDrivers,
     circuits,
     circuitLayouts,
     roundLayouts,
     qualifyingRowsBulk,
-    rulesets,
   ] = await Promise.all([
     getCuratedRaceResultsForSubsessions(env, subsessionIds),
     getTeamsBasic(env),
@@ -189,12 +167,12 @@ export async function getDriverRaceHistory(
     getExhibitionRoundIds(env),
     getTestRoundIds(env),
     getAllTeamSeasonLogosSafe(env),
-    // Whole-field (every driver, not just this one) race_scores across
-    // every subsession this driver has ever raced — see
-    // getRaceScoresForSubsessionsOverall's own doc comment for why the
-    // penalty engine's time-penalty reorder needs the full field.
-    getRaceScoresForSubsessionsOverall(env, subsessionIds),
-    getPenaltiesForSubsessions(env, subsessionIds),
+    // Every driver's class in every round this driver raced: the class
+    // starting and qualifying positions rank within it.
+    restGetAll<{ subsession_id: number; race_number: number; driver_id: string; class_id: number }>(
+      env,
+      `race_score_results_public?select=subsession_id,race_number,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`,
+    ),
     getLapStatsForSubsessions(env, subsessionIds),
     driversSelect(env, {}),
     // circuits/circuitLayouts/roundLayouts back the Splits card's CPI stat
@@ -229,7 +207,6 @@ export async function getDriverRaceHistory(
       );
       return [] as CuratedQualifyingBulkRow[];
     }),
-    getScoringRulesets(env),
   ]);
 
   const excludedRoundIds = new Set([...exhibitionRoundIds, ...testRoundIds]);
@@ -241,65 +218,11 @@ export async function getDriverRaceHistory(
   const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
 
-  // Live penalty-adjustment engine — same one every other page (results,
-  // standings, incidents, news recap) uses, recomputed from the CURRENT
-  // penalties table on every render rather than relying on a manually
-  // re-run DB function. Scoped by explicit subsession_ids (this driver's
-  // whole career, spanning many seasons) rather than one season at a time —
-  // the engine's own keying (`${subsessionId}:${raceNumber}:${driverId}`)
-  // is season-agnostic, so this works the same as the single-season
-  // buildSeasonOverallContext pattern used elsewhere in this file.
   const custIdByDriverId = new Map(
     allDrivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
   const lapStatsByKey = new Map(
     lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]),
-  );
-  const formatBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r.format]));
-  // Unlike the single-season buildSeasonOverallContext pattern, this driver's
-  // career can span MANY seasons, each potentially on its own
-  // scoring_rulesets — so unlike that pattern's single repeated `rules`
-  // value, this has to resolve each round's own season's ruleset
-  // individually. See penalties.ts's computeSeasonOverallAdjustments'
-  // `rulesBySubsession` param doc comment.
-  const rulesBySubsession = new Map(
-    allRounds.map((r) => {
-      const roundSeason = seasonById.get(r.season_id);
-      return [
-        r.subsession_id,
-        roundSeason ? (resolveSeasonRuleset(roundSeason, rulesets)?.rules ?? null) : null,
-      ];
-    }),
-  );
-
-  const seasonScoreRows: SeasonScoreRow[] = overallScoresRaw.map((s) => {
-    const rowCustId = custIdByDriverId.get(s.driver_id);
-    const rawForRow =
-      rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
-    const lapStatsRow =
-      rowCustId != null ? lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
-    return {
-      subsessionId: s.subsession_id,
-      raceNumber: s.race_number,
-      driverId: s.driver_id,
-      dsq: s.dsq,
-      classified: s.classified,
-      scoredPosition: s.scored_position,
-      intervalTenThousandths: rawForRow?.interval_ten_thousandths ?? null,
-      finishPoints: s.finish_points,
-      finesseBonus: s.finesse_bonus,
-      poleBonus: s.pole_bonus,
-      aggressionBonus: s.aggression_bonus,
-      pointsDeduction: s.points_deduction,
-      lapsComplete: rawForRow?.laps_complete ?? null,
-      averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
-    };
-  });
-  const adjustments = computeSeasonOverallAdjustments(
-    seasonScoreRows,
-    penalties,
-    formatBySubsession,
-    rulesBySubsession,
   );
 
   // Leader's laps_complete per (subsession, race) — same as getRoundResults'
@@ -332,49 +255,14 @@ export async function getDriverRaceHistory(
     }
   }
 
-  // Class-relative finish/start position — see DriverRaceHistoryRow.classPosition's
-  // own doc comment for why this can't just reuse `finishPosition`/
-  // `startingPosition` above (both OVERALL fields). Grouped by
-  // subsession+race+class across `overallScoresRaw` (every driver's row,
-  // every class, for every subsession this driver ever raced) so each
-  // group is exactly "who else raced this driver's own class in this
-  // specific race" — then ranked in memory, no extra fetch.
-  interface ClassFieldEntry {
-    driverId: string;
-    finishPos: number | null;
-    startPos: number | null;
-    dsq: boolean;
-  }
-  const classFieldByRace = new Map<string, ClassFieldEntry[]>();
-  for (const s of overallScoresRaw) {
-    const rowCustId = custIdByDriverId.get(s.driver_id);
-    const rawForRow =
-      rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
-    const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
-    if (!classFieldByRace.has(key)) classFieldByRace.set(key, []);
-    classFieldByRace.get(key)!.push({
-      driverId: s.driver_id,
-      finishPos: rawForRow ? (rawForRow.adjusted_position ?? rawForRow.finish_position) : null,
-      startPos: rawForRow?.starting_position ?? null,
-      dsq: s.dsq,
-    });
-  }
-  const classPositionByKey = new Map<string, number>();
-  const classStartingPositionByKey = new Map<string, number>();
-  for (const [key, field] of classFieldByRace) {
-    // key is "subsessionId:raceNumber:classId" — classId isn't needed past
-    // this point, only the subsession+race prefix the per-driver maps key on.
-    const [subsessionIdStr, raceNumberStr] = key.split(':');
-    const prefix = `${subsessionIdStr}:${raceNumberStr}`;
-    field
-      .filter((f) => !f.dsq && f.finishPos !== null)
-      .sort((a, b) => (a.finishPos as number) - (b.finishPos as number))
-      .forEach((f, i) => classPositionByKey.set(`${prefix}:${f.driverId}`, i + 1));
-    field
-      .filter((f) => f.startPos !== null)
-      .sort((a, b) => (a.startPos as number) - (b.startPos as number))
-      .forEach((f, i) => classStartingPositionByKey.set(`${prefix}:${f.driverId}`, i + 1));
-  }
+  const classStartingPositionByKey = classStartingPositions(
+    classFieldRows.map((s) => {
+      const rowCustId = custIdByDriverId.get(s.driver_id);
+      const rawForRow =
+        rowCustId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, rowCustId)) : undefined;
+      return { ...s, starting_position: rawForRow?.starting_position ?? null };
+    }),
+  );
 
   // Corners-per-incident numerator (see DriverRaceHistoryRow.totalCorners'
   // own doc comment) — same resolveLayout-based lookup
@@ -415,11 +303,11 @@ export async function getDriverRaceHistory(
   // above, grouping by (subsession, classId) rather than (subsession,
   // raceNumber, classId) since qualifying is one session per ROUND, not per
   // race. A driver's class for a round is read off any of their
-  // `overallScoresRaw` rows for that subsession (class doesn't change
+  // `classFieldRows` for that subsession (class doesn't change
   // race-to-race within one round — see getQualifyingForSubsession's own
   // comment for the same assumption).
   const classIdBySubsessionDriver = new Map<string, number>();
-  for (const s of overallScoresRaw) {
+  for (const s of classFieldRows) {
     const key = `${s.subsession_id}:${s.driver_id}`;
     if (!classIdBySubsessionDriver.has(key)) classIdBySubsessionDriver.set(key, s.class_id);
   }
@@ -434,7 +322,7 @@ export async function getDriverRaceHistory(
     if (!qDriverId) continue; // this cust_id has no matching drivers row (unrostered/AI) — not something this driver's history needs
     qualPositionBySubsessionDriver.set(`${q.subsession_id}:${qDriverId}`, q.qual_position);
     const classId = classIdBySubsessionDriver.get(`${q.subsession_id}:${qDriverId}`);
-    if (classId === undefined) continue; // qualified but never appears in race_scores for this round — can't place them in a class field
+    if (classId === undefined) continue; // qualified but has no scored race this round — can't place them in a class field
     const key = `${q.subsession_id}:${classId}`;
     if (!qualFieldBySubsessionClass.has(key)) qualFieldBySubsessionClass.set(key, []);
     qualFieldBySubsessionClass.get(key)!.push({ driverId: qDriverId, qualPos: q.qual_position });
@@ -456,15 +344,8 @@ export async function getDriverRaceHistory(
     const round = roundBySubsession.get(score.subsession_id) ?? null;
     const team = score.team_id ? (teamById.get(score.team_id) ?? null) : null;
 
-    // Live-engine position/points first, legacy manual override next, raw
-    // last — see DriverRaceHistoryRow.finishPosition's doc comment. An NC/DSQ
-    // row is never repositioned by the engine (canReposition requires
-    // classified === true), so it falls straight through to the legacy/raw
-    // value exactly as before.
-    const adjustment = adjustments.get(`${score.subsession_id}:${score.race_number}:${driverId}`);
-    const baselinePosition = raw.adjusted_position ?? raw.finish_position;
-    const finishPosition = adjustment?.newPosition ?? baselinePosition;
-    const totalPoints = adjustment?.overallTotalPoints ?? score.total_points;
+    const { finishPosition, classPosition } = historyFinish(score);
+    const leaderLaps = leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null;
 
     const cornersForRound = cornersBySubsession.get(score.subsession_id) ?? null;
     const totalCorners = cornersForRound !== null ? (raw.laps_complete ?? 0) * cornersForRound : null;
@@ -494,17 +375,12 @@ export async function getDriverRaceHistory(
         : null,
       startingPosition: raw.starting_position,
       finishPosition,
-      classPosition:
-        classPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
+      classPosition,
       classStartingPosition:
         classStartingPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
       wasAdjusted: finishPosition !== raw.finish_position,
       gainedPositions: finishPosition < raw.finish_position,
-      margin: formatMargin(
-        raw.interval_ten_thousandths,
-        raw.laps_complete,
-        leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null,
-      ),
+      margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLaps),
       intervalTenThousandths: raw.interval_ten_thousandths,
       incidents: raw.incidents,
       laps: raw.laps_complete,
@@ -512,7 +388,8 @@ export async function getDriverRaceHistory(
       totalCorners,
       qualPosition,
       classQualPosition,
-      totalPoints,
+      // Gamma and Delta show the class total (class points included), as the results page does.
+      totalPoints: seasonPointsOf(score, rankedByClassTotal(classNameById.get(score.class_id))),
       dsq: score.dsq,
       classified: score.classified,
       bestLapTenThousandths:
@@ -532,4 +409,50 @@ export async function getDriverRaceHistory(
   });
 
   return out;
+}
+
+/** One field row: a driver's class and grid slot in one race. */
+export interface ClassFieldRow {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  class_id: number;
+  starting_position: number | null;
+}
+
+/**
+ * `${subsessionId}:${raceNumber}:${driverId}` -> that driver's grid slot among the drivers of their
+ * own class in that race. A driver listed twice counts once, so a repeated row can never push
+ * anyone's class start down.
+ */
+export function classStartingPositions(field: ClassFieldRow[]): Map<string, number> {
+  const byRaceClass = new Map<string, Map<string, number>>();
+  for (const f of field) {
+    if (f.starting_position === null) continue;
+    const key = `${f.subsession_id}:${f.race_number}:${f.class_id}`;
+    if (!byRaceClass.has(key)) byRaceClass.set(key, new Map());
+    byRaceClass.get(key)!.set(f.driver_id, f.starting_position);
+  }
+  const out = new Map<string, number>();
+  for (const [key, starts] of byRaceClass) {
+    const prefix = key.split(':').slice(0, 2).join(':');
+    [...starts]
+      .sort((a, b) => a[1] - b[1])
+      .forEach(([driverId], i) => out.set(`${prefix}:${driverId}`, i + 1));
+  }
+  return out;
+}
+
+/**
+ * The finish a race-history row shows: the shown overall position (raw for non-admins until the
+ * round is posted), the raw finishing slot for a DSQ, and the shown class position (none for a DSQ).
+ */
+export function historyFinish(score: Pick<ScoreRow, 'position' | 'finish_position' | 'class_position' | 'dsq'>): {
+  finishPosition: number;
+  classPosition: number | null;
+} {
+  return {
+    finishPosition: score.position ?? score.finish_position,
+    classPosition: score.dsq ? null : score.class_position,
+  };
 }

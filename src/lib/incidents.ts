@@ -69,7 +69,7 @@ export interface DriverIncidentAggregate {
   penaltyPoints: number;
   /** Sum of effective points_penalty across every incident this driver was penalized for — points LOST, not a net swing (see IncidentRow.pointsPenalty). */
   pointsLost: number;
-  /** Every race (subsession + race_number pair) this driver has ever started on file, across every round — the denominator for the By Driver table's Inc/Race and Pen/Race columns. Pulled straight from race_scores rather than the full standings engine (see this file's header comment on why), so it's every start regardless of season/class/exhibition status. */
+  /** Every race (subsession + race_number pair) this driver has ever started on file, across every round — the denominator for the By Driver table's Inc/Race and Pen/Race columns. Pulled straight from race_score_results_public rather than the full standings engine (see this file's header comment on why), so it's every start regardless of season/class/exhibition status. */
   racesStarted: number;
   /** Every incident this driver appears in at all (involved-in superset, not just timesPenalized), newest first — what the expanded row lists. */
   incidents: IncidentRow[];
@@ -140,7 +140,7 @@ async function loadIncidents(
       driversSelect(env, { includeAi: true }),
       getPenaltyOffenses(env),
       getStandingsExcludedRoundIds(env),
-      // Minimal columns straight off race_scores — just enough to count each
+      // Minimal columns straight off race_score_results_public — just enough to count each
       // driver's distinct (subsession, race_number) starts for the By Driver
       // table's Inc/Race and Pen/Race columns. Deliberately not routed through
       // results.ts's standings engine (see this file's header comment).
@@ -148,7 +148,7 @@ async function loadIncidents(
         ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
         : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
             env,
-            `race_scores_public?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`,
+            `race_score_results_public?select=subsession_id,race_number,driver_id&subsession_id=in.(${subsessionIds.join(',')})`,
           ),
     ]);
 

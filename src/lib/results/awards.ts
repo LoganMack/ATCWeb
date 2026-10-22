@@ -1,7 +1,7 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds } from '../db/rounds';
-import { getScoringRulesets, resolveSeasonRuleset, type Season } from '../db/seasons';
-import { getPenaltiesForSubsessions, type Penalty } from '../db/penalties';
+import { getScoringRulesets, type Season } from '../db/seasons';
+import { getPenaltiesForSubsessions } from '../db/penalties';
 import {
   displayDriverName,
   getCircuits,
@@ -9,20 +9,13 @@ import {
   type Circuit,
   type CircuitLayout,
 } from '../db/circuits';
-import {
-  reorderByTimePenalty,
-  sumPenaltiesByRaceDriver,
-  scoringRaceNumber,
-  type LeaderRaceStats,
-  type Positionable,
-} from '../penalties/reorder';
 import { isDecidedChampionshipSeason } from './shared';
 import {
   driversSelect,
   getRaceScoresForSeasonsBulk,
   resultKey,
   type DriverBasic,
-  type RaceScoreOverallRow,
+  type ScoreRow,
 } from './rows';
 import { buildSeasonOverallContext, type SeasonOverallContext } from './seasonContext';
 import { computeOverallSeasonStandings } from './standings';
@@ -33,6 +26,7 @@ import {
 } from './extendedStats';
 import { resolveLayout } from './layouts';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
+import { penalisedGaps, timePenaltiesByRaceDriver, type LeaderLap } from './raceDisplay';
 import { getAllRounds } from './rounds';
 
 // ---------------------------------------------------------------------------
@@ -42,11 +36,10 @@ import { getAllRounds } from './rounds';
 // - Every award compares the WHOLE FIELD as one pool, not split by class —
 //   "the class moniker is totally based on skill, the drivers all actually
 //   are on a level playing field car-wise." Points-based awards therefore
-//   reuse the same class-blind points formula `computeOverallSeasonStandings`
-//   already uses for the site's own "Overall" competition (finish_points +
-//   finesse_bonus + pole_bonus + points_deduction, class_points excluded —
-//   that field is Gamma/Delta's own per-race bonus, not something every
-//   driver can earn). Dominator/Defender are the one deliberate exception —
+//   reuse `overall_total`, the class-blind total `computeOverallSeasonStandings`
+//   already ranks the site's own "Overall" competition on (class_points
+//   excluded — that field is Gamma/Delta's own per-race bonus, not something
+//   every driver can earn). Dominator/Defender are the one deliberate exception —
 //   a "class winning margin" is inherently about winning your OWN class, so
 //   those two alone still rank within each class, per race.
 // - Rookie of the Season eligibility is reconstructed the same way
@@ -207,15 +200,6 @@ function computeMaxPossibleDistanceKm(
   return total;
 }
 
-/** This season's class-blind (finish + finesse + pole + deduction) points for one (subsession,race,driver) row — same formula `computeOverallSeasonStandings` uses. */
-function overallPointsOfRow(s: RaceScoreOverallRow, overallContext: SeasonOverallContext): number {
-  const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
-  const adjustment = overallContext.adjustments.get(key);
-  return adjustment
-    ? adjustment.overallTotalPoints
-    : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
-}
-
 /**
  * A round's Endurance/Sprint Specialist classification — its own
  * `curated_rounds.format` when set, otherwise (a "special event" round,
@@ -327,7 +311,6 @@ export async function computeSeasonAwardsHistory(
         seasonPenalties,
         seasonRoundsList,
         seasonLapStats,
-        resolveSeasonRuleset(season, rulesets)?.rules ?? null,
       );
       if (overallContext.overallScores.length === 0) return null;
 
@@ -402,9 +385,7 @@ export async function computeSeasonAwardsHistory(
       const consistencyAccum = new Map<string, { sum: number; count: number }>();
       for (const s of overallContext.overallScores) {
         if (s.dsq) continue;
-        const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
-        const adjustment = overallContext.adjustments.get(key);
-        const position = adjustment ? adjustment.newPosition : s.scored_position;
+        const position = s.position;
         if (position === null) continue;
         const a = consistencyAccum.get(s.driver_id) ?? { sum: 0, count: 0 };
         a.sum += position;
@@ -423,7 +404,7 @@ export async function computeSeasonAwardsHistory(
 
       // Speed Demon — most races with the single fastest lap of the whole
       // field (every class together — see this section's doc comment).
-      const raceGroupsAll = new Map<string, RaceScoreOverallRow[]>();
+      const raceGroupsAll = new Map<string, ScoreRow[]>();
       for (const s of overallContext.overallScores) {
         const key = `${s.subsession_id}:${s.race_number}`;
         if (!raceGroupsAll.has(key)) raceGroupsAll.set(key, []);
@@ -458,22 +439,13 @@ export async function computeSeasonAwardsHistory(
       // Dominator/Defender — biggest/smallest class-winning margin of any
       // single race this season (not a season total — see doc comment).
       //
-      // Penalty-aware: for any race a penalty actually touched (for one of
-      // THIS class's own drivers — a penalty against a different class in
-      // the same race never changes this class's own order/margin), the
-      // class's top two are re-ranked/re-gapped the exact same way the round
-      // results page and the season standings views do it
-      // (reorderByTimePenalty — see src/lib/penalties.ts's Position
-      // recalculation header), rather than reading the raw pre-penalty
-      // finish order straight off curated_race_results. That used to be a
-      // real gap: a penalty that swapped a class's top two (or changed the
-      // gap between them) never showed up here, per Logan. Untouched races
-      // keep reading raw pipeline data directly — reordering with an
-      // all-zero penalty map isn't guaranteed byte-identical to the
-      // original sort (ties/pipeline quirks), same reasoning
-      // computeSeasonOverallAdjustments itself documents for skipping
-      // untouched races.
-      const classRaceGroups = new Map<string, RaceScoreOverallRow[]>();
+      // Penalty-aware: for any race a penalty touched one of THIS class's own
+      // drivers (a penalty against a different class never changes this
+      // class's own margin), the class's lead-lap gaps include the time
+      // penalties, re-zeroed to the new class winner, the same way the round
+      // results page shows them (raceDisplay.ts). Untouched races read the
+      // raw pipeline intervals directly.
+      const classRaceGroups = new Map<string, ScoreRow[]>();
       for (const s of overallContext.overallScores) {
         const key = `${s.subsession_id}:${s.race_number}:${s.class_id}`;
         if (!classRaceGroups.has(key)) classRaceGroups.set(key, []);
@@ -482,19 +454,25 @@ export async function computeSeasonAwardsHistory(
       const trackNameBySubsession = new Map(
         overallContext.seasonRounds.map((r) => [r.subsession_id, r.track_name]),
       );
-
-      // Penalties grouped by (subsessionId:scoringRaceNumber) — same
-      // shape/reasoning as computeSeasonOverallAdjustments' own
-      // penaltiesByRace, so sumPenaltiesByRaceDriver (keyed only by
-      // raceNumber, not subsessionId) never collides across two different
-      // rounds that happen to share a race number.
-      const marginRaceKey = (subsessionId: number, raceNumber: number) => `${subsessionId}:${raceNumber}`;
-      const penaltiesByMarginRace = new Map<string, Penalty[]>();
-      for (const p of overallContext.penalties) {
-        const key = marginRaceKey(p.subsession_id, scoringRaceNumber(p));
-        if (!penaltiesByMarginRace.has(key)) penaltiesByMarginRace.set(key, []);
-        penaltiesByMarginRace.get(key)!.push(p);
+      // The race's on-track leader (finish_position 1), the reference laps down are counted from.
+      const leaderByRace = new Map<string, LeaderLap>();
+      for (const raw of overallContext.rawByKey.values()) {
+        if (raw.finish_position !== 1) continue;
+        leaderByRace.set(`${raw.subsession_id}:${raw.race_number}`, {
+          lapsComplete: raw.laps_complete,
+          averageLapTenThousandths:
+            overallContext.lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id))
+              ?.average_lap_ten_thousandths ?? null,
+        });
       }
+      // subsession -> race:driver -> effective time penalty, from the penalties this reader may see.
+      const penaltiesBySubsession = new Map<number, Map<string, number>>();
+      const penaltyListBySubsession = new Map<number, typeof overallContext.penalties>();
+      for (const p of overallContext.penalties) {
+        if (!penaltyListBySubsession.has(p.subsession_id)) penaltyListBySubsession.set(p.subsession_id, []);
+        penaltyListBySubsession.get(p.subsession_id)!.push(p);
+      }
+      for (const [id, list] of penaltyListBySubsession) penaltiesBySubsession.set(id, timePenaltiesByRaceDriver(list));
 
       interface MarginObservation {
         driverId: string;
@@ -509,20 +487,16 @@ export async function computeSeasonAwardsHistory(
         const subsessionId = Number(subsessionIdStr);
         const raceNumber = Number(raceNumberStr);
 
-        const positionable: Positionable[] = group
+        const field = group
           .filter((s) => !s.dsq)
           .map((s) => {
             const custId = overallContext.custIdByDriverId.get(s.driver_id);
             const raw =
-              custId != null
-                ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId))
-                : undefined;
+              custId != null ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
             const lapStatsRow =
-              custId != null
-                ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId))
-                : undefined;
+              custId != null ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
             return {
-              driverId: s.driver_id,
+              id: s.driver_id,
               position: raw?.adjusted_position ?? raw?.finish_position ?? null,
               intervalTenThousandths: raw?.interval_ten_thousandths ?? null,
               lapsComplete: raw?.laps_complete ?? null,
@@ -530,41 +504,32 @@ export async function computeSeasonAwardsHistory(
             };
           })
           .filter((r) => r.position !== null);
-        if (positionable.length < 2) continue;
+        if (field.length < 2) continue;
 
-        const racePenalties = penaltiesByMarginRace.get(marginRaceKey(subsessionId, raceNumber)) ?? [];
-        const penaltyByRaceDriver = sumPenaltiesByRaceDriver(
-          racePenalties.map((p) => ({ ...p, race_number: raceNumber })),
-        );
-        const touched = positionable.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driverId}`));
+        const racePenalties = penaltiesBySubsession.get(subsessionId) ?? new Map<string, number>();
+        const penaltyOf = (id: string) => racePenalties.get(`${raceNumber}:${id}`);
+        const touched = field.some((r) => penaltyOf(r.id) !== undefined);
 
         let p1DriverId: string | null = null;
         let margin: number | null = null;
 
         if (touched) {
-          const leader: LeaderRaceStats = overallContext.leaderStatsByRace.get(
-            marginRaceKey(subsessionId, raceNumber),
-          ) ?? {
+          const gaps = penalisedGaps(field, (id) => (penaltyOf(id) ?? 0) * 10000, leaderByRace.get(`${subsessionId}:${raceNumber}`) ?? {
             lapsComplete: null,
             averageLapTenThousandths: null,
-          };
-          const ranked = reorderByTimePenalty(positionable, raceNumber, penaltyByRaceDriver, leader);
-          // Only the lead-lap group (lapsDown === 0) has a real, comparable
-          // time gap — same "usable margin" gate the untouched branch below
-          // applies to the raw interval. gapTenThousandths is already
-          // re-zeroed against whichever row is actually smallest now (see
-          // RankedPosition's own doc comment), so the class winner always
-          // reads exactly 0 here.
-          const leadLapRanked = [...ranked.entries()]
-            .filter(([, r]) => r.lapsDown === 0 && r.gapTenThousandths !== null)
+          });
+          // Only the lead-lap group has a real, comparable time gap; the class
+          // winner reads exactly 0 after re-zeroing.
+          const leadLap = [...gaps.entries()]
+            .filter(([, g]) => g.lapsDown === 0 && g.gapTenThousandths !== null)
             .sort((a, b) => (a[1].gapTenThousandths as number) - (b[1].gapTenThousandths as number));
-          if (leadLapRanked.length >= 2) {
-            const [[id1, r1], [, r2]] = leadLapRanked;
+          if (leadLap.length >= 2) {
+            const [[id1, g1], [, g2]] = leadLap;
             p1DriverId = id1;
-            margin = (r2.gapTenThousandths as number) - (r1.gapTenThousandths as number);
+            margin = (g2.gapTenThousandths as number) - (g1.gapTenThousandths as number);
           }
         } else {
-          const ranked = [...positionable].sort((a, b) => (a.position as number) - (b.position as number));
+          const ranked = [...field].sort((a, b) => (a.position as number) - (b.position as number));
           const [rp1, rp2] = ranked;
           // Only a real, usable time gap for both (a negative interval means
           // "a lap or more down," not a real gap — see `formatMargin`) counts
@@ -577,7 +542,7 @@ export async function computeSeasonAwardsHistory(
           ) {
             const m = rp2.intervalTenThousandths - rp1.intervalTenThousandths;
             if (m >= 0) {
-              p1DriverId = rp1.driverId;
+              p1DriverId = rp1.id;
               margin = m;
             }
           }
@@ -628,7 +593,7 @@ export async function computeSeasonAwardsHistory(
       const endurancePoints = new Map<string, number>();
       const sprintPoints = new Map<string, number>();
       for (const s of overallContext.overallScores) {
-        const points = overallPointsOfRow(s, overallContext);
+        const points = s.overall_total;
         const bucket =
           classifyRoundForSpecialistAwards(s.subsession_id, overallContext, raceNumbersBySubsession) ===
           'endurance'

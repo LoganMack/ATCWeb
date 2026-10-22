@@ -1,9 +1,7 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds, getTestRoundIds } from '../db/rounds';
 import { getSeasons } from '../db/seasons';
-import { getPenaltiesForSubsession } from '../db/penalties';
 import { getDriverClasses } from '../db/lookups';
-import { applyPenaltiesToRoundResults } from '../penalties/roundResults';
 import type { DriverBasic } from './rows';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
 import { topTeamScorers } from './seasonCarTeam';
@@ -16,7 +14,7 @@ import {
   type PracticeRow,
 } from './sessions';
 
-/** One row in a "Previous Result" widget driver tab — same shape the homepage Standings widget's own driver rows show (position, driver, car/team logos, class badge), except `metricLabel` is whatever this SESSION's own headline figure is (race points, or a qualifying/practice lap time — see PreviousResultWidgetTab's own doc comment) rather than a season points total. `car`/`team` are null for Qualifying/Practice tabs — `curated_qualifying`/`curated_practice_results` don't carry car/team assignments the way `race_scores` does for an actual race, so there's nothing to show a logo for there. */
+/** One row in a "Previous Result" widget driver tab — same shape the homepage Standings widget's own driver rows show (position, driver, car/team logos, class badge), except `metricLabel` is whatever this SESSION's own headline figure is (race points, or a qualifying/practice lap time — see PreviousResultWidgetTab's own doc comment) rather than a season points total. `car`/`team` are null for Qualifying/Practice tabs — `curated_qualifying`/`curated_practice_results` don't carry car/team assignments the way a scored race does, so there's nothing to show a logo for there. */
 export interface PreviousResultWidgetDriverRow {
   position: number | null;
   driver: DriverBasic;
@@ -78,10 +76,8 @@ export interface PreviousResultWidget {
  * most-recently-run round on file — one Standings-widget-style tab set
  * (Overall/Alpha/Delta/Gamma, plus Alpha Team/Delta Team on Race sessions)
  * PER SESSION the round actually has results for (Practice, Qualifying,
- * each race). Penalty-adjusted, same as every other results view on the
- * site — showing a pre-penalty result the moment a steward corrects it
- * would be a visible, confusing regression from that round's own results
- * page. Returns null (never throws) on any failure, or when the database
+ * each race). Penalty-adjusted wherever the round's own results page is
+ * (race_score_results_public), so the two never disagree. Returns null (never throws) on any failure, or when the database
  * has no rounds on file at all yet — the homepage just omits the section in
  * either case, same as every other homepage widget's own try/catch.
  */
@@ -90,8 +86,7 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
   if (!round) return null;
 
   const [
-    rawResults,
-    penalties,
+    results,
     classes,
     excludedRoundIds,
     testRoundIds,
@@ -102,7 +97,6 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
     practice,
   ] = await Promise.all([
     getRoundResults(env, round.subsession_id),
-    getPenaltiesForSubsession(env, round.subsession_id),
     getDriverClasses(env),
     getStandingsExcludedRoundIds(env),
     getTestRoundIds(env),
@@ -113,8 +107,6 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
     getPracticeForSubsession(env, round.subsession_id),
   ]);
 
-  const results =
-    penalties.length > 0 ? applyPenaltiesToRoundResults(rawResults, penalties, round.format) : rawResults;
   const roundSeason = allSeasons.find((s) => s.id === round.season_id) ?? null;
   const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
   const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
@@ -169,9 +161,7 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
    * (`topTeamScorers`), and the same class-blind points formula for Alpha
    * specifically (Alpha never earns the Class Points bonus, so its team
    * competition is scored cross-class) that `computeTeamSeasonStandings`
-   * uses — just evaluated over one race's already-penalty-adjusted rows
-   * instead of a whole season's, so there's no separate adjustment lookup
-   * to build here.
+   * uses, just evaluated over one race's rows instead of a whole season's.
    */
   function teamTab(
     key: string,

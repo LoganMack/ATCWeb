@@ -1,15 +1,50 @@
 /**
- * The standings page's "as of round N" total, shared by the Standings by Round slider and the
- * graph's Drop Weeks toggle (src/pages/standings.astro). Runs in the browser.
- *
- * `points` holds one entry per round column in page order (null = the driver didn't race it, counted
- * as 0). Only the first `n` columns count. Once `n` reaches `minDropRounds`, the worst `drops` rounds
- * are dropped, always keeping at least one; unless `canDropFinalRound`, column n-1 (the latest visible
- * round) is never dropped. Ties drop the higher column index. `dropped` holds column indexes.
- *
- * This mirrors finalizeStandings in src/lib/results.ts, which works on the season's round pool
- * instead of the visible columns; the two agree on totals when every column is visible and the
- * season's final round is the last one (see tests/lib/seasonTotals.test.ts).
+ * Season totals: the one place drop weeks, the tiebreak order and the "as of round N" total are
+ * defined (BR5.1). finalizeStandings (src/lib/results/standingsCore.ts) uses them on the server and
+ * the standings page script (src/pages/standings.astro) in the browser, so this module must stay
+ * free of server-only imports.
+ */
+
+/** One round in a driver's drop-week pool. `order` breaks a points tie: the higher order drops first. */
+export interface PoolRound {
+  order: number;
+  points: number;
+}
+
+/** How many rounds drop: none until `roundsRaced` reaches `minDropRounds`, then `drops`. */
+export function dropsFor(roundsRaced: number, drops: number, minDropRounds: number): number {
+  return roundsRaced >= minDropRounds ? drops : 0;
+}
+
+/**
+ * Drops the worst `drops` rounds of `pool`, always keeping at least one. A round whose order equals
+ * `protectedOrder` is never dropped (a ruleset's final round), and the drops come from the rest.
+ * Returns the counted total and the orders of the dropped rounds.
+ */
+export function dropWorstRounds(
+  pool: PoolRound[],
+  drops: number,
+  protectedOrder: number | null,
+): { total: number; dropped: Set<number> } {
+  const byPointsDesc = (a: PoolRound, b: PoolRound) => b.points - a.points || a.order - b.order;
+  const dropped = new Set<number>();
+  const dropCount = Math.min(drops, Math.max(0, pool.length - 1));
+  const kept = protectedOrder === null ? null : pool.find((r) => r.order === protectedOrder);
+  const ranked = (kept ? pool.filter((r) => r !== kept) : [...pool]).sort(byPointsDesc);
+  const keep = Math.max(0, ranked.length - dropCount);
+  let total = kept ? kept.points : 0;
+  ranked.forEach((r, i) => {
+    if (i < keep) total += r.points;
+    else dropped.add(r.order);
+  });
+  return { total, dropped };
+}
+
+/**
+ * The page's "as of round N" total, shared by the Standings by Round slider and the graph's Drop
+ * Weeks toggle. `points` holds one entry per round column in page order (null = the driver didn't
+ * race it, counted as 0). Only the first `n` columns count. Unless `canDropFinalRound`, column n-1
+ * (the latest visible round) is never dropped. `dropped` holds column indexes.
  */
 export function totalAsOf(
   points: (number | null)[],
@@ -18,22 +53,38 @@ export function totalAsOf(
   minDropRounds: number,
   canDropFinalRound: boolean,
 ): { total: number; dropped: Set<number> } {
-  const pool = points.slice(0, n).map((p, i) => ({ i, p: p ?? 0 }));
-  const totalDrops = n >= minDropRounds ? drops : 0;
-  const dropped = new Set<number>();
-  let total: number;
-  if (!canDropFinalRound && n >= 1) {
-    const finalPts = pool[n - 1].p;
-    const rest = pool.slice(0, n - 1).sort((a, b) => b.p - a.p || a.i - b.i);
-    const dropCount = Math.min(totalDrops, Math.max(0, n - 1));
-    const keep = Math.max(0, rest.length - dropCount);
-    total = finalPts + rest.slice(0, keep).reduce((s, r) => s + r.p, 0);
-    rest.slice(keep).forEach((r) => dropped.add(r.i));
-  } else {
-    const ranked = [...pool].sort((a, b) => b.p - a.p || a.i - b.i);
-    const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
-    total = ranked.slice(0, ranked.length - dropCount).reduce((s, r) => s + r.p, 0);
-    ranked.slice(ranked.length - dropCount).forEach((r) => dropped.add(r.i));
-  }
-  return { total, dropped };
+  const pool = points.slice(0, n).map((p, i) => ({ order: i, points: p ?? 0 }));
+  const protectedOrder = !canDropFinalRound && n >= 1 ? n - 1 : null;
+  return dropWorstRounds(pool, dropsFor(n, drops, minDropRounds), protectedOrder);
+}
+
+/** What the standings rank on. A team ranks on points and name only, so its counting stats are 0. */
+export interface StandingKeys {
+  totalPoints: number;
+  wins: number;
+  podiums: number;
+  top5s: number;
+  top10s: number;
+  poles: number;
+  lapsLed: number;
+  laps: number;
+  appearances: number;
+  /** The display name, compared last. */
+  name: string;
+}
+
+/** Points, then wins, podiums, top 5s, top 10s, poles, laps led, laps and appearances, then name. */
+export function compareStandings(a: StandingKeys, b: StandingKeys): number {
+  return (
+    b.totalPoints - a.totalPoints ||
+    b.wins - a.wins ||
+    b.podiums - a.podiums ||
+    b.top5s - a.top5s ||
+    b.top10s - a.top10s ||
+    b.poles - a.poles ||
+    b.lapsLed - a.lapsLed ||
+    b.laps - a.laps ||
+    b.appearances - a.appearances ||
+    a.name.localeCompare(b.name)
+  );
 }

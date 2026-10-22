@@ -479,5 +479,5 @@ export function applyPenaltiesToRoundResults(
     );
   }
 
-  return { byClass: newByClass, overall: newOverall };
+  return { byClass: newByClass, overall: newOverall, penalties: results.penalties };
 }

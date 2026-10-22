@@ -254,7 +254,9 @@ export async function getSeasonDriverExtendedStats(
     }
 
     const km = kmBySubsession.get(s.subsession_id);
-    if (km !== null && km !== undefined) a.distanceKm += (raw.laps_complete ?? 0) * km;
+    // Summed in whole metres: a float sum of laps × km depends on row order, and an exact .x5 km
+    // total could then round either way on the page.
+    if (km !== null && km !== undefined) a.distanceKm += (raw.laps_complete ?? 0) * Math.round(km * 1000);
 
     const corners = cornersBySubsession.get(s.subsession_id);
     if (corners !== null && corners !== undefined) a.totalCorners += (raw.laps_complete ?? 0) * corners;
@@ -293,7 +295,7 @@ export async function getSeasonDriverExtendedStats(
       incidentsPerLap: a.laps > 0 ? a.incidents / a.laps : null,
       penaltyPoints: a.penaltyPoints,
       bonusPoints: a.bonusPoints,
-      distanceKm: anyKmResolvedByDriver.get(driverId) ? a.distanceKm : null,
+      distanceKm: anyKmResolvedByDriver.get(driverId) ? a.distanceKm / 1000 : null,
       cornersPerIncident: hasCorners && a.incidents > 0 ? a.totalCorners / a.incidents : null,
       totalCorners: hasCorners ? a.totalCorners : null,
       byRound: a.byRound,

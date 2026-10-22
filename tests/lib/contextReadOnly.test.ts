@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SeasonOverallContext } from '../../src/lib/results/seasonContext';
-import { buildContext, expected, inputs, standingsFor, type GoldenRow } from '../golden/atc17';
+import { buildContext, expected, inputs, standingsFor, wanted, type GoldenRow } from '../golden/atc17';
 
 // ---------------------------------------------------------------------------------------------------
 // Deep freeze
@@ -115,7 +115,7 @@ describe('pure standings builders on a frozen ATC17 context', () => {
       expect(() => {
         rows = goldenRows(classId, context);
       }).not.toThrow();
-      expect(rows).toEqual(expected.views[name].rows);
+      expect(rows).toEqual(expected.views[name].rows.map((r) => wanted(name, r)));
     },
   );
 

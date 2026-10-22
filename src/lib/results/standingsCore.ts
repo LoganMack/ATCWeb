@@ -7,6 +7,7 @@ import {
   effectivePointsPenalty,
 } from '../penalties/effective';
 import type { DriverBasic, RoundSummary } from './rows';
+import { compareStandings, dropsFor, dropWorstRounds, type StandingKeys } from '../seasonTotals';
 
 // ---------------------------------------------------------------------------
 // Season standings
@@ -300,56 +301,29 @@ export function finalizeStandings(
   /** Standings Matrix view's penalty summaries (StandingsRoundCell.penalties) — see buildPenaltiesByDriverAndRound. Omitted entirely leaves every cell's penalties empty, harmless for any caller that doesn't need the Matrix view. */
   penaltiesByDriverAndRound?: Map<string, Map<number, Penalty[]>>,
 ): DriverSeasonStanding[] {
-  const totalDrops =
-    allSubsessionIds.size >= MIN_ROUNDS_FOR_DROPS ? baseDropWeeks + (season.extra_drop_weeks ?? 0) : 0;
-  // Only actually a constraint when the final round is both present in this
-  // pool (this class/view may not have raced it at all) and the ruleset
-  // wants it protected — otherwise this is exactly the old unconstrained
-  // behavior.
-  const protectFinalRound =
-    !canDropFinalRound && finalRoundSubsessionId !== null && allSubsessionIds.has(finalRoundSubsessionId);
+  const totalDrops = dropsFor(
+    allSubsessionIds.size,
+    baseDropWeeks + (season.extra_drop_weeks ?? 0),
+    MIN_ROUNDS_FOR_DROPS,
+  );
+  // Only a constraint when the final round is in this pool (this class may
+  // not have raced it) and the ruleset protects it.
+  const protectedRound = !canDropFinalRound ? finalRoundSubsessionId : null;
 
-  const standings: Omit<DriverSeasonStanding, 'position'>[] = [];
+  const standings: { row: Omit<DriverSeasonStanding, 'position'>; keys: StandingKeys }[] = [];
   for (const [driverId, a] of accum) {
     const driver = driverById.get(driverId);
     if (!driver) continue; // driver record deleted/missing — skip rather than crash the page
 
-    // Which specific rounds got dropped (Matrix view's `dropped` flag) is
-    // tracked alongside the point totals below — only meaningful for rounds
-    // this driver actually attended (see roundCells' own doc comment); a
-    // round they skipped entirely defaults to 0 points same as before and
-    // may "rank" into the dropped tail too, but never gets a cell rendered
-    // either way, so it's harmless. Ties in points between two rounds are
-    // broken by subsession_id purely for a deterministic (arbitrary)
-    // "which one is dropped" pick — the TOTAL is identical either way.
-    let totalPoints: number;
-    const droppedSubsessionIds = new Set<number>();
-    if (protectFinalRound) {
-      const finalRoundPoints = a.roundPoints.get(finalRoundSubsessionId as number) ?? 0;
-      const restRanked = [...allSubsessionIds]
-        .filter((id) => id !== finalRoundSubsessionId)
-        .map((id) => ({ id, points: a.roundPoints.get(id) ?? 0 }))
-        .sort((x, y) => y.points - x.points || x.id - y.id);
-      // Same overall drop count as the unprotected branch below (see this
-      // function's own doc comment) — it's just drawn entirely from the
-      // non-final rounds instead of the full pool, since the final round no
-      // longer competes for a drop slot at all.
-      const dropCount = Math.min(totalDrops, Math.max(0, allSubsessionIds.size - 1));
-      const keepFromRest = Math.max(0, restRanked.length - dropCount);
-      const countedRest = restRanked.slice(0, keepFromRest);
-      const droppedRest = restRanked.slice(keepFromRest);
-      totalPoints = finalRoundPoints + countedRest.reduce((sum, r) => sum + r.points, 0);
-      for (const r of droppedRest) droppedSubsessionIds.add(r.id);
-    } else {
-      const ranked = [...allSubsessionIds]
-        .map((id) => ({ id, points: a.roundPoints.get(id) ?? 0 }))
-        .sort((x, y) => y.points - x.points || x.id - y.id);
-      const dropCount = Math.min(totalDrops, Math.max(0, ranked.length - 1));
-      const counted = ranked.slice(0, ranked.length - dropCount);
-      const dropped = ranked.slice(ranked.length - dropCount);
-      totalPoints = counted.reduce((sum, r) => sum + r.points, 0);
-      for (const r of dropped) droppedSubsessionIds.add(r.id);
-    }
+    // A round the driver skipped is in the pool as 0 (see the doc comment);
+    // equal rounds drop the higher subsession id, which only decides which
+    // cell is marked dropped, never the total.
+    const pool = [...allSubsessionIds].map((id) => ({ order: id, points: a.roundPoints.get(id) ?? 0 }));
+    const { total: totalPoints, dropped: droppedSubsessionIds } = dropWorstRounds(
+      pool,
+      totalDrops,
+      protectedRound,
+    );
 
     // Matrix view's per-round cells — only for rounds this driver actually
     // attended (a.roundPoints only ever has an entry for a round this
@@ -365,7 +339,7 @@ export function finalizeStandings(
       });
     }
 
-    standings.push({
+    const row = {
       driver,
       totalPoints,
       starts: a.starts,
@@ -380,22 +354,10 @@ export function finalizeStandings(
       classId: a.classId,
       roundCells,
       roundStats: a.roundStats,
-    });
+    };
+    standings.push({ row, keys: { ...row, name: displayDriverName(driver.name) } });
   }
 
-  standings.sort(
-    (x, y) =>
-      y.totalPoints - x.totalPoints ||
-      y.wins - x.wins ||
-      y.podiums - x.podiums ||
-      y.top5s - x.top5s ||
-      y.top10s - x.top10s ||
-      y.poles - x.poles ||
-      y.lapsLed - x.lapsLed ||
-      y.laps - x.laps ||
-      y.appearances - x.appearances ||
-      displayDriverName(x.driver.name).localeCompare(displayDriverName(y.driver.name)),
-  );
-
-  return standings.map((s, i) => ({ ...s, position: i + 1 }));
+  standings.sort((x, y) => compareStandings(x.keys, y.keys));
+  return standings.map((s, i) => ({ ...s.row, position: i + 1 }));
 }

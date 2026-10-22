@@ -258,7 +258,7 @@ export function toRoundResults(rows: ResultDbRow[]): RoundResults {
         ]);
     }
   }
-  return { byClass, overall };
+  return { byClass, overall, penalties: [] };
 }
 
 /** The rows computeSeasonOverallAdjustments takes, built as buildSeasonOverallContext builds them. */

@@ -2,9 +2,12 @@
  * Golden test (BR2.3): the pure standings path reproduces ATC17 exactly as the live site showed it
  * before the standings code was extracted. expected.json is the oracle and is never edited to make
  * this pass; a difference is a finding (see tests/fixtures/golden/atc17/README.md).
+ *
+ * Since the switch the standings read race_score_results_public. The only totals that changed are
+ * listed in DECIDED (./atc17.ts), each with the comparison cause the owner accepted.
  */
 import { describe, expect, it } from 'vitest';
-import { buildContext, expected, standingsFor, type GoldenRow } from './atc17';
+import { DECIDED, buildContext, expected, standingsFor, wanted, type GoldenRow } from './atc17';
 
 const context = buildContext();
 
@@ -23,7 +26,7 @@ describe('ATC17 golden standings', () => {
     const differences: string[] = [];
     const rows = Math.max(actual.length, view.rows.length);
     for (let i = 0; i < rows; i++) {
-      const want = view.rows[i];
+      const want = view.rows[i] && wanted(name, view.rows[i]);
       const got = actual[i];
       if (!want || !got) {
         const who = (want ?? got).driverId;
@@ -41,5 +44,15 @@ describe('ATC17 golden standings', () => {
       }
     }
     expect(differences).toEqual([]);
+  });
+
+  it('lists only drivers whose live-page total differs', () => {
+    for (const [name, totals] of Object.entries(DECIDED)) {
+      const live = new Map(expected.views[name].rows.map((r) => [r.driverId, r.total]));
+      for (const [driverId, total] of Object.entries(totals)) {
+        expect(live.get(driverId), `${name} ${driverId}`).not.toBe(total);
+        expect(live.has(driverId), `${name} ${driverId}`).toBe(true);
+      }
+    }
   });
 });

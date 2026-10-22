@@ -13,7 +13,6 @@ import { markUncacheable } from '../../../../lib/security';
 // penalties as of this version.
 import { resolveSupabaseEnv, withAccessToken, getDrivers } from '../../../../lib/db/client';
 import {
-  getPenaltiesForSubsession,
   getPenaltiesForSubsessions,
   getPenaltyOffenses,
   type Penalty,
@@ -21,22 +20,14 @@ import {
 } from '../../../../lib/db/penalties';
 import { getEvents } from '../../../../lib/db/events';
 import { formatDate, shortDriverName, getCircuits, getAllCircuitLayouts } from '../../../../lib/db/circuits';
-import { getDriverClasses } from '../../../../lib/db/lookups';
-import {
-  getSeasonById,
-  getScoringRulesets,
-  resolveSeasonRuleset,
-  type ScoringRuleset,
-} from '../../../../lib/db/seasons';
 import { getLayoutMapDetails } from '../../../../lib/db/layoutMaps';
 import SectionIcon from '../../../../components/SectionIcon.astro';
 import { getRoundBySubsessionId, getRoundsForSeason } from '../../../../lib/results/rounds';
-import { getRoundResults, type RoundResults } from '../../../../lib/results/roundResults';
+import { getRoundResults, type RaceResultRow, type RoundResults } from '../../../../lib/results/roundResults';
 import { getRoundLayoutsForSubsessions } from '../../../../lib/results/layoutLaps';
 import { resolveLayout } from '../../../../lib/results/layouts';
 import type { DriverBasic } from '../../../../lib/results/rows';
 import { matchCorners, turnLabelsFrom, type MapCorner } from '../../../../lib/turnMatch';
-import { applyPenaltiesToRoundResults } from '../../../../lib/penalties/roundResults';
 import {
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
@@ -179,21 +170,19 @@ if (adminSession && postForm) {
 }
 
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
-let originalResults: RoundResults = { byClass: new Map(), overall: new Map() };
+let roundResults: RoundResults = { byClass: new Map(), overall: new Map(), penalties: [] };
 let penalties: Penalty[] = [];
 let offenses: PenaltyOffense[] = [];
-let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let loadError: string | null = null;
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, originalResults, penalties, offenses, classes] = await Promise.all([
+    [round, roundResults, offenses] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(supabaseEnv, subsessionId),
-      getPenaltiesForSubsession(supabaseEnv, subsessionId),
       getPenaltyOffenses(supabaseEnv),
-      getDriverClasses(supabaseEnv),
     ]);
+    penalties = roundResults.penalties;
   } catch (err) {
     console.error('Failed to load incident report:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -221,68 +210,25 @@ if (round) {
   }
 }
 
-// This round's season's scoring ruleset — see results/[subsessionId].astro's
-// matching fetch for why applyPenaltiesToRoundResults below needs it: a
-// repositioned driver's new finish/class points must be priced off the SAME
-// base_points/class_podium table the round was actually scored with, not a
-// fixed default one.
-let ruleset: ScoringRuleset | null = null;
-if (!loadError && round) {
-  try {
-    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
-    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
-  } catch (err) {
-    console.error('Failed to resolve round scoring ruleset:', err);
-  }
+// Position and points lost or gained per penalty: the race's result before
+// this round's penalties against the one shown now, per Logan "Before vs.
+// after this round's full recalculation", not per individual penalty. Both
+// come from race_score_results_public (the final set for admins and posted
+// rounds, beside the raw set).
+const beforeAfterByKey = new Map<string, RaceResultRow>();
+for (const rows of roundResults.overall.values()) {
+  for (const row of rows) beforeAfterByKey.set(`${row.raceNumber}:${row.driver.id}`, row);
 }
-
-// The "before" snapshot is exactly what getRoundResults() returned (no
-// penalties applied yet); the "after" snapshot runs it through the same
-// engine the results page itself uses. Position/points lost or gained are
-// measured between these two, per Logan: "Before vs. after this round's
-// full recalculation" — not per individual penalty, since a driver's final
-// position/points reflect every penalty logged against the whole race at
-// once, not just one entry in isolation.
-// Alpha never earns the top-3-in-class Class Points bonus (see README) —
-// told to the recompute engine so a penalty-driven podium shuffle can't
-// manufacture class points for an Alpha driver.
-const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
-const recomputedResults =
-  penalties.length > 0
-    ? applyPenaltiesToRoundResults(
-        originalResults,
-        penalties,
-        round?.format ?? null,
-        classPointsEligibleByClassId,
-        ruleset?.rules ?? null,
-        subsessionId
-      )
-    : originalResults;
-
-interface PosPoints {
-  position: number | null;
-  totalPoints: number;
-}
-function buildLookup(rr: RoundResults): Map<string, PosPoints> {
-  const m = new Map<string, PosPoints>();
-  for (const rows of rr.overall.values()) {
-    for (const row of rows) m.set(`${row.raceNumber}:${row.driver.id}`, { position: row.position, totalPoints: row.totalPoints });
-  }
-  return m;
-}
-const originalByKey = buildLookup(originalResults);
-const recomputedByKey = buildLookup(recomputedResults);
 
 function deltaFor(p: Penalty): { positionDelta: number | null; pointsDelta: number | null } {
   // scoringRaceNumber (not the raw race_number) — a qualifying/practice
   // incident's delta shows up against Race 1, where its penalty actually
-  // landed (see that helper's own doc comment in src/lib/penalties.ts).
-  const key = `${scoringRaceNumber(p)}:${p.driver_id}`;
-  const before = originalByKey.get(key);
-  const after = recomputedByKey.get(key);
-  const positionDelta = before?.position != null && after?.position != null ? before.position - after.position : null;
-  const pointsDelta = before && after ? after.totalPoints - before.totalPoints : null;
-  return { positionDelta, pointsDelta };
+  // landed (see that helper's own doc comment).
+  const row = beforeAfterByKey.get(`${scoringRaceNumber(p)}:${p.driver_id}`);
+  if (!row) return { positionDelta: null, pointsDelta: null };
+  const before = row.penaltyOldPosition ?? row.position;
+  const positionDelta = before !== null && row.position !== null ? before - row.position : null;
+  return { positionDelta, pointsDelta: row.totalPoints - row.originalTotalPoints };
 }
 
 function formatDelta(n: number | null): string {
@@ -304,11 +250,11 @@ function deltaClass(n: number | null): string {
 // notInRoster rows are excluded — see loadRoundDrivers' own doc comment
 // above on why their synthetic id can never be a valid penalties.driver_id.
 const driverById = new Map<string, DriverBasic>();
-for (const rows of originalResults.overall.values()) {
+for (const rows of roundResults.overall.values()) {
   for (const row of rows) if (!row.notInRoster) driverById.set(row.driver.id, row.driver);
 }
 const roundDrivers = [...driverById.values()].sort((a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity));
-const raceNumbers = [...originalResults.overall.keys()].sort((a, b) => a - b);
+const raceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 
 // Driver-submitted reports (0090_incident_reports.sql) — admin-only queue,
 // shown above the incident list; RLS already limits non-admins to nothing

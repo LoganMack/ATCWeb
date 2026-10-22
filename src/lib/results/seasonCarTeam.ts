@@ -13,7 +13,7 @@ import {
   resolveTeamLogo,
   type DriverBasic,
   type TeamBasic,
-  type RaceScoreOverallRow,
+  type ScoreRow,
 } from './rows';
 import type { SeasonOverallContext } from './seasonContext';
 
@@ -103,7 +103,7 @@ export async function getSeasonCarTeamStats(
     seasonLogoRowsParam ? Promise.resolve(seasonLogoRowsParam) : getAllTeamSeasonLogosSafe(env),
   ]);
 
-  let scores: RaceScoreOverallRow[];
+  let scores: ScoreRow[];
   let carNameByKey: Map<string, string | null>;
   if (precomputedOverallContext) {
     scores = precomputedOverallContext.overallScores;
@@ -147,7 +147,7 @@ export async function getSeasonCarTeamStats(
   // --- Teams: tally races raced under each team, and figure out who was
   // one of the top 2 scorers for their team in each individual race. ---
   const racesUnderByDriverTeam = new Map<string, Map<string, number>>(); // driverId -> teamId -> count
-  const teamRaceGroups = new Map<string, RaceScoreOverallRow[]>(); // "subsession:race:team" -> that team's rows for that race
+  const teamRaceGroups = new Map<string, ScoreRow[]>(); // "subsession:race:team" -> that team's rows for that race
   for (const s of scores) {
     if (!s.team_id) continue;
     if (!racesUnderByDriverTeam.has(s.driver_id)) racesUnderByDriverTeam.set(s.driver_id, new Map());
@@ -160,8 +160,7 @@ export async function getSeasonCarTeamStats(
   }
 
   const scoredForTeamByDriverTeam = new Map<string, Map<string, number>>(); // driverId -> teamId -> count
-  const overallPointsOf = (s: RaceScoreOverallRow) =>
-    s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
+  const overallPointsOf = (s: ScoreRow) => s.overall_total;
   for (const group of teamRaceGroups.values()) {
     for (const s of topTeamScorers(group, overallPointsOf)) {
       if (!scoredForTeamByDriverTeam.has(s.driver_id)) scoredForTeamByDriverTeam.set(s.driver_id, new Map());

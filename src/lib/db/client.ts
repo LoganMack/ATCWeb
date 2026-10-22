@@ -53,13 +53,14 @@ const SUBSESSION_KEYED_TABLES = new Set([
   'curated_practice_results',
   'race_scores',
   'race_scores_public',
+  'race_score_results_public',
   'penalties',
   'race_links',
   'round_overrides',
   'manual_result_imports',
 ]);
 
-function withHiddenRounds(env: SupabaseEnv, path: string): string {
+export function withHiddenRounds(env: SupabaseEnv, path: string): string {
   const ids = env.hiddenSubsessionIds;
   if (!ids || ids.length === 0) return path;
   const table = path.split('?')[0];

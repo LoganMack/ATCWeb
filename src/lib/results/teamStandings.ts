@@ -1,8 +1,7 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds } from '../db/rounds';
-import type { Season, ScoringRuleset } from '../db/seasons';
+import type { Season } from '../db/seasons';
 import { getDriverClasses, type Lookup } from '../db/lookups';
-import { computeSeasonClassAdjustments, type SeasonClassScoreRow } from '../penalties/seasonAdjustments';
 import { isChampionshipSeason } from './shared';
 import {
   driversSelect,
@@ -11,11 +10,12 @@ import {
   buildSeasonLogoMap,
   resultKey,
   getRaceScoresForSeasonClass,
+  rankedByClassTotal,
   resolveTeamLogo,
+  seasonPointsOf,
   type DriverBasic,
   type TeamBasic,
-  type RaceScoreRow,
-  type RaceScoreOverallRow,
+  type ScoreRow,
 } from './rows';
 import { getSeasonOverallContext, type SeasonOverallContext } from './seasonContext';
 import { buildPenaltiesByDriverAndRound, summarizePenalty, type StandingsRoundCell } from './standingsCore';
@@ -77,19 +77,14 @@ export interface TeamRaceEntry {
  * `classId` picks which team competition this is, same distinction the news
  * recap's `topTeamOverall` vs `topTeamDelta` already draws:
  * - Omitted (default): the OVERALL (every class combined) competition, by
- *   the same class-blind points formula `computeOverallSeasonStandings`
- *   uses (`finish_points + finesse_bonus + pole_bonus + points_deduction`,
- *   class_points excluded) — so a Gamma/Delta driver's own class_points
- *   bonus can't give their team an edge a same-performing Alpha driver's
- *   team wouldn't also get.
+ *   `overall_total`, as `computeOverallSeasonStandings` ranks — class_points
+ *   excluded, so a Gamma/Delta driver's own class_points bonus can't give
+ *   their team an edge a same-performing Alpha driver's team wouldn't also
+ *   get.
  * - Set to a class id (e.g. Delta's): that class's own SEPARATE team
- *   competition, scored by that class's full per-race total_points
- *   (class_points included — matching newsRecap.ts's `deltaPointsOf`) and
- *   scoped to only that class's own races/drivers. This needs that class's
- *   own penalty-adjusted totals (`computeSeasonClassAdjustments`) — the same
- *   setup `computeSeasonStandings` builds for itself, duplicated here since
- *   team points only need the adjusted total points per (race, driver), not
- *   the full standings pipeline built on top of it.
+ *   competition, scoped to only that class's own races/drivers and scored
+ *   the way that class's driver championship is (class_total for Gamma and
+ *   Delta, overall_total for Alpha; BR2.6).
  */
 export async function computeTeamSeasonStandings(
   env: SupabaseEnv,
@@ -103,9 +98,7 @@ export async function computeTeamSeasonStandings(
   classesLookup?: Lookup[],
   precomputedOverallContext?: SeasonOverallContext,
   /** Only meaningful for the per-class branch (`classId` set) — see `computeSeasonStandings`' identical param. */
-  precomputedScoresRaw?: RaceScoreRow[],
-  /** Same sharing reasoning as `driversBasic` above — see `computeSeasonStandings`' identical param. Only actually used (to fetch a fresh `overallContext`) when `precomputedOverallContext` is omitted — every real caller today passes that in instead. */
-  rulesets?: ScoringRuleset[],
+  precomputedScoresRaw?: ScoreRow[],
 ): Promise<TeamSeasonStanding[]> {
   if (!isChampionshipSeason(season.name)) return [];
 
@@ -124,8 +117,7 @@ export async function computeTeamSeasonStandings(
   // branch — can see it too, and so it's fetched at most once regardless of
   // which branch runs.
   const overallContext =
-    precomputedOverallContext ??
-    (await getSeasonOverallContext(env, season, exhibitionIds, drivers, rulesets));
+    precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
   const penaltiesByDriverAndRound = buildPenaltiesByDriverAndRound(overallContext.penalties);
 
   interface TeamAccum {
@@ -158,17 +150,11 @@ export async function computeTeamSeasonStandings(
     const scores = overallContext.overallScores;
     if (scores.length === 0) return [];
 
-    const pointsOf = (s: RaceScoreOverallRow) => {
-      const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
-      const adjustment = overallContext.adjustments.get(key);
-      return adjustment
-        ? adjustment.overallTotalPoints
-        : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
-    };
+    const pointsOf = (s: ScoreRow) => s.overall_total;
 
     // Starts/appearances count every row for the team, same as a driver's
     // own starts/appearances — only the POINTS below are limited to the top 2.
-    const raceTeamGroups = new Map<string, RaceScoreOverallRow[]>(); // "subsession:race:team" -> that team's rows for that race
+    const raceTeamGroups = new Map<string, ScoreRow[]>(); // "subsession:race:team" -> that team's rows for that race
     for (const s of scores) {
       if (!s.team_id) continue;
       const a = getAccum(s.team_id);
@@ -194,15 +180,12 @@ export async function computeTeamSeasonStandings(
         const resultLookupKey = custId != null ? resultKey(s.subsession_id, s.race_number, custId) : null;
         const raw = resultLookupKey ? overallContext.rawByKey.get(resultLookupKey) : undefined;
         const lapStats = resultLookupKey ? overallContext.lapStatsByKey.get(resultLookupKey) : undefined;
-        const adjustment = overallContext.adjustments.get(
-          `${s.subsession_id}:${s.race_number}:${s.driver_id}`,
-        );
         a.raceEntries.push({
           subsessionId: s.subsession_id,
           raceNumber: s.race_number,
           driverId: s.driver_id,
           classId: s.class_id,
-          position: s.dsq ? null : adjustment ? adjustment.newPosition : s.scored_position,
+          position: s.dsq ? null : s.position,
           dsq: s.dsq,
           startingPosition: raw?.starting_position ?? null,
           incidents: raw?.incidents ?? null,
@@ -222,7 +205,7 @@ export async function computeTeamSeasonStandings(
         : getRaceScoresForSeasonClass(env, season.id, classId),
       classesLookup ? Promise.resolve(classesLookup) : getDriverClasses(env),
     ]);
-    const awardsClassPoints = classes.find((c) => c.id === classId)?.name !== 'Alpha';
+    const classTotal = rankedByClassTotal(classes.find((c) => c.id === classId)?.name);
     const scores =
       exhibitionIds.size > 0 ? scoresRaw.filter((s) => !exhibitionIds.has(s.subsession_id)) : scoresRaw;
     if (scores.length === 0) return [];
@@ -230,113 +213,10 @@ export async function computeTeamSeasonStandings(
     const custIdByDriverId = new Map(
       drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
     );
-
-    // Cross-class penalty context — same reasoning as computeSeasonStandings.
-    // Its rawByKey already covers every subsession this whole season raced,
-    // so it doubles as this class's curated_race_results lookup too — no
-    // separate fetch needed for that anymore (see computeSeasonStandings'
-    // identical optimization).
     const rawByKey = overallContext.rawByKey;
+    const pointsOf = (s: ScoreRow) => seasonPointsOf(s, classTotal);
 
-    // Re-derive this class's own class-relative rank per race, and its
-    // penalty-adjusted totals — the exact same setup computeSeasonStandings
-    // builds for its own standings pass (see that function for the full
-    // reasoning on each step).
-    const raceGroups = new Map<string, RaceScoreRow[]>();
-    for (const s of scores) {
-      const key = `${s.subsession_id}:${s.race_number}`;
-      if (!raceGroups.has(key)) raceGroups.set(key, []);
-      raceGroups.get(key)!.push(s);
-    }
-    const classScoreRows: SeasonClassScoreRow[] = [];
-    for (const [raceKey, group] of raceGroups) {
-      const ranked = group
-        .filter((s) => !s.dsq)
-        .map((s) => {
-          const custId = custIdByDriverId.get(s.driver_id);
-          const raw =
-            custId != null ? rawByKey.get(resultKey(s.subsession_id, s.race_number, custId)) : undefined;
-          const lapStatsRow =
-            custId != null
-              ? overallContext.lapStatsByKey.get(resultKey(s.subsession_id, s.race_number, custId))
-              : undefined;
-          return {
-            score: s,
-            position: raw?.adjusted_position ?? raw?.finish_position ?? null,
-            interval: raw?.interval_ten_thousandths ?? null,
-            lapsComplete: raw?.laps_complete ?? null,
-            averageLapTenThousandths: lapStatsRow?.average_lap_ten_thousandths ?? null,
-          };
-        })
-        .filter((r) => r.position !== null)
-        .sort((a, b) => (a.position as number) - (b.position as number));
-
-      ranked.forEach((r, i) => {
-        classScoreRows.push({
-          subsessionId: r.score.subsession_id,
-          raceNumber: r.score.race_number,
-          driverId: r.score.driver_id,
-          dsq: r.score.dsq,
-          classified: r.score.classified,
-          classPosition: i + 1,
-          intervalTenThousandths: r.interval,
-          totalPoints: r.score.total_points,
-          classPoints: r.score.class_points,
-          finesseBonus: r.score.finesse_bonus,
-          poleBonus: r.score.pole_bonus,
-          aggressionBonus: r.score.aggression_bonus,
-          lapLedBonus: r.score.lap_led_bonus,
-          fewestIncidentsBonus: r.score.fewest_incidents_bonus,
-          fastestLapBonus: r.score.fastest_lap_bonus,
-          sprintSweepBonus: r.score.sprint_sweep_bonus,
-          pointsDeduction: r.score.points_deduction,
-          lapsComplete: r.lapsComplete,
-          averageLapTenThousandths: r.averageLapTenThousandths,
-        });
-      });
-    }
-
-    const classAdjustments = computeSeasonClassAdjustments(
-      classScoreRows,
-      overallContext.penalties,
-      overallContext.formatBySubsession,
-      overallContext.adjustments,
-      overallContext.leaderStatsByRace,
-      awardsClassPoints,
-      overallContext.rulesBySubsession,
-    );
-
-    // Alpha Team points must come from the same source computeSeasonStandings'
-    // isAlphaClass branch uses (see that function's own doc comment for the
-    // full bug this fixes) — class-scoped `classAdjustments` above only
-    // reprocesses a race when one of THIS class's own drivers was directly
-    // penalized, missing cross-class penalty ripples that can still shift an
-    // Alpha driver's overall position (and therefore their finish_points)
-    // via a different class's driver being penalized in the same race.
-    const isAlphaClass = !awardsClassPoints;
-    const overallPointsByKey = isAlphaClass
-      ? new Map(
-          overallContext.overallScores
-            .filter((s) => s.class_id === classId)
-            .map((s) => {
-              const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
-              const adjustment = overallContext.adjustments.get(key);
-              const points = adjustment
-                ? adjustment.overallTotalPoints
-                : s.finish_points + s.finesse_bonus + s.pole_bonus + s.points_deduction;
-              return [key, points] as const;
-            }),
-        )
-      : null;
-
-    const pointsOf = (s: RaceScoreRow) => {
-      const key = `${s.subsession_id}:${s.race_number}:${s.driver_id}`;
-      if (isAlphaClass) return overallPointsByKey!.get(key) ?? s.total_points;
-      const adjustment = classAdjustments.get(key);
-      return adjustment ? adjustment.totalPoints : s.total_points;
-    };
-
-    const raceTeamGroups = new Map<string, RaceScoreRow[]>();
+    const raceTeamGroups = new Map<string, ScoreRow[]>();
     for (const s of scores) {
       if (!s.team_id) continue;
       const a = getAccum(s.team_id);
@@ -350,11 +230,6 @@ export async function computeTeamSeasonStandings(
       raceTeamGroups.get(key)!.push(s);
     }
 
-    const classPositionByKey = new Map(
-      classScoreRows.map(
-        (r) => [`${r.subsessionId}:${r.raceNumber}:${r.driverId}`, r.classPosition] as const,
-      ),
-    );
     for (const group of raceTeamGroups.values()) {
       const subsessionId = group[0].subsession_id;
       const teamId = group[0].team_id as string;
@@ -372,9 +247,7 @@ export async function computeTeamSeasonStandings(
           raceNumber: s.race_number,
           driverId: s.driver_id,
           classId: null,
-          position: s.dsq
-            ? null
-            : (classPositionByKey.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`) ?? null),
+          position: s.dsq ? null : s.class_position,
           dsq: s.dsq,
           startingPosition: raw?.starting_position ?? null,
           incidents: raw?.incidents ?? null,

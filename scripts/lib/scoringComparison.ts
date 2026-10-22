@@ -19,20 +19,30 @@
 // New follows race_score_results_public: the final set for admins and posted rounds, otherwise the
 // raw set with no deduction. It is derived from the base table, so it does not depend on how
 // is_admin() treats the service role.
+//
+// Since the switch (scoring-switch), getRoundResults reads race_score_results_public, so the
+// results-page half of Today is no longer the pre-switch page. Run the comparison from a commit
+// before the switch to compare against what the site showed then.
 
 import { restGet, restGetAll, type SupabaseEnv } from '../../src/lib/db/client';
 import { getRoundResults, type RaceResultRow } from '../../src/lib/results/roundResults';
 import { applyPenaltiesToRoundResults } from '../../src/lib/penalties/roundResults';
-import { computeSeasonClassAdjustments, type SeasonClassScoreRow } from '../../src/lib/penalties/seasonAdjustments';
-import { buildSeasonOverallContext } from '../../src/lib/results/seasonContext';
+import {
+  computeSeasonClassAdjustments,
+  computeSeasonOverallAdjustments,
+  type SeasonClassScoreRow,
+  type SeasonOverallAdjustment,
+} from '../../src/lib/penalties/seasonAdjustments';
+import type { LeaderRaceStats } from '../../src/lib/penalties/reorder';
+import type { Penalty } from '../../src/lib/db/penalties';
 import {
   driversSelect,
   getCuratedRaceResultsForSubsessions,
   getLapStatsForSubsessions,
-  getRaceScoresForSubsessionsOverall,
   resultKey,
+  type CuratedRaceResultRow,
   type DriverBasic,
-  type RaceScoreRow,
+  type RawLapStatsRow,
 } from '../../src/lib/results/rows';
 import { getRoundBySubsessionId } from '../../src/lib/results/rounds';
 import { getPenaltiesForSubsession } from '../../src/lib/db/penalties';
@@ -109,14 +119,116 @@ export interface StoredScoreRow {
 
 type ScoreSet = 'raw' | 'final';
 
+/** A legacy race_scores_public row, as the pre-switch standings read it. */
+interface LegacyScoreRow {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  class_id: number;
+  team_id: string | null;
+  total_points: number;
+  finish_points: number;
+  class_points: number;
+  finesse_bonus: number;
+  points_deduction: number;
+  pole_bonus: number;
+  aggression_bonus: number;
+  lap_led_bonus: number;
+  fewest_incidents_bonus: number;
+  fastest_lap_bonus: number;
+  sprint_sweep_bonus: number;
+  classified: boolean;
+  dsq: boolean;
+  scored_position: number | null;
+}
+
+const LEGACY_SELECT =
+  'subsession_id,race_number,driver_id,class_id,team_id,total_points,finish_points,class_points,finesse_bonus,' +
+  'points_deduction,pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,' +
+  'sprint_sweep_bonus,classified,dsq,scored_position';
+
+/** What the pre-switch season context held for one round: lookups plus the TypeScript engine's overall adjustments. */
+interface LegacyContext {
+  penalties: Penalty[];
+  formatBySubsession: Map<number, 'endurance' | 'sprint' | null>;
+  rulesBySubsession: Map<number, unknown>;
+  rawByKey: Map<string, CuratedRaceResultRow>;
+  lapStatsByKey: Map<string, RawLapStatsRow>;
+  custIdByDriverId: Map<string, number>;
+  leaderStatsByRace: Map<string, LeaderRaceStats>;
+  adjustments: Map<string, SeasonOverallAdjustment>;
+}
+
+function legacyContext(
+  drivers: DriverBasic[],
+  overallScores: LegacyScoreRow[],
+  rawResults: CuratedRaceResultRow[],
+  lapStats: RawLapStatsRow[],
+  penalties: Penalty[],
+  round: { subsession_id: number; format: 'endurance' | 'sprint' | null },
+  rules: unknown,
+): LegacyContext {
+  const custIdByDriverId = new Map(
+    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
+  );
+  const rawByKey = new Map(rawResults.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const lapStatsByKey = new Map(lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]));
+  const formatBySubsession = new Map([[round.subsession_id, round.format]]);
+  const rulesBySubsession = new Map<number, unknown>([[round.subsession_id, rules]]);
+  const leaderStatsByRace = new Map<string, LeaderRaceStats>();
+  for (const r of rawResults) {
+    if (r.finish_position !== 1) continue;
+    leaderStatsByRace.set(`${r.subsession_id}:${r.race_number}`, {
+      lapsComplete: r.laps_complete,
+      averageLapTenThousandths:
+        lapStatsByKey.get(resultKey(r.subsession_id, r.race_number, r.cust_id))?.average_lap_ten_thousandths ?? null,
+    });
+  }
+  const adjustments =
+    penalties.length === 0
+      ? new Map<string, SeasonOverallAdjustment>()
+      : computeSeasonOverallAdjustments(
+          overallScores.map((s) => {
+            const custId = custIdByDriverId.get(s.driver_id);
+            const key = custId != null ? resultKey(s.subsession_id, s.race_number, custId) : null;
+            const raw = key ? rawByKey.get(key) : undefined;
+            return {
+              subsessionId: s.subsession_id,
+              raceNumber: s.race_number,
+              driverId: s.driver_id,
+              dsq: s.dsq,
+              classified: s.classified,
+              scoredPosition: s.scored_position,
+              intervalTenThousandths: raw?.interval_ten_thousandths ?? null,
+              finishPoints: s.finish_points,
+              finesseBonus: s.finesse_bonus,
+              poleBonus: s.pole_bonus,
+              aggressionBonus: s.aggression_bonus,
+              pointsDeduction: s.points_deduction,
+              lapsComplete: raw?.laps_complete ?? null,
+              averageLapTenThousandths: (key ? lapStatsByKey.get(key) : undefined)?.average_lap_ten_thousandths ?? null,
+            };
+          }),
+          penalties,
+          formatBySubsession,
+          rulesBySubsession,
+        );
+  return {
+    penalties,
+    formatBySubsession,
+    rulesBySubsession,
+    rawByKey,
+    lapStatsByKey,
+    custIdByDriverId,
+    leaderStatsByRace,
+    adjustments,
+  };
+}
+
 const STORED_SELECT =
   'subsession_id,race_number,driver_id,finish_points,class_points,finesse_bonus,pole_bonus,aggression_bonus,' +
   'lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,scored_position,dsq';
 
-// The columns computeSeasonStandings reads (getRaceScoresForSeasonClass), plus class_id to group by.
-const CLASS_SCORES_SELECT =
-  'subsession_id,race_number,driver_id,class_id,team_id,total_points,class_points,finesse_bonus,points_deduction,' +
-  'pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,classified,dsq';
 
 const rowKey = (raceNumber: number, driverId: string) => `${raceNumber}:${driverId}`;
 
@@ -177,20 +289,15 @@ export interface TodayRound {
 
 /** What the site shows today for one round, from the page code itself (see the file header). */
 export async function computeToday(env: SupabaseEnv, shared: SharedData, subsessionId: number): Promise<TodayRound> {
-  const [round, roundResults, penaltiesAll, posted, overallScores, classScores, rawResults, lapStats] =
-    await Promise.all([
-      getRoundBySubsessionId(env, subsessionId),
-      getRoundResults(env, subsessionId),
-      getPenaltiesForSubsession(env, subsessionId),
-      readPosted(env, subsessionId),
-      getRaceScoresForSubsessionsOverall(env, [subsessionId]),
-      restGet<(RaceScoreRow & { class_id: number })[]>(
-        env,
-        `race_scores_public?select=${CLASS_SCORES_SELECT}&subsession_id=eq.${subsessionId}`,
-      ),
-      getCuratedRaceResultsForSubsessions(env, [subsessionId]),
-      getLapStatsForSubsessions(env, [subsessionId]),
-    ]);
+  const [round, roundResults, penaltiesAll, posted, legacyScores, rawResults, lapStats] = await Promise.all([
+    getRoundBySubsessionId(env, subsessionId),
+    getRoundResults(env, subsessionId),
+    getPenaltiesForSubsession(env, subsessionId),
+    readPosted(env, subsessionId),
+    restGetAll<LegacyScoreRow>(env, `race_scores_public?select=${LEGACY_SELECT}&subsession_id=eq.${subsessionId}`),
+    getCuratedRaceResultsForSubsessions(env, [subsessionId]),
+    getLapStatsForSubsessions(env, [subsessionId]),
+  ]);
   if (!round) throw new Error(`Round ${subsessionId} not found in curated_rounds`);
   const season = round.season_id ? await seasonFor(env, shared, round.season_id) : null;
   const rules = season ? (resolveSeasonRuleset(season, shared.rulesets)?.rules ?? null) : null;
@@ -244,17 +351,8 @@ export async function computeToday(env: SupabaseEnv, shared: SharedData, subsess
   }
 
   // Overall standings.
-  const ctx = buildSeasonOverallContext(
-    new Set(),
-    shared.drivers,
-    overallScores,
-    rawResults,
-    penalties,
-    [round],
-    lapStats,
-    rules,
-  );
-  for (const s of ctx.overallScores) {
+  const ctx = legacyContext(shared.drivers, legacyScores, rawResults, lapStats, penalties, round, rules);
+  for (const s of legacyScores) {
     const adjustment = ctx.adjustments.get(`${s.subsession_id}:${s.race_number}:${s.driver_id}`);
     entry(s.race_number, s.driver_id).overall_total = adjustment
       ? adjustment.overallTotalPoints
@@ -263,8 +361,8 @@ export async function computeToday(env: SupabaseEnv, shared: SharedData, subsess
 
   // Class standings: rows shaped exactly as computeSeasonStandings shapes them, one class at a time.
   const classNameById = new Map(shared.classes.map((c) => [c.id, c.name]));
-  const byClass = new Map<number, (RaceScoreRow & { class_id: number })[]>();
-  for (const s of classScores) {
+  const byClass = new Map<number, LegacyScoreRow[]>();
+  for (const s of legacyScores) {
     if (!byClass.has(s.class_id)) byClass.set(s.class_id, []);
     byClass.get(s.class_id)!.push(s);
   }
@@ -289,11 +387,8 @@ export async function computeToday(env: SupabaseEnv, shared: SharedData, subsess
 }
 
 /** computeSeasonStandings' class rows for one class: non-DSQ rows ranked by raw finishing slot per race. */
-function classScoreRows(
-  scores: RaceScoreRow[],
-  ctx: ReturnType<typeof buildSeasonOverallContext>,
-): SeasonClassScoreRow[] {
-  const groups = new Map<string, RaceScoreRow[]>();
+function classScoreRows(scores: LegacyScoreRow[], ctx: LegacyContext): SeasonClassScoreRow[] {
+  const groups = new Map<string, LegacyScoreRow[]>();
   for (const s of scores) {
     const key = `${s.subsession_id}:${s.race_number}`;
     if (!groups.has(key)) groups.set(key, []);

@@ -41,6 +41,7 @@ import {
 import { getSeasonOverallContext } from '../../lib/results/seasonContext';
 import { driversSelect } from '../../lib/results/rows';
 import { isChampionshipSeason } from '../../lib/results/shared';
+import { formatDistanceKm } from '../../lib/results/format';
 import { classTagFull } from '../../lib/classColors';
 import { slugify } from '../../lib/slug';
 
@@ -736,7 +737,7 @@ if (loadError) markUncacheable(Astro);
                       <div>
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Distance Driven</div>
                         <div class="mt-0.5 text-sm text-white/90" data-live="ddist">
-                          {ext?.distanceKm !== null && ext?.distanceKm !== undefined ? `${ext.distanceKm.toFixed(1)} km` : '—'}
+                          {ext?.distanceKm !== null && ext?.distanceKm !== undefined ? formatDistanceKm(ext.distanceKm) : '—'}
                         </div>
                       </div>
                     </div>

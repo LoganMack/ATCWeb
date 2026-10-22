@@ -10,7 +10,7 @@ import RaceLinksBlock from '../../../components/RaceLinksBlock.astro';
 import IncidentButton from '../../../components/IncidentButton.astro';
 import ReportIncidentDialog from '../../../components/ReportIncidentDialog.astro';
 import InterviewDialog from '../../../components/InterviewDialog.astro';
-import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { resolveSupabaseEnv, withAccessToken } from '../../../lib/db/client';
 import { getDriverClasses } from '../../../lib/db/lookups';
 import {
   getExhibitionRoundIds,
@@ -21,7 +21,7 @@ import {
   type RaceLinks,
 } from '../../../lib/db/rounds';
 import { formatDate, getCircuits, getAllCircuitLayouts } from '../../../lib/db/circuits';
-import { getPenaltiesForSubsession, type Penalty } from '../../../lib/db/penalties';
+import type { Penalty } from '../../../lib/db/penalties';
 import {
   getSeasonById,
   getSeasons,
@@ -36,7 +36,7 @@ import {
   getAllRounds,
   computeDisplayRoundNumbers,
 } from '../../../lib/results/rounds';
-import { getRoundResults, type RoundResults, type RaceResultRow } from '../../../lib/results/roundResults';
+import { getRoundResults, type RoundResults } from '../../../lib/results/roundResults';
 import {
   getQualifyingForSubsession,
   getPracticeForSubsession,
@@ -48,7 +48,6 @@ import { topTeamScorers } from '../../../lib/results/seasonCarTeam';
 import { getRoundLayoutsForSubsessions, getDriverBestLapsAtTrack } from '../../../lib/results/layoutLaps';
 import { resolveLayout } from '../../../lib/results/layouts';
 import type { RoundSummary } from '../../../lib/results/rows';
-import { applyPenaltiesToRoundResults } from '../../../lib/penalties/roundResults';
 import { groupRoundsBySeason, roundTrackLabel, type RoundGroup } from '../../../lib/roundLabels';
 import {
   getReportingWindowForRound,
@@ -76,6 +75,10 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const isAdmin = isAdminView(Astro.locals);
 // Non-null exactly when isAdmin is true; used where the admin's session is read.
 const adminSession = isAdmin ? requireAdminSession(Astro.locals) : null;
+// Results and penalties are read as the admin, so an admin sees the final
+// result of an unposted round (BR4.2). Signed-in pages are never
+// edge-cached (src/middleware.ts), so this can't leak into a public copy.
+const resultsEnv = adminSession ? withAccessToken(supabaseEnv, adminSession.accessToken) : supabaseEnv;
 
 // iRacing subsession IDs are ordinary (non-bigint-range) integers in
 // practice, so Number() parsing here is safe — well under
@@ -170,7 +173,7 @@ const requestedRaceNumber = requestedRaceMatch ? Number(requestedRaceMatch[1]) :
 const classParam = (Astro.url.searchParams.get('class') ?? 'all').toLowerCase();
 
 let round: Awaited<ReturnType<typeof getRoundBySubsessionId>> = null;
-let roundResults: RoundResults = { byClass: new Map(), overall: new Map() };
+let roundResults: RoundResults = { byClass: new Map(), overall: new Map(), penalties: [] };
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let exhibitionRoundIds: Set<number> = new Set();
 let testRoundIds: Set<number> = new Set();
@@ -210,15 +213,15 @@ const practicePromise: Promise<{ overall: PracticeRow[]; byClass: Map<number, Pr
 
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, roundResults, classes, exhibitionRoundIds, testRoundIds, raceLinksByRace, penalties] = await Promise.all([
+    [round, roundResults, classes, exhibitionRoundIds, testRoundIds, raceLinksByRace] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
-      getRoundResults(supabaseEnv, subsessionId),
+      getRoundResults(resultsEnv, subsessionId),
       getDriverClasses(supabaseEnv),
       getExhibitionRoundIds(supabaseEnv),
       getTestRoundIds(supabaseEnv),
       getRaceLinksForSubsession(supabaseEnv, subsessionId),
-      getPenaltiesForSubsession(supabaseEnv, subsessionId),
     ]);
+    penalties = roundResults.penalties;
   } catch (err) {
     console.error('Failed to load round results:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -232,13 +235,8 @@ if (!loadError && !round) {
   return new Response(null, { status: 404, headers: { 'X-Redirect-To': '/results' } });
 }
 
-// This round's season's scoring ruleset — resolved once here, before the
-// penalty recompute below (which needs its base_points/class_podium tables,
-// see applyPenaltiesToRoundResults' own `rules` doc comment: a repositioned
-// driver's new finish/class points must be priced off the SAME table the
-// round was actually scored with, not a fixed default one) — and reused by
-// loadIncidentLimit further down instead of that block fetching it again
-// itself.
+// This round's season's scoring ruleset — resolved once here for
+// loadIncidentLimit further down.
 let ruleset: ScoringRuleset | null = null;
 if (!loadError && round) {
   try {
@@ -249,15 +247,11 @@ if (!loadError && round) {
   }
 }
 
-// Until stewards POST the round's incident report (admin > Incident
-// Reporting), nothing about its penalties may show on this page — not the
-// tags, not repositioned finishers, not points adjustments, not time
-// penalties — since that would spoil the unposted report. So until then
-// (for everyone, admins included — they can see it all on the Incident
-// Report page) the penalties list is emptied, the penalty engine below is
-// skipped, and the flat points deductions the database already folded into
-// each driver's total are taken back out. Posting the round reveals it all.
-// If the posted flag can't be read, this errs on the side of concealing.
+// Positions and points come from the view (race_score_results_public),
+// which already shows an unposted round's raw result to everyone but admins
+// (BR4.1, BR4.2), so nothing is stripped here. Penalty tags stay hidden
+// until the round is posted, admins included; if the posted flag can't be
+// read, this errs on the side of concealing.
 let roundPosted = false;
 if (!loadError && round) {
   try {
@@ -266,51 +260,7 @@ if (!loadError && round) {
     console.error('Failed to read incident report posted flag:', err);
   }
 }
-if (!roundPosted) {
-  penalties = [];
-  const stripDeduction = (row: RaceResultRow): RaceResultRow => {
-    if (row.pointsDeduction === 0 && !row.hasPenalty && row.penaltyOldPosition === null) return row;
-    const totalPoints = row.totalPoints - row.pointsDeduction;
-    return {
-      ...row,
-      totalPoints,
-      originalTotalPoints: totalPoints,
-      bonusPoints: row.bonusPoints - row.pointsDeduction,
-      pointsDeduction: 0,
-      hasPenalty: false,
-      penaltyOldPosition: null,
-    };
-  };
-  for (const [raceNumber, rows] of roundResults.overall) roundResults.overall.set(raceNumber, rows.map(stripDeduction));
-  for (const byRace of roundResults.byClass.values()) {
-    for (const [raceNumber, rows] of byRace) byRace.set(raceNumber, rows.map(stripDeduction));
-  }
-}
-
-// Recalculate positions/points for anywhere a penalty applies (rule 64's
-// re-classification, plus each of that driver's own flat points_penalty
-// deductions) — see src/lib/penalties.ts for the full engine. A no-op
-// (same object back) for a round with no penalties logged. Only ever
-// touches penalties.session_type === 'race' rows in effect, since
-// applyPenaltiesToRoundResults only ever looks up race_number keys that
-// exist in roundResults — a qualifying/practice penalty's race_number
-// sentinel (0) never matches a real race and is naturally never applied.
-if (!loadError && penalties.length > 0) {
-  // Alpha never earns the top-3-in-class Class Points bonus (Gamma/Delta's
-  // own per-race class-position bonus, see README) — told to recomputeRow
-  // via this lookup so a penalty-driven podium shuffle can't manufacture
-  // class points for an Alpha driver that the original pipeline data never
-  // had.
-  const classPointsEligibleByClassId = new Map(classes.map((c) => [c.id, c.name !== 'Alpha']));
-  roundResults = applyPenaltiesToRoundResults(
-    roundResults,
-    penalties,
-    round?.format ?? null,
-    classPointsEligibleByClassId,
-    ruleset?.rules ?? null,
-    subsessionId
-  );
-}
+if (!roundPosted) penalties = [];
 
 const classNameById = new Map(classes.map((c) => [c.id, c.name]));
 // Classes ordered Alpha/Gamma/Delta (sort_order) rather than however Map
@@ -380,8 +330,7 @@ let incidentLimit: number | null = null;
 async function loadIncidentLimit() {
   if (loadError || !round) return;
   try {
-    // `ruleset` already resolved above (needed earlier for the penalty
-    // recompute's points tables) — no second scoring_rulesets fetch needed.
+    // `ruleset` already resolved above — no second scoring_rulesets fetch needed.
     incidentLimit = resolveIncidentLimit(ruleset, round!.format, subsessionId);
   } catch (err) {
     console.error('Failed to resolve round incident limit:', err);
