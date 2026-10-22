@@ -125,6 +125,12 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: npx supabase db reset
 
+      # Each check in the file raises on a violation, so ON_ERROR_STOP turns the first failure into
+      # a non-zero exit. The fixtures run in one transaction that is rolled back (supabase/checks/README.md).
+      - name: Scoring fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/scoring-fixtures.sql
+
       - name: Skip the down-script exercise
         if: steps.scope.outputs.run == 'true' && (steps.rules.outputs.cutover == 'true' || steps.rules.outputs.new_migrations == '')
         run: |
