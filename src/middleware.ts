@@ -1,11 +1,13 @@
 /**
  * Runs on every on-demand request: resolves the session from cookies (refreshing it), exposes it as
  * `Astro.locals.session`, and gates /admin to signed-in admins. Also an edge cache via the Workers Cache API,
- * since a Cache-Control header alone doesn't cache a Worker response.
- * Never return a `cache.match()` response directly: its headers are immutable and Astro deletes a header from
- * it, which made every cache hit a 500 in production. Rebuild it into a fresh `Response`.
+ * since a Cache-Control header alone doesn't cache a Worker response. Copies are kept for fresh plus stale
+ * time, longer than the page declares, because the Cache API drops a copy at its own s-maxage and a stale one
+ * must still be there to serve while the page renders again. Never return a `cache.match()` response directly:
+ * its headers are immutable and Astro deletes one, which made every hit a 500 (readStoredCopy rebuilds it).
  */
 
+import type { APIContext, MiddlewareNext } from 'astro';
 import { defineMiddleware } from 'astro:middleware';
 import { resolveSupabaseEnv, restGet, type SupabaseEnv } from './lib/db/client';
 import { logPageView } from './lib/db/analytics';
@@ -20,7 +22,15 @@ import {
   refreshSession,
 } from './lib/auth';
 import { contentSecurityPolicy, newCspNonce } from './lib/csp';
-import { cacheKeyUrl, isCacheAnonymous } from './lib/edgeCache';
+import {
+  REFRESH_MARKER_TTL_SECONDS,
+  cacheKeyUrl,
+  createRefreshGuard,
+  isCacheAnonymous,
+  readStoredCopy,
+  refreshMarkerKey,
+  toStoredCopy,
+} from './lib/edgeCache';
 
 const ADMIN_PREFIX = '/admin';
 
@@ -46,7 +56,8 @@ async function hashVisitor(ip: string, userAgent: string, dateStr: string): Prom
 /**
  * Pages opt into the shared edge cache with `public, s-maxage, stale-while-revalidate`. Browsers would serve
  * their own stale copy (the Broadcaster toggle seemed broken until a refresh), so the browser copy gets
- * `max-age=0, must-revalidate`; explicit `max-age` responses are left alone.
+ * `max-age=0, must-revalidate`; explicit `max-age` responses are left alone. The longer lifetime of the
+ * stored edge copy never reaches the browser: readStoredCopy restores the page's own header before this runs.
  */
 function forBrowser(response: Response): Response {
   const cc = response.headers.get('Cache-Control') ?? '';
@@ -130,6 +141,75 @@ function isRejectedRefresh(err: unknown): boolean {
   return err instanceof Error && /^Session refresh failed \(4\d\d\)/.test(err.message);
 }
 
+/**
+ * Broadcaster mode: hand the most recent round's id to every downstream resolveSupabaseEnv(locals) call, which
+ * makes restGet/restGetAll exclude it. A failed lookup means nothing is hidden this render (logged), so that
+ * unfiltered render must never be stored under the broadcaster cache key.
+ */
+async function hideLatestRound(context: APIContext, env: SupabaseEnv): Promise<void> {
+  if (!env.url || !env.anonKey) return;
+  try {
+    const latest = await latestRoundSubsessionId(env);
+    if (latest !== null) context.locals.broadcasterHiddenSubsessionIds = [latest];
+  } catch (err) {
+    context.locals.uncacheable = true;
+    console.error('Broadcaster mode: failed to look up the latest round:', err);
+  }
+}
+
+/** A render may go in the shared cache: no session, not marked uncacheable, 200, no Set-Cookie, and `public`. */
+function isStorable(context: APIContext, response: Response): boolean {
+  return (
+    !context.locals.session &&
+    !context.locals.uncacheable &&
+    response.status === 200 &&
+    !response.headers.has('Set-Cookie') &&
+    (response.headers.get('Cache-Control') ?? '').includes('public')
+  );
+}
+
+type EdgeCache = NonNullable<App.Locals['runtime']['caches']>['default'];
+// cache.put is typed with Cloudflare's Response, not the DOM one Astro returns; the object is the same at runtime.
+type EdgeCacheResponse = Parameters<EdgeCache['put']>[1];
+
+// At most one background refresh per key in this Worker instance (see createRefreshGuard).
+const refreshGuard = createRefreshGuard();
+
+/**
+ * Renders a stale page again, in `waitUntil`, and stores it if it is storable. Only the middleware's own stale
+ * path calls this, so no request can trigger it. It runs only for cache-anonymous GETs, after the session step
+ * is skipped, so it never resolves a session; the broadcaster variant runs the same latest-round lookup as the
+ * foreground render. A failed or unstorable render keeps the stale copy and logs the key.
+ */
+async function refreshStaleCopy(
+  context: APIContext,
+  next: MiddlewareNext,
+  cache: EdgeCache,
+  cacheKey: string,
+): Promise<void> {
+  try {
+    // Best effort across instances in this data centre: a marker another instance wrote means it is on it.
+    const markerKey = refreshMarkerKey(cacheKey);
+    if (await cache.match(markerKey)) return;
+    const marker = new Response('1', {
+      headers: { 'Cache-Control': `public, s-maxage=${REFRESH_MARKER_TTL_SECONDS}` },
+    });
+    await cache.put(markerKey, marker as unknown as EdgeCacheResponse);
+
+    if (context.locals.broadcasterMode) await hideLatestRound(context, resolveSupabaseEnv(context.locals));
+    const rendered = await next();
+    if (!isStorable(context, rendered)) {
+      console.error('Edge cache refresh not storable; kept the stale copy:', cacheKey, rendered.status);
+      return;
+    }
+    await cache.put(cacheKey, toStoredCopy(rendered, Date.now()) as unknown as EdgeCacheResponse);
+  } catch (err) {
+    console.error('Edge cache refresh failed; kept the stale copy:', cacheKey, err);
+  } finally {
+    refreshGuard.finish(cacheKey);
+  }
+}
+
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
 
@@ -157,35 +237,25 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const cacheKey = cacheKeyUrl(context.url, broadcasterMode ? 'broadcaster' : 'default');
 
   // --- Edge cache read ------------------------------------------------------
-  // Rebuilt into a fresh Response (mutable headers) — see the file header.
+  // fresh: HIT. stale: STALE now, and the page renders again in the background (one refresh per key at a
+  // time). expired: an ordinary render below.
   if (cache && cacheEligible) {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      // Cloudflare's ReadableStream and Headers types differ from the DOM ones Response expects; the objects are the same at runtime.
-      const hit = new Response(cached.body as BodyInit | null, {
-        status: cached.status,
-        statusText: cached.statusText,
-        headers: cached.headers as unknown as HeadersInit,
-      });
-      hit.headers.set('X-ATC-Cache', 'HIT');
-      if (broadcasterMode) hit.headers.set('Cache-Control', 'private, no-store');
-      return withSecurityHeaders(forBrowser(hit));
+      // Cloudflare's Response type differs from the DOM one; the object is the same at runtime.
+      const { state, response: hit } = readStoredCopy(cached as unknown as Response, Date.now());
+      if (state !== 'expired') {
+        hit.headers.set('X-ATC-Cache', state === 'stale' ? 'STALE' : 'HIT');
+        if (state === 'stale' && refreshGuard.tryStart(cacheKey)) {
+          context.locals.runtime.ctx.waitUntil(refreshStaleCopy(context, next, cache, cacheKey));
+        }
+        if (broadcasterMode) hit.headers.set('Cache-Control', 'private, no-store');
+        return withSecurityHeaders(forBrowser(hit));
+      }
     }
   }
 
-  // Broadcaster mode: hand the most recent round's id to every downstream
-  // resolveSupabaseEnv(locals) call, which makes restGet/restGetAll exclude it.
-  // A failed lookup means nothing is hidden this request (logged), so that
-  // unfiltered render must never be stored under the broadcaster cache key.
-  if (broadcasterMode && env.url && env.anonKey) {
-    try {
-      const latest = await latestRoundSubsessionId(env);
-      if (latest !== null) context.locals.broadcasterHiddenSubsessionIds = [latest];
-    } catch (err) {
-      context.locals.uncacheable = true;
-      console.error('Broadcaster mode: failed to look up the latest round:', err);
-    }
-  }
+  if (broadcasterMode) await hideLatestRound(context, env);
 
   if (env.url && env.anonKey && !cacheAnonymous) {
     try {
@@ -258,22 +328,16 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // anywhere, whatever Cache-Control the page set afterwards.
   if (context.locals.uncacheable) response.headers.set('Cache-Control', 'no-store');
 
-  // --- Edge cache write: cache-eligible, no session, 200, no Set-Cookie, not marked uncacheable, and
-  // `public`. The broadcaster render has its own key; the write runs in `waitUntil` on a clone.
-  if (cacheEligible) {
-    const storable =
-      !context.locals.session &&
-      !context.locals.uncacheable &&
-      response.status === 200 &&
-      !response.headers.has('Set-Cookie') &&
-      (response.headers.get('Cache-Control') ?? '').includes('public');
-    if (storable) {
-      // cache.put is typed with Cloudflare's Response, not the DOM one Astro returns; the object is the same at runtime.
-      context.locals.runtime.ctx.waitUntil(
-        cache!.put(cacheKey, response.clone() as unknown as Parameters<NonNullable<typeof cache>['put']>[1]),
-      );
-      response.headers.set('X-ATC-Cache', 'MISS');
-    }
+  // --- Edge cache write: cache-eligible and storable (isStorable). The broadcaster render has its own key; the
+  // write runs in `waitUntil` on a clone kept for fresh plus stale time (toStoredCopy).
+  if (cache && cacheEligible && isStorable(context, response)) {
+    const copy = toStoredCopy(response, Date.now());
+    context.locals.runtime.ctx.waitUntil(
+      cache.put(cacheKey, copy as unknown as EdgeCacheResponse).catch((err: unknown) => {
+        console.error('Edge cache write failed:', cacheKey, err);
+      }),
+    );
+    response.headers.set('X-ATC-Cache', 'MISS');
   }
 
   // Never let a browser or intermediary hold a broadcaster render (set after

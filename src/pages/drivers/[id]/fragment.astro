@@ -41,6 +41,8 @@ const { awardGroups, raceCountBySubsession, splitGroupsOverall, splitGroupsClass
   raceHistory,
   awardEntries
 );
+// Shared like the other public fragments; markUncacheable after it turns a failed load into no-store.
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 if (loadError) markUncacheable(Astro);
 ---
 
