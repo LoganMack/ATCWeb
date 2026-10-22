@@ -31,7 +31,7 @@ jobs:
       - run: npm run build
 
       # Advisory only, by team choice: lint is warnings-only and formatting is
-      # reported but never blocks a merge. Only the build above is a gate.
+      # reported but never blocks a merge. The tests, type check and build above are the gates.
       - run: npm run lint
         continue-on-error: true
 
