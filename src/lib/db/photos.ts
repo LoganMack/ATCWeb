@@ -1,6 +1,6 @@
 import { restDelete, restGet, writeHeaders, type SupabaseEnv } from './client';
 
-// --- Champion photos (up to 5 per season+class, see /admin/champions) ------
+// --- Champion photos (up to 5 per season+class, see /admin/site-properties?tab=champions)
 
 export interface ChampionPhoto {
   id: string;

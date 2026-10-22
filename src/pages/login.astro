@@ -10,20 +10,18 @@ import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCook
 // separate "admin login": role is just a property of the account
 // (profiles.role), checked by src/middleware.ts on every /admin/* request,
 // so signing in here and then visiting /admin works automatically for an
-// admin account and doesn't for anything else. /admin/login is now just a
-// thin redirect here for old bookmarks.
+// admin account and doesn't for anything else.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // Validated: `next` is attacker-controllable, so only same-site paths pass (open-redirect fix).
 const next = safeNext(Astro.url.searchParams.get('next'), '/');
 const session = Astro.locals.session;
 
-// Signed in already, but landed here anyway (e.g. followed an old
-// /admin/login link, or a bookmarked /login?next=/admin/... while already
-// signed in as a non-admin) — if they're not an admin and `next` points
-// into /admin, redirecting them straight there would just bounce them
-// right back here via the middleware gate. Show a "no admin access" notice
-// instead of looping.
+// Signed in already, but landed here anyway (e.g. a bookmarked
+// /login?next=/admin/... while already signed in as a non-admin) — if
+// they're not an admin and `next` points into /admin, redirecting them
+// straight there would just bounce them right back here via the middleware
+// gate. Show a "no admin access" notice instead of looping.
 const needsPromotion = Boolean(session && next.startsWith('/admin') && session.profile?.role !== 'admin');
 if (session && !needsPromotion) {
   return Astro.redirect(next, 302);

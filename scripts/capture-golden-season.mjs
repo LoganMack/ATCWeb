@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// HISTORICAL, do not run: kept as the record of how tests/fixtures/golden/atc17 was captured. It
+// reads race_scores_public, which the scoring contract migration (20261024120000) dropped; a new
+// capture has to read race_score_results_public, as tests/fixtures/golden/atc17/view-rows.json does.
+//
 // Captures a finished season's standings inputs and the standings the live site shows for it, as the
 // golden fixture for tests/golden (the pure standings path must reproduce the live page exactly).
 //
@@ -15,10 +19,6 @@
 // Every read is paged with Range in 1000-row pages and an explicit unique order. The live code read
 // race_scores_public unpaged, so if any of those reads exceeds 1000 rows the live page would be
 // truncated: the script stops and reports it instead of writing a fixture.
-//
-// It reads race_scores_public, the legacy view the ATC17 capture was taken from. The scoring contract
-// migration (20261024120000) dropped that view, so this script no longer runs as it stands: a new
-// capture has to read race_score_results_public, as tests/fixtures/golden/atc17/view-rows.json does.
 //
 // iRacing customer ids are replaced with stand-ins (1, 2, 3, ... in driver-id order, then entrants
 // with no driver row in order of first appearance), the same mapping in drivers, rawResults and
