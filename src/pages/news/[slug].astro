@@ -64,11 +64,8 @@ async function loadTags() {
   }
 }
 
-// Tagged drivers (0082_news_post_drivers.sql), derived from @-mentions
-// typed into the body in the admin editor (see extractMentionedDriverIds in
-// supabase.ts) — looked up here so the body can render each mention as an
-// actual link to that driver's profile (see parseMentions/the paragraph
-// template below), rather than showing a separate list of names.
+// Tagged drivers (0082), derived from the body's @-mentions (extractMentionedDriverIds in
+// src/lib/db/news.ts), so each mention renders as a link to the driver.
 let taggedDrivers: DriverOption[] = [];
 async function loadTaggedDrivers() {
   try {
@@ -78,10 +75,8 @@ async function loadTaggedDrivers() {
   }
 }
 
-// Linked round (optional, see 0017_news_round_season.sql): a link to the
-// results at the top, and a live-computed recap at the bottom — neither is
-// stored, both are recomputed from the round's current data on every view
-// (see src/lib/newsRecap.ts's header for why).
+// Linked round (0017): a results link at the top and a recap at the bottom, both recomputed on every view
+// (src/lib/newsRecap.ts).
 let roundTrackName: string | null = null;
 // Cast for the same reason as seasonLogo above.
 let recap = null as RoundRecap | null;
@@ -105,12 +100,8 @@ await Promise.all([loadSeasonLogo(), loadTags(), loadTaggedDrivers(), loadRoundA
 // bold/links/lists in post bodies later, add `marked` and swap this out.
 const paragraphs = post.body.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 
-// Turns one paragraph's plain text into a list of plain-text/mention
-// segments, splitting on the same @[Name](driverId) token the admin
-// editor's mention autocomplete writes (see MENTION_PATTERN's own doc
-// comment in supabase.ts). Rendered inline below — a driver mention reads
-// as a normal link right in the sentence, Discord-style, rather than as a
-// separate "Featuring" list above the article.
+// Splits a paragraph on the editor's `@[Name](driverId)` token (MENTION_PATTERN in src/lib/db/news.ts) so
+// mentions render as inline links.
 interface BodySegment {
   text: string;
   driverId: string | null;

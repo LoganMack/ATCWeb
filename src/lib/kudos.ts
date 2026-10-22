@@ -87,10 +87,8 @@ export async function createKudos(env: SupabaseEnv, accessToken: string, input: 
 }
 
 /**
- * RLS limits this to the kudos' author or an admin; its cars go with it (on
- * delete cascade). Returns false when nothing was deleted — RLS filtering a
- * row out (or it already being gone) is still a 2xx from PostgREST. Scoped to
- * the round whose page the Delete came from; a malformed id deletes nothing.
+ * RLS allows only the author or an admin; its cars cascade. False when nothing was deleted (RLS filtering is
+ * still a 2xx). Scoped to the page's round.
  */
 export async function deleteKudos(
   env: SupabaseEnv,

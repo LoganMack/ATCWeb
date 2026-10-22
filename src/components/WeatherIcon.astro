@@ -1,11 +1,6 @@
 ---
-// Plain inline SVG, no icon library dependency — matches the rest of the
-// project's "no unnecessary dependencies" approach (see Nav.astro's
-// hamburger icon for the same pattern).
-//
-// Bold outline, two-tone: the sun is always gold, rain is always blue, and
-// clouds follow the page's text colour (so they stay readable in the light
-// theme too); overcast is two clouds, the back one dimmer.
+// Inline SVG weather icon, no icon library. Sun gold, rain blue, clouds in the text colour so they read in
+// both themes; overcast is two clouds.
 import { WEATHER_LABELS, type Weather } from '../lib/eventFormatting';
 
 interface Props {

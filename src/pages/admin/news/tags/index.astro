@@ -1,15 +1,8 @@
 ---
 export const prerender = false;
 
-// Manages news_tags (0055_news_tags.sql) — the freely-assignable labels a
-// news post can carry any number of, via the news_post_tags join table.
-// Not to be confused with the "RESULTS" tag shown on posts with a linked
-// round (NewsCard.astro/news/[slug].astro) — that one is display-only,
-// derived from round_subsession_id, and isn't managed here.
-//
-// Simple add/delete list, no logActivity — same convention
-// admin/media/index.astro's own small in-page CRUD lists (Videos/Graphics/
-// Meetups) already follow for lists this size.
+// Manages news_tags (0055), the free labels on posts via news_post_tags; not the display-only "RESULTS" tag.
+// A small add/delete list without logActivity, like the Media page's lists.
 
 import AdminLayout from '../../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../../lib/db/client';

@@ -3,16 +3,8 @@ export const prerender = false;
 import LoadError from '../../../../components/LoadError.astro';
 import { markUncacheable } from '../../../../lib/security';
 
-// A champion's race-by-race season — fetched client-side, once, the first time a
-// champion card on /champions is expanded (see the script in champions.astro; this
-// is the same lazy-detail pattern /circuits uses). Returns a bare HTML fragment, dropped
-// into the card's detail row via innerHTML. Same table shape as the Hall of Fame
-// card's season table, but one row per race in that champion's winning season
-// instead of one row per season.
-//
-// Reuses getDriverRaceHistory (the driver profile page's Races table) and narrows it to
-// one season, so the numbers here (class-relative finish, penalty-adjusted positions,
-// margin, incidents) always match the profile page.
+// A champion's race-by-race season, fetched once when a /champions card is first expanded and dropped into
+// its detail row. Narrows getDriverRaceHistory to one season, so the numbers match the driver profile.
 import TeamLogo from '../../../../components/TeamLogo.astro';
 import { resolveSupabaseEnv } from '../../../../lib/db/client';
 import { formatDateShort } from '../../../../lib/db/circuits';

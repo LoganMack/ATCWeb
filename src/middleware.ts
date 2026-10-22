@@ -1,27 +1,9 @@
 /**
- * Runs on every on-demand-rendered request (i.e. every `prerender = false`
- * page — prerendered/static pages never hit this at request time, same as
- * they never see Astro.locals.runtime.env). Resolves the current session
- * from cookies (refreshing it if the access token expired) and gates
- * everything under /admin behind "logged in AND role === 'admin'".
- *
- * Session state is exposed as `Astro.locals.session` for every page/API
- * route, so nothing downstream needs to touch cookies directly.
- *
- * Also wraps everything above in a Cloudflare Workers Cache API
- * read-through/write-through layer (see the two blocks below marked "Edge
- * cache") — the site's on-demand pages already each set their own
- * Cache-Control: public, s-maxage=... header, but that header alone does
- * NOT get Cloudflare to actually cache a Worker-generated response; only
- * explicit use of the Cache API does. See
- * https://developers.cloudflare.com/workers/reference/how-the-cache-works/
- *
- * CONFIRMED PITFALL (production incident): a `Response` returned by
- * `cache.match()` has an IMMUTABLE `headers` object, and Astro's
- * RenderContext.render() deletes its internal `astro-route-type` header from
- * whatever the middleware returns — on an immutable response that threw and
- * became a 500 on every cache hit. NEVER return a `cache.match()` result
- * directly; always rebuild it into a fresh `Response` first, as done below.
+ * Runs on every on-demand request: resolves the session from cookies (refreshing it), exposes it as
+ * `Astro.locals.session`, and gates /admin to signed-in admins. Also an edge cache via the Workers Cache API,
+ * since a Cache-Control header alone doesn't cache a Worker response.
+ * Never return a `cache.match()` response directly: its headers are immutable and Astro deletes a header from
+ * it, which made every cache hit a 500 in production. Rebuild it into a fresh `Response`.
  */
 
 import { defineMiddleware } from 'astro:middleware';
@@ -62,12 +44,9 @@ async function hashVisitor(ip: string, userAgent: string, dateStr: string): Prom
 }
 
 /**
- * Pages opt into the SHARED edge cache with `Cache-Control: public,
- * s-maxage=N, stale-while-revalidate=M` (no `max-age`). Browsers read that
- * too, and with stale-while-revalidate would serve their own stale copy (the
- * footer's Broadcaster toggle appeared not to work until a refresh). So the
- * BROWSER copy gets `max-age=0, must-revalidate` instead; the edge copy keeps
- * the original. Responses with their own explicit `max-age` are left alone.
+ * Pages opt into the shared edge cache with `public, s-maxage, stale-while-revalidate`. Browsers would serve
+ * their own stale copy (the Broadcaster toggle seemed broken until a refresh), so the browser copy gets
+ * `max-age=0, must-revalidate`; explicit `max-age` responses are left alone.
  */
 function forBrowser(response: Response): Response {
   const cc = response.headers.get('Cache-Control') ?? '';
@@ -103,11 +82,8 @@ function normalisePath(pathname: string): string | null {
 }
 
 /**
- * Baseline security headers for every response. The CSP (src/lib/csp.ts)
- * allows scripts only from this origin plus the hashed inline theme script
- * and Cloudflare's injected scripts; it also blocks framing by other sites,
- * plugins, <base> hijacking and cross-site form posts. The CSP itself is set
- * per response in withSecurityHeaders because its nonce must be fresh.
+ * Baseline security headers. The CSP (src/lib/csp.ts) is set per response in withSecurityHeaders because its
+ * nonce must be fresh.
  */
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
@@ -282,12 +258,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // anywhere, whatever Cache-Control the page set afterwards.
   if (context.locals.uncacheable) response.headers.set('Cache-Control', 'no-store');
 
-  // --- Edge cache write (GET, anonymous, successful, opt-in pages only) -----
-  // Every condition must hold: cache-eligible request, no session, 200, no
-  // Set-Cookie, not marked uncacheable, and the page itself opted in with
-  // `public`. The broadcaster render is stored under its own key. `waitUntil`
-  // keeps the write off the response path; `.clone()` because a body can
-  // only be read once.
+  // --- Edge cache write: cache-eligible, no session, 200, no Set-Cookie, not marked uncacheable, and
+  // `public`. The broadcaster render has its own key; the write runs in `waitUntil` on a clone.
   if (cacheEligible) {
     const storable =
       !context.locals.session &&
@@ -311,13 +283,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
   forBrowser(response);
   response = withSecurityHeaders(response);
 
-  // --- Site analytics (0077/0080 page_views, written via record_page_view since 0114) ---
-  //
-  // One row per real hit on a public page: GET only, never /admin, /api or a
-  // /fragment fetch, never a real admin's own traffic, and 200s or errors
-  // (>= 400) only. Only on the Worker (needs runtime.ctx.waitUntil), and never
-  // from localhost: dev traffic means nothing on the dashboard and local runs
-  // must not write to the production database.
+  // --- Site analytics (page_views via record_page_view, 0114): one row per real public page hit (GET; not
+  // /admin, /api, fragments or admins; 200s and errors only). Worker only, never from localhost, so dev runs
+  // don't write to production.
   const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(context.url.hostname);
   if (
     context.locals.runtime &&

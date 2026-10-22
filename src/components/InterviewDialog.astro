@@ -1,13 +1,8 @@
 ---
 /**
- * Record Interview dialog — opened by the microphone button next to Kudos on
- * the round results page. Only rendered for signed-in users linked to a driver;
- * the button is disabled for everyone else. Behavior (MediaRecorder, the 60 s
- * countdown that drains the Record button right-to-left, Re-Record, Submit)
- * lives in src/scripts/interviewRecorder.ts, loaded by the results page shell —
- * this markup arrives in a fetched fragment, where <script> tags never run.
- * Submitting POSTs the clip to `action` (the results fragment,
- * `intent=submit-interview`) via fetch.
+ * Record Interview dialog for the microphone button on the results page, rendered only for driver-linked
+ * users. Behaviour is in src/scripts/interviewRecorder.ts (loaded by the shell, since this arrives in a
+ * fragment); Submit posts the clip to `action` with `intent=submit-interview`.
  */
 interface Props {
   action: string;

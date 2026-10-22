@@ -6,10 +6,8 @@ import { safeNext } from '../../lib/security';
 export const prerender = false;
 
 /**
- * Toggles the "View as Visitor" preview cookie (see Footer.astro and
- * src/lib/auth.ts's isAdminView). Server-side enforces real-admin-only
- * even though the form itself is only ever rendered for one, same
- * defense-in-depth every other mutation in this codebase already does.
+ * Toggles the "View as Visitor" cookie; checks for a real admin server-side even though only admins see the
+ * form.
  */
 export const POST: APIRoute = async ({ locals, cookies, request, redirect }) => {
   const form = await request.formData();

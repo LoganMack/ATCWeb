@@ -1,50 +1,8 @@
 /**
- * Generic click-to-expand behavior for the `[data-expand-row]` /
- * `[data-detail-row]` convention used across the site — a summary
- * `<tr data-expand-row>` toggles visibility of its own immediately-
- * following `<tr data-detail-row>` sibling (Standings, Team Standings,
- * Driver Stats, and ResultsTable.astro's race-results tables all use this
- * same markup shape). Previously each of those four places carried its
- * own copy-pasted version of this script, each re-binding a fresh
- * listener on every row on every `astro:page-load`.
- *
- * That had a real bug, reported on Driver Stats: with no de-dup guard, if
- * `astro:page-load` ever fired more than once for the same still-mounted
- * content, every row picked up a SECOND click listener stacked on the
- * first — so a single click toggled the row open and then immediately
- * closed again in the same synchronous event dispatch, which looks
- * exactly like clicking did nothing at all. A full page reload reset the
- * JS context and cleared the duplicate binding, which is why it "worked
- * again after reloading."
- *
- * Fixed properly here by switching to ONE delegated listener on
- * `document`, bound exactly once ever. Delegation also means this never
- * needs to re-run after a view transition at all — `closest()` resolves
- * fresh against whatever's in the DOM at the moment of each click, so it
- * doesn't matter whether a row existed yet when this script first ran or
- * got swapped in by a later navigation.
- *
- * The de-dup guard below is a plain module-scoped variable, NOT
- * `document.body`'s dataset (an earlier version used that, matching the
- * convention `sortable-table.ts` and `hard-form-submit.ts` use). That was
- * itself a live bug: Astro's client router replaces `document.body` with a
- * freshly-parsed element on every soft navigation, so a flag stored on it
- * only ever survives until the next navigation — while the `click`/`keydown`
- * listeners below are bound to `document` itself, which is never replaced.
- * Every soft navigation therefore re-passed the (reset) guard and stacked
- * another pair of listeners onto `document`, which never get removed. Two
- * or three navigations deep, a single click fires the handler 2-3 times in
- * the same synchronous dispatch — an even count nets back to the original
- * state (looks like clicking does nothing at all, reproduced live on Team
- * Stats after Home → Teams → History → Team Stats); an odd count still
- * toggles, just via a different listener than you'd expect. Per-element
- * dataset guards are still correct for sortable-table.ts/hard-form-submit.ts
- * (they must re-run their setup against each newly-appeared table/form), but
- * this listener is deliberately bound exactly once for the page's entire
- * lifetime, so it needs a guard that isn't tied to an element Astro can swap
- * out from under it — a module-scoped variable, scoped to this script's own
- * single execution (bundled module scripts execute at most once per page
- * load, soft navigations included), fits that exactly.
+ * Click-to-expand for `<tr data-expand-row>` + the following `<tr data-detail-row>`, site-wide. One delegated
+ * listener on `document`, bound once per page lifetime. The guard is a module variable, not a `document.body`
+ * flag: the client router replaces body on every navigation, so a body flag let listeners stack up and a
+ * click toggled twice (looking like nothing happened).
  */
 let expandRowsInitialized = false;
 
@@ -62,12 +20,7 @@ function initExpandRows() {
   expandRowsInitialized = true;
 
   document.addEventListener('click', (e) => {
-    // Hall of Fame nests a PhotoGrid's lightbox buttons AND its own
-    // Overall/Alpha/Gamma/Delta stat-filter buttons (see
-    // src/scripts/hofClassFilter.ts) inside its data-expand-row summary
-    // row — without these guards, clicking either would also toggle the
-    // row open/closed underneath. Each one's own listener still fires
-    // normally; this only stops it from ALSO reaching this one.
+    // Lightbox and Hall of Fame class-filter buttons inside a summary row must not also toggle the row.
     if ((e.target as HTMLElement).closest('[data-lightbox]')) return;
     if ((e.target as HTMLElement).closest('[data-hof-class-select]')) return;
     // A driver's name inside the row links to their profile — follow it instead of toggling the row.
@@ -88,9 +41,7 @@ function initExpandRows() {
   });
 }
 
-// Runs immediately (document.body already exists — this script tag is at
-// the end of <body>) AND on every astro:page-load as a defensive backstop;
-// the guard above makes either trigger path idempotent, so there's no harm
-// in both being wired up.
+// Runs now (the script is at the end of <body>) and on every astro:page-load as a backstop; the guard makes
+// both safe.
 initExpandRows();
 document.addEventListener('astro:page-load', initExpandRows);

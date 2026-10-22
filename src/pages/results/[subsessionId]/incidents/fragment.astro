@@ -3,14 +3,8 @@ export const prerender = false;
 import LoadError from '../../../../components/LoadError.astro';
 import { markUncacheable } from '../../../../lib/security';
 
-// v0.16: the Incident Report — every penalty/incident logged for one round,
-// broken apart per session (each real race, plus Qualifying/Practice as a
-// whole — see 0056_penalty_session_type.sql), same pattern as the results
-// page's per-race tables, replacing both the old external "Incident Report
-// URL" link and the old per-row expand-to-reveal panel on the results page.
-// All penalty add/edit/remove lives here instead of on the results page
-// (src/pages/results/[subsessionId].astro), which is read-only for
-// penalties as of this version.
+// The Incident Report: every incident logged for one round, grouped by session (each race, plus Qualifying
+// and Practice; 0056). All penalty editing happens here; the results page is read-only for penalties.
 import { resolveSupabaseEnv, withAccessToken, getDrivers } from '../../../../lib/db/client';
 import {
   getPenaltiesForSubsessions,
@@ -107,7 +101,11 @@ const shellPath = `/results/${Astro.params.subsessionId}/incidents`;
 // The fragment owns the POST handling, so its forms post here and carry the page's query string along (the redirect lands back on the same view).
 const formAction = `${shellPath}/fragment${Astro.url.search}`;
 
-/** Builds a round-wide driver lookup straight from getRoundResults() — used by the page render. Deliberately excludes notInRoster rows (see results.ts's RaceResultRow.notInRoster) — their driver.id is a synthetic `unrostered:<custId>` string, not a real drivers.id, and penalties.driver_id is a NOT NULL uuid FK into drivers — offering one of these as a pickable "driver at fault" would fail at the database with an invalid-uuid error the moment anyone actually logged a penalty against them. Use the Drivers admin page's "Sync Results with Roster" button to give them a real roster entry first if they need a penalty logged. */
+/**
+ * Round-wide driver lookup from getRoundResults(), without unrostered rows: their synthetic
+ * `unrostered:<custId>` id isn't a drivers uuid, so a penalty against them would fail. Give them a roster
+ * entry first ("Sync Results with Roster").
+ */
 async function loadRoundDrivers(): Promise<Map<string, DriverBasic>> {
   const results = await getRoundResults(supabaseEnv, subsessionId);
   const out = new Map<string, DriverBasic>();
@@ -210,11 +208,8 @@ if (round) {
   }
 }
 
-// Position and points lost or gained per penalty: the race's result before
-// this round's penalties against the one shown now, per Logan "Before vs.
-// after this round's full recalculation", not per individual penalty. Both
-// come from race_score_results_public (the final set for admins and posted
-// rounds, beside the raw set).
+// Position and points before vs. after this round's penalties as a whole, not per penalty (Logan); both from
+// race_score_results_public.
 const beforeAfterByKey = new Map<string, RaceResultRow>();
 for (const rows of roundResults.overall.values()) {
   for (const row of rows) beforeAfterByKey.set(`${row.raceNumber}:${row.driver.id}`, row);
@@ -241,14 +236,8 @@ function deltaClass(n: number | null): string {
   return n > 0 ? 'text-brand-blue' : 'text-brand-pink';
 }
 
-// Every driver who appeared anywhere in this round, sorted by car number —
-// powers the Driver and Involved pickers in the add/edit dialog (an
-// incident can only involve cars that were actually in this round). Unlike
-// the old per-race dialog, the driver being penalized is no longer excluded
-// from the "Involved" list — per Logan, involvement should be inclusive so
-// the penalized driver's own car can be tagged alongside anyone else's.
-// notInRoster rows are excluded — see loadRoundDrivers' own doc comment
-// above on why their synthetic id can never be a valid penalties.driver_id.
+// Every rostered driver in this round by car number, for the dialog's pickers. The penalised driver may also
+// be tagged as involved (Logan); unrostered rows are excluded (see loadRoundDrivers).
 const driverById = new Map<string, DriverBasic>();
 for (const rows of roundResults.overall.values()) {
   for (const row of rows) if (!row.notInRoster) driverById.set(row.driver.id, row.driver);
@@ -292,12 +281,9 @@ const reportNumberById = new Map(
   incidentReports.filter((r) => r.status !== 'dismissed').map((r, i) => [r.id, i + 1])
 );
 
-// Flag reports that probably describe the same incident: same session, lap
-// and turn, plus at least one car in common — reporters often leave cars out,
-// so "04 and 11" and "04" still match. Turn is free text, so case and a
-// leading "T"/"Turn" are ignored ("10", "T10", "turn 10" all match).
-// Dismissed reports are left out: once a duplicate is dismissed, the report it
-// duplicated stops being flagged (and is flagged again if it's Reopened).
+// Likely duplicate reports: same session, lap and turn with at least one car in common (reporters often leave
+// cars out). Turn ignores case and a leading "T"/"Turn". Dismissed reports are skipped, so dismissing a
+// duplicate unflags the other.
 function normalizeTurn(turn: string): string {
   return turn.trim().toLowerCase().replace(/^(turn|t)\s*(?=\d)/, '').replace(/\s+/g, ' ');
 }
@@ -340,12 +326,8 @@ function reportLabel(r: IncidentReport): string {
   const n = reportNumberById.get(r.id);
   return `${n ? `INC ${n} · ` : ''}${sessionLabelByValue.get(r.session) ?? r.session} · Lap ${r.lap} · Turn ${r.turn}`;
 }
-// Admin → Incident Reporting links here two ways: "View Incidents"
-// (?view=reports) shows the driver-submitted reports queue, "Edit Report"
-// (no param) shows the not-yet-posted notice and the + Add Incident To
-// Report control instead. Every POST on this page
-// redirects back to its own pathname + search, so the mode survives a
-// Dismiss/Reopen/Log incident round trip.
+// "View Incidents" (?view=reports) shows the reports queue; "Edit Report" shows the not-yet-posted notice and
+// Add Incident. POSTs redirect to pathname + search, so the mode survives.
 const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
 // Reports still waiting on the stewards — the number on the View Reported Incidents button.
 const openReportCount = incidentReports.filter((r) => r.status === 'open').length;
@@ -423,16 +405,9 @@ if (adminSession && viewReports && incidentReports.length > 0) {
 function myReviewOf(reportId: string): IncidentReportReview | null {
   return reviewsByReport.get(reportId)?.find((v) => v.reviewer_id === myUserId) ?? null;
 }
-// The reports split into three groups, each still in chronological order, so
-// the next report this steward hasn't reviewed is always first in the list:
-// Needs your review (not dismissed, voting still open, no review from you yet),
-// Reviewed (you've reviewed it, it was logged and voting is over, or you were
-// involved and can't review it), and
-// Dismissed and Logged (both collapsed, in that order at the bottom — a logged
-// report only ever shows up under Logged, whatever its review state). If the
-// reviews didn't load there's no telling what this steward has reviewed, so
-// every open report goes in one ungrouped list instead of a wrong queue (with
-// a warning above it).
+// Reports in three groups, each chronological so the next one to review is first: Needs your review; Reviewed
+// (by you, logged and closed, or you were involved); Dismissed and Logged, collapsed at the bottom. If
+// reviews didn't load, open reports go in one ungrouped list with a warning.
 interface ReportGroup { title: string; icon: 'review' | 'reviewed' | 'open' | 'dismissed' | 'logged'; empty: string | null; collapsed: boolean; reports: IncidentReport[]; alwaysShow?: boolean }
 const needsReviewGroup: ReportGroup = { title: 'Needs Review', icon: 'review', empty: null, collapsed: false, reports: [], alwaysShow: true };
 const reviewedGroup: ReportGroup = { title: 'Reviewed', icon: 'reviewed', empty: null, collapsed: false, reports: [] };
@@ -528,11 +503,8 @@ if (viewReports) {
   else if (flash === 'reasonnotsaved') reviewFlash = "The incident was dismissed, but its reason couldn't be saved — run supabase/migrations/0111_incident_report_dismissal_reason.sql in the Supabase SQL editor.";
 }
 
-// Every loggable session for this round's dialog/grouping — every real race,
-// plus Qualifying and Practice (session_type sentinel race_number 0, see
-// 0056_penalty_session_type.sql), independent of whether Qualifying/Practice
-// have any imported results data at all (Logan: incident logging shouldn't
-// depend on that).
+// Every loggable session: each race plus Qualifying and Practice (race_number 0; 0056), whether or not they
+// have results (Logan).
 const sessionOptions: { value: string; label: string }[] = [
   ...raceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
   { value: 'qualifying:0', label: 'Qualifying' },
@@ -757,11 +729,8 @@ summaryRows.sort(
 );
 
 
-// Whatever `season` the round detail page was showing (itself forwarded
-// from the Race Results list's season/filter dropdown — see
-// src/pages/results/[subsessionId].astro and results.astro) — carried back
-// through "Back to Results" so that page's own "Back to Race Results" link
-// still knows where to return to.
+// The round page's `season` value, passed back through "Back to Results" so its "Back to Race Results" link
+// still returns to the right list.
 const seasonParam = Astro.url.searchParams.get('season');
 // Links between this page's two admin views (see viewReports), carrying
 // ?season= along for the same reason as backToRoundHref.
@@ -770,11 +739,8 @@ const viewReportsHref = `/results/${subsessionId}/incidents?${seasonParam ? `sea
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
-// (The link-preview description now lives in the shell, incidents.astro — crawlers do not run this fragment.)
-// Next auto-incremented Incident # for the add/log dialog: one past the
-// highest purely-numeric incident_number already logged this round (1 for a
-// round with none). Non-numeric numbers are ignored; the field stays
-// editable either way.
+// Next Incident #: one past the highest numeric number this round (1 when none); non-numeric ones are ignored
+// and the field stays editable.
 const nextIncidentNumber =
   Math.max(0, ...sortedPenalties.map((p) => (p.incident_number && /^\d+$/.test(p.incident_number.trim()) ? Number(p.incident_number) : 0))) + 1;
 if (loadError) markUncacheable(Astro);
@@ -798,12 +764,8 @@ if (loadError) markUncacheable(Astro);
         )}
         <span hidden data-page-title={`${viewReports ? 'Reported Incidents' : 'Incident Report'}: ${round.track_name}`}></span>
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
-          {/* Mobile: the title and the track name stack on two lines, with the
-              track name dropping out of the italic Teko display font into the
-              same Roboto body font as the date line below it, per Logan.
-              Desktop keeps it on a single line in the display font throughout.
-              "Reported Incidents" is the steward's View Incidents mode; every
-              other view reads "Incident Report". */}
+          {/* On mobile the track name drops to its own line in the body font (Logan). "Reported Incidents"
+             is the steward's View Incidents mode. */}
           {viewReports ? 'Reported Incidents' : 'Incident Report'}:{' '}
           <span class="mt-1 block font-body text-lg not-italic sm:mt-0 sm:inline sm:font-display sm:text-5xl sm:italic">
             {round.track_name}
@@ -1228,13 +1190,8 @@ if (loadError) markUncacheable(Astro);
               <table class="w-full border-collapse">
                 <thead>
                   <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                    {/* Columns shown: on mobile just #, Lap, Driver and PP; from md
-                        up also Involved, Time, Pts, Pos Δ and Pts Δ. Everything
-                        else about an incident (description, offenses, appeal
-                        notes) lives in the details popup — click/tap any row
-                        (the › at the end of it) to open it
-                        ([data-incident-row] / [data-incident-details-dialog]
-                        below), per Logan. */}
+                    {/* Mobile shows #, Lap, Driver and PP; md+ adds Involved, Time, Pts, Pos Δ and Pts Δ.
+                       Everything else is in the details popup opened from the row (Logan). */}
                     <th class="py-3 pl-4 pr-3 font-medium">#</th>
                     <th class="py-3 pr-3 text-center font-medium">Lap</th>
                     <th class="py-3 pr-3 font-medium">Driver</th>
@@ -1278,12 +1235,7 @@ if (loadError) markUncacheable(Astro);
                           </td>
                           <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell">{involvedSummary(p) ?? '—'}</td>
                           <td class="py-2.5 pr-3 text-center text-white/60">
-                            {/* A warning never carries a PP value of its own
-                                (penalty_points is stored 0 — see this file's
-                                own "warning" sentinel comment above), so
-                                showing both would always read as "— Warning"
-                                — just the word, no placeholder dash, per
-                                Logan. */}
+                            {/* A warning is stored as 0 PP, so show just "Warning", no dash (Logan). */}
                             {p.is_warning ? (
                               <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
                             ) : (
@@ -1638,13 +1590,9 @@ if (loadError) markUncacheable(Astro);
                 ⚠ Incident #<span data-incident-number-warning-value></span> is already logged this round. Double-check the number before saving.
               </p>
 
-              {/* Cars at fault (src/scripts/faultCards.ts): tick every car at fault
-                  and each gets its own card with its own PP/Warning, time penalty,
-                  points penalty and offenses. Saving creates one penalty row per
-                  car, all sharing this incident's #, session, lap, description and
-                  involved cars. Racing Incident (no car at fault,
-                  0020_penalty_racing_incident.sql) is one row with no driver.
-                  Editing an existing row is one car only (single mode). */}
+              {/* Cars at fault (src/scripts/faultCards.ts): one penalty row per ticked car, sharing the
+                 incident's #, session, lap, description and involved cars. A Racing Incident (0020) is one
+                 driverless row; editing allows one car. */}
               <div data-fault-root data-incident-faults class="flex flex-col gap-2">
                 <fieldset data-fault-picker data-driver-picker class="flex flex-col gap-1 text-[11px] text-white/50">
                   <legend class="mb-1" data-incident-fault-legend>Cars at fault</legend>
@@ -1782,13 +1730,8 @@ if (loadError) markUncacheable(Astro);
           </dialog>
         )}
 
-        {/* "Incident Details" popup — opened by clicking/tapping any incident
-            row (desktop and mobile alike). The table itself leaves out the
-            description, offenses and appeal notes, so this card is where
-            everything about one incident is readable in one place. Every
-            viewer gets it (not isAdmin-gated) — it's read-only, apart from
-            the "Submit Appeal" button at the bottom, which opens the appeal
-            form below while the Incident Appeal Window is open. */}
+        {/* "Incident Details" popup, for every viewer: description, offenses and appeal notes, plus "Submit
+           Appeal" while the appeal window is open. */}
         <dialog
           data-mobile-incident-dialog
           class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60 md:max-w-4xl"

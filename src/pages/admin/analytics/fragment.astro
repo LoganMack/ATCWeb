@@ -11,17 +11,9 @@ const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 /**
- * The dashboard's "Site Analytics" block, split out of admin/fragment.astro
- * so get_page_view_stats() only runs when an admin actually asks for it —
- * the dashboard renders one button per reporting window (`?range=30|90|365|
- * all`, see src/lib/analyticsRanges.ts) in its place, wired up in
- * admin/index.astro's script. Before the split, every /admin visit waited
- * on this RPC, which had grown slow enough to hit Supabase's 8s statement
- * timeout, so the dashboard spent ~8s loading and then showed no analytics.
- *
- * Returns a bare HTML fragment — no <AdminLayout>, no <html>/<head> — meant
- * only to be dropped into the dashboard's analytics container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * The dashboard's Site Analytics block as a fragment, loaded only when an admin picks a window (`?range=`,
+ * src/lib/analyticsRanges.ts), so get_page_view_stats() no longer delays every /admin visit. Never linked
+ * directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -30,10 +22,8 @@ const accessToken = admin.accessToken;
 const range = resolveAnalyticsRange(Astro.url.searchParams.get('range'));
 const pageViewStats = await getPageViewStats(supabaseEnv, accessToken, range.days);
 
-// getPageViewStats swallows every failure (including the statement timeout)
-// and returns null — answer with a real error status so the dashboard's
-// click handler takes its failure path and shows its "couldn't load" message
-// with the range buttons still there to try again.
+// getPageViewStats returns null on any failure, so answer with an error status and the dashboard shows its
+// retry message.
 if (!pageViewStats) {
   return new Response('Analytics unavailable', { status: 503 });
 }
@@ -71,10 +61,7 @@ const topPages = pageViewStats?.topPages ?? [];
 const maxPageViews = Math.max(1, ...topPages.map((p) => p.views));
 const topErrors = pageViewStats?.topErrors ?? [];
 const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
-// No Cache-Control header here, matching every other /admin/* page — none of
-// them opt into the public fragment routes' s-maxage caching, since this one
-// carries per-admin analytics/session-scoped data behind the same auth gate
-// as the rest of the admin panel (src/middleware.ts).
+// No Cache-Control: per-admin data, like every /admin page.
 ---
 
 <div class="mt-4 space-y-6">
@@ -124,12 +111,8 @@ const maxErrorOccurrences = Math.max(1, ...topErrors.map((e) => e.occurrences));
     </div>
 
     <div class="rounded-xl border border-white/10 bg-brand-ink p-5">
-      {/* Today's hourly shape stacked directly above the selected
-          window's rollup, in one card — get_page_view_stats()'
-          hourlyToday key (0083_page_views_hourly_today.sql), same bar
-          shape as the window chart below it, just scoped to today
-          (America/New_York) so a real-time-ish traffic shape isn't
-          smoothed away by the window's averaging. */}
+      {/* Today's hourly traffic (hourlyToday, 0083) above the window's chart, so today's shape isn't
+         averaged away. */}
       <h3 class="text-xs uppercase tracking-wide text-white/40">Traffic by Hour (Today, ET)</h3>
       <div class="mt-4 flex h-24 items-stretch gap-1">
         {hourlyToday.map((h) => (

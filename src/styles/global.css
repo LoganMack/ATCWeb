@@ -3,23 +3,10 @@
 @tailwind utilities;
 
 /* ============================================================
-   Buttons — one shared style: an OUTLINE button. Transparent fill, a
-   colored 1.5px border, bold colored text, and a soft tint that fills in on
-   hover. Corner radius comes from the site-wide "slightly rounded" scale in
-   tailwind.config.mjs (rounded-lg = 3px). Usage:
-
-     <button class="btn btn-primary">      blue (default action)
-     <button class="btn btn-danger">       pink (delete / destructive)
-     <button class="btn btn-gold">         gold (appeals / stewards)
-     <button class="btn btn-neutral">      grey (secondary / cancel)
-
-   Optional size: btn-sm (compact) or btn-lg (page-level form actions).
-   Toggle buttons (filters/tabs) take data-active="true" or .btn-active for
-   their selected look. Layout-only utilities (mt-*, self-start, w-full, ...)
-   are still added per use.
-
-   To restyle every button on the site, change the rules in this block —
-   nothing else needs to be touched.
+   Buttons: one shared outline style (coloured 1.5px border and text, a tint on hover, rounded-lg).
+   <button class="btn btn-primary"> blue (default) | btn-danger pink (destructive) | btn-gold gold
+   (appeals, stewards) | btn-neutral grey (secondary, cancel). Sizes: btn-sm, btn-lg. Toggle buttons take
+   data-active="true" or .btn-active. Restyle every button here, nowhere else.
    ============================================================ */
 @layer components {
   .btn {
@@ -74,44 +61,26 @@
 }
 
 /*
- * FONT SETUP.
- *
- * Teko (display/headlines) + Roboto (body) are loaded from Google Fonts via
- * <link> tags in src/layouts/Layout.astro — no local files, no npm package.
- *
- * Historically the series has used Cuatra for logos/titles, but the file(s)
- * on hand appear to be under a "free for personal use" style license, which
- * typically does not cover a public-facing organization's branding even if
- * it's non-profit — that distinction is usually about *organizational vs.
- * individual* use, not profit motive. Worth checking the exact license text
- * that comes with your Cuatra files, or contacting the foundry directly, if
- * you want to use it for real. If/when you get a confirmed commercial
- * license + webfont files:
- *   1. Drop the .woff2 files in `public/fonts/`.
- *   2. Add an @font-face block here pointing at them.
- *   3. Prepend 'Cuatra' to the `display` font stack in tailwind.config.mjs.
+ * Fonts: Teko (display) + Roboto (body) from Google Fonts (Layout.astro). Teko stands in for Cuatra, whose
+ * files appear to carry a personal-use licence that likely doesn't cover an organisation's branding. With a
+ * commercial licence and webfonts: add them to public/fonts/, an @font-face here, and 'Cuatra' first in
+ * tailwind.config.mjs' display stack.
  */
 
 :root {
   color-scheme: dark;
 }
 
-/* Radio/checkbox inputs (admin forms) render with the browser's own default
-   accent color otherwise, which isn't the site's blue (#4369F5, brand.blue /
-   brand.primary in tailwind.config.mjs) — this keeps them consistent with
-   every other blue accent on the site. */
+/* Native radios and checkboxes in the brand blue instead of the browser's accent. */
 input[type='radio'],
 input[type='checkbox'] {
   accent-color: theme('colors.brand.primary');
 }
 
-/* Every button/link on the site already fills with brand.primary
-   (#4369F5, sampled directly from the real logo files) — the one place a
-   *different*, non-brand blue was actually showing up was the browser's
-   own default focus ring (Chrome/Edge's native focus outline is a lighter
-   blue than #4369F5), since none of the site's buttons/links set their own
-   focus style. This replaces that default with the real ATC blue
-   everywhere, instead of removing focus indication outright. */
+/*
+ * The browser's default focus ring is a different blue; use the brand blue rather than removing focus
+ * indication.
+ */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
@@ -130,12 +99,10 @@ body {
   @apply bg-brand-ink font-body text-white antialiased;
 }
 
-/* Teko renders italicized everywhere it's used, per style direction — this
-   covers both headings (which get font-display via the rule below) and any
-   element with the `font-display` utility class applied directly (nav
-   links, stat numbers, card titles, etc). Plain CSS, not @apply, so there's
-   no risk of the circular-dependency issue a literal `.font-display`
-   selector caused earlier when combined with `@apply font-display`. */
+/*
+ * Teko is italic everywhere (style direction). Plain CSS, not @apply, which caused a circular dependency with
+ * `.font-display`.
+ */
 h1,
 h2,
 h3,
@@ -151,13 +118,10 @@ h4 {
   @apply font-display tracking-wide;
 }
 
-/* Scroll-reveal utility — see src/scripts/reveal.ts. No animation library
-   dependency: IntersectionObserver + a CSS transition covers the staggered
-   fade/rise effect used across the site. Kept deliberately subtle (short
-   rise distance, quick transition, and an observer rootMargin that fires
-   before an element is actually on screen) — a bigger/slower version looked
-   goofy on longer lists where a fast scroll would catch several items
-   mid-pop-in instead of just finding them already settled. */
+/*
+ * Scroll reveal (src/scripts/reveal.ts), kept subtle: a bigger, slower version looked odd when a fast scroll
+ * caught list items mid-animation.
+ */
 .reveal {
   opacity: 0;
   transform: translateY(0.5rem);
@@ -180,30 +144,17 @@ h4 {
     transform: none;
     transition: none;
   }
-  /* "Happening Now" nav banner (src/components/Nav.astro) — a continuously
-     scrolling marquee is exactly the kind of motion this preference exists
-     to suppress. Freezing it still leaves the full text readable (the
-     content is duplicated for the loop, so the frozen frame reads twice in
-     a row, not truncated). */
+  /* Reduced motion freezes the marquee; the duplicated content still reads in full. */
   .animate-marquee {
     animation: none;
   }
 }
 
-/* Instant, zero-JS tactile feedback for anything clickable. This fires the
-   moment a mouse/finger goes down — well before any server response comes
-   back — which is what actually answers "did my click register?" on a
-   page that's about to sit there loading for a moment. The network-request
-   side of that (an actual loading indicator for the time in between) is
-   handled separately by src/scripts/pageProgress.ts.
-
-   Links get a quick opacity dip rather than a scale, since `a` covers
-   everything from small nav text to full card components, and shrinking a
-   large card on press reads as glitchy rather than tactile. Buttons,
-   selects, and anything explicitly marked as a button (e.g. sortable
-   table headers) get a subtle press-down scale instead, since those are
-   always small, self-contained controls where a scale reads as a real
-   "press." */
+/*
+ * Instant press feedback for anything clickable, before the server answers (pageProgress.ts covers the wait).
+ * Links dip in opacity, since scaling a large card reads as a glitch; buttons, selects and button-like
+ * controls scale down slightly.
+ */
 a:active {
   opacity: 0.7;
 }
@@ -214,12 +165,10 @@ select:active,
   transform: scale(0.97);
 }
 
-/* Elements that don't already carry their own Tailwind transition utility
-   (most cards/nav links do, via hover: variants) get a minimal one here so
-   the press state above eases rather than snaps. This deliberately only
-   sets `transition-property`/`duration`/`timing-function` — never the
-   `transition` shorthand — so it can't clobber a more specific utility
-   class's own transition declaration elsewhere on the same element. */
+/*
+ * A minimal transition for elements without their own, so the press state eases. Only the longhand
+ * properties, so a utility's `transition` isn't clobbered.
+ */
 /* .cm-pin (dot-map pins) is excluded from both press rules: it's an SVG <g> whose position is its transform attribute, and a CSS transform here would override that and fling the pin to the map's corner. */
 a,
 button,
@@ -271,85 +220,21 @@ th[data-sort-key][data-sort-dir='desc']::after {
   opacity: 1;
 }
 
-/* Frozen table headers. `--sticky-header-offset` is kept in sync with the
-   site's own sticky nav bar's REAL height by updateStickyHeaderOffset() in
-   Nav.astro — that height varies page to page (the "Happening Now" live
-   banner adds to it on some page loads, not others), so a hardcoded value
-   here would either leave a gap or let a frozen header sit half-covered by
-   the nav depending on the page. This :root default is only the same-page
-   fallback for the instant before that script runs.
-
-   Scoped to `[data-sticky-thead]` — a marker attribute added to each
-   table's own `overflow-x-auto` wrapper div, back when these tables used
-   to scroll horizontally on narrow screens. That had to be removed
-   (Logan's call, Sept 2026): `overflow-x: auto` on one axis makes the
-   BROWSER silently compute the other axis's overflow to `auto` too (a real
-   CSS rule, not a bug), which makes the wrapper div itself a scrolling
-   container — and `position: sticky` on anything inside it then sticks
-   relative to THAT DIV, not the page, even though the div itself never
-   actually scrolls vertically. That's what caused the frozen header to
-   render detached (sitting on top of a body row instead of above it) the
-   first time this was implemented — confirmed by reproducing it standalone
-   and watching it resolve instantly the moment overflow-x-auto came off.
-   There's a real CSS-level fix for this now (per-axis scroll containers),
-   but as of this writing it's Chrome-only behind an experimental flag, not
-   something a production site can rely on. So: no more horizontal
-   scrolling on these tables — a table wider than its card now just
-   overflows past it instead of scrolling. Low real risk on the
-   public-facing tables (they already hide extra columns at sm:/md:/lg:
-   before this point), higher on admin tables and the two driver-profile
-   "detail row" breakdown tables (team-stats/fragment.astro,
-   driver-stats/fragment.astro — both force a wide min-width and don't hide
-   any columns), which can now genuinely overflow on a narrow window.
-
-   UPDATE (Logan's report, Sept 2026): the exact same overflow-not-visible-
-   creates-a-scroll-container rule bit this feature a second time, one level
-   higher up the DOM than the fix above — the shared "relative overflow-
-   hidden" wrapper `<section>` every PageBanner-using page (standings,
-   team-standings, roster, teams, driver profile, driver/team stats, hall of
-   fame, awards) was built with turned THAT section into the sticky
-   reference frame instead of the page, exactly like the wrapper divs did
-   before. Results pages don't use PageBanner and so never had this ancestor
-   — that's why sticky headers kept working there and nowhere else. Fixed by
-   dropping `overflow-hidden` from those sections (`relative` alone is
-   enough for PageBanner's own absolutely-positioned divs, which are already
-   self-bounding and were never actually relying on the parent clipping
-   them — see PageBanner.astro's own doc comment for the full explanation
-   and the Playwright verification). No table wrapper changes needed this
-   time; `[data-sticky-thead]` itself was already correct everywhere.
-
-   `[data-sticky-thead]` specifically does NOT include the two
-   driver-profile season/round tables (src/pages/drivers/[id]/fragment.astro)
-   that scroll inside their own fixed-height `max-h-[23rem] overflow-auto`
-   panel instead of with the page — those intentionally exploit the same
-   overflow-auto-creates-a-scroll-container behavior explained above, and
-   already have their own correct `sticky top-0` header scoped to that
-   panel; they don't want the nav's offset, and stacking this rule's
-   `position: sticky` inside an already-sticky ancestor would be redundant
-   at best.
-
-   Sticky positioning is applied per-`<th>` rather than on `<thead>`/`<tr>`
-   — the more broadly-supported technique for a table header that needs to
-   keep working under `border-collapse: collapse` (which every table here
-   uses). An opaque `bg-brand-ink` is required so body rows scrolling
-   underneath don't show through the frozen header — it matches the page's
-   own background exactly, since none of these tables sit on a distinct
-   card panel of their own. The bottom border is redrawn as a `box-shadow`
-   instead of relying on the header row's own Tailwind `border-b` class: a
-   collapsed-border table's cell borders aren't guaranteed to repaint
-   correctly once those cells are offset by `position: sticky`, but a
-   box-shadow paints with the element itself, so it can't be affected by
-   that. */
+/* Frozen table headers on `[data-sticky-thead]`. --sticky-header-offset tracks the nav's real height
+   (updateStickyHeaderOffset() in Nav.astro); this :root value is only the fallback until it runs.
+   Any ancestor with overflow other than visible (overflow-x-auto, overflow-hidden) becomes the sticky
+   reference instead of the page, so these tables don't scroll horizontally and their sections must not
+   be overflow-hidden. The driver-profile panels that scroll on their own keep their own sticky top-0.
+   Sticky goes on each <th> (reliable with border-collapse), with an opaque bg-brand-ink background and the
+   bottom border redrawn as a box-shadow, which survives the sticky offset. */
 :root {
   --sticky-header-offset: 76px;
 }
 
-/* Rounded table cards: the frozen header's opaque square corners (and a
-   hovered last row's) used to poke out past the card's rounded border — dark
-   notches at the corners, with a stray line through them. `overflow: clip`
-   trims everything to the rounded edge WITHOUT creating a scroll container
-   (unlike overflow hidden/auto, which would break the sticky header — see
-   above), so the sticky behavior is untouched. */
+/*
+ * `overflow: clip` trims the sticky header and hovered rows to the rounded card without creating a scroll
+ * container.
+ */
 [data-sticky-thead].rounded-xl {
   overflow: clip;
 }
@@ -363,37 +248,11 @@ th[data-sort-key][data-sort-dir='desc']::after {
 }
 
 /* ============================================================
-   LIGHT MODE
-   ============================================================
-   Dark is the default, unprefixed styling everywhere above. It's toggled
-   via the footer button (src/scripts/theme.ts), applied to <html> as the
-   `.light` class, persisted to localStorage, and read back before first
-   paint by the inline script in Layout.astro's <head> (FOUC prevention).
-
-   Every colour that differs between the themes is a CSS variable: the
-   dark value is set on :root below and the light value is set by
-   redefining the same variable under .light. Rules under .light set
-   variables (and color-scheme) only, never a property directly.
-
-     - --fg: the foreground. Tailwind's `white` reads it, so every white
-       utility, at any opacity and in any property (text, borders, the
-       translucent tints used as surfaces, rings, dividers), becomes "ink"
-       (rgb(17 17 20)) in light mode.
-     - --canvas: the page colour. Tailwind's `brand.ink` reads it (page
-       body, sticky headers, hero gradient stops): "paper"
-       (rgb(247 247 249)) in light mode.
-     - --fg-text-boost: light mode draws white TEXT 0.08 more opaque than
-       its class says (text-white/50 renders at 0.58), because grey running
-       text read as too washed out on paper. Text only, flat, capped at 1.
-     - --text-*: brand blue/pink/gold (and emerald-400 / red-300) used as
-       TEXT get darkened, contrast-checked values in light mode. Their
-       background, border and ring uses keep the brand hex values.
-     - the fixed colour family (fixed-white, fixed-ink, brand-fixed-*) never
-       changes with the theme. It is for the few things that stay the same
-       in both themes: the "Happening Now" marquee strip, white text on a
-       solid blue badge, hover states that stay white.
-     - true black (bg-black, backdrop overlays) and box-shadows are left
-       alone: they read as shadow or scrim in either theme.
+   LIGHT MODE: dark is the default; `.light` on <html> (src/scripts/theme.ts, set before paint in
+   Layout.astro) switches. Every colour that differs is a variable set on :root and redefined under .light,
+   which sets variables only. --fg (Tailwind `white`) becomes ink and --canvas (`brand.ink`) paper;
+   --fg-text-boost makes light-mode white text 0.08 more opaque; --text-* are darkened brand colours for
+   text only. The fixed-* colours never change, and true black and shadows are left alone.
    ============================================================ */
 
 :root {
@@ -442,18 +301,11 @@ th[data-sort-key][data-sort-dir='desc']::after {
   --map-tip-border: rgb(17 17 20 / 0.15);
 }
 
-/* ---- `.theme-tint`: car logos. Most of this
-   artwork is light-colored (white/light line art or transparent-background
-   logos) made to sit on the site's dark background — on light mode's paper
-   background it goes faint or invisible. `brightness(0)` turns every
-   non-transparent pixel solid black regardless of its original color,
-   preserving the image's own alpha/shape — the "silhouette" look asked for,
-   not a recolor. Applied via a plain class (not the white/ink transform
-   above) since these are raster images, not CSS colors: TeamLogo.astro's
-   `tint` prop adds it for car logos specifically (real team logos keep
-   their own colors in both themes).
-   --theme-tint is only defined in light mode; in dark mode the fallback is
-   Tailwind's own filter stack, so a logo's `grayscale` class still works. */
+/*
+ * `.theme-tint` (car logos, via TeamLogo's `tint`): most car artwork is light and vanishes on paper, so light
+ * mode turns it into a black silhouette with brightness(0); team logos keep their colours. In dark mode
+ * Tailwind's own filter stack applies, so `grayscale` still works.
+ */
 .theme-tint {
   filter: var(
     --theme-tint,
@@ -529,18 +381,10 @@ input[class~='file:bg-white/10']::file-selector-button {
 }
 
 /* ============================================================
-   Opaque surfaces
-   Every translucent tint used for a card, field, dropdown or chip
-   background is replaced here with the solid color it produced on the
-   plain page background (ink in dark mode, paper in light mode), so
-   nothing behind a card (banner art, a sticky row, another card) shows
-   through. On a plain page the result looks identical to the old tint.
-   This block is deliberately last and unlayered so it wins over the
-   utility classes; the class names in markup stay as they were. To
-   change a surface color, edit its --surface-* value here (dark on
-   :root, light under .light; add new tints to this list), not the markup.
-   Not touched on purpose: black scrims (modal backdrops, image fades),
-   the blurred sticky nav, progress-bar fills and toggle tracks.
+   Opaque surfaces: every translucent card, field, dropdown or chip tint is replaced by the solid colour it
+   gave on the plain page (ink, or paper in light mode), so nothing behind a card shows through. Last and
+   unlayered so it beats the utilities; change a surface via its --surface-* value, not the markup.
+   Left alone: black scrims, the blurred sticky nav, progress fills and toggle tracks.
    ============================================================ */
 :root {
   --card-blue: rgb(17 20 37);
@@ -730,14 +574,9 @@ input[class~='file:bg-white/10']::file-selector-button {
 }
 
 /* ============================================================
-   STANDINGS BY ROUND SLIDER (ticks + floating round tag)
-   ============================================================
-   Geometry inside a 36px row (the site's standard control height): the
-   track + pill thumb are centered in the row (18px), so they line up with the
-   neighboring dropdowns. The hover tag floats just below the row (top: 38px) and
-   takes no room in the layout. --p (0-100%), --f (0-1) and --steps (rounds - 1) are set
-   on .round-slider by the server markup and by the slider script in
-   standings.astro. */
+   STANDINGS BY ROUND SLIDER: track and thumb centred in the 36px control row, the hover tag floating below
+   it (top: 38px). --p, --f and --steps are set by the markup and standings.astro's slider script.
+   ============================================================ */
 .round-slider {
   --rs-track: rgba(255, 255, 255, 0.15);
   --rs-tick: rgba(255, 255, 255, 0.28);

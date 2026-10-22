@@ -34,13 +34,7 @@ if (Astro.request.method === 'POST') {
   const intent = String(form.get('intent') ?? 'save');
 
   if (intent === 'set-season-teams') {
-    // Whole-organization batch save (per Logan: saving one season's team
-    // link at a time, each with its own Save button and reload, got
-    // annoying with a lot of seasons on file). One form now posts every
-    // season's chosen team_id_<season_id> field at once; this only calls
-    // setOrganizationTeamForSeason for the seasons that actually changed,
-    // so an org with 17 seasons doesn't fire 17 writes just because the
-    // admin only touched one.
+    // One form saves every season's team at once (Logan), writing only the seasons that changed.
     if (!isNew && id) {
       try {
         const [seasonsForSave, existingLinks] = await Promise.all([

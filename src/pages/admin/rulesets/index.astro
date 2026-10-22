@@ -24,46 +24,12 @@ const actor = { id: admin.user.id, name: actorNameFor(admin) };
 let error: string | null = null;
 
 /**
- * Every field a `rules` value can carry, for Admin > Rulesets' "copy as a
- * starting point" reference block AND as the default content of the
- * Advanced rules textarea when adding a brand-new ruleset (see
- * `advancedTemplate` below). Built from what's actually live in the real
- * rulesets on file as of 2026-08-25 — drops, teams, probation,
- * pp_penalties, classification, incident_limits, and season_pp_limit are
- * IDENTICAL, verbatim, across every one of them, so this template uses
- * those real values rather than placeholders. base_points/class_podium/
- * classified_minimum/round_incident_limit/bonuses/race_overrides get their
- * own dedicated fields in the popup editor now (see the split below) — only
- * base_points/class_podium's per-position arrays are left as PLACEHOLDER
- * SHAPES (descending N..1) for whoever's building a new ruleset to
- * overwrite with real numbers.
- *
- * Split into two groups so the shape itself documents which half
- * `score_round()` (see supabase/migrations/20261021120000_race_score_results_expand.sql)
- * actually reads:
- *
- * READ BY THE SCORING ENGINE: base_points (+ sprint_race2/sprint_race3),
- * race_overrides (0048/0067 — base_points/classified_minimum/incident_limit
- * only; race_overrides.qualifying_points is RESERVED, not read by anything
- * yet), class_podium, classified_minimum, bonuses (every bonus now needs an
- * explicit `enabled: true` — see 0067_ruleset_overhaul_and_bonuses.sql).
- *
- * REFERENCE ONLY, transcribed from the rulebook for admins/stewards but NOT
- * read by any code: drops (except .base, which the driver standings read
- * as the number of worst rounds dropped — see rulesetBaseDropWeeks in
- * results.ts — plus the season's extra_drop_weeks), teams, probation, pp_penalties, classification,
- * season_pp_limit, and — easy to miss — classification.min_distance_pct:
- * the actual 50%-of-leader's-laps classification rule is HARDCODED in
- * score_round() (§2.25), not read from here. Editing this field
- * does nothing. round_incident_limit and race_overrides.incident_limit are
- * ALSO reference-only in the sense that the scoring engine never reads them
- * (no points effect) — they're read by the results page instead, purely to
- * flag a driver's Incidents column in red when they've gone over.
- *
- * `can_drop_final_round` is NOT part of this object — it's a real column on
- * scoring_rulesets, not a `rules` jsonb field, because it's consulted
- * directly by the standings computation in src/lib/results/ rather than by
- * score_round().
+ * Every field a `rules` value can carry, for the reference block and a new ruleset's Advanced JSON (shared
+ * values are the real ones as of 2026-08-25; base_points/class_podium are placeholder shapes).
+ * - Read by score_round(): base_points (+ sprint_race2/3), race_overrides, class_podium, classified_minimum,
+ *   bonuses (each needs `enabled: true`, 0067).
+ * - Not read by scoring: drops (except .base, the drop count), teams, probation, pp_penalties, classification
+ *   (the 50% rule is hardcoded), season_pp_limit; round_incident_limit only flags the results page.
  */
 const descendingPlaceholder = (length: number) => Array.from({ length }, (_, i) => length - i);
 const rulesTemplate = {
@@ -93,12 +59,8 @@ const rulesTemplate = {
     sprint_race2: descendingPlaceholder(40),
     sprint_race3: descendingPlaceholder(40),
   },
-  // See 0048_race_number_points_overrides.sql — only takes effect for a
-  // round whose subsession_id is listed in subsession_ids; leave that
-  // array empty (as here) to keep this whole block inert. incident_limit
-  // (0067) is this same special-event mechanism's answer to "what's the
-  // round incident limit for a special event" — round_incident_limit below
-  // covers ordinary sprint/endurance rounds.
+  // Applies only to rounds listed in subsession_ids (0048); empty keeps it inert. incident_limit (0067) sets
+  // a special event's round incident limit.
   race_overrides: {
     subsession_ids: [],
     base_points: { '1': descendingPlaceholder(30), '2': descendingPlaceholder(30), '3': descendingPlaceholder(30) },
@@ -133,17 +95,9 @@ const rulesTemplate = {
 };
 const rulesTemplateJson = JSON.stringify(rulesTemplate, null, 2);
 
-// The popup editor below gives base_points, class_podium, classified_minimum,
-// round_incident_limit, bonuses, and season_pp_limit their own structured
-// fields (the values that actually differ from season to season, or that
-// need a checkbox rather than raw JSON per Logan) and leaves everything else
-// — drops, teams, probation, race_overrides, pp_penalties, classification,
-// incident_limits — in a single "Advanced rules (JSON)" textarea, since
-// those are (per the doc comment above) either identical across every
-// ruleset on file today or too rarely touched to earn dedicated fields.
-// This is what a brand-new ruleset's Advanced textarea starts prefilled
-// with. On save, the structured fields always win over anything with the
-// same key left behind in that textarea — see the save handler below.
+// The values that vary by season, or need a checkbox (Logan), get their own fields; the rest stays in the
+// "Advanced rules (JSON)" textarea, which starts with this template. On save, the fields win over the same
+// keys in the textarea.
 const {
   base_points: _templateBasePoints,
   class_podium: _templateClassPodium,
@@ -274,11 +228,7 @@ if (Astro.request.method === 'POST') {
     if (!error) return Astro.redirect('/admin/rulesets', 302);
   } else {
     const name = String(form.get('name') ?? '').trim();
-    // Checked = final round CAN be dropped like any other round; unchecked
-    // (a checkbox that's missing entirely from the submitted form data,
-    // which is how an unchecked HTML checkbox always behaves) = final round
-    // is PROTECTED. See ScoringRuleset.can_drop_final_round's own doc
-    // comment in src/lib/supabase.ts for the full polarity explanation.
+    // Checked: the final round can be dropped; unchecked (missing from the form): it's protected.
     const canDropFinalRound = form.get('can_drop_final_round') === 'on';
     const advancedRaw = String(form.get('rules_advanced') ?? '').trim();
 
@@ -288,10 +238,8 @@ if (Astro.request.method === 'POST') {
       error = 'Advanced rules (JSON) is required — see the reference template above if starting fresh.';
     } else {
       try {
-        // Parse and keep the PARSED OBJECT — not a re-stringified JSON
-        // string — see ScoringRuleset.rules' own doc comment in
-        // src/lib/supabase.ts for why (this exact mistake corrupted the
-        // live "ATC 18.3" ruleset in production once already).
+        // Keep the parsed object, not a JSON string (see ScoringRuleset.rules in src/lib/db/seasons.ts): a
+        // string corrupted the live "ATC 18.3" ruleset once.
         const advancedRules = JSON.parse(advancedRaw);
         if (typeof advancedRules !== 'object' || advancedRules === null || Array.isArray(advancedRules)) {
           throw new Error('Advanced rules (JSON) must be a JSON object, not a string, array, or number.');
@@ -332,21 +280,15 @@ if (Astro.request.method === 'POST') {
         if (!Number.isFinite(classifiedMinimum.sprint)) throw new Error('Classified minimum — Sprint must be a number.');
         if (!Number.isFinite(classifiedMinimum.endurance)) throw new Error('Classified minimum — Endurance must be a number.');
 
-        // Round incident limit (informational only — read by the results
-        // page, not the scoring engine) — both sides optional, omitted
-        // entirely if left blank rather than written as 0 (0 would read as
-        // "flag everyone with any incidents at all", which is never what a
-        // blank field means).
+        // Informational, read by the results page only. Blank sides are omitted, never 0, which would flag
+        // every incident.
         const roundIncidentLimit: Record<string, number> = {};
         const roundIncidentLimitSprint = parseOptionalInt(form.get('round_incident_limit_sprint'), 'Incident limit — Sprint');
         if (roundIncidentLimitSprint !== undefined) roundIncidentLimit.sprint = roundIncidentLimitSprint;
         const roundIncidentLimitEndurance = parseOptionalInt(form.get('round_incident_limit_endurance'), 'Incident limit — Endurance');
         if (roundIncidentLimitEndurance !== undefined) roundIncidentLimit.endurance = roundIncidentLimitEndurance;
 
-        // Bonuses — every one of them gets an explicit enabled flag now
-        // (0067_ruleset_overhaul_and_bonuses.sql requires it; a bonus with
-        // no `enabled: true` scores zero regardless of what point values
-        // are configured here).
+        // Every bonus needs an explicit enabled flag (0067), or it scores zero.
         const bonuses: Record<string, unknown> = {
           sublime_finesse: {
             enabled: form.get('bonus_sublime_finesse_enabled') === 'on',
@@ -401,11 +343,7 @@ if (Astro.request.method === 'POST') {
           if (!Number.isFinite(seasonPpLimit)) throw new Error('Season PP limit must be a number.');
         }
 
-        // Structured fields always win over anything left behind under the
-        // same key in the Advanced textarea — an admin who pastes a stale
-        // base_points/class_podium/classified_minimum/round_incident_limit/
-        // bonuses/season_pp_limit into Advanced shouldn't have it silently
-        // override what they just set via the dedicated fields above.
+        // The dedicated fields win over the same keys pasted into Advanced.
         const rules: Record<string, unknown> = {
           ...(advancedRules as Record<string, unknown>),
           base_points: basePoints,
@@ -449,10 +387,7 @@ try {
   console.error('Failed to load scoring rulesets:', err);
 }
 
-// Precompute each ruleset's dialog payload once, server-side, instead of
-// re-deriving it in client JS from raw `rules` — same shape as
-// incidents.astro's [data-edit-incident] buttons (data-incident="{...}"),
-// just with the split-out structured fields already extracted.
+// Each ruleset's dialog payload, precomputed server-side with the structured fields already split out.
 const rulesetDialogData = rulesets.map((r) => {
   const { basePoints, classPodium, classifiedMinimum, roundIncidentLimit, bonuses, seasonPpLimit, advanced } = splitRulesForForm(r.rules);
   const b = (key: string) => (bonuses as any)?.[key] ?? {};
@@ -891,11 +826,8 @@ const newRulesetTemplateData = {
       });
     });
 
-    // Wires up the single shared add/edit <dialog> for this page, same
-    // pattern as incidents.astro's [data-open-incident-dialog]/
-    // [data-edit-incident]: a trigger button carries the row's data as a
-    // JSON string in a data-* attribute, and opening the dialog just
-    // populates its fields from that JSON before calling showModal().
+    // The shared add/edit dialog: a trigger carries its row's data as JSON in a data-* attribute, which fills
+    // the fields before showModal().
     const dialog = document.querySelector<HTMLDialogElement>('[data-ruleset-dialog]');
     if (!dialog) return;
     const form = dialog.querySelector('form')!;

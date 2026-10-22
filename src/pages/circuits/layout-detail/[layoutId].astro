@@ -3,23 +3,10 @@ export const prerender = false;
 import LoadError from '../../../components/LoadError.astro';
 import { markUncacheable } from '../../../lib/security';
 
-// Circuits page's per-layout expanded-row content — fetched client-side,
-// once, the first time a visitor expands a given row on /circuits (see
-// src/scripts/circuitLayoutDetail.ts). A plain HTML fragment (not a
-// <Layout>-wrapped page, and not JSON) meant to be dropped straight into
-// that row's detail <td> via innerHTML — same shape as hall-of-fame/
-// fragment.astro, driver-stats/fragment.astro, etc., just fetched per-row
-// on demand instead of once for the whole page on load.
-//
-// Reuses the same history sections the Event Briefing page
-// (src/pages/briefing/[eventId].astro) shows for a layout, minus its
-// Schedule section (future-looking, no equivalent for a layout in
-// general rather than one specific upcoming event) and minus the plain
-// curated lap_record_seconds/holder/date line (already shown in the
-// row's own Record/Record Holder/Record Date columns on /circuits — no
-// need to repeat it here). Every query below is the exact "expensive
-// per-layout" version circuits.astro's own frontmatter comment explains
-// this page deliberately avoids running for every layout up front.
+// A layout's expanded-row content on /circuits, fetched once on first expand
+// (src/scripts/circuitLayoutDetail.ts) and dropped into the row. The Event Briefing's history sections,
+// without Schedule and the curated record (already in the row); these per-layout queries are why it loads on
+// demand.
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
   getCircuitById,
@@ -168,10 +155,8 @@ if (layoutRow) {
 
 const orderedClassIdsWithWinners = [...classNameById.keys()].filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
 
-// Gamma/Delta only (per Logan, same reasoning as the Event Briefing page) —
-// Alpha's own class-best is typically indistinguishable from the plain
-// fastest-lap-ever figure already shown in the row's own Record column, so
-// a separate Alpha line here would mostly just repeat it.
+// Gamma/Delta only (Logan, as on the Event Briefing): Alpha's class best would mostly repeat the Record
+// column.
 const gammaClassId = [...classNameById.entries()].find(([, name]) => name === 'Gamma')?.[0] ?? null;
 const deltaClassId = [...classNameById.entries()].find(([, name]) => name === 'Delta')?.[0] ?? null;
 const gammaBestLap = gammaClassId !== null ? (classBestLaps.get(gammaClassId) ?? null) : null;

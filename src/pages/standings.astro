@@ -7,14 +7,8 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Shell-then-skeleton split (same pattern as champions.astro / incidents.astro):
-// this file only fetches the page banner and paints the heading plus a loading
-// skeleton right away; the standings themselves (filters, season computation,
-// graph/matrix data) live in standings/fragment.astro and are fetched
-// client-side by the loader script at the bottom once this shell has painted.
-// The page's own interaction scripts (Standings by Round slider, graph) also
-// live here, since a <script> inside fetched HTML never executes — they bind
-// to the fragment's elements when its astro:page-load re-dispatch fires.
+// Shell: fetches only the banner and paints a skeleton; the standings load from standings/fragment.astro. The
+// slider and graph scripts stay here, because scripts in fetched HTML never run.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const championship: 'drivers' | 'teams' = Astro.url.searchParams.get('championship') === 'teams' ? 'teams' : 'drivers';
 
@@ -66,21 +60,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   import { compareStandings, totalAsOf, type StandingKeys } from '../lib/seasonTotals';
   import { formatDistanceKm } from '../lib/results/format';
 
-  // "Standings by Round" slider: shows the standings as they were after round
-  // N, for both the List and Matrix views, Drivers and Teams.
-  //  - Matrix: round columns after N are hidden.
-  //  - Every number is recomputed from just the visible rounds. Driver totals
-  //    use the same drop-week rules as the real standings (src/lib/seasonTotals.ts,
-  //    shared with finalizeStandings): skipped rounds count as 0 in the pool, no rounds
-  //    drop until 5+ are visible, then baseline + the season's extra drop
-  //    weeks, and (unless the ruleset allows it) the last visible round can't
-  //    be dropped. Teams never drop rounds.
-  //  - Rows are re-ranked with the real tiebreak order (wins, podiums, top 5s,
-  //    top 10s, poles, laps led, laps, appearances, then name) and Pos
-  //    renumbered; anyone who hadn't raced yet is hidden. Team rosters show
-  //    each driver's as-of overall position (ties there fall back to the
-  //    full-season order).
-  //  - At the slider's max everything is restored to the server's exact values.
+  // "Standings by Round" slider: the standings after round N, for List and Matrix, drivers and teams.
+  // - Later Matrix columns are hidden, and every number is recomputed from the visible rounds with the real
+  //   drop rules (src/lib/seasonTotals.ts; teams never drop).
+  // - Rows are re-ranked with the real tiebreak order; drivers yet to race are hidden.
+  // - At the maximum, the server's exact values are restored.
   function initStandingsSlider() {
     const slider = document.getElementById('timeline-slider') as HTMLInputElement | null;
     const table = document.getElementById('standings-table') as HTMLTableElement | null;

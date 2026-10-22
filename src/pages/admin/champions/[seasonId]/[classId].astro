@@ -92,15 +92,8 @@ if (Astro.request.method === 'POST') {
     }
   }
 
-  // Redirect back to this same page on success (PRG pattern) instead of
-  // falling through to a plain re-render — every other admin CRUD page in
-  // this codebase does this after a POST, and skipping it here was why
-  // uploading a photo required manually clicking back and returning:
-  // hard-form-submit.ts only does a real navigation when the response is a
-  // redirect, otherwise it falls back to a fragile document.write() of the
-  // re-rendered HTML that doesn't reliably re-run page scripts. A real
-  // redirect+GET also means each of the 3 photo slots can be uploaded one
-  // after another without that friction.
+  // Redirect after a successful POST (PRG), like every admin page, so hard-form-submit.ts does a real
+  // navigation and photo slots can be uploaded one after another.
   if (!error) {
     return Astro.redirect(Astro.url.pathname, 302);
   }

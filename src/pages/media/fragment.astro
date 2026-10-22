@@ -32,21 +32,8 @@ import {
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// 'graphics' used to be one combined tab (Round Photo Albums + the
-// media_graphics gallery) — split into two, the same "top-level tabs" shape
-// Videos already used for its own sub-filters, per Logan: race photos and
-// [originally "team graphics", since renamed to Posters — see below] are
-// different enough things that they deserve their own tabs rather than
-// being two sections stacked inside one.
-//
-// 'posters' was originally shipped as "Team Graphics" — Logan then decided
-// to sunset that content and repurpose the same tab/gallery for event
-// posters instead (see 0064_posters_sunset_team_graphics.sql, which wipes
-// the old team-graphics-era rows). Deliberately still backed by the same
-// `media_graphics` table/`MediaGraphic` type/`getAllMediaGraphics` etc. —
-// mechanically it's the exact same "title + uploaded image, shown in a
-// gallery" feature, just relabeled and given a fresh start content-wise, so
-// there was no reason to rename the underlying schema too.
+// Top-level tabs. Race photos and posters are separate tabs (Logan); Posters reuses the former Team Graphics
+// table (`media_graphics`) unchanged, since it's the same feature.
 const TABS = ['videos', 'race-photos', 'posters', 'replays', 'meetups'] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
@@ -68,11 +55,8 @@ let loadError = false;
 
 let broadcastVideos: BroadcastVideo[] = [];
 let categoryVideos: Awaited<ReturnType<typeof getMediaVideosByCategory>> = [];
-// Track Guide is two-level now that a layout can have any number of guides
-// (0053_track_guides.sql) — trackGuideLayouts is the "pick a layout" list
-// (one card per layout with >=1 guide); selectedLayout/trackGuidesForLayout
-// are populated instead, from the same query results, once `?layout=` names
-// one of them.
+// Track Guide has two levels (0053): the layouts with guides, then one layout's guides when `?layout=` names
+// it.
 let trackGuideLayouts: { layoutId: string; circuitName: string; layoutName: string; guideCount: number; firstUrl: string }[] = [];
 // Cast so TypeScript keeps the full type: it's assigned inside the async loader below, which control-flow narrowing can't see.
 let selectedLayout = null as { circuitName: string; layoutName: string } | null;
@@ -161,11 +145,7 @@ const FILTER_LABELS: Record<VideoFilter, string> = {
   other: 'Other',
 };
 
-// Display names of every driver attached to each meetup (see
-// 0070_meetup_drivers.sql), sorted alphabetically — grouped here from the
-// flat link list rather than queried per-meetup, same "front-load once,
-// group in memory" reasoning as photoLinksBySubsession elsewhere on this
-// page.
+// Attendee names per meetup (0070), alphabetical, grouped from one list.
 const driverNamesByMeetupId = new Map<string, { id: string; label: string }[]>();
 for (const link of meetupDriverLinks) {
   if (!link.drivers) continue;
@@ -363,12 +343,8 @@ if (loadError) markUncacheable(Astro);
         <p class="reveal mt-8 text-white/60" style="transition-delay: 60ms">No race photos on file yet.</p>
       ) : (
         <>
-        {/* Same list shape as Videos → Broadcasts (see that block above) —
-           one card per round with a linked album, newest first. No
-           synchronous thumbnail here (see /api/photo-album-thumbnail's own
-           doc comment for why); each card starts with a plain placeholder
-           that the script at the bottom of this file swaps for a real image
-           once that round's thumbnail fetch resolves. */}
+        {/* One card per round with an album, newest first. Thumbnails load later via
+           /api/photo-album-thumbnail; cards start with a placeholder. */}
         <div id="media-photo-albums-grid" class="reveal grid gap-4 sm:grid-cols-2 lg:grid-cols-3" style="transition-delay: 60ms">
           {photoAlbums.map((p) => (
             <a

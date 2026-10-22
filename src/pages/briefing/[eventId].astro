@@ -3,13 +3,8 @@ export const prerender = false;
 import LoadError from '../../components/LoadError.astro';
 import { markUncacheable } from '../../lib/security';
 
-// The Event Briefing page — linked from the homepage's next-upcoming-event
-// card (src/components/UpcomingEventCard.astro, left of "Add to Calendar")
-// and from every upcoming event's card on the calendar
-// (src/components/EventDetailCard.astro). Not otherwise restricted at this
-// page's own level (reachable by URL for any real, track-having event) —
-// same "not linked everywhere, but not gated either" approach as
-// /results/[subsessionId].astro's own pages.
+// The Event Briefing, linked from the homepage's next-event card and every upcoming calendar card; reachable
+// by URL for any event with a track, not gated.
 import Layout from '../../layouts/Layout.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import { resolveSupabaseEnv } from '../../lib/db/client';
@@ -184,10 +179,7 @@ if (!loadError && event && event.circuit_id) {
 
 const orderedClassIdsWithWinners = classes.map((c) => c.id).filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
 
-// Gamma/Delta only (per Logan) — Alpha's own class-best is typically
-// indistinguishable from the plain fastest-lap-ever figure already shown
-// above from circuit_layouts.lap_record_seconds, so a separate Alpha line
-// would mostly just repeat it.
+// Gamma/Delta only (Logan): Alpha's class best would mostly repeat the track record above.
 const gammaClass = classes.find((c) => c.name === 'Gamma') ?? null;
 const deltaClass = classes.find((c) => c.name === 'Delta') ?? null;
 const gammaBestLap = gammaClass ? (classBestLaps.get(gammaClass.id) ?? null) : null;
@@ -217,10 +209,8 @@ if (loadError) markUncacheable(Astro);
           </div>
         </div>
 
-        {/* 1. Schedule breakdown — same session data as the homepage's
-            featured event card (UpcomingEventCard.astro), split into
-            separate IRL/In-Sim/Length columns here per Logan rather than
-            that card's single combined text blob. */}
+        {/* 1. Schedule, from the same session data as the homepage card, in separate IRL/In-Sim/Length
+           columns (Logan). */}
         <div class="reveal mt-8" style="transition-delay: 80ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Schedule</h2>
           <div class="mt-3 rounded-xl border border-white/10" data-sticky-thead>
@@ -258,11 +248,8 @@ if (loadError) markUncacheable(Astro);
           </div>
         </div>
 
-        {/* Layout map — facts, the layout's own map, incident pins and pit lane
-            difficulty, all drawn by LayoutMap.astro (stacked on phones, with
-            layer switches from md up). Sits between Schedule and Track Record.
-            The pins open the same Incident Details popup as the Past
-            Incidents table below, so they're given that table's rows. */}
+        {/* Layout map (LayoutMap.astro), between Schedule and Track Record; its pins open the Past
+           Incidents popup, so they get that table's rows. */}
         <div class="reveal mt-8" style="transition-delay: 90ms">
           <LayoutMap
             circuitName={circuitName}
@@ -280,18 +267,9 @@ if (loadError) markUncacheable(Astro);
           />
         </div>
 
-        {/* 2. Track record — the admin-curated circuit_layouts fields
-            (lap_record_seconds/holder/date), same source/format
-            circuits.astro already shows publicly; not re-derived from raw
-            lap data here since this field is the site's one deliberately
-            curated "official" record (may predate this league, or come
-            from a source broader than ATC's own imported results). Below
-            it, Gamma's and Delta's own fastest-lap-ever AT this layout —
-            these ARE derived from ATC's own imported race results (see
-            getLayoutClassBestLaps), since there's no curated per-class
-            field for them to read from. Class is resolved per round from
-            that driver's race_score_results.class_id at the time, never off their
-            current roster class. */}
+        {/* 2. Track record: the curated circuit_layouts record (may predate the league), then Gamma's and
+           Delta's fastest laps here from ATC's own results (getLayoutClassBestLaps), with class taken per
+           round. */}
         <div class="reveal mt-8" style="transition-delay: 100ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Track Record</h2>
           <div class="mt-3 rounded-xl border border-white/10 p-4 text-sm">
@@ -356,12 +334,8 @@ if (loadError) markUncacheable(Astro);
           </div>
         </div>
 
-        {/* 3. Past winners & pole-sitters, per class — see
-            getLayoutClassHighlights in src/lib/results.ts for how these are
-            derived (every race's winner by scored_position, race 1's
-            starting_position for pole). Names are "F. Lastname", dates
-            "Mar 2, 2025"; a round with more than one race tags each winner
-            "Race N". */}
+        {/* 3. Past winners and pole-sitters per class (getLayoutClassHighlights in
+           src/lib/results/layouts.ts); multi-race rounds tag each winner "Race N". */}
         <div class="reveal mt-8" style="transition-delay: 120ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Winners &amp; Pole-Sitters</h2>
           {orderedClassIdsWithWinners.length === 0 ? (
@@ -412,14 +386,8 @@ if (loadError) markUncacheable(Astro);
           )}
         </div>
 
-        {/* 4. Past results at this circuit layout — same round list
-            findRoundsForLayout() already powers for the calendar page's
-            "Race Recaps at this Layout," just rendered here as plain links
-            into the full results page rather than an expandable recap.
-            Starts collapsed, like every section below it — a <details>
-            wraps the heading + list together, same group/rotate-caret
-            convention used site-wide (see circuits.astro), rather than the
-            per-item collapse Past Incidents' descriptions use. */}
+        {/* 4. Past results at this layout (findRoundsForLayout()) as links to the results pages; collapsed
+           by default like the sections below. */}
         <div class="reveal mt-8" style="transition-delay: 140ms">
           <details class="group">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
@@ -446,15 +414,8 @@ if (loadError) markUncacheable(Astro);
           </details>
         </div>
 
-        {/* 5. Past incidents at this circuit layout — every posted incident
-            logged against any round found above, newest first, uncapped.
-            Same table as History → Incidents' All Incidents view
-            (IncidentsAllTable.astro): sortable columns, and clicking a row
-            opens the same Incident Details popup (IncidentDetailsDialog.astro
-            + src/scripts/incidentDetails.ts). The Track column is left out
-            since every row is this track. The whole section starts
-            collapsed, same as Past Results; the popup sits outside the
-            <details> so it can open whatever the section's state. */}
+        {/* 5. Past posted incidents at this layout, newest first, in the History → Incidents table without
+           the Track column. The popup sits outside the <details> so it opens either way. */}
         <div class="reveal mt-8" style="transition-delay: 160ms">
           <details class="group">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">
@@ -472,12 +433,7 @@ if (loadError) markUncacheable(Astro);
           {incidentRows.length > 0 && <IncidentDetailsDialog rows={incidentRows} />}
         </div>
 
-        {/* 6. Past broadcasts at this circuit layout — every race_links row
-            with a broadcast_url set, across the same historical rounds Past
-            Results/Incidents above use, newest first. Same collapsed-by-
-            default section shape as Past Results/Incidents; a plain link
-            list (no thumbnail) since this is a compact briefing summary,
-            not the Media page's own Videos → Broadcasts gallery. */}
+        {/* 6. Past broadcasts at this layout, newest first, as a plain link list. */}
         <div class="reveal mt-8" style="transition-delay: 180ms">
           <details class="group">
             <summary class="flex cursor-pointer list-none items-center justify-between gap-2">

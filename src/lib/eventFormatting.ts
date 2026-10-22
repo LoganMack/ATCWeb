@@ -5,12 +5,8 @@ import { zonedTimeToUtcIso, LEAGUE_TIME_ZONE } from './timezone';
 export type { Weather };
 
 /**
- * `event_date` comes back from PostgREST as a plain 'YYYY-MM-DD' string with
- * no time/zone info. Parsing it with `new Date('YYYY-MM-DD')` treats it as
- * UTC midnight, which can render as the *previous* day once
- * `toLocaleDateString` applies a negative-offset local timezone. Building
- * the Date from its local year/month/day components instead sidesteps that
- * entirely.
+ * A bare 'YYYY-MM-DD' given to `new Date()` is UTC midnight and can show as the previous day, so it's built
+ * from local components.
  */
 function parseDateOnly(dateStr: string): Date {
   const [year, month, day] = dateStr.split('-').map(Number);
@@ -60,30 +56,17 @@ export const CATEGORY_LABELS: Record<EventCategory, string> = {
 };
 
 /**
- * Shared shape for every event format/category pill ("SPRINT", "ENDURANCE",
- * "SPECIAL", "TEST", "EXHIBITION", ...): always bold + uppercase, and one
- * FIXED width per size tier so every tag in a tier lines up regardless of
- * its label ("EXHIBITION" is the longest, and sets the width). Colors come
- * from FORMAT_BADGE_CLASSES / CATEGORY_BADGE_CLASSES on top of this.
- * `EVENT_TAG_CLASSES` is the standard size; `EVENT_TAG_COMPACT_CLASSES` is
- * the small variant for tight list rows.
+ * Shared shape for event format/category pills: bold uppercase with one fixed width per size tier
+ * ("EXHIBITION" sets it), so tags line up. Colours come from FORMAT_BADGE_CLASSES / CATEGORY_BADGE_CLASSES.
  */
 export const EVENT_TAG_CLASSES =
   'inline-flex w-28 flex-none items-center justify-center rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wide';
 export const EVENT_TAG_COMPACT_CLASSES =
   'inline-flex w-24 flex-none items-center justify-center rounded-lg px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide';
 
-// Championship is the default/normal case and deliberately gets no special
-// treatment here — callers only render a category badge when it's NOT
-// 'championship', the same "only flag the anomalous state" convention used
-// elsewhere in the app. Test/Holiday/iRacing
-// are all plain neutral grey — none of them belong to a Sprint/Endurance/
-// Special format or a driver class, so there's no brand hue that actually
-// represents them; grey reads as "informational" rather than implying a
-// class/format association that doesn't exist. Exhibition is the one
-// exception that still gets a blue/pink/gold gradient — all three brand
-// colors at once, since (unlike Test/Holiday/iRacing) it's still a real
-// on-track format-having round, just not part of the points championship.
+// Callers only show a category badge when it isn't 'championship'. Test/Holiday/iRacing are neutral grey,
+// having no class or format colour; Exhibition is a real raced format outside the points, so it gets all
+// three brand colours.
 export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'bg-white/10 text-white/50',
@@ -94,38 +77,23 @@ export const CATEGORY_BADGE_CLASSES: Record<EventCategory, string> = {
 };
 
 /**
- * Categories that represent an actual on-track race weekend with a
- * Sprint/Endurance/Special format — the only two where a format badge makes
- * sense to render at all. TEST (no format concept — see CATEGORY_LABELS.test
- * above) and the season-agnostic, circuit-less HOLIDAY/IRACING categories all
- * fall through to their own plain category badge instead. Shared here so
- * every card that renders this format-vs-category badge choice (calendar,
- * homepage, admin events list) makes the same call.
+ * Championship and exhibition are race weekends with a Sprint/Endurance/Special format, so they show a format
+ * badge; the rest show their category badge. Shared so every card decides the same way.
  */
 export function usesFormatBadge(category: EventCategory): boolean {
   return category === 'championship' || category === 'exhibition';
 }
 
-// Card-level background/border accent that mirrors whichever badge color
-// getEventCardClasses() below would pick for this event — for the handful
-// of containers that already highlight themselves with a tinted background
-// (the homepage's featured "Next Up" card, the Calendar view's day cells),
-// not the small tag badge itself. Deliberately NOT applied to every event
-// card site-wide (e.g. the plain List-view rows on /calendar stay neutral)
-// — this is a targeted match for spots that already had a colored
-// background, not a general recolor.
+// Background/border accent matching the event's badge colour, only for containers that were already tinted
+// (homepage "Next Up", Calendar day cells), not every card.
 export const FORMAT_CARD_CLASSES: Record<EventFormat, string> = {
   endurance: 'border-brand-blue/40 bg-brand-blue/10',
   special: 'border-brand-pink/40 bg-brand-pink/10',
   sprint: 'border-brand-gold/40 bg-brand-gold/10',
 };
 
-// Mirrors CATEGORY_BADGE_CLASSES' grey/gradient split, as border+background
-// instead of text+background. Exhibition's entry is unreachable through
-// getEventCardClasses() below (usesFormatBadge() routes exhibition to
-// FORMAT_CARD_CLASSES by format instead, same branch its badge takes) —
-// kept filled in for type-completeness and in case a future caller wants
-// the category-level gradient directly.
+// CATEGORY_BADGE_CLASSES' split as border + background. Exhibition is unreachable via getEventCardClasses()
+// (it goes by format) but kept for completeness.
 export const CATEGORY_CARD_CLASSES: Record<EventCategory, string> = {
   championship: '',
   test: 'border-white/10 bg-white/[0.03]',
@@ -142,14 +110,8 @@ export function getEventCardClasses(event: { category: EventCategory; format: Ev
     : CATEGORY_CARD_CLASSES[event.category];
 }
 
-// Same accent as FORMAT_CARD_CLASSES/CATEGORY_CARD_CLASSES above, plus a
-// hover state — for card-shaped elements that are themselves a link/button
-// (e.g. the homepage's compact upcoming-event rows below the featured one),
-// as opposed to the plain getEventCardClasses() cards above which aren't
-// interactive and shouldn't imply clickability with a hover affordance.
-// Full literal class strings throughout (not composed at runtime) since
-// Tailwind's JIT only generates CSS for class names it can find verbatim in
-// source — same reasoning FORMAT_BADGE_CLASSES etc. already follow.
+// The card accents plus a hover state, for cards that are links or buttons. Full literal class strings so
+// Tailwind finds them.
 export const FORMAT_CARD_HOVER_CLASSES: Record<EventFormat, string> = {
   endurance: 'border-brand-blue/40 bg-brand-blue/10 hover:border-brand-blue/60 hover:bg-brand-blue/20',
   special: 'border-brand-pink/40 bg-brand-pink/10 hover:border-brand-pink/60 hover:bg-brand-pink/20',
@@ -222,10 +184,7 @@ export function getEventSessions(event: EventRecord): SessionSummary[] {
     });
   }
 
-  // Race 1 used to always show, back when it was the one required session —
-  // Test Session events can now be saved with no races at all
-  // (0054_test_session_no_race_required.sql), so this follows the same
-  // "only show if it has a start time" rule Race 2/3 already used.
+  // Race 1 shows only when it has a start time: test sessions may have no races (0054).
   if (event.race1_start_time) {
     sessions.push({
       label: 'Race 1',

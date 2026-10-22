@@ -9,40 +9,14 @@ export const prerender = false;
 const RESULT_KINDS = new Set(['race-results', 'qualifying-results', 'practice-results']);
 
 /**
- * Serves the "Download CSV template" links on /admin/import — generated
- * from src/lib/importTemplates.ts rather than a static file under public/,
- * so the download always reflects whatever columns each importer currently
- * reads (see that file's own header comment for why this replaced 4 static
- * .csv files). Not admin-gated: the content is just an empty-data example,
- * same as the static files it replaced, which were unauthenticated too.
- *
- * When a signed-in admin downloads one of the three results templates for a
- * specific event (?eventId=... — Admin > Add Race Result's per-event upload
- * buttons), the round-identifying columns (circuit_name, layout,
- * season_name, event_date, event_time, format, exhibition, test) are
- * pre-filled from that event, and import_key is pre-filled with the existing
- * manual round's key if this event already has one linked (so uploading,
- * say, a qualifying template for an event that already has a race result
- * attaches to that SAME round instead of creating a new one) — see
- * getEventsMissingResults()/suggestImportKey() in raceResultsImport.ts. An
- * anonymous request, or an eventId that isn't actually missing anything
- * (kind/eventId combination is stale), just gets the plain unfilled
- * template, same as before this existed.
- *
- * exhibition/test are both driven entirely by the linked event's own
- * `category` ('exhibition' | 'test' | anything else -> 'no' for both) — the
- * round detail page no longer has its own admin toggle buttons for these
- * flags (removed per Logan: "these should be set by the event that is
- * linked to this race result"), so this prefill is now the ONLY path that
- * sets round_overrides.is_exhibition/is_test for a manually-imported round.
+ * The admin "Download CSV template" links, generated from src/lib/importTemplates.ts. Not admin-gated (empty
+ * example data). For an admin downloading a results template for one event (?eventId=), the round columns are
+ * prefilled from the event, import_key reuses the event's existing manual round, and exhibition/test come
+ * from the event's category (the only way those flags are set for manual rounds). Otherwise the plain
+ * template.
  */
 export const GET: APIRoute = async ({ params, url, locals }) => {
-  // The admin page's download links point at `/api/import-templates/${kind}.csv`
-  // (so the link itself reads like a real filename) — this is a single
-  // dynamic segment route ([kind].ts), so params.kind arrives as e.g.
-  // "events.csv", not "events". Strip a trailing .csv before looking it up,
-  // otherwise every request 404s here (which is why "download" was
-  // producing a "File wasn't available on site" error in the browser).
+  // Links read `/api/import-templates/<kind>.csv`, so params.kind includes ".csv"; strip it.
   const kind = String(params.kind ?? '').replace(/\.csv$/i, '');
 
   const eventId = url.searchParams.get('eventId');
@@ -61,10 +35,8 @@ export const GET: APIRoute = async ({ params, url, locals }) => {
           'practice-results': ev.practiceStartTime,
         };
 
-        // Test/Exhibition events have no season_id of their own (see
-        // EventCategory's doc comment in src/lib/supabase.ts) — fall back to
-        // whichever season is current, the same guess an admin filling this
-        // in by hand would make. Still just a starting point either way.
+        // Test/exhibition events have no season (EventCategory in src/lib/db/events.ts), so suggest the
+        // current one.
         let seasonName = ev.seasonName;
         if (!seasonName) {
           try {

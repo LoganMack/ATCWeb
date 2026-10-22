@@ -12,17 +12,8 @@ import { getAllIncidents } from '../../lib/incidents';
 import { sessionLabel, roundLabel, driverNumberLabel } from '../../lib/incidentDisplay';
 
 /**
- * Same shell-then-spinner split as driver-stats/fragment.astro —
- * incidents.astro now only renders the tab-switcher shell + a loading
- * skeleton, then fetches THIS route client-side for the actual three
- * tables (getAllIncidents() computes all three views — All Incidents, By
- * Driver, By Offense — from one shared fetch, see src/lib/incidents.ts).
- *
- * Returns a bare HTML fragment — no <Layout>, no <html>/<head>, and no
- * <script> (a script tag here would never execute once dropped in via
- * `container.innerHTML =` — see incidents.astro's own doc comment on this
- * exact limitation, which is why the tab-switcher script lives there
- * instead). Never linked to directly.
+ * The three incident tables as a fragment for the incidents.astro shell, all from one getAllIncidents()
+ * fetch. No <script> here: it would never run, so the tab switch lives in the shell. Never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);

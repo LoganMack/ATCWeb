@@ -53,12 +53,8 @@ export function deleteNewsPost(env: SupabaseEnv, accessToken: string, id: string
   return restDelete(env, accessToken, `news_posts?id=eq.${encodeURIComponent(id)}`);
 }
 
-// --- News tags (0055_news_tags.sql) -----------------------------------
-//
-// Separate from the display-only "RESULTS" tag (derived straight from
-// round_subsession_id, no table of its own — see NewsCard.astro/
-// news/[slug].astro) — these are freely admin-managed labels a post can
-// carry any number of, via the news_post_tags join table.
+// --- News tags (0055_news_tags.sql): admin-managed labels via news_post_tags ---
+// The "RESULTS" tag is separate: derived from round_subsession_id, display only.
 
 export interface NewsTag {
   id: string;
@@ -120,44 +116,19 @@ export async function setPostTags(env: SupabaseEnv, accessToken: string, postId:
   );
 }
 
-// --- News tagged drivers (0082_news_post_drivers.sql) -------------------
-//
-// Same many-to-many join-table shape/sync convention as news_post_tags just
-// above, against `drivers` directly rather than a separate vocabulary
-// table — the tagged driver's own name/profile IS the "tag." Powers the
-// inline @-mention driver links rendered on a published post
-// (news/[slug].astro) and, combined with a driver's own raced-rounds list,
-// the "Related News" section on a driver's profile page
-// (drivers/[id]/fragment.astro).
-//
-// There's no manual picker for this anymore (there used to be — a
-// <select multiple>) — a post's tagged-driver set is entirely DERIVED from
-// @-mentions typed straight into the body text via the admin editor's own
-// autocomplete (src/pages/admin/news/new.astro and .../[id]/edit.astro),
-// Discord-style. See extractMentionedDriverIds below for the token format
-// and how a body string turns into the id list setPostDrivers syncs.
+// --- News tagged drivers (0082_news_post_drivers.sql) ---
+// A post's tagged drivers are derived from the @-mentions in its body (the editor's autocomplete), never
+// picked by hand. They render as driver links on the post and feed a driver's "Related News".
 
 /**
- * A driver mention inserted by the admin editor's @-autocomplete is stored
- * right in the post's plain-text body as `@[Display Name](driverId)` — e.g.
- * "...huge move by @[Jane Doe](3fa85f64-5717-4562-b3fc-2c963f66afa6) into
- * turn 4..." This is deliberately NOT full Markdown (see the "no Markdown
- * dependency for MVP1" comment on news/[slug].astro's own paragraph
- * splitting) — it's a single special-cased token only ever produced by the
- * mention autocomplete, kept human-legible in the raw textarea (an admin
- * skimming the body still sees a real name, not an opaque id) while still
- * being trivially machine-parseable both server-side (this pattern) and
- * client-side (the same shape, matched ad hoc in the editor's own inline
- * script when rendering isn't needed there).
+ * A mention is stored in the plain-text body as `@[Display Name](driverId)`: readable in the textarea, easy
+ * to parse on both sides. Deliberately one special token, not Markdown.
  */
 export const MENTION_PATTERN = /@\[([^\]]+)\]\(([0-9a-fA-F-]{36})\)/g;
 
 /**
- * Every driver id mentioned in a post body, deduped, in first-appearance
- * order — the sole source of truth for that post's news_post_drivers rows.
- * Called on every save (see setPostDrivers below), so a mention removed
- * from the text un-tags that driver on the next save, same as adding one
- * tags it; there's nothing else to keep in sync.
+ * Mentioned driver ids, deduped in order: the only source of a post's news_post_drivers rows, re-synced on
+ * every save.
  */
 export function extractMentionedDriverIds(body: string): string[] {
   const ids: string[] = [];

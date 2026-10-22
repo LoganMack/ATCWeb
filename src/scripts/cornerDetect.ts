@@ -1,9 +1,6 @@
-// "Detect corners from image" for the layout map editor (layoutMapEditor.ts).
-//
-// Layout maps carry their corner numbers as small white glyphs floating beside the track line. This finds
-// those glyph groups (connected components, merged by proximity), and reads each group with OCR (tesseract.js,
-// loaded on demand from a CDN — nothing is bundled or downloaded until the admin presses the button).
-// Everything below `findNumberClusters` is pure, so it can run anywhere; only `readClusters` touches the DOM/OCR.
+// "Detect corners from image" for the layout map editor: finds the corner-number glyph groups beside the
+// track line and reads them with OCR (tesseract.js, loaded from a CDN only when the admin presses the
+// button). Everything below `findNumberClusters` is pure; only `readClusters` touches the DOM/OCR.
 
 export interface Cluster {
   /** Pixel bounding box in the square detection canvas. */

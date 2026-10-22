@@ -58,12 +58,8 @@ if (Astro.request.method === 'POST') {
   const intent = String(form.get('intent') ?? 'save');
 
   if (intent === 'save-roster') {
-    // Whole-season batch save (per Logan: the old add/remove-one-driver-at-
-    // a-time flow saved and reloaded on every single selection, which got
-    // annoying fast). The form posts up to 4 slot values (driver_slot_1..4,
-    // empty string for an unused slot) representing the FULL desired
-    // roster for this team+season in one shot; this diffs that against
-    // what's actually on file and only writes the rows that changed.
+    // Saves the whole season roster at once (Logan): up to 4 slots, diffed against what's on file so only
+    // changed rows are written.
     const seasonId = String(form.get('season_id') ?? '');
     const desiredIds = Array.from(
       new Set(
@@ -94,11 +90,8 @@ if (Astro.request.method === 'POST') {
           }
           for (const driverId of desiredIds) {
             if (currentIds.has(driverId)) continue; // unchanged, already on this team
-            // Transfer: same trigger in 0008_team_rosters.sql would reject
-            // adding a driver who's still on another team's roster this
-            // season, so clear that other claim first — mirrors what the
-            // old per-driver flow did with its explicit confirm() prompt,
-            // just without needing a second round trip to ask first.
+            // Transfer: 0008's trigger rejects a driver on two rosters in a season, so clear the other
+            // team's claim first.
             const other = seasonRosterAllTeams.find((r) => r.driver_id === driverId && r.team_id !== id);
             if (other) {
               await removeTeamRosterEntry(supabaseEnv, accessToken, { season_id: seasonId, team_id: other.team_id, driver_id: driverId });
@@ -125,12 +118,8 @@ if (Astro.request.method === 'POST') {
     // Falls through (no redirect) so the page re-renders with rosterError
     // shown and the season the admin was working in still selected.
   } else if (intent === 'copy-roster') {
-    // "Copy Roster" button next to the season picker — same remove-then-add
-    // diff as save-roster above (transfer-clearing included), just sourced
-    // from another season's roster instead of the 4 posted <select>s. The
-    // source season's own roster is capped at 4 already (the same DB
-    // trigger every roster write goes through), so no extra size check is
-    // needed beyond that existing enforcement.
+    // "Copy Roster": the same diff as save-roster, from another season's roster (already capped at 4 by the
+    // trigger).
     const targetSeasonId = String(form.get('season_id') ?? '');
     const sourceSeasonId = String(form.get('source_season_id') ?? '');
     rosterSeasonId = targetSeasonId || null;
@@ -260,12 +249,7 @@ if (Astro.request.method === 'POST') {
       try {
         let teamId = isNew ? null : id!;
         if (isNew) {
-          // No `status` written here anymore — see this page's Status
-          // fieldset removal below. A team's active/inactive state is now
-          // purely computed (does it have drivers on the CURRENT season's
-          // roster?), same rule the public Teams page and the admin Teams
-          // list already use, so the database column is left alone at
-          // whatever default Postgres gives a new row.
+          // No `status`: active/inactive is computed from the current roster.
           const created = await createTeam(supabaseEnv, accessToken, { name, primary_color_hex });
           teamId = created.id;
         } else {
@@ -302,10 +286,8 @@ if (!isNew && id) {
 
 const t: Partial<Team> = team ?? { name: '', primary_color_hex: '', logo_url: null };
 
-// Season roster editor — teams field a different (max 4) set of drivers
-// each season, tracked separately from teams.id/drivers.id. See
-// 0008_team_rosters.sql for the max-4 / one-team-per-season rules, enforced
-// server-side (not just here) so a bad request can't bypass them.
+// Season roster editor: up to 4 drivers per team per season, one team per driver per season, enforced by the
+// database (0008).
 let seasons: Season[] = [];
 let rosterDrivers: DriverOption[] = [];
 let rosterEntries: TeamRosterEntry[] = [];
@@ -336,11 +318,8 @@ if (!isNew && id) {
   }
 }
 
-// Cross-team lookup for the selected season — powers the "this driver is
-// already on another team, transfer them?" confirmation below (the DB
-// trigger in 0008_team_rosters.sql blocks a driver being on two rosters at
-// once either way; this is purely so the admin gets a friendly prompt
-// instead of a raw rejected-insert error).
+// Driver -> other team this season, for the friendly transfer prompt; the 0008 trigger enforces the rule
+// anyway.
 const otherTeamByDriverId = new Map<string, { teamId: string; teamName: string }>();
 if (!isNew && id && selectedSeasonId) {
   try {
@@ -385,10 +364,7 @@ const rosterDriversOnTeam = rosterDrivers
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
     </label>
-    {/* Status is no longer set by hand here — it's purely computed from
-        whether this team has drivers on the current season's roster (see
-        the "Roster by Season" editor below and admin/teams/index.astro's
-        own comment on activeTeamIds), per Logan. */}
+    {/* Status is computed from the current season's roster (Logan), not set here. */}
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="text-white/70">Primary color (hex)</span>
       <input
@@ -571,14 +547,8 @@ const rosterDriversOnTeam = rosterDrivers
           )}
 
           {selectedSeasonId && (() => {
-            // 4 fixed slots (the roster's own hard cap — 0008_team_rosters.sql)
-            // instead of a growing checkbox list of every driver in league
-            // history. Each slot is pre-filled with the corresponding current
-            // roster member, in the same order rosterDriversOnTeam is
-            // already sorted (alphabetical) so a reload doesn't reshuffle
-            // who's in which slot. One Save button posts all 4 at once —
-            // add/remove/swap all resolve in a single request instead of
-            // reloading per click.
+            // Four fixed slots (the 0008 roster cap), prefilled with the roster in alphabetical order so a
+            // reload doesn't reshuffle them; one Save posts all four.
             const allDriversSorted = rosterDrivers.slice().sort((a, b) => a.name.localeCompare(b.name));
             const slots = [0, 1, 2, 3].map((i) => rosterDriversOnTeam[i]?.id ?? '');
             return (
@@ -659,14 +629,8 @@ const rosterDriversOnTeam = rosterDrivers
       });
     });
 
-    // Roster by Season now saves all 4 slots in one request instead of
-    // reloading per driver — this just guards the submit client-side:
-    // block picking the same driver twice, and fold what used to be a
-    // per-driver "transfer this person?" confirm() into one combined
-    // prompt covering every slot that's pulling someone off another
-    // team's roster this season (the server enforces the actual transfer
-    // and the 4-per-team cap regardless — see 0008_team_rosters.sql — this
-    // is purely so the admin isn't surprised by it after the fact).
+    // Client-side guard for the roster form: blocks picking a driver twice and asks once about every transfer
+    // off another team. The server enforces transfers and the 4-driver cap regardless.
     document.querySelectorAll<HTMLFormElement>('[data-roster-form]').forEach((form) => {
       form.addEventListener('submit', (e) => {
         const selects = Array.from(form.querySelectorAll<HTMLSelectElement>('[data-roster-slot]'));

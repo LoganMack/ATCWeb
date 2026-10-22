@@ -3,7 +3,7 @@
 //
 // Usage:
 //   node scripts/rewrite-imports.mjs <original> [--map <file.json|symbol-map.md>] [--dry-run]
-//       e.g. node scripts/rewrite-imports.mjs src/lib/penalties.ts
+//       e.g. node scripts/rewrite-imports.mjs src/lib/bigModule.ts
 //
 // The module map (scripts/module-maps/, see scripts/module-map.mjs) says which module defines each
 // name. Every `import { … } from '<original>'` and `export { … } from '<original>'` under src/,

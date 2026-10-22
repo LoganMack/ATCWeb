@@ -53,7 +53,7 @@ Everything is managed in the browser under `/admin`: seasons, events, rulesets, 
 
 ### Prerequisites
 
-- Node.js 20 or newer
+- Node.js 22 or newer (`engines` in `package.json`)
 - A Supabase project (the free tier is enough)
 - Python 3 (only for regenerating roster seed data)
 - A Cloudflare account (only for deploying)

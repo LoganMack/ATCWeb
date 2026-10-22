@@ -1,8 +1,5 @@
-// Race Links dialog behavior (open/close, backdrop click) — a delegated, register-once listener.
-// Imported by src/pages/results/[subsessionId].astro (the shell), because RaceLinksBlock
-// itself now renders inside a fetched fragment where <script> tags never execute.
-// One delegated listener (registered once) so it keeps working across
-// client-side navigations without re-binding.
+// Race Links dialog (open/close, backdrop), one delegated listener bound once. Imported by the results shell
+// because RaceLinksBlock renders in a fetched fragment where scripts don't run.
 function initRaceLinksDialog() {
   if (document.body.dataset.raceLinksInit === 'true') return;
   document.body.dataset.raceLinksInit = 'true';

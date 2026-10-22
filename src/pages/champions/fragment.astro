@@ -20,25 +20,9 @@ import { driversSelect, type DriverBasic } from '../../lib/results/rows';
 import type { DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
 
 /**
- * Pilot for the sitewide "shell renders instantly, data fills in after"
- * pattern (PERFORMANCE_AUDIT.md #5) — champions.astro now only fetches the
- * cheap stuff (driver classes, seasons) needed to render its filter tabs,
- * then renders a loading skeleton and fetches THIS route client-side for
- * the actual champions/team-champions cards. This is where the expensive
- * cross-season computation that used to block the whole page transition
- * now lives, so it no longer holds up the shell.
- *
- * Deliberately reuses ChampionCard.astro/TeamChampionCard.astro as-is
- * (same components champions.astro rendered server-side before this
- * change) rather than re-implementing their markup in client-side JS —
- * that keeps this fragment and a normal SSR page from ever drifting apart,
- * at the cost of a small amount of duplicated query-param resolution below
- * (NOT of any of the actual expensive data fetching, which only ever runs
- * here now).
- *
- * Returns a bare HTML fragment — no <Layout>, no <html>/<head> — meant
- * only to be dropped into champions.astro's results container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * The champions and team-champions cards as a fragment for the champions.astro shell, so the cross-season
+ * computation doesn't block the page. Reuses ChampionCard/TeamChampionCard so it can't drift from the SSR
+ * markup, re-reading the query params itself. Returns bare HTML; never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -84,16 +68,8 @@ if (!loadError && activeTeamView) {
   try {
     const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
     const classId = activeTeamView === 'delta' ? deltaClassId : undefined;
-    // getTeamChampions skips any season with no race_score_results data for the
-    // requested competition, but that alone isn't enough for Delta: the
-    // Delta CLASS raced from ATC5, well before the Delta TEAM championship
-    // existed (ATC10) — without this filter, ATC5-ATC9 would each surface
-    // a spurious "Delta Team champion" just because Delta-class drivers
-    // happened to have team_id set that season. Narrowing the season list
-    // itself (rather than changing getTeamChampions) keeps this the same
-    // "gate at the call site" shape as classIsEnabledFor's Gamma/Delta
-    // filtering just above, and leaves the Alpha Team view (classId
-    // undefined) completely unaffected.
+    // Delta Team only for seasons with delta_team_enabled: the Delta class raced from ATC5 but the team
+    // championship began at ATC10, so earlier seasons would show spurious champions.
     const teamSeasons = activeTeamView === 'delta' ? seasons.filter((s) => s.delta_team_enabled) : seasons;
     const [teamChampionsResult, drivers] = await Promise.all([
       getTeamChampions(supabaseEnv, teamSeasons, classId),

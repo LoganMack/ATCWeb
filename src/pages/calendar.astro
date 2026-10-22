@@ -7,15 +7,9 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
-// this file only fetches the page banner and paints the heading plus a loading
-// skeleton right away. The events, rounds, layouts and rulesets the calendar
-// needs (several Supabase round trips) live in calendar/fragment.astro and are
-// fetched client-side once this shell has painted. The page's interaction
-// script below (List/Calendar toggle, month grid, recaps) stays here, since a
-// <script> inside fetched HTML never executes; every init function in it
-// bails out when its elements don't exist yet and binds when the fragment's
-// astro:page-load re-dispatch fires.
+// Shell: paints the heading and a skeleton, then fetches calendar/fragment.astro for the data. The
+// interaction script stays here because scripts in fetched HTML never run; its init functions bind on the
+// fragment's astro:page-load re-dispatch.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 let bannerUrl: string | null = null;
@@ -49,18 +43,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   </section>
 
   <script>
-    // Two independent bits of interactivity on this page: the List/Calendar
-    // view toggle, and (when Calendar is showing) the month-grid itself.
-    // Kept as one self-contained script (no imports from src/lib — same
-    // "duplicate small helpers rather than import into the client bundle"
-    // convention every other interactive script on this site follows, e.g.
-    // ResultsTable.astro/team-standings.astro's own copies of the
-    // expand-row toggle) so this page doesn't pull the whole supabase.ts
-    // module into client JS just for two tiny formatting helpers. The one
-    // exception is pageProgress.ts below — it's already a pure client
-    // script with no server/data-layer baggage (same thing
-    // hard-form-submit.ts imports), so pulling it in doesn't violate that
-    // convention.
+    // The List/Calendar toggle and month grid in one script that imports nothing from src/lib, so no
+    // data-layer code reaches the client; small helpers are copied instead. pageProgress.ts is a pure client
+    // script, so it's imported.
     import { showProgress, hideProgress } from '../scripts/pageProgress';
     import type { DotMap } from '../scripts/dotMap';
 
@@ -86,11 +71,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       special: 'bg-brand-pink/15 text-brand-pink',
       sprint: 'bg-brand-gold/15 text-brand-gold',
     };
-    // Test/Holiday/iRacing events don't use the format field (see
-    // eventFormatting.ts's usesFormatBadge() server-side) — same neutral
-    // grey override applied here for the day-cell pill (mirrors
-    // CATEGORY_BADGE_CLASSES in eventFormatting.ts — duplicated rather than
-    // imported per this script's own "no src/lib imports" convention above).
+    // Test/Holiday/iRacing don't use format, so their day pill is neutral grey (a copy of
+    // CATEGORY_BADGE_CLASSES in eventFormatting.ts).
     const CATEGORY_ONLY_BADGE_CLASSES: Record<string, string> = {
       test: 'bg-white/10 text-white/50',
       holiday: 'bg-white/10 text-white/50',
@@ -104,13 +86,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       return category === 'championship' || category === 'exhibition';
     }
 
-    // Card-background accent for a day cell that has events — mirrors
-    // FORMAT_CARD_CLASSES/CATEGORY_CARD_CLASSES in eventFormatting.ts (same
-    // border+bg-instead-of-text+bg shape as the badge maps above), so a day
-    // highlights in the same color its event's tag shows instead of always
-    // being blue. A day with 2+ events uses the first event's color — same
-    // "first event wins" simplification the pill loop below already applies
-    // by only rendering 2 pills max.
+    // Day-cell accent matching the event's tag colour (a copy of eventFormatting.ts' card classes); with
+    // several events, the first one's colour.
     const FORMAT_CARD_CLASSES: Record<string, string> = {
       endurance: 'border-brand-blue/40 bg-brand-blue/10 hover:bg-brand-blue/20',
       special: 'border-brand-pink/40 bg-brand-pink/10 hover:bg-brand-pink/20',
@@ -128,7 +105,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         : (CATEGORY_ONLY_CARD_CLASSES[ev.category] ?? 'border-brand-primary/40 bg-brand-primary/10 hover:bg-brand-primary/20');
     }
 
-    /** Same "N/A" -> "Full Course" display-only substitution as displayLayoutName() in src/lib/supabase.ts. */
+    /** Same "N/A" -> "Full Course" display rule as displayLayoutName() in src/lib/db/circuits.ts. */
     function displayLayoutName(name: string): string {
       return name === 'N/A' ? 'Full Course' : name;
     }
@@ -207,16 +184,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         }
       }
 
-      // Shows the SAME full event card(s) the List view renders for this
-      // day — not a second, cut-down summary built from the lean
-      // `calendarEvents` payload (date/circuit/logo/layout/format only,
-      // still used above just to know which days have events and what to
-      // show in each day cell's small pills). Every event, upcoming or
-      // past, is already fully rendered somewhere in the List view's DOM
-      // (see EventDetailCard.astro's `data-event-date` attribute) — this
-      // just finds and deep-clones whichever card(s) match the clicked
-      // date, so Calendar view can never drift out of sync with List view
-      // on what a "full" event card actually shows.
+      // Clones the full event card(s) the List view already rendered for this day, so the Calendar view
+      // always shows the same card.
       function showDayDetail(dateStr: string) {
         detailPanel!.classList.remove('hidden');
         detailPanel!.innerHTML = '';
@@ -232,22 +201,14 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         const originals = document.querySelectorAll<HTMLElement>(`[data-event-date="${dateStr}"]`);
         originals.forEach((original) => {
           const clone = original.cloneNode(true) as HTMLElement;
-          // The original may not have scrolled into view yet (reveal.ts
-          // only reveals on scroll, and this clone can appear well before
-          // that happens if List view was never scrolled through) — force
-          // it visible rather than risk an invisible/stuck-at-opacity-0 card.
+          // The original may never have scrolled into view (reveal.ts), so force the clone visible.
           clone.classList.add('is-visible', 'rounded-xl', 'border', 'border-white/10', 'bg-brand-ink');
           list.appendChild(clone);
         });
         detailPanel!.appendChild(list);
 
-        // The clones' own "Race Recaps at this Layout" <details> (if any)
-        // are brand new nodes, never seen by initRoundRecaps()/
-        // initLayoutRounds() before — as opposed to attributes/classes,
-        // addEventListener bindings are never copied by cloneNode(), so
-        // this re-runs both same guarded initializers to bind just these
-        // new ones (already-bound elements elsewhere on the page are
-        // unaffected — see each one's own WeakSet guard).
+        // cloneNode() doesn't copy listeners, so bind the clones' recap sections (each initializer's WeakSet
+        // skips bound ones).
         initRoundRecaps();
         initLayoutRounds();
       }
@@ -270,10 +231,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           grid!.appendChild(el);
         });
 
-        // Leading blanks pad the 1st of the month out to its actual weekday
-        // column — deliberately not showing the previous month's trailing
-        // days here (that month is one click away via Prev, fully
-        // interactive there instead of a half-rendered preview here).
+        // Leading blanks pad the 1st to its weekday; the previous month is one click away.
         for (let i = 0; i < startWeekday; i++) {
           grid!.appendChild(document.createElement('div'));
         }
@@ -334,19 +292,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       renderCalendar();
     }
 
-    // --- "Race Recaps at this Layout" lazy loading (EventDetailCard.astro) ---
-    //
-    // One native <details data-round-recap> per historical round; its
-    // content div (`[data-recap-body]`) starts empty and is only filled in
-    // the first time that round's <details> is actually opened, via
-    // /api/round-recap/[subsessionId] (see that route's own doc comment for
-    // why this can't just be computed up front for every round on the
-    // page). A WeakSet (not a `dataset` flag) tracks which elements are
-    // already bound — a `dataset` flag would survive `cloneNode()` (it
-    // copies attributes) even though the actual listener does NOT get
-    // copied, which would make a cloned round-recap panel (see
-    // showDayDetail() above) permanently un-clickable; a WeakSet correctly
-    // treats a clone as a distinct, not-yet-bound node.
+    // --- "Race Recaps at this Layout": each round's <details data-round-recap> is filled from
+    // /api/round-recap/[subsessionId] the first time it opens. Bound elements are tracked in a WeakSet, not a
+    // dataset flag, because cloneNode() copies attributes but not listeners.
     interface RecapDriverLite {
       id: string;
       name: string;
@@ -364,12 +312,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const recapCache = new Map<number, Promise<RoundRecapLite | null>>();
     const boundRecapDetails = new WeakSet<HTMLDetailsElement>();
 
-    /** Same trailing-digit-stripping display rule as displayDriverName() in src/lib/supabase.ts. */
+    /** Same trailing-digit rule as displayDriverName() in src/lib/db/circuits.ts. */
     function displayDriverName(name: string): string {
       return name.replace(/\d+$/, '');
     }
 
-    /** Same "F. Lastname" formatting rule as shortDriverName() in src/lib/supabase.ts — these recap cards are narrow, so short names avoid wrapping. */
+    /** Same "F. Lastname" rule as shortDriverName() in src/lib/db/circuits.ts; recap cards are narrow. */
     function shortDriverName(name: string): string {
       const parts = displayDriverName(name).trim().split(/\s+/).filter(Boolean);
       if (parts.length === 0) return '';
@@ -399,11 +347,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       return recapCache.get(subsessionId)!;
     }
 
-    // This request bypasses Astro's router entirely (it's a plain fetch()
-    // fired from a <details> toggle, not a navigation), so — same reasoning
-    // as hard-form-submit.ts — it's invisible to pageProgress.ts's own
-    // astro:before-preparation/astro:page-load listeners and needs the
-    // global bar driven directly.
+    // A plain fetch(), invisible to pageProgress.ts' router listeners, so drive the bar directly.
     function fetchRoundRecapWithProgress(subsessionId: number): Promise<RoundRecapLite | null> {
       const alreadyCached = recapCache.has(subsessionId);
       if (alreadyCached) return fetchRoundRecap(subsessionId);
@@ -494,31 +438,21 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       });
     }
 
-    // --- "Race Recaps at this Layout" lazy loading (one level up from the
-    // recap content above) ---
-    //
-    // Each event card's outer collapsible (`[data-layout-rounds-summary]`,
-    // see EventDetailCard.astro) starts with an EMPTY body
-    // (`[data-layout-rounds-body]`) and a server-rendered count in its
-    // summary — the actual list of matching historical rounds is only
-    // fetched, via /api/layout-rounds.ts, the first time a visitor expands
-    // it. Same recapCache-style memoization (keyed by circuitId+layout
-    // rather than subsessionId) and the same WeakSet-not-dataset-flag
-    // reasoning as boundRecapDetails above — a cloned card (see
-    // showDayDetail()) must be treated as a distinct, not-yet-bound node.
+    // --- The round list one level up: each event's [data-layout-rounds-body] is filled from
+    // /api/layout-rounds.ts on first expand, memoised by circuit + layout, with the same WeakSet binding.
     interface LayoutRoundLite {
       subsessionId: number;
       trackName: string;
       startTime: string;
       seasonLabel: string | null;
-      /** Null for an exhibition/test/non-championship round — same meaning as everywhere else this display numbering is used (see computeDisplayRoundNumbers' own doc comment, src/lib/results.ts). */
+      /** Null for an exhibition/test round (computeDisplayRoundNumbers in src/lib/results/rounds.ts). */
       displayRoundNumber: number | null;
     }
 
     const layoutRoundsCache = new Map<string, Promise<LayoutRoundLite[] | null>>();
     const boundLayoutRoundsDetails = new WeakSet<HTMLDetailsElement>();
 
-    /** Same date-only-vs-timestamp parsing as formatDate() in src/lib/supabase.ts. */
+    /** Same date parsing as formatDate() in src/lib/db/circuits.ts. */
     function formatDate(dateInput: string | null): string {
       if (!dateInput) return '—';
       const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput);
@@ -571,11 +505,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         const summary = document.createElement('summary');
         summary.className = 'cursor-pointer list-none text-xs font-semibold text-white/60 transition hover:text-white';
-        // "Date: ATCX, Round X" per Logan — season label already comes back
-        // in the "ATCxx" short form (season name), and displayRoundNumber
-        // is the same app-computed "Round N" every other results view
-        // shows; either half falls back to "Exhibition" when this round
-        // isn't a numbered championship round.
+        // "Date: ATCX, Round X" (Logan); "Exhibition" when the round isn't numbered.
         const roundLabel = r.displayRoundNumber !== null ? `Round ${r.displayRoundNumber}` : 'Exhibition';
         summary.textContent = `${formatDate(r.startTime)}: ${r.seasonLabel ?? 'Exhibition'}, ${roundLabel}`;
         details.appendChild(summary);
@@ -588,10 +518,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         container.appendChild(details);
       });
 
-      // These <details data-round-recap> nodes are brand new — never seen by
-      // initRoundRecaps() before — so re-run that same guarded initializer
-      // to bind just these (already-bound ones elsewhere on the page are
-      // unaffected, same as showDayDetail()'s identical call).
+      // These recap nodes are new, so bind them (bound ones are skipped).
       initRoundRecaps();
     }
 
@@ -613,13 +540,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       });
     }
 
-    // ---- Map view -------------------------------------------------------
-    // The shared dot-matrix world map (src/scripts/dotMap.ts). One pin per circuit
-    // that has coordinates (latitude/longitude on the circuit,
-    // 0098_circuit_coordinates.sql); past events are drawn faded;
-    // click one to list that circuit's event cards under the map. The map code
-    // and world data are loaded the first time Map is chosen, so they cost nothing
-    // for everyone who stays on List.
+    // ---- Map view: the shared dot map (src/scripts/dotMap.ts), one pin per circuit with coordinates (0098),
+    // past events faded; clicking lists the circuit's events. Loaded the first time Map is chosen. ----
     const PIN_VARS: Record<string, string> = {
       endurance: 'var(--m-pin-endurance)',
       sprint: 'var(--m-pin-sprint)',

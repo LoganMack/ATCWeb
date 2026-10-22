@@ -1,22 +1,7 @@
 ---
-// One round's Qualifying results — unlike ResultsTable.astro (one instance
-// per real race number), there's only ever one of these per round, since
-// qualifying isn't split by race (see getQualifyingForSubsession in
-// src/lib/results.ts). Deliberately lean: no expand row, no points column
-// at all — per Logan, qualifying/practice results replace the Margin
-// column with Best Lap and hide every points column outright, since
-// qualifying carries no points of its own.
-//
-// DOES show the same penalty tag ResultsTable.astro shows (per Logan) —
-// a penalty logged directly against qualifying always SCORES onto Race 1
-// (see scoringRaceNumber in src/lib/penalties/effective.ts), but it was still LOGGED
-// against this driver's qualifying result, so a visitor looking at
-// Qualifying needs to see it flagged here too, not just discover it later
-// on the Race 1 table it happens to score against. Shares the exact tag
-// label/styling logic ResultsTable.astro uses (sharedPenaltyTagLabel/
-// isRealPenaltyTag, src/lib/penalties.ts — see the former's own doc
-// comment for why it's not just named "penaltyTagLabel") rather than a
-// separate copy.
+// One round's qualifying results (one session per round). No expand row or points columns; Best Lap replaces
+// Margin (Logan). Shows the same penalty tag as ResultsTable.astro (sharedPenaltyTagLabel/isRealPenaltyTag in
+// src/lib/penalties/effective.ts): a qualifying penalty scores on race 1 but must be visible here too.
 import DriverLink from './DriverLink.astro';
 import type { QualifyingRow } from '../lib/results/sessions';
 import type { Penalty } from '../lib/db/penalties';
@@ -35,10 +20,7 @@ interface Props {
 
 const { rows, showClass = false, classNameById, penalties = [] } = Astro.props;
 
-// Unlike ResultsTable.astro there's no race_number to also match — every
-// qualifying penalty already belongs to THE ONE qualifying session this
-// table shows (race_number is always the sentinel 0 here — see Penalty's
-// own doc comment), so session_type alone is enough to scope this.
+// Qualifying penalties are stored with race_number 0, so session_type alone scopes them.
 const qualifyingPenalties = penalties.filter((p) => p.session_type === 'qualifying');
 // A Racing Incident entry (driver_id null) can't be attached to any
 // driver's row here — same exclusion as ResultsTable.astro's own map.

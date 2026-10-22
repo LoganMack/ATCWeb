@@ -9,24 +9,9 @@ import {
 import type { Lookup } from '../db/lookups';
 import { computeDriverCareerStats, type DriverCareerStats } from './careerStats';
 
-// ---------------------------------------------------------------------------
-// Career team stats — every team that has ever fielded a driver, with
-// career totals and a season-by-season breakdown. Powers the "Team Stats"
-// history tab (src/pages/team-stats.astro).
-//
-// Deliberately NOT a second whole-history computation — it's a pure
-// in-memory pivot of computeDriverCareerStats' own output (issues zero
-// extra Supabase queries), attributing each driver-season's stat line to
-// that driver's PRIMARY team that season (DriverCareerSeasonRow.teams[0] —
-// same "primary team" a driver's own Team Pos/Delta Team Pos columns
-// already use). A driver with no team that season contributes to no team's
-// totals. This intentionally rolls up individual results rather than
-// re-deriving team-level wins/podiums/etc. from scratch, since this site's
-// team championship (see computeTeamSeasonStandings) only ever scores
-// POINTS at the team level (top-2-scorers-per-race) — there's no separate
-// notion of a "team win" or "team pole" independent of its drivers' own
-// results to compute in the first place.
-// ---------------------------------------------------------------------------
+// Career team stats for the Team Stats history tab: an in-memory pivot of computeDriverCareerStats' output
+// (no extra queries), crediting each driver-season to that driver's primary team (teams[0]). The team
+// championship only scores points, so there is no separate "team win" to compute.
 
 export interface TeamCareerSeasonDriver {
   driverId: string;
@@ -102,20 +87,9 @@ export async function computeTeamCareerStats(
   precomputedOrganizations?: Organization[],
   precomputedOrgTeamSeasons?: OrganizationTeamSeason[],
   /**
-   * `'overall'` (default): every driver-season a team ever fielded, same as
-   * always — the cross-class competition, and its `championships` count
-   * comes from `teamPosition === 1`.
-   * `'delta'`: only driver-seasons where that driver raced Delta that
-   * season contribute at all (a team with no Delta driver in a given season
-   * simply has no row for it, and drops out of the whole list if it NEVER
-   * fielded one) — wins/podiums/etc. above are already per-driver-season
-   * totals scoped to that driver's own class (see DriverCareerSeasonRow's
-   * own doc comment), so restricting the input rows to Delta is sufficient
-   * to make every rolled-up number here reflect Delta-class performance
-   * only. `championships` switches to `deltaTeamPosition === 1` (the
-   * standalone Delta Team competition — see computeTeamSeasonStandings'
-   * own doc comment for how that differs from the Delta driver class
-   * existing at all).
+   * `'overall'`: every driver-season; championships from `teamPosition === 1`. `'delta'`: only Delta
+   * driver-seasons count (teams that never fielded one drop out), and championships come from the separate
+   * Delta Team competition (`deltaTeamPosition === 1`).
    */
   view: 'overall' | 'delta' = 'overall',
 ): Promise<TeamCareerStats[]> {
@@ -129,11 +103,8 @@ export async function computeTeamCareerStats(
       : getAllOrganizationTeamSeasons(env),
   ]);
 
-  // (team_id, season_id) -> organization_id — a team that's never been
-  // linked to an organization (the common case) simply has no entry here,
-  // and computeTeamCareerStats' whole grouping step below reduces to
-  // "everyone is grouped by their own team_id," i.e. today's behavior,
-  // unchanged (see 0043_organizations.sql).
+  // (team_id, season_id) -> organization_id (0043_organizations.sql). Most teams have no organization and
+  // simply group by their own team_id.
   const orgIdByTeamSeason = new Map<string, string>();
   for (const link of orgTeamSeasons) {
     orgIdByTeamSeason.set(`${link.team_id}:${link.season_id}`, link.organization_id);
@@ -228,10 +199,7 @@ export async function computeTeamCareerStats(
     }
   }
 
-  // Regroup the per-(team, season) accumulations above by organization —
-  // a team+season with no organization link falls back to its own team_id
-  // as a singleton group key, so an unlinked team's output row is identical
-  // to what this function produced before organizations existed.
+  // Regroup by organization; an unlinked team is its own group, so its output is unchanged.
   interface GroupedAccum extends TeamSeasonAccum {
     teamId: string;
   }
@@ -306,15 +274,8 @@ export async function computeTeamCareerStats(
       }
     }
 
-    // accums[0] is the most recent season (sorted above) — its logo
-    // represents this team (or, when grouped, whichever team most recently
-    // represented the organization) "as it is now" for the card header,
-    // same reasoning DriverCareerStats uses a driver's current photo_url
-    // for a driver spanning many seasons. The name, though, comes from the
-    // organization itself when linked (that's the whole point — an
-    // organization's own name doesn't change just because the team
-    // representing it this season did), falling back to the team's own
-    // name when there's no organization.
+    // The most recent season's logo represents the team today; the name comes from the organization when
+    // linked, since it outlives the team representing it.
     out.push({
       teamId: organization?.id ?? accums[0].teamId,
       teamName: organization?.name ?? accums[0].teamName,

@@ -12,28 +12,18 @@ export async function handleSaveIncident(
   intent: string,
 ): Promise<IncidentActionRedirect> {
   const { supabaseEnv, accessToken, actor, roundLabel, shellPath, subsessionId } = ctx;
-  // The Session field's value encodes both what kind of session this
-  // incident happened in and (for a real race) which one — "race:2",
-  // "qualifying:0", "practice:0". Qualifying/practice always carry the
-  // race_number sentinel 0 (see 0056_penalty_session_type.sql) — it can
-  // never collide with a real race (curated_race_results.race_number is
-  // always 1-5); it's purely a display/grouping value. For SCORING, a
-  // qualifying/practice incident's penalty always applies to Race 1 (see
-  // scoringRaceNumber in src/lib/penalties/effective.ts; score_round does
-  // the same).
+  // The Session value encodes kind and race: "race:2", "qualifying:0", "practice:0". The 0 sentinel (0056)
+  // never collides with a real race (1-5); a qualifying/practice penalty scores on race 1 (scoringRaceNumber
+  // in src/lib/penalties/effective.ts; score_round does the same).
   const [sessionTypeRaw, raceNumberRaw] = String(form.get('session') ?? '').split(':');
   const sessionType: 'race' | 'qualifying' | 'practice' =
     sessionTypeRaw === 'qualifying' || sessionTypeRaw === 'practice' ? sessionTypeRaw : 'race';
   const raceNumber = sessionType === 'race' ? Number(raceNumberRaw) : 0;
   const isRaceSession = sessionType === 'race';
-  // Cars at fault (fault_driver_ids — the incident dialog's checklist, see
-  // src/scripts/faultCards.ts): one penalty row per car, each with its own
-  // PP/Warning, time penalty, points penalty and offenses (the fields named
-  // "<field>:<driver id>"); session, #, lap, description and involved cars
-  // are shared. Nothing ticked is a Racing Incident: one row with no driver
-  // (0020_penalty_racing_incident.sql) and, server-side regardless of what
-  // was submitted, no penalty or offenses. An edit updates one existing row,
-  // so only the first car counts there (the dialog only allows one).
+  // Cars at fault (src/scripts/faultCards.ts): one penalty row per car with its own "<field>:<driver id>"
+  // values; the session, number, lap, description and involved cars are shared. Nothing ticked is a Racing
+  // Incident: one driverless row with no penalty (0020), enforced here. An edit updates one row, so only the
+  // first car counts.
   const faultDriverIds = [...new Set(form.getAll('fault_driver_ids').map(String).filter(Boolean))];
   const penalizedDriverIds = intent === 'update-incident' ? faultDriverIds.slice(0, 1) : faultDriverIds;
   const involvedDriverIds = form.getAll('involved_driver_ids').map(String);
@@ -54,13 +44,8 @@ export async function handleSaveIncident(
     appeal_penalty_points: numOrZeroField(form, 'appeal_penalty_points'),
   };
 
-  // PP and the warning flag come from one dropdown per car: "warning" is a
-  // Warning (rulebook: 2 warnings escalates to +1 PP, so it has no PP value
-  // of its own — stored as penalty_points 0, see
-  // 0059_penalty_points_warning_dropdown.sql), blank is "no PP/warning"
-  // (also 0), and 1-7 is a literal PP award. Qualifying/practice incidents
-  // can carry a real penalty too — per Logan, it always applies to Race 1
-  // (see scoringRaceNumber in src/lib/penalties/effective.ts).
+  // One dropdown per car sets PP and the warning flag: "warning" is stored as 0 PP (two warnings escalate to
+  // +1 PP; 0059), blank is 0, and 1-7 is a PP award. Qualifying/practice penalties apply to race 1 (Logan).
   function penaltyFor(driverId: string | null): { data: PenaltyInput; offenseIds: string[] } {
     if (!driverId) {
       return {

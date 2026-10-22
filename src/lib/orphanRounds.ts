@@ -1,19 +1,7 @@
 /**
- * "Orphaned" rounds — curated_rounds rows the iRacing results pipeline
- * inserted but that aren't fully wired into the site yet:
- *
- *  - no season_id  → the round doesn't appear under ANY season on the Results
- *                    page, and it cannot be scored (scoring_issues records
- *                    it). The pipeline only fills in the free-text
- *                    `season_label` (e.g. "ATC18").
- *  - no event_id   → the round isn't tied to a calendar event, so the
- *                    incident-reporting window, event-based exhibition/test
- *                    flags and the event's "results" link have nothing to
- *                    attach to (see 0078_curated_rounds_event_id...).
- *
- * Admin > Events lists these (src/pages/admin/events/index.astro) with a
- * Season + Event picker; associateRound() below applies the choice and then
- * re-scores the round so it shows up with points straight away.
+ * Rounds the pipeline inserted but that aren't wired in: no season_id (not listed under a season, can't be
+ * scored) or no event_id (no reporting window, event flags or results link; 0078). Admin > Events lists them
+ * with pickers; associateRound() applies the choice and rescores.
  */
 import { restGet, restGetAll, restPatch, type SupabaseEnv } from './db/client';
 import { getEvents, type EventWithCircuit } from './db/events';
@@ -110,16 +98,9 @@ export interface AssociateResult {
 }
 
 /**
- * Applies a Season and/or Event choice to one round:
- *  - season_id (+ season_label) and event_id are set;
- *  - format / layout are filled in from the event when the round has none
- *    (scoring can't pick a points table without a format);
- *  - an Exhibition / Test event flags the round the same way imports do
- *    (round_overrides);
- *  - then rescore_season() rescores the round's season so it has points
- *    right away (BR3.4).
- * Throws on a bad choice or a failed write; a scoring failure is reported in
- * the result instead (the link is still saved).
+ * Sets season and/or event on one round, fills format/layout from the event when missing (scoring needs a
+ * format), flags exhibition/test like imports, then rescores the season (BR3.4). Throws on a bad choice or
+ * failed write; a scoring failure is returned instead.
  */
 export async function associateRound(
   env: SupabaseEnv,

@@ -1,49 +1,10 @@
 /**
- * Manual Race/Qualifying/Practice Results CSV import — writes RAW PER-DRIVER
- * DATA only, into curated_rounds (the round itself) plus one of
- * curated_race_results / curated_qualifying / curated_practice_results (each
- * driver's finish position or lap time — the same shape the real
- * iRacing-results pipeline populates). It never writes points: those live in
- * race_score_results, which the database's scoring triggers fill with
- * score_round() from the season's scoring ruleset (Admin > Rulesets) as soon
- * as the results land. A round whose season has no ruleset yet is recorded
- * in scoring_issues instead, and is scored once a ruleset is assigned.
- *
- * This is still the one importer that writes directly into pipeline-owned
- * tables — see results.ts's own header comment, and 0004_champions.sql/
- * 0014_penalties.sql/0018_curated_rounds_layout.sql for the rule this
- * deliberately breaks. It's a one-off, Logan-approved exception — see
- * 0028_manual_results_import.sql's header for the reasoning and the
- * negative-subsession_id collision-safety scheme that makes it safe.
- *
- * Meant for exhibition races or one-off events the real pipeline will never
- * see. If a round WILL eventually show up in a real pipeline import, don't
- * use this — a synthetic round and a real one for the same event would show
- * up as two separate rounds everywhere on the site, since the app has no
- * way to know they're the same race.
- *
- * All three importers (race/qualifying/practice) share ONE import_key
- * namespace via manual_result_imports — uploading a race CSV and a
- * qualifying CSV under the same import_key ties both to the same
- * curated_rounds row, rather than each creating its own round. See
- * resolveRoundIdentity()/writeRoundRow() below, which every importer calls.
- *
- * Every importer also resolves and stores curated_rounds.event_id
- * (0078_curated_rounds_event_id_and_practice_results.sql) by matching
- * circuit_id + event_date against the events table, same as the backfill
- * in 0079_curated_rounds_event_id_backfill_by_date.sql — so a manually
- * imported round links to its event immediately. Left null (never guessed)
- * when zero or more than one event matches that circuit+date.
- *
- * ONE IMPORTANT LIMITATION, surfaced via skipped-row counts rather than
- * failing the whole upload: curated_race_results/curated_qualifying/
- * curated_practice_results identify a driver by `cust_id` (their iRacing
- * customer id), never by this app's own driver_id — and every reader in
- * results.ts (getRoundResults/getSeasonOverallContext) joins a row to a
- * driver via `drivers.iracing_cust_id`, not a real foreign key. A driver
- * with no iracing_cust_id set on their Roster profile can't be joined this
- * way, so any CSV row for them is skipped. Set the driver's iRacing
- * Customer ID first (Admin > Roster) before importing their results.
+ * Manual Race/Qualifying/Practice Results CSV import: raw per-driver rows into curated_rounds and the curated_*
+ * results tables, never points (the database scores them from the season's ruleset).
+ * - The one importer writing pipeline-owned tables: a Logan-approved exception using negative subsession_ids
+ *   (0028). For exhibitions and one-offs only: a round the pipeline also imports would show up twice.
+ * - The three share one import_key namespace (manual_result_imports); event_id is matched by circuit + date.
+ * - Rows join drivers by `drivers.iracing_cust_id`, so set it on the Roster first or the row is skipped.
  */
 import {
   restGet,
@@ -71,21 +32,9 @@ function getDriversForImport(env: SupabaseEnv) {
 }
 
 /**
- * Resolves a CSV row's `driver_car_number` to a driver for one specific
- * season — preferring that driver's driver_season_car_numbers override for
- * THIS season (see 0044_driver_season_car_numbers.sql) over their current
- * drivers.car_number. Without this, a driver whose number has since changed
- * (or been cleared) would silently fail to match here, meaning their row for
- * that past round never gets created at all — they'd be entirely missing
- * from that round's results, with everyone behind them compressing upward
- * in the class-relative ranking (looks exactly like a phantom penalty), and
- * unselectable in that round's Incident Report (which reads its driver list
- * straight from the round's results).
- *
- * Exported (rather than kept local to this file's own importer) since the
- * Incident Report's own CSV bulk-importer (src/pages/results/[subsessionId]/
- * incidents.astro) resolves car numbers to drivers the exact same way, for
- * the exact same reason.
+ * A CSV car number to a driver for one season, preferring that season's number override (0044) over today's
+ * car_number; otherwise a renumbered driver would vanish from that round. Shared with the Incident Report's
+ * CSV import.
  */
 export function resolveDriverByCarNumberForSeason<D extends { id: string; car_number: number | null }>(
   drivers: D[],
@@ -95,11 +44,8 @@ export function resolveDriverByCarNumberForSeason<D extends { id: string; car_nu
 ): D | undefined {
   const overridden = drivers.find((d) => seasonCarNumbers.get(`${d.id}:${seasonId}`) === carNumber);
   if (overridden) return overridden;
-  // Only fall back to a driver's CURRENT number if they don't have an
-  // explicit override for this season at all — otherwise a driver whose
-  // number changed would still incorrectly match their old CSV rows via
-  // their now-stale current number, alongside whoever the number was
-  // reassigned to for that season.
+  // Today's number applies only to drivers with no override this season, or a renumbered driver would match
+  // their old rows too.
   return drivers.find((d) => d.car_number === carNumber && !seasonCarNumbers.has(`${d.id}:${seasonId}`));
 }
 
@@ -117,15 +63,9 @@ function getManualResultImports(env: SupabaseEnv, accessToken: string) {
 }
 
 /**
- * Negative, so a real pipeline import (always a positive subsession_id) can
- * never collide with a manually-imported round. `Date.now()` (ms) shifted
- * up three decimal digits plus a per-call counter keeps every round
- * generated across the lifetime of this server instance unique — safely
- * inside Number.MAX_SAFE_INTEGER (~9e15 vs. Date.now()'s ~1.8e12 * 1000).
- * This is a low-frequency admin-only operation (one CSV upload at a time),
- * so this simple in-memory scheme is enough; it doesn't need to survive a
- * server restart mid-request the way a database sequence would, since a
- * fresh id is only ever generated once per NEW round, never re-derived.
+ * Negative so it never collides with a pipeline (positive) subsession_id. Date.now() × 1000 plus a counter
+ * stays unique within MAX_SAFE_INTEGER; an id is generated once per new round, so it needn't survive
+ * restarts.
  */
 let syntheticIdCounter = 0;
 function nextSyntheticSubsessionId(): number {
@@ -178,23 +118,9 @@ export interface RoundIdentity {
 }
 
 /**
- * Resolves the round-level fields shared by every result CSV's first row in
- * a group (circuit/layout/season/date/time/format/SOF/exhibition),
- * validates the circuit/season/date actually match something, and resolves
- * curated_rounds.event_id via circuit_id + event_date (see this file's own
- * header comment). Returns null when the group's circuit/season/date can't
- * be resolved — the caller should count the whole group as skipped rather
- * than call writeRoundRow().
- *
- * Deliberately read-only / side-effect-free — it does NOT touch
- * curated_rounds or manual_result_imports itself. That split lets each
- * importer clear its OWN results table (curated_race_results vs.
- * curated_qualifying vs. curated_practice_results) for an already-imported
- * round in between resolving the identity and actually writing the round
- * row, exactly matching this importer's original ordering (clear old result
- * rows, then upsert the round).
- *
- * `newSubsessionId` is injectable so tests can pass a fixed id instead of a clock-based one.
+ * Resolves and validates the round fields from a group's first row, including event_id by circuit + date;
+ * null when circuit, season or date don't resolve (skip the group). Read-only, so each importer can clear its
+ * own results table before writeRoundRow(). `newSubsessionId` is injectable for tests.
  */
 export function resolveRoundIdentity(
   importKey: string,
@@ -251,18 +177,9 @@ export function resolveRoundIdentity(
 }
 
 /**
- * Upserts the curated_rounds row (and manual_result_imports link, and
- * exhibition/test round_overrides flags) for one resolved round identity.
- * Call AFTER clearing the calling importer's own results table for an
- * already-imported round — see resolveRoundIdentity()'s doc comment.
- *
- * `numDrivers`/`updateNumDrivers`: num_drivers is meant to reflect the
- * RACE's grid size, so only the race importer is allowed to overwrite it on
- * an existing round (`updateNumDrivers: true`) — a qualifying- or
- * practice-only re-upload must never clobber that count with its own
- * (usually smaller/different) participant count. On a brand-new round,
- * whichever importer creates it still seeds an initial value — better than
- * leaving it null — since it's the only count available yet.
+ * Upserts the curated_rounds row, manual_result_imports link and exhibition/test flags; call after clearing
+ * the importer's own results. num_drivers is the race grid size, so only the race importer overwrites it on
+ * an existing round; any importer seeds it on a new one.
  */
 async function writeRoundRow(
   env: SupabaseEnv,
@@ -320,13 +237,8 @@ async function writeRoundRow(
     }
   }
 
-  // Same upsert shape as the exhibition flag above, independent flag (see
-  // 0036_round_test_flag.sql) — set the exact same way: from the CSV's own
-  // `test` column, itself pre-filled from the linked event's `category`
-  // (see src/pages/api/import-templates/[kind].ts) when this template was
-  // downloaded for a specific Test Session event. This is now the ONLY way
-  // to flag a round as a test session — the round detail page's admin
-  // toggle button was removed per Logan (the event is the source of truth).
+  // The test flag (0036), set like the exhibition flag from the CSV's `test` column, which is prefilled from
+  // the linked event's category. The only way to flag a test round: the event is the source of truth (Logan).
   if (identity.isTest) {
     try {
       try {
@@ -447,10 +359,7 @@ export function mapRaceResultRow(
       subsession_id: subsessionId,
       race_number: raceNumber,
       cust_id: driver.iracing_cust_id,
-      // display_name is NOT NULL on curated_race_results — sourced from
-      // this app's own roster rather than the CSV, since the driver was
-      // already resolved by car number above and this app's name is the
-      // one every other page already shows for them.
+      // display_name is NOT NULL; it comes from the roster, the name every other page shows.
       display_name: driver.name,
       car_name: get(row, 'car_name') || null,
       car_class_name: classNameRaw || null,
@@ -468,13 +377,8 @@ export function mapRaceResultRow(
 }
 
 /**
- * Rows are grouped by their `import_key` column — every row sharing the
- * same key is treated as one round (one or more races within it), and gets
- * one synthetic subsession_id between them. Re-uploading a CSV with a key
- * that's already been imported REPLACES that round's curated_race_results
- * rows entirely (deletes then reinserts) rather than merging with what's
- * already there, so a corrected file — including a driver actually removed
- * from it — fully takes over.
+ * Rows sharing an `import_key` are one round with one synthetic subsession_id. Re-uploading a key replaces
+ * that round's race results entirely, so a corrected file fully takes over.
  */
 export async function importRaceResultsCsv(
   env: SupabaseEnv,
@@ -570,12 +474,8 @@ export async function importRaceResultsCsv(
 }
 
 /**
- * Same import_key/round-resolution scheme as importRaceResultsCsv (see this
- * file's header comment) but writes curated_qualifying instead — one row
- * per driver's qualifying position and best lap. Re-uploading a CSV under an
- * already-imported key replaces that round's curated_qualifying rows only;
- * it never touches curated_race_results/curated_practice_results for the
- * same round.
+ * Same scheme as importRaceResultsCsv, writing curated_qualifying (position and best lap); a re-upload
+ * replaces only that round's qualifying rows.
  */
 export async function importQualifyingResultsCsv(
   env: SupabaseEnv,
@@ -685,11 +585,7 @@ export async function importQualifyingResultsCsv(
 }
 
 /**
- * Same import_key/round-resolution scheme again, writing curated_practice_
- * results (0078_curated_rounds_event_id_and_practice_results.sql) — one row
- * per driver's practice laps and best lap. There's no finishing/qualifying
- * position to record for a practice session (see that migration's header
- * comment for why `laps` is the one meaningful stat kept instead).
+ * Same scheme again, writing curated_practice_results (0078): laps and best lap, as practice has no position.
  */
 export async function importPracticeResultsCsv(
   env: SupabaseEnv,
@@ -802,11 +698,7 @@ export async function importPracticeResultsCsv(
   return { imported, skipped };
 }
 
-// ---------------------------------------------------------------------------
-// Read side — backs the reworked Admin > Add Race Result page, which shows
-// one row per finished event still missing a race/qualifying/practice
-// result instead of three generic upload buttons.
-// ---------------------------------------------------------------------------
+// --- Read side: the Admin > Add Race Result checklist of finished events still missing results. ---
 
 export interface EventResultCoverage {
   eventId: string;
@@ -824,30 +716,15 @@ export interface EventResultCoverage {
   missingQualifying: boolean;
   missingPractice: boolean;
   /**
-   * The import_key of the manual round already linked to this event, if
-   * any — reused when uploading another session type for the SAME event so
-   * it attaches to that round instead of creating a duplicate one (see
-   * writeRoundRow's alreadyImported branch above). Null when there's no
-   * round at all yet, or the linked round came from the real results
-   * pipeline (a positive subsession_id with no manual_result_imports row).
-   * In that second case a fresh manual upload here would still try to
-   * attach via this event's event_id and collide with
-   * curated_rounds_event_id_unique_idx — see suggestImportKey()'s own doc
-   * comment; that's a rare, out-of-scope case (this importer is meant for
-   * exhibition/one-off rounds the real pipeline never covers, per this
-   * file's header comment), not something this read-side helper tries to
-   * paper over.
+   * The import_key of the manual round already linked to this event, so another session type attaches to it.
+   * Null with no round, or when the round came from the pipeline (out of scope for this importer).
    */
   importKey: string | null;
 }
 
 /**
- * Only championship/test/exhibition events can ever have a race result —
- * holiday/iracing events are circuit-less calendar entries with no track or
- * sessions at all (see EventCategory's doc comment in supabase.ts). Kept as
- * an explicit filter here even though those two categories would also fail
- * every *_start_time check below (they have none) — this makes the intent
- * readable without relying on that being true forever.
+ * Holiday/iRacing events have no sessions, so only these categories can have results; explicit rather than
+ * relying on their missing start times.
  */
 const EVENTS_ELIGIBLE_FOR_RESULTS = new Set(['championship', 'test', 'exhibition']);
 
@@ -866,19 +743,9 @@ async function distinctSubsessionIds(
 }
 
 /**
- * Every finished event still missing a race, qualifying, and/or practice
- * result it's actually scheduled to have — an event only "needs" a session
- * type it has a scheduled start time for (events.race1_start_time/
- * qualifying_start_time/practice_start_time), so e.g. a Test Session saved
- * with no race (0054_test_session_no_race_required.sql) is never nagged for
- * a missing "race" result. Generalizes get_missing_race_results_count()
- * (0078_curated_rounds_event_id_and_practice_results.sql), which only ever
- * tracked the race-results half of this for the admin dashboard's own
- * subtitle — that RPC is untouched and still backs that count. This lives
- * here instead of as a second RPC because it needs to return real rows (not
- * just a count) for the checklist UI, and the manual_result_imports lookup
- * it needs is admin-only anyway (see that table's own RLS), same as this
- * importer's other admin-only reads.
+ * Finished events missing a session result they were scheduled to have (one with a start time), so a raceless
+ * test session isn't flagged. Unlike get_missing_race_results_count() (0078), which still backs the dashboard
+ * count, this returns rows and needs the admin-only manual_result_imports.
  */
 export async function getEventsMissingResults(
   env: SupabaseEnv,
@@ -916,21 +783,8 @@ export async function getEventsMissingResults(
   const out: EventResultCoverage[] = [];
   for (const e of finished) {
     const round = roundByEventId.get(e.id);
-    // Race 1 is assumed to always happen for championship/exhibition events
-    // ("Race 1 is the only session that's always assumed to happen" —
-    // 0003_calendar.sql's own schema comment). A null race1_start_time on one
-    // of those isn't a sign the event has no race — it's almost always a
-    // historical event created by 0072_backfill_events_from_rounds.sql
-    // (which never set that column at all, per its own header comment) that
-    // nobody has re-saved through Admin -> Events since. Gating on
-    // Boolean(e.race1_start_time) for every category was silently
-    // suppressing every event caught by that gap — exactly the "16 missing"
-    // (dashboard's get_missing_race_results_count(), which never checks this
-    // field) vs. "0 missing" (this page) contradiction found while
-    // investigating a site health report. Test Sessions are the one category
-    // that can legitimately have no race at all
-    // (0054_test_session_no_race_required.sql), so they're the only ones
-    // still gated on the field actually being set.
+    // Race 1 always happens for championship and exhibition events (0003); a null race1_start_time there is
+    // usually a 0072 backfilled event. Only test sessions can have no race (0054).
     const raceExpected = e.category === 'test' ? Boolean(e.race1_start_time) : true;
     const missingRace = raceExpected && (!round || !raceSubsessions.has(round.subsession_id));
     const missingQualifying =
@@ -969,12 +823,8 @@ export function slugifyForImportKey(s: string): string {
 }
 
 /**
- * A reasonable starting import_key for an event that has no manual round
- * linked yet — used only to pre-fill a downloaded CSV template (see
- * src/pages/api/import-templates/[kind].ts); the admin can freely edit it
- * before uploading, and it's never read back or relied on to already exist.
- * Once a round does exist, getEventsMissingResults' own `importKey` field is
- * used instead so every further upload for that event reuses the SAME key.
+ * A starting import_key for an event with no manual round, only to prefill a downloaded template; once a
+ * round exists its own key is reused.
  */
 export function suggestImportKey(
   ev: Pick<EventResultCoverage, 'category' | 'eventDate' | 'circuitName'>,

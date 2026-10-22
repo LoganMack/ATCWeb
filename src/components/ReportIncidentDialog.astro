@@ -1,14 +1,8 @@
 ---
 /**
- * Report Incident dialog — opened by any [data-open-report-dialog] button
- * (IncidentButton.astro). Native <dialog> + showModal(), same pattern
- * as RaceLinksBlock's Edit Links dialog, so it renders in the top layer
- * above the sticky header. Posts to the results page itself
- * (`intent=report-incident`), which re-validates everything server-side
- * (required fields, session/driver validity, and the reporting window).
- *
- * Layout: Session / Lap / Turn share one row on sm+ and stack on mobile;
- * Description and Cars Involved each get their own full-width row.
+ * Report Incident dialog for [data-open-report-dialog] buttons, a native modal <dialog>. Posts
+ * `intent=report-incident` to the results page, which re-validates fields, drivers and the reporting window.
+ * Session/Lap/Turn share a row on sm+.
  */
 interface Props {
   subsessionId: number;

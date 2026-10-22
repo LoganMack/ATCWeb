@@ -24,10 +24,7 @@ const statusName = driver.driver_statuses?.name ?? '';
 const searchText = [displayDriverName(driver.name), driver.car_number !== null ? `#${driver.car_number}` : '', driver.teams?.name ?? '']
   .join(' ')
   .toLowerCase();
-// Comma-joined, lowercased pair of ISO codes for the roster's nationality
-// dropdown filter (see roster.astro's initRosterFilters) — a driver can
-// have up to two (nationality_1/nationality_2), and the filter matches
-// against either.
+// Lowercased ISO codes for the roster's nationality filter, which matches either nationality.
 const nationalitiesText = [driver.nationality_1, driver.nationality_2]
   .filter((n): n is string => Boolean(n))
   .map((n) => n.toLowerCase())

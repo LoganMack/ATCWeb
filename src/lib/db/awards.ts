@@ -1,8 +1,7 @@
 import { restDelete, restGet, restPost, type SupabaseEnv } from './client';
 
-// --- Manual awards (Best Racecraft / Most Improved — steward picks, not
-// computed from race data the way the other ten Awards-page entries are;
-// see computeSeasonAwardsHistory in results.ts, and 0069_manual_awards.sql) -
+// --- Manual awards (Best Racecraft, Most Improved): steward picks, not computed like the other ten (see
+// computeSeasonAwardsHistory in src/lib/results/awards.ts, and 0069_manual_awards.sql) ---
 
 export type ManualAwardKey = 'best_racecraft' | 'most_improved';
 

@@ -1,25 +1,10 @@
 ---
 export const prerender = false;
 
-// Race/Qualifying/Practice Results CSV importers — the three importers that
-// all write into ONE round (curated_rounds), so they stay together on their
-// own page rather than living on /admin/import-tools with Events/Circuits/
-// News (which was this page's own former name/scope — see that page for
-// the split rationale). All three share one import_key namespace via
-// manual_result_imports (src/lib/raceResultsImport.ts) — uploading a race
-// CSV and a qualifying CSV under the same import_key ties both to the same
-// round instead of creating two.
-//
-// Rather than three generic upload buttons, this page shows one row per
-// finished event still missing a race, qualifying, and/or practice result
-// (getEventsMissingResults()) — only the session type(s) an event is
-// actually missing get a button. Clicking one opens a shared upload dialog
-// (same pattern as admin/rulesets' add/edit dialog) scoped to that event +
-// kind; its "Download CSV template" link carries the event's id so the
-// downloaded template comes back pre-filled with whatever round-level
-// columns the event can supply (src/pages/api/import-templates/[kind].ts) —
-// see that file's own header comment for exactly what gets filled in and
-// why.
+// Race/Qualifying/Practice Results importers, kept together because they write one round, sharing one
+// import_key namespace (src/lib/raceResultsImport.ts). One row per finished event missing a result, with a
+// button per missing session; the shared dialog's template link carries the event id so the template comes
+// prefilled (api/import-templates/[kind].ts).
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { formatDateShort } from '../../../lib/db/circuits';
@@ -51,12 +36,8 @@ if (Astro.request.method === 'POST') {
   const redirectWithCounts = (kind: ImportKind, imported: number, skipped: number) =>
     Astro.redirect(`/admin/import?kind=${kind}&imported=${imported}&skipped=${skipped}`, 302);
 
-  // Uploads the raw spreadsheet to the 'imports' Storage bucket (see
-  // 0051_activity_log.sql) and logs one activity_log row for the whole
-  // import, so the Activity Log page can offer a direct download of exactly
-  // what was uploaded. Best-effort — a failure here (or in logActivity
-  // itself, which already swallows its own errors) never blocks the import
-  // that already happened.
+  // Stores the uploaded spreadsheet in the 'imports' bucket (0051) and logs one activity row with its
+  // download link. Best-effort: never blocks the finished import.
   const IMPORT_KIND_NOUNS: Record<ImportKind, string> = {
     'race-results': 'result',
     'qualifying-results': 'qualifying result',

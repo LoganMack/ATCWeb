@@ -76,10 +76,7 @@ const loadSeasonLogos = async () => {
   }
 };
 
-// Same bulk "fetch once, map by id" approach as logoBySeasonLabel just
-// above — only the featured post below actually renders tags (the "more
-// news" list is plain text links), but this stays consistent with how
-// news/index.astro/news/[slug].astro fetch the same data.
+// Bulk "fetch once, map by id", as news/index.astro does; only the featured post shows tags.
 let tagsByPostId = new Map<string, NewsTag[]>();
 const loadNewsTags = async () => {
   try {
@@ -94,32 +91,9 @@ const loadNewsTags = async () => {
   }
 };
 
-// --- Previous Broadcast + hero banner ---------------------------------------
-//
-// Grouped into the same Promise.all as everything else above (news, events,
-// circuit layouts, season logos, news tags) rather than awaited on its own
-// afterward — but the group as a whole still fully resolves BEFORE the
-// standings widget below starts firing its own (much pricier) fetches, same
-// guarantee this used to get from being sequenced after the others one at a
-// time. That distinction matters: see the standings widget's own doc
-// comment below for the full incident this guards against — once upon a
-// time the widget alone could burn through nearly this whole page's
-// Cloudflare Workers subrequest budget, which silently starved whatever ran
-// after it on the same request — this used to be that code's neighbor, and
-// paid for it (that's why "the YouTube embed disappeared" and "no
-// standings" were ever reported as one bug, not two). Running it and its
-// neighbors concurrently with each other, before the widget, is strictly
-// safer than the old one-at-a-time ordering: it finishes sooner, not later.
-//
-// This used to be a manually-pasted YouTube URL set from
-// /admin/site-properties (see 0087_remove_featured_broadcast_setting.sql,
-// which drops the now-unused setting that admin form used to write) — now
-// it's automatic: whichever race result most recently had a broadcast link
-// attached (src/pages/results/[subsessionId].astro sets race_links.broadcast_url),
-// via getAllBroadcastVideos() (results.ts), which already returns every
-// broadcast link on file joined with its round, newest first — [0] is all
-// this needs.
-// Cast so TypeScript keeps the full type: it's assigned inside an async loader, which control-flow narrowing can't see.
+// --- Previous Broadcast + hero banner: fetched with the other cheap loads, which all finish before the
+// standings widget's costly fetches start, so the widget can't starve them of the subrequest budget. The
+// broadcast is the latest race result with a broadcast link (getAllBroadcastVideos()[0]).
 let previousBroadcast = null as Awaited<ReturnType<typeof getAllBroadcastVideos>>[number] | null;
 let broadcastEmbedUrl: string | null = null;
 // "ATC18: Round 3 at Charlotte Motor Speedway, Roval No Chicanes" — built
@@ -144,18 +118,8 @@ const loadPreviousBroadcast = async () => {
   }
 };
 
-// --- Previous Result card ---------------------------------------------
-//
-// Sits in the right-hand column between Upcoming Events and Standings,
-// styled and structured to match the Standings widget below it — same
-// dropdown-driven Overall/Alpha/Delta/Gamma(+Team) tab set, just pulled
-// from the single most recent ROUND's own results instead of the season's,
-// plus a second dropdown for which SESSION of that round (Practice,
-// Qualifying, Race 1/2/3...) is showing. getPreviousResultWidget() is its
-// own deliberately cheap computation — see its own doc comment in
-// results.ts for why it's nowhere near as expensive as the standings
-// widget below.
-// Cast for the same reason as previousBroadcast above.
+// --- Previous Result card: styled like the Standings widget but for the latest round, with a session
+// dropdown. getPreviousResultWidget() is cheap compared with the widget.
 let previousResult = null as Awaited<ReturnType<typeof getPreviousResultWidget>>;
 // The link beside "Full race result": the round's incident report once stewards
 // have posted it, "Submit Incident Report" while the reporting window is still
@@ -182,12 +146,8 @@ const loadPreviousResult = async () => {
   }
 };
 
-// All 6 of the above are mutually independent — none reads another's
-// result — so they run concurrently as one round-trip's worth of latency
-// instead of 6 (the first was already batched into its own Promise.all;
-// now it's batched with the rest too). Awaiting this before moving on to
-// the standings widget below is what preserves the ordering guarantee the
-// broadcast/banner comment above depends on.
+// All six are independent, so they run concurrently; awaiting them before the standings widget keeps the
+// ordering above.
 await Promise.all([
   loadTopSection(),
   loadSeasonLogos(),
@@ -199,37 +159,13 @@ await Promise.all([
 const featuredNews = latestNews[0] ?? null;
 const moreNews = latestNews.slice(1, 16);
 
-// Previous Result widget's default-open session — a visitor lands here
-// wanting to see how the RACE went, not practice/qualifying, so this
-// defaults to the first race session (key `race-1`/`race-N`, see
-// getPreviousResultWidget's own doc comment for how `sessions` gets built:
-// Practice, then Qualifying, then each race in order) when the round has
-// one, falling back to whatever the first session actually on file is
-// (Qualifying, or Practice) for a round that hasn't had a race imported
-// yet. Per Logan.
+// The Previous Result card opens on the first race session, else the first session on file (Logan).
 const defaultPreviousResultSessionKey =
   previousResult?.sessions.find((s) => s.key.startsWith('race-'))?.key ?? previousResult?.sessions[0]?.key ?? null;
 
-// --- Top 5 standings widget ------------------------------------------------
-//
-// One toggle-able widget covering Overall + all 3 classes' own driver
-// standings, plus Alpha's and Delta's own separate TEAM standings (Gamma
-// and an Overall team view aren't included here — only what was asked
-// for; the full /team-standings page still has its own Overall/Delta
-// toggle for the team competitions). No Rookies tab for now — pulled back
-// out until there's more rookie-specific logic to back it up.
-//
-// Rather than N separate page navigations (which would need the loading-bar
-// treatment — see pageProgress.ts — for every single toggle click), every
-// view is computed server-side up front and switched between client-side
-// with plain show/hide JS, same as the search-box filters elsewhere on the
-// site. That also means the season-wide penalty context only needs
-// fetching ONCE (`getSeasonOverallContext`, shared via `precomputedOverallContext`
-// into every `compute*Standings` call below, including the team ones)
-// instead of once per view — the same "share one expensive fetch across
-// every view that needs it" pattern computeDriverCareerStats had to be
-// rebuilt around after the Driver Stats subrequest-limit incident (see
-// README v0.34/v0.35).
+// --- Top 5 standings widget: Overall, the three classes, and Alpha and Delta team standings. Every view is
+// computed up front and switched with show/hide, so one season context (getSeasonOverallContext) is shared by
+// every compute*Standings call.
 type StandingsTab =
   | { key: string; label: string; type: 'driver'; rows: DriverSeasonStanding[] }
   | { key: string; label: string; type: 'team'; rows: TeamSeasonStanding[] };
@@ -273,10 +209,7 @@ try {
       }))
     );
 
-    // delta-team only offered when the CURRENT season actually has the
-    // separate Delta Team championship active — see 0052_delta_team_enabled.sql
-    // (that competition didn't exist before ATC10, distinct from the Delta
-    // driver class itself, which is what deltaClassId reflects).
+    // Delta Team only when the current season runs that championship (0052; ATC10 onward).
     const teamTabDefs = [
       { key: 'alpha-team', label: 'Alpha Team', classId: alphaClassId },
       ...(activeSeason.delta_team_enabled ? [{ key: 'delta-team', label: 'Delta Team', classId: deltaClassId }] : []),
@@ -317,28 +250,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
     <div class="mx-auto mt-6 grid max-w-6xl gap-12 lg:grid-cols-2 lg:items-start lg:gap-16">
-      <!--
-        min-w-0 on both direct grid-item columns below: CSS Grid items
-        default to `min-width: auto`, which for a track containing a
-        percentage-sized <img> (the NewsCard cover photo — `w-full` — see
-        NewsCard.astro) resolves to that IMAGE'S OWN INTRINSIC pixel size
-        (e.g. a raw 2048px-wide upload), not its rendered/cropped size —
-        a well-known grid quirk. With no `lg:grid-cols-2` active below the
-        lg breakpoint (mobile falls back to one implicit auto column),
-        that intrinsic width was silently forcing the whole column — and
-        with it this section and the page's <body> — wider than the
-        viewport, which is what was spilling every mobile card off the
-        right edge. `min-w-0` overrides that default back to 0, letting
-        the column (and everything percentage-sized inside it, like this
-        same image via `overflow-hidden`) shrink to the actual available
-        width instead. Harmless at the lg: 2-column breakpoint too — it
-        only ever matters when something would otherwise overflow.
-      -->
+      <!-- min-w-0 on both grid columns: a grid item's `min-width: auto` takes a `w-full` image's
+           intrinsic size, which pushed the page wider than the viewport on mobile. -->
       <div class="min-w-0">
-        <!-- The page's one real <h1> — see the comment above for why this
-             (not a big "Alpha Touring Challenge" headline) is it. Styled to
-             match the "Standings" heading below rather than the old small
-             uppercase-tracked label. -->
+        <!-- The page's one <h1>, styled like the Standings heading. -->
         <h1 class="sr-only">Featured Story</h1>
 
         {featuredNews ? (
@@ -413,25 +328,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                 </>
               ) : (
                 <div data-previous-result-widget>
-                  <!--
-                    Title and the two filter dropdowns share one row — title
-                    left, filters right (flush with the results box's own
-                    right edge below), per Logan — same treatment as the
-                    Standings widget's own title/filter row below, replacing
-                    the track name this row used to show instead (removed
-                    entirely, not shown anywhere else on this card). Two
-                    dropdowns: which SESSION of this round (Practice,
-                    Qualifying, Race 1/2/3...), and which result type within
-                    it (Overall/Alpha/Delta/Gamma, plus Alpha/Delta Team on a
-                    Race session — see PreviousResultWidgetSession's own doc
-                    comment in results.ts). The result-type options differ
-                    per session (team tabs only exist on Race sessions), so
-                    rather than rebuilding one dropdown's options in JS, every
-                    session gets its own result-type <select>, and only the
-                    one matching the active session is ever visible — same
-                    "everything's already rendered, JS just toggles `hidden`"
-                    approach as the Standings widget below.
-                  -->
+                  <!-- Title left, filters right (Logan): a session dropdown and, per session, its own
+                       result-type <select> (team tabs exist only on races); JS shows the active one, as
+                       in the Standings widget. -->
                   <div class="flex flex-wrap items-center justify-between gap-3">
                     <h2 class="font-display text-3xl">Previous Result</h2>
 
@@ -476,11 +375,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                 return (
                                   <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
                                     <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position ?? '—'}</span>
-                                    {/* Short "F. Lastname" form — this card
-                                        is a fixed, fairly narrow width at
-                                        every viewport, so long names get cut
-                                        off by the truncate above even on
-                                        desktop. */}
+                                    {/* "F. Lastname": this card is narrow at every width. */}
                                     <span class="min-w-0 flex-1 truncate font-semibold">
                                       <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink>
                                       {row.driver.car_number !== null && <span class="text-white/40"> #{row.driver.car_number}</span>}
@@ -546,17 +441,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           </>
         ) : (
           <div data-standings-widget>
-            <!--
-              Title and filter dropdown share one row — title left, filter
-              right — same treatment as the Previous Result widget's own
-              title/filter row above, per Logan. Purely client-side
-              filtering otherwise — every view's rows are already rendered
-              below, this just toggles which `hidden`. Deliberately NOT a
-              link/form submission, so there's no server round trip here and
-              (correctly) no loading-bar treatment from pageProgress.ts fires
-              for it — same reasoning as the search-box filters and
-              sortable-table column clicks elsewhere on the site.
-            -->
+            <!-- Title left, filter right (Logan). Client-side show/hide only, so no request and no
+                 progress bar. -->
             <div class="flex flex-wrap items-center justify-between gap-3">
               <h2 class="font-display text-3xl">Standings</h2>
               <div class="flex flex-wrap justify-end gap-2">
@@ -581,10 +467,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                   ) : tab.type === 'driver' ? (
                     tab.rows.map((row) => {
                       const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
-                      // Only the driver's primary (most-raced) car/team this
-                      // season — extras.cars/teams are sorted by races
-                      // descending — to keep each row compact; almost every
-                      // driver only has one of each anyway.
+                      // Only the primary (most-raced) car and team, to keep rows compact.
                       const extras = carTeamExtrasByDriverId.get(row.driver.id);
                       const primaryTeam = extras?.teams[0];
                       return (

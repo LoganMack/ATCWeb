@@ -1,12 +1,8 @@
 ---
 export const prerender = false;
 
-// Admin → Incident Reporting: one row per round with how many driver-submitted
-// reports it has (Reported / Pending / Dismissed / Logged), a "Posted" toggle
-// (posting makes the round's incident report public and re-enables the
-// results page's Incident Report button — see 0092_incident_posting.sql), and
-// an Edit link to the round's incident report page where reports are logged
-// or dismissed.
+// Admin → Incident Reporting: per round, report counts by state, a "Posted" toggle (publishes the incident
+// report and the results page button; 0092) and an Edit link to the round's incident page.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, restGetAuthed } from '../../../lib/db/client';
 import { getStandingsExcludedRoundIds } from '../../../lib/db/rounds';

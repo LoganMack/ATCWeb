@@ -1,12 +1,6 @@
 /**
- * Click-to-enlarge for any `[data-lightbox]` trigger (see ChampionCard.astro
- * and the admin champion-photo upload page) — opens a full-size overlay on
- * click, closes on backdrop click, the close button, or Escape.
- *
- * Uses a single delegated listener on <body>, guarded by a dataset flag
- * (the same pattern hard-form-submit.ts uses per-form), instead of binding
- * a listener to every photo — new photos swapped in by a view transition
- * are covered automatically without needing to re-bind on astro:page-load.
+ * Click-to-enlarge for any `[data-lightbox]` trigger: full-size overlay, closed by backdrop, button or
+ * Escape. One delegated listener on <body>, so photos swapped in later need no rebinding.
  */
 
 function ensureOverlay(): HTMLDivElement {

@@ -1,38 +1,8 @@
 /**
- * Generic "export this table to CSV" behavior for any button carrying
- * `data-csv-export="<table id>"` (and optionally `data-csv-filename="…"`
- * for the downloaded file's base name, timestamp appended below).
- *
- * Reads whatever's currently rendered in that table's `<thead>`/`<tbody>`
- * at click time — it doesn't re-derive or re-fetch anything of its own.
- * That's deliberate: standings.astro/team-standings.astro render a
- * completely different `<table>` (different columns, different markup)
- * for List vs Matrix mode, both sharing one `id` across their
- * mutually-exclusive server-rendered branches (only one mode's block ever
- * renders per page load) — this never needs to know which one is live, or
- * be kept in sync with either one's column set, since it just serializes
- * whatever table element it finds by that id.
- *
- * Detail/expand rows (`[data-detail-row]`, see expandRows.ts) are always
- * skipped — those repeat the same driver/team as the summary row right
- * before them in a different layout, not a new record for the export.
- * Columns hidden at the current viewport width (`hidden sm:table-cell`
- * etc.) are still exported in full — a CSV isn't screen-width-constrained
- * the way the page is, so there's no reason to drop data just because a
- * narrow window currently hides it.
- *
- * A cell's raw `textContent` isn't always what belongs in the CSV, though.
- * Two cases handled here:
- *   - The `▶` expand/collapse chevron (see expandRows.ts's `data-chevron`
- *     spans) is decoration, not data — stripped from every cell, on every
- *     table, rather than needing a per-page opt-out.
- *   - A name cell can render extra UI alongside the name itself — a car
- *     number badge, a car/team logo's acronym-tile fallback text — glued
- *     right up against it with no real space character between them (flex
- *     `gap` is visual spacing only), e.g. "DriverName#14APX". Cells like
- *     that carry an explicit `data-csv-value="…"` with just the clean
- *     value, which wins over textContent when present. See
- *     standings.astro / team-standings.astro for the cells that set it.
+ * Exports the table named by `data-csv-export="<table id>"` (optional `data-csv-filename`) as CSV, from
+ * whatever is rendered at click time, so it works for both List and Matrix views. Detail rows are skipped,
+ * hidden-at-this-width columns kept, the `▶` chevron stripped, and a cell's `data-csv-value` wins over its
+ * text (for name cells with glued-on badges).
  */
 function cellText(cell: Element): string {
   const override = cell.getAttribute('data-csv-value');
@@ -85,10 +55,7 @@ function tableToCsv(table: HTMLTableElement): string {
 
 function downloadCsv(filenameBase: string, csv: string) {
   const stamp = new Date().toISOString().slice(0, 10);
-  // Leading UTF-8 BOM so Excel on Windows doesn't guess a legacy code page
-  // for non-ASCII text (accented driver names, etc.) — without it, Excel
-  // ignores the Blob's own charset=utf-8 and mangles anything outside
-  // plain ASCII.
+  // UTF-8 BOM, or Excel on Windows ignores the charset and mangles non-ASCII names.
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

@@ -1,8 +1,6 @@
 /**
- * Builds a short placeholder acronym from a team name when no logo has been
- * uploaded — one letter per word (e.g. "Apex Racing Team" -> "ART"), capped
- * at 3 characters so it stays readable at the small sizes this renders at
- * (roster rows, results tables). See `src/components/TeamLogo.astro`.
+ * Placeholder initials for a team with no logo ("Apex Racing Team" -> "ART"), at most 3 characters to stay
+ * readable small (TeamLogo.astro).
  */
 export function teamInitials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);

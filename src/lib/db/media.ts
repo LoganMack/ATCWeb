@@ -1,11 +1,8 @@
 import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './client';
 
-// ---------------------------------------------------------------------------
-// MEDIA PAGE — videos (cinematics/educational/other), graphics, meetups
-// (0049_media_page.sql). Broadcasts and Track Guide, the Videos tab's other
-// two filters, aren't stored here — see getAllBroadcastRaceLinks above and
-// the track_guides table (0053_track_guides.sql).
-// ---------------------------------------------------------------------------
+// --- Media page: videos, graphics, meetups (0049_media_page.sql) ---
+// Broadcasts come from race_links (getAllBroadcastRaceLinks in ./rounds) and track guides from track_guides
+// (0053).
 
 export type MediaVideoCategory = 'cinematic' | 'educational' | 'other';
 
@@ -126,11 +123,8 @@ export function deleteMediaMeetup(env: SupabaseEnv, accessToken: string, id: str
   return restDelete(env, accessToken, `media_meetups?id=eq.${encodeURIComponent(id)}`);
 }
 
-// --- Meetup attendees (0070_meetup_drivers.sql) -----------------------------
-// Which roster drivers showed up to a given meetup — a plain many-to-many
-// join, managed as its own add/remove mini-list on the Meetups section of
-// Admin -> Media, independent of a meetup's own title/photo/location form.
-// Same "own table, own mini-list" pattern as TrackGuide above.
+// --- Meetup attendees (0070_meetup_drivers.sql): a many-to-many join, edited as its own list on Admin ->
+// Media ---
 
 export interface MeetupDriverLink {
   meetup_id: string;

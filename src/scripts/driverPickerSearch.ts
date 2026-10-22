@@ -1,30 +1,10 @@
 /**
- * Search box for a list of driver checkboxes/radios — the Report Incident
- * dialog's "Cars Involved" grid and the steward review dialog's "Driver at
- * Fault" list. Markup convention:
- *
- *   <div data-driver-picker>
- *     <input type="search" data-driver-search />
- *     <label data-driver-option data-search="#14 jane doe">…</label>   (one per driver)
- *     <p data-driver-search-empty class="hidden">No matches.</p>
- *   </div>
- *
- * Typing hides options whose data-search doesn't contain the term (same
- * plain `includes` match as the site's other [data-search] filters). An
- * option that's already checked always stays visible, so filtering never
- * hides a choice you've made. Options without data-search (e.g. a pinned
- * "Racing Incident") are never filtered.
- *
- * Optional sort toggle: buttons with data-driver-sort="number" / "name"
- * inside the picker reorder the options by their data-sort-number /
- * data-sort-name (the button with aria-pressed="true" is the current order).
- * Options without data-sort-name are left where they are.
- *
- * One delegated listener set on `document`, bound once per JS context with
- * a module-scoped guard — see expandRows.ts's header for why not a flag on
- * document.body. Code that changes the list programmatically (opening a
- * dialog pre-filled) can clear the search box and dispatch an `input` event
- * on it to re-filter.
+ * Search box for a list of driver checkboxes/radios (Report Incident "Cars Involved", steward "Driver at Fault"):
+ *   <div data-driver-picker><input type="search" data-driver-search />
+ *     <label data-driver-option data-search="#14 jane doe">…</label> <p data-driver-search-empty class="hidden"></p></div>
+ * Typing hides non-matching options; checked options and ones without data-search always stay. Optional
+ * data-driver-sort="number|name" buttons reorder by data-sort-number / data-sort-name. Delegated on `document`
+ * once; after changing the list in code, clear the box and dispatch `input` on it.
  */
 
 let initialized = false;

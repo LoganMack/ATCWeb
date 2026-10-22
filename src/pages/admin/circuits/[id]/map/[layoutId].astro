@@ -1,16 +1,9 @@
 ---
 export const prerender = false;
 
-// The layout map editor — one layout's map image, where its past incidents
-// happened (pins), and how tricky its pit entry and exit are. Everything here
-// feeds the Event Briefing page's Layout Map section (src/components/
-// LayoutMap.astro). Linked from each layout's card on /admin/circuits/<id>.
-//
-// One form, one Save: the file upload, the pit lane settings, and the full
-// pin list (as JSON in a hidden field, kept up to date by
-// src/scripts/layoutMapEditor.ts) all post together. The editor script also
-// traces a PNG/JPG/WebP into an SVG in the browser and swaps that into the
-// upload when the form is submitted, so what lands in storage is the SVG.
+// The layout map editor (linked from /admin/circuits/<id>): the map image, past-incident pins and pit
+// entry/exit difficulty, all feeding the Event Briefing's LayoutMap.astro. One form and one Save;
+// src/scripts/layoutMapEditor.ts keeps the pin JSON current and traces raster maps to SVG before upload.
 import AdminLayout from '../../../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../../../lib/db/client';
 import {

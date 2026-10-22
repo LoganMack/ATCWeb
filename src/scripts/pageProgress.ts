@@ -1,28 +1,8 @@
 /**
- * A thin progress bar fixed to the top of the viewport, shown for the
- * duration of any server round trip that Astro's client router doesn't
- * otherwise indicate — clicking a nav link, changing a season/class filter
- * dropdown, or paging through a list all fetch + swap the page, but
- * nothing on screen shows a request is in flight until the new content
- * lands. On anything slower than instant that reads as "did my click even
- * register?", which is exactly what got reported.
- *
- * Wired to two router lifecycle events (astro:before-preparation fires the
- * instant a soft navigation starts, astro:page-load fires once the new
- * page has been swapped in and initialized) plus `beforeunload`, which
- * covers hard navigations the router doesn't intercept at all (external
- * links, `data-astro-reload`, the very first load of a session, etc.) —
- * the bar just stays visible through the reload since the page is about
- * to be replaced anyway.
- *
- * hard-form-submit.ts calls showProgress()/hideProgress() directly around
- * its own fetch(), since that request is deliberately built to bypass the
- * router entirely (see the comment there) and so is invisible to both
- * events above.
- *
- * Deliberately NOT wired to anything purely client-side — search-box
- * filtering and sortable-table column clicks never touch the network, so
- * there's nothing to indicate and no listener here fires for them.
+ * Top-of-page progress bar for server round trips the client router doesn't show: from
+ * astro:before-preparation to astro:page-load, and through `beforeunload` for hard navigations.
+ * hard-form-submit.ts drives it directly around its own fetch. Client-only actions (search, sorting) don't
+ * show it.
  */
 
 const COLOR = '#4369F5'; // brand.primary, same blue as everything else on the site

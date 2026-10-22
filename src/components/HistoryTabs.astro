@@ -1,15 +1,6 @@
 ---
-// The series-history pages' section picker. It used to be a row of tabs under the page
-// title; it's now a dropdown that lives inside each page's filter card, always as the
-// card's left-most control (render it first inside the card's flex row). Kept as its own
-// small component so all seven pages stay in sync — Nav.astro only links to /champions
-// ("History"), and this is how a visitor gets to the rest.
-//
-// Each option's value is its destination URL; onchange just navigates there (same pattern
-// as the other filter dropdowns on these pages).
-//
-// Race Results, Standings, and Team Standings used to be tabs here too, but they've been
-// promoted to their own top-level Nav.astro links and aren't part of this picker.
+// The history pages' section picker: a dropdown placed first in each page's filter card, shared so all seven
+// pages stay in sync (the nav links only /champions). Each option's value is its URL.
 interface Props {
   active: 'champions' | 'driverStats' | 'teamStats' | 'hallOfFame' | 'awards' | 'circuits' | 'incidents';
 }

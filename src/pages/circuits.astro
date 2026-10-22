@@ -53,30 +53,8 @@ try {
 
 const bannerUrl = await bannerPromise;
 
-// One row per LAYOUT now (previously one collapsible per circuit, with each
-// circuit's layouts shown as static cards inside it) — per Logan, this page
-// should be a flat, searchable list of one row per layout: track image,
-// circuit name, layout name, and the admin-curated record/holder/date,
-// each expandable into the same history a layout's Event Briefing page
-// shows (minus Schedule, which is future-looking and has no equivalent for
-// a layout in general rather than one specific upcoming event).
-//
-// This page used to also eagerly compute every layout's Gamma/Delta
-// best-ever laps up front via buildLayoutClassBestLaps (see git history) —
-// that function's own doc comment explained it existed specifically
-// because the PER-layout version (getLayoutClassBestLaps) would be "far
-// too expensive" to run once per layout on a page listing all of them.
-// Since those best-lap lines (and the rest of a layout's race history) now
-// live in the expanded row instead of the collapsed summary, this page no
-// longer needs that bulk computation at all — the expanded content is
-// fetched lazily, client-side, only the first time a visitor actually
-// expands a given row, from a new per-layout fragment route (see
-// src/pages/circuits/layout-detail/[layoutId].astro and
-// src/scripts/circuitLayoutDetail.ts). That route runs the exact
-// per-layout functions this page used to avoid, but only for the one
-// layout being expanded — same "expensive per-item detail, loaded on
-// demand" shape as the calendar page's own round-recap/layout-rounds
-// features.
+// One flat, searchable row per layout (Logan): image, circuit, layout and the curated record, each expanding
+// into the layout's history from circuits/layout-detail/[layoutId].astro, loaded on first expand.
 const circuitById = new Map(circuits.map((c) => [c.id, c]));
 const sortedLayouts = [...layouts].sort((a, b) => {
   const circuitCompare = (circuitById.get(a.circuit_id)?.name ?? '').localeCompare(circuitById.get(b.circuit_id)?.name ?? '');
@@ -199,10 +177,7 @@ if (loadError) markUncacheable(Astro);
         rows.forEach((row) => {
           const matches = !q || (row.dataset.search ?? '').includes(q);
           row.style.display = matches ? '' : 'none';
-          // Hide a filtered-out row's detail row too, in case it was left
-          // expanded before the search narrowed the list — otherwise a
-          // stray expanded detail row could stay visible with no summary
-          // row above it.
+          // Hide a filtered-out row's detail row too, in case it was left open.
           const detail = row.nextElementSibling as HTMLElement | null;
           if (detail && detail.hasAttribute('data-detail-row')) {
             detail.style.display = matches ? '' : 'none';

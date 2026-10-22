@@ -12,39 +12,18 @@ import { getSeasons } from '../lib/db/seasons';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Pilot for the sitewide "shell renders instantly, data fills in after"
-// pattern (PERFORMANCE_AUDIT.md #5). This page used to await the full
-// cross-season champions/team-champions computation right here in its own
-// frontmatter — since Astro's client router waits for a page's whole HTML
-// response before swapping the DOM, that meant clicking into /champions
-// left the browser sitting on the OLD page for ~5+ seconds with nothing
-// but the top progress bar to show for it.
-//
-// Now this page only fetches what it actually needs to render immediately
-// (driver classes + seasons, for the filter tabs — cheap, same as any
-// other page's reference-table lookups) and renders a loading skeleton in
-// place of the cards. The expensive part moved to champions/fragment.astro,
-// fetched client-side by the <script> below once this shell has already
-// painted. See that file for the full explanation of why it re-resolves
-// the class/team query params itself instead of receiving them passed in.
+// Shell: fetches only classes and seasons for the filter tabs and renders a skeleton; the cards come from
+// champions/fragment.astro after this paints.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-// Kicked off immediately, in parallel with everything else below — the
-// banner doesn't depend on classes/seasons/champions data at all, but this
-// page used to `await` it dead last, after the (much more expensive)
-// champions/team-champions computation had already fully finished. Started
-// here and awaited only once it's actually needed, near the bottom, so it
-// overlaps with all of that instead of adding its own round trip on top.
+// Started now and awaited when needed, so the banner fetch overlaps the rest.
 const pageBannersPromise = getPageBanners(supabaseEnv);
 
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
-// Holds the actual thrown error message (not just a boolean) — the tables
-// this page reads (race_score_results, curated_race_results) are newer/narrower
-// grants than the rest of the site's public data, so "something went
-// wrong" isn't precise enough to self-diagnose an RLS/policy problem vs. a
-// genuine misconfiguration. See supabase/migrations/0004_champions.sql.
+// The real error message, not a boolean: these tables have narrower grants (00041_champions.sql), so RLS
+// problems need telling apart.
 let loadError: string | null = null;
 try {
   [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
@@ -53,12 +32,8 @@ try {
   loadError = err instanceof Error ? err.message : String(err);
 }
 
-// Gamma/Delta didn't exist for every season (seasons.gamma_enabled/
-// delta_enabled, 0037_class_and_scoring_fixes.sql) — a class tab only shows
-// at all if at least one season actually enables it, and the seasons that
-// class's champion list considers are narrowed to just the enabled ones,
-// so e.g. Gamma never shows a "champion" for a season before it existed.
-// Alpha has no flag — every championship season has it.
+// Gamma/Delta exist only in seasons that enable them (0037): a class tab shows if any season does, and its
+// champions only cover those seasons. Alpha is in every championship season.
 function classIsEnabledFor(className: string, season: Awaited<ReturnType<typeof getSeasons>>[number]): boolean {
   if (className === 'Gamma') return season.gamma_enabled;
   if (className === 'Delta') return season.delta_enabled;
@@ -73,21 +48,9 @@ const requestedClassName = Astro.url.searchParams.get('class');
 const activeClass =
   visibleClasses.find((c) => c.name === requestedClassName) ?? visibleClasses.find((c) => c.name === 'Alpha') ?? visibleClasses[0];
 
-// Two more filters alongside the driver-class ones above: team champions,
-// not driver champions. "Alpha Team" is the same class-blind OVERALL team
-// competition already live on /team-standings' "Overall" tab (just
-// relabeled here, per Logan — there's no genuinely separate Alpha-only team
-// competition anywhere else in the app), "Delta Team" is that class's own
-// separate competition, same split computeTeamSeasonStandings documents.
-// A real navigation (?team=alpha / ?team=delta), same reasoning as the
-// class tabs — mutually exclusive with the `class` param (whichever query
-// param combination the link sets wins, since these are plain <a href>
-// full-page navigations).
-//
-// Gated on delta_team_enabled, NOT delta_enabled — the Delta Team
-// championship is a separate competition from the Delta driver class (see
-// 0052_delta_team_enabled.sql) with its own, later start date (ATC10 vs.
-// the class's own ATC5).
+// Team champion filters: "Alpha Team" is the class-blind overall team competition (relabelled, Logan), "Delta
+// Team" that class's own. Plain links (?team=), exclusive with `class`. Gated on delta_team_enabled (the team
+// championship began at ATC10), not delta_enabled.
 const deltaEnabledAnySeason = seasons.some((s) => s.delta_team_enabled);
 const requestedTeam = Astro.url.searchParams.get('team');
 const activeTeamView: 'alpha' | 'delta' | null =
@@ -160,11 +123,9 @@ if (loadError) markUncacheable(Astro);
     dispatch: false,
   });
 
-  // Opening a champion card loads that champion's race-by-race season (the open/close
-  // toggle itself is expandRows.ts). Delegated and bound once, since the cards only
-  // exist after the fragment above lands, and a script inside the fragment never runs.
-  // Same lazy-detail approach as circuitLayoutDetail.ts, including waiting a tick to read
-  // aria-expanded so it doesn't matter which script's click listener runs first.
+  // Loads a champion's season the first time their card opens (expandRows.ts toggles it). Delegated and bound
+  // once because the cards arrive in the fragment; reads aria-expanded after a tick so listener order doesn't
+  // matter.
   async function loadSeasonResults(row: HTMLElement) {
     const url = row.dataset.seasonResultsUrl;
     const body = row.nextElementSibling?.querySelector<HTMLElement>('[data-season-results-body]');

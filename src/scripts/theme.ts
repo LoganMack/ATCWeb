@@ -1,15 +1,7 @@
 /**
- * Light/dark theme toggle — wires up the footer button's click handling
- * and keeps localStorage in sync. The FOUC-prevention piece (applying the
- * saved preference to <html> before first paint) is a separate inline
- * script in Layout.astro's <head>, since this module-script file loads and
- * runs too late for that job. Dark is the default/unprefixed styling site
- * wide; light mode is 100% additive `.light`-scoped CSS in global.css, so
- * all this needs to do is toggle that one class and persist the choice.
- *
- * Re-runs after each Astro view transition since the footer (and its
- * button) gets swapped in fresh on every navigation — same convention as
- * reveal.ts and the rest of src/scripts.
+ * Light/dark toggle for the footer button, saved in localStorage. Dark is the default and light is
+ * `.light`-scoped CSS, so this only toggles the class; the before-paint step is the inline script in
+ * Layout.astro. Re-runs after each view transition because the footer is swapped in fresh.
  */
 const THEME_STORAGE_KEY = 'atc-theme';
 
@@ -50,17 +42,8 @@ function initThemeToggle() {
 
 document.addEventListener('astro:page-load', initThemeToggle);
 
-// Astro's view-transition swap copies the INCOMING page's <html> attributes
-// onto the current document as part of the swap — and since `.light` is a
-// client-only preference (never server-rendered; theme.ts and the
-// FOUC-prevention inline script in Layout.astro are the only things that
-// ever add it), the incoming document never has it, so every soft
-// navigation was silently wiping it back to dark. `astro:before-swap` fires
-// with the incoming document still just an in-memory DOM (before it
-// replaces the current one), so re-applying the saved preference there
-// keeps it correct through the swap with no flash — the same document
-// Astro is about to swap in already has the right class by the time it
-// lands.
+// The view-transition swap copies the incoming <html> attributes, which never include the client-only
+// `.light`, so it is re-applied on the incoming document in astro:before-swap.
 document.addEventListener('astro:before-swap', (event) => {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);

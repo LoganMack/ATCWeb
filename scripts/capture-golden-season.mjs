@@ -33,7 +33,8 @@ import path from 'node:path';
 
 const PAGE_SIZE = 1000;
 
-// Same selects as src/lib (results.ts, supabase.ts); keep them in step if those change.
+// The selects src/lib used when the fixture was captured, before the results and data-access split; kept
+// as they were, since this script is historical.
 const RACE_SCORES_CLASS_SELECT =
   'subsession_id,race_number,driver_id,team_id,total_points,class_points,finesse_bonus,points_deduction,pole_bonus,aggression_bonus,lap_led_bonus,fewest_incidents_bonus,fastest_lap_bonus,sprint_sweep_bonus,classified,dsq';
 const RACE_SCORES_OVERALL_SELECT =

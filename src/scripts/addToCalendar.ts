@@ -1,27 +1,11 @@
 /**
- * "Add to Calendar" buttons — one per event card, plus a bulk "add every
- * upcoming event" button on the Calendar page and homepage. Each button
- * carries its already-built VEVENT text (or, for a bulk button, several
- * VEVENT blocks already joined) in a `data-ics-event` attribute — see
- * src/lib/ics.ts for how that text gets built server-side at render time.
- * This script only ever does the trivial "wrap in VCALENDAR, hand to a
- * Blob, trigger a download" step — no network round trip, so it costs
- * nothing against the Cloudflare Workers budget those .astro pages already
- * have to be careful about (see the Standings page's Error 1102 fix).
- *
- * One delegated `click` listener on `document`, bound once — same
- * de-dup-via-`document.body.dataset` convention as src/scripts/expandRows.ts
- * and sortable-table.ts, so this never needs special handling across a view
- * transition either.
+ * "Add to Calendar" buttons: each carries ready VEVENT text in `data-ics-event` (src/lib/ics.ts); this only
+ * wraps it and downloads a Blob, with no request. One delegated listener on `document`, bound once.
  */
 function wrapVCalendar(veventBlocks: string): string {
   const CRLF = '\r\n';
-  // The incoming veventBlocks text came through an HTML data attribute —
-  // browsers normalize any CR/CRLF in an attribute value down to a bare LF
-  // on parse (see src/lib/ics.ts's own header comment on why it only ever
-  // writes '\n' in the first place) — so this is the one place that turns
-  // every line ending, however it arrived, into the real CRLF RFC 5545
-  // actually wants in the downloaded bytes.
+  // Attribute values arrive with LF line ends, so this is the one place they become the CRLF RFC 5545
+  // requires.
   return (
     [
       'BEGIN:VCALENDAR',

@@ -4,16 +4,9 @@
  */
 
 /**
- * Returns a same-site relative path that is safe to hand to a redirect, or
- * `fallback` if `raw` is anything else. `next` / `redirect` style values come
- * straight from the query string or a form field, so they are attacker
- * controlled — a link like /login?next=https://evil.example would otherwise
- * send a freshly signed-in user to a phishing page.
- *
- * Rejects: absolute URLs, protocol-relative (`//host`), backslash tricks
- * (`/\host` — browsers treat `\` as `/`), and any control character
- * (tab/newline get stripped by URL parsers, which can turn `/\t/host` into
- * `//host`).
+ * A same-site relative path safe to redirect to, else `fallback`. `next` values are attacker-controlled (open
+ * redirect to phishing). Rejects absolute and protocol-relative URLs, `/\host` (browsers read `\` as `/`) and
+ * control characters (stripped by URL parsers, turning `/\t/host` into `//host`).
  */
 export function safeNext(raw: string | null | undefined, fallback = '/'): string {
   if (!raw || typeof raw !== 'string') return fallback;
@@ -34,11 +27,8 @@ export function safeNext(raw: string | null | undefined, fallback = '/'): string
 }
 
 /**
- * JSON.stringify for embedding inside a <script type="application/json">
- * block via `set:html`. Plain JSON.stringify leaves `</script>` intact, so a
- * driver name or news title containing it would break out of the tag and run
- * as HTML. Escaping `<`, `>`, `&` and the two JS line-separator characters
- * keeps the JSON identical when parsed but inert as markup.
+ * JSON.stringify for a <script type="application/json"> via `set:html`: escaping `<`, `>`, `&` and U+2028/9
+ * keeps the JSON the same but stops a `</script>` in data breaking out.
  */
 export function safeJson(value: unknown): string {
   return JSON.stringify(value)

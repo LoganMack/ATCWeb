@@ -1,16 +1,7 @@
 /**
- * Generic click-to-sort behavior for any `<table data-sortable>`. A header
- * cell opts in with `data-sort-key="foo"`; each body row then needs a
- * matching `<td data-col="foo">` to sort by. By default the cell's own text
- * is what gets compared (numeric text sorts numerically, everything else
- * sorts as case-insensitive text) — set `data-sort-value` on the cell
- * instead when the sort key isn't the same as what's displayed.
- *
- * The Roster's Penalty Points column is the reason this exists: it displays
- * "3/11", but the "/11" is just this season's point allowance (it changes
- * season to season) and has no business affecting sort order. DriverRow sets
- * `data-sort-value={driver.penalty_points}` on that cell so sorting only
- * ever looks at the raw numerator, never the label text.
+ * Click-to-sort for any `<table data-sortable>`: headers set `data-sort-key`, cells the matching `data-col`.
+ * Cell text is compared (numbers numerically); `data-sort-value` overrides it, e.g. the Roster's "3/11" PP
+ * cell sorts by the 3.
  */
 function getSortValue(row: HTMLTableRowElement, key: string): string | number {
   const cell = row.querySelector<HTMLElement>(`[data-col="${key}"]`);
@@ -40,21 +31,8 @@ function initSortableTables() {
       dir = activeKey === key ? -dir : 1;
       activeKey = key;
 
-      // A click-to-expand table (standings.astro, team-standings.astro,
-      // driver-stats.astro) pairs each sortable row with its own sibling
-      // `[data-detail-row]` right after it. Sorting the raw list of
-      // `:scope > tr` would treat that detail row as its own independent
-      // row — it never matches any `[data-col]` sort key, so every detail
-      // row in the table sorts to one end as a clump, getting separated
-      // from the summary row it belongs to. From that point on, a summary
-      // row's `nextElementSibling` (what the expand/collapse handler reads)
-      // is some OTHER row entirely, not its own detail panel — clicking to
-      // expand looks like it does nothing, and toggling it actually shows/
-      // hides whatever unrelated row now happens to sit next to it. Treating
-      // each `[data-expand-row]` + its immediately-following `[data-detail-row]`
-      // as one unit that always moves together fixes that; a table with no
-      // detail rows at all (every other sortable table on the site) behaves
-      // exactly as before, since every row is then just its own one-row unit.
+      // An expandable row and its following `[data-detail-row]` sort as one unit, so the detail row stays
+      // next to its summary row.
       const allRows = Array.from(tbody.querySelectorAll<HTMLTableRowElement>(':scope > tr'));
       const units: { primary: HTMLTableRowElement; detail: HTMLTableRowElement | null }[] = [];
       for (let i = 0; i < allRows.length; i++) {

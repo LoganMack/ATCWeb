@@ -4,12 +4,9 @@ import type { IncidentRow } from '../lib/incidents';
 import { sessionLabel, driverNumberLabel, shortTrackName, involvedLabel } from '../lib/incidentDisplay';
 
 /**
- * The All Incidents table — every logged incident as one sortable row, click
- * (or Enter/Space) to open the Incident Details popup. Shared by History →
- * Incidents (src/pages/incidents/fragment.astro) and the Event Briefing
- * page's Past Incidents section, so the two always look and behave the same.
- * Pair it with IncidentDetailsDialog.astro (the popup + its data) on the same
- * page; the open/close behavior is src/scripts/incidentDetails.ts.
+ * The All Incidents table, shared by History → Incidents and the Event Briefing so they match; a row opens
+ * the Incident Details popup. Pair it with IncidentDetailsDialog.astro; behaviour is
+ * src/scripts/incidentDetails.ts.
  */
 interface Props {
   rows: IncidentRow[];
@@ -65,10 +62,7 @@ const { rows, showTrack = true, minWidthClass = 'min-w-[900px]' } = Astro.props;
           </td>
           <td class="hidden py-2.5 pr-3 text-white/50 lg:table-cell" data-col="involved">{involvedLabel(row)}</td>
           <td class="py-2.5 pr-3 text-center text-white/60" data-col="pp" data-sort-value={row.isWarning ? 0 : row.penaltyPoints}>
-            {/* A warning never carries a PP value of its own (see
-                results/[subsessionId]/incidents.astro's own "warning"
-                sentinel comment) — shown here the same way that
-                page's own PP column shows it. */}
+            {/* A warning has no PP value of its own; shown as on the incident page's PP column. */}
             {row.isWarning ? (
               <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
             ) : (

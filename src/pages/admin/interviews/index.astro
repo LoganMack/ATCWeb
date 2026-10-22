@@ -1,11 +1,8 @@
 ---
 export const prerender = false;
 
-// Admin → Interviews: post-race "media pen" recordings submitted from the
-// microphone button on each round's results page (0109_race_interviews.sql).
-// Newest first, grouped by nothing — each card names the driver, the round and
-// how long after the race it came in (the "recorded early enough" cue), with an
-// audio player (private bucket, one-hour signed links) and a Delete button.
+// Admin → Interviews: post-race recordings (0109), newest first. Each card shows the driver, round, how soon
+// after the race it came in, a player (one-hour signed links) and Delete.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { formatDate } from '../../../lib/db/circuits';

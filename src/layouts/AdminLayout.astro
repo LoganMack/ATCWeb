@@ -1,8 +1,6 @@
 ---
-// Shared chrome for every /admin/* page — sub-nav + who's-logged-in + log
-// out. Route protection itself happens in src/middleware.ts (redirects to
-// /login before this layout ever renders), so this component can safely
-// assume Astro.locals.session is a signed-in admin.
+// Shared chrome for /admin/* pages. src/middleware.ts already redirects non-admins, so the session here is a
+// signed-in admin.
 import Layout from './Layout.astro';
 import { userDisplayName } from '../lib/auth';
 
@@ -13,13 +11,8 @@ interface Props {
 const { title } = Astro.props;
 const session = Astro.locals.session;
 
-// Everything here that's ALSO one of the dashboard's own icon-button tools
-// (src/pages/admin/fragment.astro's `tools` array) is deliberately left
-// off this list — Awards, Circuits, Import Tools, Media, Rulesets, Seasons,
-// Site Properties, Users. Those stay reachable by URL and from the
-// dashboard's Admin Tools row; keeping them here too just meant every one
-// of those pages' names appeared twice in the admin chrome. Keep this list
-// and that one in sync by hand when either changes.
+// Tools that are icons on the dashboard (admin/fragment.astro `tools`) are left off this list to avoid
+// listing them twice; keep the two in sync by hand.
 const links = [
   { href: '/admin', label: 'Dashboard' },
   { href: '/admin/news', label: 'News' },

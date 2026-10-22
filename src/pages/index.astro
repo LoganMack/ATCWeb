@@ -6,15 +6,9 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
-// this file only fetches the admin-managed hero image and paints the page
-// frame plus a loading skeleton right away. Everything data-heavy — latest
-// news, upcoming events, previous result, standings widget — lives in
-// home/fragment.astro and is fetched client-side by the loader script at the
-// bottom once this shell has painted. The widget interaction scripts (also at
-// the bottom) bind per-element at astro:page-load, so they pick up the
-// fragment's dropdowns when it lands (a <script> inside fetched HTML would
-// never execute, which is why they stay here).
+// Shell: fetches only the hero image and paints a skeleton; the data comes from home/fragment.astro. The
+// widget scripts stay here, binding per element on astro:page-load, because scripts in fetched HTML never
+// run.
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 // No image configured just means no image: the section renders plain black
@@ -99,16 +93,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     });
   }
 
-  // Previous Result widget: a session dropdown (Practice/Qualifying/Race
-  // 1/2/3...) and, per session, its own result-type dropdown (Overall/
-  // Alpha/Delta/Gamma, plus Alpha/Delta Team on Race sessions only) — see
-  // the long comment on the markup above for why there's one result-type
-  // <select> per session rather than one shared <select> whose options get
-  // rewritten in JS. Switching session shows that session's own
-  // result-type <select> and resets it to its first option (a team-tab
-  // selection from a Race session wouldn't exist on Practice/Qualifying),
-  // then shows the matching result panel; switching result type just
-  // toggles panels within the currently-visible session.
+  // Previous Result widget: switching session shows that session's result-type <select>, reset to its first
+  // option (team tabs don't exist on practice/qualifying), and its panel; switching type toggles panels.
   function initPreviousResultWidget() {
     document.querySelectorAll<HTMLElement>('[data-previous-result-widget]').forEach((widget) => {
       if (widget.dataset.previousResultInit === 'true') return;

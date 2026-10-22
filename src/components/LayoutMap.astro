@@ -6,21 +6,10 @@ import type { IncidentRow } from '../lib/incidents';
 import { driverNumberLabel, roundLabel } from '../lib/incidentDisplay';
 
 /**
- * The Event Briefing's "Layout Map" section: track facts, the layout's map,
- * where past incidents happened (pins, plus a heat layer from where they
- * cluster), and how tricky the pit entry and exit are.
- *
- * Phones get the simple stack — facts card, the map with its pins, pit chips,
- * legend. From md up the same markup grows layer switches (Incidents / Heat
- * map / Pit lane) and the pit entry/exit flags at their spots on the map.
- *
- * The map image is white lines on transparent/black; global.css plates it
- * black in the dark theme and white + inverted in the light theme (see
- * `.layout-map-plate`). Pins link to the shared Incident Details popup
- * (IncidentDetailsDialog.astro + src/scripts/incidentDetails.ts, which the
- * page loads) through `data-history-incident`, so they need `incidents`
- * to contain every row a pin refers to — only posted incidents are passed in,
- * so a pin for an unposted incident is simply not drawn.
+ * The Event Briefing's Layout Map: track facts, the map, past incident pins and heat, and pit entry/exit
+ * difficulty. Phones get a simple stack; from md up, layer switches and pit flags on the map. The white-line
+ * map is plated per theme (`.layout-map-plate`). Pins open the shared Incident Details popup, so `incidents`
+ * must hold every pinned row; only posted incidents are passed.
  */
 interface Props {
   circuitName: string;

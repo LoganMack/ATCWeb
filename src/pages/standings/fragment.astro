@@ -68,11 +68,7 @@ const activeSeason =
   championshipSeasons.find((s) => s.is_current) ??
   championshipSeasons[0];
 
-// Gamma/Delta didn't exist for every season (see seasons.gamma_enabled/
-// delta_enabled, 0037_class_and_scoring_fixes.sql) — the Class picker for
-// the active season only offers classes that actually competed that
-// season, so there's no "Gamma" option to pick for a season Gamma never
-// raced in. Alpha has no flag — every championship season has it.
+// Only classes that raced in the active season (0037); Alpha is always there.
 const classesForActiveSeason = classes.filter(
   (c) => (c.name !== 'Gamma' || activeSeason?.gamma_enabled) && (c.name !== 'Delta' || activeSeason?.delta_enabled)
 );
@@ -131,38 +127,18 @@ let matrixCanDropFinalRound = false;
 // "Standings by Round" slider inputs (both List and Matrix): per-column
 // denominators for the "x of y" Starts/Apps cells.
 let colDenoms: { s: number; a: number }[] = [];
-// The season-wide denominators for the Starts/Apps columns below ("x of y")
-// — y is the same for every driver regardless of view (Overall vs Per
-// Class) or how many rounds any one driver personally attended, so it's
-// derived once from overallContext.overallScores (every class's race_score_results
-// rows for the season, already filtered to exclude exhibition/excluded
-// rounds — see getSeasonOverallContext) rather than per-driver. "Starts" =
-// one per (subsession_id, race_number) actually run — a sprint round with
-// two races contributes 2, an endurance round's single race contributes 1.
-// "Appearances" = one per distinct subsession_id (round) run, regardless of
-// how many races it had.
+// Season-wide denominators for Starts/Apps ("x of y"), the same for every driver and view: starts are races
+// run, appearances are rounds run, excluding exhibitions.
 let maxStarts = 0;
-// Slots reserved for the right-aligned flag / car logo / team logo group in the
-// List view's driver cell — a driver can have raced more than one car or team
-// this season, so reserve as many car and team slots as the busiest driver
-// needs (at least one each) and pad every other row up to that. Filled in
-// once `extrasByDriverId` is loaded below.
+// Car and team slots for the List view's driver cell, as many as the busiest driver needs, so every row's
+// logos line up.
 let maxTeamSlots = 1;
 let maxAppearances = 0;
 if (!loadError && activeSeason && championship === 'drivers') {
   try {
     const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
-    // Built ONCE and shared across all three calls below instead of each
-    // independently re-fetching its own copy (curated_race_results,
-    // penalties, curated_rounds, lap stats) — this page used to rebuild
-    // that ~4-query context three separate times per request (once each
-    // for standings/car-team-stats/extended-stats), which was enough to
-    // trip Cloudflare Workers' per-request resource limit (Error 1102) on
-    // seasons with more than a handful of rounds on file. Same
-    // already-proven sharing pattern computeDriverCareerStats uses across
-    // every class + team + extended-stats view at once — see this
-    // repo's README/computeDriverCareerStats' own doc comment for why
-    // sharing this way is safe.
+    // Built once and shared by the three calls below; rebuilding it per call tripped the Workers per-request
+    // limit (Error 1102).
     const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
     const [standingsResult, extras, extendedStats] = await Promise.all([
       view === 'class' && activeClass
@@ -180,15 +156,8 @@ if (!loadError && activeSeason && championship === 'drivers') {
     maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
     maxStarts = new Set(overallContext.overallScores.map((s) => `${s.subsession_id}:${s.race_number}`)).size;
 
-    // Matrix view's column headers — every round the view being shown
-    // actually raced (Per Class narrows this to that class's own rounds,
-    // same pool computeSeasonStandings itself used to build that view's
-    // standings), chronologically ordered. Column headers are just the
-    // round number (Logan: keep them narrow) — computeDisplayRoundNumbers
-    // needs the season's full round list plus the site-wide exhibition/test
-    // exclusion set (exhibitionRoundIds here is actually already that
-    // union — see getStandingsExcludedRoundIds — so the second arg is left
-    // empty rather than fetching test round ids separately).
+    // Matrix columns: every round this view raced, in order, headed by the round number (Logan: keep them
+    // narrow). exhibitionRoundIds already includes test rounds, so the second set is empty.
     const matrixSubsessionIds = new Set(
       (view === 'class' && activeClass
         ? overallContext.overallScores.filter((s) => s.class_id === activeClass.id)
@@ -401,10 +370,7 @@ const graphJson = JSON.stringify({
   canDropFinal: matrixCanDropFinalRound,
 });
 
-// CSV export filename — reflects whichever view is actually on screen
-// (season, Overall/Per Class + which class, List/Matrix) so exporting after
-// changing a filter doesn't silently overwrite a previous, differently-
-// scoped download under the same name.
+// The CSV filename names the season, class and view, so exports don't overwrite each other.
 const csvFilenameBase = slugify(
   championship === 'teams'
     ? `team standings ${activeSeason?.name ?? ''} ${teamView} ${mode}`
@@ -610,13 +576,8 @@ if (loadError) markUncacheable(Astro);
                       <span class="sm:hidden">
                         <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
-                      {/* Flag / car logos / team logos pinned to the right edge of the
-                          cell (ml-auto) in FIXED-WIDTH slots, same as
-                          ResultsTable.astro's row: a driver with fewer cars or
-                          teams than the busiest driver (or none at all) gets
-                          empty slots in their place, so every row's flag and
-                          first car logo line up in columns. Hidden on mobile
-                          (Logan). */}
+                      {/* Flag, car and team logos in fixed-width slots at the right edge, as in
+                         ResultsTable.astro, so they line up. Hidden on mobile (Logan). */}
                       <span class="ml-auto hidden items-center gap-2 sm:flex">
                         <span class="flex h-5 w-6 flex-none items-center justify-center">
                           <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />

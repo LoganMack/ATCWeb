@@ -8,15 +8,8 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Same shell-then-spinner split as champions.astro / driver-stats.astro /
-// team-stats.astro (PERFORMANCE_AUDIT.md #5) — this page used to await the
-// full computeDriverCareerStats() call (filtered down to Hall of Fame
-// members) plus every member's photos right here in its own frontmatter,
-// blocking Astro's client router from swapping the DOM until that
-// finished. Like team-stats.astro this page has no filter tabs of its
-// own, so the shell only needs the page banner before it can render —
-// everything else lives in hall-of-fame/fragment.astro now, fetched
-// client-side by the <script> below once this shell has already painted.
+// Shell: needs only the page banner; the member cards come from hall-of-fame/fragment.astro after this
+// paints.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 

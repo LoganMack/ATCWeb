@@ -1,25 +1,7 @@
 /**
- * CSV template generation for the 6 admin importers split across
- * /admin/import-tools (Events, Circuits, News) and /admin/import (Race,
- * Qualifying, Practice Results). Templates used to be static files under
- * public/ — the risk with that (and the reason this file exists instead) is
- * that nothing forces a static file to stay in sync with the columns an
- * importer actually reads; it's easy to add/rename a column in the parsing
- * code and forget the template ever existed. Generating the template from
- * the SAME column list documented here, served on demand by
- * src/pages/api/import-templates/[kind].ts, means there's exactly one place
- * to update when an importer's columns change — do that here, and the
- * downloadable template updates itself on the next request, no separate
- * file to remember.
- *
- * Each importer's own parsing code (src/pages/admin/import-tools/index.astro
- * for Events/Circuits/News; src/lib/raceResultsImport.ts for Race/
- * Qualifying/Practice Results) reads columns by name via
- * `header.indexOf(name)`, not by position, so it doesn't strictly depend on
- * this file at runtime — but every column an importer looks for should have
- * a matching entry here, and this is the canonical reference for "what this
- * importer understands." Keep both sides in sync by hand when either
- * changes.
+ * CSV templates for the six admin importers, generated from these column lists and served by
+ * api/import-templates/[kind].ts, so a column change is made in one place. Importers read columns by header
+ * name, so every column an importer reads should be listed here; keep both in sync by hand.
  */
 
 interface CsvTemplate {
@@ -192,13 +174,8 @@ const NEWS_TEMPLATE: CsvTemplate = {
   ],
 };
 
-// Raw per-driver finish data only — writes to curated_rounds +
-// curated_race_results, NOT race_score_results. Points are computed separately by
-// the scoring engine from a season's Ruleset (Admin > Rulesets) once that
-// season has one assigned; this importer's job is getting the raw finish
-// data in, not scoring it. class_name is informational only (goes on
-// curated_race_results.car_class_name for display) — it isn't a driver_classes
-// foreign key.
+// Raw finish data only, into curated_rounds + curated_race_results; the database scores it once the season
+// has a ruleset. class_name is informational (car_class_name), not a driver_classes key.
 const RACE_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key',
@@ -276,12 +253,8 @@ const RACE_RESULTS_TEMPLATE: CsvTemplate = {
   ],
 };
 
-// Same round-level columns as the race results template (import_key,
-// circuit_name, layout, season_name, event_date, event_time, format,
-// strength_of_field, exhibition, test) — all three result importers share
-// one import_key namespace via manual_result_imports (see
-// raceResultsImport.ts's header comment), so uploading a race CSV and a
-// qualifying CSV under the same import_key ties both to the same round.
+// The same round columns as the race template: the three result importers share one import_key namespace
+// (manual_result_imports), so a race CSV and a qualifying CSV with the same key land on the same round.
 const QUALIFYING_RESULTS_TEMPLATE: CsvTemplate = {
   columns: [
     'import_key',
@@ -404,12 +377,8 @@ const TEMPLATES: Record<ImportTemplateKind, CsvTemplate> = {
 };
 
 /**
- * Round-identifying columns shared by all three results templates (see
- * ROUND_COLS_NOTE on the /admin/import page) — a real event supplies these
- * for free once the download is tied to one (src/pages/api/import-templates/
- * [kind].ts), so there's no need to fabricate an example round anymore.
- * Every key here is a real column name so getImportTemplateCsv below can
- * just look each template column up by name, with no per-kind mapping.
+ * Round columns shared by the three results templates, prefilled from the event the template was downloaded
+ * for. Keys are real column names, so lookup needs no mapping.
  */
 export interface RoundColumnPrefill {
   import_key?: string;
@@ -429,11 +398,7 @@ export function getImportTemplateCsv(kind: string, prefill?: RoundColumnPrefill)
   if (!template) return null;
   if (!prefill) return toCsv(template);
 
-  // One real starter row instead of the two made-up examples: the round-
-  // identifying columns come from whichever event this template was
-  // downloaded for, and every other (driver-level) column — the CSV's
-  // importer has no way to guess who raced — is left blank for the admin to
-  // fill in.
+  // One starter row: round columns from the event, driver columns left blank for the admin.
   const prefillByColumn = prefill as Record<string, string | undefined>;
   const row = template.columns.map((col) => prefillByColumn[col] ?? '');
   return toCsv({ columns: template.columns, exampleRows: [row] });

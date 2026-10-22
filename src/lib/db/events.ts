@@ -7,13 +7,9 @@ import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './cl
 export type Weather = 'clear' | 'partly_cloudy' | 'overcast' | 'raining' | 'mixed';
 export type EventFormat = 'endurance' | 'sprint' | 'special';
 /**
- * 0035_events_rounds_categories.sql, extended by 0073_holiday_iracing_events.sql.
- * 'championship' (default) expects season_id/round_number; 'test'/'exhibition'
- * are season-agnostic, mirroring the round-level exhibition concept
- * (round_overrides.is_exhibition) at the event level. 'holiday'/'iracing' are
- * also season-agnostic AND circuit-less (see circuit_id/title/subtitle below)
- * — a non-race calendar entry (a holiday, an iRacing-side announcement) that
- * has no track, no sessions, and shouldn't be counted as a race weekend.
+ * 0035, extended by 0073. 'championship' expects season_id/round_number; 'test'/'exhibition' are
+ * season-agnostic; 'holiday'/'iracing' are also circuit-less non-race entries that never count as a race
+ * weekend.
  */
 export type EventCategory = 'championship' | 'test' | 'exhibition' | 'holiday' | 'iracing';
 
@@ -41,7 +37,10 @@ export interface EventRecord {
   title: string | null;
   /** 0073_holiday_iracing_events.sql. Optional subtitle for a HOLIDAY/IRACING event, shown in place of the layout name. Null otherwise. */
   subtitle: string | null;
-  /** Paired with round_number (both null or both set — enforced by events_season_round_paired). Which round this event represents — matched live against curated_rounds by season_id+round_number, not a stored link. See getEventRound() in results.ts. */
+  /**
+   * Paired with round_number (events_season_round_paired). The round is matched live against curated_rounds,
+   * not stored; see getEventRound() in src/lib/results/rounds.ts.
+   */
   season_id: string | null;
   round_number: number | null;
   /** Manual override/pin to a specific curated_rounds row — see this column's own comment in 0035_events_rounds_categories.sql for when to use this instead of season_id+round_number auto-matching. */
@@ -78,13 +77,16 @@ export interface EventRecord {
   race3_laps: number | null;
   race3_weather: Weather | null;
   race3_wet_affected: boolean;
-  /** Free-text rules note for this event (0094_events_rules.sql) — shown on the calendar card to the left of the Fuel Limit line (EventDetailCard.astro), editable from the admin event form. Independent of fuel_limit_pct and the ruleset-driven incident limit (that one's read-only, resolved from the season's scoring ruleset — see resolveIncidentLimit). Null when nothing's been entered. */
+  /** Free-text rules note (in the baseline schema), shown left of the Fuel Limit on calendar cards; independent of the ruleset's incident limit. */
   rules: string | null;
 }
 
 export interface EventWithCircuit extends EventRecord {
   circuits: { name: string; logo_url: string | null } | null;
-  /** Embedded from season_id (PostgREST FK join) — null for a season-agnostic TEST/EXHIBITION event, or a championship event that hasn't been assigned a season yet. Just for display ("Round N — ATC17"); the actual round resolution is getEventRound() in results.ts, keyed off season_id/round_number/subsession_id, not this embed. */
+  /**
+   * Embedded season, for display only ("Round N — ATC17"); null for test/exhibition or an unassigned event.
+   * Round resolution is getEventRound() in src/lib/results/rounds.ts.
+   */
   seasons: { name: string; number: number } | null;
 }
 
@@ -103,12 +105,8 @@ export function getEvents(env: SupabaseEnv) {
 }
 
 /**
- * The next `limit` events from today onward — powers the homepage "Upcoming
- * Events" widget. HOLIDAY/IRACING events are deliberately excluded here (per
- * Logan) — that widget is meant to tease the next actual race weekend, and
- * neither category represents one (no track, no sessions). They still show
- * up everywhere else on the full /calendar page — this filter is specific
- * to this one widget's query, not a site-wide visibility rule.
+ * The next `limit` events from today, for the homepage widget. HOLIDAY/IRACING events are left out here only,
+ * since the widget teases the next race weekend (Logan).
  */
 export function getUpcomingEvents(env: SupabaseEnv, limit: number) {
   const select = `${EVENT_SELECT},circuits(name,logo_url),seasons(name,number)`;
@@ -120,16 +118,8 @@ export function getUpcomingEvents(env: SupabaseEnv, limit: number) {
 }
 
 /**
- * Just the events whose event_date falls within a day of "today" — a
- * narrow, cheap query powering the site-wide "Happening Now" nav banner
- * (src/components/Nav.astro + src/lib/liveEvent.ts), which runs on every
- * single page load and can't afford getEvents()'s full-table fetch just to
- * find whichever 0-1 events might be live right now. The ±1 day pad (rather
- * than exactly "today") covers a session that runs past midnight Eastern,
- * or a request landing right at the UTC/Eastern calendar-date boundary —
- * getEvents() and this both filter on event_date alone, so being a day too
- * generous here just means liveEvent.ts checks one extra, almost-certainly-
- * not-live event, not a correctness problem.
+ * Events within a day of today, for the "Happening Now" banner on every page, which can't afford getEvents()'
+ * full fetch. The ±1 day pad covers sessions past midnight Eastern and the UTC/Eastern date boundary.
  */
 export function getEventsForLiveBanner(env: SupabaseEnv) {
   const select = `${EVENT_SELECT},circuits(name,logo_url),seasons(name,number)`;

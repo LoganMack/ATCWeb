@@ -63,28 +63,12 @@ export interface TeamRaceEntry {
 }
 
 /**
- * Final team standings for one season — every round's points count, no
- * drop weeks. Unlike driver standings (`finalizeStandings`' baseline-2 +
- * `season.extra_drop_weeks` rule), the team championship has no
- * worst-rounds-dropped rule at all — per Logan, drop weeks are specific to
- * the driver championships.
- *
- * A team's points for a given round are the sum of just its top 2 scoring
- * drivers that round (`topTeamScorers()` — same rule the news recap's Team
- * Scoring Breakdown and the results page's per-driver "Team Points" detail
- * both use). Never a team's 3rd (or more) driver's points in any single race.
- *
- * `classId` picks which team competition this is, same distinction the news
- * recap's `topTeamOverall` vs `topTeamDelta` already draws:
- * - Omitted (default): the OVERALL (every class combined) competition, by
- *   `overall_total`, as `computeOverallSeasonStandings` ranks — class_points
- *   excluded, so a Gamma/Delta driver's own class_points bonus can't give
- *   their team an edge a same-performing Alpha driver's team wouldn't also
- *   get.
- * - Set to a class id (e.g. Delta's): that class's own SEPARATE team
- *   competition, scoped to only that class's own races/drivers and scored
- *   the way that class's driver championship is (class_total for Gamma and
- *   Delta, overall_total for Alpha; BR2.6).
+ * Final team standings for one season. Every round counts: drop weeks apply only to the driver championships
+ * (Logan). A team's round points are its top 2 drivers' (topTeamScorers()).
+ * - `classId` omitted: the overall competition by `overall_total`, so Gamma/Delta class points give no team
+ *   an edge.
+ * - `classId` set: that class's own team competition, scored like its driver championship (class_total for
+ *   Gamma and Delta, overall_total for Alpha; BR2.6).
  */
 export async function computeTeamSeasonStandings(
   env: SupabaseEnv,
@@ -111,11 +95,7 @@ export async function computeTeamSeasonStandings(
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
-  // Hoisted above the classId branch below (both branches used to fetch
-  // this identically, one per branch) so the Matrix view's penalty
-  // summaries — built from `overallContext.penalties` once, after the
-  // branch — can see it too, and so it's fetched at most once regardless of
-  // which branch runs.
+  // Fetched once before the branch so the Matrix penalty summaries can use it too.
   const overallContext =
     precomputedOverallContext ?? (await getSeasonOverallContext(env, season, exhibitionIds, drivers));
   const penaltiesByDriverAndRound = buildPenaltiesByDriverAndRound(overallContext.penalties);
@@ -261,12 +241,7 @@ export async function computeTeamSeasonStandings(
     }
   }
 
-  // Unlike driver standings, the team championship does NOT drop worst
-  // rounds — every round a team scored in counts toward its total. Per
-  // Logan: drop weeks are a driver-standings-only rule. (This function used
-  // to apply the same BASELINE_DROP_WEEKS + extra_drop_weeks logic
-  // finalizeStandings uses for drivers — that was a bug, not an intentional
-  // shared rule.)
+  // The team championship drops no rounds; drop weeks are for drivers only (Logan).
   const standings: Omit<TeamSeasonStanding, 'position'>[] = [];
   for (const [teamId, a] of accum) {
     const team = teamById.get(teamId);
@@ -274,12 +249,8 @@ export async function computeTeamSeasonStandings(
 
     const totalPoints = [...a.roundPoints.values()].reduce((sum, p) => sum + p, 0);
 
-    // Matrix view's per-round cells — same "only rounds actually scored"
-    // shape as a driver's own roundCells, but `dropped` is always false (no
-    // drop-week rule for teams) and `penalties` pools every roster driver's
-    // own penalties for that round together rather than one specific
-    // driver's (see this interface's own doc comment on the
-    // roster-not-tracked-per-round tradeoff that implies).
+    // Matrix cells as for drivers, but never dropped, and pooling every roster driver's penalties for the
+    // round.
     const roundCells = new Map<number, StandingsRoundCell>();
     for (const [subsessionId, points] of a.roundPoints) {
       const penalties = [...a.driverIds].flatMap((driverId) =>

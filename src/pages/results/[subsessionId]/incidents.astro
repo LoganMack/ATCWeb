@@ -11,15 +11,9 @@ import { getRoundBySubsessionId } from '../../../lib/results/rounds';
 import { isRoundPosted } from '../../../lib/incidentReports';
 import { isAdminView } from '../../../lib/auth';
 
-// Shell-then-skeleton split (same pattern as results.astro / standings.astro):
-// this file paints the frame, the back link and a loading skeleton right away;
-// everything that needs the round's data — penalties, appeals, reports, the
-// admin and appeal POST handling — lives in incidents/fragment.astro and is
-// fetched client-side once this shell has painted. The fragment's forms POST
-// straight to the fragment (which owns that handling) and redirect back here.
-// The page's interaction script below stays here because a <script> inside
-// fetched HTML never executes; it bails out until the fragment's elements exist
-// and binds when the loader's astro:page-load re-dispatch fires.
+// Shell: paints the frame, back link and a skeleton; incidents/fragment.astro holds the data and the POST
+// handling (its forms post to it and redirect here). The interaction script stays here because scripts in
+// fetched HTML never run; it binds on the loader's astro:page-load.
 const subsessionId = Astro.params.subsessionId;
 
 // Just enough for the <title> and the link-preview (Discord/Slack) embed —
@@ -85,24 +79,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </Layout>
 
 <script>
-  // Wires up:
-  //   - The single shared add/edit <dialog> for this page ([data-open-
-  //     incident-dialog] / [data-edit-incident] / [data-appeal-checkbox] /
-  //     [data-close-incident-dialog]) — same pattern as before, just no
-  //     longer scoped to one race's row since this dialog picks its own
-  //     session/driver.
-  //   - Cars at fault ([data-incident-faults], src/scripts/faultCards.ts) —
-  //     tick every car at fault and each gets its own card (PP/Warning, time
-  //     penalty, points penalty, offenses); saving creates one penalty row
-  //     per car. Racing Incident (0020_penalty_racing_incident.sql) has no
-  //     card — there's no one to penalize. Editing is one row, so one car.
-  //     Penalties are available for every session type: a qualifying/practice
-  //     incident's penalty always applies to Race 1 (see scoringRaceNumber in
-  //     src/lib/penalties/effective.ts).
-  //   - Ticking a car at fault also ticks it in the Involved list (a driver
-  //     at fault is, at minimum, involved in their own incident) — see
-  //     syncInvolvedWithFaults below. Only ever unticks a box IT ticked;
-  //     anything the admin ticked by hand is left alone.
+  // Wires up the shared add/edit incident <dialog> (it picks its own session and driver) and its cars-at-fault
+  // cards (src/scripts/faultCards.ts): one penalty row per ticked car, none for a Racing Incident (0020), one
+  // car when editing. Qualifying/practice penalties apply to race 1 (scoringRaceNumber). Ticking a car at fault
+  // also ticks it as involved (syncInvolvedWithFaults), unticking only what it ticked itself.
   import { initFaultPicker, setCardField } from '../../../scripts/faultCards';
   import { ppPenaltyTier } from '../../../lib/ppPenaltyTable';
 
@@ -265,14 +245,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     const faultLegend = dialog.querySelector<HTMLElement>('[data-incident-fault-legend]')!;
     const faultSearch = dialog.querySelector<HTMLInputElement>('[data-incident-faults] [data-driver-search]')!;
 
-    // Cars at fault: a checklist where every ticked car gets its own card
-    // (PP/Warning, time penalty, points penalty, offenses) — see
-    // src/scripts/faultCards.ts and the dialog markup in incidents/fragment.astro.
-    // Racing Incident (no driver at fault, 0020_penalty_racing_incident.sql)
-    // has no card: nobody to penalize. Available regardless of which session
-    // is chosen — a qualifying/practice incident's penalty is just as real as
-    // a race incident's, it always applies to Race 1 (see scoringRaceNumber in
-    // src/lib/penalties/effective.ts).
+    // Cars at fault: each ticked car gets a penalty card (src/scripts/faultCards.ts); a Racing Incident
+    // (0020) has none. Any session can carry a penalty; qualifying/practice ones apply to race 1
+    // (scoringRaceNumber).
     const faultRoot = dialog.querySelector<HTMLElement>('[data-incident-faults]')!;
     const faults = initFaultPicker(faultRoot);
 

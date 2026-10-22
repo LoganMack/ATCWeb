@@ -1,14 +1,7 @@
 /**
- * Driver-submitted incident appeals (0093_incident_appeals.sql) — the appeal
- * window math plus the DB/storage helpers the Incident Report page uses.
- *
- * APPEAL WINDOW (per Logan): "Incident Appeal Window" site setting, in hours,
- * set under admin > Site Properties next to the reporting window. It counts
- * from the moment the round's incident report was POSTED — the first moment
- * drivers can see the incident at all — so a round with no posted time
- * (not posted, or posted before appeals existed) has its appeals closed.
- * Appeals need a signed-in user; the database enforces the window, the
- * per-user limits and the upload folder too (0113).
+ * Driver-submitted incident appeals (0093): the appeal window and the DB/storage helpers. The window (Site
+ * Properties, in hours) counts from when the round's incident report was posted, so an unposted round has
+ * appeals closed (Logan). The database also enforces the window, per-user limits and upload folder (0113).
  */
 
 import { restGetAuthed, restPatch, type SupabaseEnv } from './db/client';

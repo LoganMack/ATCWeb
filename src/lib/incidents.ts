@@ -1,21 +1,7 @@
 /**
- * Site-wide incident history — every steward-logged incident (rulebook
- * 18.3, section 5 "Stewarding") ever recorded, across every round on file,
- * flattened for the History → Incidents page's three views (All Incidents,
- * by Driver, by Offense). There is no separate "incidents" table — every
- * row here is a `penalties` row (see src/lib/supabase.ts's own doc comment
- * on that table); this file just joins it with the round/driver/offense
- * context needed to display it outside the one-round-at-a-time Incident
- * Report page (src/pages/results/[subsessionId]/incidents.astro).
- *
- * Deliberately NOT built on computeDriverCareerStats() (src/lib/results.ts)
- * — that function runs the full standings/points engine for every driver's
- * whole career, which this page doesn't need at all. This is just raw
- * incident facts (who, what, how many, how much), so the fetch here is
- * much lighter: one getAllRounds(), one bulk getPenaltiesForSubsessions()
- * across every round on file, one driversSelect(), one getPenaltyOffenses()
- * — four queries total, no per-round or per-driver looping against the
- * database.
+ * Site-wide incident history for History → Incidents (All, by Driver, by Offense). Incidents are `penalties`
+ * rows joined with round, driver and offense context. Four queries in total, without the standings engine,
+ * which this page doesn't need.
  */
 
 import { type SupabaseEnv, restGetAll } from './db/client';
@@ -91,12 +77,7 @@ export interface IncidentsData {
   byOffense: OffenseIncidentAggregate[];
 }
 
-/**
- * Every incident ever logged, plus the by-driver and by-offense rollups —
- * everything the Incidents history tab needs, computed once and reused
- * across all three of its views (the same "share one expensive fetch"
- * shape as getSeasonOverallContext elsewhere in this codebase).
- */
+/** Every incident plus the by-driver and by-offense rollups, computed once for all three views. */
 export async function getAllIncidents(env: SupabaseEnv): Promise<IncidentsData> {
   return loadIncidents(env);
 }
@@ -133,17 +114,11 @@ async function loadIncidents(
       // Incident Reporting, 0092_incident_posting.sql) show up on the public
       // Incidents page — everything earlier was backfilled as posted.
       getPostedSubsessionIds(env),
-      // includeAi: true — a penalty could in principle tag an AI-flagged
-      // entrant (an exhibition-only synthetic driver, see DriverBasic's own
-      // doc comment); excluding them here would leave that incident's driver
-      // unresolved (rendered as "—") instead of showing the actual name.
+      // includeAi: an incident may name an AI exhibition entrant, who would otherwise show as "—".
       driversSelect(env, { includeAi: true }),
       getPenaltyOffenses(env),
       getStandingsExcludedRoundIds(env),
-      // Minimal columns straight off race_score_results_public — just enough to count each
-      // driver's distinct (subsession, race_number) starts for the By Driver
-      // table's Inc/Race and Pen/Race columns. Deliberately not routed through
-      // results.ts's standings engine (see this file's header comment).
+      // Minimal columns to count each driver's starts for the Inc/Race and Pen/Race columns.
       subsessionIds.length === 0 || onlySubsessionIds
         ? Promise.resolve([] as { subsession_id: number; race_number: number; driver_id: string }[])
         : restGetAll<{ subsession_id: number; race_number: number; driver_id: string }>(
@@ -182,10 +157,7 @@ async function loadIncidents(
 
   const all: IncidentRow[] = [];
   for (const p of penalties) {
-    // A penalty whose round has since been removed from curated_rounds
-    // (shouldn't normally happen — see this file's own header on that
-    // table being externally populated) is skipped rather than shown with
-    // no track/season context.
+    // A penalty whose round is gone from the externally-populated curated_rounds is skipped.
     const round = roundBySubsession.get(p.subsession_id);
     if (!round) continue;
 

@@ -62,13 +62,8 @@ if (Astro.request.method === 'POST') {
           ...cookieOptions,
           maxAge: 60 * 60 * 24 * 30,
         });
-        // The "user added" activity_log row is written by the
-        // handle_new_user() DB trigger now (0088_log_user_creation.sql),
-        // not here — that fires for every new auth.users row unconditionally
-        // (including the email-confirmation-required path this file can't
-        // reach, since there's no session/access-token yet in that case),
-        // so it's the single reliable place for this rather than duplicating
-        // it here for just the no-confirmation-required path.
+        // The "user added" activity row is written by the handle_new_user() trigger (0088), which also covers
+        // the email-confirmation path this page can't reach.
         return Astro.redirect('/', 302);
       }
       checkEmail = true;

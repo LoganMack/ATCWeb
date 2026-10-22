@@ -1,10 +1,8 @@
 ---
 export const prerender = false;
 
-// Admin Activity Log — one row per admin-side mutation, written by
-// src/lib/activityLog.ts's logActivity() from every admin CRUD page (see
-// that file's header comment for the full list of call sites). Read-only —
-// nothing on this page writes to activity_log itself, it only queries it.
+// Admin Activity Log: read-only view of the rows logActivity() (src/lib/activityLog.ts) writes on every admin
+// mutation.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, restGetAuthed } from '../../../lib/db/client';
 import { formatDate } from '../../../lib/db/circuits';
@@ -17,11 +15,7 @@ if (admin instanceof Response) return admin;
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = admin.accessToken;
 
-// Two independent filter dimensions, per Logan: action (add/edit/delete)
-// and category (all/imports/incident reports). "All" is the default for
-// both — no filter applied — rather than a real fourth action/category
-// value, so the PostgREST query below only adds a clause when one is
-// actually chosen.
+// Two independent filters (Logan): action and category. "All" means no clause is added.
 const ACTIONS: ActivityAction[] = ['add', 'edit', 'delete'];
 const actionParam = Astro.url.searchParams.get('action');
 const selectedAction: ActivityAction | null = ACTIONS.includes(actionParam as ActivityAction) ? (actionParam as ActivityAction) : null;
@@ -31,10 +25,8 @@ const CATEGORIES: Category[] = ['imports', 'incidents', 'drivers', 'teams'];
 const categoryParam = Astro.url.searchParams.get('category');
 const selectedCategory: Category | null = (CATEGORIES as string[]).includes(categoryParam ?? '') ? (categoryParam as Category) : null;
 
-// Caps how far back the log reads — this is an audit trail, not a paged
-// table; 300 most-recent rows is comfortably more than a season of admin
-// activity while keeping the query cheap. Revisit with real pagination if
-// that ever stops being true.
+// An audit trail, not a paged table: the 300 latest rows cover more than a season. Add paging if that stops
+// being true.
 const ROW_LIMIT = 300;
 
 function buildHref(action: ActivityAction | null, category: Category | null): string {

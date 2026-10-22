@@ -20,25 +20,8 @@ const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 /**
- * Same shell-then-spinner split as admin/fragment.astro — admin/drivers/
- * index.astro used to run two opportunistic write RPCs (syncDriverStatuses/
- * syncRookieStatus) plus load the Driver Settings values, the full drivers
- * list, and a bulk driver_last_race lookup, all right in its own
- * frontmatter, blocking the whole page behind however long that took. Now
- * the shell renders instantly with a loading-cards skeleton and fetches
- * THIS route client-side for the Driver Settings panel and the drivers
- * table, per Logan (same request that added loading cards to admin/index.astro
- * and the rest of the admin panel).
- *
- * Returns a bare HTML fragment — no <AdminLayout>, no <html>/<head> — meant
- * only to be dropped into admin/drivers/index.astro's list container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
- *
- * POST handling for this page's three forms (sync-statuses,
- * sync-results-roster, save-settings) stays in admin/drivers/index.astro —
- * every form here still posts to /admin/drivers (data-astro-reload, no
- * `action` override), regardless of the fact that this markup itself is
- * fragment-loaded.
+ * The Drivers page's settings panel and table as a fragment, so the shell renders at once (Logan). Returns
+ * bare HTML for the shell's container; never linked directly. The three forms still post to /admin/drivers.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -78,10 +61,7 @@ async function loadDrivers() {
   }
 }
 
-// Status hover tooltip — same message the edit page shows next to the
-// Status pill (see buildInactivityNote's own doc comment), reused verbatim
-// here rather than re-derived. One bulk driver_last_race query for the
-// whole roster instead of one getDriverLastRace() call per row.
+// Status hover text from buildInactivityNote, with one bulk driver_last_race query for the roster.
 let lastRaceByDriverId = new Map<string, { last_race_at: string | null; rounds_since_last_race: number | null }>();
 async function loadLastRaces() {
   try {
@@ -92,12 +72,8 @@ async function loadLastRaces() {
   }
 }
 
-// Bulk officially-scored round dates — needed to compute "rounds since
-// sign-up" (via roundsSinceDate) for New/Active drivers who haven't raced
-// yet, matching sync_driver_statuses()'s own never-raced-driver Inactive
-// check exactly (curated_rounds, not the calendar's events table — see
-// roundsSinceDate's doc comment in lib/supabase.ts for why the two aren't
-// interchangeable here). Fetched once here rather than per-row.
+// Officially scored round dates, fetched once, for "rounds since sign-up" via roundsSinceDate
+// (src/lib/db/drivers.ts), matching sync_driver_statuses().
 let officialRounds: Awaited<ReturnType<typeof getOfficialRoundStartTimes>> = [];
 async function loadOfficialRounds() {
   try {
@@ -107,15 +83,8 @@ async function loadOfficialRounds() {
   }
 }
 
-// No cron/scheduled-worker infrastructure in this app — status and rookie
-// automation both run opportunistically here, the one admin page every
-// admin visits before touching any individual driver, in addition to the
-// explicit "Sync Statuses" button on the shell. Best-effort: a sync failure
-// shouldn't block this fragment from showing the (possibly stale) driver
-// list — errors here are only logged, never shown, which is exactly why the
-// button exists: a background failure here is invisible, but the same
-// failure via the button surfaces as a real error banner (see
-// admin/drivers/index.astro's sync-statuses POST branch).
+// There's no scheduler, so the status and rookie syncs run here on every visit. Failures are only logged; the
+// shell's "Sync Statuses" button runs the same sync and shows errors.
 async function opportunisticSync() {
   try {
     await syncDriverStatuses(supabaseEnv, accessToken);

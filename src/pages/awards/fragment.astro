@@ -18,17 +18,9 @@ import {
 import { driversSelect, type DriverBasic } from '../../lib/results/rows';
 
 /**
- * Pilot for the sitewide "shell renders instantly, data fills in after"
- * pattern (see champions/fragment.astro's own doc comment for the full
- * explanation) — awards.astro only renders the page banner and a loading
- * skeleton, then fetches THIS route client-side for the actual twelve
- * awards. computeSeasonAwardsHistory (src/lib/results.ts) is exactly the
- * kind of expensive, every-season-on-file computation that pattern exists
- * for.
- *
- * Returns a bare HTML fragment — no <Layout>, no <html>/<head> — meant only
- * to be dropped into awards.astro's results container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * The twelve awards as a fragment for the awards.astro shell, since computeSeasonAwardsHistory
+ * (src/lib/results/awards.ts) covers every season. Returns bare HTML for the shell's container; never linked
+ * directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -95,7 +87,10 @@ function simpleRow(season: Season, winner: SeasonAwardWinner | null, valueText: 
   return row(season, winner ? winner.drivers.map((d) => winnerDisplay(d)) : [], valueText);
 }
 
-/** Builds a row for a margin award (Dominator/Defender), whose tied entries are each their own (driver, race) pair — see SeasonMarginAwardEntry's doc comment in results.ts. */
+/**
+ * A margin award row (Dominator/Defender): each tied entry is its own (driver, race) pair
+ * (SeasonMarginAwardEntry in src/lib/results/awards.ts).
+ */
 function marginRow(season: Season, winner: SeasonMarginAwardWinner | null, valueText: string | null): AwardRow {
   return row(
     season,

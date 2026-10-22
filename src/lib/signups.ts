@@ -1,14 +1,8 @@
 /**
- * Discord sign-up requests (0098_signup_requests.sql, docs/signup-integration.md).
- *
- * Two kinds of caller:
- *   - The bot API (src/pages/api/bot/) — no signed-in user, so it checks the
- *     bot's shared token (BOT_API_TOKEN) and then calls the service-role-only
- *     database functions with SUPABASE_SERVICE_ROLE_KEY. Both are Cloudflare
- *     secrets (`wrangler secret put`), never in wrangler.jsonc's `vars` or the
- *     repo; locally they come from .env.
- *   - Admin > Sign-ups — a signed-in admin's own token, same as every other
- *     admin write (RLS / is_admin() do the gating).
+ * Discord sign-up requests (0098, docs/signup-integration.md).
+ * - The bot API (src/pages/api/bot/) checks BOT_API_TOKEN, then calls service-role-only functions with
+ *   SUPABASE_SERVICE_ROLE_KEY. Both are Cloudflare secrets, never in `vars` or the repo.
+ * - Admin > Sign-ups uses the admin's own token; RLS and is_admin() gate it.
  */
 
 import { resolveSupabaseEnv, restGetAll, restGetAuthed, type SupabaseEnv } from './db/client';

@@ -6,11 +6,8 @@ import { safeNext } from '../../lib/security';
 export const prerender = false;
 
 /**
- * Toggles "View as Broadcaster" (see Footer.astro, src/lib/auth.ts's
- * BROADCASTER_COOKIE, and src/middleware.ts): while on, every statistic on
- * the site reads as though the most recent round didn't exist, so a
- * broadcaster recording a delayed broadcast never has spoilers baked in.
- * Open to everyone — it only changes what THIS browser sees.
+ * Toggles "View as Broadcaster": the site reads as if the latest round hadn't run, so a delayed broadcast has
+ * no spoilers. Open to everyone; it only affects this browser.
  */
 export const POST: APIRoute = async ({ cookies, request, redirect }) => {
   const form = await request.formData();

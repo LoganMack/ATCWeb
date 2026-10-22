@@ -1,27 +1,8 @@
 /**
- * Computes a round's race recap for a news post linked to it
- * (`news_posts.round_subsession_id`, see 0017_news_round_season.sql) — top
- * 3 per class, top 3 rookies, fastest lap (+ track record check), and team
- * points, all per race.
- *
- * Deliberately NOT stored text: every value here is read fresh from the
- * same penalty-adjusted data the results pages themselves show
- * (getRoundResults(), exactly like src/pages/results/[subsessionId].astro),
- * so if a penalty gets logged
- * against this round after the post is published, the recap on the article
- * updates the next time it's viewed — no "regenerate" step, nothing to go
- * stale. src/pages/news/[slug].astro calls computeRoundRecap() at render
- * time and renders the result; nothing about it is persisted.
- *
- * Track-record matching (matchCircuitLayout() below) is a direct, exact
- * (normalized) match on track/layout name per Logan — not a fuzzy guess —
- * using a `layout` column this repo added to `curated_rounds` specifically
- * for this (see 0018_curated_rounds_layout.sql for why that's a deliberate,
- * one-off exception to this repo never altering the pipeline's own
- * tables). When it can't resolve to exactly one circuit_layouts row, the
- * recap just omits the track-record comparison and computeRoundRecap()
- * returns a `trackRecordMatchIssue` explaining why, for an admin-only
- * notice on the article (see news/[slug].astro) — never shown to visitors.
+ * The race recap for a news post linked to a round (0017): top 3 per class, top rookies, fastest lap with a
+ * track record check, and team points, per race. Computed at render time from the same penalty-adjusted data
+ * as the results page, so later penalties show without regenerating. The track record match is exact on
+ * normalised names (Logan); when it fails, `trackRecordMatchIssue` explains why to admins only.
  */
 
 import { restGet, type SupabaseEnv } from './db/client';
@@ -45,14 +26,8 @@ interface RawBestLapRow {
 }
 
 /**
- * Fetches just this round's fastest-lap data, deliberately kept OUT of
- * results.ts's shared getCuratedRaceResultsForSubsessions() (used by every
- * results/standings/champions page) even though it's the same
- * `curated_race_results` table. PostgREST fails the ENTIRE query if any
- * selected column doesn't exist (see results.ts's header) — isolating this
- * one column's fetch to its own small query, in its own try/catch, means a
- * wrong/renamed column can only ever make the recap quietly drop its
- * "fastest lap" stat, never take down the rest of the site.
+ * Fastest-lap data in its own query and try/catch, kept out of the shared results query: PostgREST fails a
+ * whole query on a missing column, so this can only drop the recap's fastest lap.
  */
 async function fetchBestLaps(env: SupabaseEnv, subsessionId: number): Promise<RawBestLapRow[]> {
   try {
@@ -67,15 +42,8 @@ async function fetchBestLaps(env: SupabaseEnv, subsessionId: number): Promise<Ra
 }
 
 /**
- * Fetches just this round's `layout` column (see
- * 0018_curated_rounds_layout.sql — a column this repo added to the
- * otherwise pipeline-owned `curated_rounds` table, purely for this
- * track-record match), isolated in its own try/catch for the same reason as
- * fetchBestLaps() above: results.ts's shared round queries (used by every
- * results/schedule/standings page) must never risk failing over one column
- * that only this one feature needs. Rounds imported before this column
- * existed, or before Logan has filled it in for a given round, just come
- * back null — matchCircuitLayout() degrades gracefully in that case.
+ * The round's `layout` (a column this repo added to the pipeline's curated_rounds, 0018), isolated like
+ * fetchBestLaps(). Null for rounds without it; matchCircuitLayout() copes.
  */
 async function fetchRoundLayout(env: SupabaseEnv, subsessionId: number): Promise<string | null> {
   try {
@@ -108,7 +76,7 @@ export interface RecapFastestLap {
   previousRecordFormatted: string | null;
 }
 
-/** One driver who was awarded the "Sublime Finesse" bonus (finesse_bonus > 0 — "3 incidents or less" that race) — see README's Points System note. */
+/** One driver who was awarded the "Sublime Finesse" bonus (finesse_bonus > 0 — "3 incidents or less" that race). */
 export interface RecapFinesseEntry {
   driver: DriverBasic;
   carNumber: number | null;
@@ -165,32 +133,24 @@ export interface RoundRecap {
   races: RecapRace[];
   /** Highest combined points across every class this round — the main team battle. Null only if nobody in the round had a team assigned. */
   topTeamOverall: RecapTeamPoints | null;
-  /** Highest points among just the Delta class this round (Delta has its own class_points bonus separate from the overall total — see results.ts's header) — null if this round had no Delta class field, or nobody in it had a team assigned. */
+  /**
+   * Highest Delta-class team points this round (Delta has its own class_points); null with no Delta field or
+   * no team.
+   */
   topTeamDelta: RecapTeamPoints | null;
   /** Every team's top-2-per-race scorers (see topTeamScorers()), with which driver scored what in which race — sorted by team name. */
   teamBreakdown: RecapTeamBreakdown[];
   /** Same idea as `teamBreakdown`, but scoped to just Delta-class rows and ranked/summed by each row's full totalPoints (Delta's own class_points bonus included) — mirrors topTeamDelta. Empty when this round had no Delta class field. */
   deltaTeamBreakdown: RecapTeamBreakdown[];
   /**
-   * Set only when the round's track/layout couldn't be matched to a
-   * circuit_layouts row, so no fastest lap in `races` can be checked
-   * against a lap record. A human-readable reason, meant for an
-   * admin-only on-page notice (see news/[slug].astro's use of
-   * isAdminView()) so Logan knows what to go add/fix in Admin → Circuits —
-   * never shown to regular visitors.
+   * Why the track/layout couldn't be matched to a circuit_layouts row, shown only to admins on the article so
+   * it can be fixed in Admin → Circuits.
    */
   trackRecordMatchIssue: string | null;
 }
 
-// Kept in sync with results.ts's own normalizeTrackOrLayoutName (this file
-// can't import that one — see this repo's matchCircuitLayout doc comment
-// for the import-cycle reason they're duplicated). Strips iRacing's
-// "[Retired] " tag on a track's superseded configuration (e.g. "[Retired]
-// Barber Motorsports Park") before matching, since no distinct circuits row
-// has ever been entered for these — they resolve to the same circuit the
-// plain name already matches. "[Legacy] ..." tracks are untouched by this:
-// those DO get their own circuits row (a materially different old layout),
-// so stripping a tag there would wrongly merge two distinct configurations.
+// Kept in sync with normalizeTrackOrLayoutName in src/lib/results/layouts.ts, which can't be imported here
+// (cycle). Strips "[Retired] " (no separate circuits rows) but not "[Legacy] " (those are distinct layouts).
 function normalize(s: string): string {
   const withoutRetiredTag = s.replace(/^\[retired\]\s*/i, '');
   return withoutRetiredTag.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -203,18 +163,8 @@ interface LayoutMatchResult {
 }
 
 /**
- * Matches a round's `track_name` (and, when needed, its `layout` column —
- * see 0018_curated_rounds_layout.sql) to one of this repo's own
- * `circuit_layouts` rows (admin-managed at /admin/circuits), per Logan:
- * track names are consistent everywhere, so this is a direct (normalized —
- * case/punctuation/whitespace-insensitive, not fuzzy) match on
- * circuits.name, not a best-effort guess. A circuit with only one layout on
- * file resolves from the track name alone; one with more than one layout
- * needs the round's `layout` to also match one of circuit_layouts.name to
- * disambiguate which config was actually run. Returns a human-readable
- * `issue` whenever it can't resolve to exactly one layout, rather than
- * guessing — surfaced as an admin-only notice on the article (never shown
- * to visitors) so Logan knows what's missing in Admin → Circuits.
+ * Matches a round's track_name, and layout when the circuit has several, to one circuit_layouts row by exact
+ * normalised name (Logan: track names are consistent). Returns an admin-only `issue` instead of guessing.
  */
 function matchCircuitLayout(
   trackName: string,
@@ -280,11 +230,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     layouts,
   );
 
-  // cust_id -> driver, built once from the round's own results — best_lap
-  // rows are keyed by cust_id (iRacing's own id, same as the rest of
-  // curated_race_results), not this app's driver uuid. Excludes notInRoster
-  // rows for the same reason `overallRows` below does (they'd otherwise let
-  // an unrostered entrant get credited with a Fastest Lap highlight).
+  // cust_id -> driver, since best-lap rows are keyed by cust_id. Unrostered rows are left out so they can't
+  // get the Fastest Lap highlight.
   const driverByCustId = new Map<number, DriverBasic>();
   for (const rows of roundResults.overall.values()) {
     for (const row of rows) {
@@ -299,14 +246,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   }
 
   const races: RecapRace[] = raceNumbers.map((raceNumber) => {
-    // Excludes notInRoster rows (see results.ts's RaceResultRow.notInRoster)
-    // — an entrant with no roster entry yet is a data-hygiene gap for an
-    // admin to fix (Drivers admin > "Sync Results with Roster"), not
-    // someone this auto-generated recap should be crediting by name in a
-    // public news post (their pipeline-sourced display_name, or a bare
-    // "Cust #12345" fallback, isn't a real roster identity to feature).
-    // topByClass below is unaffected either way — byClass never contains
-    // notInRoster rows in the first place (see getRoundResults).
+    // Unrostered entrants are a data gap for an admin to fix (Sync Results with Roster), not names to feature
+    // in a public post. byClass never contains them.
     const overallRows = (roundResults.overall.get(raceNumber) ?? []).filter((r) => !r.notInRoster);
 
     const topByClass: RecapClassTop3[] = orderedClassIds
@@ -335,11 +276,7 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
       .slice(0, 3)
       .map((r) => ({ position: r.position, driver: r.driver }));
 
-    // Fastest lap counts regardless of classification/DSQ — it's a raw
-    // timing fact about that specific lap, not a scored result. Matched to
-    // a driver via cust_id (see driverByCustId above) since fetchBestLaps()
-    // reads straight off curated_race_results, keyed the same way the rest
-    // of that external table is.
+    // Fastest lap ignores classification and DSQ: it's a timing fact, not a scored result.
     let fastestLap: RecapFastestLap | null = null;
     const withLaps = (bestLapsByRace.get(raceNumber) ?? []).filter(
       (r) =>
@@ -368,15 +305,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
       .filter((r) => !r.dsq && r.incidentsBonus)
       .map((r) => ({ driver: r.driver, carNumber: r.driver.car_number, incidents: r.incidents }));
 
-    // "Naked Aggression" — top 5 position gainers this race, whole field
-    // (every class combined), by raw starting/finish position (not the
-    // penalty-adjusted classification) — this is about who actually drove
-    // through the field on track, independent of any post-race stewarding.
-    // Whoever actually earned the bonus POINT this race (bonusAwarded,
-    // possibly more than one driver tied for the best net gain — see
-    // aggressionBonusWon's own doc comment) is always included even if a
-    // large tie group would otherwise push them past the top-5 cutoff, so
-    // the recap never silently omits an actual bonus winner.
+    // "Naked Aggression": top 5 gainers by raw grid-to-finish positions across the whole field, independent
+    // of stewarding. Whoever won the bonus point is always included, even past the cutoff in a tie.
     const rankedGainers: RecapOvertakeEntry[] = overallRows
       .filter((r) => !r.dsq && r.startingPosition !== null)
       .map((r) => ({
@@ -396,18 +326,8 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
     return { raceNumber, topByClass, topRookies, fastestLap, sublimeFinesse, nakedAggression };
   });
 
-  // Team points — "which team scored the most overall points" (every class
-  // combined) and "which [Delta] team scored the most [Delta] points"
-  // (Delta-class rows only, matching Delta's own separate class_points
-  // bonus — see results.ts's header on why Delta/Gamma aren't folded into
-  // the overall total). Grouped by team NAME rather than an id, same as
-  // every other results view already does (RaceResultRow.team has no id,
-  // just {name, logoUrl} — see results.ts).
-  //
-  // Only each team's top 2 scorers in a given race actually count toward
-  // that team's points for that race (topTeamScorers() — see its own doc
-  // comment in results.ts) — a team that started 3 drivers in the same race
-  // only ever gets 2 of those results added to its total, never all 3.
+  // Team points overall and for Delta (rows only, with its own class points), grouped by team name as the
+  // results views have no team id. Only each team's top 2 scorers per race count (topTeamScorers()).
   const deltaClassId = classes.find((c) => c.name.toLowerCase() === 'delta')?.id ?? null;
 
   interface TeamAgg {

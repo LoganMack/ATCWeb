@@ -1,11 +1,6 @@
 /**
- * ISO 3166-1 alpha-2 country codes (lowercase, matching flagcdn.com's own
- * URL convention — see src/components/DriverFlag.astro) + common display
- * names, for the driver nationality dropdowns on the admin edit form and
- * for looking up a flag's hover/alt text anywhere DriverFlag renders one.
- * Not exhaustive of every ISO entry (a few uninhabited/dependent
- * territories are omitted) but covers every country a driver could
- * plausibly select.
+ * ISO 3166-1 alpha-2 codes (lowercase, as flagcdn.com uses) with display names, for the nationality dropdowns
+ * and flag labels. A few uninhabited territories are omitted.
  */
 export interface Country {
   code: string;
@@ -13,10 +8,8 @@ export interface Country {
 }
 
 export const COUNTRIES: Country[] = [
-  // United States and Canada first — by far our most common driver
-  // nationalities, so they shouldn't require scrolling the rest of the
-  // (otherwise alphabetical) list to find. Removed from their normal
-  // alphabetical spot further down (C / U) so they only appear once.
+  // United States and Canada first, as the most common nationalities; they are not repeated in the
+  // alphabetical list.
   { code: 'us', name: 'United States' },
   { code: 'ca', name: 'Canada' },
   { code: 'af', name: 'Afghanistan' },

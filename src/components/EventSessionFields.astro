@@ -1,8 +1,6 @@
 ---
-// One fieldset per event session (practice/qualifying/race1-3), reused
-// from the admin event form. Which extra inputs show depends on the
-// session type: practice takes a minutes length, qualifying takes both
-// minutes and laps, races take laps only.
+// One fieldset per event session for the admin event form: practice takes minutes, qualifying minutes and
+// laps, races laps.
 interface Props {
   prefix: string; // form field name prefix, e.g. 'practice', 'race1'
   label: string;
@@ -49,11 +47,8 @@ const {
         data-time-input
         class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
       />
-      <!-- Filled in client-side (see the script at the bottom of this
-           component) once the browser knows both this value and the
-           event's date — every time in this app is entered as Eastern
-           (see src/lib/timezone.ts), so this is purely a "here's what
-           that is in YOUR timezone" convenience, not a second input. -->
+      <!-- Filled in client-side: the Eastern time entered, shown in the viewer's own time zone as a
+           convenience. -->
       <span data-time-local-preview class="text-xs text-white/40"></span>
     </label>
 
@@ -125,10 +120,8 @@ const {
 </fieldset>
 
 <script>
-  // This component is used up to 5 times per page (practice/qualifying/
-  // race1-3) — Astro dedupes identical inline scripts across repeated
-  // component instances automatically, so this runs once per page and
-  // just operates on every matching element/form, not "this" instance.
+  // Astro dedupes this script across the up to five instances, so it runs once and handles every matching
+  // element.
   import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from '../lib/timezone';
 
   function updatePreview(input: HTMLInputElement, eventDateValue: string) {

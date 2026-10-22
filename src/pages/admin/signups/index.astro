@@ -1,12 +1,9 @@
 ---
 export const prerender = false;
 
-// Admin → Sign-ups: Discord /atcsignup requests waiting for a decision
-// (0098_signup_requests.sql, docs/signup-integration.md). Approve creates the
-// roster entry — or reactivates a returning driver — with the first requested
-// number that's free at that moment; Reject records a reason the bot DMs to
-// the driver. Both go through database functions that re-check everything,
-// so the number previews here are informational only.
+// Admin → Sign-ups: Discord /atcsignup requests awaiting a decision (0098, docs/signup-integration.md).
+// Approve creates or reactivates the driver with the first free requested number; Reject records a reason the
+// bot DMs. Database functions re-check everything, so number previews here are informational.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getDriverClasses } from '../../../lib/db/lookups';

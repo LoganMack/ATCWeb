@@ -20,16 +20,8 @@ import {
 import { classTagFull } from '../../lib/classColors';
 
 /**
- * Same shell-then-spinner split as champions/fragment.astro — driver-stats.astro
- * now only fetches the cheap stuff (driver classes) needed to render its
- * filter tabs, then renders a loading skeleton and fetches THIS route
- * client-side for the actual career-stats table. This is where the
- * expensive computeDriverCareerStats() call (every driver's whole
- * season-by-season history) now lives, so it no longer blocks the shell.
- *
- * Returns a bare HTML fragment — no <Layout>, no <html>/<head> — meant only
- * to be dropped into driver-stats.astro's results container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * The career-stats table as a fragment for the driver-stats.astro shell, since computeDriverCareerStats()
+ * covers every driver's whole history. Returns bare HTML; never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);

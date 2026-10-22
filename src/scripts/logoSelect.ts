@@ -1,20 +1,8 @@
 /**
- * Dropdown with a logo beside each option — a native <select> can't show
- * images, so any <select data-logo-select> is enhanced into a custom
- * listbox. The real <select> stays in the DOM (visually hidden): it still
- * submits with its form, still carries `selected`, and when the visitor
- * picks something its value is set and a bubbling `change` event is
- * dispatched on it — so existing `onchange="this.form.submit()"` handlers
- * and delegated change listeners keep working untouched.
- *
- * Options may carry `data-logo` (and `data-logo-light`, swapped in for light
- * mode like SeasonLogo.astro does) — see lib/seasonSelect.ts. <optgroup>
- * labels become group headings. Options without a logo get an empty spacer so
- * text stays aligned.
- *
- * Content arrives late (loader scripts inject fragments; hard-form-submit
- * swaps the body), so rather than hooking page-load events this watches the
- * document for new `select[data-logo-select]` elements. Each is enhanced once.
+ * Enhances any <select data-logo-select> into a listbox with a logo per option (`data-logo`,
+ * `data-logo-light`; see lib/seasonSelect.ts). The real <select> stays hidden in the DOM, gets the value and
+ * a bubbling `change`, so forms and listeners work unchanged. Content arrives late (fragments, form swaps),
+ * so new selects are found with a MutationObserver, each enhanced once.
  */
 const LOGO_CLASS = 'h-5 w-5 flex-none rounded-sm object-contain';
 const BUTTON_BASE =

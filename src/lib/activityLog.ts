@@ -1,21 +1,7 @@
 /**
- * Admin Activity Log (/admin/activity-log) — one best-effort write per
- * admin-side mutation across the site. Built on restPost (see supabase.ts's
- * "Storage"/raceResultsImport.ts-style one-off exception note) rather than a
- * dedicated per-table wrapper, since every call site here already has an
- * `env`/`accessToken` on hand and a single small helper is simpler than a
- * full CRUD surface for a table nothing ever reads back except the log page
- * itself (src/pages/admin/activity-log/index.astro, via restGetAuthed).
- *
- * Every call site follows the same two-line shape:
- *   await logActivity(supabaseEnv, accessToken, actorName, {
- *     action: 'edit', entity_type: 'driver', entity_label: driver.name, entity_id: driver.id,
- *   });
- * placed right after the mutation it's describing succeeds — never before,
- * so a failed mutation never produces a misleading log entry. logActivity
- * itself never throws: a broken log write is a UX regression on one new
- * admin tab, not a reason to fail (or worse, appear to fail while actually
- * succeeding) the real action underneath it.
+ * Admin Activity Log (/admin/activity-log): one best-effort row per admin mutation, written right after the
+ * mutation succeeds so a failed action is never logged. logActivity never throws: a broken log write must not
+ * fail the real action.
  */
 import { restPost, type SupabaseEnv } from './db/client';
 import { uploadToStorage } from './db/assets';
@@ -131,10 +117,8 @@ export async function signImportFileUrls(
 }
 
 /**
- * Resolves the "who did this" label the exact same way AdminLayout.astro's
- * header does (`session?.profile?.display_name || session?.user.email`), so
- * an activity_log row reads as the same name the admin sees for themselves
- * everywhere else in the panel.
+ * The actor label, resolved like AdminLayout.astro's header so the log shows the name the admin sees for
+ * themselves.
  */
 export function actorNameFor(session: {
   profile?: { display_name: string | null; driver_name?: string | null; iracing_name?: string | null } | null;
@@ -144,10 +128,8 @@ export function actorNameFor(session: {
 }
 
 /**
- * Writes one activity_log row for the given actor (accessToken's own user —
- * RLS requires actor_id = auth.uid() unless the actor is an admin, see
- * 0051_activity_log.sql). Swallows and logs any failure rather than
- * throwing — see this file's header comment for why.
+ * Writes one activity_log row; RLS requires actor_id = auth.uid() unless the actor is an admin (0051). Logs
+ * failures instead of throwing.
  */
 export async function logActivity(
   env: SupabaseEnv,

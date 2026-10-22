@@ -1,19 +1,11 @@
 ---
-// One stat tile — a big number with a small label above it and an optional
-// subtitle below (used for the starts/appearances-based percentages: see
-// the header comment in src/lib/results.ts for why poles use appearances
-// as their denominator while everything else uses starts). The subtitle is
-// hidden on mobile (Logan) — only the big number and its label show there.
+// One stat tile: a big number, a label above and an optional subtitle (poles use appearances as the
+// denominator, everything else starts). The subtitle is hidden on mobile (Logan).
 interface Props {
   label: string;
   value: string | number;
   sub?: string;
-  /**
-   * A trailing bit of the label to render without the uppercase transform —
-   * e.g. labelSuffixLower="s" on label="Top 5" renders "TOP 5s" instead of
-   * "TOP 5S", since the CSS `uppercase` on <dt> would otherwise capitalize
-   * a literal lowercase "s" along with everything else.
-   */
+  /** Label tail rendered without `uppercase`, so "Top 5" + "s" reads "TOP 5s". */
   labelSuffixLower?: string;
 }
 

@@ -20,12 +20,8 @@ export function getCircuits(env: SupabaseEnv) {
 }
 
 /**
- * Latitude/longitude per circuit (0098_circuit_coordinates.sql) for the
- * Calendar's Map view. Deliberately a separate, failure-tolerant query rather
- * than part of CIRCUIT_SELECT: that select feeds the whole site, and adding
- * columns to it would break every page if this code were ever deployed before
- * the migration is applied. Returns an empty list in that case, so the map just
- * shows "no locations yet" instead of anything else breaking.
+ * Circuit coordinates (0098) for the Calendar map, in a separate failure-tolerant query so deploying before
+ * the migration can't break CIRCUIT_SELECT's pages. Empty on failure.
  */
 export async function getCircuitCoordinates(
   env: SupabaseEnv,
@@ -44,12 +40,8 @@ export async function getCircuitCoordinates(
 export type LogoBackground = 'light' | 'dark';
 
 /**
- * Per-circuit plate behind the primary track logo (0103_circuit_logo_background.sql),
- * chosen on /admin/circuits/<id> for logos that disappear into one of the
- * themes (a dark logo on the dark theme, a white one on the light theme).
- * Keyed by circuit id; circuits with no plate are simply absent. Separate,
- * failure-tolerant query for the same reason as getCircuitCoordinates: this
- * must never break a page if the code is deployed before the migration.
+ * Per-circuit plate behind the track logo (0103), for logos that vanish in one theme. Keyed by circuit id;
+ * separate and failure-tolerant like getCircuitCoordinates.
  */
 export async function getCircuitLogoBackgrounds(env: SupabaseEnv): Promise<Record<string, LogoBackground>> {
   try {
@@ -122,7 +114,10 @@ export interface CircuitLayout {
   lap_record_date: string | null; // 'YYYY-MM-DD'
   /** This specific layout's own image (e.g. its track map) — see 0021_circuit_layout_image.sql. Only shown when the parent circuit has no logo_url; use `layoutImageUrl()`. */
   image_url: string | null;
-  /** Number of corners on this layout, admin-entered — see 0022_circuit_layout_corners.sql. Powers the Standings page's season "corners per incident" stat (src/lib/results.ts's getSeasonDriverExtendedStats); null until Logan fills it in for a given layout. */
+  /**
+   * Admin-entered corner count (0022), for corners-per-incident (getSeasonDriverExtendedStats in
+   * src/lib/results/extendedStats.ts); null until filled in.
+   */
   corners: number | null;
 }
 
@@ -157,23 +152,15 @@ export function layoutImageUrl(
 }
 
 /**
- * Same order as layoutImageUrl (the circuit's primary logo first, a
- * layout's own image only as a fallback), but for an *event* rather than a
- * CircuitLayout row directly — events.layout is a plain text name (no FK to
- * circuit_layouts, see that column's own comment on EventRecord below), so
- * this looks the matching layout up out of a full layouts list by
- * (circuit_id, name) instead of already holding a layout row. Used
- * everywhere an event/calendar card shows a circuit image.
+ * Circuit image for an event: the circuit's logo first, the layout's image as fallback. events.layout is
+ * plain text, so the layout is found by (circuit_id, name).
  */
 export function eventImageUrl(
   event: { circuit_id: string | null; layout: string | null },
   circuit: Pick<Circuit, 'logo_url'> | null,
   layouts: Pick<CircuitLayout, 'circuit_id' | 'name' | 'image_url'>[],
 ): string | null {
-  // HOLIDAY/IRACING events have no circuit_id at all (see EventRecord.title
-  // below) — they're never supposed to show a logo, and a null circuit_id
-  // simply never matches any layouts[] row here, so this falls straight
-  // through to circuit?.logo_url ?? null, which is also null for them.
+  // HOLIDAY/IRACING events have no circuit_id, so this finds no layout and returns null.
   const matchedLayout = event.layout
     ? layouts.find((l) => l.circuit_id === event.circuit_id && l.name === event.layout)
     : undefined;
@@ -181,20 +168,11 @@ export function eventImageUrl(
 }
 
 /**
- * Pulls the 11-character video ID out of any of the URL shapes YouTube
- * hands out (watch?v=, youtu.be/, /embed/, /shorts/) — every video entry on
- * the Media page (admin-entered or derived from race_links.broadcast_url)
- * is expected to be a YouTube link, per Logan. Returns null for anything
- * that doesn't match, so callers can fall back to a plain "watch" link
- * instead of a broken thumbnail/embed.
+ * The 11-character video ID from any YouTube URL shape; videos are expected to be YouTube (Logan). Null
+ * otherwise, so callers fall back to a plain link.
  */
 export function youtubeVideoId(url: string): string | null {
-  // youtube.com/live/VIDEO_ID is the URL format YouTube's own "Share" button
-  // gives you for a livestream — both while it's live AND permanently
-  // afterward, once it's just a normal archived video at the same URL. It
-  // was missing from this list entirely, which is why broadcasts linked
-  // with that URL shape (Media > Videos > Broadcasts) never matched any
-  // branch here and silently got no thumbnail at all.
+  // youtube.com/live/ID is the Share link for a livestream, live and archived.
   const match = /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/.exec(url);
   return match ? match[1] : null;
 }
@@ -206,29 +184,16 @@ export function youtubeThumbnailUrl(url: string): string | null {
 }
 
 /**
- * "Chris Macdonald" from "Chris Macdonald5" — iRacing appends a trailing
- * number directly to a driver's name to disambiguate real-name duplicates
- * on the roster (see 0001_init.sql's `name` column comment). Display-only:
- * never use this to write back to the stored `name` value, since the
- * driver record needs to keep the exact iRacing-supplied name to stay
- * aligned with iRacing (and unique in the database).
+ * "Chris Macdonald" from "Chris Macdonald5": iRacing appends a number to duplicate names. Display only; the
+ * stored name must stay exactly as iRacing has it.
  */
 export function displayDriverName(name: string): string {
   return name.replace(/\d+$/, '');
 }
 
 /**
- * "J. Smith" from "John Smith" — or from "John Michael Smith"/"John M.
- * Smith"/any other number of middle names or initials in between, since
- * this only ever keeps the FIRST token's initial and the LAST token
- * verbatim, dropping everything in between rather than risking a middle
- * name/initial getting mistaken for the surname. Built on
- * `displayDriverName` so the trailing disambiguator digit (see that
- * function's own doc comment) is already gone before splitting on
- * whitespace. Standings page's Matrix view — its Driver column has far
- * less room once the round columns take over most of the table's width;
- * everywhere else on the site still shows the full name via
- * `displayDriverName`.
+ * "J. Smith" from "John (Michael) Smith": first initial and last token, so middle names can't be mistaken for
+ * the surname. For the Standings Matrix's narrow Driver column.
  */
 export function shortDriverName(name: string): string {
   const parts = displayDriverName(name).trim().split(/\s+/).filter(Boolean);
@@ -238,12 +203,8 @@ export function shortDriverName(name: string): string {
 }
 
 /**
- * "August 5, 2026" — the one date format used everywhere across the site,
- * from a 'YYYY-MM-DD' date-only string or a full ISO timestamp.
- * Date-only strings are parsed as local calendar-date components rather
- * than handed straight to `new Date()`, which treats a bare 'YYYY-MM-DD'
- * as UTC midnight and can render as the *previous* day once
- * `toLocaleDateString` applies a negative-offset local timezone.
+ * "August 5, 2026", the site's one date format. A bare 'YYYY-MM-DD' is read as a local date, because `new
+ * Date()` takes it as UTC midnight and can show the previous day.
  */
 export function formatDate(dateInput: string | null): string {
   if (!dateInput) return '—';
@@ -305,11 +266,8 @@ export function deleteCircuitLayout(env: SupabaseEnv, accessToken: string, id: s
   return restDelete(env, accessToken, `circuit_layouts?id=eq.${encodeURIComponent(id)}`);
 }
 
-// --- Track guides (one-to-many per layout, see 0053_track_guides.sql) ------
-// Replaces the old single circuit_layouts.track_guide_url column — a layout
-// can now have any number of guide videos. Managed independently of the
-// layout's own metadata form on the admin Circuits page (its own add/remove
-// mini-list), shown grouped by layout on the public Media page.
+// --- Track guides (0053_track_guides.sql): any number of guide videos per layout, shown on the Media page
+// ---
 
 export interface TrackGuide {
   id: string;

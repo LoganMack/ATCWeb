@@ -1,44 +1,15 @@
 /**
- * Every event session time in this app (`events.practice_start_time`,
- * `race1_start_time`, etc.) is stored as a plain `'HH:MM:SS'` wall-clock
- * string with no date or timezone attached to it — and every one of those
- * values was entered assuming the league operates on US Eastern time
- * (America/New_York, which auto-handles the EDT/EST switch). That was
- * always implicit, never actually enforced or converted anywhere: the site
- * just echoed the raw digits back, so a visitor in a different timezone
- * saw the wrong wall-clock time for when a race actually starts.
- *
- * This file is the one place that encodes "times are Eastern" as an
- * explicit constant + a real timezone-aware conversion, so every page that
- * shows a session time can turn it into a real UTC instant — from there,
- * `src/scripts/localTime.ts` (loaded globally, see Layout.astro) re-renders
- * that instant in whatever timezone the VIEWER's own browser is in.
- *
- * Deliberately NOT applied to `_sim_time` fields — those are iRacing's own
- * simulated clock (affects in-game lighting/weather), which has no
- * real-world timezone at all; see EventRecord's own doc comment.
- *
- * Pure vanilla `Intl`/`Date` — no dependency, and works identically
- * server-side (Cloudflare Workers' runtime, which runs in UTC) and
- * client-side (the viewer's own browser), which matters here since pages
- * showing these times are edge-cached (`Cache-Control: s-maxage=60,
- * stale-while-revalidate=300`) and shared across visitors in different
- * timezones — the actual per-viewer conversion has to happen in the
- * browser, not on the server, or every visitor after the first would see
- * whichever timezone rendered the cached copy.
+ * Session times are stored as bare 'HH:MM:SS' entered in US Eastern time (America/New_York). This converts
+ * them to real UTC instants; src/scripts/localTime.ts then shows them in the viewer's zone in the browser,
+ * because pages are edge-cached and shared across time zones. Not for `_sim_time` fields, which are iRacing's
+ * in-game clock.
  */
 
 export const LEAGUE_TIME_ZONE = 'America/New_York';
 
 /**
- * Converts a wall-clock date + time in `timeZone` into the real UTC instant
- * it represents, correctly handling that timezone's DST rules for that
- * specific date (e.g. a January time is EST/UTC-5, a July time is
- * EDT/UTC-4 — this figures out which applies rather than assuming one).
- *
- * Standard "guess UTC, ask what that guess displays as in the target zone,
- * correct by the difference" technique — reliable without a timezone
- * database dependency, since `Intl.DateTimeFormat` already carries one.
+ * A wall-clock date + time in `timeZone` as a UTC instant, using that date's DST offset: guess UTC, see how
+ * the guess reads in the zone, correct by the difference (Intl carries the zone data).
  */
 export function zonedTimeToUtc(dateStr: string, timeStr: string, timeZone: string): Date | null {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
@@ -77,10 +48,7 @@ export function zonedTimeToUtc(dateStr: string, timeStr: string, timeZone: strin
     Number(parts.second),
   );
 
-  // asIfLocalMs is what the guess LOOKS LIKE when read as a `timeZone` wall
-  // clock; the gap between that and the guess itself is exactly the
-  // zone's UTC offset at this instant (DST-correct, since it's derived
-  // from the actual date in question).
+  // The gap between the guess and how it reads in `timeZone` is the zone's offset on that date.
   const offsetMs = guessUtcMs - asIfLocalMs;
   return new Date(guessUtcMs + offsetMs);
 }

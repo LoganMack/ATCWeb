@@ -25,14 +25,8 @@ import {
 } from './standingsCore';
 
 /**
- * Computes the full standings for one season+class, sorted by points
- * (ties broken by wins, then podiums). Pass a pre-fetched `driversBasic`
- * list (and `exhibitionRoundIds`, `classesLookup`) when computing many
- * seasons back to back (see `getChampions`) to avoid re-fetching the same
- * data every time.
- *
- * Returns an empty list for a non-championship (exhibition) season without
- * querying anything else — see `isChampionshipSeason`.
+ * Full standings for one season and class, by points (ties: see finalizeStandings). Pass pre-fetched lookups
+ * when computing many seasons. Empty for a non-championship season, without querying.
  */
 export async function computeSeasonStandings(
   env: SupabaseEnv,
@@ -42,15 +36,8 @@ export async function computeSeasonStandings(
   exhibitionRoundIds?: Set<number>,
   classesLookup?: Lookup[],
   /**
-   * A season-wide penalty context computed elsewhere and passed in so this
-   * call doesn't re-fetch it — see `getSeasonOverallContext`'s own doc
-   * comment. `computeDriverCareerStats` is the reason this exists: it needs
-   * this same season's standings for every class plus the overall/team/
-   * extended-stats views, and without sharing this one (expensive, ~5
-   * query) fetch across all of them, a career-wide computation across many
-   * seasons blows straight through Cloudflare Workers' per-request
-   * subrequest limit. Every other caller just omits this and gets the
-   * original one-context-per-call behavior.
+   * A season context computed elsewhere, so this call doesn't fetch its own (about five queries). Bulk
+   * callers share one per season to stay under the Workers subrequest limit.
    */
   precomputedOverallContext?: SeasonOverallContext,
   /** Same sharing reasoning as `precomputedOverallContext` — lets a caller that already fetched this class's own race_score_results rows (e.g. computeTeamSeasonStandings' per-class team competition, which needs the identical rows) pass them in instead of querying twice. */
@@ -222,17 +209,9 @@ export function buildSeasonStandings({
 }
 
 /**
- * subsessionId -> the driver who actually had grid position 1 on that
- * round's race 1 — the TRUE overall pole-sitter, as opposed to
- * `pole_bonus` (each class's own "Class Pole" — fastest
- * qualifier within just that driver's own class; see
- * `computeOverallSeasonStandings`' own doc comment for why that's not the
- * same thing). Shared by `computeOverallSeasonStandings` (which always needs
- * the true overall pole) and `computeSeasonStandings` — but only for the
- * Alpha class, which never earns its own "Class Pole" bonus (Alpha doesn't
- * get class_points/pole_bonus at all — see README), so Alpha's own
- * `pole_bonus` count is structurally always 0 and can't stand in as a real
- * "poles" stat or tiebreaker column the way it can for Gamma/Delta.
+ * subsessionId -> the driver on grid position 1 of race 1: the true overall pole. Needed for the overall view
+ * and for Alpha, which never earns `pole_bonus` (each class's own "Class Pole"), so its pole count would
+ * always be 0.
  */
 function computeOverallPoleDriverBySubsession(context: SeasonOverallContext): Map<number, string> {
   const custIdToDriverId = new Map(
@@ -249,23 +228,9 @@ function computeOverallPoleDriverBySubsession(context: SeasonOverallContext): Ma
 }
 
 /**
- * Every class combined into one table, ranked by `overall_total` — every
- * bonus less the deduction, deliberately excluding `class_points` (Logan:
- * "class points for gammas and deltas are not counted... it should
- * essentially be the alpha standings with everyone included"). `class_points`
- * is Delta/Gamma's own per-race class-position bonus; Alpha never has one,
- * so counting it here would make Alpha drivers structurally unable to
- * compete for the same overall total.
- *
- * Wins/podiums/top 5s/top 10s come from the overall position across every
- * class, as the race results page's "Overall" view shows it.
- *
- * Poles are the exception: `pole_bonus` is actually Gamma/Delta's
- * "Class Pole" (fastest qualifier within just that driver's class), so using
- * it here would credit a driver for merely out-qualifying their own class,
- * not the whole grid. Instead this view derives the real overall pole-sitter
- * from `curated_race_results.starting_position` on each round's race 1 — the
- * only race with real qualifying, since 2/3 invert off it.
+ * Every class in one table, ranked by `overall_total`: every bonus less the deduction, without Gamma/Delta's
+ * `class_points`, which Alpha can't earn (Logan). Wins and podiums use the overall position. Poles are the
+ * true overall pole from race 1's starting grid, not `pole_bonus` (a class pole).
  */
 export async function computeOverallSeasonStandings(
   env: SupabaseEnv,

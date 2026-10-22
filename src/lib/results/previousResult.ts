@@ -37,19 +37,9 @@ export type PreviousResultWidgetTab =
   | { key: string; label: string; type: 'team'; rows: PreviousResultWidgetTeamRow[] };
 
 /**
- * One session within the most recent event — "Practice", "Qualifying", or a
- * single race ("Race", or "Race 1"/"Race 2"/"Race 3" for a sprint-format
- * round with more than one). Only a session that actually has results on
- * file is included at all (a round with no practice data on file just never
- * gets a "Practice" entry, same as the old classWinners-was-empty case).
- *
- * `tabs` is the same Overall/Alpha/Delta/Gamma driver-class split as the
- * homepage Standings widget, keyed and ordered the same way (`classes` in
- * the caller) — plus, for a Race session ONLY, Alpha Team/Delta Team tabs
- * (same "does this season even have a Delta Team championship"
- * `delta_team_enabled` gate the Standings widget itself uses). Practice and
- * Qualifying don't award points, so there's no meaningful "team total" to
- * rank for them — those two sessions only ever get driver tabs.
+ * One session of the latest event with results (Practice, Qualifying or a race). Tabs follow the homepage
+ * Standings widget; Alpha/Delta Team tabs appear on races only, since practice and qualifying award no
+ * points.
  */
 export interface PreviousResultWidgetSession {
   key: string;
@@ -72,14 +62,8 @@ export interface PreviousResultWidget {
 }
 
 /**
- * Everything the homepage's "Previous Result" card needs for the single
- * most-recently-run round on file — one Standings-widget-style tab set
- * (Overall/Alpha/Delta/Gamma, plus Alpha Team/Delta Team on Race sessions)
- * PER SESSION the round actually has results for (Practice, Qualifying,
- * each race). Penalty-adjusted wherever the round's own results page is
- * (race_score_results_public), so the two never disagree. Returns null (never throws) on any failure, or when the database
- * has no rounds on file at all yet — the homepage just omits the section in
- * either case, same as every other homepage widget's own try/catch.
+ * The homepage "Previous Result" card for the latest round: a tab set per session with results,
+ * penalty-adjusted like the results page. Null on failure or with no rounds; the homepage omits the card.
  */
 export async function getPreviousResultWidget(env: SupabaseEnv): Promise<PreviousResultWidget | null> {
   const round = await getMostRecentRound(env);
@@ -156,12 +140,8 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
   }
 
   /**
-   * One team's total for this single race — same "only the team's top 2
-   * scorers that race count" rule as the season-long team championship
-   * (`topTeamScorers`), and the same class-blind points formula for Alpha
-   * specifically (Alpha never earns the Class Points bonus, so its team
-   * competition is scored cross-class) that `computeTeamSeasonStandings`
-   * uses, just evaluated over one race's rows instead of a whole season's.
+   * One team's total for a single race, by the season championship's rules: top 2 scorers count, Alpha scored
+   * class-blind.
    */
   function teamTab(
     key: string,

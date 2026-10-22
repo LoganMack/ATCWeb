@@ -1,10 +1,7 @@
 /**
- * Round penalties (0104_round_penalties.sql) — penalties that belong to a
- * whole round rather than one race, mostly the next-round bans the rulebook's
- * PP Penalties table attaches to a round's PP total (see ppPenaltyTable.ts)
- * and the 1-round ban for reaching the season PP limit. Each is owed until a
- * steward marks it served at a later round. Record-keeping only — never
- * applied to results, points or PP.
+ * Round penalties (0104): whole-round penalties, mostly the next-round bans from the PP Penalties table
+ * (ppPenaltyTable.ts) and the 1-round ban for the season PP limit. Owed until a steward marks one served.
+ * Record-keeping only, never applied to results.
  */
 
 import { restGet, restPost, restPatch, restDelete, type SupabaseEnv } from './db/client';

@@ -28,18 +28,8 @@ import { getRoundLayoutsForSubsessions } from './layoutLaps';
 import { getSeasonCarTeamStats, type DriverCarStat, type DriverTeamStat } from './seasonCarTeam';
 import { getAllRounds } from './rounds';
 
-// ---------------------------------------------------------------------------
-// Career driver stats — every driver who has ever scored in a championship
-// season, with career totals summed across every class and season they've
-// raced, plus a season-by-season breakdown. Powers the "Driver Stats"
-// history tab (src/pages/driver-stats.astro).
-//
-// Nothing here is stored — like getChampions, it's fully recomputed by
-// looping every championship season (and, within each, every class), so a
-// driver who just got their first race_score_results rows shows up automatically
-// on the very next page load, with no separate "add them to career stats"
-// step anywhere in the app.
-// ---------------------------------------------------------------------------
+// Career driver stats for the Driver Stats history tab. Nothing is stored: everything is recomputed from
+// every championship season, so a new driver appears on the next page load.
 
 /** One driver's stat line for one season (they raced exactly one class in a season, so this is also effectively "one class" — the class is carried on the row for display/grouping, not because a driver could have two rows in the same season). */
 export interface DriverCareerSeasonRow {
@@ -90,15 +80,8 @@ export interface DriverCareerStats {
 }
 
 /**
- * Rolls a set of a driver's own season rows up into one career stat line —
- * pure aggregation, no fetching. `computeDriverCareerStats` calls this once
- * per driver with ALL of that driver's season rows (their whole career,
- * every class); the Driver Stats page's per-class filters (src/pages/
- * driver-stats.astro) call it again per driver with just the season rows
- * matching one class, so a driver's "Alpha" tab line reflects only their
- * time actually racing Alpha — same shape, same math, just a narrower
- * input. Caller is responsible for deciding which rows to include (and for
- * skipping a driver entirely if the filtered set comes back empty).
+ * Rolls a driver's season rows into one career stat line (pure aggregation). The Driver Stats class filters
+ * call it again with one class's rows; callers choose the rows.
  */
 export function aggregateDriverCareerStats(
   driver: DriverBasic,
@@ -119,11 +102,8 @@ export function aggregateDriverCareerStats(
   let anyCornersResolved = false;
 
   for (const r of seasonRows) {
-    // Don't credit a championship for a season still in progress
-    // (r.season.is_current) — its OTHER stats below (wins, starts, laps,
-    // etc.) are already-happened facts and still count in real time; only
-    // the "won the whole thing" title waits until the season is decided,
-    // per Logan.
+    // A season still in progress doesn't count as a championship yet; its other stats count in real time
+    // (Logan).
     if (r.classPosition === 1 && !r.season.is_current) championships++;
     wins += r.wins;
     podiums += r.podiums;
@@ -159,12 +139,8 @@ export function aggregateDriverCareerStats(
 }
 
 /**
- * Computes every driver's full career stat line. Loops every championship
- * season (exhibition seasons are excluded from all statistics, per
- * `isChampionshipSeason`'s own doc comment) and, within each, every driver
- * class, running the exact same per-season computations the Champions/
- * Standings/Team Standings pages already use — this is purely an
- * aggregation on top of those, not a new scoring engine.
+ * Every driver's career stat line, aggregated from the same per-season computations the Champions and
+ * Standings pages use, over championship seasons only.
  */
 export async function computeDriverCareerStats(
   env: SupabaseEnv,
@@ -175,18 +151,8 @@ export async function computeDriverCareerStats(
   const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
   const championshipSeasonIds = championshipSeasons.map((s) => s.id);
 
-  // Every one of these is fetched exactly ONCE for this whole career
-  // computation — not once per season, not once per class — and then
-  // sliced/filtered per season entirely in memory below (no network calls
-  // at all inside the per-season loop). An earlier version of this
-  // function shared each season's context ACROSS that season's several
-  // computations, but still fetched that shared context once PER SEASON —
-  // looping N seasons through even one shared fetch each still summed to
-  // more subrequests than Cloudflare Workers allows per request ("Too many
-  // subrequests by single Worker invocation") once there were more than a
-  // handful of seasons on file. The only fix that stays flat no matter how
-  // many seasons get added in the future is to never issue a query "per
-  // season" at all — bulk-fetch across every season once, then filter.
+  // Each of these is fetched once for the whole career and sliced per season in memory: any per-season query
+  // exceeds the Workers subrequest limit as seasons accumulate.
   const [
     drivers,
     exhibitionIds,
@@ -228,10 +194,8 @@ export async function computeDriverCareerStats(
   // deltaTeamPosition unless their team happens to also field a Delta driver.
   const deltaClass = classes.find((c) => c.name === 'Delta');
 
-  // The one remaining set of per-subsession queries (curated_race_results,
-  // penalties, average/best lap data, curated_rounds.layout) — each run
-  // ONCE across the union of every subsession any championship season's
-  // race_score_results rows touch, instead of once per season.
+  // The per-subsession queries run once over every subsession any championship season touches, not once per
+  // season.
   const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
   const [{ rawResults, lapStats }, penalties, roundLayouts] = await Promise.all([
     getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
@@ -317,12 +281,8 @@ export async function computeDriverCareerStats(
         classes,
         overallContext,
       ),
-      // Gated on delta_team_enabled, not just deltaClass existing — the
-      // Delta driver class raced from ATC5, but the separate Delta TEAM
-      // championship this powers (deltaTeamPosition, below) didn't start
-      // until ATC10 (see 0052_delta_team_enabled.sql). Without this,
-      // ATC5-ATC9 driver rows would show a deltaTeamPosition implying a
-      // championship that didn't exist yet.
+      // Gated on delta_team_enabled: the Delta class raced from ATC5 but the Delta team championship only
+      // began at ATC10 (0052_delta_team_enabled.sql).
       deltaClass && season.delta_team_enabled
         ? computeTeamSeasonStandings(
             env,

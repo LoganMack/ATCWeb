@@ -1,11 +1,6 @@
 ---
-// One round's Practice results — same shape as QualifyingResultsTable.astro
-// (see that file's own doc comment for why this style of table has no
-// expand row/penalty tag/points column), plus a Laps column, since a
-// practice session has no finishing/qualifying position to show but does
-// have a meaningful "how much running did they get" stat. See
-// PracticeRow.position in src/lib/results.ts for how "Pos" is derived here
-// despite curated_practice_results having no stored position field at all.
+// One round's practice results: like QualifyingResultsTable.astro plus a Laps column. See
+// PracticeRow.position (src/lib/results/sessions.ts) for how "Pos" is derived.
 import DriverLink from './DriverLink.astro';
 import type { PracticeRow } from '../lib/results/sessions';
 import { displayDriverName, shortDriverName } from '../lib/db/circuits';

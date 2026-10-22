@@ -1,16 +1,7 @@
 /**
- * The site's dot-matrix world map — shared by the Calendar's Map view and the
- * Media page's Meetups map. A self-drawn SVG (land outline from
- * src/lib/worldMap.ts, solid fill): no tile server, no API key,
- * no third-party requests. Looks live in the `.dot-map` / `.cm-*` rules in
- * global.css.
- *
- * Callers hand over the markup pieces (box, svg, tooltip, legend) and a
- * `getItems()` that returns whatever should be on the map right now; this module
- * does the rest: projection, pan/zoom (drag, buttons, scroll wheel, touch pinch), merging
- * nearby pins into numbered clusters that split apart as you zoom in, hover
- * tooltips, keyboard access, and resize handling. What a tooltip says and what
- * a click does are the caller's business (`tooltip` / `onActivate`).
+ * The site's dot-matrix world map (Calendar map, Media meetups): a self-drawn SVG from src/lib/worldMap.ts
+ * with no tile server or third-party requests. It handles projection, pan/zoom, pin clustering, tooltips,
+ * keyboard access and resizing; callers supply the markup, `getItems()`, `tooltip` and `onActivate`.
  */
 
 export interface MapItem<T = unknown> {

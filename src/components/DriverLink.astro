@@ -1,13 +1,7 @@
 ---
 /**
- * A driver's name that links to their profile (/drivers/:id), with a
- * "Click to view profile" hover hint. Deliberately invisible as a link: the
- * `.driver-link` class (global.css) inherits the surrounding colour, font and
- * decoration, so wrapping a name in this changes nothing about how it looks
- * or lays out.
- *
- * Use it for public pages only — admin screens and the incident report pages
- * keep plain names. Don't nest it inside another link or a button.
+ * A driver's name linking to /drivers/:id, styled to look exactly like the surrounding text (`.driver-link`).
+ * Public pages only; never nest it inside another link or a button.
  */
 export interface Props {
   /** The driver's id (drivers.id). With no id there's nothing to link to, so the name renders as plain text. */

@@ -8,12 +8,8 @@ import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
 
-// Same shell-then-spinner split as hall-of-fame.astro/champions.astro (see
-// hall-of-fame.astro's own top-of-file comment for the full explanation) —
-// computing all twelve awards across every season on file
-// (computeSeasonAwardsHistory in src/lib/results.ts) is exactly the kind of
-// expensive, many-season computation that pattern exists for, so it lives in
-// awards/fragment.astro instead of blocking this shell.
+// Shell: the awards computation across every season lives in awards/fragment.astro so it doesn't block this
+// page.
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 

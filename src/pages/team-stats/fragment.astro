@@ -16,16 +16,8 @@ import { computeTeamCareerStats, type TeamCareerStats } from '../../lib/results/
 import { classBadgeLetter, classTagShort } from '../../lib/classColors';
 
 /**
- * Same shell-then-spinner split as champions/fragment.astro and
- * driver-stats/fragment.astro — team-stats.astro now only renders its
- * search box and a loading skeleton, then fetches THIS route client-side
- * for the actual career-stats table. This is where the expensive
- * computeTeamCareerStats() call (every team's whole season-by-season
- * history) now lives, so it no longer blocks the shell.
- *
- * Returns a bare HTML fragment — no <Layout>, no <html>/<head> — meant only
- * to be dropped into team-stats.astro's results container via
- * `container.innerHTML = await res.text()`. Never linked to directly.
+ * The team career-stats table as a fragment for the team-stats.astro shell, since computeTeamCareerStats()
+ * covers every team's whole history. Returns bare HTML; never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -145,11 +137,8 @@ if (loadError) markUncacheable(Astro);
                     <tbody>
                       {entry.seasons.map((r) => {
                         const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
-                        // Which team-title position counts as "champion" here follows
-                        // the active view — see computeTeamCareerStats' own doc comment.
-                        // Not r.season.is_current — no trophy for a still-in-progress
-                        // season's current P1, per Logan (same gate
-                        // computeTeamCareerStats' own championships count uses).
+                        // Champion by the active view's team position, and not for a season still in progress
+                        // (Logan), as in computeTeamCareerStats.
                         const isChampionSeason = (view === 'delta' ? r.deltaTeamPosition : r.teamPosition) === 1 && !r.season.is_current;
                         return (
                           <tr class="border-b border-white/5">
