@@ -394,7 +394,9 @@ export function classStartingPositions(field: ClassFieldRow[]): Map<string, numb
  * The finish a race-history row shows: the shown overall position (raw for non-admins until the
  * round is posted), the raw finishing slot for a DSQ, and the shown class position (none for a DSQ).
  */
-export function historyFinish(score: Pick<ScoreRow, 'position' | 'finish_position' | 'class_position' | 'dsq'>): {
+export function historyFinish(
+  score: Pick<ScoreRow, 'position' | 'finish_position' | 'class_position' | 'dsq'>,
+): {
   finishPosition: number;
   classPosition: number | null;
 } {

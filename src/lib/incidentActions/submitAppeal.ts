@@ -38,13 +38,17 @@ export async function handleSubmitAppeal(
   const penaltyId = String(postForm.get('penalty_id') ?? '');
   const message = String(postForm.get('message') ?? '').trim();
   const files = postForm.getAll('files').filter((f): f is File => typeof f !== 'string' && f.size > 0);
-  if (!/^[0-9a-f-]{36}$/i.test(penaltyId) || !message || message.length > APPEAL_MAX_MESSAGE_LENGTH) return back('invalid');
+  if (!/^[0-9a-f-]{36}$/i.test(penaltyId) || !message || message.length > APPEAL_MAX_MESSAGE_LENGTH)
+    return back('invalid');
   if (files.length > APPEAL_MAX_FILES) return back('toomany');
   if (files.some((f) => f.size > APPEAL_MAX_FILE_BYTES)) return back('toolarge');
   if (files.some((f) => !APPEAL_ALLOWED_MIME_TYPES.includes(f.type))) return back('badtype');
 
   try {
-    const owned = await restGet<{ id: string }[]>(supabaseEnv, `penalties?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`);
+    const owned = await restGet<{ id: string }[]>(
+      supabaseEnv,
+      `penalties?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`,
+    );
     if (owned.length === 0) return back('invalid');
     const appealId = crypto.randomUUID();
     const token = appealSession.accessToken;
@@ -54,7 +58,12 @@ export async function handleSubmitAppeal(
       await uploadAppealFile(supabaseEnv, token, path, file);
       uploaded.push({ path, name: file.name, size: file.size, type: file.type });
     }
-    await createIncidentAppeal(supabaseEnv, token, { id: appealId, penalty_id: penaltyId, message, files: uploaded });
+    await createIncidentAppeal(supabaseEnv, token, {
+      id: appealId,
+      penalty_id: penaltyId,
+      message,
+      files: uploaded,
+    });
   } catch (err) {
     console.error('Failed to save incident appeal:', err);
     return back('failed');

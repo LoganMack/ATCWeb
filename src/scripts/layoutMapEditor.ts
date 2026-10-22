@@ -213,7 +213,8 @@ function initLayoutMapEditor() {
         input.size = Math.max(2, label.length);
         input.dataset.cornerEdit = label;
         input.setAttribute('aria-label', `Corner label ${label}`);
-        input.className = 'w-10 rounded bg-transparent px-0.5 text-center outline-none focus:bg-fixed-white/10';
+        input.className =
+          'w-10 rounded bg-transparent px-0.5 text-center outline-none focus:bg-fixed-white/10';
         li.append(input);
         const x = document.createElement('button');
         x.type = 'button';

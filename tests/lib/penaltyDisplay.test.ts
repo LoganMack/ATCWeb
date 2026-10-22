@@ -6,7 +6,11 @@
  * tests/fixtures/golden/atc17/penalty-display.json for every ATC17 round with penalties.
  */
 import { describe, expect, it } from 'vitest';
-import { applyPenaltyDisplay, type RaceResultRow, type RoundResults } from '../../src/lib/results/roundResults';
+import {
+  applyPenaltyDisplay,
+  type RaceResultRow,
+  type RoundResults,
+} from '../../src/lib/results/roundResults';
 import type { Penalty } from '../../src/lib/db/penalties';
 import { toPenalties, toRoundResults, type PenaltyDbRow, type ResultDbRow } from './penaltyFixtures';
 import { inputs } from '../golden/atc17';
@@ -38,7 +42,13 @@ function shown(rows: ResultDbRow[], penaltyRows: PenaltyDbRow[]): string[] {
   return display(applyPenaltyDisplay({ ...toRoundResults(rows), penalties }));
 }
 
-type DisplayCase = { name: string; description: string; rows: ResultDbRow[]; penalties: PenaltyDbRow[]; expected: string[] };
+type DisplayCase = {
+  name: string;
+  description: string;
+  rows: ResultDbRow[];
+  penalties: PenaltyDbRow[];
+  expected: string[];
+};
 
 describe('applyPenaltyDisplay on small rounds', () => {
   const cases = (displayCases as { cases: DisplayCase[] }).cases;
@@ -128,9 +138,12 @@ describe('applyPenaltyDisplay on ATC17', () => {
     expect(withPenalties.length).toBeGreaterThan(5);
   });
 
-  it.each(Object.keys(recorded).map((sid) => [sid] as const))('round %s matches the recorded display', (sid) => {
-    const rows = rowsBySubsession.get(Number(sid)) ?? [];
-    const penalties = penaltyRows.filter((p) => p.subsession_id === Number(sid));
-    expect(shown(rows, penalties)).toEqual(recorded[sid]);
-  });
+  it.each(Object.keys(recorded).map((sid) => [sid] as const))(
+    'round %s matches the recorded display',
+    (sid) => {
+      const rows = rowsBySubsession.get(Number(sid)) ?? [];
+      const penalties = penaltyRows.filter((p) => p.subsession_id === Number(sid));
+      expect(shown(rows, penalties)).toEqual(recorded[sid]);
+    },
+  );
 });

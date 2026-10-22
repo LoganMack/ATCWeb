@@ -12,7 +12,9 @@ export async function handleSetReportStatus(
   const reportId = String(form.get('report_id') ?? '');
   const status = String(form.get('status') ?? '');
   // Dismissing needs a reason (the dismiss popup's textarea; 0111).
-  const dismissalReason = String(form.get('reason') ?? '').trim().slice(0, 500);
+  const dismissalReason = String(form.get('reason') ?? '')
+    .trim()
+    .slice(0, 500);
   let statusFlash: 'dismissreason' | 'dismissfailed' | 'reasonnotsaved' | null = null;
   if (reportId && (status === 'open' || status === 'dismissed' || status === 'logged')) {
     if (status === 'dismissed' && !dismissalReason) {

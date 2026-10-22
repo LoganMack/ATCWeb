@@ -5,7 +5,7 @@
 > built and why — useful for understanding the history behind a design decision, but
 > **not** maintained as current documentation. Setup, architecture and conventions
 > now live in the [project README](../README.md). Where the two disagree, the README
-> and the code win. The last section, *History moved out of code comments*, was added later: it holds
+> and the code win. The last section, _History moved out of code comments_, was added later: it holds
 > the background that code comments used to carry.
 
 ---
@@ -634,7 +634,7 @@ This was scaffolded in a sandboxed session without access to the npm registry, P
 
 # History moved out of code comments
 
-> Code comments now explain *why*, briefly (team Code Style rule). The story behind earlier changes that
+> Code comments now explain _why_, briefly (team Code Style rule). The story behind earlier changes that
 > those comments used to carry is kept here instead, one bullet per comment, naming the file it came from.
 
 ## 2026-10-22: Results and standings

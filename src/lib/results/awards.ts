@@ -423,7 +423,8 @@ export async function computeSeasonAwardsHistory(
         if (!penaltyListBySubsession.has(p.subsession_id)) penaltyListBySubsession.set(p.subsession_id, []);
         penaltyListBySubsession.get(p.subsession_id)!.push(p);
       }
-      for (const [id, list] of penaltyListBySubsession) penaltiesBySubsession.set(id, timePenaltiesByRaceDriver(list));
+      for (const [id, list] of penaltyListBySubsession)
+        penaltiesBySubsession.set(id, timePenaltiesByRaceDriver(list));
 
       interface MarginObservation {
         driverId: string;
@@ -443,9 +444,13 @@ export async function computeSeasonAwardsHistory(
           .map((s) => {
             const custId = overallContext.custIdByDriverId.get(s.driver_id);
             const raw =
-              custId != null ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
+              custId != null
+                ? overallContext.rawByKey.get(resultKey(subsessionId, raceNumber, custId))
+                : undefined;
             const lapStatsRow =
-              custId != null ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId)) : undefined;
+              custId != null
+                ? overallContext.lapStatsByKey.get(resultKey(subsessionId, raceNumber, custId))
+                : undefined;
             return {
               id: s.driver_id,
               position: raw?.adjusted_position ?? raw?.finish_position ?? null,
@@ -465,10 +470,14 @@ export async function computeSeasonAwardsHistory(
         let margin: number | null = null;
 
         if (touched) {
-          const gaps = penalisedGaps(field, (id) => (penaltyOf(id) ?? 0) * 10000, leaderByRace.get(`${subsessionId}:${raceNumber}`) ?? {
-            lapsComplete: null,
-            averageLapTenThousandths: null,
-          });
+          const gaps = penalisedGaps(
+            field,
+            (id) => (penaltyOf(id) ?? 0) * 10000,
+            leaderByRace.get(`${subsessionId}:${raceNumber}`) ?? {
+              lapsComplete: null,
+              averageLapTenThousandths: null,
+            },
+          );
           // Only the lead-lap group has a real, comparable time gap; the class
           // winner reads exactly 0 after re-zeroing.
           const leadLap = [...gaps.entries()]

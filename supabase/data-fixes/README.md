@@ -35,10 +35,10 @@ These four fixes predate the naming rule and keep their old names. They are exem
 
 ## Log
 
-| File | Applied | By |
-|---|---|---|
-| `00891_delete_atc18_oulton_abandoned_race.sql` | before 2026-10-19 | by hand |
-| `00892_link_atc18_oulton_round_to_round_2.sql` | before 2026-10-19 | by hand |
+| File                                                    | Applied           | By      |
+| ------------------------------------------------------- | ----------------- | ------- |
+| `00891_delete_atc18_oulton_abandoned_race.sql`          | before 2026-10-19 | by hand |
+| `00892_link_atc18_oulton_round_to_round_2.sql`          | before 2026-10-19 | by hand |
 | `00911_atc18_r3_layout_and_delete_bad_oulton_round.sql` | before 2026-10-19 | by hand |
-| `0107_link_atc18_ctmp_round_to_round_5.sql` | before 2026-10-19 | by hand |
-| `20261019_link_atc18_road_america_round_to_round_6.sql` | 2026-10-19 | owner |
+| `0107_link_atc18_ctmp_round_to_round_5.sql`             | before 2026-10-19 | by hand |
+| `20261019_link_atc18_road_america_round_to_round_6.sql` | 2026-10-19        | owner   |

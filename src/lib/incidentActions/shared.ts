@@ -5,7 +5,11 @@ import type { IncidentActionContext, IncidentActionRedirect } from './context';
  * ?roundpenalty=failed, which drives the flash there; a successful save clears one left over from an
  * earlier failure.
  */
-export function roundPenaltyBack(ctx: IncidentActionContext, anchor: string, failed: boolean): IncidentActionRedirect {
+export function roundPenaltyBack(
+  ctx: IncidentActionContext,
+  anchor: string,
+  failed: boolean,
+): IncidentActionRedirect {
   const { shellPath } = ctx;
   const url = new URL(ctx.url);
   if (failed) url.searchParams.set('roundpenalty', 'failed');

@@ -49,7 +49,14 @@ export async function handleSaveIncident(
   function penaltyFor(driverId: string | null): { data: PenaltyInput; offenseIds: string[] } {
     if (!driverId) {
       return {
-        data: { ...shared, driver_id: null, time_penalty_seconds: null, points_penalty: 0, penalty_points: 0, is_warning: false },
+        data: {
+          ...shared,
+          driver_id: null,
+          time_penalty_seconds: null,
+          points_penalty: 0,
+          penalty_points: 0,
+          is_warning: false,
+        },
         offenseIds: [],
       };
     }
@@ -92,8 +99,13 @@ export async function handleSaveIncident(
     // Logged from a driver's incident report ("Log incident" in the
     // Reported Incidents panel) — mark that report as handled.
     const fromReportId = String(form.get('from_report_id') ?? '');
-    if (intent === 'add-incident' && fromReportId) await setIncidentReportStatus(supabaseEnv, accessToken, fromReportId, 'logged');
-    const sessionLabel = isRaceSession ? `Race ${raceNumber}` : sessionType === 'qualifying' ? 'Qualifying' : 'Practice';
+    if (intent === 'add-incident' && fromReportId)
+      await setIncidentReportStatus(supabaseEnv, accessToken, fromReportId, 'logged');
+    const sessionLabel = isRaceSession
+      ? `Race ${raceNumber}`
+      : sessionType === 'qualifying'
+        ? 'Qualifying'
+        : 'Practice';
     await logActivity(supabaseEnv, accessToken, actor, {
       action: intent === 'add-incident' ? 'add' : 'edit',
       entity_type: 'incident',

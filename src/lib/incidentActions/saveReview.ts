@@ -31,7 +31,9 @@ export async function handleSaveReview(
     else url.searchParams.delete('review');
     return ctx.redirect(`${shellPath}${url.search}#${REPORTS_ANCHOR}`);
   };
-  const validFaults = racingIncident ? faults.length === 0 : faults.length > 0 && faults.every((f) => f.penalty);
+  const validFaults = racingIncident
+    ? faults.length === 0
+    : faults.length > 0 && faults.every((f) => f.penalty);
   if (!reportId || !validFaults || !explanation) return back('invalid');
   try {
     await saveIncidentReportReview(supabaseEnv, accessToken, {
@@ -44,7 +46,13 @@ export async function handleSaveReview(
     // Expected when another admin logs the report mid-review — see 0096's save function —
     // or when the steward was one of the report's drivers (0099).
     const message = err instanceof Error ? err.message : '';
-    return back(message.includes('reviews are locked') ? 'locked' : message.includes('involved in this incident') ? 'involved' : 'failed');
+    return back(
+      message.includes('reviews are locked')
+        ? 'locked'
+        : message.includes('involved in this incident')
+          ? 'involved'
+          : 'failed',
+    );
   }
   // No verdict in the log entry — that would undo the blind voting.
   await logActivity(supabaseEnv, accessToken, actor, {

@@ -79,7 +79,10 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
 
   // Car split rows additionally carry the car's own logo, for the small logo
   // shown to the left of the car name in that split specifically.
-  function buildCarRows(posFn: (r: DriverRaceHistoryRow) => number, qualPosFn: (r: DriverRaceHistoryRow) => number | null): SplitRow[] {
+  function buildCarRows(
+    posFn: (r: DriverRaceHistoryRow) => number,
+    qualPosFn: (r: DriverRaceHistoryRow) => number | null,
+  ): SplitRow[] {
     return buildUnorderedRows(carGroups, posFn, qualPosFn).map((row) => ({
       ...row,
       logoUrl: carGroups.get(row.label)?.[0]?.car?.logoUrl ?? null,
@@ -113,7 +116,9 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
         trackName: rows[0].trackName,
         layoutText: rows[0].roundLayoutText ? displayLayoutName(rows[0].roundLayoutText) : '—',
         personalBestTenThousandths,
-        personalBestFormatted: formatLapTime(personalBestTenThousandths !== null ? personalBestTenThousandths / 10000 : null),
+        personalBestFormatted: formatLapTime(
+          personalBestTenThousandths !== null ? personalBestTenThousandths / 10000 : null,
+        ),
         trackRecordSeconds: rows[0].layoutRecordSeconds,
         trackRecordFormatted: formatLapTime(rows[0].layoutRecordSeconds),
       };

@@ -311,7 +311,9 @@ function selfTest() {
   ];
   for (const [fragPath, status, expected] of statusCases) {
     if (Boolean(expectedFragmentStatus(fragPath, status)) !== expected) {
-      console.error(`Self-test failed: HTTP ${status} on ${fragPath} should be ${expected ? 'expected' : 'a failure'}`);
+      console.error(
+        `Self-test failed: HTTP ${status} on ${fragPath} should be ${expected ? 'expected' : 'a failure'}`,
+      );
       process.exit(1);
     }
   }

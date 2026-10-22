@@ -66,7 +66,9 @@ function codeComments(code) {
   const sf = parse(code);
   const seen = new Map();
   const add = (ranges) =>
-    (ranges ?? []).forEach((r) => seen.set(r.pos, { pos: r.pos, end: r.end, multi: r.kind === ts.SyntaxKind.MultiLineCommentTrivia }));
+    (ranges ?? []).forEach((r) =>
+      seen.set(r.pos, { pos: r.pos, end: r.end, multi: r.kind === ts.SyntaxKind.MultiLineCommentTrivia }),
+    );
   const visit = (n) => {
     if (isJsDocNode(n)) return;
     const kids = n.getChildren(sf);
@@ -87,7 +89,10 @@ const MARKUP_COMMENT = /<!--[\s\S]*?-->|\/\*[\s\S]*?\*\/|^[ \t]*\/\/[^\n]*/gm;
 const EXPRESSION_COMMENT = /\{\s*\/\*[\s\S]*?\*\/\s*\}/g;
 
 function textTokens(text, kind) {
-  const stripped = text.replace(EXPRESSION_COMMENT, ' ').replace(HTML_COMMENT, ' ').replace(BLOCK_COMMENT, ' ');
+  const stripped = text
+    .replace(EXPRESSION_COMMENT, ' ')
+    .replace(HTML_COMMENT, ' ')
+    .replace(BLOCK_COMMENT, ' ');
   return (kind === 'markup' ? stripped.replace(MARKUP_LINE_COMMENT, ' ') : stripped)
     .split(/\s+/)
     .filter(Boolean);
@@ -167,7 +172,9 @@ function main(argv) {
       }
     }
   } else {
-    console.error('usage: node scripts/comments.mjs --compare <ref> <file>... | --blocks <min-lines> <file>...');
+    console.error(
+      'usage: node scripts/comments.mjs --compare <ref> <file>... | --blocks <min-lines> <file>...',
+    );
     process.exitCode = 2;
   }
 }
