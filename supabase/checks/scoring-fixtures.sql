@@ -882,4 +882,55 @@ begin
 end $$;
 rollback to savepoint fixture;
 
+-- C38 The view's raw columns: appended after the old ones, always the raw set (BR4.1, BR4.2) ----
+insert into public.penalties (subsession_id, race_number, driver_id, time_penalty_seconds, points_penalty)
+values (1001, 1, 'dddddddd-0000-0000-0000-000000000001', 10, 4);
+do $$
+declare
+  v text;
+begin
+  perform scoring_fixture.expect('C38 column order',
+    (select string_agg(c.column_name, ',' order by c.ordinal_position) from information_schema.columns c
+     where c.table_schema = 'public' and c.table_name = 'race_score_results_public'),
+    'subsession_id,race_number,driver_id,season_id,class_id,team_id,finish_position,classified,dsq,raw_position,'
+    || 'shown_set,shown_position,shown_class_position,shown_laps_down,shown_gap_ms,shown_race_time_ms,'
+    || 'shown_finish_points,shown_class_points,shown_finesse_bonus,shown_pole_bonus,shown_aggression_bonus,'
+    || 'shown_lap_led_bonus,shown_fewest_incidents_bonus,shown_fastest_lap_bonus,shown_sprint_sweep_bonus,'
+    || 'shown_points_deduction,shown_overall_total,shown_class_total,shown_penalised,scored_at,'
+    || 'raw_class_position,raw_overall_total,raw_class_total');
+  perform scoring_fixture.expect('C38 still runs as its owner',
+    (select array_to_string(c.reloptions, ',') from pg_class c where c.oid = 'public.race_score_results_public'::regclass),
+    'security_invoker=false');
+  perform scoring_fixture.expect('C38 anon may select', has_table_privilege('anon', 'public.race_score_results_public', 'select'), true);
+  perform scoring_fixture.expect('C38 anon may not insert', has_table_privilege('anon', 'public.race_score_results_public', 'insert'), false);
+  perform scoring_fixture.expect('C38 raw columns equal the stored raw set',
+    (select count(*) from public.race_score_results_public v2
+     join public.race_score_results r using (subsession_id, race_number, driver_id)
+     where (v2.raw_class_position, v2.raw_overall_total, v2.raw_class_total)
+       is distinct from (r.raw_class_position, r.raw_overall_total, r.raw_class_total)),
+    0::bigint);
+
+  set local role anon;
+  select string_agg(format('%s/%s', v2.shown_set, (v2.shown_class_total = v2.raw_class_total
+                    and v2.shown_overall_total = v2.raw_overall_total
+                    and v2.shown_class_position is not distinct from v2.raw_class_position)), ' ')
+  into v from public.race_score_results_public v2
+  where v2.subsession_id = 1001 and v2.driver_id = 'dddddddd-0000-0000-0000-000000000001';
+  reset role;
+  perform scoring_fixture.expect('C38 unposted, anon: raw columns equal the shown ones', v, 'raw/t');
+
+  perform set_config('request.jwt.claims', '{"sub":"eeeeeeee-0000-0000-0000-000000000001","role":"authenticated"}', true);
+  set local role authenticated;
+  select string_agg(format('%s/%s/%s', v2.shown_set, v2.raw_overall_total - v2.shown_overall_total,
+                           v2.raw_class_total - v2.shown_class_total), ' ')
+  into v from public.race_score_results_public v2
+  where v2.subsession_id = 1001 and v2.driver_id = 'dddddddd-0000-0000-0000-000000000001';
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  -- C15's admin sees overall 76 after the penalty; the raw total is 100, so 24 lower.
+  perform scoring_fixture.expect('C38 admin: the final set beside the raw totals', v, 'final/24/24');
+  raise notice 'ok C38 raw columns on the view';
+end $$;
+rollback to savepoint fixture;
+
 rollback;
