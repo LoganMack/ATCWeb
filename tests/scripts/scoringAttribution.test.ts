@@ -79,6 +79,19 @@ describe('scoring attribution (BR6.2)', () => {
     expect(lines.every((l) => l.audience === 'non-admin' && l.legacyMatchesToday)).toBe(true);
   });
 
+  it('attributes an unclassified row renumbered by the re-order to unclassified-position', () => {
+    // Today the results page keeps an unclassified row at its raw position; the new final set
+    // renumbers it with everyone else.
+    const a = audience({
+      next: { position: 4 },
+      singles: { 'unclassified-position': { position: 4 } },
+    });
+    const [line] = attributeRow(row(bothAudiences(a)));
+
+    expect([line.field, line.today, line.new, line.causes]).toEqual(['position', 5, 4, ['unclassified-position']]);
+    expect(line.legacyMatchesToday).toBe(true);
+  });
+
   it('lists every single switch that moves the field when two independent causes hit one line', () => {
     const a = audience({
       next: { overall_total: 22 },

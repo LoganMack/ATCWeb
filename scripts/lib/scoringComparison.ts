@@ -427,25 +427,49 @@ function pick(values: FieldValues, fields: readonly (keyof FieldValues)[]): Fiel
   return out;
 }
 
-/** Calls score_round_preview with the given switches. */
+/** Previews in flight at once for one round. The database is small; more parallel calls only queue. */
+export const PREVIEW_CONCURRENCY = 2;
+
+/** Retries of a preview that hit the API role's 8 s statement timeout (SQLSTATE 57014). */
+export const PREVIEW_RETRIES = 3;
+
+/** Whether a failed response is the statement timeout: a stall of the database, not a bad request. */
+export function isStatementTimeout(status: number, body: string): boolean {
+  return status >= 500 && body.includes('"57014"');
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Calls score_round_preview with the given switches. A preview takes about 20-30 ms on an idle
+ * database, so a statement timeout means the database stalled under load; it is retried after
+ * 2, 4 and 8 s before the round is reported as failed.
+ */
 export async function fetchPreview(
   env: SupabaseEnv,
   subsessionId: number,
   switches: Record<SwitchName, boolean>,
+  retries = PREVIEW_RETRIES,
+  waitMs: (attempt: number) => number = (attempt) => 2000 * 2 ** attempt,
 ): Promise<ScoreResultRow[]> {
-  const res = await fetch(`${env.url}/rest/v1/rpc/score_round_preview`, {
-    method: 'POST',
-    headers: {
-      apikey: env.anonKey,
-      Authorization: `Bearer ${env.accessToken ?? env.anonKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ p_subsession_id: subsessionId, p_switches: switches }),
-  });
-  if (!res.ok) {
-    throw new Error(`score_round_preview(${subsessionId}) failed with ${res.status}: ${await res.text()}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${env.url}/rest/v1/rpc/score_round_preview`, {
+      method: 'POST',
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${env.accessToken ?? env.anonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_subsession_id: subsessionId, p_switches: switches }),
+    });
+    if (res.ok) return (await res.json()) as ScoreResultRow[];
+    const body = await res.text();
+    if (attempt < retries && isStatementTimeout(res.status, body)) {
+      await sleep(waitMs(attempt));
+      continue;
+    }
+    throw new Error(`score_round_preview(${subsessionId}) failed with ${res.status}: ${body}`);
   }
-  return (await res.json()) as ScoreResultRow[];
 }
 
 function byRowKey(rows: ScoreResultRow[]): Map<string, ScoreResultRow> {
@@ -510,7 +534,7 @@ export async function compareRound(
     { name: 'legacy', on: [] },
     ...SWITCHES.map((s) => ({ name: s, on: [s] })),
   ];
-  const previews = await mapLimit(configs, 4, (c) => fetchPreview(env, subsessionId, switchesWithOnly(c.on)));
+  const previews = await mapLimit(configs, PREVIEW_CONCURRENCY, (c) => fetchPreview(env, subsessionId, switchesWithOnly(c.on)));
   const legacyByKey = byRowKey(previews[0]);
   const singleByKey = new Map<SwitchName, Map<string, ScoreResultRow>>(
     SWITCHES.map((s, i) => [s, byRowKey(previews[i + 1])]),
@@ -560,7 +584,7 @@ export async function compareRound(
   // Pairs only for lines no single switch explains, each pair previewed once for the round.
   const neededPairs = [...new Set(inputs.flatMap((row) => pairsNeeded(row)))];
   if (neededPairs.length > 0) {
-    const pairRows = await mapLimit(neededPairs, 4, (k) =>
+    const pairRows = await mapLimit(neededPairs, PREVIEW_CONCURRENCY, (k) =>
       fetchPreview(env, subsessionId, switchesWithOnly(pairSwitches(k))),
     );
     const pairByKey = new Map(neededPairs.map((k, i) => [k, byRowKey(pairRows[i])]));
