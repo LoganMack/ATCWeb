@@ -42,7 +42,7 @@ import { formatMargin } from './format';
 export interface DriverRaceHistoryRow {
   subsessionId: number;
   raceNumber: number;
-  /** Null only if this round's curated_rounds row is somehow missing despite having race_scores (shouldn't normally happen). */
+  /** Null only if this round's curated_rounds row is somehow missing despite having race_score_results (shouldn't normally happen). */
   season: Season | null;
   trackName: string;
   /** trackName plus this round's specific circuit_layouts configuration (curated_rounds.layout — e.g. "Autodromo Nazionale Monza — Junior" vs plain "Autodromo Nazionale Monza" when a track has only one configuration or the round's layout column is unset). Distinct from trackName alone: many tracks run several materially different configurations (oval vs road course, "Grand Prix" vs "National", etc.) under the exact same track_name — see resolveLayout's own doc comment. Used by the Splits card's Layout split so those don't get lumped into one row. */

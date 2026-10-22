@@ -99,3 +99,17 @@ export function sharedPenaltyTagLabel(rowPenalties: (PenaltyLike & { is_warning:
 export function isRealPenaltyTag(tagLabel: string): boolean {
   return tagLabel !== '' && tagLabel !== 'Racing Incident';
 }
+
+/**
+ * The race a penalty applies to. Qualifying and practice incidents are stored
+ * with race_number 0 so the Incident Report can group them in their own
+ * sections, but their penalty always applies to Race 1, as if it had been
+ * logged there. The database's scoring does the same (score_round); the
+ * pages use this to key penalties by race for display.
+ */
+export function scoringRaceNumber(p: {
+  session_type: 'race' | 'qualifying' | 'practice';
+  race_number: number;
+}): number {
+  return p.session_type === 'race' ? p.race_number : 1;
+}

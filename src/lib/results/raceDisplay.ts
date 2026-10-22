@@ -1,6 +1,5 @@
 import { formatLapTime } from '../db/circuits';
-import { effectiveTimePenaltySeconds, type PenaltyLike } from '../penalties/effective';
-import { scoringRaceNumber } from '../penalties/reorder';
+import { effectiveTimePenaltySeconds, scoringRaceNumber, type PenaltyLike } from '../penalties/effective';
 
 // Display text for a race's margins, intervals, overall race times and old positions. Positions and
 // points come from race_score_results_public; this only formats. Where a round's penalties are

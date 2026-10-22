@@ -176,9 +176,9 @@ const panels: ImportPanel[] = [
     kind: 'race-results',
     title: 'Race Results',
     intent: 'import-race-results',
-    writesTo: 'curated_rounds, curated_race_results — NOT race_scores',
+    writesTo: 'curated_rounds, curated_race_results — no points',
     help:
-      `Writes RAW per-driver finish data only (finish position, laps, incidents, lap times) — the same shape a real pipeline import produces. It does not compute or store points — that's the scoring engine's job (Admin > Rulesets), triggered separately once a season has a ruleset assigned. Every row needs a driver_car_number matching a driver who already has an iRacing Customer ID set on their Roster profile. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
+      `Writes RAW per-driver finish data only (finish position, laps, incidents, lap times) — the same shape a real pipeline import produces. It does not compute or store points — the database scores the round from its season's ruleset (Admin > Rulesets) as soon as the results are saved, once the season has a ruleset assigned. Every row needs a driver_car_number matching a driver who already has an iRacing Customer ID set on their Roster profile. ${ROUND_COLS_NOTE}. Unrecognized rows are skipped rather than failing the whole upload.`,
   },
   {
     kind: 'qualifying-results',

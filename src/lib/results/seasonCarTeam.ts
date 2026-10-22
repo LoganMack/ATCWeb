@@ -84,7 +84,7 @@ export async function getSeasonCarTeamStats(
   carLogosLookup?: CarLogo[],
   seasonLogoRowsParam?: { team_id: string; season_id: string; logo_url: string }[],
   /**
-   * When given, skips this function's own race_scores/curated_race_results
+   * When given, skips this function's own race_score_results/curated_race_results
    * fetches entirely and reuses this season-wide context's
    * `overallScores`/`rawByKey` instead — see `computeSeasonStandings`'
    * identical param. Omit it (every existing single-season caller does) and

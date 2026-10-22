@@ -49,9 +49,9 @@ export function incidentDriverLabel(row: IncidentRow): string {
 // producing the same handful of aggregate stat columns. Built straight off
 // raceHistory (no extra fetch) — every column here is something already on
 // DriverRaceHistoryRow, aggregated per group rather than per race. "Starts"
-// counts every race_scores row regardless of classified/DSQ status (same
+// counts every race_score_results row regardless of classified/DSQ status (same
 // convention computeSeasonStandings uses — see its own "Starts, appearances,
-// poles, and points come straight from race_scores" comment); Wins/Podiums/
+// poles, and points come straight from race_score_results" comment); Wins/Podiums/
 // Top 5s/Avg Finish all exclude DSQ rows (a DSQ'd finishPosition is a
 // fallback display value, not a real result — see the Races table's own
 // `r.dsq ? 'DSQ' : r.finishPosition` rendering) but do NOT additionally

@@ -86,7 +86,7 @@ export interface RaceResultRow {
   lapsLed: number | null;
   /**
    * General-purpose result tags, e.g. "Unclassified" (finished under 50% of
-   * the leader's laps — driven by `race_scores.classified`, not re-derived
+   * the leader's laps — driven by `race_score_results.classified`, not re-derived
    * here). Deliberately a list rather than one string so a future tag (e.g.
    * a penalty) can sit alongside it — replaces the old single `reasonOut`
    * ("disconnected"-style) field, which added little value.
@@ -119,7 +119,7 @@ export interface RaceResultRow {
   car: { name: string; logoUrl: string | null } | null;
   /** "1:42.512"-formatted average lap the race (see `formatLapTime` in src/lib/supabase.ts), from `curated_race_results.average_lap_ten_thousandths` (isolated fetch, see getLapStatsForSubsessions) — "—" when the pipeline hasn't got this for this driver/race. */
   averageLapFormatted: string;
-  /** Raw ten-thousandths-of-a-second value averageLapFormatted is formatted from — kept unformatted, same reasoning as intervalTenThousandths, so src/lib/penalties.ts can do exact integer math with it (rule 18.3.2's "own laps × own average lap" — see reorderByTimePenalty) rather than round-tripping through the display string. Null when there's no data. */
+  /** Raw ten-thousandths-of-a-second value averageLapFormatted is formatted from — kept unformatted, same reasoning as intervalTenThousandths, so applyPenaltyDisplay can do exact integer math with it (rule 18.3.2's "own laps × own average lap") rather than round-tripping through the display string. Null when there's no data. */
   averageLapTenThousandths: number | null;
   /** This driver's single fastest lap the race, formatted the same way. Same source/isolation as averageLapFormatted. */
   bestLapFormatted: string;

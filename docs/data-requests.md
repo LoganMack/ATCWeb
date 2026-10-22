@@ -50,7 +50,7 @@ from public.activity_log
 where entity_id in (:user_id::text, :driver_id::text) or actor_id = :user_id;
 ```
 
-Race results (`curated_*_results`, `race_scores`) and penalties are league records about races, not the account; include them in an export if asked, but they are not deleted (see section 5).
+Race results (`curated_*_results`, `race_score_results`) and penalties are league records about races, not the account; include them in an export if asked, but they are not deleted (see section 5).
 
 Storage files belonging to them:
 

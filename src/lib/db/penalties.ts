@@ -2,8 +2,8 @@ import { restDelete, restGet, restGetAll, restPatch, restPost, type SupabaseEnv 
 
 // ---------------------------------------------------------------------------
 // PENALTIES (rulebook 18.3, section 5 "Stewarding") — see 0014_penalties.sql
-// and src/lib/penalties.ts (the position/points recalculation engine, which
-// consumes the Penalty type below).
+// The database scores penalties (score_round, supabase/migrations/); the
+// pages read the Penalty type below for display (src/lib/penalties/).
 // ---------------------------------------------------------------------------
 
 export interface PenaltyOffense {

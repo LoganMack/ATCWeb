@@ -14,7 +14,7 @@ export interface DriverRecord {
   /**
    * Their iRacing customer id — the ONLY thing that links this drivers row
    * to their actual race results (curated_race_results.cust_id,
-   * recalculate_race_scores()'s entrant join, driver_last_race — see those
+   * score_round()'s entrant join, driver_last_race — see those
    * for the full list). Added to `drivers` outside this repo's migrations
    * (see 0005_round_overrides.sql's grant-fix note), and until now had no
    * admin UI field at all despite raceResultsImport.ts's own doc comment
@@ -90,7 +90,7 @@ export function getDriversForNumberCheck(env: SupabaseEnv) {
   );
 }
 
-/** Every driver who already has an iRacing Customer ID set — used both by the admin driver edit page's "is this cust_id already claimed by someone else?" check (see readForm/the save handler in admin/drivers/[id].astro) and by raceResultsImport.ts's syncResultsWithRoster, which must never link a cust_id to more than one drivers row (recalculate_race_scores() joins on this column — a duplicate would double-count that one raw result). */
+/** Every driver who already has an iRacing Customer ID set — used both by the admin driver edit page's "is this cust_id already claimed by someone else?" check (see readForm/the save handler in admin/drivers/[id].astro) and by raceResultsImport.ts's syncResultsWithRoster, which must never link a cust_id to more than one drivers row (score_round() joins on this column — a duplicate would double-count that one raw result). */
 export interface DriverCustIdLookup {
   id: string;
   name: string;
@@ -275,15 +275,19 @@ export interface SyncResultsWithRosterOutcome {
   /** Existing drivers rows that just had their iracing_cust_id filled in. */
   linked: string[];
   /**
-   * How many rounds the function recalculated in the legacy race_scores
-   * table for the drivers linked or created above — every round their
-   * cust_id already had raw results in. The results the site shows
-   * (race_score_results) are rescored for those same rounds by the drivers
-   * triggers in the same transaction (BR3.1), so this count still says
-   * which rounds were refreshed.
+   * How many rounds were rescored for the drivers linked or created above:
+   * every round their cust_id has race or qualifying results in. Linking or
+   * creating the driver fires the drivers scoring triggers, which rescore
+   * those rounds into race_score_results in the same transaction (BR3.1).
+   * 0 while the owner's scoring kill switch is off.
    */
   roundsRecalculated: number;
-  /** `"<subsession_id>: <error>"` for any round the legacy recalculation raised on (no ruleset yet, standings locked, etc.) — surfaced so it doesn't fail silently, not auto-retried. */
+  /**
+   * `"<subsession_id>: <issue>"` for a round left with a scoring issue (no
+   * ruleset yet, a scoring fault), and `"<name> (cust <id>, not synced):
+   * <error>"` for an entrant skipped because linking them would change a
+   * locked season's results. Surfaced so nothing fails silently; not retried.
+   */
   recalcFailed: string[];
 }
 
@@ -337,7 +341,7 @@ export interface DriverSeasonClass {
 
 const DRIVER_SEASON_CLASS_SELECT = 'driver_id,season_id,class_id';
 
-/** One driver's per-season class overrides — powers the "Driver Class by Season" list on the admin driver edit page. A season with no row here falls back to the driver's primary class (drivers.class_id) — same fallback scoring itself uses (see recalculate_race_scores in 0037_class_and_scoring_fixes.sql). */
+/** One driver's per-season class overrides — powers the "Driver Class by Season" list on the admin driver edit page. A season with no row here falls back to the driver's primary class (drivers.class_id) — same fallback scoring itself uses (see score_round in 0037_class_and_scoring_fixes.sql). */
 export function getDriverSeasonClassesForDriver(env: SupabaseEnv, driverId: string) {
   return restGet<DriverSeasonClass[]>(
     env,

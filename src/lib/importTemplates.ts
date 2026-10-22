@@ -193,7 +193,7 @@ const NEWS_TEMPLATE: CsvTemplate = {
 };
 
 // Raw per-driver finish data only — writes to curated_rounds +
-// curated_race_results, NOT race_scores. Points are computed separately by
+// curated_race_results, NOT race_score_results. Points are computed separately by
 // the scoring engine from a season's Ruleset (Admin > Rulesets) once that
 // season has one assigned; this importer's job is getting the raw finish
 // data in, not scoring it. class_name is informational only (goes on

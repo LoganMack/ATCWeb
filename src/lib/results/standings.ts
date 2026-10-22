@@ -53,7 +53,7 @@ export async function computeSeasonStandings(
    * original one-context-per-call behavior.
    */
   precomputedOverallContext?: SeasonOverallContext,
-  /** Same sharing reasoning as `precomputedOverallContext` — lets a caller that already fetched this class's own race_scores rows (e.g. computeTeamSeasonStandings' per-class team competition, which needs the identical rows) pass them in instead of querying twice. */
+  /** Same sharing reasoning as `precomputedOverallContext` — lets a caller that already fetched this class's own race_score_results rows (e.g. computeTeamSeasonStandings' per-class team competition, which needs the identical rows) pass them in instead of querying twice. */
   precomputedScoresRaw?: ScoreRow[],
   /** Same sharing reasoning as `driversBasic` above — pass every ruleset on file when computing many seasons back to back (see `getChampions`/`computeDriverCareerStats`) so this doesn't refetch the same small table once per season. Resolved against this `season` via `resolveSeasonRuleset` either way. */
   rulesets?: ScoringRuleset[],

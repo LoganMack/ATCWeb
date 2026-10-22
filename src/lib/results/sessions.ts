@@ -4,7 +4,7 @@ import { driversSelect, type DriverBasic } from './rows';
 
 export interface QualifyingRow {
   driver: DriverBasic;
-  /** From `race_scores.class_id` for this driver in this round — NOT `curated_qualifying.car_class_name` (an unverified text field never cross-checked against this app's class names). Null when this driver qualified but has no `race_scores` row anywhere in the round (e.g. DNS'd every race, or unrostered) — can't be placed in a per-class view, but still shown in Overall. */
+  /** From `race_score_results.class_id` for this driver in this round — NOT `curated_qualifying.car_class_name` (an unverified text field never cross-checked against this app's class names). Null when this driver qualified but has no `race_score_results` row anywhere in the round (e.g. DNS'd every race, or unrostered) — can't be placed in a per-class view, but still shown in Overall. */
   classId: number | null;
   qualPosition: number | null;
   /** "1:42.512"-formatted best qualifying lap (see `formatLapTime`), from `curated_qualifying.best_lap_ten_thousandths`. "—" when the pipeline has no time for this driver. */
@@ -52,7 +52,7 @@ export async function getQualifyingForSubsession(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
   );
   // First class_id seen per driver in this round — a driver's class doesn't
-  // change race-to-race within one round, so any race_scores row for them
+  // change race-to-race within one round, so any race_score_results row for them
   // here is as good as another.
   const classIdByDriverId = new Map<string, number>();
   for (const s of classScores) {
@@ -109,7 +109,7 @@ export async function getQualifyingForSubsession(
 
 export interface PracticeRow {
   driver: DriverBasic;
-  /** Same "from race_scores.class_id, not the curated table's own text field" reasoning as QualifyingRow.classId. */
+  /** Same "from race_score_results.class_id, not the curated table's own text field" reasoning as QualifyingRow.classId. */
   classId: number | null;
   /** curated_practice_results has no stored position field at all (a practice session isn't a grid) — this is derived here purely by ranking best lap time ascending across the whole session, then reused unchanged in the per-class view rather than re-ranked to 1..N within a class filter, mirroring how QualifyingRow.qualPosition (a real stored field) is reused as-is in getQualifyingForSubsession's byClass. Null for a driver with no recorded best lap. */
   position: number | null;

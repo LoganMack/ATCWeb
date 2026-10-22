@@ -1,18 +1,19 @@
 /**
  * Season standings, champions, and race results — computed from the tables
  * an external iRacing-results import pipeline populates (curated_rounds,
- * curated_race_results, curated_qualifying, race_scores). None of those
- * tables are created by this repo (see supabase/migrations/0004_champions.sql);
- * this file only reads them.
+ * curated_race_results, curated_qualifying) and from the scores the database
+ * derives from them (race_score_results_public, filled by score_round()).
+ * This file only reads them.
  *
  * Two assumptions (confirmed with Logan) are baked in throughout:
  *
  * 1. Class-relative finishing position is NOT the same as
- *    `race_scores.scored_position` — that column is an OVERALL field
+ *    the stored overall position (`shown_position` on
+ *    race_score_results_public) — that column is an OVERALL field
  *    position across every class combined. To get a driver's position
  *    within their own class (needed for wins/podiums/top 5s/top 10s), this
  *    file re-ranks each race itself, using `curated_race_results` (the raw
- *    imported results) restricted to just the drivers `race_scores` says
+ *    imported results) restricted to just the drivers `race_score_results` says
  *    were in this class for that season (both `computeSeasonStandings` and
  *    `getRoundResults` below, for their per-class output, do this same
  *    re-ranking — their overall/cross-class output uses `scored_position`
@@ -31,7 +32,7 @@
  *    young seasons/classes (Gamma didn't exist before ATC16, Delta before
  *    ATC5, so their early seasons have few rounds).
  *
- * Poles are read from `race_scores.pole_bonus` (only ever nonzero on a
+ * Poles are read from the stored pole bonus (`shown_pole_bonus`) (only ever nonzero on a
  * round's fresh-qualifying race — races 2/3 run an inverted grid off race 1
  * and don't earn one), counted once per round (`subsession_id`), matching
  * "poles are based on appearances, not starts."

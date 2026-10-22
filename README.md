@@ -177,9 +177,9 @@ Pull requests from forks never see production credentials.
 
 Database URLs use Supabase's session-pooler form, because GitHub runners are IPv4-only: `postgresql://<role>.<project-ref>:<password>@aws-1-us-west-2.pooler.supabase.com:5432/postgres`.
 
-**Results pipeline.** An external pipeline loads race results into `curated_rounds`, `curated_race_results`, `curated_qualifying` and `race_scores`. The baseline creates these tables, so a fresh database is complete without the pipeline.
+**Results pipeline.** An external pipeline loads race results into `curated_rounds`, `curated_race_results` and `curated_qualifying`. The baseline creates these tables, so a fresh database is complete without the pipeline.
 
-**Scoring** is calculated in Postgres by `recalculate_race_scores(subsession_id)`.
+**Scoring** is calculated in Postgres by `score_round(subsession_id)`, which writes `race_score_results`. Triggers on the scoring inputs (results, penalties, drivers, seasons, rulesets and so on) rescore the rounds a change touches. Pages read `race_score_results_public`, which hides an unposted round's penalties from non-admins. Rounds that cannot be scored are listed in `scoring_issues`. The legacy `race_scores` rows are kept, read-only, in `race_scores_archive`.
 
 **Storage buckets:** `logos`, `photos` and `banners` are public; `imports`, `incident-appeals` and `race-interviews` are private.
 
@@ -202,8 +202,8 @@ After that, admins manage other users from **Admin → Users**: linking drivers,
 1. Race data arrives from the results pipeline, or is uploaded under **Admin → Import**.
 2. A round appears on the site once it has a season and an event. Rounds missing either show up in the **Orphaned Rounds** table on **Admin → Events**, where an admin picks the season and event to link.
 3. Scoring needs the round's season to have a scoring ruleset, the event to have a race format, the season to be unlocked, and drivers to be matched by iRacing customer id.
-4. Scores are recalculated from the admin pages after any change, or by calling `recalculate_race_scores`.
-5. The penalties engine applies position and point adjustments from the penalty offense catalogue.
+4. Scores update automatically: the scoring triggers rescore a round whenever its results, penalties, drivers, season or ruleset change. **Admin → Seasons → Recalculate** (`rescore_season`) rescores a whole season.
+5. Penalties (time, points and DSQ, with appeal values once appealed) are applied by `score_round` in the database; the results page only formats the margins and race times.
 6. Incident reporting follows three admin-configurable windows. Drivers may report incidents for a set number of hours after the race. Admins then post the report, which is when penalties and adjustments become visible on the public results page. Drivers may submit appeals, with up to three files, for a set number of hours after posting.
 
 ## Deployment
@@ -226,7 +226,7 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes to `main` 
 
 **Refresh the roster.** Run `npm run generate-seed -- /path/to/roster.xlsx`, then apply the regenerated `seed_teams.sql` and `seed_drivers.sql` in the SQL editor.
 
-**Rescore a season.** Run `recalculate_race_scores` for each race in the season, or trigger a rescore from the admin pages.
+**Rescore a season.** Press **Recalculate** for the season on **Admin → Seasons**, or call `rescore_season(season_id)`.
 
 **Fix a round that is missing from the site.** Open **Admin → Events → Orphaned Rounds** and link it to a season and event.
 

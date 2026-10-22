@@ -51,8 +51,6 @@ const SUBSESSION_KEYED_TABLES = new Set([
   'curated_race_results',
   'curated_qualifying',
   'curated_practice_results',
-  'race_scores',
-  'race_scores_public',
   'race_score_results_public',
   'penalties',
   'race_links',
@@ -115,7 +113,7 @@ export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
  * response at 1000 rows (project-configurable, but not something this app
  * controls or can assume) — a plain `restGet` on a query that can grow past
  * that (e.g. `src/lib/results.ts`'s career-stats bulk queries, which span
- * every championship season's `race_scores`/`curated_race_results` at
+ * every championship season's `race_score_results`/`curated_race_results` at
  * once) would silently come back TRUNCATED rather than erroring, which is
  * far worse than a loud failure: every computation built on top of it would
  * just quietly be wrong for whichever rows got cut off.
@@ -313,7 +311,7 @@ export function writeHeaders(env: SupabaseEnv, accessToken: string, extra?: Reco
 
 // restGetAuthed/restPost/restPatch/restDelete are exported (same reasoning
 // as restGet/restGetAll above) so src/lib/raceResultsImport.ts can write
-// directly into curated_rounds/curated_race_results/race_scores — tables
+// directly into curated_rounds and the curated_* results tables — tables
 // this file's usual per-table CRUD pattern deliberately never touches (see
 // that file's own header comment for why that boundary is broken there,
 // specifically, as a one-off approved exception).

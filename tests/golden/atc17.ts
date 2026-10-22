@@ -44,7 +44,7 @@ export interface GoldenInputs {
   classes: Lookup[];
   drivers: DriverBasic[];
   excludedRoundIds: number[];
-  /** The legacy race_scores_public rows of the original capture (scripts/compute-timing.ts still times the TypeScript penalty engine on them). */
+  /** The legacy race_scores_public rows of the original capture (the view was dropped at the scoring contract step). tests/lib/penaltyDisplay.test.ts and scripts/compute-timing.ts build results-page rows from them for applyPenaltyDisplay. */
   scoresByClass: Record<string, LegacyClassScore[]>;
   overallScores: LegacyOverallScore[];
   seasonRounds: RoundSummary[];

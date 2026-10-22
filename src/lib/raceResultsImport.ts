@@ -3,13 +3,11 @@
  * DATA only, into curated_rounds (the round itself) plus one of
  * curated_race_results / curated_qualifying / curated_practice_results (each
  * driver's finish position or lap time — the same shape the real
- * iRacing-results pipeline populates). It never writes to race_scores: that
- * table holds computed POINTS, produced by the database's own
- * recalculate_race_scores() from a season's scoring ruleset (Admin >
- * Rulesets). A round imported here shows up on Race Results immediately; it
- * shows up in Standings/Career Stats/News Recaps once its season has a
- * scoring ruleset assigned and an admin recalculates that round's scores
- * (see the note on Admin > Add Race Result for how the two connect).
+ * iRacing-results pipeline populates). It never writes points: those live in
+ * race_score_results, which the database's scoring triggers fill with
+ * score_round() from the season's scoring ruleset (Admin > Rulesets) as soon
+ * as the results land. A round whose season has no ruleset yet is recorded
+ * in scoring_issues instead, and is scored once a ruleset is assigned.
  *
  * This is still the one importer that writes directly into pipeline-owned
  * tables — see results.ts's own header comment, and 0004_champions.sql/

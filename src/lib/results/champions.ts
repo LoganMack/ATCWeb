@@ -24,7 +24,7 @@ export interface ChampionEntry {
 }
 
 /**
- * One entry per season the given class has any race_scores data for,
+ * One entry per season the given class has any race_score_results data for,
  * newest season first. Seasons before a class existed (Delta before ATC5,
  * Gamma before ATC16) simply have no rows and are skipped automatically —
  * no hardcoded season cutoffs needed.
@@ -156,7 +156,7 @@ export async function getChampionsWithExtras(
       // Pure in-memory filtering from here down — no network calls inside
       // this per-season loop except the one getSeasonCarTeamStats call
       // below, which itself reuses overallContext and skips its own
-      // race_scores/curated_race_results fetches — same "bulk-fetch once,
+      // race_score_results/curated_race_results fetches — same "bulk-fetch once,
       // slice in memory" shape as getChampions().
       const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
       if (seasonScores.length === 0) return null;
@@ -223,7 +223,7 @@ export interface TeamChampionEntry {
  * given team competition (the OVERALL/cross-class competition when classId
  * is omitted, otherwise that class's own separate competition — same split
  * computeTeamSeasonStandings' own doc comment describes) has any
- * race_scores data for, newest season first. Built for the public
+ * race_score_results data for, newest season first. Built for the public
  * Champions page's Alpha Team / Delta Team filters.
  *
  * Same bulk-fetch-once-then-slice-in-memory shape as getChampions() (see

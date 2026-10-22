@@ -4,7 +4,7 @@ SQL files that check the database's behaviour. None of them changes data that ou
 
 | File | Runs against | When | What it checks |
 |---|---|---|---|
-| `scoring-fixtures.sql` | the empty database CI rebuilds from `supabase/migrations/` | every PR that changes `supabase/` (job `migrations-rebuild` in `.github/workflows/migrations-pr.yml`) | `score_round`, `score_round_preview`, the scoring triggers, the `race_score_results` write guard, locked seasons, the kill switch and `race_score_results_public`, on small rounds built inside the file |
+| `scoring-fixtures.sql` | the empty database CI rebuilds from `supabase/migrations/` | every PR that changes `supabase/` (job `migrations-rebuild` in `.github/workflows/migrations-pr.yml`) | `score_round`, `score_round_preview`, the scoring triggers, the `race_score_results` write guard, locked seasons, the kill switch and `race_score_results_public`; the functions the contract migration rewrote (`submit_kudos`, `sync_results_with_roster`, `recalculate_season_scores`); and the retired TypeScript engine's penalty cases (C44-C51), on small rounds built inside the file |
 | `scoring.sql` | production, read-only | after the scoring migration is applied or a backfill runs, with the owner's OK | the live invariants: stored scores are fresh, positions are consistent, totals match their formulas, unposted rounds are concealed from anon, every scored round has rows or an open issue |
 | `security-fixes.sql` | production, read-only | after each security-fix rollout step | the security fixes from migrations 0114–0116 (every row reads PASS) |
 
@@ -13,6 +13,8 @@ SQL files that check the database's behaviour. None of them changes data that ou
 **Fixtures raise.** In `scoring-fixtures.sql` every assertion calls `scoring_fixture.expect(label, actual, expected)`, which raises an exception naming the case when the two differ. Run with `psql -v ON_ERROR_STOP=1`, the first failure stops the run with a non-zero exit, which fails the CI step. A passing run prints one `ok Cnn …` notice per case.
 
 The whole file is one transaction that ends in `rollback`. The base data is inserted once; each case starts after `savepoint fixture` and ends with `rollback to savepoint fixture`, so cases are independent and nothing is left in the database. The helper functions live in a `scoring_fixture` schema that is created inside that transaction and rolled back with it.
+
+The penalty cases (C44 onwards) stage their entrants and penalties in `values` blocks (`scoring_fixture.entrant`, `scoring_fixture.penalty`), call `scoring_fixture.load(season_id, format)` to create the drivers (one per letter code), rounds, results and penalties, and read rows back by letter code with `scoring_fixture.by_code`.
 
 To add a case: write the setup statements, then a `do $$ … $$` block that calls `scoring_fixture.expect` (use `scoring_fixture.col(subsession_id, 'r.<column>')` for a compact `cust=value` list of a round's stored rows, or `scoring_fixture.preview_col` for `score_round_preview` with switches), end it with `raise notice 'ok Cnn …'`, and finish with `rollback to savepoint fixture;`.
 
