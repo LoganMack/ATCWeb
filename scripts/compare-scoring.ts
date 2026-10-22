@@ -51,7 +51,7 @@ interface Options {
 }
 
 function parseArgs(argv: string[]): Options {
-  const opts: Options = { out: DEFAULT_OUT, rounds: null, concurrency: 3 };
+  const opts: Options = { out: DEFAULT_OUT, rounds: null, concurrency: 2 };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = argv[i + 1];

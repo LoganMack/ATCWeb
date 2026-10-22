@@ -825,4 +825,61 @@ begin
 end $$;
 rollback to savepoint fixture;
 
+-- C35 unclassified-position off keeps an unclassified row in its raw slot (BR6.2) -------------
+-- d3's DSQ closes a gap above d7, so the final set renumbers d7 from 8 to 7; today's results page
+-- leaves an unclassified row where it finished.
+update public.curated_race_results set reason_out = 'Disqualified' where subsession_id = 1001 and cust_id = 103;
+insert into public.penalties (subsession_id, race_number, driver_id, time_penalty_seconds)
+values (1001, 1, 'dddddddd-0000-0000-0000-000000000001', 10);
+do $$
+begin
+  perform scoring_fixture.expect('C35 stored final_position renumbers d7', scoring_fixture.col(1001, 'r.final_position'),
+    '101=2 102=1 103=- 104=6 105=3 106=4 108=7');
+  perform scoring_fixture.expect('C35 unclassified-position off',
+    scoring_fixture.preview_col(1001, '{"unclassified-position": false}', 'r.final_position || ''/'' || coalesce(r.final_class_position::text, ''-'')'),
+    '101=2/2 102=1/1 103=- 104=6/3 105=3/1 106=4/2 108=8/4');
+  raise notice 'ok C35 unclassified-position';
+end $$;
+rollback to savepoint fixture;
+
+-- C36 per-class-pricing and cross-class-ripple each act alone (BR6.2) --------------------------
+-- d1's lap conversion moves d1, d2 and d3 in their class and moves Gamma's d5 and d6 overall only.
+insert into public.penalties (subsession_id, race_number, driver_id, time_penalty_seconds)
+values (1001, 1, 'dddddddd-0000-0000-0000-000000000001', 95);
+do $$
+begin
+  perform scoring_fixture.expect('C36 per-class-pricing off prices class movers from class position only',
+    scoring_fixture.preview_col(1001, '{"per-class-pricing": false}', 'r.final_finish_points'),
+    '101=60 102=100 103=80 104=5 105=60 106=40 108=0');
+  perform scoring_fixture.expect('C36 both off: class movers from class position, everyone else raw',
+    scoring_fixture.preview_col(1001, '{"per-class-pricing": false, "cross-class-ripple": false}', 'r.final_finish_points'),
+    '101=60 102=100 103=80 104=5 105=40 106=30 108=0');
+  perform scoring_fixture.expect('C36 cross-class-ripple alone moves Gamma when per-class-pricing is off',
+    (select count(*) from public.score_round_preview(1001, '{"per-class-pricing": false, "cross-class-ripple": false}') a
+     join public.score_round_preview(1001, '{"per-class-pricing": false}') b using (race_number, driver_id)
+     where a.final_finish_points <> b.final_finish_points),
+    2::bigint);
+  raise notice 'ok C36 independent pricing switches';
+end $$;
+rollback to savepoint fixture;
+
+-- C37 overall-formula off includes aggression on rows the overall standings adjust (BR6.2) ---
+update public.seasons set scoring_ruleset_id = 'aaaaaaaa-0000-0000-0000-000000000002'
+where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+insert into public.penalties (subsession_id, race_number, driver_id, time_penalty_seconds)
+values (1001, 1, 'dddddddd-0000-0000-0000-000000000005', 100);
+do $$
+begin
+  -- d6 moved from 5 to 4 and won aggression after the re-order: 40 + finesse 1 + aggression 3.
+  -- d2 did not move, so its total leaves aggression and fastest lap out: 80 + finesse 1.
+  perform scoring_fixture.expect('C37 overall-formula off',
+    scoring_fixture.preview_col(1001, '{"overall-formula": false}', 'r.final_overall_total'),
+    '101=100 102=81 103=60 104=5 105=5 106=44 108=0');
+  perform scoring_fixture.expect('C37 raw set keeps the plain formula',
+    scoring_fixture.preview_col(1001, '{"overall-formula": false}', 'r.raw_overall_total'),
+    '101=100 102=81 103=60 104=5 105=40 106=31 108=0');
+  raise notice 'ok C37 overall formula with aggression';
+end $$;
+rollback to savepoint fixture;
+
 rollback;

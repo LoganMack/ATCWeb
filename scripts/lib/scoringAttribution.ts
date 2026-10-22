@@ -24,6 +24,7 @@ export const SWITCHES = [
   'dsq-flat-penalty',
   'class-position-ranking',
   'reorder-tie-break',
+  'unclassified-position',
 ] as const;
 export type SwitchName = (typeof SWITCHES)[number];
 
