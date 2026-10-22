@@ -9,7 +9,13 @@
     "ROUND_SUMMARY_ANCHOR": "src/lib/incidentActions/anchors.ts",
     "OWED_PENALTIES_ANCHOR": "src/lib/incidentActions/anchors.ts"
   },
-  "newDeclarations": ["IncidentActionContext", "IncidentActionRedirect", "ctx", "toResponse", "ADMIN_HANDLERS"],
+  "newDeclarations": [
+    "IncidentActionContext",
+    "IncidentActionRedirect",
+    "ctx",
+    "toResponse",
+    "ADMIN_HANDLERS"
+  ],
   "rewrites": [
     { "name": "astro-redirect", "from": "Astro.redirect(X, 302)", "to": "ctx.redirect(X)" },
     { "name": "astro-url", "from": "Astro.url", "to": "ctx.url" },
@@ -20,7 +26,10 @@
     {
       "name": "handleSubmitAppeal",
       "module": "src/lib/incidentActions/submitAppeal.ts",
-      "source": { "type": "if", "condition": "postForm && String(postForm.get('intent') ?? '') === 'submit-appeal'" }
+      "source": {
+        "type": "if",
+        "condition": "postForm && String(postForm.get('intent') ?? '') === 'submit-appeal'"
+      }
     },
     {
       "name": "handleSaveIncident",
@@ -35,7 +44,10 @@
     {
       "name": "handleSaveRoundPenalty",
       "module": "src/lib/incidentActions/saveRoundPenalty.ts",
-      "source": { "type": "if", "condition": "intent === 'add-round-penalty' || intent === 'update-round-penalty'" }
+      "source": {
+        "type": "if",
+        "condition": "intent === 'add-round-penalty' || intent === 'update-round-penalty'"
+      }
     },
     {
       "name": "handleSaveDriverRoundPenalties",

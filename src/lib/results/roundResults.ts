@@ -148,19 +148,29 @@ export interface RoundResults {
  * finishing order; a moved row shows its new position beside the struck-through old one.
  */
 export async function getRoundResults(env: SupabaseEnv, subsessionId: number): Promise<RoundResults> {
-  const [scores, rawResults, drivers, teams, carLogos, round, seasonLogoRows, lapStats, displayNames, penalties] =
-    await Promise.all([
-      getRaceScoresForSubsession(env, subsessionId),
-      getCuratedRaceResultsForSubsessions(env, [subsessionId]),
-      driversSelect(env, { includeAi: true }),
-      getTeamsBasic(env),
-      getCarLogos(env),
-      getRoundBySubsessionId(env, subsessionId),
-      getAllTeamSeasonLogosSafe(env),
-      getLapStatsForSubsessions(env, [subsessionId]),
-      getDisplayNamesForSubsessions(env, [subsessionId]),
-      getPenaltiesForSubsession(env, subsessionId),
-    ]);
+  const [
+    scores,
+    rawResults,
+    drivers,
+    teams,
+    carLogos,
+    round,
+    seasonLogoRows,
+    lapStats,
+    displayNames,
+    penalties,
+  ] = await Promise.all([
+    getRaceScoresForSubsession(env, subsessionId),
+    getCuratedRaceResultsForSubsessions(env, [subsessionId]),
+    driversSelect(env, { includeAi: true }),
+    getTeamsBasic(env),
+    getCarLogos(env),
+    getRoundBySubsessionId(env, subsessionId),
+    getAllTeamSeasonLogosSafe(env),
+    getLapStatsForSubsessions(env, [subsessionId]),
+    getDisplayNamesForSubsessions(env, [subsessionId]),
+    getPenaltiesForSubsession(env, subsessionId),
+  ]);
 
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   const custIdByDriverId = new Map(
@@ -224,7 +234,11 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
           classLeaderRaw.laps_complete,
           classLeaderRaw.interval_ten_thousandths,
         )
-      : formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLapsByRace.get(score.race_number) ?? null);
+      : formatMargin(
+          raw.interval_ten_thousandths,
+          raw.laps_complete,
+          leaderLapsByRace.get(score.race_number) ?? null,
+        );
     const pointsDeduction = -score.points_deduction;
     const tags: string[] = [];
     // `classified` is computed upstream by the results pipeline itself
@@ -245,7 +259,8 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       finishPosition: raw.finish_position,
       startingPosition: raw.starting_position,
       wasAdjusted:
-        (raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position) || oldPosition !== null,
+        (raw.adjusted_position !== null && raw.adjusted_position !== raw.finish_position) ||
+        oldPosition !== null,
       totalPoints: score.class_total,
       originalTotalPoints: score.set === 'final' ? score.raw_class_total : score.class_total,
       bonusPoints:
@@ -300,7 +315,11 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
    * A row for an entrant with no `drivers` row (see RaceResultRow.notInRoster): real race data as in toRow(),
    * with points, team, bonuses and class zeroed.
    */
-  function toUnrosteredRow(raw: CuratedRaceResultRow, position: number | null, oldPosition: number | null): RaceResultRow {
+  function toUnrosteredRow(
+    raw: CuratedRaceResultRow,
+    position: number | null,
+    oldPosition: number | null,
+  ): RaceResultRow {
     const lapStatsRow = lapStatsByKey.get(resultKey(raw.subsession_id, raw.race_number, raw.cust_id));
     const averageLapTenThousandths = lapStatsRow?.average_lap_ten_thousandths ?? null;
     const bestLapTenThousandths = lapStatsRow?.best_lap_ten_thousandths ?? null;
@@ -480,11 +499,21 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
     );
     const rankedAndUnrostered = [
       ...ranked.map((m) => ({
-        row: toRow(m.score, m.driver, m.raw, m.score.position, shownOldPosition(m.score.position, m.score.raw_position)),
+        row: toRow(
+          m.score,
+          m.driver,
+          m.raw,
+          m.score.position,
+          shownOldPosition(m.score.position, m.score.raw_position),
+        ),
         rawPos: overallRawPos(m),
       })),
       ...unrostered.map((raw, i) => ({
-        row: toUnrosteredRow(raw, unrosteredPositions[i], shownOldPosition(unrosteredPositions[i], unrosteredRawPos(raw))),
+        row: toUnrosteredRow(
+          raw,
+          unrosteredPositions[i],
+          shownOldPosition(unrosteredPositions[i], unrosteredRawPos(raw)),
+        ),
         rawPos: unrosteredRawPos(raw),
       })),
     ].sort((a, b) => a.rawPos - b.rawPos);
@@ -514,12 +543,19 @@ export function applyPenaltyDisplay(results: RoundResults): RoundResults {
     averageLapTenThousandths: r.averageLapTenThousandths,
   });
 
-  function redisplay(rows: RaceResultRow[], raceNumber: number, leader: RaceResultRow | undefined): RaceResultRow[] {
+  function redisplay(
+    rows: RaceResultRow[],
+    raceNumber: number,
+    leader: RaceResultRow | undefined,
+  ): RaceResultRow[] {
     const penaltyOf = (id: string) => penaltyByRaceDriver.get(`${raceNumber}:${id}`);
     const gaps = penalisedGaps(
       rows.filter((r) => r.position !== null).map(toGapInput),
       (id) => (penaltyOf(id) ?? 0) * 10000,
-      { lapsComplete: leader?.laps ?? null, averageLapTenThousandths: leader?.averageLapTenThousandths ?? null },
+      {
+        lapsComplete: leader?.laps ?? null,
+        averageLapTenThousandths: leader?.averageLapTenThousandths ?? null,
+      },
     );
     return rows.map((r) => {
       const gap = gaps.get(r.driver.id);
@@ -532,7 +568,9 @@ export function applyPenaltyDisplay(results: RoundResults): RoundResults {
       return {
         ...r,
         margin: (gap && penalisedMargin(gap)) ?? r.margin,
-        intervalTenThousandths: gap ? (penalisedInterval(gap) ?? r.intervalTenThousandths) : r.intervalTenThousandths,
+        intervalTenThousandths: gap
+          ? (penalisedInterval(gap) ?? r.intervalTenThousandths)
+          : r.intervalTenThousandths,
         overallRaceTimeTenThousandths: raceTime ?? r.overallRaceTimeTenThousandths,
         overallRaceTimeFormatted: raceTime === null ? r.overallRaceTimeFormatted : formatRaceTime(raceTime),
         hasPenalty: penaltySeconds !== undefined,
@@ -541,11 +579,20 @@ export function applyPenaltyDisplay(results: RoundResults): RoundResults {
   }
 
   const overall = new Map(results.overall);
-  const byClass = new Map([...results.byClass].map(([classId, byRace]) => [classId, new Map(byRace)] as const));
+  const byClass = new Map(
+    [...results.byClass].map(([classId, byRace]) => [classId, new Map(byRace)] as const),
+  );
   for (const [raceNumber, rows] of results.overall) {
     if (!rows.some((r) => penaltyByRaceDriver.has(`${raceNumber}:${r.driver.id}`))) continue;
     // Laps down count from the race's on-track leader, before any penalty.
-    overall.set(raceNumber, redisplay(rows, raceNumber, rows.find((r) => r.finishPosition === 1)));
+    overall.set(
+      raceNumber,
+      redisplay(
+        rows,
+        raceNumber,
+        rows.find((r) => r.finishPosition === 1),
+      ),
+    );
     for (const [classId, byRace] of results.byClass) {
       const classRows = byRace.get(raceNumber);
       if (!classRows) continue;

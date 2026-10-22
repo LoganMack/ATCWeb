@@ -26,12 +26,28 @@ export async function handleSaveRoundPenalty(
   const note = strOrNullField(form, 'note')?.slice(0, ROUND_PENALTY_NOTE_MAX_LENGTH) ?? null;
   const id = String(form.get('round_penalty_id') ?? '');
   let failed = false;
-  if (driverId && isRoundPenaltyKind(kind) && (kind !== 'other' || note) && (intent === 'add-round-penalty' || id)) {
+  if (
+    driverId &&
+    isRoundPenaltyKind(kind) &&
+    (kind !== 'other' || note) &&
+    (intent === 'add-round-penalty' || id)
+  ) {
     try {
       if (intent === 'add-round-penalty') {
-        await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note, created_by: actor.id });
+        await createRoundPenalty(supabaseEnv, accessToken, {
+          subsession_id: subsessionId,
+          driver_id: driverId,
+          kind,
+          note,
+          created_by: actor.id,
+        });
       } else {
-        await updateRoundPenalty(supabaseEnv, accessToken, id, { driver_id: driverId, kind, note, markOwed: form.get('status') === 'owed' });
+        await updateRoundPenalty(supabaseEnv, accessToken, id, {
+          driver_id: driverId,
+          kind,
+          note,
+          markOwed: form.get('status') === 'owed',
+        });
       }
       await logActivity(supabaseEnv, accessToken, actor, {
         action: intent === 'add-round-penalty' ? 'add' : 'edit',

@@ -98,7 +98,13 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
         // season still in progress, per Logan (same gate
         // aggregateDriverCareerStats' own championships count uses).
         if (s.classPosition === 1 && !s.season.is_current) {
-          awardEntries.push({ seasonNumber: s.season.number, seasonName: s.season.name, label: `${s.className} Champion`, detail: null, className: s.className });
+          awardEntries.push({
+            seasonNumber: s.season.number,
+            seasonName: s.season.name,
+            label: `${s.className} Champion`,
+            detail: null,
+            className: s.className,
+          });
         }
         if (s.teamPosition === 1 && !s.season.is_current) {
           awardEntries.push({
@@ -129,48 +135,108 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
       const seasonName = sa.season.name;
 
       if (sa.rookieOfTheSeason?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Rookie of the Season', detail: `${trimNum(sa.rookieOfTheSeason.value, 1)} pts` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Rookie of the Season',
+          detail: `${trimNum(sa.rookieOfTheSeason.value, 1)} pts`,
+        });
       }
       if (sa.sublimeFinesse?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Sublime Finesse', detail: `${trimNum(sa.sublimeFinesse.value, 1)} corners/incident` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Sublime Finesse',
+          detail: `${trimNum(sa.sublimeFinesse.value, 1)} corners/incident`,
+        });
       }
       if (sa.leader?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Leader', detail: `${trimNum(sa.leader.value, 0)} laps led` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Leader',
+          detail: `${trimNum(sa.leader.value, 0)} laps led`,
+        });
       }
       if (sa.ironman?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Ironman', detail: `${trimNum(sa.ironman.value, 1)} km` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Ironman',
+          detail: `${trimNum(sa.ironman.value, 1)} km`,
+        });
       }
       if (sa.consistency?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Consistency', detail: `${trimNum(sa.consistency.value, 2)} avg finish` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Consistency',
+          detail: `${trimNum(sa.consistency.value, 2)} avg finish`,
+        });
       }
       if (sa.bonusFeature?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Bonus Feature', detail: `${trimNum(sa.bonusFeature.value, 1)} bonus pts` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Bonus Feature',
+          detail: `${trimNum(sa.bonusFeature.value, 1)} bonus pts`,
+        });
       }
       if (sa.nakedAggression?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Naked Aggression', detail: `${signedNum(sa.nakedAggression.value)} net positions` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Naked Aggression',
+          detail: `${signedNum(sa.nakedAggression.value)} net positions`,
+        });
       }
       if (sa.speedDemon?.drivers.some((d) => d.id === driverId)) {
         const v = sa.speedDemon.value;
-        awardEntries.push({ seasonNumber, seasonName, label: 'Speed Demon', detail: `${v} fastest lap${v === 1 ? '' : 's'}` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Speed Demon',
+          detail: `${v} fastest lap${v === 1 ? '' : 's'}`,
+        });
       }
       if (sa.enduranceSpecialist?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Endurance Specialist', detail: `${trimNum(sa.enduranceSpecialist.value, 1)} pts` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Endurance Specialist',
+          detail: `${trimNum(sa.enduranceSpecialist.value, 1)} pts`,
+        });
       }
       if (sa.sprintSpecialist?.drivers.some((d) => d.id === driverId)) {
-        awardEntries.push({ seasonNumber, seasonName, label: 'Sprint Specialist', detail: `${trimNum(sa.sprintSpecialist.value, 1)} pts` });
+        awardEntries.push({
+          seasonNumber,
+          seasonName,
+          label: 'Sprint Specialist',
+          detail: `${trimNum(sa.sprintSpecialist.value, 1)} pts`,
+        });
       }
       for (const e of sa.dominator?.entries ?? []) {
         if (e.driver.id === driverId) {
           const marginText = `${(sa.dominator!.value / 10000).toFixed(3)}s`;
           const raceText = `${e.trackName}${e.raceNumber > 1 ? ` (Race ${e.raceNumber})` : ''}`;
-          awardEntries.push({ seasonNumber, seasonName, label: 'Dominator', detail: `${marginText} — ${raceText}` });
+          awardEntries.push({
+            seasonNumber,
+            seasonName,
+            label: 'Dominator',
+            detail: `${marginText} — ${raceText}`,
+          });
         }
       }
       for (const e of sa.defender?.entries ?? []) {
         if (e.driver.id === driverId) {
           const marginText = `${(sa.defender!.value / 10000).toFixed(3)}s`;
           const raceText = `${e.trackName}${e.raceNumber > 1 ? ` (Race ${e.raceNumber})` : ''}`;
-          awardEntries.push({ seasonNumber, seasonName, label: 'Defender', detail: `${marginText} — ${raceText}` });
+          awardEntries.push({
+            seasonNumber,
+            seasonName,
+            label: 'Defender',
+            detail: `${marginText} — ${raceText}`,
+          });
         }
       }
     }
@@ -186,7 +252,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
       });
     }
 
-    awardEntries.sort((a, b) => (b.seasonNumber - a.seasonNumber) || a.label.localeCompare(b.label));
+    awardEntries.sort((a, b) => b.seasonNumber - a.seasonNumber || a.label.localeCompare(b.label));
 
     // --- Related News, in its own try/catch so news can't break the rest of the page. A post counts if it
     // tags the driver (0082) or links a round they raced; checking recap contents would recompute every recap
@@ -197,13 +263,21 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
         getAllNewsPostDrivers(supabaseEnv),
         getAllNewsPostTags(supabaseEnv),
       ]);
-      const taggedPostIds = new Set(driverLinks.filter((l) => l.drivers?.id === driverId).map((l) => l.post_id));
+      const taggedPostIds = new Set(
+        driverLinks.filter((l) => l.drivers?.id === driverId).map((l) => l.post_id),
+      );
       const racedSubsessionIds = new Set(raceHistory.map((r) => r.subsessionId));
       relatedPosts = allPosts
-        .filter((p) => taggedPostIds.has(p.id) || (p.round_subsession_id !== null && racedSubsessionIds.has(p.round_subsession_id)))
+        .filter(
+          (p) =>
+            taggedPostIds.has(p.id) ||
+            (p.round_subsession_id !== null && racedSubsessionIds.has(p.round_subsession_id)),
+        )
         .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
       relatedLogoBySeasonLabel = new Map(
-        seasons.filter((s) => s.logo_url).map((s) => [s.name, { dark: s.logo_url!, light: s.logo_url_light }])
+        seasons
+          .filter((s) => s.logo_url)
+          .map((s) => [s.name, { dark: s.logo_url!, light: s.logo_url_light }]),
       );
       for (const link of tagLinks) {
         if (!link.news_tags) continue;

@@ -42,7 +42,9 @@ export function signedNum(n: number): string {
 /** Who actually got penalized on this incident — "RI" (Racing Incident) when nobody was at fault. Bolded/brighter when it's THIS profile's own driver (the common case, since most of a driver's own incidents are ones they were penalized on), dimmer when it's someone else and this driver is only tagged as involved. */
 export function incidentDriverLabel(row: IncidentRow): string {
   if (!row.driver) return 'RI';
-  return row.driver.car_number !== null ? `#${row.driver.car_number} ${shortDriverName(row.driver.name)}` : shortDriverName(row.driver.name);
+  return row.driver.car_number !== null
+    ? `#${row.driver.car_number} ${shortDriverName(row.driver.name)}`
+    : shortDriverName(row.driver.name);
 }
 
 // --- Splits: race history regrouped by Month, Round bucket and Car, with no extra fetch.
@@ -89,7 +91,7 @@ export function buildSplitRows(
   groups: Map<string, DriverRaceHistoryRow[]>,
   posFn: (r: DriverRaceHistoryRow) => number,
   qualPosFn: (r: DriverRaceHistoryRow) => number | null,
-  order?: string[]
+  order?: string[],
 ): SplitRow[] {
   const keys = order ? order.filter((k) => groups.has(k)) : [...groups.keys()];
   return keys.map((label) => {
@@ -117,7 +119,8 @@ export function buildSplitRows(
       podiums: scored.filter((r) => posFn(r) <= 3).length,
       top5s: scored.filter((r) => posFn(r) <= 5).length,
       avgFinish: scored.length > 0 ? (finishSum / scored.length).toFixed(1) : '—',
-      avgQualify: qualValues.length > 0 ? (qualValues.reduce((a, b) => a + b, 0) / qualValues.length).toFixed(1) : '—',
+      avgQualify:
+        qualValues.length > 0 ? (qualValues.reduce((a, b) => a + b, 0) / qualValues.length).toFixed(1) : '—',
       cpi: anyCornersResolved && totalIncidents > 0 ? (totalCorners / totalIncidents).toFixed(1) : '—',
       lapsLed: rows.reduce((sum, r) => sum + (r.lapsLed ?? 0), 0),
       points: rows.reduce((sum, r) => sum + r.totalPoints, 0),
@@ -126,8 +129,18 @@ export function buildSplitRows(
 }
 
 export const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 // Rounds without a display number (exhibition/test) can't be bucketed and are left out.
@@ -143,7 +156,7 @@ export function roundBucketLabel(n: number): string {
 export function buildUnorderedRows(
   groups: Map<string, DriverRaceHistoryRow[]>,
   posFn: (r: DriverRaceHistoryRow) => number,
-  qualPosFn: (r: DriverRaceHistoryRow) => number | null
+  qualPosFn: (r: DriverRaceHistoryRow) => number | null,
 ): SplitRow[] {
   return buildSplitRows(groups, posFn, qualPosFn).sort((a, b) => a.label.localeCompare(b.label));
 }

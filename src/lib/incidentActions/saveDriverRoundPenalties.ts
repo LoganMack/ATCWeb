@@ -36,7 +36,13 @@ export async function handleSaveDriverRoundPenalties(
         if (kind === 'other') continue;
         const logged = existing.filter((rp) => rp.kind === kind);
         if (wanted.has(kind) && logged.length === 0) {
-          await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind, note: null, created_by: actor.id });
+          await createRoundPenalty(supabaseEnv, accessToken, {
+            subsession_id: subsessionId,
+            driver_id: driverId,
+            kind,
+            note: null,
+            created_by: actor.id,
+          });
           changes++;
         } else if (!wanted.has(kind)) {
           for (const rp of logged) {
@@ -48,10 +54,21 @@ export async function handleSaveDriverRoundPenalties(
       // Only the first Other is edited here; any more stay in the Round Penalties table.
       const other = existing.find((rp) => rp.kind === 'other');
       if (otherNote && !other) {
-        await createRoundPenalty(supabaseEnv, accessToken, { subsession_id: subsessionId, driver_id: driverId, kind: 'other', note: otherNote, created_by: actor.id });
+        await createRoundPenalty(supabaseEnv, accessToken, {
+          subsession_id: subsessionId,
+          driver_id: driverId,
+          kind: 'other',
+          note: otherNote,
+          created_by: actor.id,
+        });
         changes++;
       } else if (otherNote && other && other.note !== otherNote) {
-        await updateRoundPenalty(supabaseEnv, accessToken, other.id, { driver_id: driverId, kind: 'other', note: otherNote, markOwed: false });
+        await updateRoundPenalty(supabaseEnv, accessToken, other.id, {
+          driver_id: driverId,
+          kind: 'other',
+          note: otherNote,
+          markOwed: false,
+        });
         changes++;
       } else if (!otherNote && other) {
         await deleteRoundPenalty(supabaseEnv, accessToken, other.id);

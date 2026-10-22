@@ -37,10 +37,11 @@ const MAPS = import.meta.glob('/scripts/module-maps/*.json', { import: 'default'
   string,
   { original: string; originalDeleted?: boolean } & Record<string, unknown>
 >;
-const TSCONFIG = import.meta.glob('/tsconfig.json', { query: '?raw', import: 'default', eager: true }) as Record<
-  string,
-  string
->;
+const TSCONFIG = import.meta.glob('/tsconfig.json', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
 
 const MOCKUPS = [
   'banner-texture-options-2.html',
@@ -186,7 +187,11 @@ describe('cleanup: the checks themselves', () => {
     expect(reachesOutsideSource('.claude/**/*')).toBe(true);
     expect(reachesOutsideSource('src/**/*')).toBe(false);
     expect(reachesOutsideSource('astro.config.mjs')).toBe(false);
-    const map = { original: 'src/lib/gone.ts', originalDeleted: true, modules: { a: 'src/lib/x.ts', b: 'src/lib/y.ts' } };
+    const map = {
+      original: 'src/lib/gone.ts',
+      originalDeleted: true,
+      modules: { a: 'src/lib/x.ts', b: 'src/lib/y.ts' },
+    };
     expect(missingMapPaths(map, ['/src/lib/x.ts'])).toEqual(['src/lib/y.ts']);
     expect(missingMapPaths({ ...map, originalDeleted: false }, ['/src/lib/x.ts', '/src/lib/y.ts'])).toEqual([
       'src/lib/gone.ts',

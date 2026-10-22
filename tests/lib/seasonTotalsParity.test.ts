@@ -109,9 +109,11 @@ describe('season totals parity', () => {
     let compared = 0;
     for (const classId of [null, ...inputs.classes.map((c) => c.id)]) {
       const full = standingsFor(classId, context);
-      const columns = computeSeasonStandingsRoundColumns(context.seasonRounds, poolFor(classId, context), new Map()).map(
-        (c) => c.subsessionId,
-      );
+      const columns = computeSeasonStandingsRoundColumns(
+        context.seasonRounds,
+        poolFor(classId, context),
+        new Map(),
+      ).map((c) => c.subsessionId);
       for (let n = 1; n <= columns.length; n++) {
         expect(pageAsOf(full, columns, n, drops, canDropFinal), `class ${classId}, round ${n}`).toEqual(
           serverAsOf(full, columns, n, drops, canDropFinal),

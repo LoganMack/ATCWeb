@@ -414,7 +414,9 @@ export function compareMove({ original, after, modules, config }) {
         .map((s) => ({ s, fn: closureFunction(s, w.source.name) }))
         .filter((c) => c.fn);
       if (found.length !== 1) {
-        differences.push(`${label}: ${found.length} \`const ${w.source.name} = (…) => { … }\` in ${original.path}`);
+        differences.push(
+          `${label}: ${found.length} \`const ${w.source.name} = (…) => { … }\` in ${original.path}`,
+        );
         continue;
       }
       body = [...found[0].fn.body.statements];
@@ -870,8 +872,16 @@ const HANDLERS_CONFIG = {
   ],
   wrappers: [
     { name: 'back', module: 'lib/actions/shared.ts', source: { type: 'closure', name: 'back' } },
-    { name: 'handleOne', module: 'lib/actions/one.ts', source: { type: 'if', condition: "intent === 'one'" } },
-    { name: 'handleTwo', module: 'lib/actions/two.ts', source: { type: 'if', condition: "intent === 'two'" } },
+    {
+      name: 'handleOne',
+      module: 'lib/actions/one.ts',
+      source: { type: 'if', condition: "intent === 'one'" },
+    },
+    {
+      name: 'handleTwo',
+      module: 'lib/actions/two.ts',
+      source: { type: 'if', condition: "intent === 'two'" },
+    },
   ],
   listedRemovals: [],
   listedAdditions: ['const handler = HANDLERS.get(intent)', 'if (handler) return toResponse('],

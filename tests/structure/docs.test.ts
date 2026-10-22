@@ -11,7 +11,9 @@ const raw = (files: Record<string, unknown>) => files as Record<string, string>;
 const SRC = raw(
   import.meta.glob('/src/**/*.{astro,ts,js,mjs,css}', { query: '?raw', import: 'default', eager: true }),
 );
-const SCRIPTS = raw(import.meta.glob('/scripts/**/*.{mjs,ts}', { query: '?raw', import: 'default', eager: true }));
+const SCRIPTS = raw(
+  import.meta.glob('/scripts/**/*.{mjs,ts}', { query: '?raw', import: 'default', eager: true }),
+);
 const DOCS = raw(
   import.meta.glob(['/README.md', '/docs/**/*.md'], { query: '?raw', import: 'default', eager: true }),
 );
@@ -100,7 +102,8 @@ describe('docs and comments (FR10)', () => {
   });
 
   it(`keeps every comment block in src/ to ${MAX_COMMENT_LINES} lines, outside the allowlist (FR10.4)`, () => {
-    const allowed = (path: string) => Object.keys(LONG_COMMENT_ALLOWLIST).some((prefix) => path.startsWith(prefix));
+    const allowed = (path: string) =>
+      Object.keys(LONG_COMMENT_ALLOWLIST).some((prefix) => path.startsWith(prefix));
     const long = Object.entries(SRC)
       .filter(([path]) => !allowed(path))
       .flatMap(([path, text]) =>
@@ -111,7 +114,10 @@ describe('docs and comments (FR10)', () => {
     expect(long).toEqual([]);
     for (const [prefix, reason] of Object.entries(LONG_COMMENT_ALLOWLIST)) {
       expect(reason.length, prefix).toBeGreaterThan(10);
-      expect(Object.keys(SRC).some((path) => path.startsWith(prefix)), `${prefix} still exists`).toBe(true);
+      expect(
+        Object.keys(SRC).some((path) => path.startsWith(prefix)),
+        `${prefix} still exists`,
+      ).toBe(true);
     }
   });
 
@@ -132,7 +138,9 @@ describe('docs and comments (FR10)', () => {
     const tsTrimmed = `export const a = 1;\nconst s = '// not a comment'; // why\nconst t = \`/* nor */\`;\n`;
     expect(firstDifference(stripComments('a.ts', ts), stripComments('a.ts', tsTrimmed))).toBeNull();
     expect(stripComments('a.ts', ts)).toContain("code:'// not a comment'");
-    expect(firstDifference(stripComments('a.ts', ts), stripComments('a.ts', ts.replace('= 1', '= 2')))).not.toBeNull();
+    expect(
+      firstDifference(stripComments('a.ts', ts), stripComments('a.ts', ts.replace('= 1', '= 2'))),
+    ).not.toBeNull();
 
     const astro = [
       '---',
@@ -157,11 +165,18 @@ describe('docs and comments (FR10)', () => {
     );
     expect(firstDifference(stripComments('p.astro', astro), stripComments('p.astro', bare))).toBeNull();
     expect(stripComments('p.astro', astro)).toContain('markup:href="https://example.com">{i}</a>');
-    expect(firstDifference(stripComments('p.astro', astro), stripComments('p.astro', astro.replace('red', 'blue')))).not.toBeNull();
+    expect(
+      firstDifference(
+        stripComments('p.astro', astro),
+        stripComments('p.astro', astro.replace('red', 'blue')),
+      ),
+    ).not.toBeNull();
   });
 
   it('counts a run of // lines as one block and separate comments as separate blocks', () => {
-    const text = ['// one', '// two', '// three', 'const a = 1;', '', '/*', ' * four', ' */', '// five'].join('\n');
+    const text = ['// one', '// two', '// three', 'const a = 1;', '', '/*', ' * four', ' */', '// five'].join(
+      '\n',
+    );
     expect(commentBlocks('b.ts', text).map((b) => [b.startLine, b.lines])).toEqual([
       [1, 3],
       [6, 3],

@@ -118,8 +118,7 @@ export async function recalculateSeasonScores(
     headers: writeHeaders(env, accessToken),
     body: JSON.stringify({ p_season_id: seasonId }),
   });
-  if (!res.ok)
-    throw new Error(`Supabase RPC error ${res.status} on rescore_season: ${await res.text()}`);
+  if (!res.ok) throw new Error(`Supabase RPC error ${res.status} on rescore_season: ${await res.text()}`);
   return res.json() as Promise<SeasonRecalcResult[]>;
 }
 

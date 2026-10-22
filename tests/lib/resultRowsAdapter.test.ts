@@ -89,9 +89,9 @@ describe('toScoreRow', () => {
 
   it('counts the overall total for Alpha and the class total for Gamma and Delta', () => {
     const row = toScoreRow(viewRow());
-    expect(['Alpha', 'Gamma', 'Delta', undefined].map((c) => seasonPointsOf(row, rankedByClassTotal(c)))).toEqual([
-      80, 83, 83, 80,
-    ]);
+    expect(
+      ['Alpha', 'Gamma', 'Delta', undefined].map((c) => seasonPointsOf(row, rankedByClassTotal(c))),
+    ).toEqual([80, 83, 83, 80]);
   });
 
   it('carries the raw set as shown: no deduction, not penalised, raw positions', () => {
@@ -106,7 +106,13 @@ describe('toScoreRow', () => {
         shown_penalised: false,
       }),
     );
-    expect(row).toMatchObject({ set: 'raw', position: 4, raw_position: 4, points_deduction: 0, penalised: false });
+    expect(row).toMatchObject({
+      set: 'raw',
+      position: 4,
+      raw_position: 4,
+      points_deduction: 0,
+      penalised: false,
+    });
     expect(seasonPointsOf(row, true)).toBe(96);
   });
 
