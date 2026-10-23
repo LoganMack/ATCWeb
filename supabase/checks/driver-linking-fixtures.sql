@@ -282,7 +282,7 @@ begin
   v_inactive := driver_link_fixture.error_code($q$select public.submit_driver_request('Dee Driver', 30, 222)$q$);
   reset role;
   perform driver_link_fixture.expect('L08 row shape',
-    (select format('%s %s %s %s %s %s', source, status, name, requested_numbers, iracing_cust_id, discord_user_id is null)
+    (select format('%s %s %s %s %s %s', source, status, name, requested_numbers, iracing_cust_id, (discord_user_id is null)::text)
      from public.signup_requests where id = v_id),
     'website pending Nico Newman {55} 123456 true');
   perform driver_link_fixture.expect('L08 pending state', v_state -> 'request' ->> 'status', 'pending');
