@@ -104,26 +104,25 @@ export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
 }
 
 /**
- * The number of rows `path` matches, from a HEAD request with an exact count: no rows are transferred.
- * Throws when the response carries no total, rather than guessing.
+ * Calls a read-only database function (POST /rest/v1/rpc/<name>) as the env's reader and returns its JSON.
+ * Only for functions that return no hidden data; throws on any error status.
  */
-export async function restCount(env: SupabaseEnv, path: string): Promise<number> {
+export async function restRpc<T>(env: SupabaseEnv, name: string, args: Record<string, unknown>): Promise<T> {
   if (!env.url || !env.anonKey) {
     throw new Error(
       'Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).',
     );
   }
   countSubrequest(env);
-  const res = await fetch(`${env.url}/rest/v1/${withHiddenRounds(env, path)}`, {
-    method: 'HEAD',
-    headers: { ...restHeaders(env), Prefer: 'count=exact' },
+  const res = await fetch(`${env.url}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: { ...restHeaders(env), 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
   });
-  if (!res.ok && res.status !== 206) {
-    throw new Error(`Supabase REST error ${res.status} on HEAD ${path}`);
+  if (!res.ok) {
+    throw new Error(`Supabase RPC error ${res.status} on ${name}: ${await res.text()}`);
   }
-  const total = /\/(\d+)$/.exec(res.headers.get('Content-Range') ?? '');
-  if (!total) throw new Error(`Supabase REST HEAD ${path} returned no row count`);
-  return Number(total[1]);
+  return res.json() as Promise<T>;
 }
 
 /**

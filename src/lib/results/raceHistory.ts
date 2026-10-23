@@ -91,12 +91,18 @@ export interface DriverRaceHistoryRow {
 export async function getDriverRaceHistory(
   env: SupabaseEnv,
   driverId: string,
+  /** The driver's iRacing customer id when the caller already read it, which saves a sequential read. */
+  knownCustId?: number | null,
 ): Promise<DriverRaceHistoryRow[]> {
-  const driverRows = await restGet<{ id: string; iracing_cust_id: number | null }[]>(
-    env,
-    `drivers?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`,
-  );
-  const custId = driverRows[0]?.iracing_cust_id ?? null;
+  const custId =
+    knownCustId !== undefined
+      ? knownCustId
+      : ((
+          await restGet<{ id: string; iracing_cust_id: number | null }[]>(
+            env,
+            `drivers?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`,
+          )
+        )[0]?.iracing_cust_id ?? null);
   // No cust_id on file means this driver can never have a curated_race_results
   // row to join against (that table only knows cust_id, not driver_id) —
   // nothing to show rather than a crash.

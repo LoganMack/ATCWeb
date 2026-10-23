@@ -15,7 +15,9 @@ import { buildDriverPageGroups } from '../../../lib/driverPage/groups';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
-const { loadError, awardEntries, isHallOfFame } = await loadDriverAwards(supabaseEnv, driverId);
+const { notFound, loadError, awardEntries, isHallOfFame } = await loadDriverAwards(supabaseEnv, driverId);
+// Not a UUID, or no such driver: answered before the awards history is read, and never cached.
+if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 const { awardGroups } = buildDriverPageGroups([], awardEntries);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=600, stale-while-revalidate=3600');

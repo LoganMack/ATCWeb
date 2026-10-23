@@ -3,6 +3,7 @@ import { getStandingsExcludedRoundIds } from '../db/rounds';
 import { getCarLogos, type CarLogo } from '../db/assets';
 import { getScoringRulesets, type ScoringRuleset, type Season } from '../db/seasons';
 import type { Lookup } from '../db/lookups';
+import type { SeasonStatsStatus } from '../db/roundStats';
 import {
   displayDriverName,
   getCircuits,
@@ -34,6 +35,7 @@ import {
   carTeamStatsFromRounds,
   classStandingsFromRounds,
   extendedStatsFromRounds,
+  driverCareerSeasons,
   loadStoredSeasons,
   overallStandingsFromRounds,
   teamStandingsFromRounds,
@@ -369,13 +371,17 @@ async function careerSeasonRows(
   classes: Lookup[],
   exhibitionIds: Set<number>,
   refs: CareerRefs,
+  status?: Map<string, SeasonStatsStatus>,
 ): Promise<Map<string, DriverCareerSeasonRow[]>> {
   // A career row needs the overall and Delta team positions, and no penalty points.
   const deltaClass = classes.find((c) => c.name === 'Delta');
-  const load = await loadStoredSeasons(env, seasons, exhibitionIds, {
-    teamCompetitions: ['overall', ...(deltaClass ? [String(deltaClass.id)] : [])],
-    penaltyPoints: false,
-  });
+  const load = await loadStoredSeasons(
+    env,
+    seasons,
+    exhibitionIds,
+    { teamCompetitions: ['overall', ...(deltaClass ? [String(deltaClass.id)] : [])], penaltyPoints: false },
+    status,
+  );
   const views: SeasonViews[] = [];
   for (const season of seasons) {
     const stats = load.stats.get(season.id);
@@ -432,9 +438,9 @@ export async function computeDriverCareerStats(
 }
 
 /**
- * One driver's career for their profile (BR1.1): only the seasons they have stored rows in, read with every
- * driver of those seasons so positions rank as on the standings pages. `driverSeasonIds` null (their stored
- * rows can't be trusted) uses every championship season, as the live path did.
+ * One driver's career for their profile (BR1.1): the seasons they have stored rows in, plus any season
+ * whose stored rows are not current (driverCareerSeasons), read with every driver of those seasons so
+ * positions rank as on the standings pages.
  */
 export async function computeDriverCareer(
   env: SupabaseEnv,
@@ -443,12 +449,12 @@ export async function computeDriverCareer(
   classes: Lookup[],
   exhibitionIds: Set<number>,
   refs: CareerRefs,
-  driverSeasonIds: Set<string> | null,
 ): Promise<DriverCareerStats | null> {
-  const targetSeasons = seasons.filter(
-    (s) => isChampionshipSeason(s.name) && (driverSeasonIds === null || driverSeasonIds.has(s.id)),
-  );
-  const seasonRows = (await careerSeasonRows(env, targetSeasons, classes, exhibitionIds, refs)).get(driverId);
+  const championship = seasons.filter((s) => isChampionshipSeason(s.name));
+  const target = await driverCareerSeasons(env, driverId, championship);
+  const seasonRows = (
+    await careerSeasonRows(env, target.seasons, classes, exhibitionIds, refs, target.status ?? undefined)
+  ).get(driverId);
   const driver = refs.drivers.find((d) => d.id === driverId);
   if (!driver || !seasonRows) return null;
   seasonRows.sort((a, b) => b.season.number - a.season.number);

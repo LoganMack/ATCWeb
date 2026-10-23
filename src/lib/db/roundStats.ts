@@ -1,10 +1,11 @@
 /**
  * Reads of the stored per-round stats (round_driver_stats, round_team_stats, round_penalty_points), which the
  * database refreshes (migration 20261026120000). Every read goes through restGet/restGetAll, so broadcaster
- * mode hides its round here too (BR2.4). The completeness check decides when a season must fall back to the
- * live path: the stored starts must add up to the season's score rows.
+ * mode hides its round here too (BR2.4). round_stats_status says per season whether the stored rows are
+ * current; a season that is not falls back to the live path.
  */
-import { restCount, restGetAll, type SupabaseEnv } from './client';
+import { restGetAll, restRpc, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 /** One driver's numbers for one round, as a signed-out visitor sees them. */
 export interface RoundDriverStatsRow {
@@ -116,68 +117,43 @@ export async function getRoundStatsForSeasons(
   return { driverRows, teamRows, penaltyRows };
 }
 
-/** One driver's stored rounds: only the season and the starts, to find their seasons and check them. */
-export interface DriverStoredRound {
-  season_id: string;
-  starts: number;
-}
-
-export function getDriverStoredRounds(env: SupabaseEnv, driverId: string) {
-  return restGetAll<DriverStoredRound>(
+/** The seasons one driver has stored rows in (season ids only). */
+export async function getDriverStoredSeasonIds(env: SupabaseEnv, driverId: string): Promise<Set<string>> {
+  const rows = await restGetAll<{ season_id: string }>(
     env,
-    `round_driver_stats?select=season_id,starts&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc`,
+    `round_driver_stats?select=season_id&driver_id=eq.${encodeURIComponent(driverId)}&order=subsession_id.asc`,
   );
+  return new Set(rows.map((r) => r.season_id));
 }
 
-/** How many race_score_results_public rows these seasons have (a HEAD count, no rows transferred). */
-export function countSeasonScoreRows(env: SupabaseEnv, seasonIds: string[]): Promise<number> {
-  if (seasonIds.length === 0) return Promise.resolve(0);
-  return restCount(env, `race_score_results_public?select=subsession_id&${seasonFilter(seasonIds)}`);
-}
-
-/** How many race_score_results_public rows one driver has, every season. */
-export function countDriverScoreRows(env: SupabaseEnv, driverId: string): Promise<number> {
-  return restCount(
-    env,
-    `race_score_results_public?select=subsession_id&driver_id=eq.${encodeURIComponent(driverId)}`,
-  );
-}
-
-/** Season id -> the sum of `starts` over its stored driver rows: one score row per start. */
-export function storedStartsBySeason(
-  rows: Pick<RoundDriverStatsRow, 'season_id' | 'starts'>[],
-): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const r of rows) out.set(r.season_id, (out.get(r.season_id) ?? 0) + r.starts);
-  return out;
+/** Whether one season's stored rows are current; `reason` is the database's first reason when not. */
+export interface SeasonStatsStatus {
+  current: boolean;
+  reason: string | null;
 }
 
 /**
- * The seasons whose stored rows don't account for every score row: before the backfill, after a round's
- * refresh failed and removed it, or with the kill switch off while scores changed. One HEAD count covers
- * every season; only a mismatch costs one more count per season, to say which. Each one is logged.
+ * round_stats_status for these seasons in one call, memoised per request. A season the database leaves
+ * out of its answer counts as not current. The function is per season, so in broadcaster mode the hidden
+ * round's freshness doesn't matter: its rows are filtered out of every read anyway.
  */
-export async function findIncompleteSeasons(
+export function getRoundStatsStatus(
   env: SupabaseEnv,
-  seasons: { id: string; name: string }[],
-  storedStarts: Map<string, number>,
-  /** The total count, when the caller already started it alongside the row reads. */
-  totalCount?: Promise<number>,
-): Promise<Set<string>> {
-  if (seasons.length === 0) return new Set();
-  const ids = seasons.map((s) => s.id);
-  const storedTotal = ids.reduce((sum, id) => sum + (storedStarts.get(id) ?? 0), 0);
-  const total = await (totalCount ?? countSeasonScoreRows(env, ids));
-  if (total === storedTotal) return new Set();
-  const counts = await Promise.all(seasons.map((s) => countSeasonScoreRows(env, [s.id])));
-  const incomplete = new Set<string>();
-  seasons.forEach((s, i) => {
-    if (counts[i] !== (storedStarts.get(s.id) ?? 0)) {
-      incomplete.add(s.id);
-      console.warn(
-        `round stats incomplete: season ${s.name} (${storedStarts.get(s.id) ?? 0} of ${counts[i]} starts stored)`,
-      );
-    }
+  seasonIds: string[],
+): Promise<Map<string, SeasonStatsStatus>> {
+  const ids = [...new Set(seasonIds)].sort();
+  if (ids.length === 0) return Promise.resolve(new Map());
+  return memoized(env, 'getRoundStatsStatus', [ids], async () => {
+    const rows = await restRpc<{ season_id: string; current: boolean; reason: string | null }[]>(
+      env,
+      'round_stats_status',
+      { p_season_ids: ids },
+    );
+    const bySeason = new Map(
+      rows.map((r) => [r.season_id, { current: r.current === true, reason: r.reason }]),
+    );
+    return new Map(
+      ids.map((id) => [id, bySeason.get(id) ?? { current: false, reason: 'no status returned' }] as const),
+    );
   });
-  return incomplete;
 }

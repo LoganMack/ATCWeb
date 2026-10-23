@@ -239,7 +239,9 @@ if (Number.isFinite(subsessionId)) {
       getReportingPeriodHours(supabaseEnv),
       getCircuits(supabaseEnv).catch(optional("circuits for this round's layout", [] as Circuit[])),
       getAllCircuitLayouts(supabaseEnv).catch(optional("layouts for this round's layout", [] as CircuitLayout[])),
-      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
+      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]).catch(
+        optional("this round's layout name", new Map<number, string | null>())
+      ),
     ]);
     penalties = roundResults.penalties;
   } catch (err) {

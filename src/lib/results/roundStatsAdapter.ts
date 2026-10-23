@@ -11,13 +11,11 @@ import type { Lookup } from '../db/lookups';
 import type { Penalty } from '../db/penalties';
 import { resolveSeasonRuleset, type ScoringRuleset, type Season } from '../db/seasons';
 import {
-  countDriverScoreRows,
-  countSeasonScoreRows,
-  findIncompleteSeasons,
-  getDriverStoredRounds,
+  getDriverStoredSeasonIds,
   getRoundStatsForSeasons,
-  storedStartsBySeason,
+  getRoundStatsStatus,
   type RoundStatsParts,
+  type SeasonStatsStatus,
   type RoundDriverStatsRow,
   type RoundPenaltyPointsRow,
   type RoundTeamStatsRow,
@@ -566,16 +564,17 @@ export function seasonDenominators(
 // ---------------------------------------------------------------------------------------------------------
 
 export interface StoredSeasonsLoad {
-  /** Seasons whose stored rows account for every score row, ready for the builders above. */
+  /** Seasons whose stored rows the database reports current, ready for the builders above. */
   stats: Map<string, SeasonRoundStats>;
   /** Seasons this render computes on the live path instead. */
   live: Season[];
 }
 
 /**
- * Reads these seasons' stored rows, their rounds and their score-row count in one parallel stage. A season
- * whose stored starts don't add up to its score rows, or any read failure (the tables missing before the
- * migration), sends it to the live path for this render, logged, so pages never show stale numbers.
+ * Reads these seasons' stored rows and rounds and asks round_stats_status (one call for every season) in
+ * one parallel stage. A season that is not current is logged with the database's reason and computed on
+ * the live path for this render; a failed status call or read sends every season there, so pages never
+ * show stale numbers. `status` reuses an answer the caller already has for these seasons.
  */
 export async function loadStoredSeasons(
   env: SupabaseEnv,
@@ -583,56 +582,63 @@ export async function loadStoredSeasons(
   excludedIds: Set<number>,
   /** The team competitions and penalty points the page shows; everything when omitted. */
   parts: RoundStatsParts = {},
+  status?: Map<string, SeasonStatsStatus>,
 ): Promise<StoredSeasonsLoad> {
   if (seasons.length === 0) return { stats: new Map(), live: [] };
   const ids = seasons.map((s) => s.id);
   try {
-    const total = countSeasonScoreRows(env, ids);
-    // Awaited below; this only stops an early failure elsewhere leaving it unhandled.
-    total.catch(() => undefined);
-    const [stored, rounds] = await Promise.all([
+    const [statusBySeason, stored, rounds] = await Promise.all([
+      status ? Promise.resolve(status) : getRoundStatsStatus(env, ids),
       getRoundStatsForSeasons(env, ids, parts),
       getRoundsWithLayoutsForSeasons(env, ids),
     ]);
-    const incomplete = await findIncompleteSeasons(
-      env,
-      seasons,
-      storedStartsBySeason(stored.driverRows),
-      total,
-    );
     const stats = new Map<string, SeasonRoundStats>();
+    const live: Season[] = [];
     for (const season of seasons) {
-      if (!incomplete.has(season.id))
+      const s = statusBySeason.get(season.id);
+      if (s?.current) {
         stats.set(season.id, seasonRoundStatsFrom(season, rounds, excludedIds, stored));
+      } else {
+        console.warn(`round stats incomplete: season ${season.name} (${s?.reason ?? 'no status'})`);
+        live.push(season);
+      }
     }
-    return { stats, live: seasons.filter((s) => incomplete.has(s.id)) };
+    return { stats, live };
   } catch (err) {
-    console.error('Failed to read the stored round stats; this render uses the live path:', err);
+    console.error(
+      'Failed to read the stored round stats or their status; this render uses the live path:',
+      err,
+    );
     return { stats: new Map(), live: seasons };
   }
 }
 
 /**
- * The seasons one driver has stored rows in, or null when they can't be trusted: their stored starts must
- * equal their score rows, or the read failed. Null sends the profile to every championship season.
+ * The seasons a driver profile computes (BR1.1): those the driver has stored rows in, plus every season
+ * the database reports not current, where the stored rows can't say whether the driver raced (before the
+ * backfill, that is every season, so a profile is never empty). A failed read returns every season. The
+ * status answer is returned for loadStoredSeasons to reuse.
  */
-export async function loadDriverStoredSeasonIds(
+export async function driverCareerSeasons(
   env: SupabaseEnv,
   driverId: string,
-): Promise<Set<string> | null> {
+  seasons: Season[],
+): Promise<{ seasons: Season[]; status: Map<string, SeasonStatsStatus> | null }> {
+  if (seasons.length === 0) return { seasons, status: null };
   try {
-    const [rows, count] = await Promise.all([
-      getDriverStoredRounds(env, driverId),
-      countDriverScoreRows(env, driverId),
+    const [storedSeasonIds, status] = await Promise.all([
+      getDriverStoredSeasonIds(env, driverId),
+      getRoundStatsStatus(
+        env,
+        seasons.map((s) => s.id),
+      ),
     ]);
-    const stored = rows.reduce((sum, r) => sum + r.starts, 0);
-    if (stored !== count) {
-      console.warn(`round stats incomplete: driver ${driverId} (${stored} of ${count} starts stored)`);
-      return null;
-    }
-    return new Set(rows.map((r) => r.season_id));
+    return {
+      seasons: seasons.filter((s) => storedSeasonIds.has(s.id) || status.get(s.id)?.current !== true),
+      status,
+    };
   } catch (err) {
     console.error("Failed to read the driver's stored seasons; using every championship season:", err);
-    return null;
+    return { seasons, status: null };
   }
 }

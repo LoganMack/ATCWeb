@@ -1,20 +1,17 @@
 /**
  * The stored-stats loaders (BR2.4, BR4.1) and the trimmed round picker (BR3.1 as decided): broadcaster
- * mode filters the hidden round out of every stored read and count, the completeness check finds the
- * season whose stored starts fall short of its score rows, and the picker reads only its own columns.
+ * mode filters the hidden round out of every stored read, round_stats_status decides per season between
+ * the stored rows and the live path (one call, memoised), a failed call or read sends every season live,
+ * a driver profile is never empty before the backfill, and the picker reads only its own columns.
  * The shared fetch helper is stubbed; no network is used.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import type { SupabaseEnv } from '../../src/lib/db/client';
-import {
-  countSeasonScoreRows,
-  findIncompleteSeasons,
-  getRoundStatsForSeasons,
-  storedStartsBySeason,
-} from '../../src/lib/db/roundStats';
+import { getRoundStatsForSeasons, getRoundStatsStatus } from '../../src/lib/db/roundStats';
 import { getPenaltiesForDriver } from '../../src/lib/db/penalties';
 import { PICKER_ROUND_SELECT, getRoundPickerRounds } from '../../src/lib/results/rounds';
-import { loadDriverStoredSeasonIds, loadStoredSeasons } from '../../src/lib/results/roundStatsAdapter';
+import { driverCareerSeasons, loadStoredSeasons } from '../../src/lib/results/roundStatsAdapter';
+import { RequestMemo } from '../../src/lib/requestMemo';
 import type { Season } from '../../src/lib/db/seasons';
 
 const blocked = globalThis.fetch;
@@ -25,47 +22,63 @@ afterEach(() => {
 interface Call {
   url: string;
   method: string;
+  body: unknown;
 }
 
+type StatusRow = { season_id: string; current: boolean; reason: string | null };
+
 /**
- * Stubs fetch: `answer` returns the JSON body for a GET (or throws), and `counts` the Content-Range total
- * for a HEAD, both by URL.
+ * Stubs fetch: `answer` gives a GET's JSON body by URL, `rpc` the round_stats_status rows for the season
+ * ids it is called with (or throws, for a failed call).
  */
-function stubFetch(answer: (url: string) => unknown, counts: (url: string) => number = () => 0) {
+function stubFetch(answer: (url: string) => unknown, rpc: (ids: string[]) => StatusRow[] = () => []) {
   const calls: Call[] = [];
   globalThis.fetch = (async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
-    calls.push({ url: decodeURIComponent(String(url)), method });
-    if (method === 'HEAD') {
-      return new Response(null, { status: 200, headers: { 'Content-Range': `0-0/${counts(String(url))}` } });
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    calls.push({ url: decodeURIComponent(String(url)), method, body });
+    if (String(url).includes('/rest/v1/rpc/round_stats_status')) {
+      try {
+        return new Response(JSON.stringify(rpc(body.p_season_ids)), { status: 200 });
+      } catch {
+        return new Response('{"message":"boom"}', { status: 500 });
+      }
     }
     return new Response(JSON.stringify(answer(String(url))), { status: 200 });
   }) as unknown as typeof fetch;
   return calls;
 }
 
-const env = (hiddenSubsessionIds?: number[]): SupabaseEnv => ({
+const env = (hiddenSubsessionIds?: number[], memo?: RequestMemo): SupabaseEnv => ({
   url: 'https://example.invalid',
   anonKey: 'anon',
   hiddenSubsessionIds,
+  memo,
 });
 
 const season = (id: string, name: string): Season => ({ id, name, number: Number(name.slice(3)) }) as Season;
 
+/** Captures console.warn and console.error lines while `run` runs. */
+async function logs<T>(run: () => Promise<T>): Promise<{ result: T; lines: string[] }> {
+  const { warn, error } = console;
+  const lines: string[] = [];
+  console.warn = (...args: unknown[]) => lines.push(args.map(String).join(' '));
+  console.error = (...args: unknown[]) => lines.push(args.map(String).join(' '));
+  try {
+    return { result: await run(), lines };
+  } finally {
+    console.warn = warn;
+    console.error = error;
+  }
+}
+
 describe('stored round stats loaders', () => {
-  it('filters the hidden round out of every stored read and the score count', async () => {
+  it('filters the hidden round out of every stored read, and reads only the parts a page shows', async () => {
     const calls = stubFetch(() => []);
     await getRoundStatsForSeasons(env([71031341]), ['s1']);
-    await countSeasonScoreRows(env([71031341]), ['s1']);
     const tables = calls.map((c) => c.url.split('/rest/v1/')[1].split('?')[0]).sort();
-    expect(tables).toEqual([
-      'race_score_results_public',
-      'round_driver_stats',
-      'round_penalty_points',
-      'round_team_stats',
-    ]);
+    expect(tables).toEqual(['round_driver_stats', 'round_penalty_points', 'round_team_stats']);
     for (const c of calls) expect(c.url).toContain('subsession_id=not.in.(71031341)');
-    expect(calls.find((c) => c.url.includes('race_score_results_public'))!.method).toBe('HEAD');
 
     // Nothing hidden: no filter, and an empty season list costs no request at all.
     const plain = stubFetch(() => []);
@@ -74,7 +87,6 @@ describe('stored round stats loaders', () => {
     await getRoundStatsForSeasons(env(), []);
     expect(plain).toHaveLength(3);
 
-    // A page reads only the team competitions and penalty points it shows.
     const trimmed = stubFetch(() => []);
     await getRoundStatsForSeasons(env(), ['s1'], {
       teamCompetitions: ['overall', '3'],
@@ -92,63 +104,102 @@ describe('stored round stats loaders', () => {
     expect(driversOnly).toHaveLength(1);
   });
 
-  it('finds the season whose stored rows miss a round, and only then counts per season', async () => {
-    const seasons = [season('s16', 'ATC16'), season('s17', 'ATC17')];
-    const stored = storedStartsBySeason([
-      { season_id: 's16', starts: 120 },
-      { season_id: 's17', starts: 100 },
-      { season_id: 's17', starts: 20 },
+  it('asks round_stats_status once for every season: current is stored, not current is live with its reason', async () => {
+    const seasons = [season('s16', 'ATC16'), season('s17', 'ATC17'), season('s18', 'ATC18')];
+    const calls = stubFetch(
+      () => [],
+      (ids) =>
+        ids.map((id) =>
+          id === 's17'
+            ? { season_id: id, current: false, reason: 'Stored stats are older than the scores' }
+            : id === 's18'
+              ? { season_id: id, current: false, reason: 'No such season' }
+              : { season_id: id, current: true, reason: null },
+        ),
+    );
+    const { result: load, lines } = await logs(() => loadStoredSeasons(env(), seasons, new Set()));
+    expect([...load.stats.keys()]).toEqual(['s16']);
+    expect(load.live.map((s) => s.id)).toEqual(['s17', 's18']);
+    expect(lines).toEqual([
+      'round stats incomplete: season ATC17 (Stored stats are older than the scores)',
+      'round stats incomplete: season ATC18 (No such season)',
     ]);
-    // ATC17 has 160 score rows but only 120 stored starts: one round is missing.
-    const score: Record<string, number> = { s16: 120, s17: 160 };
-    const count = (url: string) => {
-      const ids = /season_id=in\.\(([^)]*)\)/.exec(decodeURIComponent(url))![1].split(',');
-      return ids.reduce((sum, id) => sum + score[id], 0);
-    };
-    const warn = console.warn;
-    const warned: string[] = [];
-    console.warn = (msg: string) => warned.push(msg);
-    try {
-      const calls = stubFetch(() => [], count);
-      expect([...(await findIncompleteSeasons(env(), seasons, stored))]).toEqual(['s17']);
-      expect(calls.filter((c) => c.method === 'HEAD')).toHaveLength(3);
-      expect(warned).toEqual(['round stats incomplete: season ATC17 (120 of 160 starts stored)']);
+    const rpcCalls = calls.filter((c) => c.url.includes('/rpc/'));
+    expect(rpcCalls).toHaveLength(1);
+    expect(rpcCalls[0].method).toBe('POST');
+    expect(rpcCalls[0].body).toEqual({ p_season_ids: ['s16', 's17', 's18'] });
 
-      // Complete: the one total count is all it costs.
-      score.s17 = 120;
-      const ok = stubFetch(() => [], count);
-      expect([...(await findIncompleteSeasons(env(), seasons, stored))]).toEqual([]);
-      expect(ok).toHaveLength(1);
-    } finally {
-      console.warn = warn;
-    }
+    // A season the answer leaves out is not current; one request's repeated ask is memoised.
+    const memoEnv = env(undefined, new RequestMemo());
+    const memoCalls = stubFetch(
+      () => [],
+      () => [{ season_id: 's16', current: true, reason: null }],
+    );
+    const status = await getRoundStatsStatus(memoEnv, ['s17', 's16', 's16']);
+    expect(status.get('s16')).toEqual({ current: true, reason: null });
+    expect(status.get('s17')?.current).toBe(false);
+    await getRoundStatsStatus(memoEnv, ['s16', 's17']);
+    expect(memoCalls.filter((c) => c.url.includes('/rpc/'))).toHaveLength(1);
   });
 
-  it('sends every season to the live path when the stored tables cannot be read', async () => {
-    const error = console.error;
-    console.error = () => undefined;
-    try {
-      globalThis.fetch = (async () =>
-        new Response('{"code":"PGRST205"}', { status: 404 })) as unknown as typeof fetch;
-      const seasons = [season('s17', 'ATC17')];
-      const load = await loadStoredSeasons(env(), seasons, new Set());
-      expect(load.stats.size).toBe(0);
-      expect(load.live).toEqual(seasons);
-      // A driver whose stored starts can't be read or don't match is not trusted.
-      expect(await loadDriverStoredSeasonIds(env(), 'd1')).toBeNull();
-      stubFetch(
-        () => [{ season_id: 's17', starts: 3 }],
-        () => 4,
-      );
-      expect(await loadDriverStoredSeasonIds(env(), 'd1')).toBeNull();
-      stubFetch(
-        () => [{ season_id: 's17', starts: 4 }],
-        () => 4,
-      );
-      expect(await loadDriverStoredSeasonIds(env(), 'd1')).toEqual(new Set(['s17']));
-    } finally {
-      console.error = error;
-    }
+  it('sends every season live when the status call fails or the stored tables cannot be read', async () => {
+    const seasons = [season('s16', 'ATC16'), season('s17', 'ATC17')];
+    stubFetch(
+      () => [],
+      () => {
+        throw new Error('rpc down');
+      },
+    );
+    const failedCall = await logs(() => loadStoredSeasons(env(), seasons, new Set()));
+    expect(failedCall.result.stats.size).toBe(0);
+    expect(failedCall.result.live).toEqual(seasons);
+    expect(failedCall.lines.join('\n')).toContain('Supabase RPC error 500 on round_stats_status');
+
+    // Tables missing (before the migration): every read is a 404.
+    globalThis.fetch = (async () =>
+      new Response('{"code":"PGRST205"}', { status: 404 })) as unknown as typeof fetch;
+    const missing = await logs(() => loadStoredSeasons(env(), seasons, new Set()));
+    expect(missing.result.live).toEqual(seasons);
+  });
+
+  it('gives a driver profile their stored seasons plus every season that is not current, never none', async () => {
+    const seasons = [season('s16', 'ATC16'), season('s17', 'ATC17'), season('s18', 'ATC18')];
+    const allCurrent = (ids: string[]) => ids.map((id) => ({ season_id: id, current: true, reason: null }));
+
+    // Backfilled and current: only the seasons the driver has rows in.
+    stubFetch(() => [{ season_id: 's17' }, { season_id: 's17' }], allCurrent);
+    const backfilled = await driverCareerSeasons(env(), 'd1', seasons);
+    expect(backfilled.seasons.map((s) => s.id)).toEqual(['s17']);
+    expect(backfilled.status?.get('s16')?.current).toBe(true);
+
+    // ATC18 is stale: it is computed live, whether or not the driver has rows there.
+    stubFetch(
+      () => [{ season_id: 's17' }],
+      (ids) =>
+        ids.map((id) => ({
+          season_id: id,
+          current: id !== 's18',
+          reason: id === 's18' ? 'A round of this season has a recorded refresh issue' : null,
+        })),
+    );
+    expect((await driverCareerSeasons(env(), 'd1', seasons)).seasons.map((s) => s.id)).toEqual([
+      's17',
+      's18',
+    ]);
+
+    // Before the backfill: no stored rows and nothing current, so every season.
+    stubFetch(
+      () => [],
+      (ids) =>
+        ids.map((id) => ({ season_id: id, current: false, reason: 'A scored round has no stored stats' })),
+    );
+    expect((await driverCareerSeasons(env(), 'd1', seasons)).seasons).toEqual(seasons);
+
+    // A failed read: every season, and no status to reuse.
+    globalThis.fetch = (async () =>
+      new Response('{"code":"PGRST205"}', { status: 404 })) as unknown as typeof fetch;
+    const failed = await logs(() => driverCareerSeasons(env(), 'd1', seasons));
+    expect(failed.result).toEqual({ seasons, status: null });
   });
 
   it('reads the round picker with only the columns it shows', async () => {

@@ -442,21 +442,42 @@ describe('round stats adapter on ATC17', () => {
     };
     const env: SupabaseEnv = { url: 'https://example.invalid', anonKey: 'anon' };
     const golden = expected.views.overall.rows.map((r) => wanted('overall', r));
-    const warn = console.warn;
-    console.warn = () => undefined;
+    const { warn, error } = console;
+    const logged: string[] = [];
+    console.warn = (...a: unknown[]) => logged.push(a.map(String).join(' '));
+    console.error = (...a: unknown[]) => logged.push(a.map(String).join(' '));
     try {
-      for (const complete of [false, true]) {
-        const calls = stubDatabase(
-          complete ? stored.driverRows : stored.driverRows.filter((r) => r.subsession_id !== missing),
-        );
+      const cases = [
+        // The database reports the season current: the stored rows are used.
+        { rows: stored.driverRows, status: { current: true, reason: null }, source: 'stored' },
+        // A round is missing and the database says so: the live path, logged with the reason.
+        {
+          rows: stored.driverRows.filter((r) => r.subsession_id !== missing),
+          status: { current: false, reason: 'A scored round has no stored stats' },
+          source: 'live',
+        },
+        // The status call fails: the live path, whatever the stored rows hold.
+        { rows: stored.driverRows, status: 'fail' as const, source: 'live' },
+      ];
+      for (const c of cases) {
+        logged.length = 0;
+        const calls = stubDatabase(c.rows, c.status);
         const view = await loadDriverStandingsView(env, season, undefined, pageRefs);
-        expect(view.source).toBe(complete ? 'stored' : 'live');
+        expect(view.source).toBe(c.source);
         expect(rowsOf(view.standings)).toEqual(golden);
-        // Only the live path reads every score row; the stored path only counts them.
-        expect(calls.some((c) => c.startsWith('GET race_score_results_public'))).toBe(!complete);
+        // Only the live path reads every score row.
+        expect(calls.some((x) => x.startsWith('GET race_score_results_public'))).toBe(c.source === 'live');
+        expect(calls.filter((x) => x === 'POST rpc/round_stats_status')).toHaveLength(1);
+        if (c.status !== 'fail' && !c.status.current) {
+          expect(logged).toContain(
+            'round stats incomplete: season ATC17 (A scored round has no stored stats)',
+          );
+        }
+        if (c.status === 'fail') expect(logged.join('\n')).toContain('round_stats_status');
       }
     } finally {
       console.warn = warn;
+      console.error = error;
     }
   });
 
@@ -489,7 +510,10 @@ describe('round stats adapter on ATC17', () => {
  * Answers the stored and live reads the standings view makes, from the ATC17 inputs; `driverRows` is what
  * round_driver_stats holds. Returns "METHOD table" for every request.
  */
-function stubDatabase(driverRows: RoundDriverStatsRow[]): string[] {
+function stubDatabase(
+  driverRows: RoundDriverStatsRow[],
+  status: { current: boolean; reason: string | null } | 'fail',
+): string[] {
   const calls: string[] = [];
   const capture = viewRows as { columns: string[]; rows: unknown[][] };
   const publicRows = capture.rows.map((values) => {
@@ -508,10 +532,12 @@ function stubDatabase(driverRows: RoundDriverStatsRow[]): string[] {
     const table = path.split('?')[0];
     const method = init?.method ?? 'GET';
     calls.push(`${method} ${table}`);
-    if (method === 'HEAD') {
-      return new Response(null, { headers: { 'Content-Range': `0-0/${publicRows.length}` } });
-    }
     const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+    if (table === 'rpc/round_stats_status') {
+      if (status === 'fail') return new Response('{"message":"boom"}', { status: 500 });
+      const ids = JSON.parse(String(init?.body)).p_season_ids as string[];
+      return json(ids.map((id) => ({ season_id: id, ...status })));
+    }
     // One page is enough for every read here (all under 1000 rows); later pages come back empty.
     const range = new Headers(init?.headers).get('Range');
     if (range && !range.startsWith('0-')) return json([]);

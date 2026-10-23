@@ -7,34 +7,56 @@ import { getAllNewsPostDrivers, getAllNewsPostTags, type NewsTag } from '../db/n
 import { computeDriverCareer, loadCareerRefs, type DriverCareerStats } from '../results/careerStats';
 import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../results/raceHistory';
 import { computeSeasonAwardsHistory } from '../results/awards';
-import { loadDriverStoredSeasonIds } from '../results/roundStatsAdapter';
 import { getIncidentsForDriver, type IncidentRow } from '../incidents';
 import { trimNum, signedNum, type AwardEntry, type CareerMove, type ClassMove } from './helpers';
 
-/**
- * One driver's career from the stored round stats of the seasons they raced (BR1.1). The reads it needs
- * start at once and the stored read follows, so it never adds a stage to the page.
- */
-function loadCareer(supabaseEnv: SupabaseEnv, driverId: string) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The profile's driver, or null when the id isn't a UUID or names no (non-AI) driver; checked first. */
+export async function findProfileDriver(
+  supabaseEnv: SupabaseEnv,
+  driverId: string,
+): Promise<{ id: string; iracing_cust_id: number | null; is_hall_of_fame: boolean } | null> {
+  if (!UUID.test(driverId)) return null;
+  const rows = await restGet<{ id: string; iracing_cust_id: number | null; is_hall_of_fame: boolean }[]>(
+    supabaseEnv,
+    `drivers?select=id,iracing_cust_id,is_hall_of_fame&id=eq.${encodeURIComponent(driverId)}&is_ai=eq.false`,
+  );
+  return rows[0] ?? null;
+}
+
+/** The light reads a career needs, started alongside the driver check. */
+function loadCareerInputs(supabaseEnv: SupabaseEnv) {
   const base = Promise.all([
     getDriverClasses(supabaseEnv),
     getSeasons(supabaseEnv),
     getStandingsExcludedRoundIds(supabaseEnv),
     loadCareerRefs(supabaseEnv),
-    loadDriverStoredSeasonIds(supabaseEnv, driverId),
   ]);
-  const career = base.then(([classes, seasons, excludedIds, refs, driverSeasonIds]) =>
-    computeDriverCareer(supabaseEnv, driverId, seasons, classes, excludedIds, refs, driverSeasonIds),
+  // Awaited by the caller once the driver is known; this only keeps an early failure from going unhandled.
+  base.catch(() => undefined);
+  return base;
+}
+
+/**
+ * One driver's career from the stored round stats of the seasons they raced (BR1.1), with every season
+ * whose stored rows are not current added, so a profile is never empty before the backfill.
+ */
+function loadCareer(supabaseEnv: SupabaseEnv, driverId: string, base: ReturnType<typeof loadCareerInputs>) {
+  const career = base.then(([classes, seasons, excludedIds, refs]) =>
+    computeDriverCareer(supabaseEnv, driverId, seasons, classes, excludedIds, refs),
   );
   return { seasons: base.then(([, seasons]) => seasons), career };
 }
 
 /**
  * Everything the driver profile fragment fetches, except the awards (loadDriverAwards, its own cached
- * fragment). A failure of the career or the race history sets loadError (the page then renders its error
- * state and is not cached); news and incidents fail on their own, leaving their lists empty.
+ * fragment). `notFound` when the id isn't a known driver, checked before any heavy read. A failure of the
+ * career or the race history sets loadError (the page then renders its error state and is not cached);
+ * news and incidents fail on their own, leaving their lists empty.
  */
 export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string) {
+  let notFound = false;
   let loadError: string | null = null;
   let career: DriverCareerStats | null = null;
   let raceHistory: DriverRaceHistoryRow[] = [];
@@ -47,10 +69,42 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
   const careerMoves: CareerMove[] = [];
   const classMoves: ClassMove[] = [];
 
-  // Every read starts here, in parallel: the career, the race history, the news and the driver's own
-  // incidents (BR4.2). Only the career's stored read waits, for the seasons this driver raced.
-  const { seasons: seasonsPromise, career: careerPromise } = loadCareer(supabaseEnv, driverId);
-  const historyPromise = getDriverRaceHistory(supabaseEnv, driverId);
+  const empty = () => ({
+    notFound,
+    loadError,
+    career,
+    raceHistory,
+    relatedPosts,
+    relatedLogoBySeasonLabel,
+    relatedTagsByPostId,
+    careerMoves,
+    classMoves,
+    driverIncidents: [] as IncidentRow[],
+  });
+
+  // Stage 1: the driver check alongside the light career reads; nothing heavy runs for an unknown id, and
+  // nothing at all for an id that isn't a UUID.
+  if (!UUID.test(driverId)) {
+    notFound = true;
+    return empty();
+  }
+  const base = loadCareerInputs(supabaseEnv);
+  let driver: Awaited<ReturnType<typeof findProfileDriver>> = null;
+  try {
+    driver = await findProfileDriver(supabaseEnv, driverId);
+  } catch (err) {
+    console.error('Failed to look up the profile driver:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+    return empty();
+  }
+  if (!driver) {
+    notFound = true;
+    return empty();
+  }
+
+  // Then in parallel: the career, the race history, the news and the driver's own incidents (BR4.2).
+  const { seasons: seasonsPromise, career: careerPromise } = loadCareer(supabaseEnv, driverId, base);
+  const historyPromise = getDriverRaceHistory(supabaseEnv, driverId, driver.iracing_cust_id);
   const newsPromise = Promise.all([
     getNewsPosts(supabaseEnv),
     getAllNewsPostDrivers(supabaseEnv),
@@ -151,6 +205,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
 
   const driverIncidents = await incidentsPromise;
   return {
+    notFound,
     loadError,
     career,
     raceHistory,
@@ -169,22 +224,30 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
  * season) and the manual awards. Hall of Fame status is read here, so the fragment URL takes no parameters.
  */
 export async function loadDriverAwards(supabaseEnv: SupabaseEnv, driverId: string) {
+  let notFound = false;
   let loadError: string | null = null;
   const awardEntries: AwardEntry[] = [];
   let isHallOfFame = false;
+  if (!UUID.test(driverId)) return { notFound: true, loadError, awardEntries, isHallOfFame };
   try {
-    const { seasons: seasonsPromise, career: careerPromise } = loadCareer(supabaseEnv, driverId);
-    const [career, seasons, seasonAwardsList, manualAwards, hallOfFame] = await Promise.all([
+    // Stage 1: the driver check (with its Hall of Fame flag) alongside the light reads; no awards
+    // history, the costly part, for an unknown id.
+    const base = loadCareerInputs(supabaseEnv);
+    const manualAwardsPromise = getManualAwards(supabaseEnv);
+    manualAwardsPromise.catch(() => undefined);
+    const driver = await findProfileDriver(supabaseEnv, driverId);
+    if (!driver) {
+      notFound = true;
+      return { notFound, loadError, awardEntries, isHallOfFame };
+    }
+    isHallOfFame = driver.is_hall_of_fame === true;
+    const { seasons: seasonsPromise, career: careerPromise } = loadCareer(supabaseEnv, driverId, base);
+    const [career, seasons, seasonAwardsList, manualAwards] = await Promise.all([
       careerPromise,
       seasonsPromise,
       seasonsPromise.then((seasons) => computeSeasonAwardsHistory(supabaseEnv, seasons)),
-      getManualAwards(supabaseEnv),
-      restGet<{ is_hall_of_fame: boolean }[]>(
-        supabaseEnv,
-        `drivers?select=is_hall_of_fame&id=eq.${encodeURIComponent(driverId)}&is_ai=eq.false`,
-      ),
+      manualAwardsPromise,
     ]);
-    isHallOfFame = hallOfFame[0]?.is_hall_of_fame === true;
     awardEntries.push(...championshipAwards(career), ...seasonAwards(seasonAwardsList, driverId));
     for (const ma of manualAwards) {
       if (ma.driver_id !== driverId) continue;
@@ -201,7 +264,7 @@ export async function loadDriverAwards(supabaseEnv: SupabaseEnv, driverId: strin
     console.error('Failed to load driver awards:', err);
     loadError = err instanceof Error ? err.message : String(err);
   }
-  return { loadError, awardEntries, isHallOfFame };
+  return { notFound, loadError, awardEntries, isHallOfFame };
 }
 
 /** Class, team and Delta team championships. Not for a season still in progress, per Logan. */

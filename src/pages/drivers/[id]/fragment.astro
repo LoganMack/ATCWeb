@@ -26,6 +26,7 @@ const driverId = String(Astro.params.id ?? '');
 const isHallOfFame = Astro.url.searchParams.get('hof') === '1';
 
 const {
+  notFound,
   loadError,
   career,
   raceHistory,
@@ -36,6 +37,8 @@ const {
   classMoves,
   driverIncidents,
 } = await loadDriverPage(supabaseEnv, driverId);
+// Not a UUID, or no such driver: nothing heavy was read, and the answer is never cached.
+if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 const { raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(raceHistory, []);
 // Shared like the other public fragments; markUncacheable after it turns a failed load into no-store.
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
