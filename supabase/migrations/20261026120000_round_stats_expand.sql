@@ -18,6 +18,8 @@
 --     commit, so an import or a score_round delete-and-insert refreshes each round once.
 --   * private.build_round_stats(bigint), private.refresh_round_stats(bigint[]) and
 --     public.rebuild_season_stats(uuid).
+--   * public.round_stats_status(uuid[]): per season, whether the stored stats are current, so a
+--     page can fall back to computing a season that is not (anon may call it; it returns no data).
 --
 -- Concealment (BR3.1): the build reads race_score_results directly and picks the raw or final set
 -- from round_incident_status.posted. It never reads race_score_results_public or is_admin(), so a
@@ -202,7 +204,9 @@ create function private.build_round_stats(p_subsession_id bigint) returns intege
 declare
   v_posted boolean;
   v_season_id uuid;
-  v_now timestamp with time zone := now();
+  -- clock_timestamp, as score_round's scored_at: the refresh runs at commit of the same
+  -- transaction, so now() would always look older than the scores (round_stats_status).
+  v_now timestamp with time zone := clock_timestamp();
   v_written integer;
 begin
   delete from public.round_driver_stats t where t.subsession_id = p_subsession_id;
@@ -445,6 +449,84 @@ $$;
 
 comment on function public.rebuild_season_stats(uuid) is
   'Admin-checked: refreshes the round stats of every round of a season, one row per round. Works with the kill switch off.';
+
+-- ---------------------------------------------------------------------------------------------
+-- Freshness status
+-- ---------------------------------------------------------------------------------------------
+
+-- Why a season's stored stats cannot be trusted right now, or null when they can. Checked in this
+-- order: a recorded refresh issue; a scored round with no stats, or stats for a round with no
+-- scores; stats older than the round's scores (race_score_results.scored_at) or than its posting
+-- status (round_incident_status.updated_at, else posted_at); a stored shown set (final_visible) that
+-- disagrees with round_incident_status.posted, which also covers a deleted status row. The reasons
+-- name no round and no value, so nothing about unposted data leaks.
+create function private.round_stats_stale_reason(p_season_id uuid) returns text
+  language sql stable
+  set search_path = ''
+  as $$
+  with rounds as (
+    select cr.subsession_id from public.curated_rounds cr where cr.season_id = p_season_id
+    union
+    select r.subsession_id from public.race_score_results r where r.season_id = p_season_id
+    union
+    select t.subsession_id from public.round_driver_stats t where t.season_id = p_season_id
+  ),
+  per_round as (
+    select
+      rd.subsession_id,
+      exists (select 1 from public.round_stats_issues i where i.subsession_id = rd.subsession_id) as has_issue,
+      (select max(r.scored_at) from public.race_score_results r where r.subsession_id = rd.subsession_id) as scored_at,
+      (select max(t.refreshed_at) from public.round_driver_stats t where t.subsession_id = rd.subsession_id) as refreshed_at,
+      (select bool_or(t.final_visible) from public.round_driver_stats t where t.subsession_id = rd.subsession_id) as any_final,
+      (select bool_and(t.final_visible) from public.round_driver_stats t where t.subsession_id = rd.subsession_id) as all_final,
+      coalesce(s.posted, false) as posted,
+      greatest(s.updated_at, s.posted_at) as status_changed_at
+    from rounds rd
+    left join public.round_incident_status s on s.subsession_id = rd.subsession_id
+  )
+  select case
+    when bool_or(p.has_issue) then 'A round of this season has a recorded refresh issue'
+    when bool_or(p.scored_at is not null and p.refreshed_at is null) then 'A scored round has no stored stats'
+    when bool_or(p.scored_at is null and p.refreshed_at is not null) then 'Stats are stored for a round with no scores'
+    when bool_or(p.refreshed_at < p.scored_at) then 'Stored stats are older than the scores'
+    when bool_or(p.refreshed_at < p.status_changed_at) then 'Stored stats are older than a round''s posting status'
+    when bool_or(p.refreshed_at is not null and (p.any_final <> p.posted or p.all_final <> p.posted))
+      then 'Stored stats do not match a round''s posting status'
+  end
+  from per_round p;
+$$;
+
+-- One row per requested season: whether its stored stats are current, and if not, the first cause.
+-- Pages can fall back to computing a season themselves when it is not current. Only booleans and a
+-- fixed short reason are returned, so anon may call it.
+create function public.round_stats_status(p_season_ids uuid[])
+  returns table (season_id uuid, "current" boolean, reason text)
+  language plpgsql stable security definer
+  set search_path = ''
+  as $$
+declare
+  v_enabled boolean := private.scoring_triggers_enabled();
+  v_season uuid;
+begin
+  for v_season in
+    select distinct u.id from unnest(p_season_ids) as u(id) where u.id is not null order by u.id
+  loop
+    season_id := v_season;
+    if not exists (select 1 from public.seasons s where s.id = v_season) then
+      reason := 'No such season';
+    elsif not v_enabled then
+      reason := 'The scoring kill switch is off';
+    else
+      reason := private.round_stats_stale_reason(v_season);
+    end if;
+    "current" := reason is null;
+    return next;
+  end loop;
+end;
+$$;
+
+comment on function public.round_stats_status(uuid[]) is
+  'Per season: whether round_driver_stats, round_team_stats and round_penalty_points are current, with the first reason when not. Returns no data; anon may call it.';
 
 -- ---------------------------------------------------------------------------------------------
 -- Queue and drain
@@ -738,6 +820,10 @@ revoke all on table private.round_stats_pending from public, anon, authenticated
 
 revoke all on function public.rebuild_season_stats(uuid) from public, anon;
 grant execute on function public.rebuild_season_stats(uuid) to authenticated, service_role;
+
+revoke all on function public.round_stats_status(uuid[]) from public;
+grant execute on function public.round_stats_status(uuid[]) to anon, authenticated, service_role;
+revoke all on function private.round_stats_stale_reason(uuid) from public, anon, authenticated, service_role;
 
 revoke all on function private.round_stats_guard() from public, anon, authenticated, service_role;
 revoke all on function private.build_round_stats(bigint) from public, anon, authenticated, service_role;

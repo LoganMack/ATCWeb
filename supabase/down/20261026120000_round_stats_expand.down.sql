@@ -32,6 +32,8 @@ drop function if exists private.round_stats_on_penalties();
 drop function if exists private.round_stats_on_race_score_results();
 drop function if exists private.round_stats_drain();
 drop function if exists private.queue_round_stats(bigint[], boolean);
+drop function if exists public.round_stats_status(uuid[]);
+drop function if exists private.round_stats_stale_reason(uuid);
 drop function if exists public.rebuild_season_stats(uuid);
 drop function if exists private.refresh_round_stats(bigint[]);
 drop function if exists private.record_round_stats_issue(bigint, uuid, text);

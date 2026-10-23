@@ -1,6 +1,7 @@
 -- Round stats fixtures for round_driver_stats, round_team_stats, round_penalty_points, the deferred
 -- refresh, the issues table and rebuild_season_stats (unit precompute, BR1.1, BR2.1-BR2.5, BR3.1,
--- BR3.2, BR5.1), numbered after scoring-fixtures.sql (C52-C70).
+-- BR3.2, BR5.1), numbered after scoring-fixtures.sql (C52-C76; the
+-- C67 timing report runs last), and the freshness status round_stats_status (C71-C76).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- scoring-fixtures.sql:
@@ -93,6 +94,13 @@ create function round_stats_fixture.pp(p_subsession_id bigint) returns text
   select coalesce(string_agg(c.code || '=' || t.penalty_points, ' ' order by c.code), '')
   from public.round_penalty_points t join round_stats_fixture.code c on c.driver_id = t.driver_id
   where t.subsession_id = p_subsession_id;
+$$;
+
+-- "<current>/<reason or ->" from round_stats_status for one season.
+create function round_stats_fixture.status(p_season_id uuid) returns text
+  language sql as $$
+  select s."current" || '/' || coalesce(s.reason, '-')
+  from public.round_stats_status(array[p_season_id]) s;
 $$;
 
 -- Base data ------------------------------------------------------------------------------------
@@ -717,6 +725,104 @@ begin
     'a1=false/181 a2=false/124 a3=false/50 d1=false/65 g1=false/185 g2=false/72');
   perform round_stats_fixture.expect('C70 no penalty points', round_stats_fixture.pp(3001), '');
   raise notice 'ok C70 deleted posted status with the kill switch off';
+end $$;
+rollback to savepoint fixture;
+
+-- C71 round_stats_status: current after a refresh, posted or not --------------------------------
+do $$
+begin
+  perform round_stats_fixture.expect('C71 current after the base refresh',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'), 'true/-');
+end $$;
+insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+select round_stats_fixture.flush();
+do $$
+begin
+  perform round_stats_fixture.expect('C71 current after posting and its refresh',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'), 'true/-');
+  perform round_stats_fixture.expect('C71 one row per season, unknown seasons named',
+    (select string_agg(s.season_id || '=' || s."current" || '/' || coalesce(s.reason, '-'), ' ' order by s.season_id)
+     from public.round_stats_status(array['bbbbbbbb-0000-0000-0000-000000000301'::uuid,
+                                          'bbbbbbbb-0000-0000-0000-000000000399'::uuid,
+                                          'bbbbbbbb-0000-0000-0000-000000000301'::uuid, null]) s),
+    'bbbbbbbb-0000-0000-0000-000000000301=true/- bbbbbbbb-0000-0000-0000-000000000399=false/No such season');
+  raise notice 'ok C71 status current after a refresh';
+end $$;
+rollback to savepoint fixture;
+
+-- C72 round_stats_status: not current with the kill switch off ---------------------------------
+update public.scoring_settings set triggers_enabled = false;
+do $$
+begin
+  perform round_stats_fixture.expect('C72 kill switch off',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'), 'false/The scoring kill switch is off');
+  raise notice 'ok C72 status with the kill switch off';
+end $$;
+rollback to savepoint fixture;
+
+-- C73 round_stats_status: not current while a round has a refresh issue ------------------------
+insert into public.round_stats_issues (subsession_id, season_id, error_message)
+values (3002, 'bbbbbbbb-0000-0000-0000-000000000301', 'fixture issue');
+do $$
+begin
+  perform round_stats_fixture.expect('C73 refresh issue',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'),
+    'false/A round of this season has a recorded refresh issue');
+  raise notice 'ok C73 status with a refresh issue';
+end $$;
+rollback to savepoint fixture;
+
+-- C74 round_stats_status: not current when the stats are older than the scores ------------------
+do $$
+begin
+  -- Rescored, and its refresh not run yet (it waits for commit).
+  perform public.score_round(3001);
+  perform round_stats_fixture.expect('C74 stats older than scores',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'), 'false/Stored stats are older than the scores');
+  perform round_stats_fixture.flush();
+  perform round_stats_fixture.expect('C74 current again after the refresh',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'), 'true/-');
+  raise notice 'ok C74 status when stats are older than scores';
+end $$;
+rollback to savepoint fixture;
+
+-- C75 round_stats_status: not current when the stored shown set disagrees with the posting -------
+-- Posted, refresh not run yet. Within one transaction updated_at (now()) is not later than
+-- refreshed_at, so it is the final_visible check that catches it here.
+insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+do $$
+begin
+  perform round_stats_fixture.expect('C75 posted but stored raw',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'),
+    'false/Stored stats do not match a round''s posting status');
+  perform round_stats_fixture.flush();
+  perform round_stats_fixture.expect('C75 current after the refresh',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'), 'true/-');
+end $$;
+-- A deleted posted status row, refresh not run yet: stored final, now unposted.
+delete from public.round_incident_status where subsession_id = 3001;
+do $$
+begin
+  perform round_stats_fixture.expect('C75 unposted by deletion but stored final',
+    round_stats_fixture.status('bbbbbbbb-0000-0000-0000-000000000301'),
+    'false/Stored stats do not match a round''s posting status');
+  raise notice 'ok C75 status when the posting disagrees';
+end $$;
+rollback to savepoint fixture;
+
+-- C76 round_stats_status: anon and authenticated can call it; the helper stays closed -----------
+do $$
+declare
+  v boolean;
+begin
+  perform round_stats_fixture.expect('C76 anon execute', has_function_privilege('anon', 'public.round_stats_status(uuid[])', 'execute'), true);
+  perform round_stats_fixture.expect('C76 authenticated execute', has_function_privilege('authenticated', 'public.round_stats_status(uuid[])', 'execute'), true);
+  perform round_stats_fixture.expect('C76 anon execute helper', has_function_privilege('anon', 'private.round_stats_stale_reason(uuid)', 'execute'), false);
+  set local role anon;
+  select s."current" into v from public.round_stats_status(array['bbbbbbbb-0000-0000-0000-000000000301'::uuid]) s;
+  reset role;
+  perform round_stats_fixture.expect('C76 anon reads the status', v, true);
+  raise notice 'ok C76 status access';
 end $$;
 rollback to savepoint fixture;
 
