@@ -53,8 +53,7 @@ if (loadError) markUncacheable(Astro);
             {g.awards.map((a) => (
               <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
                 <!-- Same absolute-gutter trophy treatment as the Seasons table — a reserved pl-4 gutter, not a flex sibling, so the label always starts at the same x whether or not this award gets a trophy. -->
-                <span class="relative inline-block pl-4 font-semibold text-white/90">
-                  {a.className && (
+                <span class="relative inline-block pl-4 font-semibold text-white/90">{a.className && (
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       viewBox="0 0 24 24"
@@ -73,9 +72,7 @@ if (loadError) markUncacheable(Astro);
                       <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
                       <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
                     </svg>
-                  )}
-                  {a.label}
-                </span>
+                  )}{a.label}</span>
                 {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
               </li>
             ))}
