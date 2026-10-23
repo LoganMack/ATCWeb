@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  concealmentViolations,
   diffRecords,
   findTopTwoTies,
   groupDifferences,
@@ -105,5 +106,30 @@ describe('diffRecords', () => {
     const { counts, blocking } = groupDifferences(marked);
     expect(counts).toMatchObject({ 'tie-order': 2, value: 1 });
     expect(blocking).toBe(1);
+  });
+});
+
+describe('concealmentViolations', () => {
+  it('blocks on final values or penalty points stored for an unposted round, and passes posted ones', () => {
+    const posted = new Set([101]);
+    const drivers = [
+      { subsession_id: 101, driver_id: 'driver-a', final_visible: true },
+      { subsession_id: 102, driver_id: 'driver-a', final_visible: false },
+      { subsession_id: 102, driver_id: 'driver-b', final_visible: true },
+    ];
+    const penalties = [
+      { subsession_id: 101, driver_id: 'driver-a', penalty_points: 2 },
+      { subsession_id: 102, driver_id: 'driver-c', penalty_points: 3 },
+    ];
+    const violations = concealmentViolations('ATC17', drivers, penalties, posted);
+    expect(
+      violations.map(
+        (d: { round: number; subject: string; field: string }) => `${d.round}:${d.subject}:${d.field}`,
+      ),
+    ).toEqual(['102:driver-b:final_visible', '102:driver-c:penalty_points']);
+    const { counts, blocking } = groupDifferences(violations);
+    expect(counts).toMatchObject({ concealment: 2 });
+    expect(blocking).toBe(2);
+    expect(concealmentViolations('ATC17', drivers.slice(0, 2), penalties.slice(0, 1), posted)).toEqual([]);
   });
 });

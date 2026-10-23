@@ -4,7 +4,9 @@
 // For every ATCn season it builds today's per-driver, per-round values with the existing
 // TypeScript builders (src/lib/results), reading production with the public anon key exactly as the
 // pages do, then reads round_driver_stats, round_team_stats and round_penalty_points with the same
-// key and compares every field for every driver, team and round. Every round is compared,
+// key and compares every field for every driver, team and round. It also checks concealment: a
+// penalty-points row, or a driver row with final_visible, for a round round_incident_status does not
+// show as posted is a blocking difference. Every round is compared,
 // exhibition and test rounds included, since the tables store them all. km and corners are not
 // stored (they stay in TypeScript), so they are not compared.
 //
@@ -24,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  concealmentViolations,
   diffRecords,
   findTopTwoTies,
   groupDifferences,
@@ -281,7 +284,7 @@ function teamRoundRecords(kind, seasonName, teamStandingsList, storedTeams, comp
 }
 
 async function compareSeason(m, env, season, lookups) {
-  const { drivers, classes, rulesets, teams } = lookups;
+  const { drivers, classes, rulesets, teams, postedIds } = lookups;
   const none = new Set();
   const ctx = await m.context.getSeasonOverallContext(env, season, none, drivers);
   const byClass = (id) => ctx.overallScores.filter((s) => s.class_id === id);
@@ -301,8 +304,9 @@ async function compareSeason(m, env, season, lookups) {
     ),
   ]);
 
-  const differences = [];
-  const counts = {};
+  // Concealment first: no stored row may show an unposted round's final set or penalty points.
+  const differences = concealmentViolations(season.name, storedDrivers, storedPenalties, postedIds);
+  const counts = { concealment: storedDrivers.length + storedPenalties.length };
   const add = (kind, expected, actual, fields) => {
     counts[kind] = (counts[kind] ?? 0) + expected.length;
     differences.push(...diffRecords(expected, actual, fields));
@@ -400,13 +404,18 @@ async function main() {
 
   const m = await loadModules();
   const env = supabaseEnv();
-  const [allSeasons, drivers, classes, rulesets, teams] = await Promise.all([
+  const [allSeasons, drivers, classes, rulesets, teams, postedRows] = await Promise.all([
     m.seasons.getSeasons(env),
     m.rows.driversSelect(env),
     m.lookups.getDriverClasses(env),
     m.seasons.getScoringRulesets(env),
     m.rows.getTeamsBasic(env),
+    m.client.restGetAll(
+      env,
+      'round_incident_status?select=subsession_id&posted=eq.true&order=subsession_id.asc',
+    ),
   ]);
+  const postedIds = new Set(postedRows.map((r) => Number(r.subsession_id)));
   const seasons = allSeasons
     .filter((s) => m.shared.isChampionshipSeason(s.name))
     .filter((s) => !args.season || s.name.toLowerCase() === args.season.toLowerCase())
@@ -419,7 +428,7 @@ async function main() {
   const differences = [];
   const recordCounts = {};
   for (const season of seasons) {
-    const result = await compareSeason(m, env, season, { drivers, classes, rulesets, teams });
+    const result = await compareSeason(m, env, season, { drivers, classes, rulesets, teams, postedIds });
     differences.push(...result.differences);
     for (const [kind, n] of Object.entries(result.counts)) recordCounts[kind] = (recordCounts[kind] ?? 0) + n;
     console.log(`${season.name}: ${result.differences.length} differences`);

@@ -1,6 +1,6 @@
 -- Round stats fixtures for round_driver_stats, round_team_stats, round_penalty_points, the deferred
 -- refresh, the issues table and rebuild_season_stats (unit precompute, BR1.1, BR2.1-BR2.5, BR3.1,
--- BR3.2, BR5.1), numbered after scoring-fixtures.sql (C52 onwards).
+-- BR3.2, BR5.1), numbered after scoring-fixtures.sql (C52-C70).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- scoring-fixtures.sql:
@@ -447,40 +447,52 @@ begin
 end $$;
 rollback to savepoint fixture;
 
--- C60 A failed build keeps the old rows, records an issue, and the write still commits (BR2.4) ---
+-- C60 A failed build of a posted round keeps the old rows exactly, records an issue, and the write
+-- still commits (BR2.4). The failure is on the last write (penalty points), after the driver and
+-- team rows were already replaced, so the whole round must roll back.
+insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+select round_stats_fixture.flush();
 create function round_stats_fixture.fail_insert() returns trigger
   language plpgsql as $$
 begin
   raise exception 'forced failure for round %', new.subsession_id;
 end;
 $$;
-create trigger round_stats_fixture_fail before insert on public.round_driver_stats
+create trigger round_stats_fixture_fail before insert on public.round_penalty_points
   for each row when (new.subsession_id = 3001) execute function round_stats_fixture.fail_insert();
-insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+-- g2 race 2: 5 points and 4 PP. A successful refresh would store g2 = 67 and g2 = 4 PP.
+insert into public.penalties (subsession_id, race_number, session_type, driver_id, points_penalty, penalty_points)
+values (3001, 2, 'race', '77777777-0000-0000-0000-000000000305', 5, 4);
 select round_stats_fixture.flush();
 do $$
 begin
-  perform round_stats_fixture.expect('C60 the posting was saved',
-    (select posted from public.round_incident_status where subsession_id = 3001), true);
+  perform round_stats_fixture.expect('C60 the penalty was saved',
+    (select count(*) from public.penalties where subsession_id = 3001 and driver_id = round_stats_fixture.id('g2')), 1::bigint);
+  perform round_stats_fixture.expect('C60 the round was rescored',
+    (select sum(final_overall_total) from public.race_score_results
+     where subsession_id = 3001 and driver_id = round_stats_fixture.id('g2')), 67::bigint);
   perform round_stats_fixture.expect('C60 old driver rows kept',
-    round_stats_fixture.col(3001, 't.final_visible || ''/'' || t.overall_points'),
-    'a1=false/181 a2=false/124 a3=false/50 d1=false/65 g1=false/185 g2=false/72');
+    round_stats_fixture.col(3001, 't.final_visible || ''/'' || t.overall_points || ''/'' || t.class_points || ''/'' || t.class_wins || ''/'' || t.overall_podiums'),
+    'a1=true/171/171/2/2 a2=true/124/124/0/2 a3=true/50/50/0/0 d1=true/65/81/2/0 g1=true/185/201/2/2 g2=true/72/80/0/0');
   perform round_stats_fixture.expect('C60 old team rows kept', round_stats_fixture.teams(3001),
-    'T1/1=305/6 T1/overall=305/6 T2/3=81/2 T2/overall=270/6');
-  perform round_stats_fixture.expect('C60 nothing half-written', round_stats_fixture.pp(3001), '');
+    'T1/1=295/6 T1/overall=295/6 T2/3=81/2 T2/overall=270/6');
+  perform round_stats_fixture.expect('C60 old penalty points kept', round_stats_fixture.pp(3001), 'a1=2 x4=3');
   perform round_stats_fixture.expect('C60 issue recorded',
     (select error_message from public.round_stats_issues where subsession_id = 3001),
     'Refresh failed: forced failure for round 3001');
   perform round_stats_fixture.expect('C60 the other round is untouched',
     (select count(*) from public.round_stats_issues where subsession_id = 3002), 0::bigint);
 end $$;
-drop trigger round_stats_fixture_fail on public.round_driver_stats;
+drop trigger round_stats_fixture_fail on public.round_penalty_points;
 do $$
 begin
   perform 1 from public.rebuild_season_stats('bbbbbbbb-0000-0000-0000-000000000301');
   perform round_stats_fixture.expect('C60 the rebuild clears the issue',
     (select count(*) from public.round_stats_issues where subsession_id = 3001), 0::bigint);
-  perform round_stats_fixture.expect('C60 the rebuild stores the final set', round_stats_fixture.pp(3001), 'a1=2 x4=3');
+  perform round_stats_fixture.expect('C60 the rebuild stores the new values',
+    round_stats_fixture.col(3001, 'case when c.code = ''g2'' then t.overall_points end'),
+    'a1=- a2=- a3=- d1=- g1=- g2=67');
+  perform round_stats_fixture.expect('C60 the rebuild stores the new penalty points', round_stats_fixture.pp(3001), 'a1=2 g2=4 x4=3');
   raise notice 'ok C60 failure recorded, rows and write kept';
 end $$;
 rollback to savepoint fixture;
@@ -666,6 +678,18 @@ select 3100, 1, 'race', ('66666666-0000-0000-0000-' || lpad(n::text, 12, '0'))::
 from generate_series(1, 24) as n;
 insert into public.round_incident_status (subsession_id, posted, posted_at) values (3100, true, now());
 select round_stats_fixture.flush();
+-- Switches the queueing triggers score_round's writes fire, and the drain, off or on.
+create function round_stats_fixture.set_round_stats_triggers(p_enabled boolean) returns void
+  language plpgsql as $$
+declare
+  v_action text := case when p_enabled then 'enable' else 'disable' end;
+begin
+  execute format('alter table public.race_score_results %s trigger round_stats_on_race_score_results_insert', v_action);
+  execute format('alter table public.race_score_results %s trigger round_stats_on_race_score_results_update', v_action);
+  execute format('alter table public.race_score_results %s trigger round_stats_on_race_score_results_delete', v_action);
+  execute format('alter table private.round_stats_pending %s trigger round_stats_drain', v_action);
+end;
+$$;
 do $$
 declare
   v_t0 timestamp with time zone;
@@ -679,12 +703,17 @@ begin
   perform round_stats_fixture.expect('C67 real-round size: driver rows',
     (select count(*) from public.round_driver_stats where subsession_id = 3100), 60::bigint);
   -- The fastest of five runs each, interleaved, so one slow run on a shared runner cannot decide it.
-  -- A "with" run is score_round plus the one refresh its writes queue.
+  -- The baseline runs score_round with the round stats queueing triggers and the drain disabled, so
+  -- the added time counts the queueing as well as the one refresh a "with" run's writes queue.
   for i in 1 .. 5 loop
+    perform round_stats_fixture.set_round_stats_triggers(false);
     v_t0 := clock_timestamp();
     perform public.score_round(3100);
     v_elapsed := clock_timestamp() - v_t0;
     v_without := least(coalesce(v_without, v_elapsed), v_elapsed);
+    perform round_stats_fixture.expect('C67 nothing queued by the baseline',
+      (select count(*) from private.round_stats_pending), 0::bigint);
+    perform round_stats_fixture.set_round_stats_triggers(true);
 
     v_t0 := clock_timestamp();
     perform public.score_round(3100);
@@ -698,6 +727,79 @@ begin
     round(coalesce(v_added, 0) * 100, 1);
   perform round_stats_fixture.expect('C67 the refresh adds at most 20% to score_round', v_added <= 0.20, true);
   raise notice 'ok C67 timing at real-round size';
+end $$;
+rollback to savepoint fixture;
+
+-- C68 Unposting while the build fails leaves no rows for the round: missing, never penalised (BR3.1)
+insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+select round_stats_fixture.flush();
+create function round_stats_fixture.fail_insert() returns trigger
+  language plpgsql as $$
+begin
+  raise exception 'forced failure for round %', new.subsession_id;
+end;
+$$;
+create trigger round_stats_fixture_fail before insert on public.round_driver_stats
+  for each row when (new.subsession_id = 3001) execute function round_stats_fixture.fail_insert();
+update public.round_incident_status set posted = false where subsession_id = 3001;
+select round_stats_fixture.flush();
+do $$
+begin
+  perform round_stats_fixture.expect('C68 the unposting was saved',
+    (select posted from public.round_incident_status where subsession_id = 3001), false);
+  perform round_stats_fixture.expect('C68 no driver rows',
+    (select count(*) from public.round_driver_stats where subsession_id = 3001), 0::bigint);
+  perform round_stats_fixture.expect('C68 no team rows',
+    (select count(*) from public.round_team_stats where subsession_id = 3001), 0::bigint);
+  perform round_stats_fixture.expect('C68 no penalty points',
+    (select count(*) from public.round_penalty_points where subsession_id = 3001), 0::bigint);
+  perform round_stats_fixture.expect('C68 issue recorded',
+    (select error_message from public.round_stats_issues where subsession_id = 3001),
+    'Refresh failed: forced failure for round 3001');
+  perform round_stats_fixture.expect('C68 the other round keeps its rows',
+    (select count(*) from public.round_driver_stats where subsession_id = 3002), 9::bigint);
+  raise notice 'ok C68 failed refresh of an unposted round leaves no rows';
+end $$;
+rollback to savepoint fixture;
+
+-- C69 Unposting with the kill switch off still switches the rows to the raw set (BR3.1, BR2.2) ----
+insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+select round_stats_fixture.flush();
+update public.scoring_settings set triggers_enabled = false;
+update public.round_incident_status set posted = false where subsession_id = 3001;
+select round_stats_fixture.flush();
+do $$
+begin
+  perform round_stats_fixture.expect('C69 raw set after unposting',
+    round_stats_fixture.col(3001, 't.final_visible || ''/'' || t.overall_points'),
+    'a1=false/181 a2=false/124 a3=false/50 d1=false/65 g1=false/185 g2=false/72');
+  perform round_stats_fixture.expect('C69 no penalty points', round_stats_fixture.pp(3001), '');
+  perform round_stats_fixture.expect('C69 queue drained', (select count(*) from private.round_stats_pending), 0::bigint);
+end $$;
+-- Other inputs keep honouring the switch: posting again is not refreshed.
+update public.round_incident_status set posted = true where subsession_id = 3001;
+select round_stats_fixture.flush();
+do $$
+begin
+  perform round_stats_fixture.expect('C69 a posting with the switch off is not refreshed',
+    (select count(*) from public.round_driver_stats where subsession_id = 3001 and final_visible), 0::bigint);
+  raise notice 'ok C69 unposting with the kill switch off';
+end $$;
+rollback to savepoint fixture;
+
+-- C70 Deleting a posted status row with the kill switch off also switches to the raw set (BR3.1) --
+insert into public.round_incident_status (subsession_id, posted, posted_at) values (3001, true, now());
+select round_stats_fixture.flush();
+update public.scoring_settings set triggers_enabled = false;
+delete from public.round_incident_status where subsession_id = 3001;
+select round_stats_fixture.flush();
+do $$
+begin
+  perform round_stats_fixture.expect('C70 raw set after the status row is deleted',
+    round_stats_fixture.col(3001, 't.final_visible || ''/'' || t.overall_points'),
+    'a1=false/181 a2=false/124 a3=false/50 d1=false/65 g1=false/185 g2=false/72');
+  perform round_stats_fixture.expect('C70 no penalty points', round_stats_fixture.pp(3001), '');
+  raise notice 'ok C70 deleted posted status with the kill switch off';
 end $$;
 rollback to savepoint fixture;
 

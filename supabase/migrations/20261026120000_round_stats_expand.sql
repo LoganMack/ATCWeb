@@ -36,8 +36,13 @@
 -- objects and start empty, so no page changes until the page-loading unit reads them after the
 -- backfill (rebuild_season_stats for every season) and the parity comparison.
 --
--- Kill switch: scoring_settings.triggers_enabled = false stops the queueing and the drain too.
+-- Kill switch: scoring_settings.triggers_enabled = false stops the queueing and the drain too,
+-- except for an unposting (posted true to false, or a posted status row deleted): that is queued
+-- and refreshed whatever the switch says, so penalties never stay visible after a round is pulled.
 -- rebuild_season_stats keeps working (BR2.2).
+--
+-- A failed refresh keeps the round's previous rows only while the round is posted. For an unposted
+-- round it removes them, so the round shows as missing rather than penalised (BR3.1 over BR2.4).
 --
 -- Undo: supabase/down/20261026120000_round_stats_expand.down.sql drops only these objects.
 
@@ -131,6 +136,8 @@ comment on table public.round_stats_issues is
 create table private.round_stats_pending (
   xact_id xid8 not null default pg_current_xact_id(),
   subsession_id bigint not null,
+  -- True for an unposting: refreshed even with the kill switch off.
+  forced boolean not null default false,
   primary key (xact_id, subsession_id)
 );
 
@@ -392,10 +399,23 @@ begin
       delete from public.round_stats_issues i where i.subsession_id = v_round.subsession_id;
       error_message := null;
     exception when others then
-      perform set_config('atc.stats_writer', 'off', true);
       rows_written := null;
       error_message := sqlerrm;
-      perform private.record_round_stats_issue(v_round.subsession_id, v_round.season_id, 'Refresh failed: ' || sqlerrm);
+      -- An unposted round must never keep final values or penalty points from before an
+      -- unposting: drop its rows so it shows as missing until a refresh succeeds.
+      if not exists (select 1 from public.round_incident_status s
+                     where s.subsession_id = v_round.subsession_id and s.posted) then
+        begin
+          perform set_config('atc.stats_writer', 'on', true);
+          delete from public.round_driver_stats t where t.subsession_id = v_round.subsession_id;
+          delete from public.round_team_stats t where t.subsession_id = v_round.subsession_id;
+          delete from public.round_penalty_points t where t.subsession_id = v_round.subsession_id;
+        exception when others then
+          raise warning 'Could not clear the round stats of unposted round %: %', v_round.subsession_id, sqlerrm;
+        end;
+      end if;
+      perform set_config('atc.stats_writer', 'off', true);
+      perform private.record_round_stats_issue(v_round.subsession_id, v_round.season_id, 'Refresh failed: ' || error_message);
     end;
     return next;
   end loop;
@@ -430,13 +450,15 @@ comment on function public.rebuild_season_stats(uuid) is
 -- Queue and drain
 -- ---------------------------------------------------------------------------------------------
 
-create function private.queue_round_stats(p_subsession_ids bigint[]) returns void
+create function private.queue_round_stats(p_subsession_ids bigint[], p_forced boolean default false)
+  returns void
   language sql
   set search_path = ''
   as $$
-  insert into private.round_stats_pending (subsession_id)
-  select distinct u.id from unnest(p_subsession_ids) as u(id) where u.id is not null
-  on conflict do nothing;
+  insert into private.round_stats_pending as p (subsession_id, forced)
+  select distinct u.id, p_forced from unnest(p_subsession_ids) as u(id) where u.id is not null
+  on conflict (xact_id, subsession_id) do update set forced = true
+  where excluded.forced and not p.forced;
 $$;
 
 -- Runs at commit. The first event drains every round this transaction queued; later events of the
@@ -447,14 +469,17 @@ create function private.round_stats_drain() returns trigger
   as $$
 declare
   v bigint[];
+  v_enabled boolean := private.scoring_triggers_enabled();
 begin
+  -- With the kill switch off only forced rows (unpostings) are refreshed; the rest are dropped.
   with d as (
     delete from private.round_stats_pending p
     where p.xact_id = pg_current_xact_id()
-    returning p.subsession_id
+    returning p.subsession_id, p.forced
   )
-  select coalesce(array_agg(distinct d.subsession_id), '{}') into v from d;
-  if cardinality(v) = 0 or not private.scoring_triggers_enabled() then
+  select coalesce(array_agg(distinct d.subsession_id) filter (where v_enabled or d.forced), '{}')
+  into v from d;
+  if cardinality(v) = 0 then
     return null;
   end if;
   perform 1 from private.refresh_round_stats(v);
@@ -523,6 +548,16 @@ create function private.round_stats_on_round_incident_status() returns trigger
   set search_path = ''
   as $$
 begin
+  -- An unposting is queued whatever the kill switch says (BR3.1): a posted round's stored final
+  -- values and penalty points must never outlive its posting.
+  if tg_op = 'UPDATE' then
+    perform private.queue_round_stats(array(
+      select o.subsession_id from old_rows o
+      where o.posted
+        and not exists (select 1 from new_rows n where n.subsession_id = o.subsession_id and n.posted)), true);
+  elsif tg_op = 'DELETE' then
+    perform private.queue_round_stats(array(select o.subsession_id from old_rows o where o.posted), true);
+  end if;
   if not private.scoring_triggers_enabled() then
     return null;
   end if;
@@ -578,8 +613,8 @@ begin
 end;
 $$;
 
--- A driver's cust id or AI flag decides which raw results and which pole they map to; the name is
--- watched as the design lists it. Their own rounds and every round of the old or new cust id refresh.
+-- A driver's cust id or AI flag decides which raw results and which pole they map to. Their own
+-- rounds and every round of the old or new cust id refresh.
 create function private.round_stats_on_drivers() returns trigger
   language plpgsql security definer
   set search_path = ''
@@ -602,13 +637,13 @@ begin
            coalesce(array_agg(d.iracing_cust_id) filter (where d.iracing_cust_id is not null), '{}')
     into v_driver_ids, v_custs
     from (
-      (select n.id, n.iracing_cust_id, n.is_ai, n.name from new_rows n
+      (select n.id, n.iracing_cust_id, n.is_ai from new_rows n
        except
-       select o.id, o.iracing_cust_id, o.is_ai, o.name from old_rows o)
+       select o.id, o.iracing_cust_id, o.is_ai from old_rows o)
       union all
-      (select o.id, o.iracing_cust_id, o.is_ai, o.name from old_rows o
+      (select o.id, o.iracing_cust_id, o.is_ai from old_rows o
        except
-       select n.id, n.iracing_cust_id, n.is_ai, n.name from new_rows n)
+       select n.id, n.iracing_cust_id, n.is_ai from new_rows n)
     ) d;
   end if;
   if coalesce(array_length(v_driver_ids, 1), 0) = 0 then
@@ -708,7 +743,7 @@ revoke all on function private.round_stats_guard() from public, anon, authentica
 revoke all on function private.build_round_stats(bigint) from public, anon, authenticated, service_role;
 revoke all on function private.record_round_stats_issue(bigint, uuid, text) from public, anon, authenticated, service_role;
 revoke all on function private.refresh_round_stats(bigint[]) from public, anon, authenticated, service_role;
-revoke all on function private.queue_round_stats(bigint[]) from public, anon, authenticated, service_role;
+revoke all on function private.queue_round_stats(bigint[], boolean) from public, anon, authenticated, service_role;
 revoke all on function private.round_stats_drain() from public, anon, authenticated, service_role;
 revoke all on function private.round_stats_on_race_score_results() from public, anon, authenticated, service_role;
 revoke all on function private.round_stats_on_penalties() from public, anon, authenticated, service_role;

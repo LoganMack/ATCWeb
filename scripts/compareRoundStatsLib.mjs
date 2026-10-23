@@ -6,9 +6,39 @@
 // "class:Gamma", "extended", "team:overall", ...), round is a subsession id (or "season" for
 // season totals), subject a driver id, team id or "driver|team" pair.
 
-/** Causes a difference can have. Only "value" and "missing-stored" block the switch. */
-export const CAUSES = ['value', 'missing-stored', 'tie-order', 'stored-only'];
-const BLOCKING = new Set(['value', 'missing-stored']);
+/** Causes a difference can have. "concealment", "value" and "missing-stored" block the switch. */
+export const CAUSES = ['concealment', 'value', 'missing-stored', 'tie-order', 'stored-only'];
+const BLOCKING = new Set(['concealment', 'value', 'missing-stored']);
+
+/**
+ * A stored row that shows an unposted round's final set or penalty points (BR3.1): every
+ * round_penalty_points row, and every round_driver_stats row with final_visible, must belong to a
+ * round whose round_incident_status is posted. `postedIds` is the set of posted subsession ids.
+ */
+export function concealmentViolations(seasonName, storedDrivers, storedPenalties, postedIds) {
+  const violation = (round, subject, field, actual) => ({
+    kind: 'concealment',
+    season: seasonName,
+    round,
+    subject,
+    field,
+    expected: 'unposted: not shown',
+    actual,
+    cause: 'concealment',
+  });
+  const out = [];
+  for (const t of storedDrivers) {
+    if (t.final_visible && !postedIds.has(Number(t.subsession_id))) {
+      out.push(violation(t.subsession_id, t.driver_id, 'final_visible', true));
+    }
+  }
+  for (const p of storedPenalties) {
+    if (!postedIds.has(Number(p.subsession_id))) {
+      out.push(violation(p.subsession_id, p.driver_id, 'penalty_points', p.penalty_points));
+    }
+  }
+  return out;
+}
 
 export function recordKey(record) {
   return `${record.kind}|${record.season}|${record.round}|${record.subject}`;
@@ -123,6 +153,7 @@ export function groupDifferences(differences) {
 }
 
 const CAUSE_TITLES = {
+  concealment: 'Unposted rounds showing final values or penalty points (block U3)',
   value: 'Value differences (block U3)',
   'missing-stored': 'Rows today computes that are not stored (block U3)',
   'tie-order': 'Team top-2 tie order (for the owner to accept)',
