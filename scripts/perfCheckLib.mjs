@@ -32,6 +32,17 @@ export function median(values) {
   return { value, used: used.length, total };
 }
 
+/** Smallest and largest of the numeric values, null when there are none. */
+export function spread(values) {
+  const used = values.filter(isNumber);
+  return used.length ? { min: Math.min(...used), max: Math.max(...used) } : { min: null, max: null };
+}
+
+/** Median with its count and range, as the report shows it. */
+export function stats(values) {
+  return { ...median(values), ...spread(values) };
+}
+
 /** The successful run at the median of `key`; with an even count, the slower middle run (conservative). */
 export function medianRun(runs, key) {
   const ok = runs.filter((r) => !r.error && isNumber(r[key])).sort((a, b) => a[key] - b[key]);
@@ -39,7 +50,10 @@ export function medianRun(runs, key) {
   return ok[Math.ceil((ok.length - 1) / 2)];
 }
 
-/** `skeleton` when the LCP node is a pulse placeholder or sits in an aria-busy wrapper, else `content`. */
+/**
+ * `skeleton` for a pulse placeholder or a node in an aria-busy wrapper; `decorative` for a
+ * pointer-events-none background-image backdrop; otherwise `content`. Only `content` is real content.
+ */
 export function classifyLcp(element) {
   const selector = element?.selector ?? '';
   const snippet = element?.snippet ?? '';
@@ -49,7 +63,50 @@ export function classifyLcp(element) {
   if (/aria-busy\s*=\s*["']?true/i.test(text) || /\[aria-busy(=["']?true["']?)?\]/i.test(selector)) {
     return 'skeleton';
   }
+  if (/(^|[\s."'>])pointer-events-none\b/.test(text) && /background-image\s*:/i.test(snippet)) {
+    return 'decorative';
+  }
   return 'content';
+}
+
+/** The X-ATC-Cache value of the document and fragment responses in a Lighthouse DevTools log. */
+export function cacheStatesFromDevtoolsLog(log, documentUrl, fragmentUrl) {
+  const strip = (u) => {
+    try {
+      const url = new URL(u);
+      url.hash = '';
+      return url.href;
+    } catch {
+      return null;
+    }
+  };
+  const urlById = new Map();
+  const headersById = new Map();
+  const addHeaders = (id, headers) => {
+    const lower = headersById.get(id) ?? {};
+    for (const [k, v] of Object.entries(headers ?? {})) lower[k.toLowerCase()] = v;
+    headersById.set(id, lower);
+  };
+  for (const e of Array.isArray(log) ? log : []) {
+    const p = e?.params;
+    if (!p?.requestId) continue;
+    if (e.method === 'Network.requestWillBeSent' && p.request?.url) urlById.set(p.requestId, p.request.url);
+    if (e.method === 'Network.responseReceived') {
+      if (p.response?.url) urlById.set(p.requestId, p.response.url);
+      addHeaders(p.requestId, p.response?.headers);
+    }
+    if (e.method === 'Network.responseReceivedExtraInfo') addHeaders(p.requestId, p.headers);
+  }
+  const find = (target) => {
+    const want = target && strip(target);
+    if (!want) return null;
+    for (const [id, url] of urlById) {
+      if (strip(url) !== want || !headersById.has(id)) continue;
+      return headersById.get(id)['x-atc-cache'] ?? 'absent';
+    }
+    return null;
+  };
+  return { document: find(documentUrl), fragment: find(fragmentUrl) };
 }
 
 /** Estimated savings (ms) of a Lighthouse audit or insight; 0 when it found nothing, null when absent. */
@@ -111,11 +168,11 @@ export function summarizePage(page) {
     const runs = page.runs?.[preset] ?? [];
     const ok = runs.map((r) => (r.error ? {} : r));
     out[preset] = {
-      lcp: median(ok.map((r) => r.lcpMs)),
-      cls: median(ok.map((r) => r.cls)),
-      tbt: median(ok.map((r) => r.tbtMs)),
-      unusedJs: median(ok.map((r) => r.unusedJsSavingsMs)),
-      renderBlocking: median(ok.map((r) => r.renderBlockingSavingsMs)),
+      lcp: stats(ok.map((r) => r.lcpMs)),
+      cls: stats(ok.map((r) => r.cls)),
+      tbt: stats(ok.map((r) => r.tbtMs)),
+      unusedJs: stats(ok.map((r) => r.unusedJsSavingsMs)),
+      renderBlocking: stats(ok.map((r) => r.renderBlockingSavingsMs)),
       lcpRun: medianRun(runs, 'lcpMs'),
     };
   }
@@ -136,6 +193,30 @@ function lcpCause(run) {
 
 function verdict(id, target, status, detail, cause = null) {
   return { id, target, status, detail, cause };
+}
+
+/** Every GET after the first; older reports hold one repeat, newer ones three. */
+export function repeatSamples(timings) {
+  return (timings ?? []).slice(1).filter((t) => !t.error && isNumber(t.ttfbMs));
+}
+
+/** True when no response carried X-ATC-Cache and the first and repeat GETs took similar time. */
+export function probablyUncached(timings) {
+  const first = timings?.[0];
+  const repeats = repeatSamples(timings);
+  if (!first || !isNumber(first.ttfbMs) || repeats.length === 0) return false;
+  if ([first, ...repeats].some((t) => t.xAtcCache !== 'absent')) return false;
+  const again = median(repeats.map((t) => t.ttfbMs)).value;
+  return Math.min(first.ttfbMs, again) / Math.max(first.ttfbMs, again) >= 0.75;
+}
+
+const UNCACHED_NOTE =
+  'probably uncached: no X-ATC-Cache header, and the first and repeat GETs took similar time';
+
+/** Floor note when the client's own round trip is at least half the measured TTFB. */
+export function floorNote(floorMs, ttfbMs) {
+  if (!isNumber(floorMs) || !isNumber(ttfbMs) || ttfbMs <= 0 || floorMs < ttfbMs / 2) return null;
+  return `client latency floor ${ms(floorMs)} (GET /robots.txt) is at least half the TTFB, so most of it is network distance, not the server`;
 }
 
 /** One verdict per target (NFR1–NFR5): pass, fail with its likely cause, or not measured with the reason. */
@@ -185,25 +266,38 @@ export function judgeTargets(page) {
     );
   }
 
-  // NFR3: each second GET, page and fragment separately; one sample, so indicative only.
+  // NFR3: the median of the repeat GETs, page and fragment separately; few samples, so indicative only.
+  const floorMs = page.timings?.floor?.ttfbMs;
   for (const kind of ['page', 'fragment']) {
-    const second = page.timings?.[kind]?.[1];
+    const repeats = repeatSamples(page.timings?.[kind]);
     const id = `NFR3 ${kind}`;
-    if (!second || second.error || !isNumber(second.ttfbMs)) {
-      out.push(
-        verdict(id, 'second GET TTFB ≤ 200 ms, cache hit', 'not measured', second?.error ?? 'no request'),
-      );
+    if (repeats.length === 0) {
+      const reason =
+        (page.timings?.[kind] ?? []).find((t) => t.error)?.error ??
+        (kind === 'fragment' && page.fragmentRejected) ??
+        'no request';
+      out.push(verdict(id, 'repeat GET TTFB ≤ 200 ms, cache hit', 'not measured', reason));
       continue;
     }
-    const detail = `TTFB ${ms(second.ttfbMs)}, X-ATC-Cache ${second.xAtcCache} (single sample, indicative)`;
+    const ttfb = stats(repeats.map((t) => t.ttfbMs));
+    const caches = repeats.map((t) => t.xAtcCache).join('/');
+    const note = floorNote(floorMs, ttfb.value);
+    const detail =
+      `median TTFB ${ms(ttfb.value)} of ${ttfb.used} (${ms(ttfb.min)}–${ms(ttfb.max)}), X-ATC-Cache ${caches}` +
+      `${isNumber(floorMs) ? `, client floor ${ms(floorMs)}` : ''} (indicative)`;
     const misses = [];
-    if (!isCached(second.xAtcCache)) misses.push(`not a cache hit (X-ATC-Cache ${second.xAtcCache})`);
-    if (!(second.ttfbMs <= TARGETS.cacheHitTtfbMs)) misses.push(`TTFB ${ms(second.ttfbMs)} over 200 ms`);
-    if (second.status !== 200) misses.push(`status ${second.status}`);
+    const uncached = repeats.filter((t) => !isCached(t.xAtcCache));
+    if (uncached.length)
+      misses.push(`not a cache hit in ${uncached.length} of ${repeats.length} (${caches})`);
+    if (!(ttfb.value <= TARGETS.cacheHitTtfbMs)) misses.push(`median TTFB ${ms(ttfb.value)} over 200 ms`);
+    const bad = repeats.filter((t) => t.status !== 200);
+    if (bad.length) misses.push(`status ${bad.map((t) => t.status).join('/')}`);
+    const notes = [kind === 'fragment' && probablyUncached(page.timings?.fragment) && UNCACHED_NOTE, note];
+    const extra = notes.filter(Boolean);
     out.push(
       misses.length
-        ? verdict(id, 'second GET', 'fail', detail, misses.join('; '))
-        : verdict(id, 'second GET', 'pass', detail),
+        ? verdict(id, 'repeat GETs', 'fail', detail, [...misses, ...extra].join('; '))
+        : verdict(id, 'repeat GETs', 'pass', [detail, ...extra].join('; ')),
     );
   }
 
@@ -212,15 +306,17 @@ export function judgeTargets(page) {
   const first = page.timings?.fragment?.[0];
   const target4 = `first fragment GET TTFB ≤ ${limit} ms on a miss`;
   if (!first || first.error || !isNumber(first.ttfbMs)) {
-    out.push(verdict('NFR4', target4, 'not measured', first?.error ?? 'no fragment URL in the shell'));
+    const reason = first?.error ?? page.fragmentRejected ?? 'no fragment URL in the shell';
+    out.push(verdict('NFR4', target4, 'not measured', reason));
   } else if (!isCached(first.xAtcCache) && first.xAtcCache !== 'MISS') {
     // Without the header the edge cache state is unknown, so the time is neither a known miss nor a hit.
+    const uncached = probablyUncached(page.timings?.fragment) ? `; ${UNCACHED_NOTE}` : '';
     out.push(
       verdict(
         'NFR4',
         target4,
         'not measured',
-        `cache state unknown (X-ATC-Cache ${first.xAtcCache}, TTFB ${ms(first.ttfbMs)}); the response does not report the edge cache`,
+        `cache state unknown (X-ATC-Cache ${first.xAtcCache}, TTFB ${ms(first.ttfbMs)}); the response does not report the edge cache${uncached}`,
       ),
     );
   } else if (first.xAtcCache !== 'MISS') {
@@ -301,6 +397,20 @@ const decodeAttr = (s) =>
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 
+/** A fragment URL is timed only on the base origin; anything else is rejected with the reason. */
+export function checkFragmentUrl(url, base) {
+  if (!url) return { url: null, rejected: null };
+  const origin = new URL(base).origin;
+  const actual = new URL(url).origin;
+  if (actual !== origin) {
+    return {
+      url: null,
+      rejected: `fragment URL ${url} rejected: origin ${actual} is not the base ${origin}`,
+    };
+  }
+  return { url, rejected: null };
+}
+
 /** The first data-fragment-url in the shell, resolved against the base; null when there is none. */
 export function fragmentUrlFromHtml(html, base) {
   const m = /data-fragment-url\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(html ?? '');
@@ -314,7 +424,21 @@ const cell = (v) =>
     .replace(/\r?\n/g, ' ');
 const row = (cells) => `| ${cells.map(cell).join(' | ')} |`;
 const num = (v, digits = 0) => (isNumber(v) ? v.toFixed(digits) : 'n/a');
-const withCount = (m, fmt) => (m.used ? `${fmt(m.value)} (${m.used}/${m.total})` : `n/a (0/${m.total})`);
+const range = (m, fmt) => (isNumber(m?.min) ? `${fmt(m.min)}–${fmt(m.max)}` : 'n/a');
+const withCount = (m, fmt) =>
+  m.used ? `${fmt(m.value)} (${m.used}/${m.total}) ${range(m, fmt)}` : `n/a (0/${m.total})`;
+
+function clientFloorText(report) {
+  const floors = report.pages.map((p) => p.timings?.floor?.ttfbMs).filter(isNumber);
+  if (floors.length === 0) return 'not recorded';
+  const s = stats(floors);
+  return `median ${ms(s.value)} over ${s.used} page(s), ${range(s, ms)} (fastest of three GETs of /robots.txt on a warm connection; the Worker serves it, so the floor includes its start-up)`;
+}
+
+function cacheCell(cache, key) {
+  if (!cache?.[key]) return '';
+  return cache.source === 'warm-up' ? `${cache[key]} (warm-up)` : cache[key];
+}
 
 /** The readable Markdown report. */
 export function renderReport(report) {
@@ -327,9 +451,13 @@ export function renderReport(report) {
     `- Lighthouse: ${report.lighthouseVersion}`,
     `- Browser: ${report.browser.path} (${report.browser.version})`,
     `- Runs per preset: ${report.runs}`,
+    `- Cache warming before Lighthouse runs: ${report.cacheWarming ? 'yes (shell and fragment GET before each page batch and each run)' : 'no'}`,
+    `- Client latency floor: ${clientFloorText(report)}`,
     `- Pages: ${report.pages.map((p) => p.label).join(', ')}${report.partial ? ' (**partial run**, not comparable with a full run)' : ''}`,
     '',
     '## Summary',
+    '',
+    'Each cell is the median, the runs used, then the min–max.',
     '',
     row([
       'Page',
@@ -369,6 +497,22 @@ export function renderReport(report) {
   );
   lines.push(row(['---', '---', '---', '---', '---', '---', '---', '---', '---']));
   for (const page of report.pages) {
+    const floor = page.timings?.floor;
+    if (floor) {
+      lines.push(
+        row([
+          page.label,
+          floor.url,
+          'client floor',
+          floor.status,
+          ms(floor.ttfbMs),
+          ms(floor.totalMs),
+          floor.bytes,
+          floor.xAtcCache,
+          floor.cacheControl ?? '',
+        ]),
+      );
+    }
     for (const kind of ['page', 'fragment']) {
       for (const t of page.timings?.[kind] ?? []) {
         lines.push(
@@ -387,7 +531,9 @@ export function renderReport(report) {
         if (t.error) lines.push(row([page.label, t.url, 'error', t.error, '', '', '', '', '']));
       }
     }
-    if (!page.fragmentUrl)
+    if (page.fragmentRejected)
+      lines.push(row([page.label, page.fragmentRejected, '', '', '', '', '', '', '']));
+    else if (!page.fragmentUrl)
       lines.push(row([page.label, '(no data-fragment-url in the shell)', '', '', '', '', '', '', '']));
   }
   lines.push(
@@ -406,9 +552,21 @@ export function renderReport(report) {
     '',
     '## Runs',
     '',
-    row(['Page', 'Preset', 'Run', 'LCP', 'CLS', 'TBT', 'LCP element', 'Class', 'Error']),
+    row([
+      'Page',
+      'Preset',
+      'Run',
+      'LCP',
+      'CLS',
+      'TBT',
+      'LCP element',
+      'Class',
+      'Doc cache',
+      'Fragment cache',
+      'Error',
+    ]),
   );
-  lines.push(row(['---', '---', '---', '---', '---', '---', '---', '---', '---']));
+  lines.push(row(['---', '---', '---', '---', '---', '---', '---', '---', '---', '---', '---']));
   for (const page of report.pages) {
     for (const preset of ['mobile', 'desktop']) {
       for (const r of page.runs?.[preset] ?? []) {
@@ -423,6 +581,8 @@ export function renderReport(report) {
             ms(r.tbtMs),
             el,
             r.lcpClass ?? '',
+            cacheCell(r.cache, 'document'),
+            cacheCell(r.cache, 'fragment'),
             r.error ?? r.runtimeError ?? '',
           ]),
         );
@@ -434,8 +594,10 @@ export function renderReport(report) {
     '## Limits',
     '',
     '- Lighthouse lab numbers are indicators, not real-user measurements.',
-    '- Timed GETs are single samples on a warmed connection; TTFB is the time to the response headers.',
+    '- Timed GETs run on a warmed connection; TTFB is the time to the response headers. NFR3 judges the median of the repeat GETs, and the client latency floor (a GET of /robots.txt) shows how much of a TTFB is network distance.',
     '- NFR4 is judged only when the first fragment GET is a MISS. A miss cannot be forced from outside, because the cache key ignores unknown parameters.',
+    '- An LCP element that is a pointer-events-none background-image backdrop is classed `decorative`; like a skeleton, it does not count as real content for NFR2.',
+    '- Per-run cache columns come from the browser’s own document and fragment responses; when Lighthouse’s network log lacks them, they show the warm-up GETs just before the run (marked "warm-up").',
     '- CPU time and subrequests per render are not visible from outside the Worker; read them in the Workers dashboard.',
     '',
   );
@@ -451,16 +613,51 @@ const METRICS = [
   ['mobile', 'renderBlocking', 'Render-blocking savings', ms],
 ];
 
+/** Reasons the two reports are not like for like; each is printed as a warning above the comparison. */
+export function comparisonWarnings(before, after) {
+  const out = [];
+  for (const [name, r] of [
+    ['before', before],
+    ['after', after],
+  ]) {
+    if (r.partial) out.push(`The ${name} report (${r.startedAt}) is a partial run.`);
+    if (!r.cacheWarming) {
+      out.push(
+        `The ${name} report (${r.startedAt}) had no cache warming before its Lighthouse runs, so its medians may mix cache states.`,
+      );
+    }
+  }
+  const differs = [
+    ['Lighthouse version', before.lighthouseVersion, after.lighthouseVersion],
+    [
+      'browser',
+      `${before.browser?.path} ${before.browser?.version}`,
+      `${after.browser?.path} ${after.browser?.version}`,
+    ],
+    ['runs per preset', before.runs, after.runs],
+    ['base URL', before.baseUrl, after.baseUrl],
+  ];
+  for (const [name, b, a] of differs) {
+    if (String(b) !== String(a)) out.push(`The ${name} differs: before ${b}, after ${a}.`);
+  }
+  return out;
+}
+
+const signed = (av, bv, fmt) =>
+  isNumber(av) && isNumber(bv) ? `${av - bv >= 0 ? '+' : ''}${fmt(av - bv)}` : 'n/a';
+
 /** Before, after and the change per page and metric, then the verdicts after the change. */
 export function renderComparison(before, after) {
+  const warnings = comparisonWarnings(before, after);
   const lines = [
     `# Performance comparison`,
     '',
     `- Before: ${before.startedAt} (${before.baseUrl}, commit ${before.commit})`,
     `- After: ${after.startedAt} (${after.baseUrl}, commit ${after.commit})`,
     '',
-    row(['Page', 'Metric', 'Before', 'After', 'Change']),
-    row(['---', '---', '---', '---', '---']),
+    ...warnings.flatMap((w) => [`> **Warning:** ${w}`, '']),
+    row(['Page', 'Metric', 'Before', 'After', 'Change', 'Before min–max', 'After min–max']),
+    row(['---', '---', '---', '---', '---', '---', '---']),
   ];
   const beforePages = new Map(before.pages.map((p) => [p.label, p]));
   for (const page of after.pages) {
@@ -468,23 +665,43 @@ export function renderComparison(before, after) {
     const a = summarizePage(page);
     const b = prev ? summarizePage(prev) : null;
     for (const [preset, key, name, fmt] of METRICS) {
-      const av = a[preset][key].value;
-      const bv = b ? b[preset][key].value : null;
-      const change = isNumber(av) && isNumber(bv) ? `${av - bv >= 0 ? '+' : ''}${fmt(av - bv)}` : 'n/a';
-      lines.push(row([page.label, name, fmt(bv), fmt(av), change]));
+      const am = a[preset][key];
+      const bm = b ? b[preset][key] : null;
+      lines.push(
+        row([
+          page.label,
+          name,
+          fmt(bm?.value),
+          fmt(am.value),
+          signed(am.value, bm?.value, fmt),
+          range(bm, fmt),
+          range(am, fmt),
+        ]),
+      );
     }
     for (const kind of ['page', 'fragment']) {
-      const t = (rep, i) => rep?.timings?.[kind]?.[i];
-      for (const [i, name] of [
-        [0, 'first'],
-        [1, 'second'],
-      ]) {
-        const av = t(page, i)?.ttfbMs;
-        const bv = t(prev, i)?.ttfbMs;
-        const change = isNumber(av) && isNumber(bv) ? `${av - bv >= 0 ? '+' : ''}${ms(av - bv)}` : 'n/a';
-        const label = `${kind} ${name} GET TTFB (${t(prev, i)?.xAtcCache ?? '-'} → ${t(page, i)?.xAtcCache ?? '-'})`;
-        lines.push(row([page.label, label, ms(bv), ms(av), change]));
-      }
+      const first = (rep) => rep?.timings?.[kind]?.[0];
+      const af = first(page);
+      const bf = first(prev);
+      const label = `${kind} first GET TTFB (${bf?.xAtcCache ?? '-'} → ${af?.xAtcCache ?? '-'})`;
+      lines.push(
+        row([page.label, label, ms(bf?.ttfbMs), ms(af?.ttfbMs), signed(af?.ttfbMs, bf?.ttfbMs, ms), '', '']),
+      );
+      const rep = (r) => repeatSamples(r?.timings?.[kind]);
+      const ar = stats(rep(page).map((t) => t.ttfbMs));
+      const br = stats(rep(prev).map((t) => t.ttfbMs));
+      const repLabel = `${kind} repeat GET TTFB, median (${br.used} → ${ar.used} samples)`;
+      lines.push(
+        row([
+          page.label,
+          repLabel,
+          ms(br.value),
+          ms(ar.value),
+          signed(ar.value, br.value, ms),
+          range(br, ms),
+          range(ar, ms),
+        ]),
+      );
     }
   }
   lines.push(

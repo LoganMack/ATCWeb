@@ -16,6 +16,9 @@ import desktopConfig from 'lighthouse/core/config/desktop-config.js';
 import {
   PAGES,
   assertSafeBase,
+  cacheStatesFromDevtoolsLog,
+  checkFragmentUrl,
+  comparisonWarnings,
   fragmentUrlFromHtml,
   judgeTargets,
   renderComparison,
@@ -29,6 +32,8 @@ const DEFAULT_BASE = 'https://alphatouringchallenge.com';
 const RUN_TIMEOUT_MS = 120_000;
 const GET_TIMEOUT_MS = 30_000;
 const USER_AGENT = 'atc-perf-check (read-only measurement)';
+const REPEAT_GETS = 3;
+const FLOOR_PROBES = 3;
 
 class UsageError extends Error {}
 
@@ -147,21 +152,46 @@ async function timedGet(url, attempt) {
   }
 }
 
+async function timeRepeats(url) {
+  const out = [];
+  for (let i = 1; i <= REPEAT_GETS; i++) out.push((await timedGet(url, `repeat ${i}`)).result);
+  return out;
+}
+
 async function timePage(base, page) {
   const url = new URL(page.path, base).toString();
-  // Warm the connection on an unrelated path, so TLS setup is not counted and no page cache is touched.
-  await timedGet(new URL('/robots.txt', base).toString(), 'warm-up');
+  // The first GET of an unrelated path opens the connection, so TLS setup is not counted and no page
+  // cache is touched. The fastest of three more is the client's round trip, the floor under every TTFB.
+  const robots = new URL('/robots.txt', base).toString();
+  await timedGet(robots, 'warm-up');
+  const probes = [];
+  for (let i = 0; i < FLOOR_PROBES; i++) probes.push((await timedGet(robots, 'client floor')).result);
+  const timed = probes.filter((p) => !p.error && Number.isFinite(p.ttfbMs));
+  const floor = timed.length ? timed.reduce((a, b) => (b.ttfbMs < a.ttfbMs ? b : a)) : probes[0];
+  floor.samples = probes.map((p) => p.ttfbMs);
   const first = await timedGet(url, 'first');
-  const second = await timedGet(url, 'second');
-  const fragmentUrl = fragmentUrlFromHtml(first.body, base);
+  const pageTimings = [first.result, ...(await timeRepeats(url))];
+  const { url: fragmentUrl, rejected } = checkFragmentUrl(fragmentUrlFromHtml(first.body, base), base);
   const fragment = [];
   if (fragmentUrl) {
-    fragment.push((await timedGet(fragmentUrl, 'first')).result);
-    fragment.push((await timedGet(fragmentUrl, 'second')).result);
+    fragment.push((await timedGet(fragmentUrl, 'first')).result, ...(await timeRepeats(fragmentUrl)));
   } else {
-    console.warn(`${page.label}: no data-fragment-url in the shell; fragment not timed`);
+    console.warn(`${page.label}: ${rejected ?? 'no data-fragment-url in the shell'}; fragment not timed`);
   }
-  return { url, fragmentUrl, timings: { page: [first.result, second.result], fragment } };
+  console.log(`${page.label}: client latency floor ${Math.round(floor.ttfbMs ?? NaN)} ms`);
+  return {
+    url,
+    fragmentUrl,
+    fragmentRejected: rejected,
+    timings: { floor, page: pageTimings, fragment },
+  };
+}
+
+/** GETs of the shell and its fragment so the Lighthouse run that follows meets a cached state. */
+async function warm(url, fragmentUrl) {
+  const doc = (await timedGet(url, 'warm')).result;
+  const frag = fragmentUrl ? (await timedGet(fragmentUrl, 'warm')).result : null;
+  return { document: doc.xAtcCache, fragment: frag?.xAtcCache ?? null, source: 'warm-up' };
 }
 
 // Edge on Windows never writes its dynamic DevTools port to stderr, so the launcher gets a fixed free port.
@@ -178,7 +208,7 @@ function freePort() {
 }
 
 /** One Lighthouse run in a fresh, cookie-free profile, killed after RUN_TIMEOUT_MS. */
-async function lighthouseRun(url, preset, run, browserPath) {
+async function lighthouseRun(url, fragmentUrl, warmed, preset, run, browserPath) {
   let chrome;
   let timer;
   try {
@@ -199,11 +229,21 @@ async function lighthouseRun(url, preset, run, browserPath) {
       timeout,
     ]);
     if (!result?.lhr) throw new Error('Lighthouse returned no result');
-    return { record: runFromLhr(result.lhr, preset, run), lhr: result.lhr };
+    const record = runFromLhr(result.lhr, preset, run);
+    const seen = cacheStatesFromDevtoolsLog(result.artifacts?.DevtoolsLog, url, fragmentUrl);
+    record.cache =
+      seen.document && (seen.fragment || !fragmentUrl)
+        ? { ...seen, source: 'browser' }
+        : {
+            document: seen.document ?? warmed.document,
+            fragment: seen.fragment ?? warmed.fragment,
+            source: 'warm-up',
+          };
+    return { record, lhr: result.lhr };
   } catch (err) {
     const message = err?.message ?? String(err);
     console.warn(`Lighthouse ${preset} run ${run} of ${url} failed: ${message}`);
-    return { record: { preset, run, error: message }, lhr: null };
+    return { record: { preset, run, error: message, cache: warmed }, lhr: null };
   } finally {
     clearTimeout(timer);
     if (chrome) {
@@ -232,10 +272,11 @@ function printSummary(report) {
     const verdicts = judgeTargets(page)
       .map((v) => `${v.id} ${v.status.toUpperCase()}`)
       .join(', ');
-    const fmt = (v) => (v === null ? 'n/a' : Math.round(v));
+    const fmt = (v) => (v === null || v === undefined ? 'n/a' : Math.round(v));
     console.log(
-      `${page.label.padEnd(10)} mobile LCP ${fmt(s.mobile.lcp.value)} ms, desktop LCP ${fmt(s.desktop.lcp.value)} ms` +
-        ` (${s.desktop.lcpRun?.lcpClass ?? 'n/a'}) | ${verdicts}`,
+      `${page.label.padEnd(10)} mobile LCP ${fmt(s.mobile.lcp.value)} ms (${fmt(s.mobile.lcp.min)}–${fmt(s.mobile.lcp.max)}),` +
+        ` desktop LCP ${fmt(s.desktop.lcp.value)} ms (${fmt(s.desktop.lcp.min)}–${fmt(s.desktop.lcp.max)},` +
+        ` ${s.desktop.lcpRun?.lcpClass ?? 'n/a'}), client floor ${fmt(page.timings?.floor?.ttfbMs)} ms | ${verdicts}`,
     );
   }
 }
@@ -260,6 +301,7 @@ async function measure(opts) {
     lighthouseVersion: lighthouseVersion(),
     browser: { path: browserPath, version: 'unknown' },
     runs: opts.runs,
+    cacheWarming: true,
     partial: selected.length !== PAGES.length,
     pages: [],
   };
@@ -270,10 +312,22 @@ async function measure(opts) {
     console.log(`${page.label}: timed GETs`);
     const timed = await timePage(base, page);
     const runs = { mobile: [], desktop: [] };
+    const batch = await warm(timed.url, timed.fragmentUrl);
+    console.log(
+      `${page.label}: warmed before Lighthouse (document ${batch.document}, fragment ${batch.fragment ?? '-'})`,
+    );
     for (const preset of ['mobile', 'desktop']) {
       for (let run = 1; run <= opts.runs; run++) {
         console.log(`${page.label}: Lighthouse ${preset} ${run}/${opts.runs}`);
-        const { record, lhr } = await lighthouseRun(timed.url, preset, run, browserPath);
+        const warmed = await warm(timed.url, timed.fragmentUrl);
+        const { record, lhr } = await lighthouseRun(
+          timed.url,
+          timed.fragmentUrl,
+          warmed,
+          preset,
+          run,
+          browserPath,
+        );
         runs[preset].push(record);
         if (lhr && report.browser.version === 'unknown') {
           report.browser.version = lhr.environment?.hostUserAgent ?? lhr.userAgent ?? 'unknown';
@@ -298,6 +352,8 @@ async function main() {
   }
   if (opts.compare) {
     const [before, after] = opts.compare.map(readReport);
+    // Repeated on stderr so a reader who pipes the table elsewhere still sees them.
+    for (const w of comparisonWarnings(before, after)) console.warn(`WARNING: ${w}`);
     console.log(renderComparison(before, after));
     return;
   }

@@ -5,10 +5,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertSafeBase,
+  cacheStatesFromDevtoolsLog,
+  checkFragmentUrl,
   classifyLcp,
+  comparisonWarnings,
+  floorNote,
   fragmentUrlFromHtml,
   judgeTargets,
   median,
+  probablyUncached,
   renderComparison,
   renderReport,
 } from '../../scripts/perfCheckLib.mjs';
@@ -210,5 +215,147 @@ describe('perf-check helpers', () => {
     expect(renderComparison(report, slower)).toContain(
       '| standings | Mobile LCP | 1500 ms | 1800 ms | +300 ms |',
     );
+  });
+});
+
+const REPORT = {
+  baseUrl: 'https://x.test',
+  startedAt: '2026-10-23T01:25:48.177Z',
+  commit: 'abc1234',
+  lighthouseVersion: '13.5.0',
+  browser: { path: 'edge', version: 'Edg/155' },
+  runs: 3,
+  partial: false,
+  cacheWarming: true,
+  pages: [] as ReturnType<typeof page>[],
+};
+
+describe('perf-check review fixes', () => {
+  it('shows min and max beside each median in the report and the comparison', () => {
+    const spreadPage = page({
+      mobile: [
+        run('mobile', 1, { lcpMs: 1400 }),
+        run('mobile', 2, { lcpMs: 1500 }),
+        run('mobile', 3, { lcpMs: 2100 }),
+      ],
+    });
+    const md = renderReport({ ...REPORT, pages: [spreadPage] });
+    expect(md).toContain('| standings | mobile | 1500 ms (3/3) 1400 ms–2100 ms |');
+    const after = { ...REPORT, pages: [page()] };
+    expect(renderComparison({ ...REPORT, pages: [spreadPage] }, after)).toContain(
+      '| standings | Mobile LCP | 1500 ms | 1500 ms | +0 ms | 1400 ms–2100 ms | 1500 ms–1500 ms |',
+    );
+  });
+
+  it('judges NFR3 on the median of three repeat GETs', () => {
+    const repeats = (ttfbs: number[]) => [
+      timing('first', { xAtcCache: 'MISS', ttfbMs: 900 }),
+      ...ttfbs.map((t, i) => timing(`repeat ${i + 1}`, { ttfbMs: t })),
+    ];
+    // One slow outlier does not fail the median.
+    const ok = page({ page: repeats([150, 900, 180]) });
+    const v = judgeTargets(ok).find((x) => x.id === 'NFR3 page');
+    expect(v?.status).toBe('pass');
+    expect(v?.detail).toContain('median TTFB 180 ms of 3 (150 ms–900 ms)');
+    expect(status(page({ page: repeats([150, 250, 260]) }), 'NFR3 page')).toBe('fail');
+  });
+
+  it('says when the client latency floor is at least half the measured TTFB', () => {
+    expect(floorNote(100, 200)).toContain('client latency floor 100 ms');
+    expect(floorNote(99, 200)).toBeNull();
+    const slow = page({ page: [timing('first'), timing('repeat 1', { ttfbMs: 400 })] });
+    const withFloor = {
+      ...slow,
+      timings: { ...slow.timings, floor: timing('client floor', { ttfbMs: 250 }) },
+    };
+    const v = judgeTargets(withFloor).find((x) => x.id === 'NFR3 page');
+    expect(v?.status).toBe('fail');
+    expect(v?.cause).toContain('network distance');
+  });
+
+  it('warns when the two reports are not like for like, naming the unwarmed baseline', () => {
+    const before = { ...REPORT, cacheWarming: undefined, partial: true };
+    const after = { ...REPORT, lighthouseVersion: '13.6.0', runs: 1, baseUrl: 'http://localhost:4321' };
+    const warnings = comparisonWarnings(before, after);
+    expect(warnings.join('\n')).toContain('before report (2026-10-23T01:25:48.177Z) had no cache warming');
+    expect(warnings.join('\n')).toContain('partial run');
+    expect(warnings.join('\n')).toMatch(
+      /Lighthouse version differs.*runs per preset differs.*base URL differs/s,
+    );
+    expect(comparisonWarnings(REPORT, REPORT)).toEqual([]);
+    expect(renderComparison(before, after)).toContain('> **Warning:**');
+  });
+
+  it('rejects a fragment URL on another origin, so it is never timed', () => {
+    const base = 'https://alphatouringchallenge.com';
+    const evil = fragmentUrlFromHtml('<div data-fragment-url="https://evil.test/x"></div>', base);
+    const checked = checkFragmentUrl(evil, base);
+    expect(checked.url).toBeNull();
+    expect(checked.rejected).toContain('https://evil.test');
+    expect(checkFragmentUrl(`${base}/standings/fragment`, base)).toEqual({
+      url: `${base}/standings/fragment`,
+      rejected: null,
+    });
+    const rejected = { ...page({ fragment: [] }), fragmentUrl: null, fragmentRejected: checked.rejected };
+    expect(judgeTargets(rejected).find((x) => x.id === 'NFR4')?.detail).toContain('rejected');
+  });
+
+  it('classes a pointer-events-none background-image backdrop as decorative, which fails NFR2', () => {
+    const backdrop = {
+      selector: 'body > main > section.relative > div.pointer-events-none',
+      snippet:
+        '<div class="pointer-events-none absolute inset-x-0" style="background-image: url(&quot;/x.jpg&quot;);">',
+    };
+    expect(classifyLcp(backdrop)).toBe('decorative');
+    expect(
+      classifyLcp({ selector: 'div.pointer-events-none', snippet: '<div class="pointer-events-none">' }),
+    ).toBe('content');
+    const p = page({
+      desktop: [run('desktop', 1, { lcpMs: 900, lcpElement: backdrop, lcpClass: 'decorative' })],
+    });
+    expect(status(p, 'NFR2')).toBe('fail');
+    expect(renderReport({ ...REPORT, pages: [p] })).toContain('classed `decorative`');
+  });
+
+  it('notes a fragment that sends no X-ATC-Cache and is as slow on repeat as on first GET', () => {
+    const fragment = [
+      timing('first', { xAtcCache: 'absent', ttfbMs: 8856 }),
+      timing('repeat 1', { xAtcCache: 'absent', ttfbMs: 8727 }),
+    ];
+    expect(probablyUncached(fragment)).toBe(true);
+    expect(probablyUncached([fragment[0], timing('repeat 1', { xAtcCache: 'absent', ttfbMs: 300 })])).toBe(
+      false,
+    );
+    const v = judgeTargets(page({ label: 'driver', fragment })).find((x) => x.id === 'NFR4');
+    expect(v?.detail).toContain('probably uncached');
+  });
+
+  it('reads the document and fragment X-ATC-Cache from a DevTools log', () => {
+    const log = [
+      {
+        method: 'Network.requestWillBeSent',
+        params: { requestId: '1', request: { url: 'https://x.test/' } },
+      },
+      {
+        method: 'Network.responseReceived',
+        params: { requestId: '1', response: { url: 'https://x.test/', headers: { 'X-ATC-Cache': 'HIT' } } },
+      },
+      {
+        method: 'Network.requestWillBeSent',
+        params: { requestId: '2', request: { url: 'https://x.test/home/fragment' } },
+      },
+      {
+        method: 'Network.responseReceivedExtraInfo',
+        params: { requestId: '2', headers: { 'x-atc-cache': 'STALE' } },
+      },
+    ];
+    expect(cacheStatesFromDevtoolsLog(log, 'https://x.test/', 'https://x.test/home/fragment')).toEqual({
+      document: 'HIT',
+      fragment: 'STALE',
+    });
+    expect(cacheStatesFromDevtoolsLog([], 'https://x.test/', null)).toEqual({
+      document: null,
+      fragment: null,
+    });
   });
 });
