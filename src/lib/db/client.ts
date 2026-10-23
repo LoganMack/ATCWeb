@@ -36,6 +36,9 @@ const SUBSESSION_KEYED_TABLES = new Set([
   'race_links',
   'round_overrides',
   'manual_result_imports',
+  'round_driver_stats',
+  'round_team_stats',
+  'round_penalty_points',
 ]);
 
 export function withHiddenRounds(env: SupabaseEnv, path: string): string {
