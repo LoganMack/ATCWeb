@@ -230,6 +230,8 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes to `main` 
 
 **Fix a round that is missing from the site.** Open **Admin → Events → Orphaned Rounds** and link it to a season and event.
 
+**Measure page performance.** Run `node scripts/perf-check.mjs` to measure the five model pages (home, a posted round's results and incidents, standings, a driver profile) on the live site. It times two plain GETs of each page and its fragment, with the `X-ATC-Cache` header, and runs Lighthouse three times with the mobile preset and three with the desktop preset. Then it writes `report.md` and `report.json` to `perf-reports/<UTC timestamp>/`, which git ignores. The script only sends GET requests, with no cookies. It needs Chrome or Edge; set `CHROME_PATH` if neither is found. `--pages home --runs 1` makes a quick partial run, and `--base` points it at another https site or at `http://localhost`. To compare two runs, use `node scripts/perf-check.mjs --compare perf-reports/<before> perf-reports/<after>`.
+
 ## Conventions
 
 - **Brand colors:** blue `#4369F5`, red `#F5426E`, gold `#F5C642`.
