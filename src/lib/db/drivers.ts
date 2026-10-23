@@ -464,3 +464,12 @@ export function resizedImageUrl(
   if (options.height) params.push(`height=${options.height}`);
   return `/cdn-cgi/image/${params.join(',')}/${url}`;
 }
+
+/**
+ * A `srcset` of resizedImageUrl at each width, so the browser fetches the one that fits the displayed size.
+ * Null when resizedImageUrl would pass the URL through, so callers fall back to a plain `src`.
+ */
+export function resizedImageSrcset(url: string | null | undefined, widths: number[]): string | null {
+  if (!url || resizedImageUrl(url, { width: 1 }) === url) return null;
+  return widths.map((w) => `${resizedImageUrl(url, { width: w })} ${w}w`).join(', ');
+}

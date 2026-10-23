@@ -54,16 +54,29 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'incidents', label: 'Incidents', description: '/incidents', width: 1152 },
 ];
 
-import { resizedImageUrl } from './db/drivers';
+import { resizedImageSrcset, resizedImageUrl } from './db/drivers';
 
-/**
- * One page's banner URL, or null. Banners are often a page's heaviest image, so all of them go through
- * resizedImageUrl here.
- */
+/** One page's stored banner URL, unresized, or null. bannerImage turns it into what the page renders. */
 export function bannerUrlFor(
   banners: { page_key: string; image_url: string }[],
   pageKey: string,
 ): string | null {
-  const url = banners.find((b) => b.page_key === pageKey)?.image_url ?? null;
-  return resizedImageUrl(url, { width: 1600 });
+  return banners.find((b) => b.page_key === pageKey)?.image_url ?? null;
+}
+
+/**
+ * Banner widths for the srcset. 1600 stays the largest, as when a single size was served, so no screen gets a
+ * sharper or softer banner than before; narrower windows can take a smaller one.
+ */
+const BANNER_WIDTHS = [960, 1280, 1600];
+
+/**
+ * A banner's <img> src and srcset. Banners are often a page's heaviest image, so all of them go through
+ * resizedImageUrl here; srcset is null for a URL that can't be resized (one pasted from another host).
+ */
+export function bannerImage(url: string): { src: string; srcset: string | null } {
+  return {
+    src: resizedImageUrl(url, { width: 1600 }) ?? url,
+    srcset: resizedImageSrcset(url, BANNER_WIDTHS),
+  };
 }

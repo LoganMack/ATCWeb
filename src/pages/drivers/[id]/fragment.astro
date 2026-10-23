@@ -666,7 +666,7 @@ if (loadError) markUncacheable(Astro);
     ) : (
       <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {relatedPosts.map((post, i) => (
-          <NewsCard post={post} index={i} logoBySeasonLabel={relatedLogoBySeasonLabel} tagsByPostId={relatedTagsByPostId} />
+          <NewsCard post={post} index={i} priority={i === 0} logoBySeasonLabel={relatedLogoBySeasonLabel} tagsByPostId={relatedTagsByPostId} />
         ))}
       </div>
     )}

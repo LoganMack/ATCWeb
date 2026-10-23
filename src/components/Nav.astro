@@ -3,6 +3,7 @@ import { resolveSiteLinks } from '../lib/links';
 import { isAdminView } from '../lib/auth';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import { getSeasons } from '../lib/db/seasons';
+import { resizedImageUrl } from '../lib/db/drivers';
 import { getLiveBannerInfo } from '../lib/liveEvent';
 import SeasonLogo from './SeasonLogo.astro';
 
@@ -29,9 +30,16 @@ const currentSeasonPromise = getSeasons(supabaseEnv)
 
 const [liveBanner, currentSeason] = await Promise.all([liveBannerPromise, currentSeasonPromise]);
 
-// Use the static logos unless the season has its own dark logo, so a mismatched pair never shows.
-const navLogoDarkUrl = currentSeason?.logo_url ?? '/logos/atc18-white.png';
-const navLogoLightUrl = currentSeason?.logo_url ? (currentSeason.logo_url_light ?? null) : null;
+// Use the static logos unless the season has its own dark logo, so a mismatched pair never shows. Season logos
+// are uploaded at full size (one was 1873x909, 300 KB, for a 36px-tall slot on every page), so they are
+// resized to 3x the h-9 height.
+const NAV_LOGO_HEIGHT = 108;
+const navLogoDarkUrl = currentSeason?.logo_url
+  ? resizedImageUrl(currentSeason.logo_url, { height: NAV_LOGO_HEIGHT })
+  : '/logos/atc18-white.png';
+const navLogoLightUrl = currentSeason?.logo_url
+  ? resizedImageUrl(currentSeason.logo_url_light, { height: NAV_LOGO_HEIGHT })
+  : null;
 
 // A signed-in driver gets a link to their own driver page instead of Sign-Up; a login not linked to a driver
 // still sees Sign-Up.

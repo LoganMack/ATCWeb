@@ -3,6 +3,7 @@ import type { NewsPost } from '../lib/db/client';
 import type { NewsTag } from '../lib/db/news';
 import type { SeasonLogoPair } from '../lib/db/seasons';
 import { formatDate } from '../lib/db/circuits';
+import { resizedImageSrcset, resizedImageUrl } from '../lib/db/drivers';
 import SeasonLogo from './SeasonLogo.astro';
 
 interface Props {
@@ -13,9 +14,28 @@ interface Props {
   logoBySeasonLabel?: Map<string, SeasonLogoPair>;
   /** post id -> its assigned tags (0055_news_tags.sql) — bulk-fetched once per page by the caller (getAllNewsPostTags(), grouped by post_id) and passed in here, same "fetch once, map by id" convention as logoBySeasonLabel. */
   tagsByPostId?: Map<string, NewsTag[]>;
+  /** The cover's `sizes`; the default is a card in the News page's 1/2/3-column grid (px-6, gap-6). */
+  sizes?: string;
+  /** Load the cover eagerly at high priority: the first card a page shows near the top, often its largest paint. */
+  priority?: boolean;
 }
 
-const { post, index = 0, featured = false, logoBySeasonLabel, tagsByPostId } = Astro.props;
+const {
+  post,
+  index = 0,
+  featured = false,
+  logoBySeasonLabel,
+  tagsByPostId,
+  sizes = '(min-width: 1024px) 400px, (min-width: 640px) calc(50vw - 36px), calc(100vw - 48px)',
+  priority = false,
+} = Astro.props;
+
+// Covers are uploaded up to 2048px wide; the srcset lets each card fetch about its drawn width instead.
+const COVER_WIDTHS = [320, 480, 640, 960, 1280];
+// The featured card's cover is half of max-w-6xl beside the text from sm up, full width below.
+const coverSizes = featured ? '(min-width: 1152px) 552px, (min-width: 640px) calc(50vw - 24px), calc(100vw - 48px)' : sizes;
+const coverSrcset = resizedImageSrcset(post.cover_image_url, COVER_WIDTHS);
+const coverSrc = resizedImageUrl(post.cover_image_url, { width: 960 });
 
 const date = formatDate(post.published_at);
 const seasonLogo = post.season_label ? logoBySeasonLabel?.get(post.season_label) : undefined;
@@ -32,10 +52,13 @@ const tags = tagsByPostId?.get(post.id) ?? [];
   {post.cover_image_url && (
     <div class={featured ? 'aspect-[16/9] w-full overflow-hidden sm:aspect-auto sm:w-1/2' : 'aspect-[16/9] w-full overflow-hidden'}>
       <img
-        src={post.cover_image_url}
+        src={coverSrc}
+        srcset={coverSrcset ?? undefined}
+        sizes={coverSrcset ? coverSizes : undefined}
         alt={post.title}
         class="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-        loading="lazy"
+        loading={priority ? 'eager' : 'lazy'}
+        fetchpriority={priority ? 'high' : undefined}
       />
     </div>
   )}
