@@ -222,8 +222,8 @@ begin
   with shown as (
     select
       r.race_number, r.driver_id, r.season_id, r.class_id, r.team_id, r.dsq,
-      case when v_posted then r.final_position else r.raw_position end as position,
-      case when v_posted then r.final_class_position else r.raw_class_position end as class_position,
+      case when v_posted then r.final_position else r.raw_position end as shown_position,
+      case when v_posted then r.final_class_position else r.raw_class_position end as shown_class_position,
       case when v_posted then r.final_finesse_bonus else r.raw_finesse_bonus end as finesse_bonus,
       case when v_posted then r.final_pole_bonus else r.raw_pole_bonus end as pole_bonus,
       case when v_posted then r.final_overall_total else r.raw_overall_total end as overall_total,
@@ -241,7 +241,7 @@ begin
       -- The team's top 2 of the race (topTeamScorers), with a fixed order on a points tie.
       case when s.team_id is not null then
         row_number() over (partition by s.race_number, s.team_id
-                           order by s.overall_total desc, s.position asc nulls last, s.driver_id)
+                           order by s.overall_total desc, s.shown_position asc nulls last, s.driver_id)
       end as team_rank
     from shown s
     left join public.curated_race_results rr
@@ -270,14 +270,14 @@ begin
   select
     p_subsession_id, w.driver_id, w.season_id, w.class_id, w.team_id, v_posted,
     sum(w.overall_total), sum(w.class_total), count(*),
-    count(*) filter (where not w.dsq and w.class_position = 1),
-    count(*) filter (where not w.dsq and w.class_position <= 3),
-    count(*) filter (where not w.dsq and w.class_position <= 5),
-    count(*) filter (where not w.dsq and w.class_position <= 10),
-    count(*) filter (where not w.dsq and w.position = 1),
-    count(*) filter (where not w.dsq and w.position <= 3),
-    count(*) filter (where not w.dsq and w.position <= 5),
-    count(*) filter (where not w.dsq and w.position <= 10),
+    count(*) filter (where not w.dsq and w.shown_class_position = 1),
+    count(*) filter (where not w.dsq and w.shown_class_position <= 3),
+    count(*) filter (where not w.dsq and w.shown_class_position <= 5),
+    count(*) filter (where not w.dsq and w.shown_class_position <= 10),
+    count(*) filter (where not w.dsq and w.shown_position = 1),
+    count(*) filter (where not w.dsq and w.shown_position <= 3),
+    count(*) filter (where not w.dsq and w.shown_position <= 5),
+    count(*) filter (where not w.dsq and w.shown_position <= 10),
     coalesce(bool_or(w.driver_id = (select p.driver_id from pole p)), false),
     bool_or(w.pole_bonus > 0),
     coalesce(sum(w.laps_complete), 0),
