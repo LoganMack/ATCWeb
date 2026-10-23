@@ -1,4 +1,5 @@
 import { restDelete, restGet, writeHeaders, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 // --- Car logos (see 0009_car_logos.sql) -------------------------------
 
@@ -9,7 +10,9 @@ export interface CarLogo {
 
 /** Every configured car logo, keyed by the car's exact name (matches `curated_race_results.car_name`). */
 export function getCarLogos(env: SupabaseEnv) {
-  return restGet<CarLogo[]>(env, 'car_logos?select=car_name,logo_url&order=car_name.asc');
+  return memoized(env, 'getCarLogos', [], () =>
+    restGet<CarLogo[]>(env, 'car_logos?select=car_name,logo_url&order=car_name.asc'),
+  );
 }
 
 /** Upserts one car's logo (by car_name). */

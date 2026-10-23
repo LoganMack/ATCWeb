@@ -12,6 +12,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/driver-stats(\/fragment)?$/, ['class']],
   [/^\/drivers\/[^/]+$/, ['profile_error', 'saved']],
   [/^\/drivers\/[^/]+\/fragment$/, ['hof']],
+  [/^\/drivers\/[^/]+\/awards$/, []],
   [/^\/media(\/fragment)?$/, ['filter', 'layout', 'tab']],
   [/^\/news(\/fragment)?$/, ['q', 'season']],
   [/^\/results(\/fragment)?$/, ['season']],

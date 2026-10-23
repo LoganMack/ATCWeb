@@ -1,4 +1,5 @@
 import { restDelete, restGet, restPatch, restPost, writeHeaders, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 // ---------------------------------------------------------------------------
 // SEASONS
@@ -52,7 +53,9 @@ const SEASON_SELECT =
 
 /** All seasons, newest first. */
 export function getSeasons(env: SupabaseEnv) {
-  return restGet<Season[]>(env, `seasons?select=${SEASON_SELECT}&order=number.desc`);
+  return memoized(env, 'getSeasons', [], () =>
+    restGet<Season[]>(env, `seasons?select=${SEASON_SELECT}&order=number.desc`),
+  );
 }
 
 export async function getSeasonById(env: SupabaseEnv, id: string) {
@@ -169,7 +172,9 @@ const SCORING_RULESET_SELECT = 'id,name,rules,is_default,can_drop_final_round,cr
 
 /** All scoring rulesets, alphabetical. */
 export function getScoringRulesets(env: SupabaseEnv) {
-  return restGet<ScoringRuleset[]>(env, `scoring_rulesets?select=${SCORING_RULESET_SELECT}&order=name.asc`);
+  return memoized(env, 'getScoringRulesets', [], () =>
+    restGet<ScoringRuleset[]>(env, `scoring_rulesets?select=${SCORING_RULESET_SELECT}&order=name.asc`),
+  );
 }
 
 export function createScoringRuleset(

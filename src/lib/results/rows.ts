@@ -1,5 +1,6 @@
 import { restGet, restGetAll, type SupabaseEnv } from '../db/client';
 import { getAllTeamSeasonLogos } from '../db/teams';
+import { memoized } from '../requestMemo';
 
 // ---------------------------------------------------------------------------
 // Raw row shapes
@@ -213,9 +214,11 @@ export interface DriverBasic {
  */
 export function driversSelect(env: SupabaseEnv, { includeAi = false }: { includeAi?: boolean } = {}) {
   const aiFilter = includeAi ? '' : '&is_ai=eq.false';
-  return restGet<DriverBasic[]>(
-    env,
-    `drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai${aiFilter}`,
+  return memoized(env, 'driversSelect', [includeAi], () =>
+    restGet<DriverBasic[]>(
+      env,
+      `drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai${aiFilter}`,
+    ),
   );
 }
 
@@ -365,7 +368,7 @@ export interface TeamBasic {
 
 /** Lean team lookup (id/name/logo only) for showing the team a driver raced for on a given race_score_results row — see `RaceResultRow.team`. Exported (like `driversSelect`) so a caller needing several team-scoped views at once — the homepage standings widget's Alpha/Delta team tabs — can fetch this once and share it via `teamsBasic`, instead of each tab re-fetching it. */
 export function getTeamsBasic(env: SupabaseEnv) {
-  return restGet<TeamBasic[]>(env, 'teams?select=id,name,logo_url');
+  return memoized(env, 'getTeamsBasic', [], () => restGet<TeamBasic[]>(env, 'teams?select=id,name,logo_url'));
 }
 
 function teamSeasonLogoKey(teamId: string, seasonId: string): string {

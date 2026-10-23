@@ -1,5 +1,6 @@
 import { isHttpUrl } from '../security';
 import { restGet, restGetAll, writeHeaders, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 // --- Round overrides (flag an individual round as a non-points exhibition) -
 
@@ -12,21 +13,25 @@ export interface RoundOverride {
 }
 
 /** subsession_ids flagged as a non-points exhibition — used to exclude those rounds from standings/champions even inside an otherwise-real championship season. */
-export async function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<number>> {
-  const rows = await restGet<{ subsession_id: number }[]>(
-    env,
-    'round_overrides?select=subsession_id&is_exhibition=eq.true',
-  );
-  return new Set(rows.map((r) => r.subsession_id));
+export function getExhibitionRoundIds(env: SupabaseEnv): Promise<Set<number>> {
+  return memoized(env, 'getExhibitionRoundIds', [], async () => {
+    const rows = await restGet<{ subsession_id: number }[]>(
+      env,
+      'round_overrides?select=subsession_id&is_exhibition=eq.true',
+    );
+    return new Set(rows.map((r) => r.subsession_id));
+  });
 }
 
 /** subsession_ids flagged as a test round (0036_round_test_flag.sql) — used by the results list page's Test Sessions filter, same shape as getExhibitionRoundIds. */
-export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
-  const rows = await restGet<{ subsession_id: number }[]>(
-    env,
-    'round_overrides?select=subsession_id&is_test=eq.true',
-  );
-  return new Set(rows.map((r) => r.subsession_id));
+export function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
+  return memoized(env, 'getTestRoundIds', [], async () => {
+    const rows = await restGet<{ subsession_id: number }[]>(
+      env,
+      'round_overrides?select=subsession_id&is_test=eq.true',
+    );
+    return new Set(rows.map((r) => r.subsession_id));
+  });
 }
 
 /**
@@ -34,9 +39,11 @@ export async function getTestRoundIds(env: SupabaseEnv): Promise<Set<number>> {
  * stats (Logan). The flags stay separate (0036) for the Exhibition/Test badges, which read
  * getExhibitionRoundIds/getTestRoundIds.
  */
-export async function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Set<number>> {
-  const [exhibition, test] = await Promise.all([getExhibitionRoundIds(env), getTestRoundIds(env)]);
-  return new Set([...exhibition, ...test]);
+export function getStandingsExcludedRoundIds(env: SupabaseEnv): Promise<Set<number>> {
+  return memoized(env, 'getStandingsExcludedRoundIds', [], async () => {
+    const [exhibition, test] = await Promise.all([getExhibitionRoundIds(env), getTestRoundIds(env)]);
+    return new Set([...exhibition, ...test]);
+  });
 }
 
 /**

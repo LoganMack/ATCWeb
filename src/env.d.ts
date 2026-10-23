@@ -54,5 +54,9 @@ declare namespace App {
     broadcasterHiddenSubsessionIds?: number[];
     /** Set by markUncacheable (src/lib/security.ts) when a render hit a data-load failure; the middleware then sends no-store and skips the edge cache. */
     uncacheable?: boolean;
+    /** This request's memo of reference reads (src/lib/requestMemo.ts), created by src/middleware.ts. */
+    memo?: import('./lib/requestMemo').RequestMemo;
+    /** REST reads made by this request; set only under `wrangler dev` and sent back as X-ATC-Subrequests. */
+    subrequestCounter?: { count: number };
   }
 }

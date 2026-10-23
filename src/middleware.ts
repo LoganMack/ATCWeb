@@ -31,6 +31,7 @@ import {
   refreshMarkerKey,
   toStoredCopy,
 } from './lib/edgeCache';
+import { RequestMemo } from './lib/requestMemo';
 
 const ADMIN_PREFIX = '/admin';
 
@@ -212,6 +213,11 @@ async function refreshStaleCopy(
 
 export const onRequest = defineMiddleware(async (context, next) => {
   context.locals.session = null;
+  // One memo per request (BR4.1), created before the first resolveSupabaseEnv so every read can use it.
+  context.locals.memo = new RequestMemo();
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(context.url.hostname);
+  // `wrangler dev` only: count the REST reads a render makes, for the stage tables (BR4.2).
+  if (context.locals.runtime && isLocalHost) context.locals.subrequestCounter = { count: 0 };
 
   const env = resolveSupabaseEnv(context.locals);
   const accessToken = context.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
@@ -246,6 +252,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
       const { state, response: hit } = readStoredCopy(cached as unknown as Response, Date.now());
       if (state !== 'expired') {
         hit.headers.set('X-ATC-Cache', state === 'stale' ? 'STALE' : 'HIT');
+        hit.headers.delete('X-ATC-Subrequests');
         if (state === 'stale' && refreshGuard.tryStart(cacheKey)) {
           context.locals.runtime.ctx.waitUntil(refreshStaleCopy(context, next, cache, cacheKey));
         }
@@ -340,6 +347,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
     response.headers.set('X-ATC-Cache', 'MISS');
   }
 
+  // Debug only (set under `wrangler dev`): the page frontmatter has finished by now, so this is its read count.
+  if (context.locals.subrequestCounter) {
+    response.headers.set('X-ATC-Subrequests', String(context.locals.subrequestCounter.count));
+  }
+
   // Never let a browser or intermediary hold a broadcaster render (set after
   // the edge copy above captured the page's own header).
   if (broadcasterMode) response.headers.set('Cache-Control', 'private, no-store');
@@ -350,7 +362,6 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // --- Site analytics (page_views via record_page_view, 0114): one row per real public page hit (GET; not
   // /admin, /api, fragments or admins; 200s and errors only). Worker only, never from localhost, so dev runs
   // don't write to production.
-  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].includes(context.url.hostname);
   if (
     context.locals.runtime &&
     !isLocalHost &&
@@ -358,6 +369,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     !isAdminRoute &&
     !pathname.startsWith('/api') &&
     !pathname.endsWith('/fragment') &&
+    // The driver profile's Awards card is a fragment too, under its own name.
+    !/^\/drivers\/[^/]+\/awards$/.test(pathname) &&
     !context.locals.isRealAdmin &&
     (response.status === 200 || response.status >= 400)
   ) {

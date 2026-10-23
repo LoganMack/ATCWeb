@@ -1,5 +1,6 @@
 import { restGet, restGetAll, type SupabaseEnv } from '../db/client';
 import type { EventRecord } from '../db/events';
+import { memoized } from '../requestMemo';
 import { isChampionshipSeason } from './shared';
 import type { RoundSummary } from './rows';
 
@@ -21,7 +22,47 @@ export function getRoundsForSeason(env: SupabaseEnv, seasonId: string) {
 /** Every round across every season, most recent first — powers the "link to a round" picker on the news post editor (src/pages/admin/news/*), which needs to search/pick across all of history rather than one season at a time. One query rather than N getRoundsForSeason() calls, since a per-season loop would be exactly the kind of N+1 this file's header already warns against on pages that list many seasons at once. */
 export function getAllRounds(env: SupabaseEnv) {
   // restGetAll: there are enough rounds that a plain restGet could silently stop at Supabase's 1000-row cap.
-  return restGetAll<RoundSummary>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`);
+  return memoized(env, 'getAllRounds', [], () =>
+    restGetAll<RoundSummary>(env, `curated_rounds?select=${ROUND_SUMMARY_SELECT}&order=start_time.desc`),
+  );
+}
+
+/** A round with its admin-set layout name, for the km and corners stats (resolveLayout). */
+export interface RoundWithLayout extends RoundSummary {
+  layout: string | null;
+}
+
+/**
+ * Every round of these seasons with its layout, newest first: one read where the live path needs the
+ * season's rounds and getRoundLayoutsForSubsessions.
+ */
+export function getRoundsWithLayoutsForSeasons(env: SupabaseEnv, seasonIds: string[]) {
+  if (seasonIds.length === 0) return Promise.resolve([] as RoundWithLayout[]);
+  const ids = seasonIds.map((id) => encodeURIComponent(id)).join(',');
+  return restGetAll<RoundWithLayout>(
+    env,
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT},layout&season_id=in.(${ids})&order=start_time.desc,subsession_id.asc`,
+  );
+}
+
+/** One round as the results page's round picker lists it: only the columns the picker reads (FR3.7). */
+export interface PickerRound {
+  subsession_id: number;
+  season_id: string;
+  season_label: string | null;
+  round_number: number | null;
+  start_time: string;
+  track_name: string;
+}
+
+export const PICKER_ROUND_SELECT = 'subsession_id,season_id,season_label,round_number,start_time,track_name';
+
+/**
+ * Every round for the results page's picker, newest first, with only the picker's columns; the exhibition and
+ * test flags come from the round_overrides sets the page already reads.
+ */
+export function getRoundPickerRounds(env: SupabaseEnv) {
+  return restGetAll<PickerRound>(env, `curated_rounds?select=${PICKER_ROUND_SELECT}&order=start_time.desc`);
 }
 
 /**

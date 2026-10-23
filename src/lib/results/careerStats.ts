@@ -1,8 +1,7 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds } from '../db/rounds';
-import { getCarLogos } from '../db/assets';
-import { getScoringRulesets, type Season } from '../db/seasons';
-import { getPenaltiesForSubsessions } from '../db/penalties';
+import { getCarLogos, type CarLogo } from '../db/assets';
+import { getScoringRulesets, type ScoringRuleset, type Season } from '../db/seasons';
 import type { Lookup } from '../db/lookups';
 import {
   displayDriverName,
@@ -16,20 +15,33 @@ import {
   driversSelect,
   getTeamsBasic,
   getAllTeamSeasonLogosSafe,
-  getRaceScoresForSeasonsBulk,
   type DriverBasic,
   type ScoreRow,
+  type TeamBasic,
 } from './rows';
-import { buildSeasonOverallContext } from './seasonContext';
 import { computeSeasonStandings, computeOverallSeasonStandings } from './standings';
-import { computeTeamSeasonStandings } from './teamStandings';
-import { getCuratedRaceResultsWithLapStatsBulk, getSeasonDriverExtendedStats } from './extendedStats';
-import { getRoundLayoutsForSubsessions } from './layoutLaps';
-import { getSeasonCarTeamStats, type DriverCarStat, type DriverTeamStat } from './seasonCarTeam';
-import { getAllRounds } from './rounds';
+import { computeTeamSeasonStandings, type TeamSeasonStanding } from './teamStandings';
+import { getSeasonDriverExtendedStats, type DriverSeasonExtendedStats } from './extendedStats';
+import {
+  getSeasonCarTeamStats,
+  type DriverCarStat,
+  type DriverSeasonExtras,
+  type DriverTeamStat,
+} from './seasonCarTeam';
+import type { DriverSeasonStanding } from './standingsCore';
+import { loadLiveSeasonInputs } from './liveSeasons';
+import {
+  carTeamStatsFromRounds,
+  classStandingsFromRounds,
+  extendedStatsFromRounds,
+  loadStoredSeasons,
+  overallStandingsFromRounds,
+  teamStandingsFromRounds,
+  type SeasonRoundStats,
+} from './roundStatsAdapter';
 
-// Career driver stats for the Driver Stats history tab. Nothing is stored: everything is recomputed from
-// every championship season, so a new driver appears on the next page load.
+// Career driver stats for the Driver Stats history tab, built from the stored round stats of every
+// championship season (BR2.3); a season whose stored rows are incomplete is computed live for that render.
 
 /** One driver's stat line for one season (they raced exactly one class in a season, so this is also effectively "one class" — the class is carried on the row for display/grouping, not because a driver could have two rows in the same season). */
 export interface DriverCareerSeasonRow {
@@ -138,35 +150,20 @@ export function aggregateDriverCareerStats(
   };
 }
 
-/**
- * Every driver's career stat line, aggregated from the same per-season computations the Champions and
- * Standings pages use, over championship seasons only.
- */
-export async function computeDriverCareerStats(
-  env: SupabaseEnv,
-  seasons: Season[],
-  classes: Lookup[],
-  exhibitionRoundIds?: Set<number>,
-): Promise<DriverCareerStats[]> {
-  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
-  const championshipSeasonIds = championshipSeasons.map((s) => s.id);
+/** The reference data every career season reads, fetched once per render: start it in the page's first stage. */
+export interface CareerRefs {
+  drivers: DriverBasic[];
+  teams: TeamBasic[];
+  carLogos: CarLogo[];
+  seasonLogoRows: { team_id: string; season_id: string; logo_url: string }[];
+  circuits: Circuit[];
+  layouts: CircuitLayout[];
+  rulesets: ScoringRuleset[];
+}
 
-  // Each of these is fetched once for the whole career and sliced per season in memory: any per-season query
-  // exceeds the Workers subrequest limit as seasons accumulate.
-  const [
-    drivers,
-    exhibitionIds,
-    teams,
-    carLogos,
-    seasonLogoRows,
-    circuits,
-    layouts,
-    bulkScores,
-    allRounds,
-    rulesets,
-  ] = await Promise.all([
+export async function loadCareerRefs(env: SupabaseEnv): Promise<CareerRefs> {
+  const [drivers, teams, carLogos, seasonLogoRows, circuits, layouts, rulesets] = await Promise.all([
     driversSelect(env),
-    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
     getTeamsBasic(env),
     getCarLogos(env),
     getAllTeamSeasonLogosSafe(env),
@@ -184,174 +181,243 @@ export async function computeDriverCareerStats(
       );
       return [] as CircuitLayout[];
     }),
-    getRaceScoresForSeasonsBulk(env, championshipSeasonIds),
-    getAllRounds(env),
     getScoringRulesets(env),
   ]);
-  const driverById = new Map(drivers.map((d) => [d.id, d]));
-  // Delta runs its own separate team competition (see computeTeamSeasonStandings'
-  // own doc comment) — every other class's drivers just show "—" for
-  // deltaTeamPosition unless their team happens to also field a Delta driver.
+  return { drivers, teams, carLogos, seasonLogoRows, circuits, layouts, rulesets };
+}
+
+/** One season's standings, team standings, extended stats and cars and teams, from either path. */
+interface SeasonViews {
+  season: Season;
+  /** In `classes` order. */
+  classStandings: DriverSeasonStanding[][];
+  overallStandings: DriverSeasonStanding[];
+  extendedStats: Map<string, DriverSeasonExtendedStats>;
+  teamOverall: TeamSeasonStanding[];
+  teamDelta: TeamSeasonStanding[];
+  carTeamStats: Map<string, DriverSeasonExtras>;
+}
+
+function storedSeasonViews(stats: SeasonRoundStats, classes: Lookup[], refs: CareerRefs): SeasonViews {
+  const { season } = stats;
+  // Delta's team championship only began at ATC10 (0052_delta_team_enabled.sql).
   const deltaClass = classes.find((c) => c.name === 'Delta');
+  const standingsRefs = { drivers: refs.drivers, rulesets: refs.rulesets, classes };
+  return {
+    season,
+    classStandings: classes.map((c) => classStandingsFromRounds(stats, c.id, standingsRefs)),
+    overallStandings: overallStandingsFromRounds(stats, standingsRefs),
+    extendedStats: extendedStatsFromRounds(stats, refs),
+    teamOverall: teamStandingsFromRounds(stats, undefined, refs),
+    teamDelta:
+      deltaClass && season.delta_team_enabled ? teamStandingsFromRounds(stats, deltaClass.id, refs) : [],
+    carTeamStats: carTeamStatsFromRounds(stats, refs),
+  };
+}
 
-  // The per-subsession queries run once over every subsession any championship season touches, not once per
-  // season.
-  const allSubsessionIds = [...new Set(bulkScores.map((s) => s.subsession_id))];
-  const [{ rawResults, lapStats }, penalties, roundLayouts] = await Promise.all([
-    getCuratedRaceResultsWithLapStatsBulk(env, allSubsessionIds),
-    getPenaltiesForSubsessions(env, allSubsessionIds),
-    getRoundLayoutsForSubsessions(env, allSubsessionIds),
-  ]);
-
-  const seasonRowsByDriver = new Map<string, DriverCareerSeasonRow[]>();
-
-  for (const season of championshipSeasons) {
-    // Slice this whole run's bulk fetches down to just this season — pure
-    // in-memory filtering (a subsession only ever belongs to one season),
-    // no network calls anywhere in this loop.
-    const seasonScores = bulkScores.filter((s) => s.season_id === season.id);
-    if (seasonScores.length === 0) continue;
-    const seasonSubsessionIds = new Set(seasonScores.map((s) => s.subsession_id));
-    const seasonRawResults = rawResults.filter((r) => seasonSubsessionIds.has(r.subsession_id));
-    const seasonPenalties = penalties.filter((p) => seasonSubsessionIds.has(p.subsession_id));
-    const seasonLapStats = lapStats.filter((r) => seasonSubsessionIds.has(r.subsession_id));
-    const seasonRounds = allRounds.filter((r) => r.season_id === season.id);
-
-    // Same context every single-season page builds via getSeasonOverallContext
-    // — built directly here (no fetch) since every ingredient is already an
-    // in-memory slice of this run's bulk fetches.
-    const overallContext = buildSeasonOverallContext(
-      exhibitionIds,
-      drivers,
-      seasonScores,
-      seasonRawResults,
-      seasonPenalties,
-      seasonRounds,
-      seasonLapStats,
-    );
-
+/** The live path for the seasons the stored rows can't serve: one bulk read, then no network per season. */
+async function liveSeasonViews(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classes: Lookup[],
+  exhibitionIds: Set<number>,
+  refs: CareerRefs,
+): Promise<SeasonViews[]> {
+  const { drivers, teams, carLogos, seasonLogoRows, circuits, layouts, rulesets } = refs;
+  const { bySeasonId, roundLayouts } = await loadLiveSeasonInputs(env, seasons, drivers, exhibitionIds, {
+    withRoundLayouts: true,
+  });
+  const deltaClass = classes.find((c) => c.name === 'Delta');
+  const out: SeasonViews[] = [];
+  for (const season of seasons) {
+    const live = bySeasonId.get(season.id);
+    if (!live) continue;
+    const overallContext = live.context;
     const scoresByClassId = new Map<number, ScoreRow[]>();
-    for (const row of seasonScores) {
+    for (const row of live.scores) {
       if (!scoresByClassId.has(row.class_id)) scoresByClassId.set(row.class_id, []);
       scoresByClassId.get(row.class_id)!.push(row);
     }
-
-    const [
-      classStandingsByClass,
-      overallStandings,
-      extendedStats,
-      teamStandingsOverall,
-      teamStandingsDelta,
-      carTeamStats,
-    ] = await Promise.all([
-      Promise.all(
-        classes.map((c) =>
-          computeSeasonStandings(
-            env,
-            season,
-            c.id,
-            drivers,
-            exhibitionIds,
-            classes,
-            overallContext,
-            scoresByClassId.get(c.id) ?? [],
-            rulesets,
+    const [classStandings, overallStandings, extendedStats, teamOverall, teamDelta, carTeamStats] =
+      await Promise.all([
+        Promise.all(
+          classes.map((c) =>
+            computeSeasonStandings(
+              env,
+              season,
+              c.id,
+              drivers,
+              exhibitionIds,
+              classes,
+              overallContext,
+              scoresByClassId.get(c.id) ?? [],
+              rulesets,
+            ),
           ),
         ),
-      ),
-      computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
-      getSeasonDriverExtendedStats(
-        env,
-        season,
-        exhibitionIds,
-        drivers,
-        overallContext,
-        circuits,
-        layouts,
-        roundLayouts,
-      ),
-      computeTeamSeasonStandings(
-        env,
-        season,
-        exhibitionIds,
-        undefined,
-        drivers,
-        teams,
-        seasonLogoRows,
-        classes,
-        overallContext,
-      ),
-      // Gated on delta_team_enabled: the Delta class raced from ATC5 but the Delta team championship only
-      // began at ATC10 (0052_delta_team_enabled.sql).
-      deltaClass && season.delta_team_enabled
-        ? computeTeamSeasonStandings(
-            env,
-            season,
-            exhibitionIds,
-            deltaClass.id,
-            drivers,
-            teams,
-            seasonLogoRows,
-            classes,
-            overallContext,
-            scoresByClassId.get(deltaClass.id) ?? [],
-          )
-        : Promise.resolve([]),
-      getSeasonCarTeamStats(
-        env,
-        season,
-        exhibitionIds,
-        drivers,
-        teams,
-        carLogos,
-        seasonLogoRows,
-        overallContext,
-      ),
-    ]);
-
-    const overallPositionByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s.position]));
-    const teamPositionByTeamId = new Map(teamStandingsOverall.map((t) => [t.teamId, t.position]));
-    const deltaTeamPositionByTeamId = new Map(teamStandingsDelta.map((t) => [t.teamId, t.position]));
-
-    classes.forEach((cls, i) => {
-      for (const standing of classStandingsByClass[i]) {
-        const driverId = standing.driver.id;
-        const extras = carTeamStats.get(driverId);
-        const ext = extendedStats.get(driverId);
-        // getSeasonCarTeamStats already sorts a driver's teams by
-        // racesUnderTeam descending — [0] is their primary team that
-        // season (the only one relevant for "their team's standing").
-        const primaryTeam = extras?.teams[0] ?? null;
-
-        const row: DriverCareerSeasonRow = {
+        computeOverallSeasonStandings(env, season, drivers, exhibitionIds, overallContext, rulesets),
+        getSeasonDriverExtendedStats(
+          env,
           season,
-          classId: cls.id,
-          className: cls.name,
-          wins: standing.wins,
-          podiums: standing.podiums,
-          top5s: standing.top5s,
-          top10s: standing.top10s,
-          poles: standing.poles,
-          starts: standing.starts,
-          appearances: standing.appearances,
-          laps: standing.laps,
-          lapsLed: standing.lapsLed,
-          incidents: ext?.incidents ?? 0,
-          totalCorners: ext?.totalCorners ?? null,
-          classPosition: standing.position,
-          overallPosition: overallPositionByDriverId.get(driverId) ?? null,
-          teamPosition: primaryTeam ? (teamPositionByTeamId.get(primaryTeam.teamId) ?? null) : null,
-          deltaTeamPosition: primaryTeam ? (deltaTeamPositionByTeamId.get(primaryTeam.teamId) ?? null) : null,
-          cars: extras?.cars ?? [],
-          teams: extras?.teams ?? [],
-        };
-
-        if (!seasonRowsByDriver.has(driverId)) seasonRowsByDriver.set(driverId, []);
-        seasonRowsByDriver.get(driverId)!.push(row);
-      }
+          exhibitionIds,
+          drivers,
+          overallContext,
+          circuits,
+          layouts,
+          roundLayouts,
+        ),
+        computeTeamSeasonStandings(
+          env,
+          season,
+          exhibitionIds,
+          undefined,
+          drivers,
+          teams,
+          seasonLogoRows,
+          classes,
+          overallContext,
+        ),
+        deltaClass && season.delta_team_enabled
+          ? computeTeamSeasonStandings(
+              env,
+              season,
+              exhibitionIds,
+              deltaClass.id,
+              drivers,
+              teams,
+              seasonLogoRows,
+              classes,
+              overallContext,
+              scoresByClassId.get(deltaClass.id) ?? [],
+            )
+          : Promise.resolve([]),
+        getSeasonCarTeamStats(
+          env,
+          season,
+          exhibitionIds,
+          drivers,
+          teams,
+          carLogos,
+          seasonLogoRows,
+          overallContext,
+        ),
+      ]);
+    out.push({
+      season,
+      classStandings,
+      overallStandings,
+      extendedStats,
+      teamOverall,
+      teamDelta,
+      carTeamStats,
     });
   }
+  return out;
+}
 
+/** Appends one season's row for every driver in its class standings. */
+function addSeasonRows(
+  views: SeasonViews,
+  classes: Lookup[],
+  seasonRowsByDriver: Map<string, DriverCareerSeasonRow[]>,
+): void {
+  const overallPositionByDriverId = new Map(views.overallStandings.map((s) => [s.driver.id, s.position]));
+  const teamPositionByTeamId = new Map(views.teamOverall.map((t) => [t.teamId, t.position]));
+  const deltaTeamPositionByTeamId = new Map(views.teamDelta.map((t) => [t.teamId, t.position]));
+
+  classes.forEach((cls, i) => {
+    for (const standing of views.classStandings[i]) {
+      const driverId = standing.driver.id;
+      const extras = views.carTeamStats.get(driverId);
+      const ext = views.extendedStats.get(driverId);
+      // A driver's teams are sorted by races under each, so [0] is their primary team that season.
+      const primaryTeam = extras?.teams[0] ?? null;
+
+      const row: DriverCareerSeasonRow = {
+        season: views.season,
+        classId: cls.id,
+        className: cls.name,
+        wins: standing.wins,
+        podiums: standing.podiums,
+        top5s: standing.top5s,
+        top10s: standing.top10s,
+        poles: standing.poles,
+        starts: standing.starts,
+        appearances: standing.appearances,
+        laps: standing.laps,
+        lapsLed: standing.lapsLed,
+        incidents: ext?.incidents ?? 0,
+        totalCorners: ext?.totalCorners ?? null,
+        classPosition: standing.position,
+        overallPosition: overallPositionByDriverId.get(driverId) ?? null,
+        teamPosition: primaryTeam ? (teamPositionByTeamId.get(primaryTeam.teamId) ?? null) : null,
+        deltaTeamPosition: primaryTeam ? (deltaTeamPositionByTeamId.get(primaryTeam.teamId) ?? null) : null,
+        cars: extras?.cars ?? [],
+        teams: extras?.teams ?? [],
+      };
+
+      if (!seasonRowsByDriver.has(driverId)) seasonRowsByDriver.set(driverId, []);
+      seasonRowsByDriver.get(driverId)!.push(row);
+    }
+  });
+}
+
+/** driver id -> their season rows over `seasons`: stored where complete, live for the rest. */
+async function careerSeasonRows(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classes: Lookup[],
+  exhibitionIds: Set<number>,
+  refs: CareerRefs,
+): Promise<Map<string, DriverCareerSeasonRow[]>> {
+  // A career row needs the overall and Delta team positions, and no penalty points.
+  const deltaClass = classes.find((c) => c.name === 'Delta');
+  const load = await loadStoredSeasons(env, seasons, exhibitionIds, {
+    teamCompetitions: ['overall', ...(deltaClass ? [String(deltaClass.id)] : [])],
+    penaltyPoints: false,
+  });
+  const views: SeasonViews[] = [];
+  for (const season of seasons) {
+    const stats = load.stats.get(season.id);
+    if (stats) views.push(storedSeasonViews(stats, classes, refs));
+  }
+  if (load.live.length > 0)
+    views.push(...(await liveSeasonViews(env, load.live, classes, exhibitionIds, refs)));
+  // In `seasons` order, so each driver's rows reach the sort in the order the live path always gave them.
+  const order = new Map(seasons.map((s, i) => [s.id, i]));
+  views.sort((a, b) => (order.get(a.season.id) ?? 0) - (order.get(b.season.id) ?? 0));
+
+  const seasonRowsByDriver = new Map<string, DriverCareerSeasonRow[]>();
+  for (const v of views) addSeasonRows(v, classes, seasonRowsByDriver);
+  return seasonRowsByDriver;
+}
+
+/**
+ * Every driver's career stat line, aggregated from the same per-season computations the Champions and
+ * Standings pages use, over championship seasons only. Pass `refs` when the page already started
+ * loadCareerRefs, so the stored reads are its second stage.
+ */
+export async function computeDriverCareerStats(
+  env: SupabaseEnv,
+  seasons: Season[],
+  classes: Lookup[],
+  exhibitionRoundIds?: Set<number>,
+  refs?: CareerRefs,
+): Promise<DriverCareerStats[]> {
+  const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
+  const [exhibitionIds, careerRefs] = await Promise.all([
+    exhibitionRoundIds ? Promise.resolve(exhibitionRoundIds) : getStandingsExcludedRoundIds(env),
+    refs ? Promise.resolve(refs) : loadCareerRefs(env),
+  ]);
+  const seasonRowsByDriver = await careerSeasonRows(
+    env,
+    championshipSeasons,
+    classes,
+    exhibitionIds,
+    careerRefs,
+  );
+
+  const driverById = new Map(careerRefs.drivers.map((d) => [d.id, d]));
   const out: DriverCareerStats[] = [];
   for (const [driverId, seasonRows] of seasonRowsByDriver) {
     const driver = driverById.get(driverId);
@@ -363,4 +429,28 @@ export async function computeDriverCareerStats(
 
   out.sort((a, b) => displayDriverName(a.driver.name).localeCompare(displayDriverName(b.driver.name)));
   return out;
+}
+
+/**
+ * One driver's career for their profile (BR1.1): only the seasons they have stored rows in, read with every
+ * driver of those seasons so positions rank as on the standings pages. `driverSeasonIds` null (their stored
+ * rows can't be trusted) uses every championship season, as the live path did.
+ */
+export async function computeDriverCareer(
+  env: SupabaseEnv,
+  driverId: string,
+  seasons: Season[],
+  classes: Lookup[],
+  exhibitionIds: Set<number>,
+  refs: CareerRefs,
+  driverSeasonIds: Set<string> | null,
+): Promise<DriverCareerStats | null> {
+  const targetSeasons = seasons.filter(
+    (s) => isChampionshipSeason(s.name) && (driverSeasonIds === null || driverSeasonIds.has(s.id)),
+  );
+  const seasonRows = (await careerSeasonRows(env, targetSeasons, classes, exhibitionIds, refs)).get(driverId);
+  const driver = refs.drivers.find((d) => d.id === driverId);
+  if (!driver || !seasonRows) return null;
+  seasonRows.sort((a, b) => b.season.number - a.season.number);
+  return aggregateDriverCareerStats(driver, seasonRows);
 }

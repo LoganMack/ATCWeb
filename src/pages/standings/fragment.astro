@@ -16,12 +16,15 @@ import {
   displayDriverName,
   shortDriverName,
   getCircuits,
+  getAllCircuitLayouts,
   getCircuitLogoBackgrounds,
   type LogoBackground,
   formatLapTime,
   type Circuit,
+  type CircuitLayout,
 } from '../../lib/db/circuits';
-import { computeSeasonStandings, computeOverallSeasonStandings } from '../../lib/results/standings';
+import { getCarLogos } from '../../lib/db/assets';
+import { computeOverallSeasonStandings } from '../../lib/results/standings';
 import { computeTeamSeasonStandings, type TeamSeasonStanding } from '../../lib/results/teamStandings';
 import {
   computeSeasonStandingsRoundColumns,
@@ -33,25 +36,54 @@ import {
 } from '../../lib/results/standingsCore';
 import { computeDisplayRoundNumbers } from '../../lib/results/rounds';
 import { normalizeTrackOrLayoutName } from '../../lib/results/layouts';
-import { getSeasonCarTeamStats, type DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
-import {
-  getSeasonDriverExtendedStats,
-  type DriverSeasonExtendedStats,
-} from '../../lib/results/extendedStats';
+import type { DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
+import type { DriverSeasonExtendedStats } from '../../lib/results/extendedStats';
 import { getSeasonOverallContext } from '../../lib/results/seasonContext';
-import { driversSelect } from '../../lib/results/rows';
+import { driversSelect, getTeamsBasic, getAllTeamSeasonLogosSafe } from '../../lib/results/rows';
+import { loadDriverStandingsView, type StandingsViewRefs } from '../../lib/results/standingsView';
 import { isChampionshipSeason } from '../../lib/results/shared';
 import { formatDistanceKm } from '../../lib/results/format';
 import { classTagFull } from '../../lib/classColors';
 import { slugify } from '../../lib/slug';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const championshipParam: 'drivers' | 'teams' = Astro.url.searchParams.get('championship') === 'teams' ? 'teams' : 'drivers';
 
+// Stage 1: the filters and every reference read the views below use, in parallel (BR4.2). Circuits, layouts
+// and logo backgrounds only decorate (track logos, km and corners), so their failure is logged, not fatal.
+function optional<T>(what: string, fallback: T) {
+  return (err: unknown) => {
+    console.error(`Failed to load ${what} for standings:`, err);
+    return fallback;
+  };
+}
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Awaited<ReturnType<typeof getSeasons>> = [];
+let viewRefs: StandingsViewRefs | null = null;
+let headerCircuits: Circuit[] = [];
+let headerLogoBackgrounds: Record<string, LogoBackground> = {};
 let loadError: string | null = null;
 try {
-  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+  const forDrivers = championshipParam === 'drivers';
+  const [classList, seasonList, drivers, excludedIds, rulesets, circuits, layouts, logoBackgrounds, teams, carLogos, seasonLogoRows] =
+    await Promise.all([
+      getDriverClasses(supabaseEnv),
+      getSeasons(supabaseEnv),
+      driversSelect(supabaseEnv),
+      getStandingsExcludedRoundIds(supabaseEnv),
+      getScoringRulesets(supabaseEnv),
+      getCircuits(supabaseEnv).catch(optional('circuits', [] as Circuit[])),
+      forDrivers ? getAllCircuitLayouts(supabaseEnv).catch(optional('circuit layouts', [] as CircuitLayout[])) : Promise.resolve([]),
+      getCircuitLogoBackgrounds(supabaseEnv).catch(optional('circuit logo backgrounds', {} as Record<string, LogoBackground>)),
+      forDrivers ? getTeamsBasic(supabaseEnv) : Promise.resolve([]),
+      forDrivers ? getCarLogos(supabaseEnv) : Promise.resolve([]),
+      forDrivers ? getAllTeamSeasonLogosSafe(supabaseEnv) : Promise.resolve([]),
+    ]);
+  classes = classList;
+  seasons = seasonList;
+  headerCircuits = circuits;
+  headerLogoBackgrounds = logoBackgrounds;
+  viewRefs = { classes, drivers, excludedIds, rulesets, teams, carLogos, seasonLogoRows, circuits, layouts };
 } catch (err) {
   console.error('Failed to load standings page filters:', err);
   loadError = err instanceof Error ? err.message : String(err);
@@ -75,7 +107,7 @@ const classesForActiveSeason = classes.filter(
 
 // Championship dropdown: Drivers (default) or Teams — the old separate Team
 // Standings tab now lives here (/team-standings just redirects).
-const championship: 'drivers' | 'teams' = Astro.url.searchParams.get('championship') === 'teams' ? 'teams' : 'drivers';
+const championship = championshipParam;
 
 // Class dropdown: "All" (every class combined — the old Overall view) or one
 // class (the old Per Class view). Old links still work: `?view=class` with
@@ -134,53 +166,22 @@ let maxStarts = 0;
 // logos line up.
 let maxTeamSlots = 1;
 let maxAppearances = 0;
-if (!loadError && activeSeason && championship === 'drivers') {
+if (!loadError && viewRefs && activeSeason && championship === 'drivers') {
   try {
-    const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
-    // Built once and shared by the three calls below; rebuilding it per call tripped the Workers per-request
-    // limit (Error 1102).
-    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
-    const [standingsResult, extras, extendedStats] = await Promise.all([
-      view === 'class' && activeClass
-        ? computeSeasonStandings(supabaseEnv, activeSeason, activeClass.id, driversBasic, exhibitionRoundIds, classes, overallContext)
-        : computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
-      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, undefined, undefined, undefined, overallContext),
-      getSeasonDriverExtendedStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, overallContext),
-    ]);
-    standings = standingsResult;
-    extrasByDriverId = extras;
-    for (const e of extras.values()) {
+    // Stages 2 and 3: the season's stored round stats (live path if incomplete), then the penalty summaries.
+    const driverView = await loadDriverStandingsView(supabaseEnv, activeSeason, view === 'class' && activeClass ? activeClass.id : undefined, viewRefs);
+    standings = driverView.standings;
+    extrasByDriverId = driverView.extras;
+    for (const e of driverView.extras.values()) {
       maxTeamSlots = Math.max(maxTeamSlots, e.teams.length);
     }
-    extendedStatsByDriverId = extendedStats;
-    maxAppearances = new Set(overallContext.overallScores.map((s) => s.subsession_id)).size;
-    maxStarts = new Set(overallContext.overallScores.map((s) => `${s.subsession_id}:${s.race_number}`)).size;
-
+    extendedStatsByDriverId = driverView.extendedStats;
     // Matrix columns: every round this view raced, in order, headed by the round number (Logan: keep them
-    // narrow). exhibitionRoundIds already includes test rounds, so the second set is empty.
-    const matrixSubsessionIds = new Set(
-      (view === 'class' && activeClass
-        ? overallContext.overallScores.filter((s) => s.class_id === activeClass.id)
-        : overallContext.overallScores
-      ).map((s) => s.subsession_id)
-    );
-    const displayRoundNumbers = computeDisplayRoundNumbers(overallContext.seasonRounds, exhibitionRoundIds, new Set());
-    matrixColumns = computeSeasonStandingsRoundColumns(overallContext.seasonRounds, matrixSubsessionIds, displayRoundNumbers);
-
-    // As-of denominators for the List view's "x of y" Starts/Apps cells —
-    // how many races/rounds the WHOLE season (every class) had run by each
-    // column's round, matching the season-wide maxStarts/maxAppearances above.
-    const startTimeBySubsession = new Map(overallContext.seasonRounds.map((r) => [r.subsession_id, r.start_time]));
-    const racesBySubsession = new Map<number, Set<number>>();
-    for (const sc of overallContext.overallScores) {
-      if (!racesBySubsession.has(sc.subsession_id)) racesBySubsession.set(sc.subsession_id, new Set());
-      racesBySubsession.get(sc.subsession_id)!.add(sc.race_number);
-    }
-    const seasonRoundList = [...racesBySubsession].map(([id, races]) => ({ t: startTimeBySubsession.get(id) ?? '', races: races.size }));
-    colDenoms = matrixColumns.map((col) => {
-      const through = seasonRoundList.filter((r) => r.t <= col.startTime);
-      return { s: through.reduce((sum, r) => sum + r.races, 0), a: through.length };
-    });
+    // narrow). "x of y" denominators: races and rounds the whole season (every class) had run.
+    matrixColumns = driverView.matrixColumns;
+    colDenoms = driverView.colDenoms;
+    maxAppearances = driverView.maxAppearances;
+    maxStarts = driverView.maxStarts;
   } catch (err) {
     console.error('Failed to compute standings:', err);
     loadError = err instanceof Error ? err.message : String(err);
@@ -192,15 +193,16 @@ if (!loadError && activeSeason && championship === 'drivers') {
 // so the template can show a specific explanation instead of a bare "No results."
 const deltaNotActiveForSeason = championship === 'teams' && teamView === 'delta' && activeSeason ? !activeSeason.delta_team_enabled : false;
 
-if (!loadError && activeSeason && championship === 'teams' && !deltaNotActiveForSeason) {
+if (!loadError && viewRefs && activeSeason && championship === 'teams' && !deltaNotActiveForSeason) {
   try {
-    const [driversBasic, exhibitionRoundIds] = await Promise.all([driversSelect(supabaseEnv), getStandingsExcludedRoundIds(supabaseEnv)]);
+    // The Teams view keeps the live per-race path: its expanded rows list every finish.
+    const { drivers: driversBasic, excludedIds: exhibitionRoundIds } = viewRefs;
     const deltaClassId = teamView === 'delta' ? classes.find((c) => c.name === 'Delta')?.id : undefined;
     // Built once and shared with both calls (see the driver branch above for why).
     const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
     const [teamResult, overallStandings] = await Promise.all([
       computeTeamSeasonStandings(supabaseEnv, activeSeason, exhibitionRoundIds, deltaClassId, driversBasic, undefined, undefined, classes, overallContext),
-      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
+      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext, viewRefs.rulesets),
     ]);
     teamStandings = teamResult;
     overallStandingByDriverId = new Map(overallStandings.map((s) => [s.driver.id, s]));
@@ -224,31 +226,20 @@ if (!loadError && activeSeason && championship === 'teams' && !deltaNotActiveFor
 // column header — matched to a circuit by track name, same normalisation the
 // rest of the site uses; a track with no logo falls back to an initials tile.
 let driverDropWeeks = activeSeason ? BASELINE_DROP_WEEKS + (activeSeason.extra_drop_weeks ?? 0) : BASELINE_DROP_WEEKS;
-if (!loadError && activeSeason && matrixColumns.length > 0) {
+if (!loadError && viewRefs && activeSeason && matrixColumns.length > 0) {
+  // Base drop weeks come from the season's ruleset (rules.drops.base), plus the season's extra_drop_weeks.
+  matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, viewRefs.rulesets)?.can_drop_final_round ?? false;
+  driverDropWeeks = seasonDropWeeks(activeSeason, viewRefs.rulesets);
   matrixDropWeeks = championship === 'drivers' ? driverDropWeeks : 0;
-  try {
-    const rulesets = await getScoringRulesets(supabaseEnv);
-    matrixCanDropFinalRound = resolveSeasonRuleset(activeSeason, rulesets)?.can_drop_final_round ?? false;
-    // Base drop weeks come from the season's ruleset (rules.drops.base), plus the season's extra_drop_weeks.
-    driverDropWeeks = seasonDropWeeks(activeSeason, rulesets);
-    if (championship === 'drivers') matrixDropWeeks = driverDropWeeks;
-  } catch (err) {
-    console.error('Failed to load scoring rulesets for standings:', err);
-  }
 }
 // Matrix headers, plus the round strips in the driver and team rows' expanded details (List view).
 if (!loadError && activeSeason && mode !== 'graph' && matrixColumns.length > 0) {
-  try {
-    const [circuits, logoBackgrounds] = await Promise.all([getCircuits(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
-    const circuitByName = new Map<string, Circuit>(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
-    for (const col of matrixColumns) {
-      const circuit = circuitByName.get(normalizeTrackOrLayoutName(col.trackName));
-      matrixLogoBySubsession.set(col.subsessionId, circuit?.logo_url ?? null);
-      const bg = circuit ? logoBackgrounds[circuit.id] : undefined;
-      if (bg) matrixLogoBgBySubsession.set(col.subsessionId, bg);
-    }
-  } catch (err) {
-    console.error('Failed to load circuits for standings matrix headers:', err);
+  const circuitByName = new Map<string, Circuit>(headerCircuits.map((c) => [normalizeTrackOrLayoutName(c.name), c]));
+  for (const col of matrixColumns) {
+    const circuit = circuitByName.get(normalizeTrackOrLayoutName(col.trackName));
+    matrixLogoBySubsession.set(col.subsessionId, circuit?.logo_url ?? null);
+    const bg = circuit ? headerLogoBackgrounds[circuit.id] : undefined;
+    if (bg) matrixLogoBgBySubsession.set(col.subsessionId, bg);
   }
 }
 

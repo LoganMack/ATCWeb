@@ -1,4 +1,5 @@
 import { restGet, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 // --- Lookups (for building <select> dropdowns in admin forms) --------------
 
@@ -13,5 +14,7 @@ export function getDriverStatuses(env: SupabaseEnv) {
 }
 
 export function getDriverClasses(env: SupabaseEnv) {
-  return restGet<Lookup[]>(env, 'driver_classes?select=id,name,sort_order&order=sort_order.asc');
+  return memoized(env, 'getDriverClasses', [], () =>
+    restGet<Lookup[]>(env, 'driver_classes?select=id,name,sort_order&order=sort_order.asc'),
+  );
 }

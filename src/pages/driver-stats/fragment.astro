@@ -11,17 +11,19 @@ import TrophyIcon from '../../components/TrophyIcon.astro';
 import { resolveSupabaseEnv } from '../../lib/db/client';
 import { getDriverClasses } from '../../lib/db/lookups';
 import { getSeasons } from '../../lib/db/seasons';
+import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
 import { displayDriverName } from '../../lib/db/circuits';
 import {
   computeDriverCareerStats,
   aggregateDriverCareerStats,
+  loadCareerRefs,
   type DriverCareerStats,
 } from '../../lib/results/careerStats';
 import { classTagFull } from '../../lib/classColors';
 
 /**
  * The career-stats table as a fragment for the driver-stats.astro shell, since computeDriverCareerStats()
- * covers every driver's whole history. Returns bare HTML; never linked directly.
+ * covers every driver's whole history (from the stored round stats). Returns bare HTML; never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -30,9 +32,15 @@ let loadError: string | null = null;
 let allCareerStats: DriverCareerStats[] = [];
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 try {
-  const [classesResult, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+  // Stage 1: filters and reference reads; stage 2: every championship season's stored round stats (BR2.3).
+  const [classesResult, seasons, exhibitionRoundIds, refs] = await Promise.all([
+    getDriverClasses(supabaseEnv),
+    getSeasons(supabaseEnv),
+    getStandingsExcludedRoundIds(supabaseEnv),
+    loadCareerRefs(supabaseEnv),
+  ]);
   classes = classesResult;
-  allCareerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes);
+  allCareerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds, refs);
 } catch (err) {
   console.error('Failed to compute driver career stats (fragment):', err);
   loadError = err instanceof Error ? err.message : String(err);

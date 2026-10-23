@@ -148,6 +148,39 @@ export async function getPenaltiesForSubsessions(
   return rows.map(toPenalty);
 }
 
+/**
+ * Every penalty naming one driver, as the penalised driver or as an involved one, oldest first (FR1.3). Both
+ * filters run in the database: one on driver_id, one through an aliased inner embed of the involved drivers,
+ * so the full involved list still comes back. A penalty matching both is kept once.
+ */
+export async function getPenaltiesForDriver(env: SupabaseEnv, driverId: string): Promise<Penalty[]> {
+  const id = encodeURIComponent(driverId);
+  const involvedSelect = encodeURIComponent(
+    `${PENALTY_SELECT},involved_match:penalty_involved_drivers!inner(driver_id)`,
+  );
+  const [penalised, involved] = await Promise.all([
+    restGetAll<PenaltyRow>(
+      env,
+      `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&driver_id=eq.${id}&order=created_at.asc,id.asc`,
+    ),
+    restGetAll<PenaltyRow & { involved_match?: unknown }>(
+      env,
+      `penalties?select=${involvedSelect}&involved_match.driver_id=eq.${id}&order=created_at.asc,id.asc`,
+    ),
+  ]);
+  const byId = new Map<string, PenaltyRow>();
+  for (const row of [...penalised, ...involved]) {
+    if (byId.has(row.id)) continue;
+    const { involved_match: _match, ...penalty } = row as PenaltyRow & { involved_match?: unknown };
+    byId.set(row.id, penalty);
+  }
+  // Code-unit order, as the database's created_at.asc,id.asc: localeCompare would skip punctuation.
+  const order = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  return [...byId.values()]
+    .sort((a, b) => order(a.created_at, b.created_at) || order(a.id, b.id))
+    .map(toPenalty);
+}
+
 export interface PenaltyInput {
   subsession_id: number;
   race_number: number;
