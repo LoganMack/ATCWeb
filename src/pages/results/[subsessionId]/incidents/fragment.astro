@@ -173,12 +173,18 @@ let penalties: Penalty[] = [];
 let offenses: PenaltyOffense[] = [];
 let loadError: string | null = null;
 
+// Stage 1 (BR4.2): the round, its results and everything else keyed only by the subsession id. The posted
+// flag and the appeal window (null unless posted) used to be two more sequential reads.
+let postedFlag = true;
+let appealClosesAtRead: Date | null = null;
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, roundResults, offenses] = await Promise.all([
+    [round, roundResults, offenses, postedFlag, appealClosesAtRead] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(supabaseEnv, subsessionId),
       getPenaltyOffenses(supabaseEnv),
+      isRoundPosted(supabaseEnv, subsessionId),
+      getAppealClosesAt(supabaseEnv, subsessionId),
     ]);
     penalties = roundResults.penalties;
   } catch (err) {
@@ -198,11 +204,7 @@ if (!loadError && !round) {
 // else goes back to the round's results.
 let roundPosted = true;
 if (round) {
-  try {
-    roundPosted = await isRoundPosted(supabaseEnv, subsessionId);
-  } catch (err) {
-    console.error('Failed to check whether incident report is posted:', err);
-  }
+  roundPosted = postedFlag;
   if (!roundPosted && !isAdmin) {
     return new Response(null, { status: 403, headers: { 'X-Redirect-To': `/results/${subsessionId}` } });
   }
@@ -470,7 +472,7 @@ if (adminSession) {
 // Whether the Submit Appeal button in the details popup is live: open from
 // the moment the round was posted until the Incident Appeal Window runs out.
 // The button re-checks this live in the browser too (the page can be cached).
-const appealClosesAt = roundPosted ? await getAppealClosesAt(supabaseEnv, subsessionId) : null;
+const appealClosesAt = roundPosted ? appealClosesAtRead : null;
 const appealOpen = isAppealOpen(appealClosesAt);
 let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 {

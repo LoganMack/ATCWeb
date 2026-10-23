@@ -14,18 +14,19 @@ import { buildDriverPageGroups } from '../../../lib/driverPage/groups';
 import { incidentDriverLabel } from '../../../lib/driverPage/helpers';
 
 /**
- * The driver profile's expensive part as a fragment for the drivers/[id].astro shell:
- * computeDriverCareerStats() computes every driver's standings to pick out one. Returns bare HTML; never
- * linked directly.
+ * The driver profile's tables as a fragment for the drivers/[id].astro shell: the career from the stored
+ * round stats of the driver's seasons, the race history, news and the driver's own incidents. The Awards
+ * card is its own cached fragment (drivers/[id]/awards), which the shell loads into the placeholder below.
+ * Returns bare HTML; never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
-// Hall of Fame status comes from the shell as a query param (cheaper than another lookup) and is pinned atop
-// the Awards card.
+// Hall of Fame status comes from the shell as a query param, so the Awards skeleton can pin it at once.
 const isHallOfFame = Astro.url.searchParams.get('hof') === '1';
 
 const {
+  notFound,
   loadError,
   career,
   raceHistory,
@@ -34,13 +35,11 @@ const {
   relatedTagsByPostId,
   careerMoves,
   classMoves,
-  awardEntries,
   driverIncidents,
 } = await loadDriverPage(supabaseEnv, driverId);
-const { awardGroups, raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(
-  raceHistory,
-  awardEntries
-);
+// Not a UUID, or no such driver: nothing heavy was read, and the answer is never cached.
+if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+const { raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(raceHistory, []);
 // Shared like the other public fragments; markUncacheable after it turns a failed load into no-store.
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 if (loadError) markUncacheable(Astro);
@@ -536,66 +535,19 @@ if (loadError) markUncacheable(Astro);
     </div>
 
     <div class="flex flex-col gap-8">
-      <!-- Awards (Hall of Fame pinned at the top, if applicable) -->
-      <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4">
-        <details class="group">
-          <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
-            <span class="flex items-center gap-2">
-              <h2 class="font-display text-2xl">Awards</h2>
-              <span class="font-display text-2xl text-white/40">{awardEntries.length + (isHallOfFame ? 1 : 0)}</span>
-            </span>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
-              <polyline points="9 6 15 12 9 18" />
-            </svg>
-          </summary>
-        {isHallOfFame && (
-          <div class="mb-3 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-brand-gold">
-            Hall of Fame
-          </div>
-        )}
-        {awardGroups.length === 0 ? (
-          !isHallOfFame && <p class="text-sm text-white/40">No awards on file yet.</p>
-        ) : (
-          <div class="flex flex-col gap-4">
-            {awardGroups.map((g) => (
-              <div>
-                <h3 class="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">{g.seasonName}</h3>
-                <ul class="flex flex-col gap-1.5 text-xs">
-                  {g.awards.map((a) => (
-                    <li class="border-b border-white/5 pb-1.5 last:border-0 last:pb-0">
-                      <!-- Same absolute-gutter trophy treatment as the Seasons table above — a reserved pl-4 gutter, not a flex sibling, so the label always starts at the same x whether or not this award gets a trophy. -->
-                      <span class="relative inline-block pl-4 font-semibold text-white/90">
-                        {a.className && (
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            class={`absolute left-0 top-1/2 h-3 w-3 flex-none -translate-y-1/2 ${classTextColorClass(a.className)}`}
-                            aria-hidden="true"
-                          >
-                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
-                            <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-                            <path d="M4 22h16" />
-                            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
-                            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
-                            <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
-                          </svg>
-                        )}
-                        {a.label}
-                      </span>
-                      {a.detail && <span class="ml-1.5 text-[10px] text-white/40">{a.detail}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-        </details>
+      <!-- Awards: its own cached fragment (drivers/[id]/awards.astro), loaded by the shell into this
+           placeholder after the tables; the skeleton pins Hall of Fame at once. -->
+      <div data-driver-awards data-fragment-url={`/drivers/${driverId}/awards`}>
+        <div class="rounded-xl border border-white/10 bg-brand-ink p-4" aria-live="polite" aria-busy="true">
+          <h2 class="font-display text-2xl">Awards</h2>
+          <span class="sr-only">Loading awards…</span>
+          {isHallOfFame && (
+            <div class="mt-3 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-brand-gold">
+              Hall of Fame
+            </div>
+          )}
+          <div class="mt-3 h-16 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>
+        </div>
       </div>
 
       <!-- Career Moves -->

@@ -321,6 +321,14 @@ if (loadError) markUncacheable(Astro);
       errorHtml:
         '<p class="mt-10 text-white/60">Couldn’t load this driver’s stats right now — try refreshing the page.</p>',
     });
+    // The Awards card is its own cached fragment. Its placeholder arrives with the tables above, and their
+    // re-dispatched astro:page-load runs this, so it loads on a full load and after a client-side navigation.
+    bindFragment('[data-driver-awards]', {
+      label: 'Driver awards',
+      logMessage: 'Failed to load driver awards:',
+      errorHtml:
+        '<div class="rounded-xl border border-white/10 bg-brand-ink p-4"><h2 class="font-display text-2xl">Awards</h2><p class="mt-3 text-sm text-white/60">Couldn’t load this driver’s awards right now — try refreshing the page.</p></div>',
+    });
     document.addEventListener('astro:page-load', initSplitsSync);
 
     // Own-profile editing. The nav's Edit button (only rendered on your own driver

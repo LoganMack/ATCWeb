@@ -1,4 +1,5 @@
 import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 // ---------------------------------------------------------------------------
 // CALENDAR — circuits + events
@@ -16,7 +17,9 @@ export interface Circuit {
 const CIRCUIT_SELECT = 'id,name,logo_url,location';
 
 export function getCircuits(env: SupabaseEnv) {
-  return restGet<Circuit[]>(env, `circuits?select=${CIRCUIT_SELECT}&order=name.asc`);
+  return memoized(env, 'getCircuits', [], () =>
+    restGet<Circuit[]>(env, `circuits?select=${CIRCUIT_SELECT}&order=name.asc`),
+  );
 }
 
 /**
@@ -234,9 +237,11 @@ export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
 
 /** Every layout for every circuit in one query — powers the public Circuits page, which needs all of them up front rather than one request per circuit. */
 export function getAllCircuitLayouts(env: SupabaseEnv) {
-  return restGet<CircuitLayout[]>(
-    env,
-    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`,
+  return memoized(env, 'getAllCircuitLayouts', [], () =>
+    restGet<CircuitLayout[]>(
+      env,
+      `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`,
+    ),
   );
 }
 

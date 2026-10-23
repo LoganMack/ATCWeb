@@ -20,21 +20,22 @@ import {
   invalidRaceLinkField,
   type RaceLinks,
 } from '../../../lib/db/rounds';
-import { formatDate, getCircuits, getAllCircuitLayouts } from '../../../lib/db/circuits';
+import { formatDate, getCircuits, getAllCircuitLayouts, type Circuit, type CircuitLayout } from '../../../lib/db/circuits';
 import type { Penalty } from '../../../lib/db/penalties';
 import {
-  getSeasonById,
   getSeasons,
   getScoringRulesets,
   resolveSeasonRuleset,
   resolveIncidentLimit,
   type ScoringRuleset,
+  type Season,
 } from '../../../lib/db/seasons';
 import {
   getRoundBySubsessionId,
   getRoundsForSeason,
-  getAllRounds,
+  getRoundPickerRounds,
   computeDisplayRoundNumbers,
+  type PickerRound,
 } from '../../../lib/results/rounds';
 import { getRoundResults, type RoundResults } from '../../../lib/results/roundResults';
 import {
@@ -47,7 +48,6 @@ import { isChampionshipSeason } from '../../../lib/results/shared';
 import { topTeamScorers } from '../../../lib/results/seasonCarTeam';
 import { getRoundLayoutsForSubsessions, getDriverBestLapsAtTrack } from '../../../lib/results/layoutLaps';
 import { resolveLayout } from '../../../lib/results/layouts';
-import type { RoundSummary } from '../../../lib/results/rows';
 import { groupRoundsBySeason, roundTrackLabel, type RoundGroup } from '../../../lib/roundLabels';
 import {
   getReportingWindowForRound,
@@ -188,15 +188,60 @@ const practicePromise: Promise<{ overall: PracticeRow[]; byClass: Map<number, Pr
   }
 })();
 
+// Stage 1: everything that needs only the subsession id, in parallel (BR4.2): the results, the trimmed round
+// picker (FR3.7), the seasons and rulesets, the posted flag, the reporting period and the layout lookups.
+// The decorative reads fail on their own (logged) rather than failing the page.
+function optional<T>(what: string, fallback: T) {
+  return (err: unknown) => {
+    console.error(`Failed to load ${what}:`, err);
+    return fallback;
+  };
+}
+let pickerRounds: PickerRound[] = [];
+let everySeason: Season[] = [];
+let allRulesets: ScoringRuleset[] = [];
+let circuitList: Circuit[] = [];
+let layoutList: CircuitLayout[] = [];
+let roundLayoutById = new Map<number, string | null>();
+// Positions and points come from the view, which already shows non-admins the raw result of an unposted round
+// (BR4.1, BR4.2). Penalty tags stay hidden until the round is posted, admins included; an unreadable posted
+// flag counts as unposted.
+let roundPosted = false;
+let reportingHours = 24;
 if (Number.isFinite(subsessionId)) {
   try {
-    [round, roundResults, classes, exhibitionRoundIds, testRoundIds, raceLinksByRace] = await Promise.all([
+    [
+      round,
+      roundResults,
+      classes,
+      exhibitionRoundIds,
+      testRoundIds,
+      raceLinksByRace,
+      pickerRounds,
+      everySeason,
+      allRulesets,
+      roundPosted,
+      reportingHours,
+      circuitList,
+      layoutList,
+      roundLayoutById,
+    ] = await Promise.all([
       getRoundBySubsessionId(supabaseEnv, subsessionId),
       getRoundResults(resultsEnv, subsessionId),
       getDriverClasses(supabaseEnv),
       getExhibitionRoundIds(supabaseEnv),
       getTestRoundIds(supabaseEnv),
       getRaceLinksForSubsession(supabaseEnv, subsessionId),
+      getRoundPickerRounds(supabaseEnv).catch(optional('rounds for the round picker', [] as PickerRound[])),
+      getSeasons(supabaseEnv).catch(optional('seasons for the round picker and ruleset', [] as Season[])),
+      getScoringRulesets(supabaseEnv).catch(optional('the round scoring ruleset', [] as ScoringRuleset[])),
+      isRoundPosted(supabaseEnv, subsessionId),
+      getReportingPeriodHours(supabaseEnv),
+      getCircuits(supabaseEnv).catch(optional("circuits for this round's layout", [] as Circuit[])),
+      getAllCircuitLayouts(supabaseEnv).catch(optional("layouts for this round's layout", [] as CircuitLayout[])),
+      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]).catch(
+        optional("this round's layout name", new Map<number, string | null>())
+      ),
     ]);
     penalties = roundResults.penalties;
   } catch (err) {
@@ -216,24 +261,8 @@ if (!loadError && !round) {
 // loadIncidentLimit further down.
 let ruleset: ScoringRuleset | null = null;
 if (!loadError && round) {
-  try {
-    const [rulesetSeason, rulesets] = await Promise.all([getSeasonById(supabaseEnv, round.season_id), getScoringRulesets(supabaseEnv)]);
-    ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, rulesets) : null;
-  } catch (err) {
-    console.error('Failed to resolve round scoring ruleset:', err);
-  }
-}
-
-// Positions and points come from the view, which already shows non-admins the raw result of an unposted round
-// (BR4.1, BR4.2). Penalty tags stay hidden until the round is posted, admins included; an unreadable posted
-// flag counts as unposted.
-let roundPosted = false;
-if (!loadError && round) {
-  try {
-    roundPosted = await isRoundPosted(supabaseEnv, subsessionId);
-  } catch (err) {
-    console.error('Failed to read incident report posted flag:', err);
-  }
+  const rulesetSeason = everySeason.find((s) => s.id === round!.season_id);
+  ruleset = rulesetSeason ? resolveSeasonRuleset(rulesetSeason, allRulesets) : null;
 }
 if (!roundPosted) penalties = [];
 
@@ -300,12 +329,7 @@ let layoutCorners: number | null = null;
 async function loadLayoutCorners() {
   if (loadError || !round) return;
   try {
-    const [circuits, layouts, roundLayouts] = await Promise.all([
-      getCircuits(supabaseEnv),
-      getAllCircuitLayouts(supabaseEnv),
-      getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
-    ]);
-    const layout = resolveLayout(round!.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
+    const layout = resolveLayout(round!.track_name, roundLayoutById.get(subsessionId) ?? null, circuitList, layoutList);
     layoutCorners = layout?.corners ?? null;
   } catch (err) {
     console.error("Failed to resolve this round's layout for corners-per-incident:", err);
@@ -326,11 +350,10 @@ let driverBestLapsAtTrack: Map<string, number> = new Map();
 async function loadDriverBestLapsAtTrack() {
   if (loadError || !round || roundDriverIds.size === 0) return;
   try {
-    const roundLayouts = await getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]);
     driverBestLapsAtTrack = await getDriverBestLapsAtTrack(
       supabaseEnv,
       round!.track_name,
-      roundLayouts.get(subsessionId) ?? null,
+      roundLayoutById.get(subsessionId) ?? null,
       [...roundDriverIds],
       subsessionId
     );
@@ -339,7 +362,14 @@ async function loadDriverBestLapsAtTrack() {
   }
 }
 
-await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners(), loadDriverBestLapsAtTrack()]);
+// The reporting window needs only the round's start time, so it joins this second stage.
+let reportingWindow = null as Awaited<ReturnType<typeof getReportingWindowForRound>>;
+async function loadReportingWindow() {
+  if (loadError || !round) return;
+  reportingWindow = await getReportingWindowForRound(supabaseEnv, subsessionId, round!.start_time, reportingHours);
+}
+
+await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners(), loadDriverBestLapsAtTrack(), loadReportingWindow()]);
 
 // Drivers over (not at) the limit in a race; ResultsTable shows that race's row in red.
 const incidentLimitExceededDriverIdsByRace = new Map<number, Set<string>>();
@@ -380,9 +410,6 @@ for (const rows of roundResults.overall.values()) {
 const reportDrivers = [...reportDriverById.values()].sort(
   (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
 );
-const reportingHours = !loadError && round ? await getReportingPeriodHours(supabaseEnv) : 24;
-const reportingWindow =
-  !loadError && round ? await getReportingWindowForRound(supabaseEnv, subsessionId, round.start_time, reportingHours) : null;
 const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
 const incidentButtonState: 'report' | 'view' | null = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : null;
 // Admins normally only see the "Incident Report" link, but while reporting
@@ -495,13 +522,12 @@ const kudosHref = `/results/${subsessionId}/kudos${seasonParam ? `?season=${enco
 function resultsHref(session: string, cls: string): string {
   return `/results/${subsessionId}?session=${session}&class=${cls}${seasonQuerySuffix}`;
 }
-// Round picker (left of the Session dropdown): every round ever, grouped by
-// season, newest first, labelled "MMM DD, YYYY: Track Name". Not essential to
-// the page, so a failed lookup just leaves the dropdown out.
-let roundPickerGroups: RoundGroup<RoundSummary>[] = [];
+// Round picker (left of the Session dropdown): every round ever, grouped by season, newest first, read in
+// stage 1 with only the picker's columns. Not essential to the page, so a failed lookup leaves it out.
+let roundPickerGroups: RoundGroup<PickerRound>[] = [];
 const seasonNumberById = new Map<string, number>();
-try {
-  const [everyRound, everySeason] = await Promise.all([getAllRounds(supabaseEnv), getSeasons(supabaseEnv)]);
+{
+  const everyRound = pickerRounds;
   const seasonById = new Map(everySeason.map((s) => [s.id, s]));
   // Same criteria as the Race Results list: a round must belong to a season,
   // and in a championship season the individually-flagged exhibition/test
@@ -517,8 +543,6 @@ try {
   });
   roundPickerGroups = groupRoundsBySeason(listedRounds);
   for (const s of everySeason) seasonNumberById.set(s.id, s.number);
-} catch (err) {
-  console.error('Failed to load rounds for the round picker:', err);
 }
 const POOLED_SEASON_PARAMS = ['exhibition-rounds', 'test-sessions'];
 /** Destination for a round in the picker: same class filter, and the season filter the Back link should return to (kept as-is for the pooled Exhibition/Test lists, otherwise the target round's own season). */

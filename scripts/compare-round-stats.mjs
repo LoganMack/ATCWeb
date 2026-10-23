@@ -1,5 +1,5 @@
-#!/usr/bin/env node
 // Parity check for the round stats tables (unit precompute, BR4.1, BR4.2; plan Step 12.3).
+// No #! line: vite-node, which this script re-runs itself under, rejects one.
 //
 // For every ATCn season it builds today's per-driver, per-round values with the existing
 // TypeScript builders (src/lib/results), reading production with the public anon key exactly as the

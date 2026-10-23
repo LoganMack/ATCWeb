@@ -5,10 +5,16 @@
  */
 
 import { type SupabaseEnv, restGetAll } from './db/client';
-import { getPenaltiesForSubsessions, getPenaltyOffenses } from './db/penalties';
+import {
+  getPenaltiesForDriver,
+  getPenaltiesForSubsessions,
+  getPenaltyOffenses,
+  type Penalty,
+  type PenaltyOffense,
+} from './db/penalties';
 import { getStandingsExcludedRoundIds } from './db/rounds';
 import { getAllRounds, computeDisplayRoundNumbers } from './results/rounds';
-import { driversSelect, type DriverBasic } from './results/rows';
+import { driversSelect, type DriverBasic, type RoundSummary } from './results/rows';
 import { getPostedSubsessionIds } from './incidentReports';
 import {
   effectiveTimePenaltySeconds,
@@ -137,6 +143,43 @@ async function loadIncidents(
     racesStartedByDriver.get(row.driver_id)!.add(`${row.subsession_id}:${row.race_number}`);
   }
 
+  const all = buildIncidentRows(penalties, rounds, driversBasic, offenses, excludedRoundIds);
+  const offenseById = new Map(offenses.map((o) => [o.id, o]));
+  return {
+    all,
+    byDriver: rollUpByDriver(all, racesStartedByDriver),
+    byOffense: rollUpByOffense(all, offenseById),
+  };
+}
+
+/**
+ * The incidents one driver is penalised in or involved in, posted rounds only, newest first: the driver
+ * profile's list (FR1.3). The same rows getAllIncidents' by-driver rollup gives, but only this driver's
+ * penalties are read, filtered in the database.
+ */
+export async function getIncidentsForDriver(env: SupabaseEnv, driverId: string): Promise<IncidentRow[]> {
+  const [penalties, rounds, postedRoundIds, driversBasic, offenses, excludedRoundIds] = await Promise.all([
+    getPenaltiesForDriver(env, driverId),
+    getAllRounds(env),
+    getPostedSubsessionIds(env),
+    driversSelect(env, { includeAi: true }),
+    getPenaltyOffenses(env),
+    getStandingsExcludedRoundIds(env),
+  ]);
+  const posted = penalties.filter((p) => postedRoundIds.has(p.subsession_id));
+  return buildIncidentRows(posted, rounds, driversBasic, offenses, excludedRoundIds).filter(
+    (row) => row.driver?.id === driverId || row.involvedDrivers.some((d) => d.id === driverId),
+  );
+}
+
+/** Incident rows for these penalties, newest round first (oldest penalty first within a round). */
+function buildIncidentRows(
+  penalties: Penalty[],
+  rounds: RoundSummary[],
+  driversBasic: DriverBasic[],
+  offenses: PenaltyOffense[],
+  excludedRoundIds: Set<number>,
+): IncidentRow[] {
   const roundBySubsession = new Map(rounds.map((r) => [r.subsession_id, r]));
   const driverById = new Map(driversBasic.map((d) => [d.id, d]));
   const offenseById = new Map(offenses.map((o) => [o.id, o]));
@@ -189,8 +232,13 @@ async function loadIncidents(
   }
 
   all.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  return all;
+}
 
-  // --- By driver --------------------------------------------------------
+function rollUpByDriver(
+  all: IncidentRow[],
+  racesStartedByDriver: Map<string, Set<string>>,
+): DriverIncidentAggregate[] {
   const byDriverMap = new Map<string, DriverIncidentAggregate>();
   for (const row of all) {
     const involved = new Map<string, DriverBasic>();
@@ -219,9 +267,13 @@ async function loadIncidents(
       }
     }
   }
-  const byDriver = [...byDriverMap.values()].sort((a, b) => b.incidentsInvolvedIn - a.incidentsInvolvedIn);
+  return [...byDriverMap.values()].sort((a, b) => b.incidentsInvolvedIn - a.incidentsInvolvedIn);
+}
 
-  // --- By offense ---------------------------------------------------------
+function rollUpByOffense(
+  all: IncidentRow[],
+  offenseById: Map<string, PenaltyOffense>,
+): OffenseIncidentAggregate[] {
   const byOffenseMap = new Map<string, OffenseIncidentAggregate>();
   for (const row of all) {
     for (const offenseId of row.offenseIds) {
@@ -242,7 +294,5 @@ async function loadIncidents(
       agg.incidents.push(row);
     }
   }
-  const byOffense = [...byOffenseMap.values()].sort((a, b) => b.incidentCount - a.incidentCount);
-
-  return { all, byDriver, byOffense };
+  return [...byOffenseMap.values()].sort((a, b) => b.incidentCount - a.incidentCount);
 }

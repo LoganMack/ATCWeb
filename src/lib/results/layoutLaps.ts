@@ -2,6 +2,7 @@ import { restGet, restGetAll, type SupabaseEnv } from '../db/client';
 import { getCarLogos, type CarLogo } from '../db/assets';
 import type { Circuit, CircuitLayout } from '../db/circuits';
 import { LEAGUE_TIME_ZONE } from '../timezone';
+import { memoized } from '../requestMemo';
 import { driversSelect, type DriverBasic, type RoundSummary } from './rows';
 import {
   resolveRoundLayoutKey,
@@ -271,11 +272,20 @@ export async function buildLayoutClassBestLaps(
 }
 
 /** Batched version of newsRecap.ts's fetchRoundLayout — one query for every round in the season instead of one per round. Same graceful-degradation-on-failure reasoning (this is a small admin-filled column that may not exist/be filled in for every round). */
-export async function getRoundLayoutsForSubsessions(
+export function getRoundLayoutsForSubsessions(
   env: SupabaseEnv,
   subsessionIds: number[],
 ): Promise<Map<number, string | null>> {
-  if (subsessionIds.length === 0) return new Map();
+  if (subsessionIds.length === 0) return Promise.resolve(new Map());
+  return memoized(env, 'getRoundLayoutsForSubsessions', [subsessionIds], () =>
+    fetchRoundLayouts(env, subsessionIds),
+  );
+}
+
+async function fetchRoundLayouts(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<Map<number, string | null>> {
   try {
     // restGetAll because a whole-career call can pass hundreds of subsession_ids; subsession_id is unique
     // here, so it is a stable sort.

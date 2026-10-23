@@ -1,4 +1,5 @@
 import { restDelete, restGet, restPatch, restPost, writeHeaders, type SupabaseEnv } from './client';
+import { memoized } from '../requestMemo';
 
 // --- Teams -------------------------------------------------------------
 
@@ -212,7 +213,9 @@ export function getTeamSeasonLogosForTeam(env: SupabaseEnv, teamId: string) {
 
 /** Every team's per-season logo overrides in one query, for resolveTeamLogo() in src/lib/results/rows.ts. */
 export function getAllTeamSeasonLogos(env: SupabaseEnv) {
-  return restGet<TeamSeasonLogo[]>(env, `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}`);
+  return memoized(env, 'getAllTeamSeasonLogos', [], () =>
+    restGet<TeamSeasonLogo[]>(env, `team_season_logos?select=${TEAM_SEASON_LOGO_SELECT}`),
+  );
 }
 
 /** Upserts the logo for one (team, season) — replaces whatever override was set for that season before, but never touches the team's current logo (teams.logo_url) or any other season's override. */

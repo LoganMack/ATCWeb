@@ -16,15 +16,15 @@ import {
   shortDriverName,
   formatDate,
 } from '../../lib/db/circuits';
-import { getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
+import { getScoringRulesets, getSeasons, type SeasonLogoPair } from '../../lib/db/seasons';
 import { getDriverClasses } from '../../lib/db/lookups';
 import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
+import { getCarLogos } from '../../lib/db/assets';
 import { getAllNewsPostTags, type NewsTag } from '../../lib/db/news';
-import { computeSeasonStandings, computeOverallSeasonStandings } from '../../lib/results/standings';
-import { computeTeamSeasonStandings, type TeamSeasonStanding } from '../../lib/results/teamStandings';
-import { getSeasonOverallContext } from '../../lib/results/seasonContext';
-import { getSeasonCarTeamStats, type DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
+import type { TeamSeasonStanding } from '../../lib/results/teamStandings';
+import type { DriverSeasonExtras } from '../../lib/results/seasonCarTeam';
 import { getTeamsBasic, getAllTeamSeasonLogosSafe, driversSelect } from '../../lib/results/rows';
+import { loadHomeStandings, type StandingsViewRefs } from '../../lib/results/standingsView';
 import { isChampionshipSeason } from '../../lib/results/shared';
 import { getPreviousResultWidget } from '../../lib/results/previousResult';
 import { getAllBroadcastVideos, getBroadcastRoundDetails } from '../../lib/results/broadcasts';
@@ -126,34 +126,61 @@ let previousResult = null as Awaited<ReturnType<typeof getPreviousResultWidget>>
 // open, and nothing in between (window closed, report not posted yet).
 let previousIncidentLink = null as { href: string; label: string } | null;
 const loadPreviousResult = async () => {
-  try {
-    previousResult = await getPreviousResultWidget(supabaseEnv);
-  } catch (err) {
-    console.error('Failed to load previous result widget:', err);
-  }
+  // The reporting period is read alongside the widget, and the posted flag alongside the window: two stages
+  // where the link used to take four sequential reads (BR4.2).
+  const [widget, hours] = await Promise.all([
+    getPreviousResultWidget(supabaseEnv).catch((err) => {
+      console.error('Failed to load previous result widget:', err);
+      return null;
+    }),
+    getReportingPeriodHours(supabaseEnv),
+  ]);
+  previousResult = widget;
   if (!previousResult) return;
   try {
     const id = previousResult.subsessionId;
-    if (await isRoundPosted(supabaseEnv, id)) {
+    const [posted, window] = await Promise.all([
+      isRoundPosted(supabaseEnv, id),
+      getReportingWindowForRound(supabaseEnv, id, previousResult.startTime, hours),
+    ]);
+    if (posted) {
       previousIncidentLink = { href: `/results/${id}/incidents`, label: 'Incident Report' };
-    } else {
-      const hours = await getReportingPeriodHours(supabaseEnv);
-      const window = await getReportingWindowForRound(supabaseEnv, id, previousResult.startTime, hours);
-      if (isReportingOpen(window)) previousIncidentLink = { href: `/results/${id}?submit=incident`, label: 'Submit Incident Report' };
+    } else if (isReportingOpen(window)) {
+      previousIncidentLink = { href: `/results/${id}?submit=incident`, label: 'Submit Incident Report' };
     }
   } catch (err) {
     console.error('Failed to work out the previous result incident link:', err);
   }
 };
 
-// All six are independent, so they run concurrently; awaiting them before the standings widget keeps the
-// ordering above.
+// The standings widget's reference reads are as cheap as the loads above, so they join them.
+let standingsRefs = null as Omit<StandingsViewRefs, 'circuits' | 'layouts'> | null;
+const loadStandingsRefs = async () => {
+  try {
+    const [classesResult, drivers, excludedIds, rulesets, teams, carLogos, seasonLogoRows] = await Promise.all([
+      getDriverClasses(supabaseEnv),
+      driversSelect(supabaseEnv),
+      getStandingsExcludedRoundIds(supabaseEnv),
+      getScoringRulesets(supabaseEnv),
+      getTeamsBasic(supabaseEnv),
+      getCarLogos(supabaseEnv),
+      getAllTeamSeasonLogosSafe(supabaseEnv),
+    ]);
+    standingsRefs = { classes: classesResult, drivers, excludedIds, rulesets, teams, carLogos, seasonLogoRows };
+  } catch (err) {
+    console.error('Failed to load homepage standings widget:', err);
+  }
+};
+
+// All independent, so they run concurrently; awaiting them before the standings widget's stored read keeps
+// the ordering above.
 await Promise.all([
   loadTopSection(),
   loadSeasonLogos(),
   loadNewsTags(),
   loadPreviousBroadcast(),
   loadPreviousResult(),
+  loadStandingsRefs(),
 ]);
 
 const featuredNews = latestNews[0] ?? null;
@@ -179,35 +206,11 @@ try {
   const championshipSeasons = seasons.filter((s) => isChampionshipSeason(s.name));
   const activeSeason = championshipSeasons.find((s) => s.is_current) ?? championshipSeasons[0];
 
-  if (activeSeason) {
-    const [driversBasic, exhibitionRoundIds, driverClasses, teamsBasic, seasonLogoRows] = await Promise.all([
-      driversSelect(supabaseEnv),
-      getStandingsExcludedRoundIds(supabaseEnv),
-      getDriverClasses(supabaseEnv),
-      getTeamsBasic(supabaseEnv),
-      getAllTeamSeasonLogosSafe(supabaseEnv),
-    ]);
-    classes = driverClasses;
+  if (activeSeason && standingsRefs) {
+    const refs: Omit<StandingsViewRefs, 'circuits' | 'layouts'> = standingsRefs;
+    classes = refs.classes;
     const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
     const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
-
-    const overallContext = await getSeasonOverallContext(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic);
-
-    const [overallStandings, carTeamExtras] = await Promise.all([
-      computeOverallSeasonStandings(supabaseEnv, activeSeason, driversBasic, exhibitionRoundIds, overallContext),
-      getSeasonCarTeamStats(supabaseEnv, activeSeason, exhibitionRoundIds, driversBasic, teamsBasic, undefined, seasonLogoRows, overallContext),
-    ]);
-    carTeamExtrasByDriverId = carTeamExtras;
-
-    // Every tab shares the one context: compute functions never write to it (tests/lib/contextReadOnly.test.ts).
-    const perClassDriver = await Promise.all(
-      classes.map(async (c) => ({
-        key: c.name,
-        label: c.name,
-        type: 'driver' as const,
-        rows: await computeSeasonStandings(supabaseEnv, activeSeason, c.id, driversBasic, exhibitionRoundIds, classes, overallContext),
-      }))
-    );
 
     // Delta Team only when the current season runs that championship (0052; ATC10 onward).
     const teamTabDefs = [
@@ -215,29 +218,24 @@ try {
       ...(activeSeason.delta_team_enabled ? [{ key: 'delta-team', label: 'Delta Team', classId: deltaClassId }] : []),
     ].filter((t): t is { key: string; label: string; classId: number } => t.classId !== undefined);
 
-    const teamTabs = await Promise.all(
-      teamTabDefs.map(async (t) => ({
+    // One stored read of the season feeds every tab (BR2.2); each class's own team competition, as before.
+    const home = await loadHomeStandings(supabaseEnv, activeSeason, teamTabDefs.map((t) => t.classId), refs);
+    carTeamExtrasByDriverId = home.extras;
+
+    standingsTabs = [
+      { key: 'overall', label: 'Overall', type: 'driver', rows: home.overall.slice(0, 5) },
+      ...classes.map((c) => ({
+        key: c.name,
+        label: c.name,
+        type: 'driver' as const,
+        rows: (home.byClass.find((b) => b.classId === c.id)?.rows ?? []).slice(0, 5),
+      })),
+      ...teamTabDefs.map((t) => ({
         key: t.key,
         label: t.label,
         type: 'team' as const,
-        rows: await computeTeamSeasonStandings(
-          supabaseEnv,
-          activeSeason,
-          exhibitionRoundIds,
-          t.classId,
-          driversBasic,
-          teamsBasic,
-          seasonLogoRows,
-          classes,
-          overallContext
-        ),
-      }))
-    );
-
-    standingsTabs = [
-      { key: 'overall', label: 'Overall', type: 'driver', rows: overallStandings.slice(0, 5) },
-      ...perClassDriver.map((c) => ({ ...c, rows: c.rows.slice(0, 5) })),
-      ...teamTabs.map((t) => ({ ...t, rows: t.rows.slice(0, 5) })),
+        rows: (home.teams.find((h) => h.classId === t.classId)?.rows ?? []).slice(0, 5),
+      })),
     ];
   }
 } catch (err) {

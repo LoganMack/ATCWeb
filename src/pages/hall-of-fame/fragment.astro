@@ -19,6 +19,7 @@ import { displayDriverName } from '../../lib/db/circuits';
 import {
   computeDriverCareerStats,
   aggregateDriverCareerStats,
+  loadCareerRefs,
   type DriverCareerStats,
 } from '../../lib/results/careerStats';
 import { classTagFull } from '../../lib/classColors';
@@ -34,19 +35,18 @@ let loadError: string | null = null;
 let members: (DriverCareerStats & { bio: string | null })[] = [];
 let photosByDriver = new Map<string, HallOfFamePhoto[]>();
 try {
-  const [classes, seasons, exhibitionRoundIds, hofDrivers] = await Promise.all([
+  const [classes, seasons, exhibitionRoundIds, hofDrivers, refs, allPhotos] = await Promise.all([
     getDriverClasses(supabaseEnv),
     getSeasons(supabaseEnv),
     getStandingsExcludedRoundIds(supabaseEnv),
     getHallOfFameDrivers(supabaseEnv),
+    loadCareerRefs(supabaseEnv),
+    getAllHallOfFamePhotos(supabaseEnv),
   ]);
   const bioById = new Map(hofDrivers.map((d) => [d.id, d.bio]));
   if (bioById.size > 0) {
     // Driver Stats' own career-stats computation, filtered to members (0027), so the numbers can't drift.
-    const [careerStats, allPhotos] = await Promise.all([
-      computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds),
-      getAllHallOfFamePhotos(supabaseEnv),
-    ]);
+    const careerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds, refs);
     for (const photo of allPhotos) {
       if (!photosByDriver.has(photo.driver_id)) photosByDriver.set(photo.driver_id, []);
       photosByDriver.get(photo.driver_id)!.push(photo);

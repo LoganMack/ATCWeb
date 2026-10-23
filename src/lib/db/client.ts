@@ -5,6 +5,8 @@
  * falls back to `import.meta.env` for `astro dev` and prerendered pages.
  */
 
+import type { RequestMemo } from '../requestMemo';
+
 export interface SupabaseEnv {
   url: string;
   anonKey: string;
@@ -19,6 +21,14 @@ export interface SupabaseEnv {
    * see unposted rounds' penalties (0112) — see withAccessToken.
    */
   accessToken?: string;
+  /** The request's memo (src/lib/requestMemo.ts), set by the middleware; reference reads go through it. */
+  memo?: RequestMemo;
+  /** Counts this request's REST reads; only set under `wrangler dev`, for the X-ATC-Subrequests header. */
+  subrequests?: { count: number };
+}
+
+function countSubrequest(env: SupabaseEnv): void {
+  if (env.subrequests) env.subrequests.count += 1;
 }
 
 /**
@@ -56,12 +66,17 @@ export function resolveSupabaseEnv(locals: App.Locals): SupabaseEnv {
     url: runtimeEnv?.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL,
     anonKey: runtimeEnv?.PUBLIC_SUPABASE_ANON_KEY || import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
     hiddenSubsessionIds: locals?.broadcasterHiddenSubsessionIds,
+    memo: locals?.memo,
+    subrequests: locals?.subrequestCounter,
   };
 }
 
-/** The same env, but reads go out as this user (their RLS applies). Admin-only paths, never on publicly cached pages. */
+/**
+ * The same env, but reads go out as this user (their RLS applies). Admin-only paths, never on publicly cached
+ * pages. The memo is dropped: its entries were read as a visitor.
+ */
 export function withAccessToken(env: SupabaseEnv, accessToken: string): SupabaseEnv {
-  return { ...env, accessToken };
+  return { ...env, accessToken, memo: undefined };
 }
 
 function restHeaders(env: SupabaseEnv) {
@@ -78,11 +93,34 @@ export async function restGet<T>(env: SupabaseEnv, path: string): Promise<T> {
       'Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).',
     );
   }
+  countSubrequest(env);
   const res = await fetch(`${env.url}/rest/v1/${withHiddenRounds(env, path)}`, {
     headers: restHeaders(env),
   });
   if (!res.ok) {
     throw new Error(`Supabase REST error ${res.status} on ${path}: ${await res.text()}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+/**
+ * Calls a read-only database function (POST /rest/v1/rpc/<name>) as the env's reader and returns its JSON.
+ * Only for functions that return no hidden data; throws on any error status.
+ */
+export async function restRpc<T>(env: SupabaseEnv, name: string, args: Record<string, unknown>): Promise<T> {
+  if (!env.url || !env.anonKey) {
+    throw new Error(
+      'Supabase URL/anon key are not set (checked both the Cloudflare runtime env and import.meta.env).',
+    );
+  }
+  countSubrequest(env);
+  const res = await fetch(`${env.url}/rest/v1/rpc/${name}`, {
+    method: 'POST',
+    headers: { ...restHeaders(env), 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase RPC error ${res.status} on ${name}: ${await res.text()}`);
   }
   return res.json() as Promise<T>;
 }
@@ -100,6 +138,7 @@ export async function restGetAll<T>(env: SupabaseEnv, path: string, pageSize = 1
   }
   const out: T[] = [];
   for (let offset = 0; ; offset += pageSize) {
+    countSubrequest(env);
     const res = await fetch(`${env.url}/rest/v1/${withHiddenRounds(env, path)}`, {
       headers: { ...restHeaders(env), Range: `${offset}-${offset + pageSize - 1}` },
     });

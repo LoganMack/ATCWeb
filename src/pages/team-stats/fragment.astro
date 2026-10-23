@@ -13,6 +13,8 @@ import { getSeasons } from '../../lib/db/seasons';
 import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
 import { displayDriverName } from '../../lib/db/circuits';
 import { computeTeamCareerStats, type TeamCareerStats } from '../../lib/results/teamCareer';
+import { computeDriverCareerStats, loadCareerRefs } from '../../lib/results/careerStats';
+import { getOrganizations, getAllOrganizationTeamSeasons } from '../../lib/db/teams';
 import { classBadgeLetter, classTagShort } from '../../lib/classColors';
 
 /**
@@ -29,12 +31,26 @@ const view = Astro.url.searchParams.get('view') === 'delta' ? 'delta' : 'overall
 let loadError: string | null = null;
 let careerStats: TeamCareerStats[] = [];
 try {
-  const [classes, seasons, exhibitionRoundIds] = await Promise.all([
+  // Stage 1: filters, reference reads and the organisations; stage 2: the stored round stats (BR2.3).
+  const [classes, seasons, exhibitionRoundIds, refs, organizations, orgTeamSeasons] = await Promise.all([
     getDriverClasses(supabaseEnv),
     getSeasons(supabaseEnv),
     getStandingsExcludedRoundIds(supabaseEnv),
+    loadCareerRefs(supabaseEnv),
+    getOrganizations(supabaseEnv),
+    getAllOrganizationTeamSeasons(supabaseEnv),
   ]);
-  careerStats = await computeTeamCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds, undefined, undefined, undefined, view);
+  const driverCareerStats = await computeDriverCareerStats(supabaseEnv, seasons, classes, exhibitionRoundIds, refs);
+  careerStats = await computeTeamCareerStats(
+    supabaseEnv,
+    seasons,
+    classes,
+    exhibitionRoundIds,
+    driverCareerStats,
+    organizations,
+    orgTeamSeasons,
+    view
+  );
 } catch (err) {
   console.error('Failed to compute team career stats (fragment):', err);
   loadError = err instanceof Error ? err.message : String(err);
