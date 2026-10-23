@@ -201,14 +201,20 @@ describe('front-end loading (U5)', () => {
       const weight = /font-weight:\s*(\d+)/.exec(face)![1];
       const url = /src:\s*url\('([^']+)'\) format\('woff2'\)/.exec(face)![1];
       expect(FONT_FILES, url).toContain(`/public${url}`);
-      declared.add(`${family} ${weight} ${url.includes('-latin-ext-') ? 'latin-ext' : 'latin'}`);
+      const subset = /^\/fonts\/[a-z]+-([a-z-]+)-v\d+\.woff2$/.exec(url)![1];
+      declared.add(`${family} ${weight} ${subset}`);
     }
     const expected = [
       ...['400', '500', '600', '700'].map((w) => `Teko ${w}`),
       ...['400', '500', '700'].map((w) => `Roboto ${w}`),
     ].flatMap((fw) => [`${fw} latin`, `${fw} latin-ext`]);
+    // Roboto greek renders the Δ in table headers (Pos Δ, Pts Δ) as Google Fonts did.
+    expected.push(...['400', '500', '700'].map((w) => `Roboto ${w} greek`));
     expect([...declared].sort()).toEqual(expected.sort());
     expect(faces).toHaveLength(expected.length);
+    // Every file in public/fonts/ is used by some @font-face, so none ships unused.
+    const referenced = new Set(faces.map((face) => `/public${/url\('([^']+)'\)/.exec(face)![1]}`));
+    expect([...referenced].sort()).toEqual([...FONT_FILES].sort());
   });
 
   it('caches /fonts/* for a year as immutable (BR3.1)', () => {
