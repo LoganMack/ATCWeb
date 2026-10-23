@@ -1,0 +1,349 @@
+---
+export const prerender = false;
+
+// Link Your Driver (U2 driver-linking, US3.2, US3.3; mockup M4): a signed-in account without a driver picks
+// one from the unlinked roster, once, or asks for a new driver entry. The database decides every outcome
+// (src/lib/driverAccount.ts); this page shapes input, posts, and explains the result. Signed-in only, so it
+// is never edge-cached.
+import Layout from '../layouts/Layout.astro';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { LINK_DRIVER_PATH } from '../lib/auth';
+import {
+  DriverAccountError,
+  errorCodeOf,
+  linkErrorMessage,
+  linkMyDriver,
+  loadLinkPage,
+  parseDriverId,
+  requestErrorMessage,
+  shapeRequestInput,
+  submitDriverRequest,
+  LOAD_ERROR_MESSAGE,
+  type RequestField,
+  type RequestFormValues,
+} from '../lib/driverAccount';
+
+const session = Astro.locals.session;
+if (!session) return Astro.redirect(`/login?next=${LINK_DRIVER_PATH}`, 302);
+if (session.profile?.driver_id) {
+  return Astro.redirect(`/drivers/${encodeURIComponent(session.profile.driver_id)}`, 302);
+}
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = session.accessToken;
+
+let linkError: string | null = null;
+let requestError: { field: RequestField | null; message: string } | null = null;
+let requestValues: RequestFormValues = { name: '', car_number: '', iracing_cust_id: '' };
+
+// Success redirects (so a refresh cannot post again); a failure re-renders with the message and, for a
+// request, the values typed, which never go into a URL.
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+
+  if (intent === 'link-driver') {
+    const driverId = parseDriverId(form.get('driver_id'));
+    // Display only, for the "just linked to another account" message.
+    const driverName = String(form.get('driver_name') ?? '').slice(0, 80);
+    if (!driverId) {
+      linkError = linkErrorMessage('NOT_FOUND');
+    } else {
+      try {
+        const linkedId = await linkMyDriver(supabaseEnv, accessToken, driverId);
+        return Astro.redirect(`/drivers/${encodeURIComponent(linkedId)}`, 302);
+      } catch (err) {
+        const code = errorCodeOf(err);
+        // The next request reads the profile again, so /my-profile finds the link.
+        if (code === 'ALREADY_LINKED') return Astro.redirect('/my-profile', 302);
+        if (code === 'NOT_AUTHENTICATED') return Astro.redirect(`/login?next=${LINK_DRIVER_PATH}`, 302);
+        linkError = linkErrorMessage(code, driverName);
+      }
+    }
+  } else if (intent === 'request-driver') {
+    const shaped = shapeRequestInput({
+      name: form.get('name'),
+      car_number: form.get('car_number'),
+      iracing_cust_id: form.get('iracing_cust_id'),
+    });
+    requestValues = shaped.values;
+    if (!shaped.ok) {
+      requestError = { field: shaped.field, message: shaped.message };
+    } else {
+      try {
+        await submitDriverRequest(supabaseEnv, accessToken, shaped.input);
+        return Astro.redirect(`${LINK_DRIVER_PATH}?status=request-sent`, 302);
+      } catch (err) {
+        const code = errorCodeOf(err);
+        if (code === 'ALREADY_LINKED') return Astro.redirect('/my-profile', 302);
+        if (code === 'NOT_AUTHENTICATED') return Astro.redirect(`/login?next=${LINK_DRIVER_PATH}`, 302);
+        requestError = requestErrorMessage(
+          err instanceof DriverAccountError ? err : { code, field: null },
+          shaped.input.carNumber,
+        );
+      }
+    }
+  }
+}
+
+const { state, drivers, loadError } = await loadLinkPage(supabaseEnv, accessToken);
+// Linked since the session was read (another tab, or an admin): go to the profile instead.
+if (state?.linked) return Astro.redirect('/my-profile', 302);
+
+const pendingRequest = state?.request?.status === 'pending' ? state.request : null;
+const rejectedRequest = state?.request?.status === 'rejected' ? state.request : null;
+const requestSent = Astro.url.searchParams.get('status') === 'request-sent' && pendingRequest !== null;
+const showRequestForm = requestError !== null;
+const fieldError = (field: RequestField) => (requestError?.field === field ? requestError.message : null);
+
+const fieldClass =
+  'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary';
+const WARNING = 'This is a permanent action. Once linked, you must contact an admin to change linked drivers.';
+---
+
+<Layout title="Link Your Driver">
+  <section class="mx-auto flex max-w-2xl flex-col px-6 pb-24 pt-8" data-link-driver>
+    <h1 class="reveal font-display text-3xl sm:text-4xl">Link Your Driver</h1>
+    <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
+      Choose the driver this account belongs to.
+    </p>
+
+    <div
+      class="reveal mt-6 flex gap-3 rounded-lg border border-brand-tertiary/30 bg-brand-tertiary/10 p-4 text-sm text-white/80"
+      role="note"
+      data-testid="link-driver-warning"
+    >
+      <span aria-hidden="true" class="font-bold text-brand-gold">⚠</span>
+      <p>{WARNING}</p>
+    </div>
+
+    {linkError && (
+      <p
+        class="mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80"
+        role="alert"
+        data-testid="link-driver-error"
+      >
+        {linkError}
+      </p>
+    )}
+
+    {requestSent && (
+      <p class="mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80" role="status">
+        Request sent.
+      </p>
+    )}
+
+    {pendingRequest && (
+      <div
+        class="mt-6 flex gap-3 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80"
+        role="status"
+        data-testid="link-driver-pending-banner"
+      >
+        <span aria-hidden="true" class="font-bold text-brand-primary">ⓘ</span>
+        <p>
+          Your request for “{pendingRequest.name}”{pendingRequest.carNumber !== null && ` (#${pendingRequest.carNumber})`} is
+          waiting for an admin. Linking an existing driver below cancels it.
+        </p>
+      </div>
+    )}
+
+    {rejectedRequest && (
+      <div
+        class="mt-6 flex gap-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80"
+        role="status"
+        data-testid="link-driver-rejected-banner"
+      >
+        <span aria-hidden="true" class="font-bold text-brand-pink">ⓘ</span>
+        <p>Your request was rejected: {rejectedRequest.reason ?? 'no reason given'}. You can send a new request.</p>
+      </div>
+    )}
+
+    {loadError ? (
+      <p
+        class="mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80"
+        role="alert"
+        data-testid="link-driver-load-error"
+      >
+        {LOAD_ERROR_MESSAGE}
+      </p>
+    ) : (
+      <>
+        <label class="mt-8 flex flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Search by name or number</span>
+          <input
+            type="search"
+            autocomplete="off"
+            data-link-driver-search
+            data-testid="link-driver-search"
+            class={fieldClass}
+          />
+        </label>
+
+        {drivers.length === 0 ? (
+          <p class="mt-4 text-sm text-white/50" data-testid="link-driver-empty">Every driver is already linked.</p>
+        ) : (
+          <ul
+            class="mt-4 divide-y divide-white/10 rounded-xl border border-white/10"
+            data-link-driver-list
+            data-testid="link-driver-list"
+          >
+            {drivers.map((d) => (
+              <li
+                class="flex items-center justify-between gap-4 px-4 py-3 text-sm"
+                data-link-driver-row
+                data-name={d.name}
+                data-number={d.car_number ?? ''}
+                data-testid="link-driver-row"
+              >
+                <span class="font-semibold text-white">{d.name}</span>
+                <span class="ml-auto tabular-nums text-white/60">{d.car_number !== null ? `#${d.car_number}` : '—'}</span>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  data-link-driver-open
+                  data-driver-id={d.id}
+                  data-driver-name={d.name}
+                  data-driver-number={d.car_number ?? ''}
+                  data-testid="link-driver-row-link"
+                  aria-label={`Link ${d.name}`}
+                >
+                  Link
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p class="mt-4 text-sm text-white/50" data-link-driver-no-match hidden data-testid="link-driver-no-match">
+          No driver matches “<span data-link-driver-query></span>”.
+        </p>
+      </>
+    )}
+
+    {requestError && requestError.field === null && (
+      <p
+        class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80"
+        role="alert"
+        data-testid="link-driver-request-error"
+      >
+        {requestError.message}
+      </p>
+    )}
+
+    {!pendingRequest && (
+      <div class="mt-8">
+        <p class="text-sm text-white/60">
+          Can't find your name?
+          <button
+            type="button"
+            class="btn btn-neutral btn-sm ml-2"
+            data-link-driver-request-toggle
+            aria-expanded={showRequestForm ? 'true' : 'false'}
+            aria-controls="link-driver-request-form"
+            data-testid="link-driver-request-toggle"
+          >
+            Request a new driver entry
+          </button>
+        </p>
+
+        <form
+          method="POST"
+          id="link-driver-request-form"
+          data-astro-reload
+          data-link-driver-request-form
+          class:list={['mt-4 flex-col gap-4 rounded-xl border border-white/10 p-5', showRequestForm ? 'flex' : 'hidden']}
+          data-testid="link-driver-request-form"
+        >
+          <input type="hidden" name="intent" value="request-driver" />
+          <h2 class="font-display text-2xl">Request a new driver entry</h2>
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/70">Full name</span>
+            <input
+              type="text"
+              name="name"
+              required
+              maxlength="80"
+              autocomplete="name"
+              value={requestValues.name}
+              aria-invalid={fieldError('name') ? 'true' : undefined}
+              aria-describedby={fieldError('name') ? 'link-driver-name-error' : undefined}
+              class={fieldClass}
+              data-testid="link-driver-request-name"
+            />
+            {fieldError('name') && <span id="link-driver-name-error" class="text-xs text-brand-pink">{fieldError('name')}</span>}
+          </label>
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/70">Car number</span>
+            <input
+              type="text"
+              name="car_number"
+              required
+              inputmode="numeric"
+              pattern="[0-9]{1,3}"
+              maxlength="3"
+              value={requestValues.car_number}
+              aria-invalid={fieldError('car_number') ? 'true' : undefined}
+              aria-describedby={fieldError('car_number') ? 'link-driver-number-error' : undefined}
+              class={`${fieldClass} w-28`}
+              data-testid="link-driver-request-number"
+            />
+            {fieldError('car_number') && (
+              <span id="link-driver-number-error" class="text-xs text-brand-pink">{fieldError('car_number')}</span>
+            )}
+          </label>
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/70">iRacing customer ID</span>
+            <input
+              type="text"
+              name="iracing_cust_id"
+              required
+              inputmode="numeric"
+              pattern="[0-9]{1,16}"
+              maxlength="16"
+              value={requestValues.iracing_cust_id}
+              aria-invalid={fieldError('iracing_cust_id') ? 'true' : undefined}
+              aria-describedby={fieldError('iracing_cust_id') ? 'link-driver-iracing-error' : undefined}
+              class={`${fieldClass} w-48`}
+              data-testid="link-driver-request-iracing"
+            />
+            {fieldError('iracing_cust_id') && (
+              <span id="link-driver-iracing-error" class="text-xs text-brand-pink">{fieldError('iracing_cust_id')}</span>
+            )}
+          </label>
+          <div class="flex gap-2">
+            <button type="button" class="btn btn-neutral" data-link-driver-request-cancel data-testid="link-driver-request-cancel">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary" data-testid="link-driver-request-submit">Send Request</button>
+          </div>
+        </form>
+      </div>
+    )}
+
+    <dialog
+      data-link-driver-dialog
+      aria-labelledby="link-driver-dialog-title"
+      class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+      data-testid="link-driver-dialog"
+    >
+      <form method="POST" data-astro-reload class="flex flex-col gap-4 p-5">
+        <input type="hidden" name="intent" value="link-driver" />
+        <input type="hidden" name="driver_id" value="" />
+        <input type="hidden" name="driver_name" value="" />
+        <h2 id="link-driver-dialog-title" class="font-display text-2xl">
+          Link to <span data-link-driver-dialog-name></span>?
+        </h2>
+        <p class="text-sm text-white/70">{WARNING}</p>
+        <div class="flex justify-end gap-2">
+          <button type="button" class="btn btn-neutral" data-link-driver-cancel data-testid="link-driver-dialog-cancel">
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-primary" data-testid="link-driver-dialog-confirm">Link Driver</button>
+        </div>
+      </form>
+    </dialog>
+  </section>
+</Layout>
+
+<script>
+  import '../scripts/linkDriver';
+</script>

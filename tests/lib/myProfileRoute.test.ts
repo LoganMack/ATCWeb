@@ -64,10 +64,14 @@ describe('/my-profile', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('sends a signed-in account without a linked driver home', async () => {
+  it('sends a signed-in account without a linked driver to the linking page (U2: BR3.2)', async () => {
     const { calls, fetchMock } = await run(sessionWith(null));
-    expect(calls).toEqual([{ path: '/', status: 302 }]);
+    expect(calls).toEqual([{ path: '/link-driver', status: 302 }]);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the linking page through the login page’s next check (C10)', () => {
+    expect(safeNext('/link-driver', '/')).toBe('/link-driver');
   });
 
   it('survives the login page’s next check', () => {

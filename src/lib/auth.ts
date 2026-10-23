@@ -448,15 +448,18 @@ export function requireAdmin(ctx: {
   );
 }
 
+/** The page where a signed-in account without a driver picks one (U2 driver-linking, C10). */
+export const LINK_DRIVER_PATH = '/link-driver';
+
 /**
  * Where the header's My Profile link (`/my-profile`) leads: sign in first when signed out, then the linked
- * driver's page. An account without a linked driver goes home for now.
+ * driver's page, or the linking page for an account without a linked driver.
  */
 export function myProfilePath(locals: App.Locals): string {
   const session = locals.session;
   if (!session) return '/login?next=/my-profile';
   const driverId = session.profile?.driver_id;
-  return driverId ? `/drivers/${encodeURIComponent(driverId)}` : '/';
+  return driverId ? `/drivers/${encodeURIComponent(driverId)}` : LINK_DRIVER_PATH;
 }
 
 // ---------------------------------------------------------------------------
