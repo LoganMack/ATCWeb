@@ -736,6 +736,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 </Layout>
 
 <script>
+  import '../scripts/localTime';
+  import '../scripts/addToCalendar';
+  import '../scripts/logoSelect';
+</script>
+
+<script>
   import { bindFragment } from '../scripts/fragmentLoader';
 
   bindFragment('[data-calendar-results]', {

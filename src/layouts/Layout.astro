@@ -15,9 +15,17 @@ interface Props {
   image?: string | null;
   /** og:type — 'article' for a news post (also gets its own byline-less article treatment from some embedders), 'website' for everything else. */
   type?: 'website' | 'article';
+  /** The shell's own `data-fragment-url`, character for character, so the preloaded response is reused. */
+  preloadFragment?: string;
 }
 
-const { title, description = "iRacing's premier NA TCR series.", image = null, type = 'website' } = Astro.props;
+const {
+  title,
+  description = "iRacing's premier NA TCR series.",
+  image = null,
+  type = 'website',
+  preloadFragment,
+} = Astro.props;
 ---
 
 <!doctype html>
@@ -49,15 +57,29 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
     {image && <meta name="twitter:image" content={image} />}
 
     <!--
-      Teko (display) + Roboto (body) from Google Fonts, with no package or font files. Teko stands in for
-      Cuatra (see the licence note in src/styles/global.css).
+      Teko (display) + Roboto (body), self-hosted (the @font-face rules and licence notes are in
+      src/styles/global.css). Preloading the latin files for headings and body text starts them with the HTML
+      instead of after the stylesheet; crossorigin matches how fonts are fetched, so each downloads once.
+      Persisted across client-side navigations, so the router does not re-add an already-used preload.
     -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Teko:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+      href="/fonts/teko-latin-v1.woff2"
+      data-astro-transition-persist="font-preload-teko"
     />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+      href="/fonts/roboto-latin-v1.woff2"
+      data-astro-transition-persist="font-preload-roboto"
+    />
+    <!-- A shell's fragment starts downloading now; fragmentLoader's fetch of the same URL then reuses it. -->
+    {preloadFragment && <link rel="preload" as="fetch" crossorigin="anonymous" href={preloadFragment} />}
 
     <ViewTransitions />
   </head>
@@ -67,19 +89,12 @@ const { title, description = "iRacing's premier NA TCR series.", image = null, t
       <slot />
     </main>
     <Footer />
+    <!-- Site-wide scripts only. A script for one feature is imported by the pages that render its hook. -->
     <script src="../scripts/pageProgress.ts"></script>
     <script src="../scripts/reveal.ts"></script>
     <script src="../scripts/hard-form-submit.ts"></script>
     <script src="../scripts/sortable-table.ts"></script>
     <script src="../scripts/expandRows.ts"></script>
-    <script src="../scripts/circuitLayoutDetail.ts"></script>
-    <script src="../scripts/hofClassFilter.ts"></script>
-    <script src="../scripts/addToCalendar.ts"></script>
-    <script src="../scripts/localTime.ts"></script>
-    <script src="../scripts/lightbox.ts"></script>
-    <script src="../scripts/tableCsvExport.ts"></script>
-    <script src="../scripts/driverPickerSearch.ts"></script>
-    <script src="../scripts/logoSelect.ts"></script>
     <script src="../scripts/theme.ts"></script>
     <script src="../scripts/delegatedControls.ts"></script>
   </body>

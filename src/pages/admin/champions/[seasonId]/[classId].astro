@@ -186,6 +186,10 @@ const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_orde
 </AdminLayout>
 
 <script>
+  import '../../../../scripts/lightbox';
+</script>
+
+<script>
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {

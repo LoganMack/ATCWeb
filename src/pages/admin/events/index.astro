@@ -307,6 +307,10 @@ const flashRows = Astro.url.searchParams.get('rows');
 </AdminLayout>
 
 <script>
+  import '../../../scripts/logoSelect';
+</script>
+
+<script>
   // Orphaned Rounds pickers: each row's Event list only offers events from the
   // season picked in that row (plus season-less one-offs), pre-selects the
   // server's suggested match (same circuit + date), and choosing an event

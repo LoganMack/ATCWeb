@@ -32,16 +32,18 @@ try {
 }
 const seasonParam = Astro.url.searchParams.get('season');
 const backHref = seasonParam ? `/results?season=${encodeURIComponent(seasonParam)}` : '/results';
+// One string for both the preload hint and the loader, so the preloaded response is the one it fetches.
+const fragmentUrl = `/results/${subsessionId}/fragment${Astro.url.search}`;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title={trackName ?? 'Race Results'} description="Race-by-race results for this round.">
+<Layout title={trackName ?? 'Race Results'} description="Race-by-race results for this round." preloadFragment={fragmentUrl}>
   <section class="relative mx-auto max-w-5xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <a href={backHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Race Results</a>
 
-    <div data-race-results data-fragment-url={`/results/${subsessionId}/fragment${Astro.url.search}`}>
+    <div data-race-results data-fragment-url={fragmentUrl}>
       <div aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading results…</span>
         <div class="mt-3 h-12 w-72 max-w-full animate-pulse rounded-md bg-white/[0.03]"></div>
@@ -67,6 +69,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   import '../../scripts/reportIncidentDialog';
   import '../../scripts/incidentCountdown';
   import '../../scripts/interviewRecorder';
+  import '../../scripts/driverPickerSearch';
 </script>
 
 <script>

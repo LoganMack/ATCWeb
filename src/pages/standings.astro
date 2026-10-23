@@ -22,15 +22,18 @@ try {
   console.error('Failed to load page banner:', err);
 }
 
+// One string for both the preload hint and the loader, so the preloaded response is the one it fetches.
+const fragmentUrl = `/standings/fragment${Astro.url.search}`;
+
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
 
-<Layout title="Season Standings" description="Full season driver and team standings for every Alpha Touring Challenge season and class.">
+<Layout title="Season Standings" description="Full season driver and team standings for every Alpha Touring Challenge season and class." preloadFragment={fragmentUrl}>
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Season Standings</h1>
 
-    <div data-standings-results data-fragment-url={`/standings/fragment${Astro.url.search}`}>
+    <div data-standings-results data-fragment-url={fragmentUrl}>
       <div class="mt-16 flex flex-col gap-5" aria-live="polite" aria-busy="true">
         <span class="sr-only">Loading standings…</span>
         <div class="flex flex-wrap items-end gap-4">
@@ -43,6 +46,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     </div>
   </section>
 </Layout>
+
+<script>
+  import '../scripts/tableCsvExport';
+  import '../scripts/logoSelect';
+</script>
 
 <script>
   import { bindFragment } from '../scripts/fragmentLoader';

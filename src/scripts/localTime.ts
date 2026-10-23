@@ -17,4 +17,7 @@ function initLocalTime() {
   });
 }
 
+// Run now as well: a page that first loads this script on a client-side navigation may execute it after
+// that navigation's astro:page-load.
+initLocalTime();
 document.addEventListener('astro:page-load', initLocalTime);
