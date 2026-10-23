@@ -255,7 +255,13 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         <h1 class="sr-only">Featured Story</h1>
 
         {featuredNews ? (
-          <NewsCard post={featuredNews} index={0} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
+          <NewsCard
+            post={featuredNews}
+            index={0}
+            sizes="(min-width: 1024px) 520px, calc(100vw - 48px)"
+            logoBySeasonLabel={logoBySeasonLabel}
+            tagsByPostId={tagsByPostId}
+          />
         ) : (
           <p class="reveal text-sm text-white/50" style="transition-delay: 80ms">
             No news yet.

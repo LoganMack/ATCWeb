@@ -118,7 +118,7 @@ if (loadError) markUncacheable(Astro);
 
       {posts.length > 0 && (
         <div class="mt-6">
-          <NewsCard post={posts[0]} index={0} featured logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
+          <NewsCard post={posts[0]} index={0} featured priority logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />
           {posts.length > 1 && (
             <div class="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {posts.slice(1).map((post, i) => <NewsCard post={post} index={i + 1} logoBySeasonLabel={logoBySeasonLabel} tagsByPostId={tagsByPostId} />)}

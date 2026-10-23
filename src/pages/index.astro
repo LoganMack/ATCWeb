@@ -4,7 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import { getPageBanners } from '../lib/db/assets';
-import { bannerUrlFor } from '../lib/pageBanners';
+import { bannerImage, bannerUrlFor } from '../lib/pageBanners';
 
 // Shell: fetches only the hero image and paints a skeleton; the data comes from home/fragment.astro. The
 // widget scripts stay here, binding per element on astro:page-load, because scripts in fetched HTML never
@@ -19,6 +19,7 @@ try {
 } catch (err) {
   console.error('Failed to load homepage banner:', err);
 }
+const heroImage = heroImageUrl ? bannerImage(heroImageUrl) : null;
 
 // One string for both the preload hint and the loader, so the preloaded response is the one it fetches.
 const fragmentUrl = '/home/fragment';
@@ -28,13 +29,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 <Layout title="Home" preloadFragment={fragmentUrl}>
   <section class="relative px-6 pb-24 pt-8">
-    {heroImageUrl && (
+    {heroImage && (
       <>
-        <div
-          class="pointer-events-none absolute inset-x-0 top-0 -z-20 h-[32rem] bg-cover bg-center sm:h-[40rem]"
-          style={`background-image: url('${heroImageUrl}')`}
-        >
-        </div>
+        {/* Like PageBanner: an <img> so it is found and fetched first. The crop tool's home aspect is ~2.29:1, so
+            object-cover draws it at least 2.29 x the hero's height wide (h-[32rem] phone, sm:h-[40rem]). */}
+        <img
+          data-backdrop
+          alt=""
+          src={heroImage.src}
+          srcset={heroImage.srcset ?? undefined}
+          sizes={heroImage.srcset ? '(min-width: 640px) max(100vw, 1463px), 1170px' : undefined}
+          fetchpriority="high"
+          class="pointer-events-none absolute inset-x-0 top-0 -z-20 h-[32rem] w-full object-cover object-center sm:h-[40rem]"
+        />
         <div class="banner-overlay pointer-events-none absolute inset-x-0 top-0 -z-10 h-[32rem] sm:h-[40rem]"></div>
       </>
     )}

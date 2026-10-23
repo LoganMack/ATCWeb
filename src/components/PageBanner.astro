@@ -4,20 +4,32 @@
 // Usage: give the page's <section> `relative` and put <PageBanner imageUrl={...} /> first. Never
 // `overflow-hidden` on that section: it makes a scroll container and breaks every sticky table header inside
 // it.
+// An <img> rather than a CSS background, so the preload scanner finds it in the HTML and fetchpriority puts it
+// ahead of the page's other images; it is usually the largest paint.
+import { bannerImage } from '../lib/pageBanners';
+
 interface Props {
+  /** The stored banner URL, unresized (bannerUrlFor). */
   imageUrl: string | null;
 }
 
 const { imageUrl } = Astro.props;
+// object-cover draws the image at least strip height x the crop tool's ~5:1 aspect wide (h-40 phone, sm:h-56),
+// so `sizes` is the larger of that and the viewport.
+const image = imageUrl ? bannerImage(imageUrl) : null;
 ---
 
-{imageUrl && (
+{image && (
   <>
-    <div
-      class="pointer-events-none absolute inset-x-0 top-0 -z-20 h-40 bg-cover bg-center sm:h-56"
-      style={`background-image: url('${imageUrl}')`}
-    >
-    </div>
+    <img
+      data-backdrop
+      alt=""
+      src={image.src}
+      srcset={image.srcset ?? undefined}
+      sizes={image.srcset ? '(min-width: 640px) max(100vw, 1152px), 823px' : undefined}
+      fetchpriority="high"
+      class="pointer-events-none absolute inset-x-0 top-0 -z-20 h-40 w-full object-cover object-center sm:h-56"
+    />
     <div class="banner-overlay pointer-events-none absolute inset-x-0 top-0 -z-10 h-40 sm:h-56"></div>
   </>
 )}

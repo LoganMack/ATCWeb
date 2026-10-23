@@ -52,7 +52,8 @@ export function medianRun(runs, key) {
 
 /**
  * `skeleton` for a pulse placeholder or a node in an aria-busy wrapper; `decorative` for a
- * pointer-events-none background-image backdrop; otherwise `content`. Only `content` is real content.
+ * pointer-events-none background-image backdrop or an `<img data-backdrop>`; otherwise `content`. Only
+ * `content` is real content.
  */
 export function classifyLcp(element) {
   const selector = element?.selector ?? '';
@@ -66,6 +67,8 @@ export function classifyLcp(element) {
   if (/(^|[\s."'>])pointer-events-none\b/.test(text) && /background-image\s*:/i.test(snippet)) {
     return 'decorative';
   }
+  // The banner and hero backdrops are <img data-backdrop> (PageBanner.astro, index.astro).
+  if (/<img\s[^>]*\bdata-backdrop\b/i.test(snippet)) return 'decorative';
   return 'content';
 }
 
@@ -596,7 +599,7 @@ export function renderReport(report) {
     '- Lighthouse lab numbers are indicators, not real-user measurements.',
     '- Timed GETs run on a warmed connection; TTFB is the time to the response headers. NFR3 judges the median of the repeat GETs, and the client latency floor (a GET of /robots.txt) shows how much of a TTFB is network distance.',
     '- NFR4 is judged only when the first fragment GET is a MISS. A miss cannot be forced from outside, because the cache key ignores unknown parameters.',
-    '- An LCP element that is a pointer-events-none background-image backdrop is classed `decorative`; like a skeleton, it does not count as real content for NFR2.',
+    '- An LCP element that is a pointer-events-none background-image backdrop or an `<img data-backdrop>` is classed `decorative`; like a skeleton, it does not count as real content for NFR2.',
     '- Per-run cache columns come from the browser’s own document and fragment responses; when Lighthouse’s network log lacks them, they show the warm-up GETs just before the run (marked "warm-up").',
     '- CPU time and subrequests per render are not visible from outside the Worker; read them in the Workers dashboard.',
     '',

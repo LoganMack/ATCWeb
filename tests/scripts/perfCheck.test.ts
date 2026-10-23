@@ -317,6 +317,18 @@ describe('perf-check review fixes', () => {
     expect(renderReport({ ...REPORT, pages: [p] })).toContain('classed `decorative`');
   });
 
+  it('classes an <img data-backdrop> banner as decorative, and a plain <img> as content', () => {
+    expect(
+      classifyLcp({
+        selector: 'body > main > section.relative > img.pointer-events-none',
+        snippet: '<img data-backdrop="" alt="" src="/cdn-cgi/image/format=auto,fit=scale-down,width=1600/x.jpg" srcset="…',
+      }),
+    ).toBe('decorative');
+    expect(classifyLcp({ selector: 'div.aspect-[16/9] > img.h-full', snippet: '<img src="/x.jpg" alt="News">' })).toBe(
+      'content',
+    );
+  });
+
   it('notes a fragment that sends no X-ATC-Cache and is as slow on repeat as on first GET', () => {
     const fragment = [
       timing('first', { xAtcCache: 'absent', ttfbMs: 8856 }),
