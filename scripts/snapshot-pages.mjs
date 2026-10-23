@@ -10,6 +10,11 @@
 //       --fresh-cache confirms the Worker was started on an empty cache; capture refuses without it.
 //       --extra <path> (repeatable, e.g. --extra /login --extra /news/<slug>) captures that
 //       page, and its fragments, alongside the default list. The path must start with a single /.
+//   node scripts/snapshot-pages.mjs --base <baseUrl> --out <outDir> --paths-file <file> --fresh-cache
+//       Captures exactly the paths listed in <file> (one per line; blank lines and # comments skipped),
+//       instead of the default list, plus every fragment they load, fragments inside fragments included.
+//       scripts/snapshot-paths.mjs writes the page-loading list. --base and --out may replace the two
+//       positional arguments in any capture.
 //   node scripts/snapshot-pages.mjs --compare <dirA> <dirB>
 //       Prints a per-page summary and exits 1 on any difference.
 //   node scripts/snapshot-pages.mjs --self-test
@@ -135,6 +140,23 @@ function selfTest() {
     ['capture refused without --fresh-cache', checkCaptureArgs(['--base', 'x']) !== null, true],
     ['capture allowed with --fresh-cache', checkCaptureArgs(['--base', 'x', '--fresh-cache']), null],
     [
+      'paths file: one path per line, comments and blanks skipped',
+      JSON.stringify(parsePathsList('# pages\n/\n\n/standings?season=17  \r\n/drivers/abc\n')),
+      JSON.stringify(['/', '/standings?season=17', '/drivers/abc']),
+    ],
+    [
+      'paths file: a path not starting with one / is refused',
+      pathsListProblem(['/', '//evil', 'x']),
+      '//evil',
+    ],
+    [
+      'fragment urls found and decoded',
+      JSON.stringify(
+        fragmentUrls('<div data-fragment-url="/a/fragment?x=1&amp;y=2"></div><div data-fragment-url="/b">'),
+      ),
+      JSON.stringify(['/a/fragment?x=1&y=2', '/b']),
+    ],
+    [
       'repeated --extra parsed and removed',
       (() => {
         const args = ['http://x', 'out', '--extra', '/login', '--fresh-cache', '--extra', '/news/a-b'];
@@ -165,6 +187,24 @@ function decodeAttr(value) {
     .replace(/&amp;/g, '&')
     .replace(/&#x27;|&#39;/g, "'")
     .replace(/&quot;/g, '"');
+}
+
+/** The fragment URLs a page loads (data-fragment-url), decoded, in order. */
+function fragmentUrls(html) {
+  return [...html.matchAll(/\sdata-fragment-url="([^"]+)"/g)].map((m) => decodeAttr(m[1]));
+}
+
+/** The paths in a --paths-file: one per line, trimmed; blank lines and # comments are skipped. */
+function parsePathsList(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+}
+
+/** The first listed path that would leave the Worker being captured (not one leading /), or null. */
+function pathsListProblem(paths) {
+  return paths.find((p) => !/^\/(?!\/)/.test(p)) ?? null;
 }
 
 async function fetchText(base, urlPath) {
@@ -216,9 +256,26 @@ async function capture(rawArgs) {
   const subsessionFlag = flagValue(args, '--subsession');
   const driverFlag = flagValue(args, '--driver');
   const extraPaths = flagValues(args, '--extra');
-  if (args.length !== 2) usage('capture needs <baseUrl> <outDir>');
+  const pathsFile = flagValue(args, '--paths-file');
+  const baseFlag = flagValue(args, '--base');
+  const outFlag = flagValue(args, '--out');
+  if (baseFlag) args.unshift(baseFlag);
+  if (outFlag) args.push(outFlag);
+  if (args.length !== 2) usage('capture needs <baseUrl> <outDir> (or --base and --out)');
   const base = args[0].replace(/\/$/, '');
   const outDir = path.resolve(args[1]);
+
+  let listedPaths = null;
+  if (pathsFile) {
+    try {
+      listedPaths = parsePathsList(await readFile(pathsFile, 'utf8'));
+    } catch (err) {
+      usage(`cannot read --paths-file ${pathsFile}: ${err.message}`);
+    }
+    const bad = pathsListProblem(listedPaths);
+    if (bad !== null) usage(`--paths-file paths must start with one /: ${bad}`);
+    if (listedPaths.length === 0) usage(`--paths-file ${pathsFile} lists no paths`);
+  }
 
   if (subsessionFlag && !/^\d+$/.test(subsessionFlag)) usage('--subsession must be a number');
   if (driverFlag && !/^[0-9a-f-]{36}$/i.test(driverFlag)) usage('--driver must be a UUID');
@@ -233,24 +290,33 @@ async function capture(rawArgs) {
     process.exit(2);
   }
 
-  const subsessionId =
-    subsessionFlag ?? (await discover(base, '/results/fragment', /href="\/results\/(\d+)[?"]/, 'subsession'));
-  const driverId =
-    driverFlag ?? (await discover(base, '/roster/fragment', /\/drivers\/([0-9a-f-]{36})\b/, 'driver'));
-  console.log(`snapshot ${base} -> ${outDir} (round ${subsessionId}, driver ${driverId})`);
-
-  const pages = [
-    ...PAGES,
-    `/results/${subsessionId}`,
-    `/results/${subsessionId}/incidents`,
-    `/drivers/${driverId}`,
-    ...extraPaths,
-  ];
+  let pages;
+  if (listedPaths) {
+    pages = [...listedPaths, ...extraPaths];
+    console.log(`snapshot ${base} -> ${outDir} (${listedPaths.length} path(s) from ${pathsFile})`);
+  } else {
+    const subsessionId =
+      subsessionFlag ??
+      (await discover(base, '/results/fragment', /href="\/results\/(\d+)[?"]/, 'subsession'));
+    const driverId =
+      driverFlag ?? (await discover(base, '/roster/fragment', /\/drivers\/([0-9a-f-]{36})\b/, 'driver'));
+    console.log(`snapshot ${base} -> ${outDir} (round ${subsessionId}, driver ${driverId})`);
+    pages = [
+      ...PAGES,
+      `/results/${subsessionId}`,
+      `/results/${subsessionId}/incidents`,
+      `/drivers/${driverId}`,
+      ...extraPaths,
+    ];
+  }
   await mkdir(outDir, { recursive: true });
   const failures = [];
+  const seen = new Set();
   let saved = 0;
 
   const save = async (urlPath) => {
+    if (seen.has(urlPath)) return null;
+    seen.add(urlPath);
     let page;
     try {
       page = await fetchText(base, urlPath);
@@ -267,11 +333,13 @@ async function capture(rawArgs) {
     return page.html;
   };
 
-  for (const urlPath of pages) {
+  // A fragment can carry its own fragment (the driver profile's Awards card), so follow them all.
+  const saveWithFragments = async (urlPath) => {
     const html = await save(urlPath);
-    if (!html) continue;
-    for (const m of html.matchAll(/\sdata-fragment-url="([^"]+)"/g)) await save(decodeAttr(m[1]));
-  }
+    if (!html) return;
+    for (const url of fragmentUrls(html)) await saveWithFragments(url);
+  };
+  for (const urlPath of pages) await saveWithFragments(urlPath);
 
   console.log(`Saved ${saved} page(s) and fragment(s).`);
   if (failures.length) {
@@ -327,6 +395,9 @@ function usage(message) {
   console.error(`snapshot-pages: ${message}`);
   console.error(
     'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>] [--extra <path>]...',
+  );
+  console.error(
+    '       node scripts/snapshot-pages.mjs --base <baseUrl> --out <outDir> --paths-file <file> --fresh-cache',
   );
   console.error('       node scripts/snapshot-pages.mjs --compare <dirA> <dirB>');
   console.error('       node scripts/snapshot-pages.mjs --self-test');
