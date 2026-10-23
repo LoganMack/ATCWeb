@@ -109,12 +109,11 @@ export async function signInWithPassword(
 }
 
 /**
- * `session` is null when the account needs email confirmation first (it was still created); otherwise it's a
- * normal sign-in session.
+ * What a sign-up attempt led to: signed in straight away (no email confirmation required), a confirmation
+ * email to follow, or an address that already has an account.
  */
-export interface SignUpResult {
-  session: Session | null;
-}
+export type SignUpResult =
+  { kind: 'session'; session: Session } | { kind: 'confirm-email' } | { kind: 'email-in-use' };
 
 interface GoTrueSignUpResponse {
   access_token?: string;
@@ -123,11 +122,60 @@ interface GoTrueSignUpResponse {
   user?: { id: string; email: string | null } | null;
   id?: string;
   email?: string | null;
+  identities?: unknown[];
+}
+
+const EMAIL_IN_USE_MESSAGE = /already (been )?registered|already exists/i;
+
+function parseJsonObject(body: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Public self-service sign-up; the `on_auth_user_created` trigger (0002) creates the driver profile. GoTrue
- * won't reveal whether an email already exists (anti-enumeration), so a repeat sign-up can look like success.
+ * Turns a GoTrue `/signup` response into a SignUpResult; throws for any failure other than "email in use".
+ * With "Confirm email" on, GoTrue answers a repeat sign-up for a confirmed address with an obfuscated user
+ * whose `identities` list is empty (and sends no email), so that empty list is how a duplicate is spotted.
+ */
+export function classifySignUpResponse(status: number, body: string): SignUpResult {
+  const parsed = parseJsonObject(body);
+  if (status < 200 || status >= 300) {
+    const message = goTrueErrorMessage(status, body);
+    if (parsed?.error_code === 'user_already_exists' || EMAIL_IN_USE_MESSAGE.test(message)) {
+      return { kind: 'email-in-use' };
+    }
+    throw new Error(message);
+  }
+
+  const data = (parsed ?? {}) as GoTrueSignUpResponse;
+  if (data.access_token && data.refresh_token && data.expires_in && data.user) {
+    return {
+      kind: 'session',
+      session: {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
+        user: { id: data.user.id, email: data.user.email },
+      },
+    };
+  }
+  if (Array.isArray(data.identities)) {
+    return data.identities.length === 0 ? { kind: 'email-in-use' } : { kind: 'confirm-email' };
+  }
+  // Keys only, never values: the body holds the email address. A GoTrue change shows up here in the logs.
+  console.warn('signUp: unrecognised GoTrue response shape', Object.keys(data));
+  return { kind: 'confirm-email' };
+}
+
+/**
+ * Public self-service sign-up; the `on_auth_user_created` trigger (0002) creates the driver profile. The
+ * email is trimmed and lower-cased first so the duplicate check matches however the address was typed.
  */
 export async function signUp(
   env: SupabaseEnv,
@@ -145,29 +193,12 @@ export async function signUp(
     method: 'POST',
     headers: authHeaders(env),
     body: JSON.stringify({
-      email,
+      email: email.trim().toLowerCase(),
       password,
       data: displayName ? { display_name: displayName } : undefined,
     }),
   });
-  if (!res.ok) {
-    throw new Error(goTrueErrorMessage(res.status, await res.text()));
-  }
-  const data = (await res.json()) as GoTrueSignUpResponse;
-
-  // access_token is only present when no email confirmation is required —
-  // otherwise this response is just the (unconfirmed) user row.
-  if (data.access_token && data.refresh_token && data.expires_in && data.user) {
-    return {
-      session: {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
-        user: { id: data.user.id, email: data.user.email },
-      },
-    };
-  }
-  return { session: null };
+  return classifySignUpResponse(res.status, await res.text());
 }
 
 /**
@@ -415,6 +446,17 @@ export function requireAdmin(ctx: {
     requireAdminSession(ctx.locals) ??
     ctx.redirect('/login?next=' + encodeURIComponent(ctx.url.pathname), 302)
   );
+}
+
+/**
+ * Where the header's My Profile link (`/my-profile`) leads: sign in first when signed out, then the linked
+ * driver's page. An account without a linked driver goes home for now.
+ */
+export function myProfilePath(locals: App.Locals): string {
+  const session = locals.session;
+  if (!session) return '/login?next=/my-profile';
+  const driverId = session.profile?.driver_id;
+  return driverId ? `/drivers/${encodeURIComponent(driverId)}` : '/';
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import { safeNext } from '../lib/security';
+import { resolveSiteLinks } from '../lib/links';
 import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
 
 // The one sign-in page for every account; middleware checks profiles.role on /admin, so there's no separate
@@ -13,6 +14,7 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 // Validated: `next` is attacker-controllable, so only same-site paths pass (open-redirect fix).
 const next = safeNext(Astro.url.searchParams.get('next'), '/');
 const session = Astro.locals.session;
+const { discordUrl } = resolveSiteLinks(Astro.locals);
 
 // Already signed in as a non-admin with `next` in /admin: redirecting would bounce back here, so show a "no
 // admin access" notice.
@@ -109,6 +111,14 @@ if (!needsPromotion && Astro.request.method === 'POST') {
         </button>
         <p class="text-center text-xs text-white/40">
           Don't have an account? <a href="/signup" class="text-brand-primary hover:underline">Sign up</a>
+        </p>
+        <p class="-mt-2 text-center text-xs text-white/40">
+          New to the league? <a
+            href={discordUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-brand-primary hover:underline"
+            data-testid="login-join-discord-link">Join on Discord</a>
         </p>
       </form>
     )}

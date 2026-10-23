@@ -7,7 +7,7 @@ import { resizedImageUrl } from '../lib/db/drivers';
 import { getLiveBannerInfo } from '../lib/liveEvent';
 import SeasonLogo from './SeasonLogo.astro';
 
-const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
+const { redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
 const RULEBOOK_URL = 'https://docs.google.com/document/d/1a05Enq9lvnon3qBNnxeHhCUFmlDlBXC0K3R9SXMKFoM/edit?usp=sharing';
 
@@ -41,8 +41,8 @@ const navLogoLightUrl = currentSeason?.logo_url
   ? resizedImageUrl(currentSeason.logo_url_light, { height: NAV_LOGO_HEIGHT })
   : null;
 
-// A signed-in driver gets a link to their own driver page instead of Sign-Up; a login not linked to a driver
-// still sees Sign-Up.
+// A signed-in driver's My Profile icon links straight to their driver page; everyone else's goes through
+// /my-profile.
 const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
 // On your own driver page the profile icon becomes an Edit button (the page's own script toggles edit mode).
 const onOwnProfile = Boolean(myDriverId) && Astro.url.pathname.replace(/\/+$/, '') === `/drivers/${myDriverId}`;
@@ -178,14 +178,17 @@ const links: NavLink[] = [
           <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">{onOwnProfile ? 'Edit Profile' : 'My Profile'}</span>
         </span>
       ) : (
-        <a
-          href={discordUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="btn btn-primary"
-        >
-          Sign-Up
-        </a>
+        // Signed out, or signed in without a linked driver: the same static link for every such viewer, so
+        // cached anonymous pages stay valid; /my-profile decides where it goes.
+        <span class="group relative">
+          <a href="/my-profile" class="btn btn-primary !px-2.5" aria-label="My Profile" data-testid="nav-my-profile">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </a>
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">My Profile</span>
+        </span>
       )}
 
       {showAdminLink && (

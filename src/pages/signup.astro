@@ -16,7 +16,9 @@ if (session) {
 
 let error: string | null = null;
 let checkEmail = false;
+let emailInUse = false;
 let submittedEmail = '';
+let submittedName = '';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -32,6 +34,7 @@ if (Astro.request.method === 'POST') {
   // screen as everyone else, but no account is created.
   const honeypot = String(form.get('website') ?? '').trim();
   submittedEmail = email.slice(0, 254);
+  submittedName = displayName;
   const passwordProblem = validatePassword(password);
 
   if (honeypot) {
@@ -46,19 +49,19 @@ if (Astro.request.method === 'POST') {
     error = "Passwords don't match.";
   } else {
     try {
-      const { session: newSession } = await signUp(
+      const result = await signUp(
         supabaseEnv,
         email,
         password,
         displayName || undefined,
         `${Astro.url.origin}/login`
       );
-      if (newSession) {
+      if (result.kind === 'session') {
         // No email confirmation required — sign them in immediately, same
         // cookies as the admin login flow.
         const cookieOptions = authCookieOptions(Astro.url);
-        Astro.cookies.set(ACCESS_TOKEN_COOKIE, newSession.accessToken, { ...cookieOptions, maxAge: 60 * 60 });
-        Astro.cookies.set(REFRESH_TOKEN_COOKIE, newSession.refreshToken, {
+        Astro.cookies.set(ACCESS_TOKEN_COOKIE, result.session.accessToken, { ...cookieOptions, maxAge: 60 * 60 });
+        Astro.cookies.set(REFRESH_TOKEN_COOKIE, result.session.refreshToken, {
           ...cookieOptions,
           maxAge: 60 * 60 * 24 * 30,
         });
@@ -66,17 +69,14 @@ if (Astro.request.method === 'POST') {
         // the email-confirmation path this page can't reach.
         return Astro.redirect('/', 302);
       }
-      checkEmail = true;
+      if (result.kind === 'email-in-use') {
+        emailInUse = true;
+      } else {
+        checkEmail = true;
+      }
     } catch (err) {
       console.error('Sign-up failed:', err);
-      // An already-registered email gets the same screen as a new one, so
-      // sign-up can't be used to find out who has an account.
-      const message = err instanceof Error ? err.message : '';
-      if (/already (been )?registered|already exists/i.test(message)) {
-        checkEmail = true;
-      } else {
-        error = "Sign-up didn't go through. Check your details and try again.";
-      }
+      error = "Sign-up didn't go through. Check your details and try again.";
     }
   }
 }
@@ -91,6 +91,24 @@ if (Astro.request.method === 'POST') {
 
     {error && (
       <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
+    )}
+
+    {emailInUse && (
+      <div role="alert" class="reveal mt-6 flex gap-3 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80" data-testid="signup-email-in-use">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-brand-pink" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <div>
+          <p>An account with this email already exists.</p>
+          <p class="mt-2">
+            <a href="/login" class="text-brand-primary hover:underline" data-testid="signup-email-in-use-login">Log in</a>
+            <span class="text-white/40" aria-hidden="true"> · </span>
+            <a href="/forgot-password" class="text-brand-primary hover:underline" data-testid="signup-email-in-use-forgot">Forgot password?</a>
+          </p>
+        </div>
+      </div>
     )}
 
     {checkEmail && (
@@ -111,6 +129,7 @@ if (Astro.request.method === 'POST') {
             name="display_name"
             maxlength="60"
             autocomplete="name"
+            value={submittedName}
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
         </label>

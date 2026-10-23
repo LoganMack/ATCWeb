@@ -226,6 +226,25 @@ describe('front-end loading (U5)', () => {
     expect(Number(/max-age=(\d+)/.exec(cache)![1])).toBeGreaterThanOrEqual(31536000);
   });
 
+  it('gives signed-out visitors the My Profile link, and moves Discord to the login page (U1: BR2.1, BR2.3, BR2.4)', () => {
+    const nav = ASTRO['/src/components/Nav.astro'];
+    const link = /<a href="\/my-profile"([^>]*)>/.exec(nav);
+    expect(link, 'Nav links to /my-profile').not.toBeNull();
+    expect(link![1]).toContain('aria-label="My Profile"');
+    expect(link![1]).toContain('data-testid="nav-my-profile"');
+    expect(link![1]).toMatch(/class="btn btn-primary !px-2\.5"/);
+    // The signed-out button is gone, and the header reads nothing about the viewer to draw the link.
+    expect(nav).not.toMatch(/>\s*Sign-Up\s*</);
+    expect(nav).not.toContain('discordUrl');
+
+    const login = ASTRO['/src/pages/login.astro'];
+    expect(login).toMatch(
+      /New to the league\?\s*<a\s+href=\{discordUrl\}\s+target="_blank"\s+rel="noopener noreferrer"/,
+    );
+    expect(login).toContain('resolveSiteLinks(Astro.locals)');
+    expect(login).toContain('href="/signup"');
+  });
+
   it('lets no POST form opt back into the client router (BR5.1)', () => {
     const optIns = Object.entries(SRC).flatMap(([path, text]) =>
       [
