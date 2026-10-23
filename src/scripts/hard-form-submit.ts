@@ -1,68 +1,63 @@
 /**
- * Makes every POST <form> a real submission instead of a View Transitions DOM swap, which hid cookies set on
- * the redirect (the login session). The listener sits on each form, so it beats Astro's document listener,
- * and drives the progress bar itself. Same-page re-renders are copied in with DOMParser + innerHTML, never
- * document.open()/write(), which strips `document`'s listeners; astro:page-load is then redispatched.
+ * Lets every POST <form> submit natively instead of through the View Transitions router: the browser posts,
+ * follows the redirect once, applies the cookies set on it (the login session) and renders the next page
+ * once. A re-rendered error page is an ordinary page load. This only opts each form out of the router and
+ * drives the buttons and the progress bar.
  */
 
 import { showProgress, hideProgress } from './pageProgress';
 
-/** Swaps in the fetched page's content without document.open(), which would drop the document's listeners. */
-function swapDocument(html: string) {
-  const parsed = new DOMParser().parseFromString(html, 'text/html');
-  document.title = parsed.title;
-  for (const attr of Array.from(document.documentElement.attributes)) {
-    document.documentElement.removeAttribute(attr.name);
-  }
-  for (const attr of Array.from(parsed.documentElement.attributes)) {
-    document.documentElement.setAttribute(attr.name, attr.value);
-  }
-  document.head.innerHTML = parsed.head.innerHTML;
-  document.body.innerHTML = parsed.body.innerHTML;
+const WORKING_LABEL = 'Working…';
+
+function submitButtons(form: HTMLFormElement) {
+  return form.querySelectorAll<HTMLButtonElement>('button[type="submit"]');
 }
 
-function bindForm(form: HTMLFormElement) {
+function markWorking(form: HTMLFormElement, submitter: HTMLElement | null) {
+  submitButtons(form).forEach((btn) => (btn.disabled = true));
+  if (submitter?.tagName === 'BUTTON') {
+    submitter.dataset.hardSubmitLabel = submitter.textContent ?? '';
+    submitter.textContent = WORKING_LABEL;
+  }
+  showProgress();
+}
+
+/** Undoes markWorking, for a page the browser restores from its back/forward cache mid-submit. */
+function resetForm(form: HTMLFormElement) {
+  delete form.dataset.hardSubmitInFlight;
+  submitButtons(form).forEach((btn) => {
+    btn.disabled = false;
+    if (btn.dataset.hardSubmitLabel !== undefined) {
+      btn.textContent = btn.dataset.hardSubmitLabel;
+      delete btn.dataset.hardSubmitLabel;
+    }
+  });
+  hideProgress();
+}
+
+export function bindForm(form: HTMLFormElement): void {
   if (form.dataset.hardSubmitBound === 'true') return;
   form.dataset.hardSubmitBound = 'true';
+  // The router skips any form carrying data-astro-reload, so the browser submits it itself.
+  form.dataset.astroReload = '';
 
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-
-    const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
-    const formData = submitter ? new FormData(form, submitter) : new FormData(form);
-    const buttons = form.querySelectorAll<HTMLButtonElement>('button[type="submit"]');
-    buttons.forEach((btn) => (btn.disabled = true));
-
-    const originalLabel = submitter?.textContent ?? null;
-    if (submitter) submitter.textContent = 'Working…';
-
-    showProgress();
-
-    try {
-      const res = await fetch(form.action, { method: 'POST', body: formData });
-
-      if (res.redirected) {
-        // Navigate for real so cookies set on the way take effect; the next page clears the bar.
-        window.location.assign(res.url);
+  form.addEventListener('submit', (event) => {
+    if (event.defaultPrevented) return;
+    if (form.dataset.hardSubmitInFlight === 'true') {
+      event.preventDefault();
+      return;
+    }
+    form.dataset.hardSubmitInFlight = 'true';
+    const submitter = (event as SubmitEvent).submitter;
+    // Deferred because the browser builds the form data after this listener, and a disabled submitter would
+    // drop its name and value from it. A later listener may also still cancel the submit.
+    setTimeout(() => {
+      if (event.defaultPrevented) {
+        delete form.dataset.hardSubmitInFlight;
         return;
       }
-
-      // No redirect means the server re-rendered this page (usually an error); render that HTML, since
-      // reloading would be a fresh GET.
-      const html = await res.text();
-      hideProgress();
-      swapDocument(html);
-      // See the top-of-file comment — without this, the just-swapped-in
-      // page (including any error/"Saved." banner) never becomes visible
-      // and nothing else that depends on astro:page-load re-initializes.
-      document.dispatchEvent(new Event('astro:page-load'));
-    } catch (err) {
-      console.error('Form submission failed:', err);
-      hideProgress();
-      buttons.forEach((btn) => (btn.disabled = false));
-      if (submitter && originalLabel !== null) submitter.textContent = originalLabel;
-      alert('Could not reach the server — check your connection and try again.');
-    }
+      markWorking(form, submitter);
+    }, 0);
   });
 }
 
@@ -70,4 +65,10 @@ function initHardFormSubmit() {
   document.querySelectorAll<HTMLFormElement>('form[method="POST" i]').forEach(bindForm);
 }
 
+function onPageShow(event: PageTransitionEvent) {
+  if (!event.persisted) return;
+  document.querySelectorAll<HTMLFormElement>('form[data-hard-submit-in-flight]').forEach(resetForm);
+}
+
 document.addEventListener('astro:page-load', initHardFormSubmit);
+window.addEventListener('pageshow', onPageShow);

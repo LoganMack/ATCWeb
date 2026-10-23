@@ -532,6 +532,10 @@ const d: Partial<EventRecord> = event ?? {
 </AdminLayout>
 
 <script>
+  import '../../../scripts/logoSelect';
+</script>
+
+<script>
   // Shows only the chosen circuit's layouts (plus "Not set"), re-run on circuit change so a mismatched layout
   // can't stay selected.
   function initLayoutFilter() {

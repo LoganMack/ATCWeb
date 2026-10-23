@@ -82,4 +82,6 @@ function initCsvExportButtons() {
   });
 }
 
+// Run now as well, in case this script first executes after a client-side navigation's astro:page-load.
+initCsvExportButtons();
 document.addEventListener('astro:page-load', initCsvExportButtons);

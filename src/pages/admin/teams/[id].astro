@@ -622,6 +622,10 @@ const rosterDriversOnTeam = rosterDrivers
 </AdminLayout>
 
 <script>
+  import '../../../scripts/logoSelect';
+</script>
+
+<script>
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {

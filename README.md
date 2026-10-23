@@ -233,7 +233,8 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on pushes to `main` 
 ## Conventions
 
 - **Brand colors:** blue `#4369F5`, red `#F5426E`, gold `#F5C642`.
-- **Fonts:** Teko and Roboto; see the licence note in `src/styles/global.css`.
+- **Fonts:** Teko and Roboto, self-hosted as `woff2` files under `public/fonts/` (latin and latin-ext only), with the `@font-face` rules and licence notes in `src/styles/global.css`. No page requests Google Fonts. To add a weight, add `@font-face` rules for it in both subsets, copying the `unicode-range` values Google Fonts serves; Google's files are variable fonts, so the existing files usually already cover the weight. A new or changed file gets a new version suffix (`-v2`), because `public/_headers` caches `/fonts/*` as immutable for a year.
+- **Page scripts:** `src/layouts/Layout.astro` loads only the site-wide scripts. A script for one feature (local times, add to calendar, lightbox, CSV export, driver picker search, logo select, Hall of Fame filter, circuit layout detail) is imported by each page that renders its hook, or by the shell of the fragment that renders it; `tests/structure/frontEnd.test.ts` checks the list.
 - **Buttons:** use the shared `.btn` classes (`btn btn-primary|danger|gold|neutral`, optional `btn-sm`/`btn-lg`) defined in `src/styles/global.css`, not one-off styling.
 - **Corners:** the whole site uses a "slightly rounded" radius scale set in `tailwind.config.mjs`; change it there, not per element.
 - **Themes:** light and dark are both supported.

@@ -71,5 +71,7 @@ function init() {
 }
 
 init();
+// Pages load this script on their own now; init() is idempotent, so the page-load hook is only a safety net.
+document.addEventListener('astro:page-load', init);
 
 export {};

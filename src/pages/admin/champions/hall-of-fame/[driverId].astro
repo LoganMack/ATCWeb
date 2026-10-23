@@ -169,6 +169,10 @@ const driverName = displayDriverName(driver.name);
 </AdminLayout>
 
 <script>
+  import '../../../../scripts/lightbox';
+</script>
+
+<script>
   document.addEventListener('astro:page-load', () => {
     document.querySelectorAll<HTMLButtonElement>('[data-confirm]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
