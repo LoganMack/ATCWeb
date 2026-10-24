@@ -152,6 +152,12 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/driver-privacy-fixtures.sql
 
+      # Same convention: the email outbox (U7): grants, the enqueue triggers, reminders, claims under the
+      # daily cap, marks, stale batches, expiry, retention and the admin counts.
+      - name: Notifications fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/notifications-fixtures.sql
+
       # Every select string the readers send through the masked views, called through the local PostgREST
       # as anon and as an admin (NFR8.6). It seeds and commits its own rows and removes them at the end.
       - name: Masked view embeds through PostgREST

@@ -10,6 +10,7 @@ import { getSeasons } from '../../lib/db/seasons';
 import { getMissingRaceResultsCount, getActivityLogCountSince } from '../../lib/db/analytics';
 import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
 import { requireAdmin } from '../../lib/auth';
+import { getNotificationCounts, type NotificationCounts } from '../../lib/notifications/counts';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -36,6 +37,9 @@ let missingRaceResultsCount = 0;
 let activityLogCount24h = 0;
 let openIncidentReportCount = 0;
 let pendingSignupCount = 0;
+// Null when the counts could not be read; the Email section then says so instead of failing the page.
+// (The cast keeps TypeScript from narrowing it to null: it is assigned inside a callback below.)
+let emailCounts = null as NotificationCounts | null;
 
 // Independent fetches run together; the counts with their own .catch are separate Promise.all entries.
 async function loadCounts() {
@@ -80,7 +84,30 @@ await Promise.all([
   getActivityLogCountSince(supabaseEnv, accessToken, oneDayAgoIso)
     .then((count) => (activityLogCount24h = count))
     .catch((err) => console.error('Failed to load activity log count:', err)),
+  getNotificationCounts(supabaseEnv, accessToken).then((counts) => (emailCounts = counts)),
 ]);
+
+// The email outbox at a glance (U7, BR10.17): what waits, what was dropped and what may not have arrived.
+const emailStats = emailCounts
+  ? [
+      { label: 'Emails queued', value: String(emailCounts.queued), detail: 'Waiting for the next send' },
+      {
+        label: 'Dropped in the last 7 days',
+        value: String(emailCounts.dropped7d),
+        detail: `${emailCounts.capDropped7d} because the daily cap was reached`,
+      },
+      {
+        label: 'Delivery unknown in the last 7 days',
+        value: String(emailCounts.unknown7d),
+        detail: 'Resend may or may not have sent these',
+      },
+      {
+        label: 'Enqueue failures in the last 7 days',
+        value: String(emailCounts.enqueueFailures7d),
+        detail: 'Emails that could not be queued',
+      },
+    ]
+  : [];
 
 interface DashboardCard {
   href: string;
@@ -190,6 +217,30 @@ const tools: DashboardCard[] = [
       </a>
     ))}
   </div>
+</section>
+
+<section class="mt-12" data-email-counts>
+  <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Email</h2>
+
+  {emailCounts?.sendingOff && (
+    <p role="status" class="mt-4 rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90" data-email-sending-off>
+      Email sending is off: RESEND_API_KEY not set
+    </p>
+  )}
+
+  {emailCounts ? (
+    <dl class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {emailStats.map((stat) => (
+        <div class="rounded-xl border border-white/10 bg-brand-ink p-6">
+          <dt class="text-sm leading-5 text-white/60">{stat.label}</dt>
+          <dd class="font-display text-2xl leading-8">{stat.value}</dd>
+          <dd class="mt-1 text-sm leading-5 text-white/60">{stat.detail}</dd>
+        </div>
+      ))}
+    </dl>
+  ) : (
+    <p class="mt-4 text-sm text-white/60" data-email-counts-unavailable>Email counts unavailable</p>
+  )}
 </section>
 
 <section class="mt-12">

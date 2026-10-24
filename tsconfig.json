@@ -11,5 +11,5 @@
     "tailwind.config.mjs",
     "vitest.config.ts"
   ],
-  "exclude": ["dist"]
+  "exclude": ["dist", "src/worker"]
 }
