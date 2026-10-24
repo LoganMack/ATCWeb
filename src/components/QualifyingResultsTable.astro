@@ -57,10 +57,10 @@ for (const p of qualifyingPenalties) {
               <div class="flex flex-wrap items-center gap-2">
                 {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as ResultsTable.astro's row. */}
                 <span class="hidden sm:inline">
-                  <DriverLink id={row.driver.id}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <span class="sm:hidden">
-                  <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                 {row.notInRoster && (

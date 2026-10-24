@@ -33,7 +33,7 @@ async function fetchBestLaps(env: SupabaseEnv, subsessionId: number): Promise<Ra
   try {
     return await restGet<RawBestLapRow[]>(
       env,
-      `curated_race_results?select=race_number,cust_id,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`,
+      `curated_race_results_shown?select=race_number,cust_id,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`,
     );
   } catch (err) {
     console.error('News recap: failed to fetch fastest-lap data, omitting that stat:', err);
@@ -115,6 +115,8 @@ export interface RecapTeamDriverEntry {
   raceNumber: number;
   driverId: string;
   driverName: string;
+  /** drivers_shown.is_hidden (U4): render no profile link. */
+  driverHidden?: boolean;
   carNumber: number | null;
   points: number;
   nationality1: string | null;
@@ -355,6 +357,7 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
       raceNumber,
       driverId: row.driver.id,
       driverName: row.driver.name,
+      driverHidden: row.driver.is_hidden,
       carNumber: row.driver.car_number,
       points,
       nationality1: row.driver.nationality_1,

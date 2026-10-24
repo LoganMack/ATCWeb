@@ -183,7 +183,7 @@ if (loadError) markUncacheable(Astro);
                                       {classBadgeLetter(d.className)}
                                     </span>
                                     <DriverFlag nationality1={d.nationality1} nationality2={d.nationality2} />
-                                    <DriverLink id={d.driverId}>{displayDriverName(d.name)}</DriverLink>
+                                    <DriverLink id={d.driverId} hidden={d.hidden}>{displayDriverName(d.name)}</DriverLink>
                                     {d.carNumber !== null && <span class="text-white/40">#{d.carNumber}</span>}
                                   </span>
                                 ))}

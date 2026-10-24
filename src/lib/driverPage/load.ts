@@ -12,15 +12,23 @@ import { trimNum, signedNum, type AwardEntry, type CareerMove, type ClassMove } 
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export interface ProfileDriver {
+  id: string;
+  iracing_cust_id: number | null;
+  is_hall_of_fame: boolean;
+  /** drivers_shown (U4, BR9.11): the profile is private for this caller, so nothing else is read. */
+  profile_private?: boolean;
+}
+
 /** The profile's driver, or null when the id isn't a UUID or names no (non-AI) driver; checked first. */
 export async function findProfileDriver(
   supabaseEnv: SupabaseEnv,
   driverId: string,
-): Promise<{ id: string; iracing_cust_id: number | null; is_hall_of_fame: boolean } | null> {
+): Promise<ProfileDriver | null> {
   if (!UUID.test(driverId)) return null;
-  const rows = await restGet<{ id: string; iracing_cust_id: number | null; is_hall_of_fame: boolean }[]>(
+  const rows = await restGet<ProfileDriver[]>(
     supabaseEnv,
-    `drivers?select=id,iracing_cust_id,is_hall_of_fame&id=eq.${encodeURIComponent(driverId)}&is_ai=eq.false`,
+    `drivers_shown?select=id,iracing_cust_id,is_hall_of_fame,profile_private&id=eq.${encodeURIComponent(driverId)}&is_ai=eq.false`,
   );
   return rows[0] ?? null;
 }
@@ -57,6 +65,7 @@ function loadCareer(supabaseEnv: SupabaseEnv, driverId: string, base: ReturnType
  */
 export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string) {
   let notFound = false;
+  let privateProfile = false;
   let loadError: string | null = null;
   let career: DriverCareerStats | null = null;
   let raceHistory: DriverRaceHistoryRow[] = [];
@@ -71,6 +80,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
 
   const empty = () => ({
     notFound,
+    privateProfile,
     loadError,
     career,
     raceHistory,
@@ -99,6 +109,11 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
   }
   if (!driver) {
     notFound = true;
+    return empty();
+  }
+  // A private profile (BR9.11): none of its data is read.
+  if (driver.profile_private) {
+    privateProfile = true;
     return empty();
   }
 
@@ -206,6 +221,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
   const driverIncidents = await incidentsPromise;
   return {
     notFound,
+    privateProfile,
     loadError,
     career,
     raceHistory,
@@ -225,10 +241,11 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
  */
 export async function loadDriverAwards(supabaseEnv: SupabaseEnv, driverId: string) {
   let notFound = false;
+  let privateProfile = false;
   let loadError: string | null = null;
   const awardEntries: AwardEntry[] = [];
   let isHallOfFame = false;
-  if (!UUID.test(driverId)) return { notFound: true, loadError, awardEntries, isHallOfFame };
+  if (!UUID.test(driverId)) return { notFound: true, privateProfile, loadError, awardEntries, isHallOfFame };
   try {
     // Stage 1: the driver check (with its Hall of Fame flag) alongside the light reads; no awards
     // history, the costly part, for an unknown id.
@@ -238,7 +255,12 @@ export async function loadDriverAwards(supabaseEnv: SupabaseEnv, driverId: strin
     const driver = await findProfileDriver(supabaseEnv, driverId);
     if (!driver) {
       notFound = true;
-      return { notFound, loadError, awardEntries, isHallOfFame };
+      return { notFound, privateProfile, loadError, awardEntries, isHallOfFame };
+    }
+    // A private profile (BR9.11): no awards history is read.
+    if (driver.profile_private) {
+      privateProfile = true;
+      return { notFound, privateProfile, loadError, awardEntries, isHallOfFame };
     }
     isHallOfFame = driver.is_hall_of_fame === true;
     const { seasons: seasonsPromise, career: careerPromise } = loadCareer(supabaseEnv, driverId, base);
@@ -264,7 +286,7 @@ export async function loadDriverAwards(supabaseEnv: SupabaseEnv, driverId: strin
     console.error('Failed to load driver awards:', err);
     loadError = err instanceof Error ? err.message : String(err);
   }
-  return { notFound, loadError, awardEntries, isHallOfFame };
+  return { notFound, privateProfile, loadError, awardEntries, isHallOfFame };
 }
 
 /** Class, team and Delta team championships. Not for a season still in progress, per Logan. */

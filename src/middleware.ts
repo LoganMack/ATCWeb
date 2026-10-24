@@ -318,6 +318,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // paths count as admin paths (fail closed).
   const normalisedPath = normalisePath(pathname);
   const isAdminRoute = normalisedPath === null || normalisedPath.startsWith(ADMIN_PREFIX);
+  // "View as Visitor" also reads the masked views as a visitor would, except on /admin, which always reads
+  // with the admin's token (resolveSupabaseEnv, U4 BR9.13).
+  context.locals.readAsVisitor = context.locals.viewAsVisitor && !isAdminRoute;
 
   let response: Response;
   if (isAdminRoute) {

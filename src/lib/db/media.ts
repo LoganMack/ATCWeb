@@ -1,4 +1,5 @@
 import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './client';
+import privacyReads from '../privacyReads.json';
 
 // --- Media page: videos, graphics, meetups (0049_media_page.sql) ---
 // Broadcasts come from race_links (getAllBroadcastRaceLinks in ./rounds) and track guides from track_guides
@@ -130,15 +131,13 @@ export interface MeetupDriverLink {
   meetup_id: string;
   driver_id: string;
   /** Embedded via PostgREST FK join — null would mean an orphaned link (driver deleted without cascading, which the FK's `on delete cascade` should prevent in practice). */
-  drivers: { name: string; car_number: number | null } | null;
+  drivers: { name: string; car_number: number | null; is_hidden?: boolean } | null;
 }
 
-/** Every meetup/driver link on file in one query — powers the public Media page's Meetups popup (grouped by meetup_id in memory) the same way getAllTrackGuides front-loads every layout's guides instead of querying per-meetup. */
+/** Every meetup/driver link on file in one query — powers the public Media page's Meetups popup (grouped by meetup_id in memory) the same way getAllTrackGuides front-loads every layout's guides instead of querying per-meetup. The driver comes from the masked drivers_shown (U4). */
 export function getAllMeetupDriverLinks(env: SupabaseEnv) {
-  return restGet<MeetupDriverLink[]>(
-    env,
-    `media_meetup_drivers?select=meetup_id,driver_id,drivers(name,car_number)`,
-  );
+  const { path, select } = privacyReads.meetupDrivers;
+  return restGet<MeetupDriverLink[]>(env, `${path}?select=${encodeURIComponent(select)}`);
 }
 
 export function addMeetupDriver(env: SupabaseEnv, accessToken: string, meetupId: string, driverId: string) {

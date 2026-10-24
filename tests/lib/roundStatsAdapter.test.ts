@@ -550,11 +550,11 @@ function stubDatabase(
         return json(stored.penaltyRows);
       case 'race_score_results_public':
         return json(publicRows);
-      case 'penalties':
+      case 'penalties_shown':
         return json(inputs.penalties);
       case 'curated_rounds':
         return json(path.includes('layout') ? rounds : inputs.seasonRounds);
-      case 'curated_race_results':
+      case 'curated_race_results_shown':
         return json(path.includes('average_lap') ? inputs.lapStats : inputs.rawResults);
       default:
         throw new Error(`unexpected read: ${path}`);

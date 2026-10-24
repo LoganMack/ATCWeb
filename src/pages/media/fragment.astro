@@ -146,12 +146,13 @@ const FILTER_LABELS: Record<VideoFilter, string> = {
 };
 
 // Attendee names per meetup (0070), alphabetical, grouped from one list.
-const driverNamesByMeetupId = new Map<string, { id: string; label: string }[]>();
+// A hidden driver (U4) gets no id, so the popup shows the name with no profile link.
+const driverNamesByMeetupId = new Map<string, { id: string | null; label: string }[]>();
 for (const link of meetupDriverLinks) {
   if (!link.drivers) continue;
   if (!driverNamesByMeetupId.has(link.meetup_id)) driverNamesByMeetupId.set(link.meetup_id, []);
   const label = displayDriverName(link.drivers.name) + (link.drivers.car_number !== null ? ` #${link.drivers.car_number}` : '');
-  driverNamesByMeetupId.get(link.meetup_id)!.push({ id: link.driver_id, label });
+  driverNamesByMeetupId.get(link.meetup_id)!.push({ id: link.drivers.is_hidden ? null : link.driver_id, label });
 }
 for (const names of driverNamesByMeetupId.values()) names.sort((a, b) => a.label.localeCompare(b.label));
 

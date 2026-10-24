@@ -1,6 +1,7 @@
 import { restDelete, restGet, writeHeaders, type SupabaseEnv } from './client';
 
 // --- Champion photos (up to 5 per season+class, see /admin/site-properties?tab=champions)
+// Reads use the masked *_shown views (U4): a driver hidden from this caller has no photos.
 
 export interface ChampionPhoto {
   id: string;
@@ -17,7 +18,7 @@ const CHAMPION_PHOTO_SELECT = 'id,season_id,class_id,driver_id,image_url,sort_or
 export function getChampionPhotos(env: SupabaseEnv, seasonId: string, classId: number) {
   return restGet<ChampionPhoto[]>(
     env,
-    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}&order=sort_order.asc`,
+    `champion_photos_shown?select=${CHAMPION_PHOTO_SELECT}&season_id=eq.${encodeURIComponent(seasonId)}&class_id=eq.${classId}&order=sort_order.asc`,
   );
 }
 
@@ -25,7 +26,7 @@ export function getChampionPhotos(env: SupabaseEnv, seasonId: string, classId: n
 export function getChampionPhotosForClass(env: SupabaseEnv, classId: number) {
   return restGet<ChampionPhoto[]>(
     env,
-    `champion_photos?select=${CHAMPION_PHOTO_SELECT}&class_id=eq.${classId}&order=season_id.asc,sort_order.asc`,
+    `champion_photos_shown?select=${CHAMPION_PHOTO_SELECT}&class_id=eq.${classId}&order=season_id.asc,sort_order.asc`,
   );
 }
 
@@ -66,7 +67,7 @@ const HALL_OF_FAME_PHOTO_SELECT = 'id,driver_id,image_url,sort_order';
 export function getHallOfFamePhotos(env: SupabaseEnv, driverId: string) {
   return restGet<HallOfFamePhoto[]>(
     env,
-    `hall_of_fame_photos?select=${HALL_OF_FAME_PHOTO_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}&order=sort_order.asc`,
+    `hall_of_fame_photos_shown?select=${HALL_OF_FAME_PHOTO_SELECT}&driver_id=eq.${encodeURIComponent(driverId)}&order=sort_order.asc`,
   );
 }
 
@@ -74,7 +75,7 @@ export function getHallOfFamePhotos(env: SupabaseEnv, driverId: string) {
 export function getAllHallOfFamePhotos(env: SupabaseEnv) {
   return restGet<HallOfFamePhoto[]>(
     env,
-    `hall_of_fame_photos?select=${HALL_OF_FAME_PHOTO_SELECT}&order=driver_id.asc,sort_order.asc`,
+    `hall_of_fame_photos_shown?select=${HALL_OF_FAME_PHOTO_SELECT}&order=driver_id.asc,sort_order.asc`,
   );
 }
 

@@ -39,6 +39,8 @@ function signed(n: number): string {
 interface WinnerDisplay {
   driverId: string;
   driverName: string;
+  /** drivers_shown.is_hidden (U4): no profile link. */
+  driverHidden?: boolean;
   carNumber: number | null;
   nationality1: string | null;
   nationality2: string | null;
@@ -66,6 +68,7 @@ function winnerDisplay(driver: DriverBasic, link?: { href: string; label: string
   return {
     driverId: driver.id,
     driverName: displayDriverName(driver.name),
+    driverHidden: driver.is_hidden,
     carNumber: driver.car_number,
     nationality1: driver.nationality_1,
     nationality2: driver.nationality_2,
@@ -315,7 +318,7 @@ if (loadError) markUncacheable(Astro);
                             {r.winners.map((w) => (
                               <span class="flex items-center gap-1.5">
                                 <DriverFlag nationality1={w.nationality1} nationality2={w.nationality2} size="h-3.5 w-5" />
-                                <DriverLink id={w.driverId}>{w.driverName}</DriverLink>
+                                <DriverLink id={w.driverId} hidden={w.driverHidden}>{w.driverName}</DriverLink>
                                 {w.carNumber !== null && <span class="text-white/40">#{w.carNumber}</span>}
                               </span>
                             ))}

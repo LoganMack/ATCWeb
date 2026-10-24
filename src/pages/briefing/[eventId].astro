@@ -299,7 +299,7 @@ if (loadError) markUncacheable(Astro);
                       {classBadgeLetter(gammaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
-                    <span class="text-white/70"><DriverLink id={gammaBestLap.driver.id}>{shortDriverName(gammaBestLap.driver.name)}</DriverLink></span>
+                    <span class="text-white/70"><DriverLink id={gammaBestLap.driver.id} hidden={gammaBestLap.driver.is_hidden}>{shortDriverName(gammaBestLap.driver.name)}</DriverLink></span>
                     {gammaBestLap.carLogoUrl && (
                       <img
                         src={gammaBestLap.carLogoUrl}
@@ -317,7 +317,7 @@ if (loadError) markUncacheable(Astro);
                       {classBadgeLetter(deltaClass.name)}
                     </span>
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
-                    <span class="text-white/70"><DriverLink id={deltaBestLap.driver.id}>{shortDriverName(deltaBestLap.driver.name)}</DriverLink></span>
+                    <span class="text-white/70"><DriverLink id={deltaBestLap.driver.id} hidden={deltaBestLap.driver.is_hidden}>{shortDriverName(deltaBestLap.driver.name)}</DriverLink></span>
                     {deltaBestLap.carLogoUrl && (
                       <img
                         src={deltaBestLap.carLogoUrl}
@@ -356,7 +356,7 @@ if (loadError) markUncacheable(Astro);
                         {winners.map((w) => (
                           <li class="flex items-center justify-between gap-2">
                             <span>
-                              <DriverLink id={w.driver.id}>{shortDriverName(w.driver.name)}</DriverLink>
+                              <DriverLink id={w.driver.id} hidden={w.driver.is_hidden}>{shortDriverName(w.driver.name)}</DriverLink>
                               {w.raceCount > 1 && <span class="ml-1 text-[11px] text-white/40">Race {w.raceNumber}</span>}
                             </span>
                             {/* The name now goes to the driver's profile, so the race result link moved to the date. */}
@@ -373,7 +373,7 @@ if (loadError) markUncacheable(Astro);
                       <ul class="mt-1 space-y-1 text-sm">
                         {poles.map((p) => (
                           <li class="flex items-center justify-between gap-2">
-                            <DriverLink id={p.driver.id}>{shortDriverName(p.driver.name)}</DriverLink>
+                            <DriverLink id={p.driver.id} hidden={p.driver.is_hidden}>{shortDriverName(p.driver.name)}</DriverLink>
                             <a href={`/results/${p.round.subsessionId}?category=qualifying`} class="text-xs text-white/40 hover:text-brand-primary">{formatDateShort(p.round.startTime)}</a>
                           </li>
                         ))}

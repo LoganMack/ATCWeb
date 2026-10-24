@@ -8,6 +8,7 @@ import {
   type SupabaseEnv,
 } from './client';
 import type { DriverOption } from './drivers';
+import privacyReads from '../privacyReads.json';
 
 // --- News (admin) ------------------------------------------------------
 
@@ -148,9 +149,10 @@ export interface NewsPostDriverLink {
   drivers: DriverOption | null;
 }
 
-/** Every post<->driver tag link across every post, driver name/car number embedded via PostgREST resource embedding — the driver profile page's "Related News" section fetches this once and filters it down to links naming that one driver, same "fetch once, map/filter in memory" convention getAllNewsPostTags uses. Public read (RLS). */
+/** Every post<->driver tag link across every post, driver name/car number embedded via PostgREST resource embedding — the driver profile page's "Related News" section fetches this once and filters it down to links naming that one driver, same "fetch once, map/filter in memory" convention getAllNewsPostTags uses. Public read (RLS); the driver comes from the masked drivers_shown (U4). */
 export function getAllNewsPostDrivers(env: SupabaseEnv) {
-  return restGet<NewsPostDriverLink[]>(env, 'news_post_drivers?select=post_id,drivers(id,name,car_number)');
+  const { path, select } = privacyReads.newsPostDrivers;
+  return restGet<NewsPostDriverLink[]>(env, `${path}?select=${encodeURIComponent(select)}`);
 }
 
 /** Driver ids currently tagged on one post. Public read (RLS). */
@@ -164,9 +166,10 @@ export async function getDriverIdsForPost(env: SupabaseEnv, postId: string) {
 
 /** Full driver objects (id/name/car number) tagged on one post, alphabetical — for the single-post detail page (news/[slug].astro), which only ever needs one post's worth and shouldn't pull every post's driver links like getAllNewsPostDrivers() does. */
 export async function getDriversForPost(env: SupabaseEnv, postId: string): Promise<DriverOption[]> {
+  const { path, select } = privacyReads.newsPostDrivers;
   const rows = await restGet<NewsPostDriverLink[]>(
     env,
-    `news_post_drivers?select=post_id,drivers(id,name,car_number)&post_id=eq.${encodeURIComponent(postId)}`,
+    `${path}?select=${encodeURIComponent(select)}&post_id=eq.${encodeURIComponent(postId)}`,
   );
   return rows
     .map((r) => r.drivers)

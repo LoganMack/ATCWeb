@@ -48,6 +48,8 @@ declare namespace App {
      * is never locked out.
      */
     viewAsVisitor: boolean;
+    /** viewAsVisitor outside /admin: resolveSupabaseEnv then reads without the session's token (U4). */
+    readAsVisitor?: boolean;
     /** True when the visitor has "View as Broadcaster" on (`atc_broadcaster` cookie) — see src/lib/auth.ts's BROADCASTER_COOKIE. */
     broadcasterMode: boolean;
     /** Subsession id(s) hidden from every subsession-keyed read while `broadcasterMode` is on (the most recent round). Carried onto SupabaseEnv by resolveSupabaseEnv. */

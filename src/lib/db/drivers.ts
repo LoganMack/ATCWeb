@@ -377,6 +377,8 @@ export interface DriverOption {
   id: string;
   name: string;
   car_number: number | null;
+  /** Set when read from drivers_shown (U4): the name reads "Hidden Driver"; render no profile link. */
+  is_hidden?: boolean;
 }
 
 /** Lean id/name/number list for admin dropdowns (e.g. picking a driver to add to a team's season roster). */
@@ -387,6 +389,7 @@ export function getDriversBasic(env: SupabaseEnv) {
 export interface HallOfFameDriverInfo {
   id: string;
   bio: string | null;
+  is_hidden?: boolean;
 }
 
 /**
@@ -397,7 +400,11 @@ export function getHallOfFameDrivers(env: SupabaseEnv) {
   // &is_ai=eq.false is belt-and-suspenders (0057_driver_ai_flag.sql) — an AI
   // row should never be HOF-flagged in the first place, but this keeps the
   // public Hall of Fame page safe even if one ever is by mistake.
-  return restGet<HallOfFameDriverInfo[]>(env, 'drivers?select=id,bio&is_hall_of_fame=eq.true&is_ai=eq.false');
+  // The masked view (U4): no bio for a private profile.
+  return restGet<HallOfFameDriverInfo[]>(
+    env,
+    'drivers_shown?select=id,bio,is_hidden&is_hall_of_fame=eq.true&is_ai=eq.false',
+  );
 }
 
 // --- Drivers editing their own profile (archive/0105_driver_self_service_profile.sql) ---

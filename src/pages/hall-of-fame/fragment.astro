@@ -139,7 +139,7 @@ if (loadError) markUncacheable(Astro);
                   &#9654;
                 </span>
                 <h3 class="font-display text-3xl leading-none">
-                  <DriverLink id={entry.driver.id}>{name}</DriverLink> {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
+                  <DriverLink id={entry.driver.id} hidden={entry.driver.is_hidden}>{name}</DriverLink> {entry.driver.car_number !== null && <span class="text-white/40">#{entry.driver.car_number}</span>}
                 </h3>
                 <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
 

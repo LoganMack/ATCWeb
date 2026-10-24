@@ -26,7 +26,7 @@ const TABS = [
   { id: 'tab-interviews', label: 'Interviews' },
 ] as const;
 
-type Setting = { name: AccountSettingColumn; label: string; help: string };
+type Setting = { name: AccountSettingColumn; label: string; help: string; note?: string };
 const PRIVACY: Setting[] = [
   {
     name: 'hide_profile',
@@ -37,6 +37,8 @@ const PRIVACY: Setting[] = [
     name: 'hide_name',
     label: 'Hide Driver Name from Anonymous Users',
     help: 'Shows "Hidden Driver" instead of your name, photo and profile link to anyone not signed in as a league driver, including in news and incident text.',
+    // BR9.8: free text is matched by name, not by driver.
+    note: 'In news and incident text, another driver with exactly the same full name is hidden too.',
   },
 ];
 const NOTIFICATIONS: Setting[] = [
@@ -164,10 +166,12 @@ const noticeClass = (notice: InPlaceResult | null) =>
             <div>
               <label for={`setting-${s.name}`} class="text-sm font-semibold text-white/90">{s.label}</label>
               <p id={`setting-${s.name}-help`} class="text-xs text-white/40">{s.help}</p>
+              {s.note && <p class="text-xs text-white/40" data-setting-note={s.name}>{s.note}</p>}
             </div>
           </div>
         ))}
         <p class="text-xs text-white/40">ⓘ Changes may take a few minutes to apply everywhere.</p>
+        <p class="text-xs text-white/40">ⓘ A league driver is any account linked to a driver.</p>
       </section>
     </div>
 

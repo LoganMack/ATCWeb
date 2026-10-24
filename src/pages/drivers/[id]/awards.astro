@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import { markUncacheable } from '../../../lib/security';
+import PrivateProfileNotice from '../../../components/PrivateProfileNotice.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { classTextColorClass } from '../../../lib/classColors';
 import { loadDriverAwards } from '../../../lib/driverPage/load';
@@ -15,7 +16,7 @@ import { buildDriverPageGroups } from '../../../lib/driverPage/groups';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const driverId = String(Astro.params.id ?? '');
-const { notFound, loadError, awardEntries, isHallOfFame } = await loadDriverAwards(supabaseEnv, driverId);
+const { notFound, privateProfile, loadError, awardEntries, isHallOfFame } = await loadDriverAwards(supabaseEnv, driverId);
 // Not a UUID, or no such driver: answered before the awards history is read, and never cached.
 if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 const { awardGroups } = buildDriverPageGroups([], awardEntries);
@@ -24,7 +25,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=600, stale-while-r
 if (loadError) markUncacheable(Astro);
 ---
 
+{privateProfile && <PrivateProfileNotice driverId={driverId} signedIn={Boolean(Astro.locals.session)} />}
+
 <!-- Awards (Hall of Fame pinned at the top, if applicable) -->
+{!privateProfile && (
 <div class="reveal rounded-xl border border-white/10 bg-brand-ink p-4">
   <details class="group">
     <summary class="mb-3 flex cursor-pointer list-none items-center justify-between gap-2">
@@ -83,3 +87,4 @@ if (loadError) markUncacheable(Astro);
   ))}
   </details>
 </div>
+)}

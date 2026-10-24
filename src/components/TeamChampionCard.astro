@@ -51,7 +51,7 @@ const { season, standing: t } = entry;
           {roster.map((driver) => (
             <div class="flex items-center gap-1.5 text-sm text-white/70">
               <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />
-              <span><DriverLink id={driver.id}>{displayDriverName(driver.name)}</DriverLink></span>
+              <span><DriverLink id={driver.id} hidden={driver.is_hidden}>{displayDriverName(driver.name)}</DriverLink></span>
               {driver.car_number !== null && <span class="text-white/40">#{driver.car_number}</span>}
             </div>
           ))}

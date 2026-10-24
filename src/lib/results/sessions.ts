@@ -34,7 +34,7 @@ export async function getQualifyingForSubsession(
   const [qualRows, drivers, classScores] = await Promise.all([
     restGet<CuratedQualifyingRow[]>(
       env,
-      `curated_qualifying?select=subsession_id,cust_id,display_name,car_class_name,qual_position,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`,
+      `curated_qualifying_shown?select=subsession_id,cust_id,display_name,car_class_name,qual_position,best_lap_ten_thousandths&subsession_id=eq.${subsessionId}`,
     ),
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(
@@ -139,7 +139,7 @@ export async function getPracticeForSubsession(
   const [practiceRows, drivers, classScores] = await Promise.all([
     restGet<CuratedPracticeRow[]>(
       env,
-      `curated_practice_results?select=subsession_id,cust_id,display_name,car_class_name,best_lap_ten_thousandths,laps&subsession_id=eq.${subsessionId}`,
+      `curated_practice_results_shown?select=subsession_id,cust_id,display_name,car_class_name,best_lap_ten_thousandths,laps&subsession_id=eq.${subsessionId}`,
     ),
     driversSelect(env, { includeAi: true }),
     restGet<{ driver_id: string; class_id: number }[]>(

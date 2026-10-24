@@ -13,6 +13,7 @@ import {
   restPost,
   restPatch,
   restDelete,
+  withAccessToken,
   type SupabaseEnv,
 } from './db/client';
 import { getCircuits } from './db/circuits';
@@ -27,8 +28,12 @@ export interface ImportDriver {
   iracing_cust_id: number | null;
 }
 
-function getDriversForImport(env: SupabaseEnv) {
-  return restGet<ImportDriver[]>(env, 'drivers?select=id,name,car_number,iracing_cust_id');
+// The import matches on real names and customer ids, so it reads the base table as the admin (U4 BR9.13).
+function getDriversForImport(env: SupabaseEnv, accessToken: string) {
+  return restGet<ImportDriver[]>(
+    withAccessToken(env, accessToken),
+    'drivers?select=id,name,car_number,iracing_cust_id',
+  );
 }
 
 /**
@@ -396,7 +401,7 @@ export async function importRaceResultsCsv(
     getCircuits(env),
     getSeasons(env),
     getEvents(env),
-    getDriversForImport(env),
+    getDriversForImport(env, accessToken),
     getManualResultImports(env, accessToken),
     getAllDriverSeasonCarNumbers(env),
   ]);
@@ -493,7 +498,7 @@ export async function importQualifyingResultsCsv(
     getCircuits(env),
     getSeasons(env),
     getEvents(env),
-    getDriversForImport(env),
+    getDriversForImport(env, accessToken),
     getManualResultImports(env, accessToken),
     getAllDriverSeasonCarNumbers(env),
   ]);
@@ -603,7 +608,7 @@ export async function importPracticeResultsCsv(
     getCircuits(env),
     getSeasons(env),
     getEvents(env),
-    getDriversForImport(env),
+    getDriversForImport(env, accessToken),
     getManualResultImports(env, accessToken),
     getAllDriverSeasonCarNumbers(env),
   ]);
@@ -783,10 +788,12 @@ export async function getEventsMissingResults(
   const relevantRounds = rounds.filter((r) => r.event_id && finishedEventIds.has(r.event_id));
   const relevantSubsessionIds = relevantRounds.map((r) => r.subsession_id);
 
+  // Base tables, read as the admin (U4 BR9.13).
+  const adminEnv = withAccessToken(env, accessToken);
   const [raceSubsessions, qualifyingSubsessions, practiceSubsessions] = await Promise.all([
-    distinctSubsessionIds(env, 'curated_race_results', relevantSubsessionIds),
-    distinctSubsessionIds(env, 'curated_qualifying', relevantSubsessionIds),
-    distinctSubsessionIds(env, 'curated_practice_results', relevantSubsessionIds),
+    distinctSubsessionIds(adminEnv, 'curated_race_results', relevantSubsessionIds),
+    distinctSubsessionIds(adminEnv, 'curated_qualifying', relevantSubsessionIds),
+    distinctSubsessionIds(adminEnv, 'curated_practice_results', relevantSubsessionIds),
   ]);
 
   const roundByEventId = new Map(relevantRounds.map((r) => [r.event_id as string, r]));

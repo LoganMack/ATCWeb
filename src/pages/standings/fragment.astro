@@ -562,10 +562,10 @@ if (loadError) markUncacheable(Astro);
                       </span>
                       {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as ResultsTable.astro's row (Matrix view above already shows short names unconditionally, since that column is tight at every width). */}
                       <span class="hidden sm:inline">
-                        <DriverLink id={row.driver.id}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                        <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
                       <span class="sm:hidden">
-                        <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                        <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                       </span>
                       {/* Flag, car and team logos in fixed-width slots at the right edge, as in
                          ResultsTable.astro, so they line up. Hidden on mobile (Logan). */}
@@ -750,8 +750,8 @@ if (loadError) markUncacheable(Astro);
                   <span class="flex items-center gap-1.5 whitespace-nowrap">
                     <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
                     {/* Full name at sm+, "F. Lastname" below sm — same wrap fix as the List view above. */}
-                    <span class="hidden sm:inline"><DriverLink id={row.driver.id}>{displayDriverName(row.driver.name)}</DriverLink></span>
-                    <span class="sm:hidden"><DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink></span>
+                    <span class="hidden sm:inline"><DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{displayDriverName(row.driver.name)}</DriverLink></span>
+                    <span class="sm:hidden"><DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink></span>
                     {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                   </span>
                 </td>
@@ -911,7 +911,7 @@ if (loadError) markUncacheable(Astro);
                                   <td class="py-2 pr-3 font-semibold">
                                     <span class="flex items-center gap-1.5 whitespace-nowrap">
                                       {driver && <DriverFlag nationality1={driver.nationality_1} nationality2={driver.nationality_2} />}
-                                      {driver ? <DriverLink id={driver.id}>{displayDriverName(driver.name)}</DriverLink> : <span>Unknown driver</span>}
+                                      {driver ? <DriverLink id={driver.id} hidden={driver.is_hidden}>{displayDriverName(driver.name)}</DriverLink> : <span>Unknown driver</span>}
                                       {driver && driver.car_number !== null && <span class="text-white/40">#{driver.car_number}</span>}
                                     </span>
                                   </td>
