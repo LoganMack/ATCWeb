@@ -71,6 +71,8 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   profileEditing: { hooks: ['data-profile-tabs'], shells: ['drivers/[id].astro'] },
   // U5 incident-management: the Incident Management tab's popups.
   incidentManagement: { hooks: ['data-incident-management'], shells: ['drivers/[id].astro'] },
+  // U6 interviews: the Interviews tab's download, confirm popup and delete.
+  interviews: { hooks: ['data-interviews-panel'], shells: ['drivers/[id].astro'] },
   logoSelect: {
     hooks: ['data-logo-select'],
     shells: [
@@ -465,6 +467,52 @@ describe('the Incident Management tab (U5: BR11.4-BR11.14, NFR1.8, NFR2.1)', () 
     expect(fragment).toContain("flash === 'already'");
     const shell = ASTRO[`${P}results/[subsessionId]/incidents.astro`];
     expect(shell).toContain("appealBtn?.classList.toggle('hidden', summary.canAppeal === false);");
+  });
+});
+
+describe('the Interviews tab (U6: BR12.1, BR12.6, BR12.7, NFR2.1)', () => {
+  const PANEL = ASTRO['/src/components/InterviewsPanel.astro'];
+  const SCRIPT = SRC['/src/scripts/interviews.ts'];
+  const PAGE = ASTRO[`${P}drivers/[id].astro`];
+
+  it('fills the tab-interviews panel and renders only in the owner’s uncacheable render', () => {
+    const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
+    expect(tabs).toMatch(/data-profile-panel="tab-interviews"[^>]*>\s*<InterviewsPanel\b/);
+    expect(tabs).not.toContain("You haven't uploaded any interviews yet.");
+    expect(importersOf('/src/components/InterviewsPanel.astro')).toEqual([
+      '/src/components/ProfileSettingsTabs.astro',
+    ]);
+    expect(PAGE).toMatch(/const interviewsPromise[^;]*=\s*isOwner && session \? loadMyInterviews\(/);
+    expect(PAGE).toMatch(/interviews=\{\{ rows: interviewRows, notice: interviewNotice \}\}/);
+    expect(PAGE).toContain('if (loadError || isOwner) markUncacheable(Astro);');
+    expect(PAGE).toMatch(/import '\.\.\/\.\.\/scripts\/interviews';/);
+  });
+
+  it('gives the icon buttons accessible names and the shared blue and red buttons, never submitting the form', () => {
+    expect(PANEL).toMatch(
+      /class="btn btn-primary btn-sm"\s+data-interview-download[\s\S]*?aria-label=\{`Download interview for \$\{row\.roundLabel\}`\}/,
+    );
+    expect(PANEL).toMatch(
+      /class="btn btn-danger btn-sm"\s+data-interview-delete\b[\s\S]*?aria-label=\{`Delete interview for \$\{row\.roundLabel\}`\}/,
+    );
+    const buttons = PANEL.match(/<button[^>]*>/g) ?? [];
+    expect(buttons).toHaveLength(4);
+    for (const button of buttons) expect(button).toMatch(/type="button"\s+class="btn btn-/);
+    expect(PANEL).toMatch(/<svg[^>]*aria-hidden="true"/);
+    expect(PANEL).not.toMatch(/<form\b/);
+    expect(PANEL).toContain('href={row.roundHref}');
+  });
+
+  it('shows the empty state, the load error and the delete popup texts (BR12.4, BR12.6, NFR4.3)', () => {
+    expect(PANEL).toContain('No interviews uploaded yet.');
+    expect(PANEL).toContain("Couldn't load your interviews. Try again later.");
+    expect(PANEL).toContain('data-interview-delete-dialog');
+    expect(SCRIPT).toContain("inPlaceBody(intent, [['interview_id', id]])");
+  });
+
+  it('never renders interview text as HTML', () => {
+    expect(PANEL).not.toContain('set:html');
+    expect(SCRIPT).not.toMatch(/innerHTML|insertAdjacentHTML|outerHTML/);
   });
 });
 

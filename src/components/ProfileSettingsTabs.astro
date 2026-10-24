@@ -2,19 +2,26 @@
 // The own profile's editing tabs (U3 profile-settings; contract C4; mockups M6, M6a, M6b). Rendered only for
 // the driver themselves, inside the profile form, so the five checkboxes are saved by Save Profile with the
 // photo and bio; the email buttons act at once, in place (src/scripts/profileEditing.ts). U5 and U6 fill the
-// Incident Management and Interviews panels.
+// Incident Management and Interviews panels (IncidentManagementPanel, InterviewsPanel).
 import type { AccountSettingColumn, AccountSettings, InPlaceResult } from '../lib/driverAccount';
 import type { IncidentManagementView } from '../lib/incidents';
 import IncidentManagementPanel from './IncidentManagementPanel.astro';
+import InterviewsPanel from './InterviewsPanel.astro';
+import type { MyInterviewRow } from '../lib/raceInterviews';
 
 interface Props {
+  /** U6's Interviews tab: the list (null when it couldn't be loaded) and a no-JavaScript result. */
+  interviews: {
+    rows: MyInterviewRow[] | null;
+    notice: { ok: boolean; message: string } | null;
+  };
   /** U5's Incident Management tab: the list (null when it couldn't be loaded) and a no-JavaScript result. */
   incidents: {
     view: IncidentManagementView | null;
     viewableIds: string[];
     notice: { ok: boolean; message: string } | null;
   };
-  /** The tab shown first; a no-JavaScript incident action comes back on its own tab. */
+  /** The tab shown first; a no-JavaScript incident or interview action comes back on its own tab. */
   activeTab?: 'tab-privacy' | 'tab-notifications' | 'tab-incidents' | 'tab-interviews';
   email: string | null;
   pendingEmail: string | null;
@@ -36,6 +43,7 @@ const {
   emailNotice,
   passwordNotice,
   incidents,
+  interviews,
   activeTab = 'tab-privacy',
 } = Astro.props;
 const panelClass = (id: string, layout: string) => (id === activeTab ? layout : `hidden ${layout}`);
@@ -226,7 +234,7 @@ const noticeClass = (notice: InPlaceResult | null) =>
     </div>
 
     <div role="tabpanel" id="tab-interviews" aria-labelledby="tab-interviews-tab" data-profile-panel="tab-interviews" class={panelClass('tab-interviews', 'flex flex-col gap-3')}>
-      <p class="text-sm text-white/60">You haven't uploaded any interviews yet.</p>
+      <InterviewsPanel rows={interviews.rows} notice={interviews.notice} />
     </div>
   </div>
 
