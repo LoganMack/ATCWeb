@@ -441,10 +441,11 @@ begin
   perform privacy_fixture.expect('P07 draft shown to an admin',
     privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000601',
       $q$select count(*)::text from public.news_posts_shown where slug = 'zq-draft'$q$), '1');
+  -- The raw body is read here as the owner: since the contract step a linked driver cannot read news_posts.
   perform privacy_fixture.expect('P07 body unchanged for a linked driver',
     privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000604',
-      $q$select (body = (select n.body from public.news_posts n where n.slug = 'zq-post'))::text
-         from public.news_posts_shown where slug = 'zq-post'$q$), 'true');
+      $q$select body from public.news_posts_shown where slug = 'zq-post'$q$),
+    (select n.body from public.news_posts n where n.slug = 'zq-post'));
   raise notice 'ok P07 news';
 end $$;
 rollback to savepoint fixture;
