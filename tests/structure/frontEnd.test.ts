@@ -69,6 +69,8 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   linkDriver: { hooks: ['data-link-driver'], shells: ['link-driver.astro'] },
   // U3 profile-settings: the own profile's editing tabs (NFR3.2).
   profileEditing: { hooks: ['data-profile-tabs'], shells: ['drivers/[id].astro'] },
+  // U5 incident-management: the Incident Management tab's popups.
+  incidentManagement: { hooks: ['data-incident-management'], shells: ['drivers/[id].astro'] },
   logoSelect: {
     hooks: ['data-logo-select'],
     shells: [
@@ -385,6 +387,84 @@ describe('front-end loading (U5)', () => {
     expect(optIns).toEqual([]);
     expect(SRC['/src/scripts/hard-form-submit.ts']).toMatch(/form\.dataset\.astroReload = '';/);
     expect(SRC['/src/scripts/hard-form-submit.ts']).not.toMatch(/fetch\(/);
+  });
+});
+
+describe('the Incident Management tab (U5: BR11.4-BR11.14, NFR1.8, NFR2.1)', () => {
+  const PANEL = ASTRO['/src/components/IncidentManagementPanel.astro'];
+  const DIALOGS = ASTRO['/src/components/IncidentManagementDialogs.astro'];
+  const SCRIPT = SRC['/src/scripts/incidentManagement.ts'];
+  const PAGE = ASTRO[`${P}drivers/[id].astro`];
+
+  it('fills the tab-incidents panel and renders only in the owner’s uncacheable render', () => {
+    const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
+    expect(tabs).toMatch(/data-profile-panel="tab-incidents"[^>]*>\s*<IncidentManagementPanel\b/);
+    expect(importersOf('/src/components/IncidentManagementPanel.astro')).toEqual([
+      '/src/components/ProfileSettingsTabs.astro',
+    ]);
+    expect(importersOf('/src/components/IncidentManagementDialogs.astro')).toEqual([
+      `${P}drivers/[id].astro`,
+    ]);
+    expect(PAGE).toMatch(/const incidentDataPromise[^;]*=\s*isOwner && session \? loadIncidentPanel\(/);
+    expect(PAGE).toMatch(/\{isOwner && incidentData && \(\s*<IncidentManagementDialogs\b/);
+    // The popups sit after the profile form: a form can't hold another.
+    expect(PAGE.indexOf('<IncidentManagementDialogs')).toBeGreaterThan(PAGE.indexOf('</ProfileTag>'));
+    expect(PAGE).toContain('if (loadError || isOwner) markUncacheable(Astro);');
+    expect(PAGE).toMatch(/import '\.\.\/\.\.\/scripts\/incidentDetails';/);
+  });
+
+  it('gives every state its text and uses the shared buttons (BR11.5, BR11.8, BR11.10, BR11.12, BR11.13)', () => {
+    expect(PANEL).toContain('{row.statusLabel}');
+    expect(PANEL).toContain('No incidents to manage.');
+    expect(PANEL).toContain("Couldn't load your incidents. Try again later.");
+    expect(PANEL).toContain('Showing your {MY_INCIDENTS_LIMIT} most recent incidents.');
+    for (const [label, cls] of [
+      ['Add Comment', 'btn btn-gold btn-sm'],
+      ['View Incident', 'btn btn-primary btn-sm'],
+      ['Submit Appeal', 'btn btn-gold btn-sm'],
+      ['Appeal Submitted', 'btn btn-gold btn-sm'],
+    ]) {
+      expect(PANEL, label).toMatch(new RegExp(`class="${cls}"[^>]*>\\s*${label}\\s*<`));
+    }
+    expect(PANEL).toMatch(/disabled aria-disabled="true"[^>]*>\s*Appeal Submitted/);
+    expect(PANEL).toMatch(/data-history-incident=\{row\.id\}/);
+    // Inside the profile form, so no button here may submit it.
+    for (const button of PANEL.match(/<button[^>]*>/g) ?? [])
+      expect(button).toMatch(/type="button"[^>]*class="btn btn-/);
+    expect(DIALOGS).toContain('Your comment is final and only stewards can see it.');
+    expect(DIALOGS).toMatch(/name="intent" value="add-incident-comment"/);
+    expect(DIALOGS).toMatch(/name="intent" value="submit-appeal-from-profile"/);
+  });
+
+  it('never renders comment or appeal text as HTML (NFR1.8)', () => {
+    for (const [name, text] of [
+      ['panel', PANEL],
+      ['dialogs', DIALOGS],
+    ]) {
+      expect(text, name).not.toContain('set:html');
+    }
+    expect(SCRIPT).not.toMatch(/innerHTML|insertAdjacentHTML|outerHTML/);
+    expect(SCRIPT).toContain('setText(dialog, \'[data-incident-comment-field="description"]\'');
+    const fragment = ASTRO[`${P}results/[subsessionId]/incidents/fragment.astro`];
+    expect(fragment).toMatch(/<p class="mt-1 whitespace-pre-line text-white\/70">\{c\.body\}<\/p>/);
+  });
+
+  it('shows driver comments above the steward reviews in the admin report view (BR11.7)', () => {
+    const fragment = ASTRO[`${P}results/[subsessionId]/incidents/fragment.astro`];
+    const comments = fragment.indexOf('data-driver-comments');
+    expect(comments).toBeGreaterThan(-1);
+    expect(fragment.indexOf('Steward reviews: {reviewCount}')).toBeGreaterThan(comments);
+    expect(fragment).toContain('>Driver comments</p>');
+    expect(fragment).toMatch(/getDriverCommentsForReports\(supabaseEnv, token, incidentReports\.map/);
+  });
+
+  it('hides the round page’s Submit Appeal from signed-in drivers who are not involved (BR11.9)', () => {
+    const fragment = ASTRO[`${P}results/[subsessionId]/incidents/fragment.astro`];
+    expect(fragment).toMatch(/canAppeal: Astro\.locals\.session\s*\?/);
+    expect(fragment).toContain("flash === 'notinvolved'");
+    expect(fragment).toContain("flash === 'already'");
+    const shell = ASTRO[`${P}results/[subsessionId]/incidents.astro`];
+    expect(shell).toContain("appealBtn?.classList.toggle('hidden', summary.canAppeal === false);");
   });
 });
 

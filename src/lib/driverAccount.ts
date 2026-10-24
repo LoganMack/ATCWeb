@@ -24,6 +24,12 @@ import {
   updateMyDriverProfile,
   uploadDriverAvatar,
 } from './db/drivers';
+import {
+  handleIncidentProfileIntent,
+  INCIDENT_PROFILE_INTENTS,
+  INCIDENT_STATUS_PARAM,
+  type IncidentProfileIntent,
+} from './incidentActions/profileIncidents';
 
 export const DRIVER_ACCOUNT_ERROR_CODES = [
   'NOT_AUTHENTICATED',
@@ -630,6 +636,8 @@ export interface InPlaceResult {
   ok: boolean;
   message: string;
   field?: string;
+  /** For example the updated incident row (U5). */
+  data?: Record<string, unknown>;
 }
 
 export type EmailChangeStatus = 'sent' | 'INVALID' | 'SAME' | 'EMAIL_IN_USE' | 'RATE_LIMITED' | 'UNKNOWN';
@@ -729,7 +737,12 @@ export async function requestOwnPasswordReset(
 
 // --- The own-profile controller (drivers/[id].astro; NFR1.3, NFR4.2) ----------------------------
 
-export const PROFILE_INTENTS = ['save-profile', 'change-email', 'reset-password'] as const;
+export const PROFILE_INTENTS = [
+  'save-profile',
+  'change-email',
+  'reset-password',
+  ...INCIDENT_PROFILE_INTENTS,
+] as const;
 export type ProfileIntent = (typeof PROFILE_INTENTS)[number];
 
 /**
@@ -740,6 +753,10 @@ export function resolveProfileIntent(values: unknown[]): ProfileIntent | null {
   const known = values.filter((v): v is ProfileIntent => (PROFILE_INTENTS as readonly unknown[]).includes(v));
   if (values.length > 0 && known.length === 0) return null;
   return known.find((v) => v !== 'save-profile') ?? 'save-profile';
+}
+
+function isIncidentIntent(intent: ProfileIntent): intent is IncidentProfileIntent {
+  return (INCIDENT_PROFILE_INTENTS as readonly string[]).includes(intent);
 }
 
 /** True when the request asks for C4's JSON answer instead of a redirect. */
@@ -790,6 +807,21 @@ export async function handleProfilePost(ctx: ProfilePostContext): Promise<Profil
   const intent = resolveProfileIntent(ctx.form.getAll('intent'));
   if (!intent) return { kind: 'redirect', location: profilePath };
   if (intent === 'save-profile') return saveProfileOutcome(ctx, ctx.session, profilePath);
+  if (isIncidentIntent(intent)) {
+    const done = await handleIncidentProfileIntent(intent, ctx.env, ctx.session, ctx.form);
+    if (ctx.json) {
+      const body: InPlaceResult = {
+        ok: done.ok,
+        message: done.message,
+        ...(done.data ? { data: done.data } : {}),
+      };
+      return { kind: 'json', status: done.status, body };
+    }
+    return {
+      kind: 'redirect',
+      location: `${profilePath}?edit=1&tab=incidents&${INCIDENT_STATUS_PARAM}=${encodeURIComponent(done.code)}`,
+    };
+  }
 
   let result: InPlaceResult;
   let status: string;

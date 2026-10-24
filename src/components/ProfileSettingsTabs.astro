@@ -4,8 +4,18 @@
 // photo and bio; the email buttons act at once, in place (src/scripts/profileEditing.ts). U5 and U6 fill the
 // Incident Management and Interviews panels.
 import type { AccountSettingColumn, AccountSettings, InPlaceResult } from '../lib/driverAccount';
+import type { IncidentManagementView } from '../lib/incidents';
+import IncidentManagementPanel from './IncidentManagementPanel.astro';
 
 interface Props {
+  /** U5's Incident Management tab: the list (null when it couldn't be loaded) and a no-JavaScript result. */
+  incidents: {
+    view: IncidentManagementView | null;
+    viewableIds: string[];
+    notice: { ok: boolean; message: string } | null;
+  };
+  /** The tab shown first; a no-JavaScript incident action comes back on its own tab. */
+  activeTab?: 'tab-privacy' | 'tab-notifications' | 'tab-incidents' | 'tab-interviews';
   email: string | null;
   pendingEmail: string | null;
   settings: AccountSettings;
@@ -17,7 +27,18 @@ interface Props {
   passwordNotice: InPlaceResult | null;
 }
 
-const { email, pendingEmail, settings, settingsLoaded, saveError, emailNotice, passwordNotice } = Astro.props;
+const {
+  email,
+  pendingEmail,
+  settings,
+  settingsLoaded,
+  saveError,
+  emailNotice,
+  passwordNotice,
+  incidents,
+  activeTab = 'tab-privacy',
+} = Astro.props;
+const panelClass = (id: string, layout: string) => (id === activeTab ? layout : `hidden ${layout}`);
 
 const TABS = [
   { id: 'tab-privacy', label: 'Profile & Privacy Settings' },
@@ -77,9 +98,9 @@ const noticeClass = (notice: InPlaceResult | null) =>
           role="tab"
           id={`${tab.id}-tab`}
           aria-controls={tab.id}
-          aria-selected={i === 0 ? 'true' : 'false'}
-          tabindex={i === 0 ? '0' : '-1'}
-          data-active={i === 0 ? 'true' : 'false'}
+          aria-selected={tab.id === activeTab ? 'true' : 'false'}
+          tabindex={tab.id === activeTab ? '0' : '-1'}
+          data-active={tab.id === activeTab ? 'true' : 'false'}
           data-profile-tab={tab.id}
           data-testid={`profile-${tab.id}`}
           class="btn btn-neutral"
@@ -90,7 +111,7 @@ const noticeClass = (notice: InPlaceResult | null) =>
     </div>
     <p data-profile-unsaved class="mb-3 hidden text-xs font-semibold text-brand-gold">Unsaved changes</p>
 
-    <div role="tabpanel" id="tab-privacy" aria-labelledby="tab-privacy-tab" data-profile-panel="tab-privacy" class="flex flex-col gap-6">
+    <div role="tabpanel" id="tab-privacy" aria-labelledby="tab-privacy-tab" data-profile-panel="tab-privacy" class={panelClass('tab-privacy', 'flex flex-col gap-6')}>
       <section class="flex flex-col gap-2">
         <h2 class="font-display text-2xl">Email</h2>
         <p class="text-sm text-white/70">{email ?? 'This account has no email address.'}</p>
@@ -175,7 +196,7 @@ const noticeClass = (notice: InPlaceResult | null) =>
       </section>
     </div>
 
-    <div role="tabpanel" id="tab-notifications" aria-labelledby="tab-notifications-tab" data-profile-panel="tab-notifications" class="hidden flex flex-col gap-3">
+    <div role="tabpanel" id="tab-notifications" aria-labelledby="tab-notifications-tab" data-profile-panel="tab-notifications" class={panelClass('tab-notifications', 'flex flex-col gap-3')}>
       {!settingsLoaded && (
         <p role="alert" class="text-sm text-brand-pink">Couldn't load your settings. Try refreshing the page.</p>
       )}
@@ -200,11 +221,11 @@ const noticeClass = (notice: InPlaceResult | null) =>
       <p class="text-sm text-white/70">{email ? `Emails go to ${email}.` : 'This account has no email address.'}</p>
     </div>
 
-    <div role="tabpanel" id="tab-incidents" aria-labelledby="tab-incidents-tab" data-profile-panel="tab-incidents" class="hidden flex flex-col gap-3">
-      <p class="text-sm text-white/60">No incidents to manage.</p>
+    <div role="tabpanel" id="tab-incidents" aria-labelledby="tab-incidents-tab" data-profile-panel="tab-incidents" class={panelClass('tab-incidents', 'flex flex-col gap-3')}>
+      <IncidentManagementPanel view={incidents.view} viewableIds={incidents.viewableIds} notice={incidents.notice} />
     </div>
 
-    <div role="tabpanel" id="tab-interviews" aria-labelledby="tab-interviews-tab" data-profile-panel="tab-interviews" class="hidden flex flex-col gap-3">
+    <div role="tabpanel" id="tab-interviews" aria-labelledby="tab-interviews-tab" data-profile-panel="tab-interviews" class={panelClass('tab-interviews', 'flex flex-col gap-3')}>
       <p class="text-sm text-white/60">You haven't uploaded any interviews yet.</p>
     </div>
   </div>

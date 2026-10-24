@@ -4,7 +4,7 @@
  * appeals closed (Logan). The database also enforces the window, per-user limits and upload folder (0113).
  */
 
-import { restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
+import { restGet, restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
 import { getSiteSettings } from './db/assets';
 import { siteSettingInt, INCIDENT_APPEAL_PERIOD_HOURS_KEY } from './siteSettings';
 import { getRoundPostedAt } from './incidentReports';
@@ -134,6 +134,42 @@ export async function getIncidentAppealsForSubsession(
     accessToken,
     `incident_appeals?select=*&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
+}
+
+/** A driver's comment on a pending incident report (U5, driver_incident_comments). */
+export interface DriverIncidentComment {
+  id: string;
+  report_id: string;
+  driver_id: string;
+  body: string;
+  created_at: string;
+}
+
+/**
+ * Admin read of the drivers' comments on these reports, oldest first. Row Level Security returns nothing on
+ * a report the admin is involved in (BR11.7), so the caller needs no filter of its own.
+ */
+export async function getDriverCommentsForReports(
+  env: SupabaseEnv,
+  accessToken: string,
+  reportIds: string[],
+): Promise<DriverIncidentComment[]> {
+  const ids = reportIds.filter((id) => /^[0-9a-f-]{36}$/i.test(id));
+  if (ids.length === 0) return [];
+  return restGetAuthed<DriverIncidentComment[]>(
+    env,
+    accessToken,
+    `driver_incident_comments?select=id,report_id,driver_id,body,created_at&report_id=in.(${ids.join(',')})&order=created_at.asc`,
+  );
+}
+
+/** The round a visible (posted, or any for an admin) penalty belongs to, or null when it can't be seen. */
+export async function getPenaltySubsession(env: SupabaseEnv, penaltyId: string): Promise<number | null> {
+  const rows = await restGet<{ subsession_id: number }[]>(
+    env,
+    `penalties_shown?select=subsession_id&id=eq.${encodeURIComponent(penaltyId)}`,
+  );
+  return rows[0]?.subsession_id ?? null;
 }
 
 export async function setIncidentAppealStatus(

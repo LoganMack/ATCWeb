@@ -51,12 +51,14 @@ import {
   getAppealClosesAt,
   isAppealOpen,
   getIncidentAppealsForSubsession,
+  getDriverCommentsForReports,
   signAppealFileUrl,
   APPEAL_MAX_FILES,
   APPEAL_MAX_FILE_MB,
   APPEAL_MAX_MESSAGE_LENGTH,
   APPEAL_ALLOWED_MIME_TYPES,
   type IncidentAppeal,
+  type DriverIncidentComment,
 } from '../../../../lib/incidentAppeals';
 import {
   getIncidentReportsForSubsession,
@@ -72,7 +74,7 @@ import {
 } from '../../../../lib/incidentReports';
 import { REPORTS_ANCHOR, ROUND_PENALTIES_ANCHOR, ROUND_SUMMARY_ANCHOR, OWED_PENALTIES_ANCHOR } from '../../../../lib/incidentActions/anchors';
 import type { IncidentActionContext, IncidentActionRedirect } from '../../../../lib/incidentActions/context';
-import { handleSubmitAppeal } from '../../../../lib/incidentActions/submitAppeal';
+import { appealOutcomeMessage, handleSubmitAppeal } from '../../../../lib/incidentActions/submitAppeal';
 import { handleSaveIncident } from '../../../../lib/incidentActions/saveIncident';
 import { handleSaveRoundPenalty } from '../../../../lib/incidentActions/saveRoundPenalty';
 import { handleSaveDriverRoundPenalties } from '../../../../lib/incidentActions/saveDriverRoundPenalties';
@@ -387,13 +389,30 @@ function isInvolved(r: IncidentReport): boolean {
 const reviewsByReport = new Map<string, IncidentReportReview[]>();
 let reviewCounts = new Map<string, number>();
 let reviewsLoadFailed = false;
+// Drivers' comments on the reports (U5, BR11.7), read in parallel with the reviews.
+const commentsByReport = new Map<string, DriverIncidentComment[]>();
+let commentsLoadFailed = false;
+function commentAuthorLabel(driverId: string): string {
+  const d = driverById.get(driverId);
+  if (!d) return 'Driver';
+  return d.car_number !== null ? `#${d.car_number} ${d.name}` : d.name;
+}
 if (adminSession && viewReports && incidentReports.length > 0) {
   try {
     const token = adminSession.accessToken;
-    const [reviews, counts] = await Promise.all([
+    const [reviews, counts, comments] = await Promise.all([
       getVisibleReviewsForSubsession(supabaseEnv, token, subsessionId),
       getReviewCountsForSubsession(supabaseEnv, token, subsessionId),
+      getDriverCommentsForReports(supabaseEnv, token, incidentReports.map((r) => r.id)).catch((err) => {
+        console.error('Failed to load driver comments:', err);
+        commentsLoadFailed = true;
+        return [] as DriverIncidentComment[];
+      }),
     ]);
+    for (const comment of comments) {
+      if (!commentsByReport.has(comment.report_id)) commentsByReport.set(comment.report_id, []);
+      commentsByReport.get(comment.report_id)!.push(comment);
+    }
     for (const review of reviews) {
       if (!reviewsByReport.has(review.report_id)) reviewsByReport.set(review.report_id, []);
       reviewsByReport.get(review.report_id)!.push(review);
@@ -485,6 +504,10 @@ let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   else if (flash === 'signin') appealFlash = { kind: 'error', message: 'Sign in to submit an appeal.' };
   else if (flash === 'badtype') appealFlash = { kind: 'error', message: 'Attachments must be images, PDFs, videos (MP4/WebM/MOV) or text files.' };
   else if (flash === 'failed') appealFlash = { kind: 'error', message: "Couldn't save your appeal right now. Please try again." };
+  // The database's one-appeal and involvement rules (U5, BR11.9).
+  else if (flash === 'notinvolved') appealFlash = { kind: 'error', message: appealOutcomeMessage('notinvolved') };
+  else if (flash === 'already') appealFlash = { kind: 'error', message: appealOutcomeMessage('already') };
+  else if (flash === 'unknown') appealFlash = { kind: 'error', message: appealOutcomeMessage('unknown') };
 }
 // A round penalty change that didn't (fully) save (?roundpenalty=, set by the round penalty handlers).
 const roundPenaltyFlash =
@@ -549,6 +572,11 @@ function incidentSummaryFor(p: Penalty) {
     pointsDeltaClass: deltaClass(pointsDelta),
     isAppealed: p.is_appealed,
     appealResult: p.appeal_result,
+    // Signed-in viewers see Submit Appeal only on incidents their driver is penalized or involved in (U5,
+    // BR11.9; the database enforces it). Null for signed-out viewers, who get the sign-in link instead.
+    canAppeal: Astro.locals.session
+      ? myDriverId !== null && (p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId))
+      : null,
   };
 }
 
@@ -823,6 +851,11 @@ if (loadError) markUncacheable(Astro);
                 Couldn't load the steward reviews, so the reports aren't sorted by what you've reviewed. Try refreshing.
               </p>
             )}
+            {commentsLoadFailed && (
+              <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
+                Couldn't load the drivers' comments. Try refreshing.
+              </p>
+            )}
             {reportGroups.map((g) => (g.reports.length === 0 && !g.empty && !g.alwaysShow) ? null : (
             <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
             <details open={!g.collapsed} class="group">
@@ -882,6 +915,21 @@ if (loadError) markUncacheable(Astro);
                     <p class={`mt-2 whitespace-pre-line text-white/70 ${dimClass}`}>{r.description}</p>
                   ) : (
                     <p class={`mt-2 text-white/40 ${dimClass}`}>No description provided.</p>
+                  )}
+
+                  {/* Drivers' own comments (U5), above the steward reviews; RLS hides them from involved admins. */}
+                  {(commentsByReport.get(r.id) ?? []).length > 0 && (
+                    <div data-driver-comments class="mt-3 flex flex-col gap-2">
+                      <p class="text-xs font-semibold uppercase tracking-wide text-white/40">Driver comments</p>
+                      <ul class="flex flex-col gap-2">
+                        {(commentsByReport.get(r.id) ?? []).map((c) => (
+                          <li class="rounded-md bg-white/5 p-2 text-xs">
+                            <p class="font-semibold text-white/80">{commentAuthorLabel(c.driver_id)}</p>
+                            <p class="mt-1 whitespace-pre-line text-white/70">{c.body}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
 
                   <div class="mt-3 border-t border-white/10 pt-3">
