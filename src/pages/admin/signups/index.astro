@@ -1,9 +1,11 @@
 ---
 export const prerender = false;
 
-// Admin → Sign-ups: Discord /atcsignup requests awaiting a decision (0098, docs/signup-integration.md).
-// Approve creates or reactivates the driver with the first free requested number; Reject records a reason the
-// bot DMs. Database functions re-check everything, so number previews here are informational.
+// Admin → Sign-ups: Discord /atcsignup requests and website driver requests awaiting a decision (0098,
+// docs/signup-integration.md, 20261027120000_driver_linking.sql). Approve creates or reactivates the driver with
+// the first free requested number, and for a website request also links it to the requester; Reject records a
+// reason the bot DMs (Discord) or the requester reads on the linking page (website). Database functions
+// re-check everything, so number previews here are informational.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getDriverClasses } from '../../../lib/db/lookups';
@@ -14,10 +16,12 @@ import {
   rejectSignupRequest,
   numberHolder,
   returningCandidates,
+  signupSourceLabel,
   SIGNUP_REJECTION_REASONS,
   type SignupRequest,
   type SignupRosterDriver,
 } from '../../../lib/signups';
+import { adminLinkErrorMessage } from '../../../lib/driverAccount';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 
@@ -36,6 +40,8 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? '');
   const requestId = String(form.get('request_id') ?? '');
+  // Labels only (activity log and flash); the database reads the request's own source.
+  const fromWebsite = form.get('request_source') === 'website';
 
   if (intent === 'approve' && requestId) {
     const name = String(form.get('name') ?? '').trim();
@@ -57,13 +63,15 @@ if (Astro.request.method === 'POST') {
         await logActivity(supabaseEnv, accessToken, actor, {
           action: driverId ? 'edit' : 'add',
           entity_type: 'driver',
-          entity_label: `${result.driver_name} — ${driverId ? 'returning driver reactivated' : 'new driver'} from Discord sign-up (#${result.car_number})`,
+          entity_label: `${result.driver_name} — ${driverId ? 'returning driver reactivated' : 'new driver'} ${fromWebsite ? 'from website request, linked to the requester' : 'from Discord sign-up'} (#${result.car_number})`,
           entity_id: result.driver_id,
         });
         return Astro.redirect(`/admin/signups?approved=${encodeURIComponent(`${result.driver_name} #${result.car_number}`)}`, 302);
       } catch (err) {
         console.error('Failed to approve sign-up:', err);
-        actionError = err instanceof Error ? err.message : 'Could not approve this sign-up.';
+        actionError =
+          adminLinkErrorMessage(err) ?? (err instanceof Error ? err.message : 'Could not approve this sign-up.');
+        if (fromWebsite) actionError += ' The request is still waiting.';
       }
     }
   } else if (intent === 'reject' && requestId) {
@@ -74,10 +82,10 @@ if (Astro.request.method === 'POST') {
       await logActivity(supabaseEnv, accessToken, actor, {
         action: 'edit',
         entity_type: 'signup',
-        entity_label: `Rejected Discord sign-up — ${String(form.get('request_name') ?? '')}`,
+        entity_label: `Rejected ${fromWebsite ? 'website request' : 'Discord sign-up'} — ${String(form.get('request_name') ?? '')}`,
         entity_id: requestId,
       });
-      return Astro.redirect('/admin/signups?rejected=1', 302);
+      return Astro.redirect(`/admin/signups?rejected=${fromWebsite ? 'website' : '1'}`, 302);
     } catch (err) {
       console.error('Failed to reject sign-up:', err);
       actionError = err instanceof Error ? err.message : 'Could not reject this sign-up.';
@@ -106,7 +114,13 @@ try {
 }
 
 const approvedFlash = Astro.url.searchParams.get('approved');
-const rejectedFlash = Astro.url.searchParams.get('rejected') === '1';
+const rejectedParam = Astro.url.searchParams.get('rejected');
+const rejectedFlash =
+  rejectedParam === 'website'
+    ? 'Rejected. The requester sees your reason on the linking page.'
+    : rejectedParam === '1'
+      ? 'Rejected. The bot will DM the driver your reason.'
+      : null;
 
 const defaultClassId = classes.find((c) => c.name === 'Alpha')?.id ?? classes[0]?.id;
 
@@ -134,9 +148,10 @@ const fieldClass =
 <AdminLayout title="Sign-ups">
   <h1 class="reveal font-display text-4xl">Sign-ups</h1>
   <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Driver sign-ups from Discord's <code>/atcsignup</code>. Approving adds the driver to the roster (or reactivates a
-    returning driver) with the first of their numbers that's free at that moment. Rejecting sends the driver your reason
-    by Discord DM.
+    Driver sign-ups from Discord's <code>/atcsignup</code>, and requests from website accounts whose driver isn't on
+    the roster yet. Approving adds the driver to the roster (or reactivates a returning driver) with the first of their
+    numbers that's free at that moment; a website request's driver is also linked to the account that asked. Rejecting
+    sends a Discord driver your reason by DM; a website requester sees it on their linking page.
   </p>
 
   {actionError && (
@@ -147,7 +162,7 @@ const fieldClass =
   )}
   {rejectedFlash && (
     <p class="mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80">
-      Rejected. The bot will DM the driver your reason.
+      {rejectedFlash}
     </p>
   )}
   {loadError && (
@@ -173,9 +188,16 @@ const fieldClass =
             <p class="font-display text-xl">{r.name}</p>
             <p class="text-xs text-white/40">Submitted {formatTimestamp(r.created_at)}</p>
           </div>
-          <p class="mt-1 text-xs text-white/50">
-            Discord: {r.discord_username ?? 'unknown'} ({r.discord_user_id}) · iRacing ID: {r.iracing_cust_id ?? 'not given'}
-          </p>
+          {r.source === 'website' ? (
+            <p class="mt-1 text-xs text-white/50" data-testid="signup-source-website">
+              Source: <span class="font-semibold text-white/80">Website</span> · Requested by{' '}
+              {r.requester_display_name ?? 'an account without a display name'} · iRacing ID: {r.iracing_cust_id}
+            </p>
+          ) : (
+            <p class="mt-1 text-xs text-white/50">
+              Discord: {r.discord_username ?? 'unknown'} ({r.discord_user_id}) · iRacing ID: {r.iracing_cust_id ?? 'not given'}
+            </p>
+          )}
 
           <ul class="mt-3 flex flex-col gap-1 text-xs">
             {r.requested_numbers.map((n, i) => {
@@ -215,6 +237,7 @@ const fieldClass =
             <form method="POST" data-astro-reload class="flex flex-col gap-2 rounded-lg border border-white/10 p-3">
               <input type="hidden" name="intent" value="approve" />
               <input type="hidden" name="request_id" value={r.id} />
+              <input type="hidden" name="request_source" value={r.source} />
               <label class="flex flex-col gap-1 text-[11px] text-white/50">
                 Approve as
                 <select name="driver_id" class={fieldClass}>
@@ -255,18 +278,30 @@ const fieldClass =
               <input type="hidden" name="intent" value="reject" />
               <input type="hidden" name="request_id" value={r.id} />
               <input type="hidden" name="request_name" value={r.name} />
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Reason (sent to the driver)
-                <select name="preset_reason" class={fieldClass}>
-                  {SIGNUP_REJECTION_REASONS.map((reason) => (
-                    <option value={reason} class="bg-brand-ink text-white">{reason}</option>
-                  ))}
-                </select>
-              </label>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Or type your own (used instead when filled in)
-                <textarea name="custom_reason" rows="2" maxlength="500" class={fieldClass}></textarea>
-              </label>
+              <input type="hidden" name="request_source" value={r.source} />
+              {r.source === 'website' ? (
+                // The Discord presets talk about signing up again on Discord, so website requests get a typed
+                // reason only; the database also refuses an empty one.
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Reason (shown to the requester on their linking page)
+                  <textarea name="custom_reason" rows="3" maxlength="500" required class={fieldClass} data-testid="signup-website-reject-reason"></textarea>
+                </label>
+              ) : (
+                <>
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Reason (sent to the driver)
+                    <select name="preset_reason" class={fieldClass}>
+                      {SIGNUP_REJECTION_REASONS.map((reason) => (
+                        <option value={reason} class="bg-brand-ink text-white">{reason}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                    Or type your own (used instead when filled in)
+                    <textarea name="custom_reason" rows="2" maxlength="500" class={fieldClass}></textarea>
+                  </label>
+                </>
+              )}
               <button type="submit" class="btn btn-danger btn-sm self-start">Reject</button>
             </form>
           </div>
@@ -293,16 +328,26 @@ const fieldClass =
             <tr class="border-t border-white/5 align-top">
               <td class="px-4 py-3">
                 <div class="font-semibold text-white">{r.name}</div>
-                <div class="text-xs text-white/40">{r.discord_username ?? r.discord_user_id}</div>
+                <div class="text-xs text-white/40">
+                  {signupSourceLabel(r)}
+                  {r.source === 'website' && ` · ${r.requester_display_name ?? (r.requester_profile_id ? 'account' : 'deleted account')}`}
+                </div>
               </td>
               <td class="px-3 py-3 tabular-nums text-white/70">{r.requested_numbers.map((n) => `#${n}`).join(', ')}</td>
               <td class="px-3 py-3">
                 {r.status === 'approved' ? (
                   <span class="font-semibold text-brand-primary">Approved</span>
+                ) : r.status === 'cancelled' ? (
+                  <>
+                    <span class="font-semibold text-white/60">Cancelled</span>
+                    <p class="mt-1 text-xs text-white/40">The requester linked an existing driver or deleted the account.</p>
+                  </>
                 ) : (
                   <>
                     <span class="font-semibold text-brand-pink">Rejected</span>
-                    <span class="ml-2 text-xs text-white/40">{r.notified_at ? 'driver DM’d' : 'DM pending'}</span>
+                    {r.source === 'discord' && (
+                      <span class="ml-2 text-xs text-white/40">{r.notified_at ? 'driver DM’d' : 'DM pending'}</span>
+                    )}
                     {r.reason && <p class="mt-1 text-xs text-white/60">{r.reason}</p>}
                   </>
                 )}

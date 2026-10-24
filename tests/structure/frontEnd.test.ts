@@ -65,6 +65,8 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
       'results/[subsessionId]/kudos.astro',
     ],
   },
+  // U2 driver-linking: the linking page's search and confirm dialog.
+  linkDriver: { hooks: ['data-link-driver'], shells: ['link-driver.astro'] },
   logoSelect: {
     hooks: ['data-logo-select'],
     shells: [
@@ -224,6 +226,80 @@ describe('front-end loading (U5)', () => {
     expect(cache).toMatch(/\bpublic\b/);
     expect(cache).toMatch(/\bimmutable\b/);
     expect(Number(/max-age=(\d+)/.exec(cache)![1])).toBeGreaterThanOrEqual(31536000);
+  });
+
+  it('gives signed-out visitors the My Profile link, and moves Discord to the login page (U1: BR2.1, BR2.3, BR2.4)', () => {
+    const nav = ASTRO['/src/components/Nav.astro'];
+    const link = /<a href="\/my-profile"([^>]*)>/.exec(nav);
+    expect(link, 'Nav links to /my-profile').not.toBeNull();
+    expect(link![1]).toContain('aria-label="My Profile"');
+    expect(link![1]).toContain('data-testid="nav-my-profile"');
+    expect(link![1]).toMatch(/class="btn btn-primary !px-2\.5"/);
+    // The signed-out button is gone, and the header reads nothing about the viewer to draw the link.
+    expect(nav).not.toMatch(/>\s*Sign-Up\s*</);
+    expect(nav).not.toContain('discordUrl');
+
+    const login = ASTRO['/src/pages/login.astro'];
+    expect(login).toMatch(
+      /New to the league\?\s*<a\s+href=\{discordUrl\}\s+target="_blank"\s+rel="noopener noreferrer"/,
+    );
+    expect(login).toContain('resolveSiteLinks(Astro.locals)');
+    expect(login).toContain('href="/signup"');
+  });
+
+  it('shows signed-in accounts without a driver a red dot on My Profile (U2: BR3.1, NFR3.1)', () => {
+    const nav = ASTRO['/src/components/Nav.astro'];
+    expect(nav).toMatch(/const needsDriverLink = Boolean\(Astro\.locals\.session\) && !myDriverId;/);
+    const link =
+      /<a href="\/my-profile"([^>]*data-testid="nav-my-profile-link-driver"[^>]*)>([\s\S]*?)<\/a>/.exec(nav);
+    expect(link, 'Nav has the unlinked My Profile link').not.toBeNull();
+    expect(link![1]).toContain('aria-label="My Profile, link your driver"');
+    expect(link![1]).toMatch(/class="btn btn-primary relative !px-2\.5"/);
+    const dot =
+      /<span data-link-driver-dot class="([^"]+)" aria-hidden="true"><span class="([^"]+)"><\/span><\/span>/.exec(
+        link![2],
+      );
+    expect(dot, 'the dot sits inside the link').not.toBeNull();
+    // A pink dot on a canvas-coloured rim, placed like the admin gear's badge.
+    expect(dot![1]).toMatch(/\babsolute -right-1 -top-1\b/);
+    expect(dot![1]).toContain('bg-brand-ink');
+    expect(dot![2]).toContain('bg-brand-pink');
+    expect(dot![2]).toContain('rounded-full');
+    // The signed-out link stays first and dot-free, so cached anonymous pages carry no viewer state.
+    const signedOut = /<a href="\/my-profile"([^>]*)>([\s\S]*?)<\/a>/.exec(nav)!;
+    expect(signedOut[1]).toContain('data-testid="nav-my-profile"');
+    expect(signedOut[2]).not.toContain('data-link-driver-dot');
+  });
+
+  it('gives the linking page its warning, dialog and request form, with the shared buttons (U2: BR3.5)', () => {
+    const page = ASTRO['/src/pages/link-driver.astro'];
+    expect(page).toContain(
+      'This is a permanent action. Once linked, you must contact an admin to change linked drivers.',
+    );
+    expect(page).toMatch(/<dialog\s+data-link-driver-dialog/);
+    expect(page).toMatch(/name="intent" value="link-driver"/);
+    expect(page).toMatch(/name="intent" value="request-driver"/);
+    expect(page).toMatch(/data-testid="link-driver-row-link"/);
+    expect(page).toContain('return Astro.redirect(`/login?next=${LINK_DRIVER_PATH}`, 302)');
+    // Data access goes through src/lib only.
+    expect(page).not.toMatch(/rest\/v1|fetch\(/);
+    for (const button of page.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-/);
+  });
+
+  it('labels website requests and cancelled rows on Admin > Sign-ups (U2: BR3.13, BR3.14)', () => {
+    const page = ASTRO['/src/pages/admin/signups/index.astro'];
+    expect(page).toMatch(/r\.source === 'website' \? \(/);
+    expect(page).toMatch(/Source: <span[^>]*>Website<\/span>/);
+    expect(page).toMatch(/r\.status === 'cancelled' \? \(/);
+    expect(page).toMatch(/>Cancelled</);
+    // The DM badge belongs to Discord rows only.
+    expect(page).toMatch(
+      /r\.source === 'discord' && \(\s*<span[^>]*>\{r\.notified_at \? 'driver DM’d' : 'DM pending'\}/,
+    );
+    expect(page).toMatch(/name="custom_reason" rows="3" maxlength="500" required/);
+    const users = ASTRO['/src/pages/admin/users/index.astro'];
+    expect(users).toContain("'That driver is already linked to another account.'");
+    expect(users).toContain('data-testid="users-driver-privacy-note"');
   });
 
   it('lets no POST form opt back into the client router (BR5.1)', () => {

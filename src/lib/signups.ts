@@ -1,5 +1,6 @@
 /**
- * Discord sign-up requests (0098, docs/signup-integration.md).
+ * Driver sign-up requests (0098, docs/signup-integration.md): from Discord, and from the website's linking page
+ * (20261027120000_driver_linking.sql; website requests are sent through src/lib/driverAccount.ts).
  * - The bot API (src/pages/api/bot/) checks BOT_API_TOKEN, then calls service-role-only functions with
  *   SUPABASE_SERVICE_ROLE_KEY. Both are Cloudflare secrets, never in `vars` or the repo.
  * - Admin > Sign-ups uses the admin's own token; RLS and is_admin() gate it.
@@ -110,20 +111,45 @@ export function json(body: unknown, status = 200): Response {
 
 // --- Admin side --------------------------------------------------------------
 
+/**
+ * One row of the sign-up queue: a Discord /atcsignup request, or a website request from an account's linking
+ * page (U2 driver-linking). Website rows have no Discord fields; their requester is a profile, whose display
+ * name is joined in for the admin page (null once the account is deleted).
+ */
 export interface SignupRequest {
   id: string;
-  discord_user_id: string;
+  source: 'discord' | 'website';
+  discord_user_id: string | null;
   discord_username: string | null;
+  requester_profile_id: string | null;
+  requester_display_name: string | null;
   name: string;
   iracing_cust_id: number | null;
   requested_numbers: number[];
-  status: 'pending' | 'approved' | 'rejected';
+  /** `cancelled` only for website rows: the requester linked an existing driver or deleted the account. */
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   reason: string | null;
   driver_id: string | null;
   decided_by: string | null;
   decided_at: string | null;
   notified_at: string | null;
   created_at: string;
+}
+
+type SignupRequestRow = Omit<SignupRequest, 'requester_display_name' | 'source'> & {
+  source?: SignupRequest['source'];
+  requester?: { display_name: string | null } | null;
+};
+
+const SIGNUP_SELECT = encodeURIComponent('*,requester:profiles!requester_profile_id(display_name)');
+
+/** Flattens the embedded requester; rows from before the website source default to Discord. */
+export function toSignupRequest({ requester, ...row }: SignupRequestRow): SignupRequest {
+  return {
+    ...row,
+    source: row.source ?? 'discord',
+    requester_display_name: requester?.display_name ?? null,
+  };
 }
 
 /** Pending requests (oldest first) plus the most recent decided ones. */
@@ -133,18 +159,25 @@ export async function getSignupRequests(
   recentDecidedLimit = 25,
 ): Promise<{ pending: SignupRequest[]; decided: SignupRequest[] }> {
   const [pending, decided] = await Promise.all([
-    restGetAuthed<SignupRequest[]>(
+    restGetAuthed<SignupRequestRow[]>(
       env,
       accessToken,
-      'signup_requests?select=*&status=eq.pending&order=created_at.asc',
+      `signup_requests?select=${SIGNUP_SELECT}&status=eq.pending&order=created_at.asc`,
     ),
-    restGetAuthed<SignupRequest[]>(
+    restGetAuthed<SignupRequestRow[]>(
       env,
       accessToken,
-      `signup_requests?select=*&status=neq.pending&order=decided_at.desc&limit=${recentDecidedLimit}`,
+      `signup_requests?select=${SIGNUP_SELECT}&status=neq.pending&order=decided_at.desc&limit=${recentDecidedLimit}`,
     ),
   ]);
-  return { pending, decided };
+  return { pending: pending.map(toSignupRequest), decided: decided.map(toSignupRequest) };
+}
+
+/** How Admin > Sign-ups names a request's origin: "Website" or the Discord username (or id). */
+export function signupSourceLabel(
+  r: Pick<SignupRequest, 'source' | 'discord_username' | 'discord_user_id'>,
+): string {
+  return r.source === 'website' ? 'Website' : (r.discord_username ?? r.discord_user_id ?? 'Discord');
 }
 
 async function adminRpc<T>(

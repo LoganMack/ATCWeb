@@ -136,6 +136,11 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/round-stats-fixtures.sql
 
+      # Same convention: self-linking, website driver requests, approval, the bot feed and grants.
+      - name: Driver linking fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/driver-linking-fixtures.sql
+
       - name: Skip the down-script exercise
         if: steps.scope.outputs.run == 'true' && (steps.rules.outputs.cutover == 'true' || steps.rules.outputs.new_migrations == '')
         run: |

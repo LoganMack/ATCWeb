@@ -5,6 +5,7 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getDrivers } from '../../../lib/db/client';
 import { getAllProfiles, setProfileRole, setProfileDriver, deleteUser, getUserEmails, userDisplayName, requireAdmin } from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { errorCodeOf } from '../../../lib/driverAccount';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -91,7 +92,10 @@ if (Astro.request.method === 'POST' && !loadError) {
         intent === 'delete-user'
           ? `Failed to delete that user: ${err instanceof Error ? err.message : 'unknown error'}`
           : intent === 'set-driver'
-            ? 'Failed to link that driver.'
+            ? // The one-account-per-driver index catches a link made since this page loaded.
+              errorCodeOf(err) === 'DRIVER_ALREADY_LINKED'
+              ? 'That driver is already linked to another account.'
+              : 'Failed to link that driver.'
             : 'Failed to update that user’s role.';
     }
     // Re-read so the table below shows what was just saved.
@@ -116,6 +120,11 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
   <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
     Anyone who has signed in has an account here. Promote trusted people to admin so they can use these tools too, and
     link each login to its roster driver — once linked, the driver's name is shown wherever the site names that user.
+  </p>
+  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 70ms" data-testid="users-driver-privacy-note">
+    A driver's privacy settings follow the account linked to it: changing a link moves the driver to the newly linked
+    account's settings, and unlinking leaves the driver with none. Drivers can link themselves once; only you can change
+    or remove a link.
   </p>
 
   {error && (
