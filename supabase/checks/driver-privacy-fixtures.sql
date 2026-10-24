@@ -133,8 +133,8 @@ exception when others then
 end;
 $$;
 
-grant usage on schema privacy_fixture to anon, authenticated;
-grant execute on all functions in schema privacy_fixture to anon, authenticated;
+grant usage on schema privacy_fixture to anon, authenticated, service_role;
+grant execute on all functions in schema privacy_fixture to anon, authenticated, service_role;
 
 -- Base data ------------------------------------------------------------------------------------
 
