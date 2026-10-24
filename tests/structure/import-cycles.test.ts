@@ -6,10 +6,12 @@ import { describe, expect, it } from 'vitest';
 import { findCycles } from '../../scripts/import-cycles.mjs';
 
 // Bundled by Vite's glob import, so the test needs no Node file-system access.
-const LIB = import.meta.glob('/src/lib/**/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<
-  string,
-  string
->;
+// src/worker/ is included so the Worker entry stays outside any cycle with the library it wraps.
+const LIB = import.meta.glob(['/src/lib/**/*.ts', '/src/worker/**/*.ts'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>;
 
 describe('import cycles in src/lib (W5.2, BR1.4)', () => {
   it('reads the library, including the split modules', () => {

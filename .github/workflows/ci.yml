@@ -30,6 +30,10 @@ jobs:
       # The real gate: the site must build.
       - run: npm run build
 
+      # A gate: the Worker entry (src/worker/entry.ts) type-checks against the build it wraps. It runs here,
+      # after the build, because dist/ does not exist before it.
+      - run: npx tsc -p tsconfig.worker.json --noEmit
+
       # Advisory only, by team choice: lint is warnings-only and formatting is
       # reported but never blocks a merge. The tests, type check and build above are the gates.
       - run: npm run lint

@@ -22,9 +22,15 @@ type CloudflareRuntimeEnv = {
   PUBLIC_SUPABASE_ANON_KEY: string;
   PUBLIC_DISCORD_URL: string;
   PUBLIC_REDBUBBLE_URL: string;
+  // Email notifications (src/lib/notifications); read by the scheduled run, not by pages.
+  EMAIL_FROM: string;
+  EMAIL_DAILY_CAP: string;
+  EMAIL_BATCH_SIZE: string;
+  SITE_URL: string;
   // Cloudflare secrets (`wrangler secret put`), not wrangler.jsonc vars.
   BOT_API_TOKEN?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  RESEND_API_KEY?: string;
 };
 
 type Runtime = import('@astrojs/cloudflare').Runtime<CloudflareRuntimeEnv>;

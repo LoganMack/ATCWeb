@@ -1,7 +1,7 @@
 /**
  * The size limit on the modules the module split creates (functional spec W2; FR4.3, BR2.1). Every
- * .ts file under the five split folders is at most 800 lines unless it is listed below. A folder
- * that doesn't exist yet (the later splits) simply contributes no files.
+ * .ts file under the five split folders, src/lib/notifications and src/worker is at most 800 lines
+ * unless it is listed below. A folder that doesn't exist yet (the later splits) contributes no files.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -13,6 +13,8 @@ const MODULES = import.meta.glob(
     '/src/lib/penalties/**/*.ts',
     '/src/lib/incidentActions/**/*.ts',
     '/src/lib/driverPage/**/*.ts',
+    '/src/lib/notifications/**/*.ts',
+    '/src/worker/**/*.ts',
   ],
   { query: '?raw', import: 'default', eager: true },
 ) as Record<string, string>;

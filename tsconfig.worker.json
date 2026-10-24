@@ -1,0 +1,11 @@
+{
+  // Type-checks the Worker entry after `npm run build` (ci.yml, deploy.yml): npx tsc -p tsconfig.worker.json --noEmit.
+  // tsconfig.json excludes src/worker, because dist/ does not exist when `astro check` runs.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowJs": false
+  },
+  "include": [],
+  "files": ["src/worker/entry.ts", "src/worker/astro-build.d.ts"]
+}
