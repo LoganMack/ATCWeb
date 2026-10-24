@@ -4,7 +4,8 @@
  * which this page doesn't need.
  */
 
-import { type SupabaseEnv, restGetAll } from './db/client';
+import { type SupabaseEnv, restGetAll, writeHeaders } from './db/client';
+import { parseDbErrorCode, type IncidentErrorCode } from './incidentErrors';
 import {
   getPenaltiesForDriver,
   getPenaltiesForSubsessions,
@@ -295,4 +296,274 @@ function rollUpByOffense(
     }
   }
   return [...byOffenseMap.values()].sort((a, b) => b.incidentCount - a.incidentCount);
+}
+
+// --- Incident Management on the own profile (U5; BR11.1-BR11.14) ---------------------------------
+// The database decides what is listed and who may comment or appeal (my_incidents, add_my_incident_comment,
+// can_appeal_penalty in 20261101120000_incident_management.sql); this maps its rows to what the tab shows.
+
+/** my_incidents() returns at most this many rows (NFR3.4). */
+export const MY_INCIDENTS_LIMIT = 200;
+export const INCIDENT_COMMENT_MAX_LENGTH = 2000;
+
+/** One row of my_incidents(), as PostgREST returns it. */
+export interface MyIncidentDbRow {
+  kind: 'pending_report' | 'posted_penalty';
+  id: string;
+  subsession_id: number;
+  round_label: string | null;
+  occurred_at: string | null;
+  session: string | null;
+  lap: number | null;
+  turn: string | null;
+  description: string | null;
+  penalized_car: string | null;
+  involved_cars: string[] | null;
+  i_am_penalized: boolean;
+  my_comment_exists: boolean;
+  appeal_window_closes_at: string | null;
+  my_appeal_status: 'none' | 'open' | 'reviewed' | 'dismissed';
+  points_before: number | null;
+  points_after: number | null;
+  time_or_points_changed: boolean;
+}
+
+export type IncidentManagementState = 'pending' | 'posted' | 'appealed' | 'reviewed';
+
+export interface IncidentManagementRow {
+  kind: 'pending' | 'posted';
+  /** The incident report id (pending) or the penalty id (posted). */
+  id: string;
+  subsessionId: number;
+  roundLabel: string;
+  occurredAt: string | null;
+  state: IncidentManagementState;
+  /** "Pending" on pending rows; "#12" on posted rows; "" for a racing incident. */
+  penalizedLabel: string;
+  /** "#04, #12", or "—" when no other car is listed. */
+  involvedLabel: string;
+  sessionLabel: string;
+  lap: number | null;
+  turn: string | null;
+  /** Pending rows only: the report's own description, for the Add Comment popup (BR11.18). */
+  description: string | null;
+  commentSent: boolean;
+  /** Which buttons the row shows (BR11.5, BR11.8, BR11.10). */
+  canComment: boolean;
+  canViewIncident: boolean;
+  canAppeal: boolean;
+  appealSubmitted: boolean;
+  /** Reviewed rows: "-2 PP", "No change", "No change (time or points changed)" or "Reviewed" (BR11.11). */
+  resultLabel: string | null;
+  /** The text that goes with the row's colour (BR11.12). */
+  statusLabel: string;
+}
+
+export interface IncidentManagementView {
+  rows: IncidentManagementRow[];
+  /** True when the list hit the 200-row cap ("Showing your 200 most recent incidents."). */
+  capped: boolean;
+}
+
+/** "Race 2", "Qualifying" or "Practice" for a report session ("race:2") or a penalty's session type. */
+export function incidentSessionLabel(session: string | null): string {
+  if (!session) return '—';
+  const [type, num] = session.split(':');
+  if (type === 'qualifying') return 'Qualifying';
+  if (type === 'practice') return 'Practice';
+  if (type === 'race') return num ? `Race ${num}` : 'Race';
+  return session;
+}
+
+/**
+ * The penalty-point change an appeal made: effective PP minus the original. my_incidents() returns both
+ * values with the formula of effectivePenaltyPoints (src/lib/penalties/effective.ts).
+ */
+export function penaltyPointsDifference(before: number, after: number): number {
+  return after - before;
+}
+
+/** What a reviewed row shows in place of the appeal button (BR11.11 amended). */
+export function reviewedResultLabel(row: {
+  i_am_penalized: boolean;
+  points_before: number | null;
+  points_after: number | null;
+  time_or_points_changed: boolean;
+}): string {
+  // Only the penalized driver's row carries the number; an involved driver sees that it was reviewed.
+  if (!row.i_am_penalized) return 'Reviewed';
+  const diff = penaltyPointsDifference(row.points_before ?? 0, row.points_after ?? row.points_before ?? 0);
+  if (diff === 0) return row.time_or_points_changed ? 'No change (time or points changed)' : 'No change';
+  return `${diff > 0 ? '+' : ''}${diff} PP`;
+}
+
+const carList = (cars: string[] | null) =>
+  cars && cars.length > 0 ? cars.map((car) => `#${car}`).join(', ') : '—';
+
+/** One row's view model; `now` decides whether Submit Appeal is still offered. */
+export function buildIncidentManagementRow(row: MyIncidentDbRow, now: Date): IncidentManagementRow {
+  const base = {
+    id: row.id,
+    subsessionId: row.subsession_id,
+    roundLabel: row.round_label ?? `Round ${row.subsession_id}`,
+    occurredAt: row.occurred_at,
+    involvedLabel: carList(row.involved_cars),
+    sessionLabel: incidentSessionLabel(row.session),
+    lap: row.lap,
+    turn: row.turn,
+  };
+  if (row.kind === 'pending_report') {
+    return {
+      ...base,
+      kind: 'pending',
+      state: 'pending',
+      penalizedLabel: 'Pending',
+      description: row.description,
+      commentSent: row.my_comment_exists,
+      canComment: !row.my_comment_exists,
+      canViewIncident: false,
+      canAppeal: false,
+      appealSubmitted: false,
+      resultLabel: null,
+      statusLabel: row.my_comment_exists ? 'Comment sent' : 'Pending',
+    };
+  }
+  const posted = {
+    ...base,
+    kind: 'posted' as const,
+    penalizedLabel: row.penalized_car ? `#${row.penalized_car}` : '',
+    description: null,
+    commentSent: false,
+    canComment: false,
+    canViewIncident: true,
+  };
+  if (row.my_appeal_status === 'open') {
+    return {
+      ...posted,
+      state: 'appealed',
+      canAppeal: false,
+      appealSubmitted: true,
+      resultLabel: null,
+      statusLabel: 'Appeal Submitted',
+    };
+  }
+  if (row.my_appeal_status === 'reviewed' || row.my_appeal_status === 'dismissed') {
+    const result = reviewedResultLabel(row);
+    return {
+      ...posted,
+      state: 'reviewed',
+      canAppeal: false,
+      appealSubmitted: false,
+      resultLabel: result,
+      statusLabel: result,
+    };
+  }
+  const closesAt = row.appeal_window_closes_at ? new Date(row.appeal_window_closes_at).getTime() : NaN;
+  const open = Number.isFinite(closesAt) && now.getTime() < closesAt;
+  return {
+    ...posted,
+    state: 'posted',
+    canAppeal: open,
+    appealSubmitted: false,
+    resultLabel: null,
+    statusLabel: open ? 'Appeal open' : 'Appeal window closed',
+  };
+}
+
+/** The tab's rows, in the order the database returned them (newest first). */
+export function buildIncidentManagementView(
+  rows: MyIncidentDbRow[],
+  now: Date = new Date(),
+): IncidentManagementView {
+  return {
+    rows: rows.map((row) => buildIncidentManagementRow(row, now)),
+    capped: rows.length >= MY_INCIDENTS_LIMIT,
+  };
+}
+
+async function userRpc(env: SupabaseEnv, accessToken: string, fn: string, args: Record<string, unknown>) {
+  return fetch(`${env.url}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken),
+    body: JSON.stringify(args),
+  });
+}
+
+/** The signed-in owner's Incident Management list. Throws on failure; the page shows its load error. */
+export async function getMyIncidents(env: SupabaseEnv, accessToken: string): Promise<IncidentManagementView> {
+  const res = await userRpc(env, accessToken, 'my_incidents', {});
+  if (!res.ok) throw new Error(`my_incidents failed (${res.status})`);
+  return buildIncidentManagementView((await res.json()) as MyIncidentDbRow[]);
+}
+
+export interface IncidentPanelData {
+  /** Null when either read failed: the tab says so and the rest of the profile renders (NFR4.2). */
+  view: IncidentManagementView | null;
+  /** The listed penalties' Incident Details rows, for View Incident (BR11.8 amended). */
+  detailRows: IncidentRow[];
+}
+
+/** The status of a failed read, for a content-free log line; 'network' when there was no response. */
+function failureStatus(err: unknown): string {
+  const match = /\b([1-5]\d\d)\b/.exec(err instanceof Error ? err.message : String(err));
+  return match ? match[1] : 'network';
+}
+
+/**
+ * The owner's tab data: my_incidents() and the driver's posted incident rows, in parallel (NFR3.1). Never
+ * throws; a failure is logged with its status only (NFR9.1).
+ */
+export async function loadIncidentPanel(
+  env: SupabaseEnv,
+  accessToken: string,
+  driverId: string,
+): Promise<IncidentPanelData> {
+  try {
+    const [view, rows] = await Promise.all([
+      getMyIncidents(env, accessToken),
+      getIncidentsForDriver(env, driverId),
+    ]);
+    const listed = new Set(view.rows.filter((r) => r.kind === 'posted').map((r) => r.id));
+    return { view, detailRows: rows.filter((row) => listed.has(row.id)) };
+  } catch (err) {
+    console.error('incident-management load failed', failureStatus(err));
+    return { view: null, detailRows: [] };
+  }
+}
+
+export type IncidentActionCode = IncidentErrorCode | 'UNKNOWN';
+
+/** Adds the owner's one final comment (add_my_incident_comment). Never throws; failures come back as a code. */
+export async function addMyIncidentComment(
+  env: SupabaseEnv,
+  accessToken: string,
+  reportId: string,
+  body: string,
+): Promise<{ ok: true } | { ok: false; code: IncidentActionCode }> {
+  try {
+    const res = await userRpc(env, accessToken, 'add_my_incident_comment', {
+      p_report_id: reportId,
+      p_body: body,
+    });
+    if (res.ok) return { ok: true };
+    return { ok: false, code: parseDbErrorCode(await res.text()) ?? 'UNKNOWN' };
+  } catch {
+    return { ok: false, code: 'UNKNOWN' };
+  }
+}
+
+export type CanAppealResult = 'ok' | 'NOT_INVOLVED' | 'ALREADY_APPEALED' | 'CLOSED' | 'UNKNOWN';
+
+/** can_appeal_penalty: run before any upload, so a refused appeal leaves no files. Throws on failure. */
+export async function canAppealPenalty(
+  env: SupabaseEnv,
+  accessToken: string,
+  penaltyId: string,
+): Promise<CanAppealResult> {
+  const res = await userRpc(env, accessToken, 'can_appeal_penalty', { p_penalty_id: penaltyId });
+  if (!res.ok) throw new Error(`can_appeal_penalty failed (${res.status})`);
+  const value = (await res.json()) as unknown;
+  return value === 'ok' || value === 'NOT_INVOLVED' || value === 'ALREADY_APPEALED' || value === 'CLOSED'
+    ? value
+    : 'UNKNOWN';
 }

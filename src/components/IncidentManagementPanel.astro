@@ -1,0 +1,136 @@
+---
+// The own profile's "Incident Management" tab (U5; BR11.4-BR11.13; contract C4). Rendered only for the driver
+// themselves, inside the profile form, so every button here is type="button": the popups live outside the
+// form (IncidentManagementDialogs.astro) and post in place (src/scripts/incidentManagement.ts). Every state
+// carries text as well as colour.
+import type { IncidentManagementRow, IncidentManagementView } from '../lib/incidents';
+import { MY_INCIDENTS_LIMIT } from '../lib/incidents';
+import { formatDateShort } from '../lib/db/circuits';
+
+interface Props {
+  /** Null when the list couldn't be loaded. */
+  view: IncidentManagementView | null;
+  /** Penalty ids the View Incident popup has details for. */
+  viewableIds: string[];
+  /** The no-JavaScript fallback's result of a comment or appeal. */
+  notice: { ok: boolean; message: string } | null;
+}
+
+const { view, viewableIds, notice } = Astro.props;
+const viewable = new Set(viewableIds);
+
+const rowClass = (row: IncidentManagementRow) =>
+  row.state === 'appealed'
+    ? 'border-b border-white/5 bg-brand-gold/10'
+    : row.state === 'reviewed'
+      ? 'border-b border-white/5 bg-white/5'
+      : 'border-b border-white/5';
+// Reviewed rows are greyed by dimming the round and car cells only, so the result text keeps its contrast.
+const dimIfReviewed = (row: IncidentManagementRow) => (row.state === 'reviewed' ? ' opacity-60' : '');
+---
+
+<div data-incident-management class="flex flex-col gap-3">
+  <p
+    data-incident-status
+    role="status"
+    class={`text-sm ${notice && !notice.ok ? 'text-brand-pink' : 'text-white/70'}`}
+  >
+    {notice?.message}
+  </p>
+
+  {!view ? (
+    <p role="alert" class="text-sm text-brand-pink">Couldn't load your incidents. Try again later.</p>
+  ) : view.rows.length === 0 ? (
+    <p class="text-sm text-white/60">No incidents to manage.</p>
+  ) : (
+    <>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/40">
+              <th class="py-2 pl-2 pr-2 font-medium">Round</th>
+              <th class="py-2 pr-2 font-medium">Penalized</th>
+              <th class="py-2 pr-2 font-medium">Involved</th>
+              <th class="py-2 pr-2 font-medium">Status</th>
+              <th class="py-2 pr-2 text-right font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.rows.map((row) => (
+              <tr
+                class={rowClass(row)}
+                data-incident-row={row.id}
+                data-incident-state={row.state}
+                data-testid={`incident-row-${row.state}`}
+              >
+                <td class={`py-2 pl-2 pr-2${dimIfReviewed(row)}`}>
+                  <div class="font-semibold text-white/90">{row.roundLabel}</div>
+                  <div class="text-[10px] text-white/40">
+                    {row.occurredAt ? formatDateShort(row.occurredAt) : ''}
+                    {row.kind === 'pending' && ` · ${row.sessionLabel}, Lap ${row.lap ?? '—'}`}
+                  </div>
+                </td>
+                <td class={`${row.kind === 'pending' ? 'py-2 pr-2 text-white/60' : 'py-2 pr-2 font-semibold text-white/90'}${dimIfReviewed(row)}`}>
+                  {row.penalizedLabel}
+                </td>
+                <td class={`py-2 pr-2 text-white/70${dimIfReviewed(row)}`}>{row.involvedLabel}</td>
+                <td class="py-2 pr-2 text-white" data-incident-row-status>{row.statusLabel}</td>
+                <td class="py-2 pr-2">
+                  <div class="flex flex-wrap items-center justify-end gap-2" data-incident-row-actions>
+                    {row.canComment && (
+                      <button
+                        type="button"
+                        class="btn btn-gold btn-sm"
+                        data-incident-comment
+                        data-report-id={row.id}
+                        data-round={row.roundLabel}
+                        data-session={row.sessionLabel}
+                        data-lap={row.lap !== null ? String(row.lap) : '—'}
+                        data-turn={row.turn ?? '—'}
+                        data-description={row.description ?? ''}
+                        data-testid="incident-add-comment"
+                      >
+                        Add Comment
+                      </button>
+                    )}
+                    {row.canViewIncident && viewable.has(row.id) && (
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        data-history-incident={row.id}
+                        data-testid="incident-view"
+                      >
+                        View Incident
+                      </button>
+                    )}
+                    {row.canAppeal && (
+                      <button
+                        type="button"
+                        class="btn btn-gold btn-sm"
+                        data-incident-appeal
+                        data-penalty-id={row.id}
+                        data-round={row.roundLabel}
+                        data-testid="incident-submit-appeal"
+                      >
+                        Submit Appeal
+                      </button>
+                    )}
+                    {row.appealSubmitted && (
+                      <button type="button" class="btn btn-gold btn-sm" disabled aria-disabled="true" data-testid="incident-appeal-submitted">
+                        Appeal Submitted
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {view.capped && (
+        <p class="text-xs text-white/40">Showing your {MY_INCIDENTS_LIMIT} most recent incidents.</p>
+      )}
+    </>
+  )}
+  <p class="text-xs text-white/40">ⓘ Comments and appeals go to the stewards only.</p>
+</div>
