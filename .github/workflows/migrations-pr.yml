@@ -141,6 +141,11 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/driver-linking-fixtures.sql
 
+      # Same convention: owner-only account settings, the per-account email limit and their grants.
+      - name: Account settings fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/account-settings-fixtures.sql
+
       - name: Skip the down-script exercise
         if: steps.scope.outputs.run == 'true' && (steps.rules.outputs.cutover == 'true' || steps.rules.outputs.new_migrations == '')
         run: |

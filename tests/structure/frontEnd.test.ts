@@ -67,6 +67,8 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   },
   // U2 driver-linking: the linking page's search and confirm dialog.
   linkDriver: { hooks: ['data-link-driver'], shells: ['link-driver.astro'] },
+  // U3 profile-settings: the own profile's editing tabs (NFR3.2).
+  profileEditing: { hooks: ['data-profile-tabs'], shells: ['drivers/[id].astro'] },
   logoSelect: {
     hooks: ['data-logo-select'],
     shells: [
@@ -300,6 +302,76 @@ describe('front-end loading (U5)', () => {
     const users = ASTRO['/src/pages/admin/users/index.astro'];
     expect(users).toContain("'That driver is already linked to another account.'");
     expect(users).toContain('data-testid="users-driver-privacy-note"');
+  });
+
+  it('renders the editing tabs only for the owner, with no Save/Cancel under the bio (U3: BR4.2, BR5.1, NFR2.2)', () => {
+    const page = ASTRO['/src/pages/drivers/[id].astro'];
+    expect(page.match(/<ProfileSettingsTabs\b/g)).toHaveLength(1);
+    expect(page).toMatch(/\{isOwner && ownerData && \(\s*<ProfileSettingsTabs\b/);
+    expect(page).toMatch(/const ownerDataPromise[^;]*=\s*isOwner && session \? loadOwnerProfile\(/);
+    // The old buttons under the bio are gone; the header's Save Profile and Cancel replace them.
+    expect(page).not.toMatch(/<button[^>]*type="submit"/);
+    expect(page).not.toContain('data-profile-cancel');
+    expect(page).not.toMatch(/>\s*Save\s*</);
+    // Data access through src/lib only.
+    expect(page).not.toMatch(/rest\/v1|fetch\(/);
+    // Owner renders are never cached: no-store is set after the shared public header (BR5.2, NFR2.1).
+    const publicAt = page.indexOf("Astro.response.headers.set('Cache-Control', 'public, s-maxage=60");
+    const noStoreAt = page.indexOf('if (loadError || isOwner) markUncacheable(Astro);');
+    expect(publicAt).toBeGreaterThan(-1);
+    expect(noStoreAt).toBeGreaterThan(publicAt);
+    // The form the header button names, posting multipart to this page.
+    expect(page).toMatch(/id: 'driver-profile-form',\s*method: 'post',\s*enctype: 'multipart\/form-data'/);
+    expect(page).toMatch(/<input type="hidden" name="intent" value="save-profile" \/>/);
+  });
+
+  it('turns Edit Profile into Save Profile with a grey Cancel to its right (U3: BR4.1, BR4.5)', () => {
+    const nav = ASTRO['/src/components/Nav.astro'];
+    const toggle = /<button\s([^>]*data-profile-edit-toggle[^>]*)>([\s\S]*?)<\/button>/.exec(nav);
+    expect(toggle, 'Nav has the Edit Profile toggle').not.toBeNull();
+    expect(toggle![1]).toContain('form="driver-profile-form"');
+    expect(toggle![1]).toContain('aria-label="Edit Profile"');
+    expect(toggle![1]).toMatch(/class="btn btn-primary !px-2\.5"/);
+    expect(toggle![2]).toContain('data-profile-icon-edit');
+    expect(toggle![2]).toMatch(/<svg data-profile-icon-save[^>]*class="hidden h-5 w-5"/);
+
+    const cancel = /\{onOwnProfile && \(([\s\S]*?)\)\}/.exec(
+      nav.slice(nav.indexOf('data-profile-edit-toggle')),
+    );
+    expect(cancel, 'Cancel follows the toggle, own profile only').not.toBeNull();
+    expect(cancel![1]).toMatch(/<span data-profile-cancel-wrap class="group relative hidden">/);
+    expect(cancel![1]).toMatch(
+      /<button type="button" data-profile-cancel class="btn btn-neutral !px-2\.5" aria-label="Cancel"/,
+    );
+    expect(cancel![1]).toMatch(/role="tooltip">Cancel</);
+  });
+
+  it('lays out the four tabs, the five checkboxes and the in-place buttons as designed (U3: M6a, M6b, C4)', () => {
+    const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
+    const labels = [...tabs.matchAll(/\{ id: '(tab-[a-z]+)', label: '([^']+)' \}/g)].map(
+      (m) => `${m[1]} ${m[2]}`,
+    );
+    expect(labels).toEqual([
+      'tab-privacy Profile & Privacy Settings',
+      'tab-notifications Email Notifications',
+      'tab-incidents Incident Management',
+      'tab-interviews Interviews',
+    ]);
+    expect(tabs).toMatch(/role="tablist"[^>]*data-profile-tabs>/);
+    for (const [name, label] of [
+      ['hide_profile', 'Hide Profile from Anonymous Users'],
+      ['hide_name', 'Hide Driver Name from Anonymous Users'],
+      ['notify_appeal_reviewed', 'Appeal Marked Reviewed'],
+      ['notify_report_posted', 'Incident Report Posted'],
+      ['notify_event_reminders', 'Event Reminders'],
+    ]) {
+      expect(tabs).toMatch(new RegExp(`name: '${name}',\\s*label: '${label}'`));
+    }
+    expect(tabs).toContain('Changes may take a few minutes to apply everywhere.');
+    expect(tabs).toMatch(/Waiting for you to confirm \{pendingEmail\}/);
+    expect(tabs).toMatch(/name="intent"\s+value="change-email"/);
+    expect(tabs).toMatch(/name="intent"\s+value="reset-password"/);
+    for (const button of tabs.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-/);
   });
 
   it('lets no POST form opt back into the client router (BR5.1)', () => {

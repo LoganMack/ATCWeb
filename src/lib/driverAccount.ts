@@ -3,10 +3,27 @@
  * The rules live in the database (20261027120000_driver_linking.sql): link_my_driver, list_unlinked_drivers,
  * my_link_state and submit_driver_request run as SECURITY DEFINER functions under the caller's own token, and
  * raise '<CODE>: <message>' for the outcomes the linking page explains. This module calls them, turns those
- * errors into typed codes, and shapes form input before it reaches the database.
+ * errors into typed codes, and shapes form input before it reaches the database. It also holds the account's
+ * own settings and the own-profile controller (U3 profile-settings; contracts C3 and C4).
  */
 
 import type { SupabaseEnv } from './db/client';
+import {
+  AuthRequestError,
+  changeEmail,
+  getUser,
+  normaliseEmail,
+  requestPasswordReset,
+  type AuthUser,
+} from './auth';
+import {
+  DRIVER_AVATAR_MAX_BYTES,
+  DRIVER_AVATAR_TYPES,
+  DRIVER_BIO_MAX,
+  deleteDriverAvatar,
+  updateMyDriverProfile,
+  uploadDriverAvatar,
+} from './db/drivers';
 
 export const DRIVER_ACCOUNT_ERROR_CODES = [
   'NOT_AUTHENTICATED',
@@ -20,6 +37,7 @@ export const DRIVER_ACCOUNT_ERROR_CODES = [
   'INVALID',
   'REQUESTER_ALREADY_LINKED',
   'DRIVER_ALREADY_LINKED',
+  'RATE_LIMITED',
 ] as const;
 
 export type DriverAccountErrorCode = (typeof DRIVER_ACCOUNT_ERROR_CODES)[number] | 'UNKNOWN';
@@ -121,8 +139,9 @@ export function mapDbError(err: unknown): MappedDbError {
 /** Logs the outcome code only: never names, emails or request bodies (NFR9.1). */
 function logFailure(fn: string, code: DriverAccountErrorCode): void {
   // Expected under contention or abuse; warn so they can be searched for without paging anyone.
-  if (code === 'REQUEST_LIMIT' || code === 'DRIVER_TAKEN') console.warn(`${fn} failed`, code);
-  else console.error(`${fn} failed`, code);
+  if (code === 'REQUEST_LIMIT' || code === 'DRIVER_TAKEN' || code === 'RATE_LIMITED') {
+    console.warn(`${fn} failed`, code);
+  } else console.error(`${fn} failed`, code);
 }
 
 async function readErrorBody(res: Response): Promise<unknown> {
@@ -390,4 +409,479 @@ export function adminLinkErrorMessage(err: unknown): string | null {
   }
   if (mapped.code !== 'UNKNOWN') return `${mapped.detail.replace(/\.$/, '')}.`;
   return null;
+}
+
+// --- Account settings (U3 profile-settings, contract C3) -----------------------------------------
+
+/** The five choices, named as the account_settings columns and the form's checkboxes. */
+export const ACCOUNT_SETTING_COLUMNS = [
+  'hide_profile',
+  'hide_name',
+  'notify_appeal_reviewed',
+  'notify_report_posted',
+  'notify_event_reminders',
+] as const;
+
+export type AccountSettingColumn = (typeof ACCOUNT_SETTING_COLUMNS)[number];
+export type AccountSettings = Record<AccountSettingColumn, boolean>;
+
+/** A missing row means every choice is off (C3). */
+export const DEFAULT_ACCOUNT_SETTINGS: Readonly<AccountSettings> = Object.freeze({
+  hide_profile: false,
+  hide_name: false,
+  notify_appeal_reviewed: false,
+  notify_report_posted: false,
+  notify_event_reminders: false,
+});
+
+/** Reads an account_settings row defensively: anything but `true` is off. */
+export function parseAccountSettings(row: unknown): AccountSettings {
+  const obj = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+  const settings = { ...DEFAULT_ACCOUNT_SETTINGS };
+  for (const column of ACCOUNT_SETTING_COLUMNS) settings[column] = obj[column] === true;
+  return settings;
+}
+
+/** The checkboxes as the form posted them: a ticked box is present, an unticked one is absent. */
+export function settingsFromForm(form: { get(name: string): unknown }): AccountSettings {
+  const settings = { ...DEFAULT_ACCOUNT_SETTINGS };
+  for (const column of ACCOUNT_SETTING_COLUMNS) settings[column] = form.get(column) !== null;
+  return settings;
+}
+
+function restHeaders(env: SupabaseEnv, accessToken: string): Record<string, string> {
+  return { apikey: env.anonKey, Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+}
+
+/** Fetch for the settings calls: a network failure or error status logs the action and throws UNKNOWN. */
+async function settingsRequest(action: string, url: string, init: RequestInit): Promise<Response> {
+  let res: Response | null = null;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    // Handled below with the error statuses.
+  }
+  if (!res || !res.ok) {
+    logFailure(action, 'UNKNOWN');
+    throw new DriverAccountError({ code: 'UNKNOWN', field: null, detail: `${action} failed` });
+  }
+  return res;
+}
+
+/** The signed-in account's settings; with no row yet, every choice is off. */
+export async function getMySettings(
+  env: SupabaseEnv,
+  accessToken: string,
+  userId: string,
+): Promise<AccountSettings> {
+  const select = ACCOUNT_SETTING_COLUMNS.join(',');
+  const res = await settingsRequest(
+    'get-settings',
+    `${env.url}/rest/v1/account_settings?profile_id=eq.${encodeURIComponent(userId)}&select=${select}`,
+    { headers: restHeaders(env, accessToken) },
+  );
+  const rows = (await res.json()) as unknown[];
+  return Array.isArray(rows) && rows[0] ? parseAccountSettings(rows[0]) : { ...DEFAULT_ACCOUNT_SETTINGS };
+}
+
+/**
+ * Saves the signed-in account's five choices as one upsert on its own row. `userId` must be the session's
+ * user id, never a value from the form; RLS refuses any other row anyway (NFR1.2).
+ */
+export async function saveMySettings(
+  env: SupabaseEnv,
+  accessToken: string,
+  userId: string,
+  settings: AccountSettings,
+): Promise<void> {
+  const body: Record<string, unknown> = { profile_id: userId };
+  for (const column of ACCOUNT_SETTING_COLUMNS) body[column] = settings[column] === true;
+  await settingsRequest('save-settings', `${env.url}/rest/v1/account_settings?on_conflict=profile_id`, {
+    method: 'POST',
+    headers: { ...restHeaders(env, accessToken), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Takes the account's one email action for this minute (claim_email_action); throws RATE_LIMITED when used. */
+export async function claimEmailAction(env: SupabaseEnv, accessToken: string): Promise<void> {
+  await userRpc<unknown>(env, accessToken, 'claim_email_action', {});
+}
+
+// --- Saving the profile (Save Profile: photo, bio and the five choices; BR4.3, NFR4.1-NFR4.3) ------
+
+export type SaveProfileStep = 'settings' | 'photo' | 'profile';
+
+export interface SaveProfileInput {
+  userId: string;
+  driverId: string;
+  bio: string | null;
+  photo: File | null;
+  /** Null when the page could not load the saved choices, so saving must not overwrite them. */
+  settings: AccountSettings | null;
+}
+
+export type SaveProfileResult = { ok: true } | { ok: false; step: SaveProfileStep; message: string };
+
+const PICK_PHOTO_AGAIN = 'Pick your photo again and save.';
+
+/** What a failed save says: what was and wasn't saved, and to pick the photo again when one was chosen. */
+export function saveFailureMessage(
+  step: SaveProfileStep,
+  photoPicked: boolean,
+  settingsSaved: boolean,
+): string {
+  const next = photoPicked ? PICK_PHOTO_AGAIN : 'Try again.';
+  if (step === 'settings') return `Couldn't save your settings. ${next}`;
+  if (settingsSaved) return `Your settings were saved, but your photo and bio weren't. ${next}`;
+  return `Couldn't save your photo and bio. ${next}`;
+}
+
+/**
+ * Saves in a retry-safe order: the settings upsert (idempotent), then the photo upload when one was picked,
+ * then the bio and photo URL through update_my_driver_profile. A photo uploaded before a failed profile
+ * update is deleted again (best effort), so retries leave no stray files.
+ */
+export async function saveProfile(
+  env: SupabaseEnv,
+  accessToken: string,
+  input: SaveProfileInput,
+): Promise<SaveProfileResult> {
+  const photoPicked = input.photo !== null;
+  const settingsSaved = input.settings !== null;
+  const fail = (step: SaveProfileStep): SaveProfileResult => {
+    console.error('save-profile failed', step.toUpperCase());
+    return { ok: false, step, message: saveFailureMessage(step, photoPicked, settingsSaved) };
+  };
+
+  if (input.settings) {
+    try {
+      await saveMySettings(env, accessToken, input.userId, input.settings);
+    } catch {
+      return fail('settings');
+    }
+  }
+
+  let photoUrl: string | undefined;
+  if (input.photo) {
+    try {
+      photoUrl = await uploadDriverAvatar(env, accessToken, input.driverId, input.photo);
+    } catch {
+      return fail('photo');
+    }
+  }
+
+  try {
+    await updateMyDriverProfile(env, accessToken, { bio: input.bio, photoUrl });
+  } catch {
+    if (photoUrl) {
+      await deleteDriverAvatar(env, accessToken, input.driverId, photoUrl).catch(() => {
+        console.warn('delete-avatar failed', 'UNKNOWN');
+      });
+    }
+    return fail('profile');
+  }
+  return { ok: true };
+}
+
+export interface ProfileFormValues {
+  bio: string;
+  /** Null when the form says the saved choices were not loaded (no `settings_loaded` field). */
+  settings: AccountSettings | null;
+}
+
+export type ShapedProfile =
+  | { ok: true; bio: string | null; photo: File | null; values: ProfileFormValues }
+  | { ok: false; message: string; values: ProfileFormValues };
+
+export const PROFILE_VALIDATION_MESSAGES = {
+  bioTooLong: `Your bio can be at most ${DRIVER_BIO_MAX} characters.`,
+  photoType: 'Profile photos must be PNG, JPG or WebP images. Pick another photo and save.',
+  photoSize: `Profile photos can be at most ${DRIVER_AVATAR_MAX_BYTES / 1024 / 1024} MB. Pick another photo and save.`,
+} as const;
+
+/** Shapes the Save Profile form: the same bio and photo checks as before, plus the five choices. */
+export function shapeProfileForm(form: { get(name: string): unknown }): ShapedProfile {
+  const rawBio = form.get('bio');
+  const bio = (typeof rawBio === 'string' ? rawBio : '').trim();
+  const values: ProfileFormValues = {
+    bio,
+    settings: form.get('settings_loaded') !== null ? settingsFromForm(form) : null,
+  };
+  if (bio.length > DRIVER_BIO_MAX) {
+    return { ok: false, message: PROFILE_VALIDATION_MESSAGES.bioTooLong, values };
+  }
+
+  const rawPhoto = form.get('photo');
+  const photo = rawPhoto instanceof File && rawPhoto.size > 0 ? rawPhoto : null;
+  if (photo && !DRIVER_AVATAR_TYPES[photo.type]) {
+    return { ok: false, message: PROFILE_VALIDATION_MESSAGES.photoType, values };
+  }
+  if (photo && photo.size > DRIVER_AVATAR_MAX_BYTES) {
+    return { ok: false, message: PROFILE_VALIDATION_MESSAGES.photoSize, values };
+  }
+  return { ok: true, bio: bio || null, photo, values };
+}
+
+// --- In-place email actions (contract C4; BR5.3, BR5.4, BR6.2) ---------------------------------
+
+/** C4's JSON answer to an in-place action. */
+export interface InPlaceResult {
+  ok: boolean;
+  message: string;
+  field?: string;
+}
+
+export type EmailChangeStatus = 'sent' | 'INVALID' | 'SAME' | 'EMAIL_IN_USE' | 'RATE_LIMITED' | 'UNKNOWN';
+export type PasswordResetStatus = 'sent' | 'NO_EMAIL' | 'RATE_LIMITED' | 'UNKNOWN';
+
+const RATE_LIMITED_MESSAGE = 'Too many requests. Try again in a minute.';
+const SEND_FAILED_MESSAGE = "Couldn't send the email. Try again.";
+
+/** The message for an email change; with `address` (JSON answers only) the success names the new address. */
+export function emailChangeMessage(status: EmailChangeStatus, address?: string): InPlaceResult {
+  switch (status) {
+    case 'sent':
+      return {
+        ok: true,
+        message: `We sent a confirmation link to ${address ?? 'your new address'}. Your email changes once you click it (if a link also arrives at your current address, click that one too).`,
+      };
+    case 'INVALID':
+      return { ok: false, message: 'Enter a valid email address.', field: 'new_email' };
+    case 'SAME':
+      return { ok: false, message: "That's already your email.", field: 'new_email' };
+    case 'EMAIL_IN_USE':
+      return { ok: false, message: 'That email is already used by another account.', field: 'new_email' };
+    case 'RATE_LIMITED':
+      return { ok: false, message: RATE_LIMITED_MESSAGE };
+    default:
+      return { ok: false, message: SEND_FAILED_MESSAGE };
+  }
+}
+
+export function passwordResetMessage(status: PasswordResetStatus, address?: string): InPlaceResult {
+  switch (status) {
+    case 'sent':
+      return { ok: true, message: `We sent a password reset link to ${address ?? 'your email address'}.` };
+    case 'NO_EMAIL':
+      return { ok: false, message: 'This account has no email address to send a reset link to.' };
+    case 'RATE_LIMITED':
+      return { ok: false, message: RATE_LIMITED_MESSAGE };
+    default:
+      return { ok: false, message: SEND_FAILED_MESSAGE };
+  }
+}
+
+/** The account's one email action for this minute, as a status: null when it may go ahead. */
+async function claimStatus(
+  env: SupabaseEnv,
+  accessToken: string,
+): Promise<'RATE_LIMITED' | 'UNKNOWN' | null> {
+  try {
+    await claimEmailAction(env, accessToken);
+    return null;
+  } catch (err) {
+    return errorCodeOf(err) === 'RATE_LIMITED' ? 'RATE_LIMITED' : 'UNKNOWN';
+  }
+}
+
+export interface OwnerSession {
+  accessToken: string;
+  user: AuthUser;
+}
+
+/** Validates the new address, takes the minute's email action, then asks Supabase Auth to send the link. */
+export async function requestEmailChange(
+  env: SupabaseEnv,
+  session: OwnerSession,
+  rawEmail: unknown,
+  redirectTo: string,
+): Promise<{ status: EmailChangeStatus; email: string | null }> {
+  const email = normaliseEmail(rawEmail);
+  if (!email) return { status: 'INVALID', email: null };
+  if (email === session.user.email?.trim().toLowerCase()) return { status: 'SAME', email };
+  const limited = await claimStatus(env, session.accessToken);
+  if (limited) return { status: limited, email };
+  const result = await changeEmail(env, session.accessToken, email, redirectTo);
+  return { status: result.ok ? 'sent' : result.code, email };
+}
+
+/** Sends the recovery email to the account's own address (never a typed one), after the minute's claim. */
+export async function requestOwnPasswordReset(
+  env: SupabaseEnv,
+  session: OwnerSession,
+  redirectTo: string,
+): Promise<PasswordResetStatus> {
+  const email = session.user.email;
+  if (!email) return 'NO_EMAIL';
+  const limited = await claimStatus(env, session.accessToken);
+  if (limited) return limited;
+  try {
+    await requestPasswordReset(env, email, redirectTo);
+  } catch (err) {
+    const status = err instanceof AuthRequestError && err.status === 429 ? 'RATE_LIMITED' : 'UNKNOWN';
+    console.error('reset-password failed', status);
+    return status;
+  }
+  console.info('reset-password sent', new URL(redirectTo).host);
+  return 'sent';
+}
+
+// --- The own-profile controller (drivers/[id].astro; NFR1.3, NFR4.2) ----------------------------
+
+export const PROFILE_INTENTS = ['save-profile', 'change-email', 'reset-password'] as const;
+export type ProfileIntent = (typeof PROFILE_INTENTS)[number];
+
+/**
+ * The intent of a profile post. The form's hidden field says save-profile; an in-place button's own
+ * `intent` (posted only when that button submits the form) wins over it. No intent at all is a save.
+ */
+export function resolveProfileIntent(values: unknown[]): ProfileIntent | null {
+  const known = values.filter((v): v is ProfileIntent => (PROFILE_INTENTS as readonly unknown[]).includes(v));
+  if (values.length > 0 && known.length === 0) return null;
+  return known.find((v) => v !== 'save-profile') ?? 'save-profile';
+}
+
+/** True when the request asks for C4's JSON answer instead of a redirect. */
+export function wantsJson(accept: string | null): boolean {
+  return /\bapplication\/json\b/i.test(accept ?? '');
+}
+
+export interface ProfileEditingState {
+  bio: string;
+  settings: AccountSettings | null;
+  error: string;
+}
+
+export type ProfilePostOutcome =
+  | { kind: 'redirect'; location: string }
+  | { kind: 'json'; status: number; body: InPlaceResult }
+  | { kind: 'render'; status: number; editing: ProfileEditingState };
+
+export interface ProfilePostContext {
+  env: SupabaseEnv;
+  session: OwnerSession | null;
+  isOwner: boolean;
+  driverId: string;
+  /** The site's origin, for the email links' redirect targets. */
+  origin: string;
+  json: boolean;
+  form: { get(name: string): unknown; getAll(name: string): unknown[] };
+}
+
+/** The status query a no-JavaScript in-place post redirects with (codes only, never an address). */
+export const IN_PLACE_STATUS_PARAMS = {
+  'change-email': 'email_status',
+  'reset-password': 'reset_status',
+} as const;
+
+/** Handles a post to the own profile: only the owner may write; saves re-render on failure, actions answer in place. */
+export async function handleProfilePost(ctx: ProfilePostContext): Promise<ProfilePostOutcome> {
+  const profilePath = `/drivers/${encodeURIComponent(ctx.driverId)}`;
+  if (!ctx.isOwner || !ctx.session) {
+    return ctx.json
+      ? {
+          kind: 'json',
+          status: 403,
+          body: { ok: false, message: 'Only the driver can change this profile.' },
+        }
+      : { kind: 'redirect', location: profilePath };
+  }
+  const intent = resolveProfileIntent(ctx.form.getAll('intent'));
+  if (!intent) return { kind: 'redirect', location: profilePath };
+  if (intent === 'save-profile') return saveProfileOutcome(ctx, ctx.session, profilePath);
+
+  let result: InPlaceResult;
+  let status: string;
+  if (intent === 'change-email') {
+    const change = await requestEmailChange(
+      ctx.env,
+      ctx.session,
+      ctx.form.get('new_email'),
+      `${ctx.origin}${profilePath}`,
+    );
+    status = change.status;
+    result = emailChangeMessage(change.status, change.email ?? undefined);
+  } else {
+    status = await requestOwnPasswordReset(ctx.env, ctx.session, `${ctx.origin}/reset-password`);
+    result = passwordResetMessage(status as PasswordResetStatus, ctx.session.user.email ?? undefined);
+  }
+  if (ctx.json) {
+    return { kind: 'json', status: result.ok ? 200 : status === 'RATE_LIMITED' ? 429 : 400, body: result };
+  }
+  return { kind: 'redirect', location: `${profilePath}?edit=1&${IN_PLACE_STATUS_PARAMS[intent]}=${status}` };
+}
+
+async function saveProfileOutcome(
+  ctx: ProfilePostContext,
+  session: OwnerSession,
+  profilePath: string,
+): Promise<ProfilePostOutcome> {
+  const shaped = shapeProfileForm(ctx.form);
+  if (!shaped.ok) {
+    return { kind: 'render', status: 400, editing: { ...shaped.values, error: shaped.message } };
+  }
+  const saved = await saveProfile(ctx.env, session.accessToken, {
+    userId: session.user.id,
+    driverId: ctx.driverId,
+    bio: shaped.bio,
+    photo: shaped.photo,
+    settings: shaped.values.settings,
+  });
+  if (!saved.ok) return { kind: 'render', status: 502, editing: { ...shaped.values, error: saved.message } };
+  return { kind: 'redirect', location: `${profilePath}?saved=1` };
+}
+
+/** The no-JavaScript fallback's message for a status query value, or null for none or an unknown one. */
+export function inPlaceStatusMessage(
+  intent: 'change-email' | 'reset-password',
+  status: string | null,
+): InPlaceResult | null {
+  if (!status) return null;
+  if (intent === 'change-email') {
+    const known: EmailChangeStatus[] = ['sent', 'INVALID', 'SAME', 'EMAIL_IN_USE', 'RATE_LIMITED', 'UNKNOWN'];
+    return known.includes(status as EmailChangeStatus)
+      ? emailChangeMessage(status as EmailChangeStatus)
+      : null;
+  }
+  const known: PasswordResetStatus[] = ['sent', 'NO_EMAIL', 'RATE_LIMITED', 'UNKNOWN'];
+  return known.includes(status as PasswordResetStatus)
+    ? passwordResetMessage(status as PasswordResetStatus)
+    : null;
+}
+
+// --- The owner's render (NFR3.1, NFR1.6) ----------------------------------------------------------
+
+export interface OwnerProfileData {
+  settings: AccountSettings;
+  /** False when the saved choices could not be read; the page then shows a notice and Save keeps them. */
+  settingsLoaded: boolean;
+  email: string | null;
+  /** The address an email change is waiting on, if any. */
+  pendingEmail: string | null;
+}
+
+/**
+ * The owner-only data for the editing tabs: the settings row, plus the pending email. The middleware's
+ * getUser already carries `newEmail`; only a session that came from a token refresh lacks it, and then
+ * the auth user is read once more.
+ */
+export async function loadOwnerProfile(env: SupabaseEnv, session: OwnerSession): Promise<OwnerProfileData> {
+  const freshUser: Promise<AuthUser | null> =
+    session.user.newEmail !== undefined
+      ? Promise.resolve(session.user)
+      : getUser(env, session.accessToken).catch(() => null);
+  const [settings, user] = await Promise.all([
+    getMySettings(env, session.accessToken, session.user.id).then(
+      (value) => ({ value, loaded: true }),
+      () => ({ value: { ...DEFAULT_ACCOUNT_SETTINGS }, loaded: false }),
+    ),
+    freshUser,
+  ]);
+  return {
+    settings: settings.value,
+    settingsLoaded: settings.loaded,
+    email: user?.email ?? session.user.email,
+    pendingEmail: user?.newEmail ?? null,
+  };
 }

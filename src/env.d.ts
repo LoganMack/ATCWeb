@@ -32,7 +32,7 @@ type Runtime = import('@astrojs/cloudflare').Runtime<CloudflareRuntimeEnv>;
 // Set by src/middleware.ts from the atc_at/atc_rt cookies. `profile` stays nullable in case a session has no
 // `profiles` row.
 type Session = {
-  user: { id: string; email: string | null };
+  user: import('./lib/auth').AuthUser;
   profile: import('./lib/auth').Profile | null;
   accessToken: string;
 } | null;

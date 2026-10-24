@@ -423,6 +423,28 @@ export async function uploadDriverAvatar(
   return uploadToStorage(env, accessToken, 'photos', `driver-avatars/${driverId}/${Date.now()}.${ext}`, file);
 }
 
+/**
+ * Deletes a profile photo uploadDriverAvatar returned, under the driver's own folder only (the storage
+ * policy "driver delete own avatar" allows nothing else). Used to clean up after a save that failed.
+ */
+export async function deleteDriverAvatar(
+  env: SupabaseEnv,
+  accessToken: string,
+  driverId: string,
+  photoUrl: string,
+): Promise<void> {
+  const prefix = `${env.url}/storage/v1/object/public/photos/`;
+  const path = photoUrl.startsWith(prefix) ? photoUrl.slice(prefix.length) : '';
+  if (!path.startsWith(`driver-avatars/${driverId}/`) || path.includes('..')) {
+    throw new Error('Not a photo in this driver’s avatar folder');
+  }
+  const res = await fetch(`${env.url}/storage/v1/object/photos/${path}`, {
+    method: 'DELETE',
+    headers: { apikey: env.anonKey, Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new Error(`Storage delete failed (${res.status})`);
+}
+
 /** Saves the signed-in user's own bio (and photo, when given) through update_my_driver_profile(), which only touches their own linked driver row. */
 export async function updateMyDriverProfile(
   env: SupabaseEnv,
