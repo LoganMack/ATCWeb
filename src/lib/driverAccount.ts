@@ -30,6 +30,12 @@ import {
   INCIDENT_STATUS_PARAM,
   type IncidentProfileIntent,
 } from './incidentActions/profileIncidents';
+import {
+  handleInterviewProfileIntent,
+  INTERVIEW_PROFILE_INTENTS,
+  INTERVIEW_STATUS_PARAM,
+  type InterviewProfileIntent,
+} from './raceInterviews';
 
 export const DRIVER_ACCOUNT_ERROR_CODES = [
   'NOT_AUTHENTICATED',
@@ -742,6 +748,7 @@ export const PROFILE_INTENTS = [
   'change-email',
   'reset-password',
   ...INCIDENT_PROFILE_INTENTS,
+  ...INTERVIEW_PROFILE_INTENTS,
 ] as const;
 export type ProfileIntent = (typeof PROFILE_INTENTS)[number];
 
@@ -757,6 +764,10 @@ export function resolveProfileIntent(values: unknown[]): ProfileIntent | null {
 
 function isIncidentIntent(intent: ProfileIntent): intent is IncidentProfileIntent {
   return (INCIDENT_PROFILE_INTENTS as readonly string[]).includes(intent);
+}
+
+function isInterviewIntent(intent: ProfileIntent): intent is InterviewProfileIntent {
+  return (INTERVIEW_PROFILE_INTENTS as readonly string[]).includes(intent);
 }
 
 /** True when the request asks for C4's JSON answer instead of a redirect. */
@@ -820,6 +831,24 @@ export async function handleProfilePost(ctx: ProfilePostContext): Promise<Profil
     return {
       kind: 'redirect',
       location: `${profilePath}?edit=1&tab=incidents&${INCIDENT_STATUS_PARAM}=${encodeURIComponent(done.code)}`,
+    };
+  }
+  if (isInterviewIntent(intent)) {
+    const owner = { accessToken: ctx.session.accessToken, userId: ctx.session.user.id };
+    const done = await handleInterviewProfileIntent(intent, ctx.env, owner, ctx.form);
+    if (ctx.json) {
+      const body: InPlaceResult = {
+        ok: done.ok,
+        message: done.message,
+        ...(done.data ? { data: done.data } : {}),
+      };
+      return { kind: 'json', status: done.status, body };
+    }
+    return {
+      kind: 'redirect',
+      location:
+        done.location ??
+        `${profilePath}?edit=1&tab=interviews&${INTERVIEW_STATUS_PARAM}=${encodeURIComponent(done.code)}`,
     };
   }
 

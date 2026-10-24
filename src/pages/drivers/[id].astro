@@ -17,6 +17,12 @@ import IncidentManagementDialogs from '../../components/IncidentManagementDialog
 import { loadIncidentPanel, type IncidentPanelData } from '../../lib/incidents';
 import { incidentStatusMessage, INCIDENT_STATUS_PARAM } from '../../lib/incidentActions/profileIncidents';
 import {
+  interviewStatusMessage,
+  loadMyInterviews,
+  INTERVIEW_STATUS_PARAM,
+  type MyInterviewRow,
+} from '../../lib/raceInterviews';
+import {
   getDriverLastRace,
   resizedImageUrl,
   buildInactivityNote,
@@ -103,7 +109,17 @@ const actionNotices: { email: InPlaceResult | null; password: InPlaceResult | nu
 const incidentDataPromise: Promise<IncidentPanelData | null> =
   isOwner && session ? loadIncidentPanel(supabaseEnv, session.accessToken, driverId) : Promise.resolve(null);
 const incidentNotice = isOwner ? incidentStatusMessage(Astro.url.searchParams.get(INCIDENT_STATUS_PARAM)) : null;
-const activeTab = incidentNotice || Astro.url.searchParams.get('tab') === 'incidents' ? 'tab-incidents' : 'tab-privacy';
+// The Interviews tab (U6): the account's own uploads, read alongside the same loads (NFR3.1, NFR4.3).
+const interviewsPromise: Promise<MyInterviewRow[] | null> =
+  isOwner && session ? loadMyInterviews(supabaseEnv, { accessToken: session.accessToken, userId: session.user.id }) : Promise.resolve(null);
+const interviewNotice = isOwner ? interviewStatusMessage(Astro.url.searchParams.get(INTERVIEW_STATUS_PARAM)) : null;
+const requestedTab = Astro.url.searchParams.get('tab');
+const activeTab =
+  incidentNotice || requestedTab === 'incidents'
+    ? 'tab-incidents'
+    : interviewNotice || requestedTab === 'interviews'
+      ? 'tab-interviews'
+      : 'tab-privacy';
 const startEditing = isOwner && (editingState !== null || Astro.url.searchParams.get('edit') === '1');
 
 let loadError: string | null = null;
@@ -170,7 +186,11 @@ if (!loadError && driver && !privateProfile) {
   }
 }
 
-const [ownerData, incidentData] = await Promise.all([ownerDataPromise, incidentDataPromise]);
+const [ownerData, incidentData, interviewRows] = await Promise.all([
+  ownerDataPromise,
+  incidentDataPromise,
+  interviewsPromise,
+]);
 // For the owner, one form holds the header (photo, bio) and the editing tabs (the five choices), so Save
 // Profile posts them together; the header's Save Profile button is linked to it with form=.
 const ProfileTag = isOwner ? 'form' : 'div';
@@ -338,6 +358,7 @@ if (loadError || isOwner) markUncacheable(Astro);
               viewableIds: incidentData?.detailRows.map((row) => row.id) ?? [],
               notice: incidentNotice,
             }}
+            interviews={{ rows: interviewRows, notice: interviewNotice }}
             activeTab={activeTab}
           />
         )}
@@ -375,6 +396,8 @@ if (loadError || isOwner) markUncacheable(Astro);
     // The Incident Management tab's popups (U5) and its View Incident details popup.
     import '../../scripts/incidentManagement';
     import '../../scripts/incidentDetails';
+    // The Interviews tab's download, confirm popup and in-place delete (U6).
+    import '../../scripts/interviews';
 
     // Keeps the Splits Overall/Class <details> in step: toggling one sets its same-named counterpart. Setting
     // .open to its current value fires no event, so it doesn't loop.

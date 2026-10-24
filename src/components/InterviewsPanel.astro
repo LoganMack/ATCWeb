@@ -1,0 +1,117 @@
+---
+// The own profile's "Interviews" tab (U6; BR12.1, BR12.3, BR12.4, BR12.6-BR12.8; contract C4). Rendered only
+// for the driver themselves, inside the profile form, so every button here is type="button" and posts in
+// place (src/scripts/interviews.ts) with only the intent and the interview id. The confirm popup is a
+// <dialog> with no form of its own, so it can sit inside the profile form.
+import type { MyInterviewRow } from '../lib/raceInterviews';
+import { MY_INTERVIEWS_LIMIT } from '../lib/raceInterviews';
+import { formatDateShort } from '../lib/db/circuits';
+
+interface Props {
+  /** Null when the list couldn't be loaded. */
+  rows: MyInterviewRow[] | null;
+  /** The no-JavaScript fallback's result of a download or delete. */
+  notice: { ok: boolean; message: string } | null;
+}
+
+const { rows, notice } = Astro.props;
+const duration = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+const windowAttr = (open: boolean | null) => (open === null ? 'unknown' : String(open));
+---
+
+<div data-interviews-panel class="flex flex-col gap-3">
+  <p data-interviews-status role="status" class={`text-sm ${notice && !notice.ok ? 'text-brand-pink' : 'text-white/70'}`}>
+    {notice?.message}
+  </p>
+
+  {!rows ? (
+    <p role="alert" class="text-sm text-brand-pink">Couldn't load your interviews. Try again later.</p>
+  ) : (
+    <>
+      <p data-interviews-empty class={rows.length === 0 ? 'text-sm text-white/60' : 'hidden text-sm text-white/60'}>
+        No interviews uploaded yet.
+      </p>
+      {rows.length > 0 && (
+        <div data-interviews-list class="overflow-x-auto">
+          <table class="w-full border-collapse text-xs">
+            <thead>
+              <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/40">
+                <th class="py-2 pl-2 pr-2 font-medium">Round</th>
+                <th class="py-2 pr-2 font-medium">Uploaded</th>
+                <th class="py-2 pr-2 font-medium">Length</th>
+                <th class="py-2 pr-2 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr class="border-b border-white/5" data-interview-row={row.id} data-testid="interview-row">
+                  <td class="py-2 pl-2 pr-2">
+                    <a href={row.roundHref} class="font-semibold text-white/90 hover:text-white">{row.roundLabel}</a>
+                  </td>
+                  <td class="py-2 pr-2 text-white/70">{formatDateShort(row.createdAt)}</td>
+                  <td class="py-2 pr-2 text-white/70 tabular-nums">{duration(row.durationSeconds)}</td>
+                  <td class="py-2 pr-2">
+                    <div class="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        data-interview-download
+                        data-interview-id={row.id}
+                        aria-label={`Download interview for ${row.roundLabel}`}
+                        data-testid="interview-download"
+                      >
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-danger btn-sm"
+                        data-interview-delete
+                        data-interview-id={row.id}
+                        data-round={row.roundLabel}
+                        data-window-open={windowAttr(row.windowOpen)}
+                        aria-label={`Delete interview for ${row.roundLabel}`}
+                        data-testid="interview-delete"
+                      >
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {rows.length >= MY_INTERVIEWS_LIMIT && (
+        <p class="text-xs text-white/40">Showing your {MY_INTERVIEWS_LIMIT} most recent interviews.</p>
+      )}
+    </>
+  )}
+  <p class="text-xs text-white/40">ⓘ Downloads save the original recording. Only you and the admins can see your interviews.</p>
+
+  <dialog
+    data-interview-delete-dialog
+    aria-labelledby="interview-delete-title"
+    class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+    data-testid="interview-delete-dialog"
+  >
+    <div class="flex flex-col gap-4 p-5">
+      <h2 id="interview-delete-title" class="font-display text-2xl">Delete interview?</h2>
+      <p data-interview-delete-text class="text-sm text-white/70"></p>
+      <p data-interview-delete-closed class="hidden text-sm text-white/70"></p>
+      <p data-interview-delete-error role="alert" class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90"></p>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn btn-neutral" data-interview-delete-cancel data-testid="interview-delete-cancel">
+          Cancel
+        </button>
+        <button type="button" class="btn btn-danger" data-interview-delete-confirm data-testid="interview-delete-confirm">
+          Delete
+        </button>
+      </div>
+    </div>
+  </dialog>
+</div>
