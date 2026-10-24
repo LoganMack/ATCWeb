@@ -10,6 +10,22 @@ import type { SupabaseEnv } from './db/client';
 export interface AuthUser {
   id: string;
   email: string | null;
+  /**
+   * The address an email change is waiting to be confirmed for (GoTrue's `new_email`), null when none.
+   * Only getUser reads it; a session from a token refresh leaves it undefined.
+   */
+  newEmail?: string | null;
+}
+
+/** A failed GoTrue request, carrying its HTTP status so callers can tell a rate limit (429) apart. */
+export class AuthRequestError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'AuthRequestError';
+    this.status = status;
+  }
 }
 
 export interface Session {
@@ -219,8 +235,85 @@ export async function requestPasswordReset(
     body: JSON.stringify({ email }),
   });
   if (!res.ok) {
-    throw new Error(goTrueErrorMessage(res.status, await res.text()));
+    throw new AuthRequestError(res.status, goTrueErrorMessage(res.status, await res.text()));
   }
+}
+
+// --- Changing the account's email (U3 profile-settings, BR5.3) ----------------------------------
+
+export const EMAIL_MAX_LENGTH = 254;
+const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** An address as typed, trimmed and lower-cased, or null unless it looks like an email of at most 254 characters. */
+export function normaliseEmail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const email = raw.trim().toLowerCase();
+  if (email.length === 0 || email.length > EMAIL_MAX_LENGTH) return null;
+  return EMAIL_FORMAT.test(email) ? email : null;
+}
+
+export type ChangeEmailCode = 'INVALID' | 'EMAIL_IN_USE' | 'RATE_LIMITED' | 'UNKNOWN';
+export type ChangeEmailResult = { ok: true; email: string } | { ok: false; code: ChangeEmailCode };
+
+/** Maps a GoTrue error response from PUT /auth/v1/user to a code. */
+export function classifyChangeEmailError(status: number, body: string): ChangeEmailCode {
+  const parsed = parseJsonObject(body);
+  const errorCode = typeof parsed?.error_code === 'string' ? parsed.error_code : '';
+  if (status === 429 || errorCode === 'over_email_send_rate_limit') return 'RATE_LIMITED';
+  if (errorCode === 'email_address_invalid') return 'INVALID';
+  if (
+    errorCode === 'email_exists' ||
+    EMAIL_IN_USE_MESSAGE.test(goTrueErrorMessage(status, body))
+  ) {
+    return 'EMAIL_IN_USE';
+  }
+  if (status === 400) return 'INVALID';
+  return 'UNKNOWN';
+}
+
+/** The host of a redirect target, for logs (the full URL holds a driver id; addresses are never logged). */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'invalid';
+  }
+}
+
+/**
+ * Asks GoTrue to change the signed-in user's email. It sends a confirmation link (to the new address, and
+ * to the old one too when the project's "Secure email change" is on); the address changes once confirmed.
+ * `redirectTo` is where the link lands and must be in the project's Redirect URLs allowlist.
+ */
+export async function changeEmail(
+  env: SupabaseEnv,
+  accessToken: string,
+  rawEmail: string,
+  redirectTo: string,
+): Promise<ChangeEmailResult> {
+  const email = normaliseEmail(rawEmail);
+  if (!email) return { ok: false, code: 'INVALID' };
+  const url = new URL(`${env.url}/auth/v1/user`);
+  url.searchParams.set('redirect_to', redirectTo);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'PUT',
+      headers: authHeaders(env, accessToken),
+      body: JSON.stringify({ email }),
+    });
+  } catch {
+    console.error('change-email failed', 'UNKNOWN');
+    return { ok: false, code: 'UNKNOWN' };
+  }
+  if (!res.ok) {
+    const code = classifyChangeEmailError(res.status, await res.text());
+    console.error('change-email failed', code);
+    return { ok: false, code };
+  }
+  // The redirect host is logged so a link landing on the wrong site can be matched to the allowlist.
+  console.info('change-email sent', hostOf(redirectTo));
+  return { ok: true, email };
 }
 
 /**
@@ -277,8 +370,8 @@ export async function getUser(env: SupabaseEnv, accessToken: string): Promise<Au
     headers: authHeaders(env, accessToken),
   });
   if (!res.ok) return null;
-  const data = (await res.json()) as { id: string; email: string | null };
-  return { id: data.id, email: data.email };
+  const data = (await res.json()) as { id: string; email: string | null; new_email?: string | null };
+  return { id: data.id, email: data.email, newEmail: data.new_email || null };
 }
 
 /** Fetch a profile row. Uses the caller's own access token, so RLS decides what's visible. */

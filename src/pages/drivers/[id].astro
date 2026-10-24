@@ -12,17 +12,26 @@ import DriverFlag from '../../components/DriverFlag.astro';
 import { resolveSupabaseEnv, getDriverProfileById } from '../../lib/db/client';
 import { getSiteSettings } from '../../lib/db/assets';
 import { getEvents } from '../../lib/db/events';
+import ProfileSettingsTabs from '../../components/ProfileSettingsTabs.astro';
 import {
   getDriverLastRace,
   resizedImageUrl,
   buildInactivityNote,
   roundsSinceDate,
-  uploadDriverAvatar,
-  updateMyDriverProfile,
   DRIVER_BIO_MAX,
   DRIVER_AVATAR_MAX_BYTES,
   DRIVER_AVATAR_TYPES,
 } from '../../lib/db/drivers';
+import {
+  handleProfilePost,
+  inPlaceStatusMessage,
+  loadOwnerProfile,
+  wantsJson,
+  IN_PLACE_STATUS_PARAMS,
+  type InPlaceResult,
+  type OwnerProfileData,
+  type ProfileEditingState,
+} from '../../lib/driverAccount';
 import { displayDriverName } from '../../lib/db/circuits';
 import { getSeasons } from '../../lib/db/seasons';
 import { getTeamRosterWithTeamsForSeason } from '../../lib/db/teams';
@@ -46,42 +55,45 @@ const driverId = String(Astro.params.id ?? '');
 const session = Astro.locals.session;
 const isOwner = Boolean(session && session.profile?.driver_id && session.profile.driver_id === driverId);
 
+// Owner-only intents (src/lib/driverAccount.ts handleProfilePost): save-profile re-renders in editing mode on
+// failure, keeping the typed bio and choices; change-email and reset-password answer in place with JSON, or
+// redirect with a status when the browser didn't ask for JSON.
+let editingState: ProfileEditingState | null = null;
 if (Astro.request.method === 'POST') {
-  const back = (code: string) => Astro.redirect(`/drivers/${driverId}?${code}`, 303);
-  if (!isOwner || !session) return Astro.redirect(`/drivers/${driverId}`, 303);
-  try {
-    const form = await Astro.request.formData();
-    const bio = String(form.get('bio') ?? '').trim();
-    if (bio.length > DRIVER_BIO_MAX) return back('profile_error=bio-too-long');
-
-    let photoUrl: string | undefined;
-    const photo = form.get('photo');
-    if (photo instanceof File && photo.size > 0) {
-      if (!DRIVER_AVATAR_TYPES[photo.type]) return back('profile_error=photo-type');
-      if (photo.size > DRIVER_AVATAR_MAX_BYTES) return back('profile_error=photo-size');
-      photoUrl = await uploadDriverAvatar(supabaseEnv, session.accessToken, driverId, photo);
-    }
-    await updateMyDriverProfile(supabaseEnv, session.accessToken, { bio: bio || null, photoUrl });
-    return back('saved=1');
-  } catch (err) {
-    console.error('Failed to save driver profile:', err);
-    return back('profile_error=failed');
+  const outcome = await handleProfilePost({
+    env: supabaseEnv,
+    session,
+    isOwner,
+    driverId,
+    origin: Astro.url.origin,
+    json: wantsJson(Astro.request.headers.get('accept')),
+    form: await Astro.request.formData(),
+  });
+  if (outcome.kind === 'redirect') return Astro.redirect(outcome.location, 303);
+  if (outcome.kind === 'json') {
+    return new Response(JSON.stringify(outcome.body), {
+      status: outcome.status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    });
   }
+  editingState = outcome.editing;
+  Astro.response.status = outcome.status;
 }
 
-const PROFILE_ERRORS: Record<string, string> = {
-  'bio-too-long': `Your bio can be at most ${DRIVER_BIO_MAX} characters.`,
-  'photo-type': 'Profile photos must be PNG, JPG or WebP images.',
-  'photo-size': `Profile photos can be at most ${DRIVER_AVATAR_MAX_BYTES / 1024 / 1024} MB.`,
-  failed: "Couldn't save your profile. Try again in a moment.",
+const profileFlash: { kind: 'ok' | 'error'; message: string } | null =
+  isOwner && !editingState && Astro.url.searchParams.get('saved') ? { kind: 'ok', message: 'Profile saved.' } : null;
+
+// The editing tabs' data, read only for the owner, alongside the loads below, and never cached (BR5.2,
+// NFR2.1, NFR3.1).
+const ownerDataPromise: Promise<OwnerProfileData | null> =
+  isOwner && session ? loadOwnerProfile(supabaseEnv, session) : Promise.resolve(null);
+const actionNotices: { email: InPlaceResult | null; password: InPlaceResult | null } = {
+  email: isOwner ? inPlaceStatusMessage('change-email', Astro.url.searchParams.get(IN_PLACE_STATUS_PARAMS['change-email'])) : null,
+  password: isOwner
+    ? inPlaceStatusMessage('reset-password', Astro.url.searchParams.get(IN_PLACE_STATUS_PARAMS['reset-password']))
+    : null,
 };
-const profileFlash: { kind: 'ok' | 'error'; message: string } | null = !isOwner
-  ? null
-  : Astro.url.searchParams.get('saved')
-    ? { kind: 'ok', message: 'Profile updated.' }
-    : PROFILE_ERRORS[Astro.url.searchParams.get('profile_error') ?? '']
-      ? { kind: 'error', message: PROFILE_ERRORS[Astro.url.searchParams.get('profile_error') ?? ''] }
-      : null;
+const startEditing = isOwner && (editingState !== null || Astro.url.searchParams.get('edit') === '1');
 
 let loadError: string | null = null;
 let driver: Awaited<ReturnType<typeof getDriverProfileById>> = null;
@@ -143,7 +155,25 @@ if (!loadError && driver) {
   }
 }
 
-const HeaderTag = isOwner ? 'form' : 'div';
+const ownerData = await ownerDataPromise;
+// For the owner, one form holds the header (photo, bio) and the editing tabs (the five choices), so Save
+// Profile posts them together; the header's Save Profile button is linked to it with form=.
+const ProfileTag = isOwner ? 'form' : 'div';
+const profileFormAttrs = isOwner
+  ? {
+      id: 'driver-profile-form',
+      method: 'post',
+      enctype: 'multipart/form-data',
+      // The server checks every field; browser validation of the email box must not block Save Profile.
+      novalidate: '',
+      'data-profile-form': '',
+      'data-bio-max': String(DRIVER_BIO_MAX),
+      'data-avatar-max-bytes': String(DRIVER_AVATAR_MAX_BYTES),
+      'data-avatar-types': Object.keys(DRIVER_AVATAR_TYPES).join(','),
+      ...(startEditing ? { 'data-start-editing': '' } : {}),
+    }
+  : {};
+const bioValue = editingState ? editingState.bio : (driver?.bio ?? '');
 const displayName = driver ? displayDriverName(driver.name) : '';
 const photoUrl = driver ? resizedImageUrl(driver.photo_url, { width: 320 }) : null;
 const statusName = driver?.driver_statuses?.name ?? '—';
@@ -153,7 +183,8 @@ const fragmentUrl =
   !loadError && driver ? `/drivers/${driverId}/fragment?hof=${driver.is_hall_of_fame ? 1 : 0}` : undefined;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-if (loadError) markUncacheable(Astro);
+// After the shared header, so no-store wins: a failed load, and every owner render (the editing tabs).
+if (loadError || isOwner) markUncacheable(Astro);
 ---
 
 <Layout title={driver ? displayName : 'Driver'} description={driver ? `${displayName}'s driver profile, stats, and race history.` : 'Driver profile.'} preloadFragment={fragmentUrl}>
@@ -167,10 +198,13 @@ if (loadError) markUncacheable(Astro);
             {profileFlash.message}
           </p>
         )}
-        <!-- Header. For the driver themselves this is a form: the nav's Edit button switches it into edit mode (see the script below). -->
-        <HeaderTag
+        <!-- For the driver themselves the header and the editing tabs sit in one form: the nav's Edit Profile
+             button switches it into editing mode (src/scripts/profileEditing.ts). -->
+        <ProfileTag {...profileFormAttrs}>
+        {isOwner && <input type="hidden" name="intent" value="save-profile" />}
+        {isOwner && ownerData?.settingsLoaded && <input type="hidden" name="settings_loaded" value="1" />}
+        <div
           class="reveal relative grid gap-6 rounded-xl border border-white/10 bg-brand-ink p-6 sm:grid-cols-[176px_1fr] sm:p-8"
-          {...(isOwner ? { method: 'post', enctype: 'multipart/form-data', 'data-profile-form': '' } : {})}
         >
           <!-- Activity status, top right; hidden on mobile (Logan), where the name column has no gutter for it
                (sm:pr-32). -->
@@ -253,20 +287,29 @@ if (loadError) markUncacheable(Astro);
                     data-bio-input
                     placeholder="Tell people a bit about yourself…"
                     class="w-full rounded-md border border-white/15 bg-transparent px-3 py-2 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
-                  >{driver.bio ?? ''}</textarea>
+                  >{bioValue}</textarea>
                 </label>
                 <div class="mt-1 flex items-center justify-between gap-3 text-xs text-white/40">
                   <span data-photo-error class="text-brand-pink"></span>
                   <span><span data-bio-count>0</span> / {DRIVER_BIO_MAX}</span>
                 </div>
-                <div class="mt-4 flex gap-2">
-                  <button type="submit" class="btn btn-primary">Save</button>
-                  <button type="button" data-profile-cancel class="btn btn-neutral">Cancel</button>
-                </div>
               </div>
             )}
           </div>
-        </HeaderTag>
+        </div>
+
+        {isOwner && ownerData && (
+          <ProfileSettingsTabs
+            email={ownerData.email}
+            pendingEmail={ownerData.pendingEmail}
+            settings={editingState?.settings ?? ownerData.settings}
+            settingsLoaded={ownerData.settingsLoaded}
+            saveError={editingState?.error ?? null}
+            emailNotice={actionNotices.email}
+            passwordNotice={actionNotices.password}
+          />
+        )}
+        </ProfileTag>
 
         <!-- The tables come from drivers/[id]/fragment.astro; Hall of Fame status is passed as a query
              param. -->
@@ -291,6 +334,8 @@ if (loadError) markUncacheable(Astro);
 
   <script>
     import { bindFragment } from '../../scripts/fragmentLoader';
+    // Own-profile editing: editing mode, the tabs, Save Profile / Cancel and the in-place email actions.
+    import '../../scripts/profileEditing';
 
     // Keeps the Splits Overall/Class <details> in step: toggling one sets its same-named counterpart. Setting
     // .open to its current value fires no event, so it doesn't loop.
@@ -330,91 +375,6 @@ if (loadError) markUncacheable(Astro);
         '<div class="rounded-xl border border-white/10 bg-brand-ink p-4"><h2 class="font-display text-2xl">Awards</h2><p class="mt-3 text-sm text-white/60">Couldn’t load this driver’s awards right now — try refreshing the page.</p></div>',
     });
     document.addEventListener('astro:page-load', initSplitsSync);
-
-    // Own-profile editing. The nav's Edit button (only rendered on your own driver
-    // page) toggles the header between view and edit mode; delegated listeners on
-    // `document` so it keeps working across page swaps without rebinding.
-    const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-    const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
-
-    function profileForm(): HTMLFormElement | null {
-      return document.querySelector<HTMLFormElement>('form[data-profile-form]');
-    }
-    function updateBioCount(form: HTMLFormElement) {
-      const input = form.querySelector<HTMLTextAreaElement>('[data-bio-input]');
-      const count = form.querySelector<HTMLElement>('[data-bio-count]');
-      if (!input || !count) return;
-      count.textContent = String(input.value.length);
-      count.classList.toggle('text-brand-pink', input.value.length > input.maxLength);
-    }
-    function setProfileEditing(form: HTMLFormElement, editing: boolean) {
-      form.querySelectorAll<HTMLElement>('[data-edit-only]').forEach((el) => {
-        el.classList.toggle('hidden', !editing);
-        // The photo overlay is a flex box when shown, everything else is block.
-        if (el.tagName === 'LABEL') el.classList.toggle('flex', editing);
-      });
-      form.querySelectorAll<HTMLElement>('[data-view-only]').forEach((el) => el.classList.toggle('hidden', editing));
-      document.querySelectorAll<HTMLElement>('[data-profile-edit-toggle]').forEach((b) => b.setAttribute('aria-pressed', String(editing)));
-      form.dataset.editing = editing ? 'true' : 'false';
-      if (editing) updateBioCount(form);
-    }
-    function resetProfileForm(form: HTMLFormElement) {
-      form.reset();
-      const preview = form.querySelector<HTMLImageElement>('[data-photo-preview]');
-      if (preview) {
-        if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
-        preview.removeAttribute('src');
-        preview.classList.add('hidden');
-      }
-      const err = form.querySelector<HTMLElement>('[data-photo-error]');
-      if (err) err.textContent = '';
-    }
-
-    document.addEventListener('click', (e) => {
-      const target = e.target as HTMLElement;
-      const form = profileForm();
-      if (!form) return;
-      if (target.closest('[data-profile-edit-toggle]')) {
-        const next = form.dataset.editing !== 'true';
-        if (!next) resetProfileForm(form);
-        setProfileEditing(form, next);
-        return;
-      }
-      if (target.closest('[data-profile-cancel]')) {
-        resetProfileForm(form);
-        setProfileEditing(form, false);
-      }
-    });
-    document.addEventListener('input', (e) => {
-      const input = (e.target as HTMLElement).closest<HTMLTextAreaElement>('[data-bio-input]');
-      const form = input?.closest<HTMLFormElement>('form[data-profile-form]');
-      if (form) updateBioCount(form);
-    });
-    document.addEventListener('change', (e) => {
-      const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-photo-input]');
-      const form = input?.closest<HTMLFormElement>('form[data-profile-form]');
-      if (!input || !form) return;
-      const err = form.querySelector<HTMLElement>('[data-photo-error]');
-      const preview = form.querySelector<HTMLImageElement>('[data-photo-preview]');
-      const file = input.files?.[0];
-      if (err) err.textContent = '';
-      if (!file) return;
-      if (!AVATAR_TYPES.includes(file.type)) {
-        if (err) err.textContent = 'Photos must be PNG, JPG or WebP.';
-        input.value = '';
-        return;
-      }
-      if (file.size > AVATAR_MAX_BYTES) {
-        if (err) err.textContent = 'Photos can be at most 5 MB.';
-        input.value = '';
-        return;
-      }
-      if (preview) {
-        if (preview.src.startsWith('blob:')) URL.revokeObjectURL(preview.src);
-        preview.src = URL.createObjectURL(file);
-        preview.classList.remove('hidden');
-      }
-    });
 
     // The tab switch is a delegated listener here in the shell: the fragment's buttons don't exist yet, and
     // its scripts never run. Bound once at module scope.

@@ -164,10 +164,25 @@ const links: NavLink[] = [
         // Icon-only for a signed-in driver; "My Profile" shows on hover/keyboard focus (same tooltip look as the results page's icon buttons).
         <span class="group relative">
           {onOwnProfile ? (
-            <button type="button" data-profile-edit-toggle aria-pressed="false" class="btn btn-primary !px-2.5" aria-label="Edit Profile">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+            // Edit Profile; in editing mode the same button becomes Save Profile (BR4.1), driven by
+            // src/scripts/profileEditing.ts, and posts the profile form it names.
+            <button
+              type="button"
+              form="driver-profile-form"
+              data-profile-edit-toggle
+              aria-pressed="false"
+              class="btn btn-primary !px-2.5"
+              aria-label="Edit Profile"
+              data-testid="nav-profile-edit-toggle"
+            >
+              <svg data-profile-icon-edit xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
                 <path d="M12 20h9" />
                 <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+              </svg>
+              <svg data-profile-icon-save xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden h-5 w-5" aria-hidden="true">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
               </svg>
             </button>
           ) : (
@@ -178,7 +193,7 @@ const links: NavLink[] = [
               </svg>
             </a>
           )}
-          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">{onOwnProfile ? 'Edit Profile' : 'My Profile'}</span>
+          <span data-profile-edit-tooltip class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">{onOwnProfile ? 'Edit Profile' : 'My Profile'}</span>
         </span>
       ) : !needsDriverLink ? (
         // Signed out: the same static link for every visitor, so cached anonymous pages stay valid;
@@ -205,6 +220,19 @@ const links: NavLink[] = [
             <span data-link-driver-dot class="absolute -right-1 -top-1 rounded-full bg-brand-ink p-0.5" aria-hidden="true"><span class="block h-2.5 w-2.5 rounded-full bg-brand-pink"></span></span>
           </a>
           <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">My Profile · Link your driver</span>
+        </span>
+      )}
+
+      {onOwnProfile && (
+        // Cancel, shown beside Save Profile only while editing (BR4.1, BR4.4).
+        <span data-profile-cancel-wrap class="group relative hidden">
+          <button type="button" data-profile-cancel class="btn btn-neutral !px-2.5" aria-label="Cancel" data-testid="nav-profile-cancel">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="h-5 w-5" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Cancel</span>
         </span>
       )}
 

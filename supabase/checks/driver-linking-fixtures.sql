@@ -423,6 +423,10 @@ begin
   perform driver_link_fixture.claims('eeeeeeee-0000-0000-0000-000000000401');
   v_empty := driver_link_fixture.error_state(format($q$select public.reject_signup_request(%L, '   ')$q$, v_id));
   perform public.reject_signup_request(v_id, 'Use your full name');
+  -- Both requests share one transaction's now(), so age the first one to keep "latest" deterministic.
+  reset role;
+  update public.signup_requests set created_at = created_at - interval '1 minute' where id = v_id;
+  set local role authenticated;
   perform driver_link_fixture.claims('eeeeeeee-0000-0000-0000-000000000403');
   v_state := public.my_link_state();
   perform public.submit_driver_request('Nico Newman', 55, 123456);
