@@ -1,5 +1,6 @@
 import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './client';
 import { memoized } from '../requestMemo';
+import { HIDDEN_DRIVER_NAME } from '../privacy';
 
 // ---------------------------------------------------------------------------
 // CALENDAR — circuits + events
@@ -199,6 +200,8 @@ export function displayDriverName(name: string): string {
  * the surname. For the Standings Matrix's narrow Driver column.
  */
 export function shortDriverName(name: string): string {
+  // The masked views' stand-in name stays whole, not "H. Driver" (U4).
+  if (name === HIDDEN_DRIVER_NAME) return name;
   const parts = displayDriverName(name).trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '';
   if (parts.length === 1) return parts[0];
@@ -231,7 +234,7 @@ export function formatDateShort(dateInput: string | null): string {
 export function getCircuitLayouts(env: SupabaseEnv, circuitId: string) {
   return restGet<CircuitLayout[]>(
     env,
-    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&circuit_id=eq.${encodeURIComponent(circuitId)}&order=name.asc`,
+    `circuit_layouts_shown?select=${CIRCUIT_LAYOUT_SELECT}&circuit_id=eq.${encodeURIComponent(circuitId)}&order=name.asc`,
   );
 }
 
@@ -240,7 +243,7 @@ export function getAllCircuitLayouts(env: SupabaseEnv) {
   return memoized(env, 'getAllCircuitLayouts', [], () =>
     restGet<CircuitLayout[]>(
       env,
-      `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`,
+      `circuit_layouts_shown?select=${CIRCUIT_LAYOUT_SELECT}&order=circuit_id.asc,name.asc`,
     ),
   );
 }
@@ -249,7 +252,7 @@ export function getAllCircuitLayouts(env: SupabaseEnv) {
 export async function getCircuitLayoutById(env: SupabaseEnv, id: string) {
   const rows = await restGet<CircuitLayout[]>(
     env,
-    `circuit_layouts?select=${CIRCUIT_LAYOUT_SELECT}&id=eq.${encodeURIComponent(id)}`,
+    `circuit_layouts_shown?select=${CIRCUIT_LAYOUT_SELECT}&id=eq.${encodeURIComponent(id)}`,
   );
   return rows[0] ?? null;
 }

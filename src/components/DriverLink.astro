@@ -3,11 +3,16 @@
  * A driver's name linking to /drivers/:id, styled to look exactly like the surrounding text (`.driver-link`).
  * Public pages only; never nest it inside another link or a button.
  */
+import { driverHref } from '../lib/privacy';
+
 export interface Props {
   /** The driver's id (drivers.id). With no id there's nothing to link to, so the name renders as plain text. */
   id: string | null | undefined;
+  /** drivers_shown.is_hidden (U4): a hidden driver's name renders as plain text with no profile link. */
+  hidden?: boolean | null;
 }
-const { id } = Astro.props;
+const { id, hidden } = Astro.props;
+const href = driverHref({ id, is_hidden: hidden });
 ---
 
-{id ? <a href={`/drivers/${id}`} class="driver-link" title="Click to view profile"><slot /></a> : <slot />}
+{href ? <a href={href} class="driver-link" title="Click to view profile"><slot /></a> : <slot />}

@@ -44,13 +44,14 @@ describe("the driver fragments' 404 for an unknown driver", () => {
     const tables = stubEmpty();
     expect(await loadDriverAwards(env, UNKNOWN)).toMatchObject({ notFound: true, loadError: null });
     expect((await loadDriverPage(env, UNKNOWN)).notFound).toBe(true);
-    expect(tables).toContain('drivers');
+    // The driver check reads the masked view (U4).
+    expect(tables).toContain('drivers_shown');
     // The heavy reads: every score row (awards history, race history), the stored stats, the incidents.
     for (const heavy of [
       'race_score_results_public',
-      'curated_race_results',
+      'curated_race_results_shown',
       'round_driver_stats',
-      'penalties',
+      'penalties_shown',
     ]) {
       expect(tables, heavy).not.toContain(heavy);
     }

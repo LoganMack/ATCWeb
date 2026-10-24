@@ -1,0 +1,20 @@
+---
+/**
+ * The only thing a private driver profile shows an unprivileged viewer (U4 BR9.11): the notice and a way to
+ * become privileged (log in, or link a driver). Renders none of the profile's data.
+ */
+import { privateProfileAction } from '../lib/privacy';
+
+export interface Props {
+  driverId: string;
+  signedIn: boolean;
+  class?: string;
+}
+const { driverId, signedIn, class: className = '' } = Astro.props;
+const action = privateProfileAction(driverId, signedIn);
+---
+
+<div class={`rounded-xl border border-white/10 bg-brand-ink p-6 sm:p-8 ${className}`} data-private-profile>
+  <p class="text-sm text-white/70">This driver's profile is private.</p>
+  <a href={action.href} class="btn btn-primary mt-4">{action.label}</a>
+</div>

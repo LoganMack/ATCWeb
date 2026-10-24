@@ -9,14 +9,24 @@ import TeamLogo from '../../../../components/TeamLogo.astro';
 import { resolveSupabaseEnv } from '../../../../lib/db/client';
 import { formatDateShort } from '../../../../lib/db/circuits';
 import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../../../../lib/results/raceHistory';
+import { findProfileDriver } from '../../../../lib/driverPage/load';
+import { isProfilePrivate } from '../../../../lib/privacy';
+import PrivateProfileNotice from '../../../../components/PrivateProfileNotice.astro';
 
 const { seasonId = '', driverId = '' } = Astro.params;
 const classId = Number(Astro.url.searchParams.get('class'));
 
 let rows: DriverRaceHistoryRow[] = [];
 let loadError: string | null = null;
+let privateProfile = false;
 try {
-  const history = await getDriverRaceHistory(resolveSupabaseEnv(Astro.locals), driverId);
+  const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+  // The driver check replaces getDriverRaceHistory's own read of the customer id, so no call is added. A
+  // private profile (U4 BR9.11) shows only the notice; an unknown driver has no results.
+  const driver = await findProfileDriver(supabaseEnv, driverId);
+  privateProfile = isProfilePrivate(driver);
+  const history =
+    driver && !privateProfile ? await getDriverRaceHistory(supabaseEnv, driverId, driver.iracing_cust_id) : [];
   rows = history
     .filter((r) => r.season?.id === seasonId && (!Number.isFinite(classId) || classId <= 0 || r.classId === classId))
     .sort((a, b) => a.startTime.localeCompare(b.startTime) || a.raceNumber - b.raceNumber);
@@ -35,7 +45,9 @@ if (loadError) markUncacheable(Astro);
 
 {loadError && <LoadError class="mt-0 text-xs" />}
 
-{!loadError && rows.length === 0 && <p class="text-xs text-white/40">No race results on file for this season.</p>}
+{privateProfile && <PrivateProfileNotice driverId={driverId} signedIn={Boolean(Astro.locals.session)} />}
+
+{!loadError && !privateProfile && rows.length === 0 && <p class="text-xs text-white/40">No race results on file for this season.</p>}
 
 {!loadError && rows.length > 0 && (
   <div data-sticky-thead>

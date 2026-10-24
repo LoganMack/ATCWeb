@@ -6,6 +6,7 @@
  */
 
 import type { RequestMemo } from '../requestMemo';
+import privacyReads from '../privacyReads.json';
 
 export interface SupabaseEnv {
   url: string;
@@ -16,9 +17,9 @@ export interface SupabaseEnv {
    */
   hiddenSubsessionIds?: number[];
   /**
-   * A signed-in user's JWT for restGet/restGetAll, so reads run under that
-   * user's RLS instead of the anon key's. Only set on admin paths that must
-   * see unposted rounds' penalties (0112) — see withAccessToken.
+   * A signed-in user's JWT for restGet/restGetAll, so reads run under that user's RLS instead of the anon
+   * key's. resolveSupabaseEnv sets it on every signed-in request, so the masked *_shown views return real
+   * names to admins and linked drivers (U4, BR9.13); signed-in responses are never edge-cached.
    */
   accessToken?: string;
   /** The request's memo (src/lib/requestMemo.ts), set by the middleware; reference reads go through it. */
@@ -41,8 +42,12 @@ const SUBSESSION_KEYED_TABLES = new Set([
   'curated_race_results',
   'curated_qualifying',
   'curated_practice_results',
+  'curated_race_results_shown',
+  'curated_qualifying_shown',
+  'curated_practice_results_shown',
   'race_score_results_public',
   'penalties',
+  'penalties_shown',
   'race_links',
   'round_overrides',
   'manual_result_imports',
@@ -60,12 +65,18 @@ export function withHiddenRounds(env: SupabaseEnv, path: string): string {
   return path.includes('?') ? `${path}&${filter}` : `${path}?${filter}`;
 }
 
+/**
+ * The request's read env. A signed-in request reads with its own token (BR9.13), except an admin's "View as
+ * Visitor" render outside /admin (`readAsVisitor`, set by src/middleware.ts), which reads as a visitor does.
+ */
 export function resolveSupabaseEnv(locals: App.Locals): SupabaseEnv {
   const runtimeEnv = (locals as { runtime?: { env?: Record<string, string> } } | undefined)?.runtime?.env;
+  const sessionToken = locals?.session?.accessToken;
   return {
     url: runtimeEnv?.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL,
     anonKey: runtimeEnv?.PUBLIC_SUPABASE_ANON_KEY || import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
     hiddenSubsessionIds: locals?.broadcasterHiddenSubsessionIds,
+    accessToken: sessionToken && !locals?.readAsVisitor ? sessionToken : undefined,
     memo: locals?.memo,
     subrequests: locals?.subrequestCounter,
   };
@@ -73,7 +84,7 @@ export function resolveSupabaseEnv(locals: App.Locals): SupabaseEnv {
 
 /**
  * The same env, but reads go out as this user (their RLS applies). Admin-only paths, never on publicly cached
- * pages. The memo is dropped: its entries were read as a visitor.
+ * pages. The memo is dropped, since its entries may have been read with another token.
  */
 export function withAccessToken(env: SupabaseEnv, accessToken: string): SupabaseEnv {
   return { ...env, accessToken, memo: undefined };
@@ -177,6 +188,8 @@ export interface Driver {
   /** ISO 3166-1 alpha-2 codes (lowercase), 0029_driver_nationality.sql — see src/components/DriverFlag.astro. */
   nationality_1: string | null;
   nationality_2: string | null;
+  /** drivers_shown (U4): the name reads "Hidden Driver"; render no profile link (src/lib/privacy.ts). */
+  is_hidden?: boolean;
 }
 
 export interface NewsPost {
@@ -204,13 +217,11 @@ export interface NewsPost {
  * rows exist only for exhibition results.
  */
 export function getDrivers(env: SupabaseEnv, { aiOnly = false }: { aiOnly?: boolean } = {}) {
-  const select =
-    'id,car_number,name,is_rookie,car,appearances,starts,seasons_count,' +
-    'penalty_points,penalty_points_max,sign_up_date,on_probation,probation_started_at,nationality_1,nationality_2,' +
-    'driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)';
+  // The masked view (U4); the select string is shared with the CI embed check (privacyReads.json).
+  const { path, select } = privacyReads.driverList;
   return restGet<Driver[]>(
     env,
-    `drivers?select=${encodeURIComponent(select)}&is_ai=eq.${aiOnly}&order=car_number.asc.nullslast`,
+    `${path}?select=${encodeURIComponent(select)}&is_ai=eq.${aiOnly}&order=car_number.asc.nullslast`,
   );
 }
 
@@ -235,16 +246,17 @@ export interface DriverProfile {
   driver_statuses: { name: string } | null;
   driver_classes: { name: string } | null;
   teams: { id: string; name: string; primary_color_hex: string | null; logo_url: string | null } | null;
+  /** drivers_shown (U4): name, photo, bio and customer id are masked for this caller. */
+  is_hidden?: boolean;
+  /** drivers_shown (U4): the page shows only the private profile notice and loads nothing else (BR9.11). */
+  profile_private?: boolean;
 }
 
-const DRIVER_PROFILE_SELECT =
-  'id,car_number,name,is_rookie,car,bio,photo_url,is_hall_of_fame,sign_up_date,on_probation,probation_started_at,' +
-  'nationality_1,nationality_2,driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(id,name,primary_color_hex,logo_url)';
-
 export async function getDriverProfileById(env: SupabaseEnv, id: string): Promise<DriverProfile | null> {
+  const { path, select } = privacyReads.driverProfile;
   const drivers = await restGet<DriverProfile[]>(
     env,
-    `drivers?select=${encodeURIComponent(DRIVER_PROFILE_SELECT)}&id=eq.${encodeURIComponent(id)}&is_ai=eq.false`,
+    `${path}?select=${encodeURIComponent(select)}&id=eq.${encodeURIComponent(id)}&is_ai=eq.false`,
   );
   return drivers[0] ?? null;
 }
@@ -259,14 +271,14 @@ export function getNewsPosts(env: SupabaseEnv, limit?: number) {
     order: 'published_at.desc',
   });
   if (limit) params.set('limit', String(limit));
-  return restGet<NewsPost[]>(env, `news_posts?${params.toString()}`);
+  return restGet<NewsPost[]>(env, `news_posts_shown?${params.toString()}`);
 }
 
 /** A single published news post by slug. */
 export async function getNewsPostBySlug(env: SupabaseEnv, slug: string): Promise<NewsPost | null> {
   const posts = await restGet<NewsPost[]>(
     env,
-    `news_posts?select=${NEWS_PUBLIC_SELECT}&slug=eq.${encodeURIComponent(slug)}&limit=1`,
+    `news_posts_shown?select=${NEWS_PUBLIC_SELECT}&slug=eq.${encodeURIComponent(slug)}&limit=1`,
   );
   return posts[0] ?? null;
 }

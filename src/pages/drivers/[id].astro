@@ -33,6 +33,8 @@ import {
   type ProfileEditingState,
 } from '../../lib/driverAccount';
 import { displayDriverName } from '../../lib/db/circuits';
+import { driverInitialBadge, driverPhoto, isProfilePrivate } from '../../lib/privacy';
+import PrivateProfileNotice from '../../components/PrivateProfileNotice.astro';
 import { getSeasons } from '../../lib/db/seasons';
 import { getTeamRosterWithTeamsForSeason } from '../../lib/db/teams';
 import { getOfficialRoundStartTimes } from '../../lib/results/rounds';
@@ -111,10 +113,14 @@ if (!loadError && !driver) {
   return Astro.redirect('/roster', 302);
 }
 
+// Private for this viewer (U4 BR9.11, Q3 B): only the notice renders, and nothing else is read. The owner and
+// other privileged viewers never get profile_private from drivers_shown.
+const privateProfile = !loadError && isProfilePrivate(driver);
+
 let onProbationNow = false;
 let statusTooltip: string | undefined;
 
-if (!loadError && driver) {
+if (!loadError && driver && !privateProfile) {
   try {
     const [settings, events, officialRounds, lastRace, seasons] = await Promise.all([
       getSiteSettings(supabaseEnv),
@@ -175,23 +181,34 @@ const profileFormAttrs = isOwner
   : {};
 const bioValue = editingState ? editingState.bio : (driver?.bio ?? '');
 const displayName = driver ? displayDriverName(driver.name) : '';
-const photoUrl = driver ? resizedImageUrl(driver.photo_url, { width: 320 }) : null;
+const photoUrl = driver ? resizedImageUrl(driverPhoto(driver), { width: 320 }) : null;
+const photoBadge = driver ? driverInitialBadge({ ...driver, name: displayName }) : '';
 const statusName = driver?.driver_statuses?.name ?? '—';
 const className = driver?.driver_classes?.name ?? '';
 // One string for both the preload hint and the loader, so the preloaded response is the one it fetches.
 const fragmentUrl =
-  !loadError && driver ? `/drivers/${driverId}/fragment?hof=${driver.is_hall_of_fame ? 1 : 0}` : undefined;
+  !loadError && driver && !privateProfile
+    ? `/drivers/${driverId}/fragment?hof=${driver.is_hall_of_fame ? 1 : 0}`
+    : undefined;
+const pageTitle = privateProfile ? 'Private profile' : driver ? displayName : 'Driver';
+const pageDescription = privateProfile
+  ? 'A driver profile.'
+  : driver
+    ? `${displayName}'s driver profile, stats, and race history.`
+    : 'Driver profile.';
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 // After the shared header, so no-store wins: a failed load, and every owner render (the editing tabs).
 if (loadError || isOwner) markUncacheable(Astro);
 ---
 
-<Layout title={driver ? displayName : 'Driver'} description={driver ? `${displayName}'s driver profile, stats, and race history.` : 'Driver profile.'} preloadFragment={fragmentUrl}>
+<Layout title={pageTitle} description={pageDescription} preloadFragment={fragmentUrl}>
   <section class="relative mx-auto max-w-7xl px-6 pb-24 pt-8">
     {loadError && <LoadError class="mt-0" />}
 
-    {!loadError && driver && (
+    {privateProfile && <PrivateProfileNotice driverId={driverId} signedIn={Boolean(session)} class="reveal" />}
+
+    {!loadError && driver && !privateProfile && (
       <>
         {profileFlash && (
           <p class={`mb-4 rounded-lg border p-3 text-sm text-white/80 ${profileFlash.kind === 'ok' ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}>
@@ -232,7 +249,7 @@ if (loadError || isOwner) markUncacheable(Astro);
               <img src={photoUrl} alt={displayName} class="h-full w-full rounded-xl object-cover" />
             ) : (
               <div class="flex h-full w-full items-center justify-center rounded-xl bg-white/5 font-display text-5xl text-white/20">
-                {driver.car_number !== null ? `#${driver.car_number}` : displayName.charAt(0)}
+                {photoBadge}
               </div>
             )}
             {isOwner && (

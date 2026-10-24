@@ -16,6 +16,8 @@ import { computeDriverCareerStats, type DriverCareerStats } from './careerStats'
 export interface TeamCareerSeasonDriver {
   driverId: string;
   name: string;
+  /** drivers_shown.is_hidden (U4): render no profile link. */
+  hidden?: boolean;
   carNumber: number | null;
   className: string;
   starts: number;
@@ -190,6 +192,7 @@ export async function computeTeamCareerStats(
       accum.drivers.push({
         driverId: driverStats.driver.id,
         name: driverStats.driver.name,
+        hidden: driverStats.driver.is_hidden,
         carNumber: driverStats.driver.car_number,
         className: row.className,
         starts: row.starts,

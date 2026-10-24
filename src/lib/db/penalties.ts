@@ -1,4 +1,5 @@
 import { restDelete, restGet, restGetAll, restPatch, restPost, type SupabaseEnv } from './client';
+import privacyReads from '../privacyReads.json';
 
 // ---------------------------------------------------------------------------
 // PENALTIES (rulebook 18.3, section 5 "Stewarding") — see 0014_penalties.sql
@@ -106,11 +107,10 @@ export interface PenaltyRow {
   penalty_involved_drivers: { driver_id: string }[];
 }
 
-const PENALTY_SELECT =
-  'id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,' +
-  'time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,' +
-  'is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,' +
-  'penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)';
+// Reads go through the masked penalties_shown (U4): hidden drivers' full names are masked in the text, and
+// non-admins see posted rounds only, as the base policy does. Shared with the CI embed check.
+const PENALTY_PATH = privacyReads.penalties.path;
+const PENALTY_SELECT = privacyReads.penalties.select;
 
 export function toPenalty(row: PenaltyRow): Penalty {
   const { penalty_offense_links, penalty_involved_drivers, ...rest } = row;
@@ -125,7 +125,7 @@ export function toPenalty(row: PenaltyRow): Penalty {
 export async function getPenaltiesForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Penalty[]> {
   const rows = await restGet<PenaltyRow[]>(
     env,
-    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=eq.${subsessionId}&order=created_at.asc`,
+    `${PENALTY_PATH}?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
   return rows.map(toPenalty);
 }
@@ -143,7 +143,7 @@ export async function getPenaltiesForSubsessions(
   // restGetAll: a whole-career query (computeDriverCareerStats) can pass Supabase's 1000-row cap.
   const rows = await restGetAll<PenaltyRow>(
     env,
-    `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`,
+    `${PENALTY_PATH}?select=${encodeURIComponent(PENALTY_SELECT)}&subsession_id=in.(${subsessionIds.join(',')})&order=created_at.asc`,
   );
   return rows.map(toPenalty);
 }
@@ -155,17 +155,15 @@ export async function getPenaltiesForSubsessions(
  */
 export async function getPenaltiesForDriver(env: SupabaseEnv, driverId: string): Promise<Penalty[]> {
   const id = encodeURIComponent(driverId);
-  const involvedSelect = encodeURIComponent(
-    `${PENALTY_SELECT},involved_match:penalty_involved_drivers!inner(driver_id)`,
-  );
+  const involvedSelect = encodeURIComponent(privacyReads.penaltiesInvolving.select);
   const [penalised, involved] = await Promise.all([
     restGetAll<PenaltyRow>(
       env,
-      `penalties?select=${encodeURIComponent(PENALTY_SELECT)}&driver_id=eq.${id}&order=created_at.asc,id.asc`,
+      `${PENALTY_PATH}?select=${encodeURIComponent(PENALTY_SELECT)}&driver_id=eq.${id}&order=created_at.asc,id.asc`,
     ),
     restGetAll<PenaltyRow & { involved_match?: unknown }>(
       env,
-      `penalties?select=${involvedSelect}&involved_match.driver_id=eq.${id}&order=created_at.asc,id.asc`,
+      `${privacyReads.penaltiesInvolving.path}?select=${involvedSelect}&involved_match.driver_id=eq.${id}&order=created_at.asc,id.asc`,
     ),
   ]);
   const byId = new Map<string, PenaltyRow>();
@@ -281,7 +279,7 @@ export async function getWarningCounts(
   if (subsessionIds.length === 0) return out;
   const rows = await restGet<{ driver_id: string | null }[]>(
     env,
-    `penalties?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`,
+    `penalties_shown?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`,
   );
   // A Racing Incident (driver_id null) is never a warning in practice — the
   // add/edit dialog hides that checkbox once "Racing Incident" is selected

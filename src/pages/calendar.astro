@@ -299,6 +299,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       id: string;
       name: string;
       car_number: number | null;
+      /** From drivers_shown (U4): render plain text, no profile link. */
+      is_hidden?: boolean;
     }
     interface RoundRecapLite {
       races: {
@@ -319,14 +321,23 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
     /** Same "F. Lastname" rule as shortDriverName() in src/lib/db/circuits.ts; recap cards are narrow. */
     function shortDriverName(name: string): string {
+      if (name === 'Hidden Driver') return name;
       const parts = displayDriverName(name).trim().split(/\s+/).filter(Boolean);
       if (parts.length === 0) return '';
       if (parts.length === 1) return parts[0];
       return `${parts[0].charAt(0)}. ${parts[parts.length - 1]}`;
     }
 
-    /** A driver's short name as a profile link that reads as plain text (same markup as src/components/DriverLink.astro). */
-    function driverNameLink(driver: RecapDriverLite): HTMLAnchorElement {
+    /**
+     * A driver's short name as a profile link that reads as plain text (same markup as
+     * src/components/DriverLink.astro); a hidden driver gets the plain name with no link (U4).
+     */
+    function driverNameLink(driver: RecapDriverLite): HTMLElement {
+      if (driver.is_hidden) {
+        const span = document.createElement('span');
+        span.textContent = shortDriverName(driver.name);
+        return span;
+      }
       const a = document.createElement('a');
       a.href = `/drivers/${driver.id}`;
       a.className = 'driver-link';

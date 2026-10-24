@@ -205,6 +205,8 @@ export interface DriverBasic {
   nationality_2: string | null;
   /** 0057_driver_ai_flag.sql — an AI-controlled entrant that exists only to satisfy an exhibition result's FK. See driversSelect()'s own doc comment for how this is excluded/included. */
   is_ai: boolean;
+  /** drivers_shown (U4): the name reads "Hidden Driver"; render no profile link or photo (src/lib/privacy.ts). */
+  is_hidden?: boolean;
 }
 
 /**
@@ -214,10 +216,12 @@ export interface DriverBasic {
  */
 export function driversSelect(env: SupabaseEnv, { includeAi = false }: { includeAi?: boolean } = {}) {
   const aiFilter = includeAi ? '' : '&is_ai=eq.false';
+  // The masked view (U4): a hidden driver reads "Hidden Driver" with no photo and a stand-in customer id,
+  // the same one the *_shown results views carry, so the cust_id joins below still pair rows up.
   return memoized(env, 'driversSelect', [includeAi], () =>
     restGet<DriverBasic[]>(
       env,
-      `drivers?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai${aiFilter}`,
+      `drivers_shown?select=id,name,car_number,photo_url,iracing_cust_id,is_rookie,nationality_1,nationality_2,is_ai,is_hidden${aiFilter}`,
     ),
   );
 }
@@ -277,7 +281,7 @@ export function getQualifyingForSubsessionsBulk(env: SupabaseEnv, subsessionIds:
   if (subsessionIds.length === 0) return Promise.resolve([] as CuratedQualifyingBulkRow[]);
   return restGetAll<CuratedQualifyingBulkRow>(
     env,
-    `curated_qualifying?select=subsession_id,cust_id,qual_position&subsession_id=in.(${subsessionIds.join(',')})`,
+    `curated_qualifying_shown?select=subsession_id,cust_id,qual_position&subsession_id=in.(${subsessionIds.join(',')})`,
   );
 }
 
@@ -291,7 +295,7 @@ export function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsession
   // stable.
   return restGetAll<CuratedRaceResultRow>(
     env,
-    `curated_race_results?select=${select}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
+    `curated_race_results_shown?select=${select}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
   );
 }
 
@@ -319,7 +323,7 @@ export async function getLapStatsForSubsessions(
     // paginated-stability reason) as getCuratedRaceResultsForSubsessions.
     return await restGetAll<RawLapStatsRow>(
       env,
-      `curated_race_results?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
+      `curated_race_results_shown?select=subsession_id,race_number,cust_id,average_lap_ten_thousandths,best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
     );
   } catch (err) {
     console.error(
@@ -349,7 +353,7 @@ export async function getDisplayNamesForSubsessions(
   try {
     return await restGetAll<RawDisplayNameRow>(
       env,
-      `curated_race_results?select=subsession_id,race_number,cust_id,display_name&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
+      `curated_race_results_shown?select=subsession_id,race_number,cust_id,display_name&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
     );
   } catch (err) {
     console.error(

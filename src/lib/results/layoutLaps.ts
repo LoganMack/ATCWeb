@@ -51,7 +51,7 @@ export async function getLayoutClassBestLaps(
       car_name: string | null;
     }>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
+      `curated_race_results_shown?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
@@ -134,7 +134,7 @@ export async function resolveLapRecordCar(
   const [rows, carLogos] = await Promise.all([
     restGetAll<{ subsession_id: number; best_lap_ten_thousandths: number | null; car_name: string | null }>(
       env,
-      `curated_race_results?select=subsession_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&car_name=not.is.null`,
+      `curated_race_results_shown?select=subsession_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&car_name=not.is.null`,
     ),
     carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
   ]);
@@ -207,7 +207,7 @@ export async function buildLayoutClassBestLaps(
       car_name: string | null;
     }>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&best_lap_ten_thousandths=not.is.null`,
+      `curated_race_results_shown?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&best_lap_ten_thousandths=not.is.null`,
     ),
     restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
       env,
@@ -349,7 +349,7 @@ export async function getLayoutBestLapSeconds(
     if (subsessionIds.length === 0) return null;
     const rows = await restGet<{ best_lap_ten_thousandths: number | null }[]>(
       env,
-      `curated_race_results?select=best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&order=best_lap_ten_thousandths.asc&limit=1`,
+      `curated_race_results_shown?select=best_lap_ten_thousandths&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null&order=best_lap_ten_thousandths.asc&limit=1`,
     );
     const best = rows[0]?.best_lap_ten_thousandths;
     return best ? best / 10000 : null;
@@ -396,7 +396,7 @@ export async function getDriverBestLapsAtTrack(
 
   const rows = await restGetAll<{ cust_id: number; best_lap_ten_thousandths: number | null }>(
     env,
-    `curated_race_results?select=cust_id,best_lap_ten_thousandths&subsession_id=in.(${otherSubsessionIds.join(',')})&cust_id=in.(${custIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
+    `curated_race_results_shown?select=cust_id,best_lap_ten_thousandths&subsession_id=in.(${otherSubsessionIds.join(',')})&cust_id=in.(${custIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
   );
   for (const row of rows) {
     if (row.best_lap_ten_thousandths === null) continue;

@@ -11,9 +11,11 @@ interface Props {
   /** Where the form POSTs (the results page's fragment, which owns the POST handling). Defaults to the current URL. */
   action?: string;
 }
+import { HIDDEN_DRIVER_NAME } from '../lib/privacy';
 const { subsessionId, sessionOptions, drivers, action } = Astro.props;
 /** "Logan Mack" -> "L. Mack"; anything after the first word is kept as the last name. A single-word name is left as-is. */
 function shortName(name: string): string {
+  if (name === HIDDEN_DRIVER_NAME) return name;
   const parts = name.trim().split(/\s+/);
   if (parts.length < 2) return name.trim();
   return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(' ')}`;

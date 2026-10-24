@@ -226,10 +226,10 @@ for (const p of racePenalties) {
                 </span>
                 {/* Full name at sm+, "F. Lastname" below, where the column is narrow. */}
                 <span class="hidden sm:inline">
-                  <DriverLink id={row.driver.id}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 <span class="sm:hidden">
-                  <DriverLink id={row.driver.id}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
                 </span>
                 {/* Hidden on mobile (Logan); `sm:contents` keeps each tag its own flex item for the row's
                    gap. */}

@@ -71,7 +71,7 @@ export async function getCuratedRaceResultsWithLapStatsBulk(
   try {
     const rows = await restGetAll<CuratedRaceResultRow & RawLapStatsRow>(
       env,
-      `curated_race_results?select=${combinedSelect}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
+      `curated_race_results_shown?select=${combinedSelect}&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,cust_id.asc`,
     );
     return { rawResults: rows, lapStats: rows };
   } catch (err) {

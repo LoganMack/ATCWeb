@@ -83,7 +83,7 @@ export async function getLayoutMapDetails(env: SupabaseEnv, layoutId: string): P
       }[]
     >(
       env,
-      `circuit_layouts?select=pit_entry_difficulty,pit_entry_note,pit_entry_x,pit_entry_y,pit_exit_difficulty,pit_exit_note,pit_exit_x,pit_exit_y&id=eq.${id}`,
+      `circuit_layouts_shown?select=pit_entry_difficulty,pit_entry_note,pit_entry_x,pit_entry_y,pit_exit_difficulty,pit_exit_note,pit_exit_x,pit_exit_y&id=eq.${id}`,
     );
     const r = rows[0];
     if (r) {

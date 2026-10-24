@@ -6,6 +6,7 @@
  */
 
 import type { SupabaseEnv } from './db/client';
+import privacyReads from './privacyReads.json';
 
 export interface AuthUser {
   id: string;
@@ -46,11 +47,13 @@ export interface Profile {
   driver_name: string | null;
 }
 
-/** Raw PostgREST row: the embedded `driver:drivers!driver_id(name)` join, before it's flattened into `driver_name`. */
+/** Raw PostgREST row: the embedded `driver:drivers_shown!driver_id(name)` join, before it's flattened into `driver_name`. */
 type ProfileRow = Omit<Profile, 'driver_name'> & { driver: { name: string } | null };
 
 const PROFILE_SELECT_PLAIN = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
-const PROFILE_SELECT = `${PROFILE_SELECT_PLAIN},driver:drivers!driver_id(name)`;
+// Through the masked drivers_shown (U4): a linked user and an admin are privileged, so the name is real.
+// Shared with the CI embed check.
+const PROFILE_SELECT = privacyReads.profile.select;
 
 function toProfile({ driver, ...rest }: ProfileRow): Profile {
   return { ...rest, driver_name: driver?.name ?? null };

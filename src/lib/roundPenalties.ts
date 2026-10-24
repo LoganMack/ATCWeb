@@ -42,6 +42,8 @@ export interface RoundRef {
 }
 
 const SELECT = 'id,subsession_id,driver_id,kind,note,served_subsession_id,created_at';
+// Reads use the masked view (U4): hidden drivers' full names masked in the note, posted rounds for non-admins.
+const READ_PATH = 'round_penalties_shown';
 
 /** "Qualifying ban" or, for Other, its note. */
 export function roundPenaltyLabel(p: { kind: RoundPenaltyKind; note: string | null }): string {
@@ -72,11 +74,11 @@ export async function getRoundPenaltyData(env: SupabaseEnv, round: RoundRef): Pr
     const [earnedHere, owedOrServedHere] = await Promise.all([
       restGet<RoundPenalty[]>(
         env,
-        `round_penalties?select=${SELECT}&subsession_id=eq.${round.subsession_id}&order=created_at.asc`,
+        `${READ_PATH}?select=${SELECT}&subsession_id=eq.${round.subsession_id}&order=created_at.asc`,
       ),
       restGet<RoundPenalty[]>(
         env,
-        `round_penalties?select=${SELECT}&subsession_id=neq.${round.subsession_id}` +
+        `${READ_PATH}?select=${SELECT}&subsession_id=neq.${round.subsession_id}` +
           `&or=(served_subsession_id.is.null,served_subsession_id.eq.${round.subsession_id})&order=created_at.asc`,
       ),
     ]);
@@ -123,7 +125,7 @@ export async function getRoundPenaltiesForDriver(
 ): Promise<RoundPenalty[]> {
   return restGet<RoundPenalty[]>(
     env,
-    `round_penalties?select=${SELECT}&subsession_id=eq.${subsessionId}&driver_id=eq.${encodeURIComponent(driverId)}&order=created_at.asc`,
+    `${READ_PATH}?select=${SELECT}&subsession_id=eq.${subsessionId}&driver_id=eq.${encodeURIComponent(driverId)}&order=created_at.asc`,
   );
 }
 

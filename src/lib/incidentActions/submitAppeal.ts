@@ -47,7 +47,7 @@ export async function handleSubmitAppeal(
   try {
     const owned = await restGet<{ id: string }[]>(
       supabaseEnv,
-      `penalties?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`,
+      `penalties_shown?select=id&id=eq.${penaltyId}&subsession_id=eq.${subsessionId}`,
     );
     if (owned.length === 0) return back('invalid');
     const appealId = crypto.randomUUID();

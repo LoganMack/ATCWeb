@@ -100,7 +100,7 @@ export async function getDriverRaceHistory(
       : ((
           await restGet<{ id: string; iracing_cust_id: number | null }[]>(
             env,
-            `drivers?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`,
+            `drivers_shown?select=id,iracing_cust_id&id=eq.${encodeURIComponent(driverId)}`,
           )
         )[0]?.iracing_cust_id ?? null);
   // No cust_id on file means this driver can never have a curated_race_results

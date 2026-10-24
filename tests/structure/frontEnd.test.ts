@@ -387,3 +387,77 @@ describe('front-end loading (U5)', () => {
     expect(SRC['/src/scripts/hard-form-submit.ts']).not.toMatch(/fetch\(/);
   });
 });
+
+describe('driver privacy rendering (U4: BR9.8, BR9.11, BR9.14, NFR2.2)', () => {
+  const PRIVATE_PAGES = [
+    `${P}drivers/[id].astro`,
+    `${P}drivers/[id]/fragment.astro`,
+    `${P}drivers/[id]/awards.astro`,
+    `${P}champions/season-results/[seasonId]/[driverId].astro`,
+  ];
+
+  it('builds DriverLink’s href only through driverHref, so a hidden driver gets no link', () => {
+    const link = ASTRO['/src/components/DriverLink.astro'];
+    expect(link).toMatch(/hidden\?: boolean \| null;/);
+    expect(link).toContain('driverHref({ id, is_hidden: hidden })');
+    expect(link).toMatch(/\{href \? <a href=\{href\}[^>]*><slot \/><\/a> : <slot \/>\}/);
+    expect(link).not.toContain('/drivers/${');
+  });
+
+  it('passes the hidden flag at every DriverLink call', () => {
+    const missing = Object.entries(ASTRO).flatMap(([path, text]) =>
+      [...text.matchAll(/<DriverLink\b[^>]*>/g)].filter((m) => !/\bhidden=\{/.test(m[0])).map((m) => `${path}: ${m[0]}`),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('gives the roster row a profile link only when the driver is not hidden', () => {
+    const row = ASTRO['/src/components/DriverRow.astro'];
+    expect(row).toContain('const href = driverHref(driver);');
+    expect(row).toContain('data-driver-link={href ?? undefined}');
+    expect(row).toMatch(/role=\{href \? 'link' : undefined\}/);
+  });
+
+  it('renders the private notice on every profile route and guards the data with !privateProfile (BR9.11)', () => {
+    for (const path of PRIVATE_PAGES) {
+      const page = ASTRO[path];
+      expect(page, path).toMatch(/\{privateProfile && <PrivateProfileNotice driverId=\{driverId\} signedIn=\{Boolean\(/);
+      expect(page, path).toMatch(/!privateProfile/);
+    }
+    const shell = ASTRO[`${P}drivers/[id].astro`];
+    expect(shell).toContain('{!loadError && driver && !privateProfile && (');
+    // No fragment request, private title and a generic description for a private profile (NFR2.2).
+    expect(shell).toMatch(/const fragmentUrl =\s*!loadError && driver && !privateProfile/);
+    expect(shell).toContain("const pageTitle = privateProfile ? 'Private profile'");
+    expect(shell).toContain("? 'A driver profile.'");
+    expect(shell).toContain('if (!loadError && driver && !privateProfile) {');
+  });
+
+  it('shows only the notice text and one shared button in the private notice (NFR2.2)', () => {
+    const notice = ASTRO['/src/components/PrivateProfileNotice.astro'];
+    expect(notice).toContain("This driver's profile is private.");
+    expect(notice).toContain('<a href={action.href} class="btn btn-primary mt-4">{action.label}</a>');
+    for (const leak of ['data-fragment-url', 'bio', 'photo', 'name}', 'stats']) expect(notice).not.toContain(leak);
+  });
+
+  it('never derives the profile photo badge from the name (Q7 A)', () => {
+    const shell = ASTRO[`${P}drivers/[id].astro`];
+    expect(shell).not.toMatch(/displayName\.charAt\(0\)/);
+    expect(shell).toContain('resizedImageUrl(driverPhoto(driver), { width: 320 })');
+    expect(shell).toContain('{photoBadge}');
+  });
+
+  it('says under the Hide Driver Name toggle that a same-named driver is hidden too (BR9.8)', () => {
+    const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
+    expect(tabs).toMatch(
+      /name: 'hide_name',[\s\S]*?note: 'In news and incident text, another driver with exactly the same full name is hidden too\.'/,
+    );
+    expect(tabs).toContain('{s.note && <p class="text-xs text-white/40" data-setting-note={s.name}>{s.note}</p>}');
+  });
+
+  it('renders a hidden driver as plain text in the client-built recap and meetup lists', () => {
+    expect(ASTRO[`${P}calendar.astro`]).toMatch(/if \(driver\.is_hidden\) \{\s*const span = document\.createElement\('span'\);/);
+    expect(ASTRO[`${P}media.astro`]).toMatch(/if \(!driver\.id\) \{\s*li\.textContent = driver\.label;/);
+    expect(ASTRO[`${P}media/fragment.astro`]).toContain('id: link.drivers.is_hidden ? null : link.driver_id');
+  });
+});

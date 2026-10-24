@@ -173,11 +173,15 @@ kudos.sort(
 );
 
 /** The kudos' cars, in car-number order, each with the id its name should link to (null for a driver no longer on file). */
-function carsFor(k: Kudos): { id: string | null; label: string }[] {
+function carsFor(k: Kudos): { id: string | null; hidden: boolean; label: string }[] {
   return k.driver_ids
     .map((id) => driverById.get(id))
     .sort((a, b) => (a?.car_number ?? Infinity) - (b?.car_number ?? Infinity))
-    .map((d) => ({ id: d ? d.id : null, label: d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown driver' }));
+    .map((d) => ({
+      id: d ? d.id : null,
+      hidden: d?.is_hidden === true,
+      label: d ? `${d.car_number !== null ? `#${d.car_number} ` : ''}${d.name}` : 'Unknown driver',
+    }));
 }
 /** "youtube.com" — just the host, for the clip link's label. */
 function clipHost(url: string): string {
@@ -253,7 +257,7 @@ if (loadError) markUncacheable(Astro);
                 )}
               </div>
             </div>
-            <p class="mt-1 text-xs text-white/50">Cars: {carsFor(k).map((c, i) => <>{i > 0 && ', '}<DriverLink id={c.id}>{c.label}</DriverLink></>)}</p>
+            <p class="mt-1 text-xs text-white/50">Cars: {carsFor(k).map((c, i) => <>{i > 0 && ', '}<DriverLink id={c.id} hidden={c.hidden}>{c.label}</DriverLink></>)}</p>
             {k.description && <p class="mt-1 whitespace-pre-line text-white/70">{k.description}</p>}
             <p class="mt-1 text-[11px] text-white/30">
               Shared by {k.author_name ?? 'a member'} · {new Date(k.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET

@@ -60,7 +60,7 @@ function raceWord(n: number): string {
         </p>
         <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5">
           <h3 class="font-display text-3xl leading-none">
-            <DriverLink id={d.driver.id}>{driverName}</DriverLink> {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
+            <DriverLink id={d.driver.id} hidden={d.driver.is_hidden}>{driverName}</DriverLink> {d.driver.car_number !== null && <span class="text-white/40">#{d.driver.car_number}</span>}
           </h3>
           {/* Flag, car and team logos: inline after the name at sm+, on their own line beneath it on mobile (Logan). */}
           <div class="flex basis-full flex-wrap items-center gap-2 sm:basis-auto">

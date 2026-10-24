@@ -105,7 +105,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       photoUrl: string | null;
       lat: number;
       lng: number;
-      drivers: { id: string; label: string }[];
+      /** id is null for a hidden driver (U4): plain text, no profile link. */
+      drivers: { id: string | null; label: string }[];
     }
 
     function initMeetupMap() {
@@ -174,6 +175,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
             ul.className = 'mt-1 text-sm text-white/70';
             p.drivers.forEach((driver) => {
               const li = document.createElement('li');
+              if (!driver.id) {
+                li.textContent = driver.label;
+                ul.appendChild(li);
+                return;
+              }
               // Links to the driver's profile but reads as plain text (same markup as src/components/DriverLink.astro).
               const a = document.createElement('a');
               a.href = `/drivers/${driver.id}`;

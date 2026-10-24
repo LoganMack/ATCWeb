@@ -1,0 +1,50 @@
+{
+  "driverList": {
+    "path": "drivers_shown",
+    "select": "id,car_number,name,is_rookie,car,appearances,starts,seasons_count,penalty_points,penalty_points_max,sign_up_date,on_probation,probation_started_at,nationality_1,nationality_2,is_hidden,driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(name,primary_color_hex,logo_url)",
+    "embeds": ["driver_statuses", "driver_classes", "teams"],
+    "callers": ["anon", "admin"]
+  },
+  "driverProfile": {
+    "path": "drivers_shown",
+    "select": "id,car_number,name,is_rookie,car,bio,photo_url,is_hall_of_fame,sign_up_date,on_probation,probation_started_at,nationality_1,nationality_2,is_hidden,profile_private,driver_statuses(name),driver_classes(name),teams!drivers_team_id_fkey(id,name,primary_color_hex,logo_url)",
+    "embeds": ["driver_statuses", "driver_classes", "teams"],
+    "callers": ["anon", "admin"]
+  },
+  "penalties": {
+    "path": "penalties_shown",
+    "select": "id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)",
+    "embeds": ["penalty_offense_links", "penalty_involved_drivers"],
+    "callers": ["anon", "admin"]
+  },
+  "penaltiesInvolving": {
+    "path": "penalties_shown",
+    "select": "id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,penalty_offense_links(offense_id),penalty_involved_drivers(driver_id),involved_match:penalty_involved_drivers!inner(driver_id)",
+    "embeds": ["penalty_offense_links", "penalty_involved_drivers", "involved_match"],
+    "callers": ["anon", "admin"]
+  },
+  "newsPostDrivers": {
+    "path": "news_post_drivers",
+    "select": "post_id,drivers:drivers_shown(id,name,car_number,is_hidden)",
+    "embeds": ["drivers"],
+    "callers": ["anon", "admin"]
+  },
+  "meetupDrivers": {
+    "path": "media_meetup_drivers",
+    "select": "meetup_id,driver_id,drivers:drivers_shown(name,car_number,is_hidden)",
+    "embeds": ["drivers"],
+    "callers": ["anon", "admin"]
+  },
+  "kudos": {
+    "path": "kudos_shown",
+    "select": "*,kudos_drivers(driver_id)",
+    "embeds": ["kudos_drivers"],
+    "callers": ["anon", "admin"]
+  },
+  "profile": {
+    "path": "profiles",
+    "select": "id,role,display_name,driver_id,iracing_cust_id,iracing_name,driver:drivers_shown!driver_id(name)",
+    "embeds": ["driver"],
+    "callers": ["admin"]
+  }
+}

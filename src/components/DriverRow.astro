@@ -4,6 +4,7 @@ import { formatDateShort, displayDriverName } from '../lib/db/circuits';
 import { classTagFull } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
+import { driverHref } from '../lib/privacy';
 
 interface Props {
   driver: Driver;
@@ -29,10 +30,12 @@ const nationalitiesText = [driver.nationality_1, driver.nationality_2]
   .filter((n): n is string => Boolean(n))
   .map((n) => n.toLowerCase())
   .join(',');
+// A hidden driver's row (U4) is plain: no profile link, so it is not focusable or clickable either.
+const href = driverHref(driver);
 ---
 
 <tr
-  class="cursor-pointer border-b border-white/5 text-sm transition hover:bg-white/[0.04]"
+  class={`${href ? 'cursor-pointer ' : ''}border-b border-white/5 text-sm transition hover:bg-white/[0.04]`}
   data-class={className}
   data-status={statusName}
   data-unassigned={String(driver.car_number === null)}
@@ -40,10 +43,10 @@ const nationalitiesText = [driver.nationality_1, driver.nationality_2]
   data-nationalities={nationalitiesText}
   data-search={searchText}
   data-driver-id={driver.id}
-  data-driver-link={`/drivers/${driver.id}`}
-  tabindex="0"
-  role="link"
-  aria-label={`View ${displayDriverName(driver.name)}'s driver profile`}
+  data-driver-link={href ?? undefined}
+  tabindex={href ? 0 : undefined}
+  role={href ? 'link' : undefined}
+  aria-label={href ? `View ${displayDriverName(driver.name)}'s driver profile` : undefined}
 >
   <td
     class="py-2.5 pl-4 pr-2 font-display text-lg leading-none text-white/70"

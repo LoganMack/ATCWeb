@@ -210,7 +210,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
                           <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                           {/* Short "F. Lastname" form — these top-3 columns get narrow (as little as a third of the card's width), so a long name wraps. */}
                           <span>
-                            <DriverLink id={entry.driver.id}>{shortDriverName(entry.driver.name)}</DriverLink>
+                            <DriverLink id={entry.driver.id} hidden={entry.driver.is_hidden}>{shortDriverName(entry.driver.name)}</DriverLink>
                             {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
                           </span>
                           {entry.teamName && <TeamLogo name={entry.teamName} logoUrl={entry.teamLogoUrl} size="h-4 w-4" />}
@@ -230,7 +230,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
                     <li class="flex items-center gap-1.5">
                       {entry.position !== null && <span class="text-white/40">{entry.position}.</span>}
                       <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
-                      <DriverLink id={entry.driver.id}>{shortDriverName(entry.driver.name)}</DriverLink>
+                      <DriverLink id={entry.driver.id} hidden={entry.driver.is_hidden}>{shortDriverName(entry.driver.name)}</DriverLink>
                       {entry.driver.car_number !== null && <span class="text-white/40"> #{entry.driver.car_number}</span>}
                     </li>
                   ))}
@@ -242,7 +242,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
               <p class="mt-4 flex flex-wrap items-center gap-1.5 text-sm text-white/70">
                 <span class="mr-1 text-xs font-semibold uppercase tracking-wide text-white/40">Fastest Lap</span>
                 <DriverFlag nationality1={race.fastestLap.driver.nationality_1} nationality2={race.fastestLap.driver.nationality_2} />
-                <DriverLink id={race.fastestLap.driver.id}>{shortDriverName(race.fastestLap.driver.name)}</DriverLink>
+                <DriverLink id={race.fastestLap.driver.id} hidden={race.fastestLap.driver.is_hidden}>{shortDriverName(race.fastestLap.driver.name)}</DriverLink>
                 {race.fastestLap.driver.car_number !== null && ` #${race.fastestLap.driver.car_number}`} — {race.fastestLap.formatted}
                 {race.fastestLap.isTrackRecord && (
                   <span class="ml-2 rounded bg-brand-gold/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-gold">
@@ -301,7 +301,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
                         <span>Race {entry.raceNumber}:</span>
                         <DriverFlag nationality1={entry.nationality1} nationality2={entry.nationality2} />
                         <span>
-                          <DriverLink id={entry.driverId}>{shortDriverName(entry.driverName)}</DriverLink>
+                          <DriverLink id={entry.driverId} hidden={entry.driverHidden}>{shortDriverName(entry.driverName)}</DriverLink>
                           {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
                         </span>
                       </li>
@@ -331,7 +331,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
                         <span>Race {entry.raceNumber}:</span>
                         <DriverFlag nationality1={entry.nationality1} nationality2={entry.nationality2} />
                         <span>
-                          <DriverLink id={entry.driverId}>{shortDriverName(entry.driverName)}</DriverLink>
+                          <DriverLink id={entry.driverId} hidden={entry.driverHidden}>{shortDriverName(entry.driverName)}</DriverLink>
                           {entry.carNumber !== null && ` #${entry.carNumber}`} — {entry.points} pts
                         </span>
                       </li>
@@ -357,7 +357,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
                       <li class="flex items-center gap-1.5">
                         <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                         <span>
-                          <DriverLink id={entry.driver.id}>{shortDriverName(entry.driver.name)}</DriverLink>
+                          <DriverLink id={entry.driver.id} hidden={entry.driver.is_hidden}>{shortDriverName(entry.driver.name)}</DriverLink>
                           {entry.carNumber !== null && ` #${entry.carNumber}`}
                           {entry.incidents !== null && ` — ${entry.incidents}x`}
                         </span>
@@ -384,7 +384,7 @@ const driverById = new Map(taggedDrivers.map((d) => [d.id, d]));
                       <li class="flex items-center gap-1.5">
                         <DriverFlag nationality1={entry.driver.nationality_1} nationality2={entry.driver.nationality_2} />
                         <span>
-                          <DriverLink id={entry.driver.id}>{shortDriverName(entry.driver.name)}</DriverLink>
+                          <DriverLink id={entry.driver.id} hidden={entry.driver.is_hidden}>{shortDriverName(entry.driver.name)}</DriverLink>
                           {entry.carNumber !== null && ` #${entry.carNumber}`}
                           {' '}— P{entry.startingPosition} &rarr; P{entry.finishPosition}
                           <span class="ml-1 text-brand-gold">

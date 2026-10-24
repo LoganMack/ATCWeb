@@ -207,7 +207,7 @@ export async function getLayoutClassHighlights(
     ),
     restGetAll<RaceOneCuratedRow>(
       env,
-      `curated_race_results?select=subsession_id,cust_id,starting_position&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`,
+      `curated_race_results_shown?select=subsession_id,cust_id,starting_position&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`,
     ),
   ]);
 

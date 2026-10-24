@@ -8,6 +8,7 @@ vi.mock('../../src/lib/db/client', () => ({
   restPost: vi.fn(),
   restPatch: vi.fn(),
   restDelete: vi.fn(),
+  withAccessToken: (env: object, accessToken: string) => ({ ...env, accessToken }),
 }));
 vi.mock('../../src/lib/db/circuits', () => ({ getCircuits: vi.fn() }));
 vi.mock('../../src/lib/db/seasons', () => ({ getSeasons: vi.fn() }));

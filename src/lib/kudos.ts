@@ -6,6 +6,7 @@
  */
 
 import { restGet, type SupabaseEnv } from './db/client';
+import privacyReads from './privacyReads.json';
 
 export interface Kudos {
   id: string;
@@ -51,11 +52,15 @@ export function normalizeClipUrl(raw: string): string | null {
   return v;
 }
 
-/** Public read — every kudos for the round with its cars, oldest first. */
+/**
+ * Public read — every kudos for the round with its cars, oldest first, from the masked kudos_shown (U4): the
+ * author name reads "Hidden Driver" when the author's driver is hidden from this caller.
+ */
 export async function getKudosForSubsession(env: SupabaseEnv, subsessionId: number): Promise<Kudos[]> {
+  const { path, select } = privacyReads.kudos;
   const rows = await restGet<(Omit<Kudos, 'driver_ids'> & { kudos_drivers: { driver_id: string }[] })[]>(
     env,
-    `kudos?select=*,kudos_drivers(driver_id)&subsession_id=eq.${subsessionId}&order=created_at.asc`,
+    `${path}?select=${encodeURIComponent(select)}&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
   return rows.map(({ kudos_drivers, ...k }) => ({ ...k, driver_ids: kudos_drivers.map((d) => d.driver_id) }));
 }

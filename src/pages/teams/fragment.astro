@@ -302,14 +302,14 @@ if (loadError) markUncacheable(Astro);
                             {/* Mobile: first name stacked above the rest of
                                 the name, no car number (Logan) — desktop
                                 keeps the original single-line "Name #Number". */}
-                            <DriverLink id={driver.id}>
+                            <DriverLink id={driver.id} hidden={driver.is_hidden}>
                               <span class="flex flex-col leading-tight sm:hidden">
                                 <span>{first}</span>
                                 {rest && <span>{rest}</span>}
                               </span>
                             </DriverLink>
                             <span class="hidden sm:inline">
-                              <DriverLink id={driver.id}>{fullName}</DriverLink>
+                              <DriverLink id={driver.id} hidden={driver.is_hidden}>{fullName}</DriverLink>
                               {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
                             </span>
                           </>
@@ -331,7 +331,7 @@ if (loadError) markUncacheable(Astro);
                           <tr class="border-b border-white/5 last:border-0">
                             <td class="py-1 text-white/50">Driver {i + 1}</td>
                             <td class="py-1 text-right font-semibold text-white/90">
-                              <DriverLink id={driver.id}>{displayDriverName(driver.name)}</DriverLink>
+                              <DriverLink id={driver.id} hidden={driver.is_hidden}>{displayDriverName(driver.name)}</DriverLink>
                               {driver.car_number !== null && <span class="text-white/40"> #{driver.car_number}</span>}
                             </td>
                           </tr>

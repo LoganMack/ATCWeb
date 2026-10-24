@@ -16,7 +16,8 @@ import { computeSeasonPPState } from './penalties/penaltyPoints';
  */
 export async function recomputeDriverSeasonPP(env: SupabaseEnv, accessToken: string, driverId: string) {
   const [driver, currentSeason, events] = await Promise.all([
-    getDriverById(env, driverId),
+    // The base drivers row, read as the admin (U4 BR9.13).
+    getDriverById(withAccessToken(env, accessToken), driverId),
     getCurrentSeasonRounds(env),
     getEvents(env),
   ]);
