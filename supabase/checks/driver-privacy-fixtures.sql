@@ -1,8 +1,9 @@
--- Driver privacy fixtures for 20261029120000_driver_privacy_views.sql (U4 driver-privacy, expand step):
--- the catalog properties of the private hidden set, the three helpers and the eleven masked views; what
--- each of four callers (anon, a signed-in account with no driver, a linked driver, an admin) reads from
--- every view; the base policies' row filters re-applied by the views; the prose masking cases; the query
--- plans; and the catalog-driven leak check with its negative control (P01-P18).
+-- Driver privacy fixtures for 20261029120000_driver_privacy_views.sql and 20261103120000_driver_privacy_contract.sql
+-- (U4 driver-privacy, expand and contract steps): the catalog properties of the private hidden set, the
+-- three helpers and the eleven masked views; what each of four callers (anon, a signed-in account with no
+-- driver, a linked driver, an admin) reads from every view; the base policies' row filters re-applied by
+-- the views; the prose masking cases; the query plans; the catalog-driven leak check with its negative
+-- control and the function allow-list; and the base tables narrowed to admins (P01-P21).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- account-settings-fixtures.sql:
@@ -14,8 +15,8 @@
 -- with request.jwt.claims and the role setting (privacy_fixture.read_as). Failure messages name the case,
 -- the relation and the column, never the marker value (NFR9.2).
 --
--- While the base tables are still public (until the contract step), the leak check asserts only the eleven
--- views and reports any other relation as a notice.
+-- The base tables are admin-only to read since the contract step, so the leak check fails on any relation
+-- anon or an unlinked account can read that shows a marker.
 --
 -- Base data: drivers Zq Marker Driver #91 (hidden: its account hides the name), Pat Private #92 (its account
 -- hides only the profile) and Vic Visible #93. Accounts: admin, h (linked to Zq Marker Driver), p (linked to
@@ -619,9 +620,9 @@ begin
 end $$;
 rollback to savepoint fixture;
 
--- P15 Catalog-driven leak check over every relation anon or an unlinked account can select (BR9.20). Until
---     the contract step the base tables are still public, so only the eleven views must be clean; every
---     other relation that shows a marker is reported. A deliberately unmasked view must be flagged.
+-- P15 Catalog-driven leak check over every relation anon or an unlinked account can select (BR9.20; NFR1.5).
+--     No relation may show a marker; one that cannot be read is reported. A deliberately unmasked view must
+--     be flagged.
 do $$
 declare
   v_rel record;
@@ -649,17 +650,15 @@ begin
         continue;
       elsif v_rel.relname = 'zq_leak_probe' then
         v_flagged := v_flagged || v_role || ' ';
-      elsif v_rel.relname like '%\_shown' then
-        perform privacy_fixture.expect_quiet(format('P15 %s leaks a %s to %s', v_rel.qualified, v_found, v_role), false);
       elsif v_found = 'error' then
         raise notice 'P15 report: % could not be read as %', v_rel.qualified, v_role;
       else
-        raise notice 'P15 report: % shows a % to % (closed by the contract step)', v_rel.qualified, v_found, v_role;
+        perform privacy_fixture.expect_quiet(format('P15 %s leaks a %s to %s', v_rel.qualified, v_found, v_role), false);
       end if;
     end loop;
   end loop;
   perform privacy_fixture.expect('P15 negative control flagged for both roles', v_flagged, 'anon authenticated ');
-  raise notice 'ok P15 leak check (views only until the contract step)';
+  raise notice 'ok P15 leak check';
 end $$;
 rollback to savepoint fixture;
 
@@ -674,15 +673,30 @@ begin
 end $$;
 rollback to savepoint fixture;
 
--- P17 The base tables are unchanged by the expand step: anon still reads them as before (NFR8.2) -----------
+-- P17 After the contract step the eleven base tables are readable only by admins (BR9.16; NFR1.4): anon, an
+--     unlinked account and a linked driver (p, who wrote no kudos) get no rows; an admin gets every row.
 do $$
+declare
+  v_table text;
+  v_who text;
 begin
-  perform privacy_fixture.expect('P17 base drivers still public',
-    privacy_fixture.read_as('anon', $q$select count(*)::text from public.drivers
+  foreach v_table in array array['drivers', 'curated_race_results', 'curated_qualifying', 'curated_practice_results',
+    'kudos', 'news_posts', 'circuit_layouts', 'penalties', 'round_penalties', 'champion_photos', 'hall_of_fame_photos'] loop
+    foreach v_who in array array['anon', 'eeeeeeee-0000-0000-0000-000000000605', 'eeeeeeee-0000-0000-0000-000000000603'] loop
+      perform privacy_fixture.expect(format('P17 %s rows for %s', v_table, v_who),
+        privacy_fixture.read_as(v_who, format('select count(*)::text from public.%I', v_table)), '0');
+    end loop;
+    perform privacy_fixture.expect(format('P17 admin reads %s', v_table),
+      privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000601',
+        format('select count(*)::text from public.%I', v_table)) <> '0', true);
+  end loop;
+  perform privacy_fixture.expect('P17 admin reads every seeded driver',
+    privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000601', $q$select count(*)::text from public.drivers
       where id::text like '99999999-0000-0000-0000-00000000060%'$q$), '3');
-  perform privacy_fixture.expect('P17 base penalties keep their posted filter',
-    privacy_fixture.read_as('anon', $q$select count(*)::text from public.penalties where subsession_id in (9906001, 9906002)$q$), '1');
-  raise notice 'ok P17 base tables unchanged';
+  perform privacy_fixture.expect('P17 admin reads the unposted penalty too',
+    privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000601',
+      $q$select count(*)::text from public.penalties where subsession_id in (9906001, 9906002)$q$), '2');
+  raise notice 'ok P17 base tables admin-only';
 end $$;
 rollback to savepoint fixture;
 
@@ -693,9 +707,90 @@ begin
   set local role service_role;
   perform privacy_fixture.expect('P18 service role reads the base table',
     (select name from public.drivers where id = '99999999-0000-0000-0000-000000000601'), 'Zq Marker Driver');
+  perform privacy_fixture.expect('P18 service role runs a bot RPC', public.car_number_holder(91, null), 'Zq Marker Driver');
   reset role;
   perform set_config('request.jwt.claims', '', true);
   raise notice 'ok P18 service role';
+end $$;
+rollback to savepoint fixture;
+
+-- P19 The penalty child tables keep their posted-round filter for non-admins through private.penalty_is_posted,
+--     although their policies can no longer read public.penalties as the caller.
+do $$
+declare
+  v_offense uuid;
+begin
+  insert into public.penalty_offenses (name) values ('Zq offense') returning id into v_offense;
+  insert into public.penalty_involved_drivers (penalty_id, driver_id) values
+    ('cccccccc-0000-0000-0000-000000000631', '99999999-0000-0000-0000-000000000603'),
+    ('cccccccc-0000-0000-0000-000000000632', '99999999-0000-0000-0000-000000000601');
+  insert into public.penalty_offense_links (penalty_id, offense_id) values
+    ('cccccccc-0000-0000-0000-000000000631', v_offense),
+    ('cccccccc-0000-0000-0000-000000000632', v_offense);
+  perform privacy_fixture.expect('P19 anon reads the posted involved driver only',
+    privacy_fixture.read_as('anon', $q$select string_agg(penalty_id::text, ',') from public.penalty_involved_drivers
+      where penalty_id in ('cccccccc-0000-0000-0000-000000000631', 'cccccccc-0000-0000-0000-000000000632')$q$),
+    'cccccccc-0000-0000-0000-000000000631');
+  perform privacy_fixture.expect('P19 anon reads the posted offense link only',
+    privacy_fixture.read_as('anon', $q$select string_agg(penalty_id::text, ',') from public.penalty_offense_links
+      where penalty_id in ('cccccccc-0000-0000-0000-000000000631', 'cccccccc-0000-0000-0000-000000000632')$q$),
+    'cccccccc-0000-0000-0000-000000000631');
+  perform privacy_fixture.expect('P19 the penalties view still embeds them for anon',
+    privacy_fixture.read_as('anon', $q$select count(*)::text from public.penalties_shown p
+      join public.penalty_involved_drivers i on i.penalty_id = p.id
+      where p.id = 'cccccccc-0000-0000-0000-000000000631'$q$), '1');
+  perform privacy_fixture.expect('P19 admin reads both involved drivers',
+    privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000601', $q$select count(*)::text from public.penalty_involved_drivers
+      where penalty_id in ('cccccccc-0000-0000-0000-000000000631', 'cccccccc-0000-0000-0000-000000000632')$q$), '2');
+  perform privacy_fixture.expect('P19 helper is a definer with an empty search_path',
+    (select prosecdef and proconfig @> array['search_path=""'] from pg_proc
+     where oid = 'private.penalty_is_posted(uuid)'::regprocedure), true);
+  raise notice 'ok P19 penalty child policies';
+end $$;
+rollback to savepoint fixture;
+
+-- P20 A kudos author still deletes their own kudos with a returning clause (src/lib/kudos.ts deleteKudos);
+--     another account deletes nothing.
+do $$
+begin
+  perform privacy_fixture.expect('P20 another account deletes nothing',
+    privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000604', $q$with d as (delete from public.kudos
+      where id = 'cccccccc-0000-0000-0000-000000000601' returning id) select count(*)::text from d$q$), '0');
+  perform privacy_fixture.expect('P20 the author deletes their own kudos',
+    privacy_fixture.read_as('eeeeeeee-0000-0000-0000-000000000602', $q$with d as (delete from public.kudos
+      where id = 'cccccccc-0000-0000-0000-000000000601' returning id) select count(*)::text from d$q$), '1');
+  raise notice 'ok P20 kudos author delete';
+end $$;
+rollback to savepoint fixture;
+
+-- P21 Every public function anon or authenticated may execute that returns text, json, a row or a set is on
+--     this reviewed allow-list (BR9.20; NFR1.5). A function missing from the list fails the case by name;
+--     review what it returns to an unprivileged caller before adding it.
+do $$
+declare
+  v_unlisted text;
+begin
+  select string_agg(p.proname, ', ' order by p.proname) into v_unlisted
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  join pg_type t on t.oid = p.prorettype
+  where n.nspname = 'public'
+    and p.prokind = 'f'
+    and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+    and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))
+    and (p.proretset or t.typtype = 'c' or t.oid in ('text'::regtype, 'json'::regtype, 'jsonb'::regtype, 'record'::regtype))
+    and p.proname not in (
+      -- Refuse callers who are not admins (is_admin() check in the body):
+      'admin_list_user_emails', 'approve_signup_request', 'get_page_view_stats', 'incident_report_review_counts',
+      'notifications_admin_counts', 'rebuild_season_stats', 'recalculate_season_scores', 'rescore_season',
+      'score_round_preview', 'sync_results_with_roster',
+      -- Return no names (counts, codes, status rows):
+      'can_appeal_penalty', 'get_news_post_view_counts', 'round_stats_status',
+      -- Return only the caller's own data, or names of unlinked drivers, who can never be hidden:
+      'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state'
+    );
+  perform privacy_fixture.expect('P21 unlisted functions', coalesce(v_unlisted, ''), '');
+  raise notice 'ok P21 function allow-list';
 end $$;
 rollback to savepoint fixture;
 
