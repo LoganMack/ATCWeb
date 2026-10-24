@@ -213,4 +213,22 @@ jobs:
               failed=1
             fi
           done
+          # Data, not just a 200: the standings must still link drivers, so a public reader left on a base
+          # table that is admin-only to read (driver privacy contract step) shows up here.
+          body="$RUNNER_TEMP/standings.html"
+          ok=false
+          for attempt in 1 2 3 4 5; do
+            code="$(curl -sS -o "$body" -w '%{http_code}' --max-time 30 "$site/standings/fragment" || echo 000)"
+            if [ "$code" = "200" ] && grep -q 'href="/drivers/' "$body"; then
+              ok=true
+              break
+            fi
+            sleep 10
+          done
+          if [ "$ok" = "true" ]; then
+            echo "OK: $site/standings/fragment links at least one driver."
+          else
+            echo "::error::Smoke check failed: $site/standings/fragment has no driver link (last status $code)."
+            failed=1
+          fi
           exit "$failed"
