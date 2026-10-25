@@ -58,6 +58,90 @@
     --btn-ring: 0.9;
     background-color: rgb(67 105 245 / 0.18);
   }
+
+  /* Every search box: 40 characters wide, shrinking to fit its container on narrow screens. */
+  .search-input {
+    width: 40ch;
+    max-width: 100%;
+    flex: none;
+  }
+
+  /* Rulebook text (src/lib/rulebookMarkdown.ts output) on /rulebook and in the Admin > Rulebook preview.
+     Each element selector sits in :where(), so these rules can only ever reach the rendered markdown and the
+     theme proof (scripts/theme-proof.mjs) does not try them on the site's own headings, links and tables. */
+  .rulebook-prose > :first-child {
+    margin-top: 0;
+  }
+  .rulebook-prose :where(h1) {
+    @apply mt-12 text-4xl text-white;
+  }
+  .rulebook-prose :where(h2) {
+    @apply mt-12 border-b border-white/10 pb-2 text-3xl text-white;
+  }
+  .rulebook-prose :where(h3) {
+    @apply mt-8 text-2xl text-white;
+  }
+  .rulebook-prose :where(h4, h5, h6) {
+    @apply mt-6 text-xl text-white;
+  }
+  .rulebook-prose :where(h1, h2, h3, h4, h5, h6, .rulebook-table) {
+    scroll-margin-top: calc(var(--sticky-header-offset) + 1rem);
+  }
+  .rulebook-prose :where(p) {
+    @apply mt-4 leading-relaxed;
+  }
+  .rulebook-prose :where(ol) {
+    @apply mt-4 list-decimal space-y-2 pl-8 leading-relaxed;
+  }
+  .rulebook-prose :where(ul) {
+    @apply mt-4 list-disc space-y-2 pl-6 leading-relaxed;
+  }
+  .rulebook-prose :where(li > ol, li > ul) {
+    @apply mt-2;
+  }
+  .rulebook-prose :where(li)::marker {
+    @apply text-white/50;
+  }
+  .rulebook-prose :where(a) {
+    @apply font-semibold text-brand-primary underline-offset-2 hover:underline;
+  }
+  .rulebook-prose :where(strong) {
+    @apply font-semibold text-white;
+  }
+  .rulebook-prose :where(blockquote) {
+    @apply mt-4 border-l-2 border-white/20 pl-4 text-white/60;
+  }
+  .rulebook-prose :where(code) {
+    @apply rounded bg-white/10 px-1 py-0.5 text-[0.9em];
+  }
+  .rulebook-prose :where(pre) {
+    @apply mt-4 overflow-x-auto rounded-lg border border-white/10 p-4 text-sm;
+  }
+  .rulebook-prose :where(pre code) {
+    @apply bg-transparent p-0;
+  }
+  .rulebook-prose :where(hr) {
+    @apply my-8 border-white/10;
+  }
+  /* Wide tables scroll inside their own box, never the page. */
+  .rulebook-prose :where(.rulebook-table) {
+    @apply mt-4 overflow-x-auto rounded-xl border border-white/10;
+  }
+  .rulebook-prose :where(table) {
+    @apply w-full border-collapse text-sm;
+  }
+  .rulebook-prose :where(th) {
+    @apply border-b border-white/10 px-3 py-2.5 text-xs font-medium uppercase tracking-wide text-white/40;
+  }
+  .rulebook-prose :where(th:not([align])) {
+    text-align: left;
+  }
+  .rulebook-prose :where(td) {
+    @apply border-b border-white/5 px-3 py-2;
+  }
+  .rulebook-prose :where(tbody tr:last-child td) {
+    border-bottom-width: 0;
+  }
 }
 
 /*

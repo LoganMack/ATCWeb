@@ -75,7 +75,7 @@ const fieldClass =
         </div>
       )}
       {drivers.length > 0 && (
-        <input type="search" data-driver-search placeholder="Search by car number or name…" aria-label="Search drivers" class={fieldClass} />
+        <input type="search" data-driver-search placeholder="Search by car number or name…" aria-label="Search drivers" class={`${fieldClass} search-input`} />
       )}
       <div class="grid max-h-40 grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto rounded-md border border-white/15 bg-white/5 p-2 sm:grid-cols-3">
         {drivers.length === 0 && <span class="col-span-full text-white/30">No drivers in this round.</span>}

@@ -1,0 +1,75 @@
+---
+export const prerender = false;
+
+// The league rulebook: the newest saved version (Admin > Rulebook) rendered from markdown, with a contents
+// panel of its headings and tables. One small read per uncached request; anonymous visits are edge-cached and
+// a warm isolate renders each version once (src/lib/rulebookMarkdown.ts).
+import Layout from '../layouts/Layout.astro';
+import RulebookContents from '../components/RulebookContents.astro';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getLatestRulebook, type RulebookVersion } from '../lib/db/rulebook';
+import { renderRulebookVersion } from '../lib/rulebookMarkdown';
+import { markUncacheable, publicLoadErrorMessage } from '../lib/security';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let version: RulebookVersion | null = null;
+let loadError = false;
+try {
+  version = await getLatestRulebook(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load the rulebook:', err);
+  loadError = true;
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
+
+const rendered = version ? renderRulebookVersion(version) : null;
+const title = version ? `Rulebook ${version.version_label}` : 'Rulebook';
+const description = version
+  ? `The Alpha Touring Challenge rulebook, version ${version.version_label}.`
+  : 'The Alpha Touring Challenge rulebook.';
+---
+
+<Layout title={title} description={description}>
+  <div class="mx-auto max-w-6xl px-6 pb-24 pt-8">
+    <h1 class="reveal font-display text-4xl sm:text-5xl" data-testid="rulebook-title">{title}</h1>
+
+    {loadError && (
+      <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80" data-testid="rulebook-load-error">
+        {publicLoadErrorMessage()}
+      </p>
+    )}
+
+    {!loadError && !rendered && (
+      <p class="mt-8 text-white/60" data-testid="rulebook-empty">The rulebook has not been published yet.</p>
+    )}
+
+    {rendered && (
+      <div class="mt-8 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10">
+        <details class="mb-8 rounded-xl border border-white/10 lg:hidden" data-testid="rulebook-contents-toggle">
+          <summary class="cursor-pointer px-4 py-3 text-sm font-semibold text-white/70 transition hover:text-white">Contents</summary>
+          <nav aria-label="Rulebook contents" class="border-t border-white/10 px-4 py-4">
+            <RulebookContents headings={rendered.headings} tables={rendered.tables} place="top" />
+          </nav>
+        </details>
+
+        <nav
+          aria-label="Rulebook contents"
+          class="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-7rem)] lg:self-start lg:overflow-y-auto lg:pb-6"
+          data-testid="rulebook-contents-side"
+        >
+          <RulebookContents headings={rendered.headings} tables={rendered.tables} place="side" />
+        </nav>
+
+        <article class="rulebook-prose min-w-0 text-white/80" data-testid="rulebook-text" set:html={rendered.html} />
+      </div>
+    )}
+  </div>
+
+  <script>
+    // Jump links move keyboard focus to the heading or table they scroll to (NFR3).
+    import '../scripts/rulebookContents';
+  </script>
+</Layout>
