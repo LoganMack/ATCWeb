@@ -8,6 +8,9 @@
 //       (data-fragment-url), from a running Worker and saves normalised HTML,
 //       one file per page. Needs: npm run build && npx wrangler dev --persist-to <new empty dir>.
 //       --fresh-cache confirms the Worker was started on an empty cache; capture refuses without it.
+//       Capture also refuses when the Worker reads production Supabase (the vars in wrangler.jsonc, unless
+//       .dev.vars points PUBLIC_SUPABASE_URL at a local Supabase) or the base URL is not local, because
+//       every page is read with no edge cache; --allow-production runs it anyway.
 //       --extra <path> (repeatable, e.g. --extra /login --extra /news/<slug>) captures that
 //       page, and its fragments, alongside the default list. The path must start with a single /.
 //   node scripts/snapshot-pages.mjs --base <baseUrl> --out <outDir> --paths-file <file> --fresh-cache
@@ -36,6 +39,7 @@
 
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { ALLOW_PRODUCTION_FLAG, localWorkerSupabaseUrl, sweepRefusal } from './productionGuard.mjs';
 
 const PAGES = [
   '/',
@@ -251,8 +255,9 @@ function checkCaptureArgs(args) {
 async function capture(rawArgs) {
   const refusal = checkCaptureArgs(rawArgs);
   if (refusal) usage(refusal);
-  // The flag is recorded above, so it never counts as one of the two positional arguments.
-  const args = rawArgs.filter((a) => a !== '--fresh-cache');
+  const allowProduction = rawArgs.includes(ALLOW_PRODUCTION_FLAG);
+  // The flags are recorded above, so they never count as one of the two positional arguments.
+  const args = rawArgs.filter((a) => a !== '--fresh-cache' && a !== ALLOW_PRODUCTION_FLAG);
   const subsessionFlag = flagValue(args, '--subsession');
   const driverFlag = flagValue(args, '--driver');
   const extraPaths = flagValues(args, '--extra');
@@ -264,6 +269,12 @@ async function capture(rawArgs) {
   if (args.length !== 2) usage('capture needs <baseUrl> <outDir> (or --base and --out)');
   const base = args[0].replace(/\/$/, '');
   const outDir = path.resolve(args[1]);
+  const sweepBlocked = sweepRefusal({
+    siteUrl: base,
+    supabaseUrl: localWorkerSupabaseUrl(),
+    allowed: allowProduction,
+  });
+  if (sweepBlocked) usage(sweepBlocked);
 
   let listedPaths = null;
   if (pathsFile) {
@@ -394,10 +405,10 @@ async function compare(args) {
 function usage(message) {
   console.error(`snapshot-pages: ${message}`);
   console.error(
-    'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--subsession <id>] [--driver <uuid>] [--extra <path>]...',
+    'Usage: node scripts/snapshot-pages.mjs <baseUrl> <outDir> --fresh-cache [--allow-production] [--subsession <id>] [--driver <uuid>] [--extra <path>]...',
   );
   console.error(
-    '       node scripts/snapshot-pages.mjs --base <baseUrl> --out <outDir> --paths-file <file> --fresh-cache',
+    '       node scripts/snapshot-pages.mjs --base <baseUrl> --out <outDir> --paths-file <file> --fresh-cache [--allow-production]',
   );
   console.error('       node scripts/snapshot-pages.mjs --compare <dirA> <dirB>');
   console.error('       node scripts/snapshot-pages.mjs --self-test');
