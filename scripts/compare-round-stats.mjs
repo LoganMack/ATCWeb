@@ -11,7 +11,10 @@
 // stored (they stay in TypeScript), so they are not compared.
 //
 // Usage:
-//   node scripts/compare-round-stats.mjs [--season ATC17] [--out perf-reports] [--examples 20]
+//   node scripts/compare-round-stats.mjs [--season ATC17] [--out perf-reports] [--examples 20] [--allow-production]
+//
+// Comparing every season against production Supabase reads every season's rows and is refused unless
+// --allow-production is passed; --season, or a local PUBLIC_SUPABASE_URL, runs without it.
 //
 // The builders are TypeScript with extensionless imports, so the script runs itself again under
 // vite-node (installed with vitest) when started with plain node. Read-only: the anon key cannot
@@ -25,6 +28,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ALLOW_PRODUCTION_FLAG, sweepRefusal } from './productionGuard.mjs';
 import {
   concealmentViolations,
   diffRecords,
@@ -54,10 +58,11 @@ const TEAM_USAGE_FIELDS = ['racesUnderTeam', 'racesScoredForTeam'];
 const TEAM_ROUND_FIELDS = ['points', 'starts'];
 
 function parseArgs(argv) {
-  const args = { season: null, out: 'perf-reports', examples: 20 };
+  const args = { season: null, out: 'perf-reports', examples: 20, allowProduction: false };
   for (let i = 0; i < argv.length; i++) {
     const value = argv[i + 1];
-    if (argv[i] === '--season' && value) args.season = argv[++i];
+    if (argv[i] === ALLOW_PRODUCTION_FLAG) args.allowProduction = true;
+    else if (argv[i] === '--season' && value) args.season = argv[++i];
     else if (argv[i] === '--out' && value) args.out = argv[++i];
     else if (argv[i] === '--examples' && value && /^\d+$/.test(value)) args.examples = Number(argv[++i]);
     else return null;
@@ -397,13 +402,25 @@ async function compareSeason(m, env, season, lookups) {
 async function main() {
   const args = parseArgs(process.argv.slice(2).filter((a) => a !== '--'));
   if (!args) {
-    console.error('usage: node scripts/compare-round-stats.mjs [--season ATCn] [--out dir] [--examples n]');
+    console.error(
+      'usage: node scripts/compare-round-stats.mjs [--season ATCn] [--out dir] [--examples n] [--allow-production]',
+    );
+    process.exit(2);
+  }
+  const env = supabaseEnv();
+  // One season is a small read; every season is a sweep.
+  const refusal = sweepRefusal({
+    supabaseUrl: env.url,
+    allowed: args.allowProduction || args.season !== null,
+    overrideIn: 'in the environment',
+  });
+  if (refusal) {
+    console.error(`compare-round-stats: ${refusal}, or pick one season with --season`);
     process.exit(2);
   }
   if (!process.env[CHILD_FLAG]) relaunchUnderViteNode();
 
   const m = await loadModules();
-  const env = supabaseEnv();
   const [allSeasons, drivers, classes, rulesets, teams, postedRows] = await Promise.all([
     m.seasons.getSeasons(env),
     m.rows.driversSelect(env),
