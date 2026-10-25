@@ -33,6 +33,17 @@ export function photoProblem(file: { type: string; size: number }, limits: Avata
   return null;
 }
 
+/**
+ * Hiding the name also hides the profile (FR2.5): while hide_name is on, hide_profile is shown on and locked;
+ * once it is off, hide_profile is changeable again and keeps the value it shows.
+ */
+export function forcedPrivacy(
+  hideName: boolean,
+  hideProfile: boolean,
+): { hideProfile: boolean; locked: boolean } {
+  return hideName ? { hideProfile: true, locked: true } : { hideProfile, locked: false };
+}
+
 export function bioProblem(bio: string, max: number): string | null {
   return bio.trim().length > max ? `Your bio can be at most ${max} characters.` : null;
 }
@@ -184,6 +195,19 @@ function clearPhoto(form: HTMLFormElement): void {
   if (err) err.textContent = '';
 }
 
+/** Applies forcedPrivacy to the two boxes; a locked box isn't posted, so its hidden stand-in is enabled. */
+function applyPrivacyForce(form: HTMLFormElement): void {
+  const source = form.querySelector<HTMLInputElement>('input[data-privacy-force="source"]');
+  const target = form.querySelector<HTMLInputElement>('input[data-privacy-force="target"]');
+  const standIn = form.querySelector<HTMLInputElement>('input[data-privacy-forced-value]');
+  // Both boxes are disabled when the saved choices couldn't be loaded; leave them so.
+  if (!source || !target || source.disabled) return;
+  const forced = forcedPrivacy(source.checked, target.checked);
+  target.checked = forced.hideProfile;
+  target.disabled = forced.locked;
+  if (standIn) standIn.disabled = !forced.locked;
+}
+
 /** Back to the saved values and view mode. After a failed save the page itself holds the unsaved values. */
 function discard(form: HTMLFormElement): void {
   if (form.querySelector('[data-profile-save-error]')) {
@@ -192,6 +216,7 @@ function discard(form: HTMLFormElement): void {
     return;
   }
   form.reset();
+  applyPrivacyForce(form);
   clearPhoto(form);
   setEditing(form, false);
   editToggle()?.focus();
@@ -361,6 +386,7 @@ function onFieldChange(e: Event): void {
     return;
   }
   if (target.hasAttribute('data-bio-input')) updateBioCount(form);
+  if (target.getAttribute('data-privacy-force') === 'source') applyPrivacyForce(form);
   updateUnsaved(form);
 }
 

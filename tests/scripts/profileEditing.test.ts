@@ -8,6 +8,7 @@ import {
   NETWORK_ERROR_MESSAGE,
   UNEXPECTED_ERROR_MESSAGE,
   bioProblem,
+  forcedPrivacy,
   inPlaceBody,
   isDirty,
   nextTabIndex,
@@ -22,6 +23,18 @@ const loaded: HeldValues = {
   settings: { hide_profile: false, hide_name: true, notify_event_reminders: false },
 };
 const limits = { types: ['image/png', 'image/jpeg', 'image/webp'], maxBytes: 5 * 1024 * 1024 };
+
+describe('forcedPrivacy (profile-liveries FR2.5)', () => {
+  it('shows hide_profile on and locked while hide_name is on, whatever it was', () => {
+    expect(forcedPrivacy(true, false)).toEqual({ hideProfile: true, locked: true });
+    expect(forcedPrivacy(true, true)).toEqual({ hideProfile: true, locked: true });
+  });
+
+  it('unlocks hide_profile once hide_name is off and keeps the value it shows', () => {
+    expect(forcedPrivacy(false, true)).toEqual({ hideProfile: true, locked: false });
+    expect(forcedPrivacy(false, false)).toEqual({ hideProfile: false, locked: false });
+  });
+});
 
 describe('isDirty (BR4.4)', () => {
   it('is clean while every held field matches what was loaded', () => {

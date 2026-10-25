@@ -23,11 +23,14 @@ const indentFor = (level: number) => INDENT[Math.min(INDENT.length - 1, Math.max
       <li class={indentFor(h.level)}>
         <a
           href={`#${h.id}`}
-          class={h.level === topLevel ? 'font-semibold text-white/80 hover:text-white' : 'text-white/60 hover:text-white'}
+          class={`inline-flex items-center gap-2 ${h.level === topLevel ? 'font-semibold text-white/80 hover:text-white' : 'text-white/60 hover:text-white'}`}
           data-rulebook-jump
+          data-rulebook-target={h.id}
           data-testid={`rulebook-contents-${place}-heading-link`}
         >
-          {h.text}
+          <span>{h.text}</span>
+          {/* The current-section marker (FR1): shown by src/scripts/rulebookContents.ts with aria-current. */}
+          <span data-rulebook-dot aria-hidden="true" class="hidden h-1.5 w-1.5 flex-none rounded-full bg-brand-primary text-fixed-white"></span>
         </a>
       </li>
     ))}

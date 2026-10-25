@@ -36,6 +36,12 @@ import {
   INTERVIEW_STATUS_PARAM,
   type InterviewProfileIntent,
 } from './raceInterviews';
+import {
+  handleLiveryProfileIntent,
+  LIVERY_PROFILE_INTENTS,
+  LIVERY_STATUS_PARAM,
+  type LiveryProfileIntent,
+} from './liveries';
 
 export const DRIVER_ACCOUNT_ERROR_CODES = [
   'NOT_AUTHENTICATED',
@@ -454,10 +460,14 @@ export function parseAccountSettings(row: unknown): AccountSettings {
   return settings;
 }
 
-/** The checkboxes as the form posted them: a ticked box is present, an unticked one is absent. */
+/**
+ * The checkboxes as the form posted them: a ticked box is present, an unticked one is absent. Hiding the name
+ * also hides the profile (FR2.5); the database enforces the same rule (FR2.6).
+ */
 export function settingsFromForm(form: { get(name: string): unknown }): AccountSettings {
   const settings = { ...DEFAULT_ACCOUNT_SETTINGS };
   for (const column of ACCOUNT_SETTING_COLUMNS) settings[column] = form.get(column) !== null;
+  if (settings.hide_name) settings.hide_profile = true;
   return settings;
 }
 
@@ -749,6 +759,7 @@ export const PROFILE_INTENTS = [
   'reset-password',
   ...INCIDENT_PROFILE_INTENTS,
   ...INTERVIEW_PROFILE_INTENTS,
+  ...LIVERY_PROFILE_INTENTS,
 ] as const;
 export type ProfileIntent = (typeof PROFILE_INTENTS)[number];
 
@@ -768,6 +779,10 @@ function isIncidentIntent(intent: ProfileIntent): intent is IncidentProfileInten
 
 function isInterviewIntent(intent: ProfileIntent): intent is InterviewProfileIntent {
   return (INTERVIEW_PROFILE_INTENTS as readonly string[]).includes(intent);
+}
+
+function isLiveryIntent(intent: ProfileIntent): intent is LiveryProfileIntent {
+  return (LIVERY_PROFILE_INTENTS as readonly string[]).includes(intent);
 }
 
 /** True when the request asks for C4's JSON answer instead of a redirect. */
@@ -849,6 +864,22 @@ export async function handleProfilePost(ctx: ProfilePostContext): Promise<Profil
       location:
         done.location ??
         `${profilePath}?edit=1&tab=interviews&${INTERVIEW_STATUS_PARAM}=${encodeURIComponent(done.code)}`,
+    };
+  }
+  if (isLiveryIntent(intent)) {
+    const owner = { accessToken: ctx.session.accessToken, userId: ctx.session.user.id };
+    const done = await handleLiveryProfileIntent(intent, ctx.env, owner, ctx.form);
+    if (ctx.json) {
+      const body: InPlaceResult = {
+        ok: done.ok,
+        message: done.message,
+        ...(done.data ? { data: done.data } : {}),
+      };
+      return { kind: 'json', status: done.status, body };
+    }
+    return {
+      kind: 'redirect',
+      location: `${profilePath}?edit=1&tab=liveries&${LIVERY_STATUS_PARAM}=${encodeURIComponent(done.code)}`,
     };
   }
 

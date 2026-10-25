@@ -23,6 +23,12 @@ import {
   type MyInterviewRow,
 } from '../../lib/raceInterviews';
 import {
+  liveryStatusMessage,
+  loadMyLiveries,
+  LIVERY_STATUS_PARAM,
+  type LiveriesPanelData,
+} from '../../lib/liveries';
+import {
   getDriverLastRace,
   resizedImageUrl,
   buildInactivityNote,
@@ -113,13 +119,20 @@ const incidentNotice = isOwner ? incidentStatusMessage(Astro.url.searchParams.ge
 const interviewsPromise: Promise<MyInterviewRow[] | null> =
   isOwner && session ? loadMyInterviews(supabaseEnv, { accessToken: session.accessToken, userId: session.user.id }) : Promise.resolve(null);
 const interviewNotice = isOwner ? interviewStatusMessage(Astro.url.searchParams.get(INTERVIEW_STATUS_PARAM)) : null;
+// The Liveries tab (profile-liveries FR5): only league drivers, which every owner here is (isOwner needs a
+// linked driver). Thumbnails are signed in one batch; nothing larger is read (NFR3).
+const liveriesPromise: Promise<LiveriesPanelData | null> =
+  isOwner && session ? loadMyLiveries(supabaseEnv, { accessToken: session.accessToken, userId: session.user.id }) : Promise.resolve(null);
+const liveryNotice = isOwner ? liveryStatusMessage(Astro.url.searchParams.get(LIVERY_STATUS_PARAM)) : null;
 const requestedTab = Astro.url.searchParams.get('tab');
 const activeTab =
   incidentNotice || requestedTab === 'incidents'
     ? 'tab-incidents'
     : interviewNotice || requestedTab === 'interviews'
       ? 'tab-interviews'
-      : 'tab-privacy';
+      : liveryNotice || requestedTab === 'liveries'
+        ? 'tab-liveries'
+        : 'tab-privacy';
 const startEditing = isOwner && (editingState !== null || Astro.url.searchParams.get('edit') === '1');
 
 let loadError: string | null = null;
@@ -186,10 +199,11 @@ if (!loadError && driver && !privateProfile) {
   }
 }
 
-const [ownerData, incidentData, interviewRows] = await Promise.all([
+const [ownerData, incidentData, interviewRows, liveryData] = await Promise.all([
   ownerDataPromise,
   incidentDataPromise,
   interviewsPromise,
+  liveriesPromise,
 ]);
 // For the owner, one form holds the header (photo, bio) and the editing tabs (the five choices), so Save
 // Profile posts them together; the header's Save Profile button is linked to it with form=.
@@ -325,9 +339,9 @@ if (loadError || isOwner) markUncacheable(Astro);
             {isOwner && (
               <div data-edit-only class="mt-4 hidden max-w-2xl">
                 <label class="flex flex-col gap-1.5 text-sm">
-                  <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Bio</span>
                   <textarea
                     name="bio"
+                    aria-label="Bio"
                     rows="5"
                     maxlength={DRIVER_BIO_MAX}
                     data-bio-input
@@ -359,6 +373,7 @@ if (loadError || isOwner) markUncacheable(Astro);
               notice: incidentNotice,
             }}
             interviews={{ rows: interviewRows, notice: interviewNotice }}
+            liveries={{ data: liveryData, notice: liveryNotice, linked: true }}
             activeTab={activeTab}
           />
         )}
@@ -398,6 +413,8 @@ if (loadError || isOwner) markUncacheable(Astro);
     import '../../scripts/incidentDetails';
     // The Interviews tab's download, confirm popup and in-place delete (U6).
     import '../../scripts/interviews';
+    // The Liveries tab: browser-side TGA thumbnails, gzip, direct uploads and downloads (profile-liveries FR5).
+    import '../../scripts/liveries';
 
     // Keeps the Splits Overall/Class <details> in step: toggling one sets its same-named counterpart. Setting
     // .open to its current value fires no event, so it doesn't loop.

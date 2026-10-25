@@ -1,0 +1,185 @@
+---
+// The own profile's "Liveries" tab (profile-liveries FR5). Rendered only for a league driver, inside the profile
+// form, so every button is type="button" and the file pickers and dropdowns have no name: Save Profile never
+// posts them. src/scripts/liveries.ts makes the images, compresses and uploads in the browser, and re-reads
+// [data-liveries-rows] from the page after each change. The two popups are <dialog>s with no form of their own.
+import type { LiveriesPanelData, LiveryRow } from '../lib/liveries';
+import { LIVERIES_PER_SEASON, LIVERY_MAX_BYTES } from '../lib/liveries';
+
+interface Props {
+  /** Null when the list couldn't be loaded. */
+  data: LiveriesPanelData | null;
+  /** The no-JavaScript fallback's result of an action. */
+  notice: { ok: boolean; message: string } | null;
+}
+
+const { data, notice } = Astro.props;
+const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+const fileLine = (row: LiveryRow) =>
+  row.mipName ? `${row.tgaName} · ${row.mipName}` : `${row.tgaName} · no spec map`;
+---
+
+<div data-liveries-panel data-max-bytes={String(LIVERY_MAX_BYTES)} class="flex flex-col gap-4" data-testid="liveries-panel">
+  <p data-liveries-status role="status" class={`text-sm ${notice && !notice.ok ? 'text-brand-pink' : 'text-white/70'}`}>
+    {notice?.message}
+  </p>
+
+  {!data ? (
+    <p role="alert" class="text-sm text-brand-pink">Couldn't load your liveries. Try again later.</p>
+  ) : (
+    <>
+      <section class="flex flex-col gap-2 rounded-lg border border-white/10 p-3" data-testid="liveries-upload">
+        <h2 class="font-display text-2xl">Upload a livery</h2>
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="flex flex-col gap-1.5 text-sm">
+            <span class="text-white/70">Season</span>
+            <select
+              data-livery-upload-season
+              class="rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-white outline-none focus:border-brand-primary"
+              data-testid="liveries-upload-season"
+            >
+              {data.seasons.map((s) => (
+                <option value={s.id} selected={s.id === data.defaultSeasonId}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+          <input type="file" accept=".tga" data-livery-tga-input class="sr-only" tabindex="-1" aria-hidden="true" data-testid="liveries-tga-input" />
+          <button type="button" class="btn btn-neutral" data-livery-pick-tga data-testid="liveries-pick-tga">Choose .tga</button>
+          <span data-livery-tga-name class="text-sm text-white/60">No file chosen</span>
+          <button type="button" class="btn btn-primary" data-livery-upload disabled data-testid="liveries-upload-button">Upload</button>
+        </div>
+        <p class="text-xs text-white/40">
+          ⓘ iRacing .tga paint files up to {LIVERY_MAX_BYTES / 1024 / 1024} MB, at most {LIVERIES_PER_SEASON} per season. Add a .mip
+          spec map to a livery once it is uploaded. Only you and the admins can see your liveries.
+        </p>
+      </section>
+
+      <input type="file" accept=".mip" data-livery-mip-input class="sr-only" tabindex="-1" aria-hidden="true" data-testid="liveries-mip-input" />
+
+      <div data-liveries-rows class="flex flex-col gap-4" data-testid="liveries-rows">
+        {data.groups.length === 0 && <p data-liveries-empty class="text-sm text-white/60">No liveries uploaded yet.</p>}
+        {data.groups.map((group) => (
+          <section class="flex flex-col gap-2" data-livery-season-group={group.season.id} data-testid="livery-season-group">
+            <h3 class="font-display text-xl">{group.season.label}</h3>
+            <ul class="flex flex-col gap-2">
+              {group.rows.map((row) => (
+                <li
+                  class={`flex flex-wrap items-center gap-3 rounded-lg border p-2 ${row.isActive ? 'border-brand-primary/40 bg-brand-primary/10' : 'border-white/10'}`}
+                  data-livery-row={row.id}
+                  data-testid="livery-row"
+                >
+                  {row.thumbUrl ? (
+                    <img src={row.thumbUrl} alt={`Livery ${row.tgaName}`} width="80" height="80" loading="lazy" class="h-20 w-20 flex-none rounded-md bg-white/5 object-contain" />
+                  ) : (
+                    <div class="flex h-20 w-20 flex-none items-center justify-center rounded-md bg-white/5 text-xs text-white/40">No preview</div>
+                  )}
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-sm font-semibold text-white/90">{fileLine(row)}</p>
+                    <p class="text-xs text-white/40">{megabytes(row.tgaSize)}{row.mipSize !== null && ` · ${megabytes(row.mipSize)}`}</p>
+                    {row.isActive && (
+                      <span class="mt-1 inline-block rounded bg-brand-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fixed-white" data-testid="livery-active-badge">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <div class="flex flex-wrap items-center justify-end gap-2">
+                    <select
+                      data-livery-season-select
+                      data-livery-id={row.id}
+                      data-current={row.seasonId}
+                      aria-label={`Season for ${row.tgaName}`}
+                      class="rounded-md border border-white/15 bg-brand-ink px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                      data-testid="livery-season-select"
+                    >
+                      {data.seasons.map((s) => (
+                        <option value={s.id} selected={s.id === row.seasonId}>{s.label}</option>
+                      ))}
+                    </select>
+                    {!row.isActive && (
+                      <button type="button" class="btn btn-neutral btn-sm" data-livery-set-active data-livery-id={row.id} data-testid="livery-set-active">
+                        Set active
+                      </button>
+                    )}
+                    <button type="button" class="btn btn-neutral btn-sm" data-livery-add-mip data-livery-id={row.id} data-testid="livery-add-mip">
+                      {row.mipName ? 'Replace spec map' : 'Add spec map'}
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-neutral btn-sm"
+                      data-livery-preview
+                      data-livery-id={row.id}
+                      aria-label={`View preview of ${row.tgaName}`}
+                      data-testid="livery-preview"
+                    >
+                      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-sm"
+                      data-livery-download
+                      data-livery-id={row.id}
+                      aria-label={`Download ${row.tgaName}`}
+                      data-testid="livery-download"
+                    >
+                      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 3v12m0 0l-5-5m5 5l5-5M4 21h16" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-danger btn-sm"
+                      data-livery-delete
+                      data-livery-id={row.id}
+                      data-livery-name={row.tgaName}
+                      aria-label={`Delete ${row.tgaName}`}
+                      data-testid="livery-delete"
+                    >
+                      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                      </svg>
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </>
+  )}
+
+  <dialog
+    data-livery-preview-dialog
+    aria-labelledby="livery-preview-title"
+    class="w-full max-w-4xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+    data-testid="livery-preview-dialog"
+  >
+    <div class="flex flex-col gap-4 p-5">
+      <div class="flex items-center justify-between gap-3">
+        <h2 id="livery-preview-title" class="font-display text-2xl">Livery preview</h2>
+        <button type="button" class="btn btn-neutral btn-sm" data-livery-preview-close data-testid="livery-preview-close">Close</button>
+      </div>
+      <img data-livery-preview-image alt="" class="max-h-[75vh] w-full rounded-md bg-white/5 object-contain" />
+    </div>
+  </dialog>
+
+  <dialog
+    data-livery-delete-dialog
+    aria-labelledby="livery-delete-title"
+    class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+    data-testid="livery-delete-dialog"
+  >
+    <div class="flex flex-col gap-4 p-5">
+      <h2 id="livery-delete-title" class="font-display text-2xl">Delete livery?</h2>
+      <p data-livery-delete-text class="text-sm text-white/70"></p>
+      <p data-livery-delete-error role="alert" class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90"></p>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn btn-neutral" data-livery-delete-cancel data-testid="livery-delete-cancel">Cancel</button>
+        <button type="button" class="btn btn-danger" data-livery-delete-confirm data-testid="livery-delete-confirm">Delete</button>
+      </div>
+    </div>
+  </dialog>
+</div>
