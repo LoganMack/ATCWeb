@@ -73,6 +73,8 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   incidentManagement: { hooks: ['data-incident-management'], shells: ['drivers/[id].astro'] },
   // U6 interviews: the Interviews tab's download, confirm popup and delete.
   interviews: { hooks: ['data-interviews-panel'], shells: ['drivers/[id].astro'] },
+  // profile-liveries: the Liveries tab's uploads, downloads and popups.
+  liveries: { hooks: ['data-liveries-panel'], shells: ['drivers/[id].astro'] },
   logoSelect: {
     hooks: ['data-logo-select'],
     shells: [
@@ -350,7 +352,7 @@ describe('front-end loading (U5)', () => {
     expect(cancel![1]).toMatch(/role="tooltip">Cancel</);
   });
 
-  it('lays out the four tabs, the five checkboxes and the in-place buttons as designed (U3: M6a, M6b, C4)', () => {
+  it('lays out the five tabs, the five checkboxes and the in-place buttons as designed (U3: M6a, M6b, C4)', () => {
     const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
     const labels = [...tabs.matchAll(/\{ id: '(tab-[a-z]+)', label: '([^']+)' \}/g)].map(
       (m) => `${m[1]} ${m[2]}`,
@@ -360,18 +362,18 @@ describe('front-end loading (U5)', () => {
       'tab-notifications Email Notifications',
       'tab-incidents Incident Management',
       'tab-interviews Interviews',
+      'tab-liveries Liveries',
     ]);
     expect(tabs).toMatch(/role="tablist"[^>]*data-profile-tabs>/);
     for (const [name, label] of [
       ['hide_profile', 'Hide Profile from Anonymous Users'],
-      ['hide_name', 'Hide Driver Name from Anonymous Users'],
+      ['hide_name', 'Hide Name from Anonymous Users'],
       ['notify_appeal_reviewed', 'Appeal Marked Reviewed'],
       ['notify_report_posted', 'Incident Report Posted'],
       ['notify_event_reminders', 'Event Reminders'],
     ]) {
       expect(tabs).toMatch(new RegExp(`name: '${name}',\\s*label: '${label}'`));
     }
-    expect(tabs).toContain('Changes may take a few minutes to apply everywhere.');
     expect(tabs).toMatch(/Waiting for you to confirm \{pendingEmail\}/);
     expect(tabs).toMatch(/name="intent"\s+value="change-email"/);
     expect(tabs).toMatch(/name="intent"\s+value="reset-password"/);
@@ -516,6 +518,106 @@ describe('the Interviews tab (U6: BR12.1, BR12.6, BR12.7, NFR2.1)', () => {
   });
 });
 
+describe('the profile settings polish (profile-liveries FR2-FR4)', () => {
+  const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
+  const PAGE = ASTRO[`${P}drivers/[id].astro`];
+
+  it('puts email and password side by side on wide screens, with a 40ch "Change Email" box (FR2.1-FR2.3)', () => {
+    expect(tabs).toMatch(
+      /<div class="grid gap-6 lg:grid-cols-2"[^>]*>\s*<section[^>]*>\s*<h2[^>]*>Email<\/h2>/,
+    );
+    expect(tabs).toMatch(/<h2 class="font-display text-2xl">Password<\/h2>[\s\S]*?<\/section>\s*<\/div>/);
+    expect(tabs).toMatch(
+      /<label class="flex w-full max-w-\[40ch\] flex-col[^>]*>\s*<span[^>]*>Change Email<\/span>/,
+    );
+    expect(tabs).not.toContain('New email');
+  });
+
+  it('relabels the name toggle with its new subtitle and locks the profile toggle while it is on (FR2.4, FR2.5)', () => {
+    expect(tabs).toContain(`help: 'Shows "Hidden Driver" instead of your name to anyone not signed in.'`);
+    expect(tabs).toContain("data-privacy-force={s.name === 'hide_name' ? 'source' : 'target'}");
+    expect(tabs).toMatch(/type="hidden"\s+name="hide_profile"\s+value="on"\s+disabled=\{!profileLocked\}/);
+    expect(tabs).toContain("disabled={!settingsLoaded || (s.name === 'hide_profile' && profileLocked)}");
+  });
+
+  it('drops the two privacy notes and the "Emails go to" line (FR2.7, FR3.1)', () => {
+    expect(tabs).not.toContain('Changes may take a few minutes to apply everywhere.');
+    expect(tabs).not.toContain('A league driver is any account linked to a driver.');
+    expect(tabs).not.toContain('Emails go to');
+  });
+
+  it('removes the visible Bio label but keeps the box named for screen readers (FR4)', () => {
+    expect(PAGE).not.toMatch(/<span[^>]*>Bio<\/span>/);
+    expect(PAGE).toMatch(/<textarea\s+name="bio"\s+aria-label="Bio"/);
+  });
+
+  it('marks the current rulebook section with a dot and aria-current (FR1)', () => {
+    const contents = ASTRO['/src/components/RulebookContents.astro'];
+    expect(contents).toContain('data-rulebook-target={h.id}');
+    expect(contents).toMatch(
+      /<span data-rulebook-dot aria-hidden="true" class="hidden [^"]*rounded-full bg-brand-primary\b[^"]*"/,
+    );
+    expect(SRC['/src/scripts/rulebookContents.ts']).toContain(
+      "link.setAttribute('aria-current', 'location')",
+    );
+  });
+});
+
+describe('the Liveries tab (profile-liveries FR5, NFR3-NFR6)', () => {
+  const PANEL = ASTRO['/src/components/LiveriesPanel.astro'];
+  const SCRIPT = SRC['/src/scripts/liveries.ts'];
+  const PAGE = ASTRO[`${P}drivers/[id].astro`];
+  const tabs = ASTRO['/src/components/ProfileSettingsTabs.astro'];
+
+  it('fills the tab-liveries panel only for linked accounts, in the owner’s uncacheable render (FR5.1)', () => {
+    expect(tabs).toMatch(
+      /\{liveries\.linked && \(\s*<div role="tabpanel" id="tab-liveries"[^>]*>\s*<LiveriesPanel\b/,
+    );
+    expect(tabs).toContain("ALL_TABS.filter((tab) => tab.id !== 'tab-liveries' || liveries.linked)");
+    expect(importersOf('/src/components/LiveriesPanel.astro')).toEqual([
+      '/src/components/ProfileSettingsTabs.astro',
+    ]);
+    expect(PAGE).toMatch(/const liveriesPromise[^;]*=\s*isOwner && session \? loadMyLiveries\(/);
+    expect(PAGE).toMatch(/import '\.\.\/\.\.\/scripts\/liveries';/);
+  });
+
+  it('uses shared buttons that never submit the profile form, with names on the icon buttons (NFR5, NFR6)', () => {
+    const buttons = PANEL.match(/<button[^>]*>/g) ?? [];
+    expect(buttons.length).toBeGreaterThanOrEqual(10);
+    for (const button of buttons.join('\n').split(/(?=<button)/))
+      expect(button).toMatch(/type="button"\s+class="btn btn-/);
+    for (const name of ['View preview of', 'Download', 'Delete']) {
+      expect(PANEL).toMatch(new RegExp(`aria-label=\\{\`${name} \\$\\{row\\.tgaName\\}\`\\}`));
+    }
+    expect(PANEL).toMatch(/<svg[^>]*aria-hidden="true"/);
+    expect(PANEL).not.toMatch(/<form\b/);
+  });
+
+  it('gives the file pickers and dropdowns no name, so Save Profile never posts them', () => {
+    const controls = PANEL.match(/<(?:input|select)\b[^>]*>/g) ?? [];
+    expect(controls.length).toBeGreaterThanOrEqual(4);
+    for (const control of controls) expect(control).not.toMatch(/\sname=/);
+    expect(PANEL).toContain('accept=".tga"');
+    expect(PANEL).toContain('accept=".mip"');
+  });
+
+  it('labels the spec map button by state and marks the active livery (FR5.6, FR5.8)', () => {
+    expect(PANEL).toContain("{row.mipName ? 'Replace spec map' : 'Add spec map'}");
+    expect(PANEL).toMatch(/\{!row\.isActive && \(\s*<button[^>]*data-livery-set-active/);
+    expect(PANEL).toContain('data-testid="livery-active-badge"');
+    expect(PANEL).toContain('data-livery-preview-dialog');
+    expect(PANEL).toContain('data-livery-delete-dialog');
+  });
+
+  it('never renders livery text as HTML and moves file bytes only between the browser and Storage (NFR4)', () => {
+    expect(PANEL).not.toContain('set:html');
+    expect(SCRIPT).not.toMatch(/innerHTML|insertAdjacentHTML|outerHTML/);
+    expect(SCRIPT).toContain("new CompressionStream('gzip')");
+    expect(SCRIPT).toContain("new DecompressionStream('gzip')");
+    expect(SCRIPT).toMatch(/method: 'PUT'/);
+  });
+});
+
 describe('driver privacy rendering (U4: BR9.8, BR9.11, BR9.14, NFR2.2)', () => {
   const PRIVATE_PAGES = [
     `${P}drivers/[id].astro`,
@@ -534,7 +636,9 @@ describe('driver privacy rendering (U4: BR9.8, BR9.11, BR9.14, NFR2.2)', () => {
 
   it('passes the hidden flag at every DriverLink call', () => {
     const missing = Object.entries(ASTRO).flatMap(([path, text]) =>
-      [...text.matchAll(/<DriverLink\b[^>]*>/g)].filter((m) => !/\bhidden=\{/.test(m[0])).map((m) => `${path}: ${m[0]}`),
+      [...text.matchAll(/<DriverLink\b[^>]*>/g)]
+        .filter((m) => !/\bhidden=\{/.test(m[0]))
+        .map((m) => `${path}: ${m[0]}`),
     );
     expect(missing).toEqual([]);
   });
@@ -549,7 +653,9 @@ describe('driver privacy rendering (U4: BR9.8, BR9.11, BR9.14, NFR2.2)', () => {
   it('renders the private notice on every profile route and guards the data with !privateProfile (BR9.11)', () => {
     for (const path of PRIVATE_PAGES) {
       const page = ASTRO[path];
-      expect(page, path).toMatch(/\{privateProfile && <PrivateProfileNotice driverId=\{driverId\} signedIn=\{Boolean\(/);
+      expect(page, path).toMatch(
+        /\{privateProfile && <PrivateProfileNotice driverId=\{driverId\} signedIn=\{Boolean\(/,
+      );
       expect(page, path).toMatch(/!privateProfile/);
     }
     const shell = ASTRO[`${P}drivers/[id].astro`];
@@ -565,7 +671,8 @@ describe('driver privacy rendering (U4: BR9.8, BR9.11, BR9.14, NFR2.2)', () => {
     const notice = ASTRO['/src/components/PrivateProfileNotice.astro'];
     expect(notice).toContain("This driver's profile is private.");
     expect(notice).toContain('<a href={action.href} class="btn btn-primary mt-4">{action.label}</a>');
-    for (const leak of ['data-fragment-url', 'bio', 'photo', 'name}', 'stats']) expect(notice).not.toContain(leak);
+    for (const leak of ['data-fragment-url', 'bio', 'photo', 'name}', 'stats'])
+      expect(notice).not.toContain(leak);
   });
 
   it('never derives the profile photo badge from the name (Q7 A)', () => {
@@ -580,11 +687,15 @@ describe('driver privacy rendering (U4: BR9.8, BR9.11, BR9.14, NFR2.2)', () => {
     expect(tabs).toMatch(
       /name: 'hide_name',[\s\S]*?note: 'In news and incident text, another driver with exactly the same full name is hidden too\.'/,
     );
-    expect(tabs).toContain('{s.note && <p class="text-xs text-white/40" data-setting-note={s.name}>{s.note}</p>}');
+    expect(tabs).toContain(
+      '{s.note && <p class="text-xs text-white/40" data-setting-note={s.name}>{s.note}</p>}',
+    );
   });
 
   it('renders a hidden driver as plain text in the client-built recap and meetup lists', () => {
-    expect(ASTRO[`${P}calendar.astro`]).toMatch(/if \(driver\.is_hidden\) \{\s*const span = document\.createElement\('span'\);/);
+    expect(ASTRO[`${P}calendar.astro`]).toMatch(
+      /if \(driver\.is_hidden\) \{\s*const span = document\.createElement\('span'\);/,
+    );
     expect(ASTRO[`${P}media.astro`]).toMatch(/if \(!driver\.id\) \{\s*li\.textContent = driver\.label;/);
     expect(ASTRO[`${P}media/fragment.astro`]).toContain('id: link.drivers.is_hidden ? null : link.driver_id');
   });

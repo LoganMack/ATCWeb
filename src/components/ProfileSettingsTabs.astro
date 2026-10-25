@@ -1,15 +1,24 @@
 ---
 // The own profile's editing tabs (U3 profile-settings; contract C4; mockups M6, M6a, M6b). Rendered only for
 // the driver themselves, inside the profile form, so the five checkboxes are saved by Save Profile with the
-// photo and bio; the email buttons act at once, in place (src/scripts/profileEditing.ts). U5 and U6 fill the
-// Incident Management and Interviews panels (IncidentManagementPanel, InterviewsPanel).
+// photo and bio; the email buttons act at once, in place (src/scripts/profileEditing.ts). U5, U6 and
+// profile-liveries fill the Incident Management, Interviews and Liveries panels.
 import type { AccountSettingColumn, AccountSettings, InPlaceResult } from '../lib/driverAccount';
 import type { IncidentManagementView } from '../lib/incidents';
 import IncidentManagementPanel from './IncidentManagementPanel.astro';
 import InterviewsPanel from './InterviewsPanel.astro';
+import LiveriesPanel from './LiveriesPanel.astro';
 import type { MyInterviewRow } from '../lib/raceInterviews';
+import type { LiveriesPanelData } from '../lib/liveries';
 
 interface Props {
+  /** The Liveries tab (league drivers only): the panel data (null when it couldn't be loaded) and a notice. */
+  liveries: {
+    data: LiveriesPanelData | null;
+    notice: { ok: boolean; message: string } | null;
+    /** Whether the account is linked to a driver; the tab is shown only then (FR5.1). */
+    linked: boolean;
+  };
   /** U6's Interviews tab: the list (null when it couldn't be loaded) and a no-JavaScript result. */
   interviews: {
     rows: MyInterviewRow[] | null;
@@ -22,7 +31,7 @@ interface Props {
     notice: { ok: boolean; message: string } | null;
   };
   /** The tab shown first; a no-JavaScript incident or interview action comes back on its own tab. */
-  activeTab?: 'tab-privacy' | 'tab-notifications' | 'tab-incidents' | 'tab-interviews';
+  activeTab?: 'tab-privacy' | 'tab-notifications' | 'tab-incidents' | 'tab-interviews' | 'tab-liveries';
   email: string | null;
   pendingEmail: string | null;
   settings: AccountSettings;
@@ -44,16 +53,22 @@ const {
   passwordNotice,
   incidents,
   interviews,
-  activeTab = 'tab-privacy',
+  liveries,
+  activeTab: requestedTab = 'tab-privacy',
 } = Astro.props;
+const activeTab = requestedTab === 'tab-liveries' && !liveries.linked ? 'tab-privacy' : requestedTab;
 const panelClass = (id: string, layout: string) => (id === activeTab ? layout : `hidden ${layout}`);
 
-const TABS = [
+const ALL_TABS = [
   { id: 'tab-privacy', label: 'Profile & Privacy Settings' },
   { id: 'tab-notifications', label: 'Email Notifications' },
   { id: 'tab-incidents', label: 'Incident Management' },
   { id: 'tab-interviews', label: 'Interviews' },
+  { id: 'tab-liveries', label: 'Liveries' },
 ] as const;
+const TABS = ALL_TABS.filter((tab) => tab.id !== 'tab-liveries' || liveries.linked);
+// Hiding the name also hides the profile, so that box is shown on and locked (FR2.5).
+const profileLocked = settingsLoaded && settings.hide_name;
 
 type Setting = { name: AccountSettingColumn; label: string; help: string; note?: string };
 const PRIVACY: Setting[] = [
@@ -64,8 +79,8 @@ const PRIVACY: Setting[] = [
   },
   {
     name: 'hide_name',
-    label: 'Hide Driver Name from Anonymous Users',
-    help: 'Shows "Hidden Driver" instead of your name, photo and profile link to anyone not signed in as a league driver, including in news and incident text.',
+    label: 'Hide Name from Anonymous Users',
+    help: 'Shows "Hidden Driver" instead of your name to anyone not signed in.',
     // BR9.8: free text is matched by name, not by driver.
     note: 'In news and incident text, another driver with exactly the same full name is hidden too.',
   },
@@ -120,7 +135,8 @@ const noticeClass = (notice: InPlaceResult | null) =>
     <p data-profile-unsaved class="mb-3 hidden text-xs font-semibold text-brand-gold">Unsaved changes</p>
 
     <div role="tabpanel" id="tab-privacy" aria-labelledby="tab-privacy-tab" data-profile-panel="tab-privacy" class={panelClass('tab-privacy', 'flex flex-col gap-6')}>
-      <section class="flex flex-col gap-2">
+      <div class="grid gap-6 lg:grid-cols-2" data-testid="profile-account-columns">
+      <section class="flex min-w-0 flex-col gap-2">
         <h2 class="font-display text-2xl">Email</h2>
         <p class="text-sm text-white/70">{email ?? 'This account has no email address.'}</p>
         {pendingEmail && (
@@ -130,14 +146,14 @@ const noticeClass = (notice: InPlaceResult | null) =>
           </p>
         )}
         <div data-in-place="change-email" class="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label class="flex flex-1 flex-col gap-1.5 text-sm">
-            <span class="text-white/70">New email</span>
+          <label class="flex w-full max-w-[40ch] flex-col gap-1.5 text-sm" data-testid="profile-new-email-label">
+            <span class="text-white/70">Change Email</span>
             <input
               type="email"
               name="new_email"
               autocomplete="email"
               maxlength="254"
-              class={inputClass}
+              class={`w-full ${inputClass}`}
               data-testid="profile-new-email"
             />
           </label>
@@ -157,7 +173,7 @@ const noticeClass = (notice: InPlaceResult | null) =>
         <p data-in-place-status="change-email" role="status" class={noticeClass(emailNotice)}>{emailNotice?.message}</p>
       </section>
 
-      <section class="flex flex-col gap-2">
+      <section class="flex min-w-0 flex-col gap-2">
         <h2 class="font-display text-2xl">Password</h2>
         <div data-in-place="reset-password">
           <button
@@ -174,22 +190,32 @@ const noticeClass = (notice: InPlaceResult | null) =>
         </div>
         <p data-in-place-status="reset-password" role="status" class={noticeClass(passwordNotice)}>{passwordNotice?.message}</p>
       </section>
+      </div>
 
       <section class="flex flex-col gap-3">
         <h2 class="font-display text-2xl">Privacy</h2>
         {!settingsLoaded && (
           <p role="alert" class="text-sm text-brand-pink">Couldn't load your settings. Try refreshing the page.</p>
         )}
+        {/* A locked box isn't posted, so this stands in for it while hide_name is on (FR2.5). */}
+        <input
+          type="hidden"
+          name="hide_profile"
+          value="on"
+          disabled={!profileLocked}
+          data-privacy-forced-value
+        />
         {PRIVACY.map((s) => (
           <div class="flex items-start gap-3">
             <input
               type="checkbox"
               id={`setting-${s.name}`}
               name={s.name}
-              checked={settings[s.name]}
-              disabled={!settingsLoaded}
+              checked={settings[s.name] || (s.name === 'hide_profile' && profileLocked)}
+              disabled={!settingsLoaded || (s.name === 'hide_profile' && profileLocked)}
               aria-describedby={`setting-${s.name}-help`}
               data-held-setting
+              data-privacy-force={s.name === 'hide_name' ? 'source' : 'target'}
               class="mt-1 accent-brand-primary"
             />
             <div>
@@ -199,8 +225,6 @@ const noticeClass = (notice: InPlaceResult | null) =>
             </div>
           </div>
         ))}
-        <p class="text-xs text-white/40">ⓘ Changes may take a few minutes to apply everywhere.</p>
-        <p class="text-xs text-white/40">ⓘ A league driver is any account linked to a driver.</p>
       </section>
     </div>
 
@@ -226,7 +250,6 @@ const noticeClass = (notice: InPlaceResult | null) =>
           </div>
         </div>
       ))}
-      <p class="text-sm text-white/70">{email ? `Emails go to ${email}.` : 'This account has no email address.'}</p>
     </div>
 
     <div role="tabpanel" id="tab-incidents" aria-labelledby="tab-incidents-tab" data-profile-panel="tab-incidents" class={panelClass('tab-incidents', 'flex flex-col gap-3')}>
@@ -236,6 +259,12 @@ const noticeClass = (notice: InPlaceResult | null) =>
     <div role="tabpanel" id="tab-interviews" aria-labelledby="tab-interviews-tab" data-profile-panel="tab-interviews" class={panelClass('tab-interviews', 'flex flex-col gap-3')}>
       <InterviewsPanel rows={interviews.rows} notice={interviews.notice} />
     </div>
+
+    {liveries.linked && (
+      <div role="tabpanel" id="tab-liveries" aria-labelledby="tab-liveries-tab" data-profile-panel="tab-liveries" class={panelClass('tab-liveries', 'flex flex-col gap-3')}>
+        <LiveriesPanel data={liveries.data} notice={liveries.notice} />
+      </div>
+    )}
   </div>
 
   <dialog

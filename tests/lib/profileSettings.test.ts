@@ -137,9 +137,26 @@ describe('account settings read and write (C3, NFR1.2)', () => {
     form.set('hide_name', 'on');
     form.set('notify_appeal_reviewed', 'on');
     form.set('profile_id', 'someone-else');
-    expect(settingsFromForm(form)).toEqual(settings({ hide_name: true, notify_appeal_reviewed: true }));
+    // Hiding the name also hides the profile (FR2.5).
+    expect(settingsFromForm(form)).toEqual(
+      settings({ hide_name: true, hide_profile: true, notify_appeal_reviewed: true }),
+    );
     expect(parseAccountSettings(null)).toEqual(DEFAULT_ACCOUNT_SETTINGS);
     expect(parseAccountSettings({ hide_profile: 1 })).toEqual(DEFAULT_ACCOUNT_SETTINGS);
+  });
+
+  it('forces hide_profile on whenever hide_name is posted, and leaves it alone otherwise (FR2.5, FR2.6)', () => {
+    const nameOnly = new FormData();
+    nameOnly.set('hide_name', 'on');
+    expect(settingsFromForm(nameOnly)).toEqual(settings({ hide_name: true, hide_profile: true }));
+    const profileOnly = new FormData();
+    profileOnly.set('hide_profile', 'on');
+    expect(settingsFromForm(profileOnly)).toEqual(settings({ hide_profile: true }));
+    expect(settingsFromForm(new FormData())).toEqual(DEFAULT_ACCOUNT_SETTINGS);
+    nameOnly.set('settings_loaded', '1');
+    expect(shapeProfileForm(nameOnly).values.settings).toEqual(
+      settings({ hide_name: true, hide_profile: true }),
+    );
   });
 
   it('maps a used email minute to RATE_LIMITED (claim_email_action)', async () => {
@@ -441,7 +458,7 @@ describe('the own-profile controller (NFR1.3, NFR4.2, C4)', () => {
     expect(outcome).toMatchObject({
       kind: 'render',
       status: 502,
-      editing: { bio: 'Typed bio', settings: settings({ hide_name: true }) },
+      editing: { bio: 'Typed bio', settings: settings({ hide_name: true, hide_profile: true }) },
     });
     expect(outcome.kind === 'render' && outcome.editing.error).toContain('Pick your photo again');
   });
@@ -452,6 +469,35 @@ describe('the own-profile controller (NFR1.3, NFR4.2, C4)', () => {
       kind: 'redirect',
       location: `/drivers/${DRIVER_ID}?saved=1`,
     });
+  });
+
+  it('routes the Liveries intents: JSON when asked, else a redirect back to the Liveries tab (FR5.1)', async () => {
+    const calls = stubFetch(() => respond(null, 204));
+    const fields = { intent: 'set-livery-active', livery_id: 'bbbbbbbb-1111-4222-8333-444444444444' };
+    const json = await handleProfilePost(context({ json: true, fields }));
+    expect(json).toMatchObject({
+      kind: 'json',
+      status: 200,
+      body: { ok: true, message: 'Active livery set.' },
+    });
+    expect(calls[0].url).toBe(`${env.url}/rest/v1/rpc/set_my_livery_active`);
+    expect(calls[0].headers.Authorization).toBe(`Bearer ${TOKEN}`);
+
+    const redirect = await handleProfilePost(context({ fields }));
+    expect(redirect).toEqual({
+      kind: 'redirect',
+      location: `/drivers/${DRIVER_ID}?edit=1&tab=liveries&livery_status=done`,
+    });
+    expect(resolveProfileIntent(['save-profile', 'delete-livery'])).toBe('delete-livery');
+  });
+
+  it('refuses a Liveries intent from anyone but the owner without a request', async () => {
+    const calls = stubFetch(() => respond({}));
+    const json = await handleProfilePost(
+      context({ isOwner: false, json: true, fields: { intent: 'delete-livery' } }),
+    );
+    expect(json).toMatchObject({ kind: 'json', status: 403 });
+    expect(calls).toHaveLength(0);
   });
 
   it('lets an in-place button’s intent win over the form’s save-profile default', () => {
