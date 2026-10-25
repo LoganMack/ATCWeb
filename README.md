@@ -35,10 +35,13 @@ Built with [Astro](https://astro.build), [Tailwind CSS](https://tailwindcss.com)
 | Champions, Awards, Hall of Fame | League history and honours                                                                                          |
 | Driver and team stats           | Career and season statistics                                                                                        |
 | Circuits and media              | Circuit records and layouts, photo galleries                                                                        |
+| Rulebook                        | The league rulebook at `/rulebook`, with a contents panel of its sections and a list of its tables                  |
 
 ### Admin portal
 
-Everything is managed in the browser under `/admin`: seasons, events, rulesets, results imports, penalties and penalty offenses, incident reporting and appeals, drivers, teams, organizations, circuits, car logos, news, awards, champions, page banners, site properties, users, and an activity log. Admin pages are only available to signed-in users with the `admin` role.
+Everything is managed in the browser under `/admin`: seasons, events, rulesets, results imports, penalties and penalty offenses, incident reporting and appeals, drivers, teams, organizations, circuits, car logos, news, awards, champions, page banners, site properties, users, the rulebook, and an activity log. Admin pages are only available to signed-in users with the `admin` role.
+
+**Rulebook.** Admin > Rulebook (`/admin/rulebook`) edits the rulebook as markdown with a live preview. Each save becomes the new public version, and the 10 most recent versions are kept, each viewable and restorable. The table `rulebook_versions` is public to read; writes go only through `save_rulebook_version()`, which refuses non-admins, empty input and a save from an editor opened before someone else's save (`supabase/checks/rulebook-fixtures.sql` checks this in CI). Raw HTML in the markdown is shown as text and only web, email and in-page links stay links (`src/lib/rulebookMarkdown.ts`, shared by the page and the preview).
 
 ## Architecture
 

@@ -170,6 +170,12 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/interviews-fixtures.sql
 
+      # Same convention: the native rulebook: public reads, no direct writes, the admin-only save with its
+      # error codes, the stale-editor refusal, the keep-10 trim and the seeded 18.3.
+      - name: Rulebook fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/rulebook-fixtures.sql
+
       # Every select string the readers send through the masked views, called through the local PostgREST
       # as anon and as an admin (NFR8.6). It seeds and commits its own rows and removes them at the end.
       - name: Masked view embeds through PostgREST

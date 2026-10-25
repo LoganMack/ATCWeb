@@ -9,8 +9,6 @@ import SeasonLogo from './SeasonLogo.astro';
 
 const { redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
-const RULEBOOK_URL = 'https://docs.google.com/document/d/1a05Enq9lvnon3qBNnxeHhCUFmlDlBXC0K3R9SXMKFoM/edit?usp=sharing';
-
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
 // "Happening Now" banner (src/lib/liveEvent.ts); Nav renders on every page, so a failure means no banner,
@@ -103,7 +101,7 @@ const links: NavLink[] = [
       { href: '/incidents', label: 'Incidents' },
     ],
   },
-  { href: RULEBOOK_URL, label: 'Rulebook', external: true },
+  { href: '/rulebook', label: 'Rulebook' },
   { href: redbubbleUrl, label: 'Shop', external: true },
 ];
 ---

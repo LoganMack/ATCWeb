@@ -1,0 +1,259 @@
+---
+export const prerender = false;
+
+// Admin > Rulebook: edit the rulebook as markdown with a live preview, save it as a new version, and view or
+// restore any of the last 10 versions. Saves go through save_rulebook_version(), which refuses non-admins
+// and stale editors in the database. A refused save re-renders with the admin's text kept.
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import {
+  RULEBOOK_BODY_MAX,
+  RULEBOOK_LABEL_MAX,
+  getLatestRulebook,
+  getRulebookVersion,
+  listRulebookVersions,
+  parseRulebookVersionId,
+  restoreRulebookVersion,
+  saveRulebookVersion,
+  type RulebookVersion,
+  type RulebookVersionSummary,
+} from '../../lib/db/rulebook';
+import { renderRulebook } from '../../lib/rulebookMarkdown';
+import { logActivity, actorNameFor } from '../../lib/activityLog';
+import { requireAdmin } from '../../lib/auth';
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
+
+let formError: string | null = null;
+let isStale = false;
+// What the editor shows after a refused save: the admin's own text and the version it started from.
+let draft: { label: string; body: string; expectedLatestId: number | null } | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+  const expectedLatestId = parseRulebookVersionId(form.get('expected_latest_id'));
+  if (intent === 'save') {
+    const label = String(form.get('version_label') ?? '');
+    const body = String(form.get('body_md') ?? '');
+    const result = await saveRulebookVersion(supabaseEnv, accessToken, { label, body, expectedLatestId });
+    if (result.ok) {
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'rulebook',
+        entity_label: `Rulebook ${label.trim()}`,
+        entity_id: result.id,
+      });
+      return Astro.redirect('/admin/rulebook?saved=1', 302);
+    }
+    formError = result.message;
+    isStale = result.code === 'STALE_VERSION';
+    draft = { label, body, expectedLatestId };
+  } else if (intent === 'restore') {
+    const versionId = parseRulebookVersionId(form.get('version_id'));
+    const result = versionId
+      ? await restoreRulebookVersion(supabaseEnv, accessToken, versionId, expectedLatestId)
+      : ({ ok: false, code: 'NOT_FOUND', message: "That version doesn't exist any more." } as const);
+    if (result.ok) {
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: 'edit',
+        entity_type: 'rulebook',
+        entity_label: 'Rulebook',
+        entity_id: result.id,
+        details: `Restored the version saved as #${versionId}`,
+      });
+      return Astro.redirect('/admin/rulebook?restored=1', 302);
+    }
+    formError = result.message;
+    isStale = result.code === 'STALE_VERSION';
+  }
+}
+
+let latest: RulebookVersion | null = null;
+let versions: RulebookVersionSummary[] = [];
+let loadError = false;
+try {
+  [latest, versions] = await Promise.all([
+    getLatestRulebook(supabaseEnv),
+    listRulebookVersions(supabaseEnv, accessToken),
+  ]);
+} catch (err) {
+  console.error('Failed to load the rulebook for the editor:', err);
+  loadError = true;
+}
+
+// ?view=<id> shows an older version read-only beside the editor, in place of the live preview.
+const viewId = parseRulebookVersionId(Astro.url.searchParams.get('view'));
+let viewed: RulebookVersion | null = null;
+if (viewId && !loadError) {
+  try {
+    viewed = await getRulebookVersion(supabaseEnv, accessToken, viewId);
+  } catch (err) {
+    console.error('Failed to load the rulebook version to view:', err);
+  }
+}
+
+const editorLabel = draft?.label ?? latest?.version_label ?? '';
+const editorBody = draft?.body ?? latest?.body_md ?? '';
+// After a stale refusal the form keeps the version it started from, so saving again warns again.
+const expectedLatestId = draft ? draft.expectedLatestId : (latest?.id ?? null);
+const previewHtml = renderRulebook(editorBody).html;
+const viewedHtml = viewed ? renderRulebook(viewed.body_md).html : '';
+
+const saved = Astro.url.searchParams.get('saved') === '1';
+const restored = Astro.url.searchParams.get('restored') === '1';
+
+function formatSavedAt(iso: string): string {
+  return `${new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`;
+}
+
+const fieldClass =
+  'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary';
+---
+
+<AdminLayout title="Rulebook">
+  <div class="reveal flex flex-wrap items-center justify-between gap-3">
+    <h1 class="font-display text-4xl">Rulebook</h1>
+    <a href="/rulebook" class="btn btn-neutral" data-testid="admin-rulebook-public-link">View Public Page</a>
+  </div>
+  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
+    Write the rulebook in markdown. Each save becomes the new public version; the 10 most recent versions are kept.
+    Raw HTML is shown as text, and only web, email and in-page links stay links.
+  </p>
+
+  {saved && <p class="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-white/80" role="status" data-testid="admin-rulebook-saved">Saved. The public page can take a few minutes to show the new version.</p>}
+  {restored && <p class="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-white/80" role="status" data-testid="admin-rulebook-restored">Restored as the new latest version.</p>}
+  {formError && (
+    <p class="mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80" role="alert" data-testid="admin-rulebook-error">
+      {formError}
+      {isStale && <> <a href="/admin/rulebook" class="font-semibold text-brand-primary hover:underline" data-testid="admin-rulebook-open-latest">Open the latest version</a></>}
+    </p>
+  )}
+  {loadError && (
+    <p class="mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80" data-testid="admin-rulebook-load-error">
+      Couldn't load the rulebook. Saving is off until it loads.
+    </p>
+  )}
+
+  {!loadError && (
+    <form method="POST" data-astro-reload class="reveal mt-8 flex flex-col gap-4" style="transition-delay: 80ms" data-rulebook-editor data-testid="admin-rulebook-form">
+      <input type="hidden" name="intent" value="save" />
+      <input type="hidden" name="expected_latest_id" value={expectedLatestId === null ? '' : String(expectedLatestId)} data-testid="admin-rulebook-expected-id" />
+      <label class="flex max-w-xs flex-col gap-1.5 text-sm">
+        <span class="text-white/70">Version label</span>
+        <input
+          type="text"
+          name="version_label"
+          value={editorLabel}
+          required
+          maxlength={RULEBOOK_LABEL_MAX}
+          placeholder="e.g. 18.4"
+          class={fieldClass}
+          data-testid="admin-rulebook-label"
+        />
+      </label>
+
+      <div class="grid gap-6 lg:grid-cols-2">
+        <label class="flex min-w-0 flex-col gap-1.5 text-sm">
+          <span class="text-white/70">Markdown</span>
+          <textarea
+            name="body_md"
+            required
+            rows="32"
+            maxlength={RULEBOOK_BODY_MAX}
+            spellcheck="true"
+            class={`${fieldClass} min-h-[24rem] font-mono text-xs leading-relaxed`}
+            data-rulebook-body
+            data-testid="admin-rulebook-body"
+          >{editorBody}</textarea>
+        </label>
+
+        <div class="flex min-w-0 flex-col gap-1.5 text-sm">
+          {viewed ? (
+            <>
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-white/70">Version {viewed.version_label}, saved {formatSavedAt(viewed.saved_at)} (read-only)</span>
+                <a href="/admin/rulebook" class="btn btn-neutral btn-sm" data-testid="admin-rulebook-close-view">Back to Live Preview</a>
+              </div>
+              <div class="rulebook-prose max-h-[48rem] overflow-y-auto rounded-md border border-white/15 p-4 text-white/80" data-testid="admin-rulebook-viewed" set:html={viewedHtml} />
+            </>
+          ) : (
+            <>
+              <span class="text-white/70" id="admin-rulebook-preview-label">Live preview</span>
+              <div
+                class="rulebook-prose max-h-[48rem] overflow-y-auto rounded-md border border-white/15 p-4 text-white/80"
+                aria-labelledby="admin-rulebook-preview-label"
+                aria-live="off"
+                data-rulebook-preview
+                data-testid="admin-rulebook-preview"
+                set:html={previewHtml}
+              />
+            </>
+          )}
+          {viewId && !viewed && <p class="text-sm text-white/60" data-testid="admin-rulebook-view-missing">That version doesn't exist any more.</p>}
+        </div>
+      </div>
+
+      <div>
+        <button type="submit" class="btn btn-primary" data-testid="admin-rulebook-save">Save New Version</button>
+      </div>
+    </form>
+  )}
+
+  {!loadError && (
+    <section class="reveal mt-12" style="transition-delay: 120ms">
+      <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Versions</h2>
+      {versions.length === 0 ? (
+        <p class="mt-4 text-sm text-white/60" data-testid="admin-rulebook-no-versions">No versions saved yet.</p>
+      ) : (
+        <div class="mt-4 overflow-x-auto rounded-xl border border-white/10">
+          <table class="w-full border-collapse text-sm" data-testid="admin-rulebook-versions">
+            <thead>
+              <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                <th class="py-3 pl-4 pr-3 font-medium">Version</th>
+                <th class="py-3 pr-3 font-medium">Saved</th>
+                <th class="py-3 pr-3 font-medium">Saved by</th>
+                <th class="py-3 pr-4 font-medium"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {versions.map((v, i) => (
+                <tr class="border-b border-white/5 last:border-b-0" data-testid="admin-rulebook-version-row">
+                  <td class="py-2.5 pl-4 pr-3 font-semibold">
+                    {v.version_label}
+                    {i === 0 && <span class="ml-2 rounded bg-brand-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">Current</span>}
+                  </td>
+                  <td class="py-2.5 pr-3 text-white/60">{formatSavedAt(v.saved_at)}</td>
+                  <td class="py-2.5 pr-3 text-white/60">{v.saved_by_name ?? '—'}</td>
+                  <td class="py-2.5 pr-4">
+                    <div class="flex flex-wrap justify-end gap-2">
+                      <a href={`/admin/rulebook?view=${v.id}`} class="btn btn-neutral btn-sm" aria-label={`View version ${v.version_label}`} data-testid="admin-rulebook-view">View</a>
+                      {i > 0 && (
+                        <form method="POST" data-astro-reload>
+                          <input type="hidden" name="intent" value="restore" />
+                          <input type="hidden" name="version_id" value={String(v.id)} />
+                          <input type="hidden" name="expected_latest_id" value={latest ? String(latest.id) : ''} />
+                          <button type="submit" class="btn btn-gold btn-sm" aria-label={`Restore version ${v.version_label}`} data-testid="admin-rulebook-restore">Restore</button>
+                        </form>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )}
+
+  <script>
+    // The live preview beside the markdown box, rendered with the public page's own rules.
+    import '../../scripts/rulebookEditor';
+  </script>
+</AdminLayout>

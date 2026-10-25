@@ -709,6 +709,8 @@ This was scaffolded in a sandboxed session without access to the npm registry, P
 - The history pages' section picker was a row of tabs under the page title and is now a dropdown in each filter card; Race Results, Standings and Team Standings left it when they became top-level nav links. (`src/components/HistoryTabs.astro`)
 - On wide monitors the "Happening Now" marquee text popped in instead of scrolling in, because two server-rendered copies were narrower than the strip (reported by Logan); the nav script now measures and clones enough copies per half. (`src/components/Nav.astro`)
 - Frozen table headers stopped sticking on standings, team standings, roster, teams, the driver profile, driver stats, team stats, Hall of Fame and awards (Logan, September 2026), because the sections that hold a PageBanner had `overflow-hidden`, which made them scroll containers. Removing it fixed them with no visual change; results pages, which have no banner, were never affected. (`src/components/PageBanner.astro`)
+- The nav's Rulebook link used to open the league's public Google Doc ("Rulebook 18.3") in a new tab. The rulebook now lives on the site at `/rulebook`, seeded with a cleaned-up copy of that Doc and edited under Admin > Rulebook (October 2026). (`src/components/Nav.astro`)
+- Search boxes once each set their own width (`min-w-[14rem] flex-1`, `w-full`, `sm:max-w-sm` or none); they now all take one 40-character width from the shared `.search-input` class in `src/styles/global.css` (October 2026). (`src/pages/circuits.astro`)
 
 ## 2026-10-22: Client scripts and forms
 

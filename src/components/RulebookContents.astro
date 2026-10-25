@@ -1,0 +1,50 @@
+---
+// The rulebook's contents panel (FR3): its headings indented by level, then the fixed Tables section. Rendered
+// twice by src/pages/rulebook.astro, beside the text on wide screens and in a Contents block on narrow ones.
+import type { RulebookHeading, RulebookTable } from '../lib/rulebookMarkdown';
+
+interface Props {
+  headings: RulebookHeading[];
+  tables: RulebookTable[];
+  /** Which copy this is, for stable test ids. */
+  place: 'side' | 'top';
+}
+
+const { headings, tables, place } = Astro.props;
+const topLevel = headings.length > 0 ? Math.min(...headings.map((h) => h.level)) : 1;
+// Literal class names, so Tailwind sees them.
+const INDENT = ['pl-0', 'pl-3', 'pl-6', 'pl-9'];
+const indentFor = (level: number) => INDENT[Math.min(INDENT.length - 1, Math.max(0, level - topLevel))];
+---
+
+{headings.length > 0 && (
+  <ul class="flex flex-col gap-1 text-sm" data-testid={`rulebook-contents-${place}-headings`}>
+    {headings.map((h) => (
+      <li class={indentFor(h.level)}>
+        <a
+          href={`#${h.id}`}
+          class={h.level === topLevel ? 'font-semibold text-white/80 hover:text-white' : 'text-white/60 hover:text-white'}
+          data-rulebook-jump
+          data-testid={`rulebook-contents-${place}-heading-link`}
+        >
+          {h.text}
+        </a>
+      </li>
+    ))}
+  </ul>
+)}
+
+<p class="mt-6 text-xs font-semibold uppercase tracking-widest text-white/40">Tables</p>
+{tables.length > 0 ? (
+  <ul class="mt-2 flex flex-col gap-1 text-sm" data-testid={`rulebook-contents-${place}-tables`}>
+    {tables.map((t) => (
+      <li>
+        <a href={`#${t.id}`} class="text-white/60 hover:text-white" data-rulebook-jump data-testid={`rulebook-contents-${place}-table-link`}>
+          {t.label}
+        </a>
+      </li>
+    ))}
+  </ul>
+) : (
+  <p class="mt-2 text-sm text-white/50" data-testid={`rulebook-contents-${place}-no-tables`}>No tables</p>
+)}
