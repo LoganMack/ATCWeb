@@ -336,13 +336,13 @@ const WARNING = 'This is a permanent action. Once linked, you must contact an ad
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label class={labelClass}>
-              Full Name
+              Username
               <input
                 type="text"
                 name="name"
                 required
                 maxlength="80"
-                autocomplete="name"
+                autocomplete="username"
                 value={requestValues.name}
                 aria-invalid={fieldError('name') ? 'true' : undefined}
                 aria-describedby={fieldError('name') ? 'link-driver-name-error' : undefined}

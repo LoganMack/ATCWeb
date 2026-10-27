@@ -69,8 +69,11 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   linkDriver: { hooks: ['data-link-driver'], shells: ['link-driver.astro'] },
   // U3 profile-settings: the own profile's editing tabs (NFR3.2).
   profileEditing: { hooks: ['data-profile-tabs'], shells: ['drivers/[id].astro'] },
-  // U5 incident-management: the Incident Management tab's popups.
-  incidentManagement: { hooks: ['data-incident-management'], shells: ['drivers/[id].astro'] },
+  // U5 incident-management: the Incident Management tab's popups, and the Incident Submissions list's Add Comment.
+  incidentManagement: {
+    hooks: ['data-incident-management'],
+    shells: ['drivers/[id].astro', 'results/[subsessionId]/incidents.astro'],
+  },
   // U6 interviews: the Interviews tab's download, confirm popup and delete.
   interviews: { hooks: ['data-interviews-panel'], shells: ['drivers/[id].astro'] },
   // profile-liveries: the Liveries tab's uploads, downloads and popups.
@@ -415,6 +418,7 @@ describe('front-end loading (U5)', () => {
 describe('the Incident Management tab (U5: BR11.4-BR11.14, NFR1.8, NFR2.1)', () => {
   const PANEL = ASTRO['/src/components/IncidentManagementPanel.astro'];
   const DIALOGS = ASTRO['/src/components/IncidentManagementDialogs.astro'];
+  const COMMENT_DIALOG = ASTRO['/src/components/IncidentCommentDialog.astro'];
   const SCRIPT = SRC['/src/scripts/incidentManagement.ts'];
   const PAGE = ASTRO[`${P}drivers/[id].astro`];
 
@@ -453,8 +457,9 @@ describe('the Incident Management tab (U5: BR11.4-BR11.14, NFR1.8, NFR2.1)', () 
     // Inside the profile form, so no button here may submit it.
     for (const button of PANEL.match(/<button[^>]*>/g) ?? [])
       expect(button).toMatch(/type="button"[^>]*class="btn btn-/);
-    expect(DIALOGS).toContain('Your comment is final and only stewards can see it.');
-    expect(DIALOGS).toMatch(/name="intent" value="add-incident-comment"/);
+    expect(DIALOGS).toContain('<IncidentCommentDialog action={action} />');
+    expect(COMMENT_DIALOG).toContain('Your comment is final and only stewards can see it.');
+    expect(COMMENT_DIALOG).toMatch(/name="intent" value="add-incident-comment"/);
     expect(DIALOGS).toMatch(/name="intent" value="submit-appeal-from-profile"/);
   });
 

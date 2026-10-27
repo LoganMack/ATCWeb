@@ -1,13 +1,14 @@
 ---
 /**
- * The results page's yellow incident button. 'report' while reporting is open: opens the Report Incident
- * dialog, with a live "ends in X hours/minutes" hover (the page can be cached for a minute). 'view' once the
- * report is posted, or for admins: links to it. In between, no button (#75).
+ * The results page's yellow incident buttons. 'report' while reporting is open: opens the Report Incident
+ * dialog, with a live "ends in X hours/minutes" hover (the page can be cached for a minute). 'submissions'
+ * until the report is posted: links to the incident page, which shows the public Incident Submissions list
+ * (admins get the report they're editing). 'view' once the report is posted: links to it.
  */
 import { reportingCountdownText } from '../lib/incidentReports';
 
 interface Props {
-  state: 'report' | 'view';
+  state: 'report' | 'submissions' | 'view';
   incidentsHref: string;
   /** ISO time the reporting period ends — only used in the 'report' state. */
   closesAtIso?: string | null;
@@ -22,6 +23,10 @@ const closes = closesAtIso ? new Date(closesAtIso) : null;
 
 {state === 'view' && (
   <a href={incidentsHref} class={btn}>Incident Report</a>
+)}
+
+{state === 'submissions' && (
+  <a href={incidentsHref} class={btn}>Incident Submissions</a>
 )}
 
 {state === 'report' && (

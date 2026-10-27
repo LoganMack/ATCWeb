@@ -1,0 +1,149 @@
+---
+export const prerender = false;
+import LoadError from '../../../../../components/LoadError.astro';
+import IncidentCommentDialog from '../../../../../components/IncidentCommentDialog.astro';
+import { markUncacheable } from '../../../../../lib/security';
+import { resolveSupabaseEnv } from '../../../../../lib/db/client';
+import { formatDate } from '../../../../../lib/db/circuits';
+import { getRoundBySubsessionId } from '../../../../../lib/results/rounds';
+import type { RoundSummary } from '../../../../../lib/results/rows';
+import { isRoundPosted } from '../../../../../lib/incidentReports';
+import { getMyIncidents, type IncidentManagementRow } from '../../../../../lib/incidents';
+import {
+  buildIncidentSubmissionsView,
+  getIncidentSubmissions,
+  INCIDENT_SUBMISSION_COLUMNS,
+  type IncidentSubmissionDbRow,
+} from '../../../../../lib/incidentSubmissions';
+
+// The public Incident Submissions page (the shell incidents.astro loads it for non-admins while the round is
+// unposted). Read-only: rows don't open, and incident_submissions() returns no report text or decisions.
+// A driver named in a report comments through the profile's popup, which posts to their own profile.
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const session = Astro.locals.session;
+const myDriverId = session?.profile?.driver_id ?? null;
+const subsessionId = Number(Astro.params.subsessionId);
+
+let round: RoundSummary | null = null;
+let posted = false;
+let submissions: IncidentSubmissionDbRow[] = [];
+let loadError: string | null = null;
+let mine: IncidentManagementRow[] | null = null;
+if (Number.isFinite(subsessionId)) {
+  try {
+    [round, posted, submissions] = await Promise.all([
+      getRoundBySubsessionId(supabaseEnv, subsessionId),
+      isRoundPosted(supabaseEnv, subsessionId),
+      getIncidentSubmissions(supabaseEnv, subsessionId),
+    ]);
+  } catch (err) {
+    console.error('Failed to load incident submissions:', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+  // Only for the comment buttons: a failure leaves the list without them.
+  if (!loadError && !posted && session && myDriverId && submissions.length > 0) {
+    try {
+      mine = (await getMyIncidents(supabaseEnv, session.accessToken)).rows;
+    } catch (err) {
+      console.error('Failed to load the viewer’s incidents:', err instanceof Error ? err.message : 'unknown');
+    }
+  }
+}
+
+if (!loadError && !round) {
+  // The shell's loader follows X-Redirect-To (a plain redirect would be pasted into the container).
+  return new Response(null, { status: 404, headers: { 'X-Redirect-To': '/results' } });
+}
+
+const sessions = buildIncidentSubmissionsView(submissions, mine);
+const commentAction = myDriverId ? `/drivers/${encodeURIComponent(myDriverId)}` : null;
+const showComments = commentAction !== null && sessions.some((s) => s.rows.some((r) => r.comment));
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
+---
+
+{loadError && <LoadError />}
+
+{round && (
+  <>
+    <span hidden data-page-title={`Incident Submissions: ${round.track_name}`}></span>
+    <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
+      Incident Submissions:{' '}
+      <span class="mt-1 block font-body text-lg not-italic sm:mt-0 sm:inline sm:font-display sm:text-5xl sm:italic">
+        {round.track_name}
+      </span>
+    </h1>
+    <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">{formatDate(round.start_time)}</p>
+
+    {posted ? (
+      <p role="status" class="mt-8 text-white/60">
+        The stewards have posted this round’s Incident Report. <a href={`/results/${subsessionId}/incidents`} class="underline hover:text-white">Open it</a>.
+      </p>
+    ) : (
+      <div data-incident-management class="mt-6">
+        <p class="text-sm text-white/60">
+          The incidents reported for this round. The stewards’ decisions appear here once they post the Incident Report.
+        </p>
+        <p data-incident-status role="status" class="mt-2 text-sm text-white/70"></p>
+
+        {sessions.length === 0 ? (
+          <p class="mt-8 text-white/60">No incidents have been reported for this round.</p>
+        ) : (
+          sessions.map((s) => (
+            <div class="mt-10" data-submissions-session={s.key}>
+              <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{s.label}</h3>
+              <div class="mt-2 rounded-xl border border-white/10">
+                <table class="w-full border-collapse">
+                  <thead>
+                    <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+                      <th class="py-3 pl-4 pr-3 font-medium">{INCIDENT_SUBMISSION_COLUMNS[0]}</th>
+                      <th class="py-3 pr-3 text-center font-medium">{INCIDENT_SUBMISSION_COLUMNS[1]}</th>
+                      <th class="py-3 pr-3 font-medium">{INCIDENT_SUBMISSION_COLUMNS[2]}</th>
+                      <th class="py-3 pr-4"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {s.rows.map((row) => (
+                      <tr class="border-b border-white/5 text-sm" data-incident-row={row.id}>
+                        <td class="py-2.5 pl-4 pr-3 text-white/60">{row.numberLabel}</td>
+                        <td class="py-2.5 pr-3 text-center text-white/60">{row.lap ?? '—'}</td>
+                        <td class="py-2.5 pr-3 text-white/70">{row.involvedLabel}</td>
+                        <td class="py-2.5 pr-4">
+                          <div class="flex flex-wrap items-center justify-end gap-2" data-incident-row-actions>
+                            {(row.comment || row.commentSent) && (
+                              <span class="text-xs text-white/50" data-incident-row-status>
+                                {row.commentSent ? 'Comment sent' : ''}
+                              </span>
+                            )}
+                            {row.comment && (
+                              <button
+                                type="button"
+                                class="btn btn-gold btn-sm"
+                                data-incident-comment
+                                data-report-id={row.id}
+                                data-round={row.comment.roundLabel}
+                                data-session={row.comment.sessionLabel}
+                                data-lap={row.comment.lap}
+                                data-turn={row.comment.turn}
+                              >
+                                Add Comment
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))
+        )}
+        {showComments && <p class="mt-4 text-xs text-white/40">ⓘ Comments go to the stewards only.</p>}
+      </div>
+    )}
+
+    {showComments && commentAction && <IncidentCommentDialog action={commentAction} />}
+  </>
+)}

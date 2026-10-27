@@ -202,8 +202,8 @@ const driverText = (p: (typeof profiles)[number]) =>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
           <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="name">User</th>
           <th class="py-3 pr-3 font-medium" data-sort-key="email">Email</th>
-          <th class="py-3 pr-3 font-medium">Driver</th>
-          <th class="py-3 pr-3 font-medium">Role</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="driver">Driver</th>
+          <th class="py-3 pr-3 font-medium" data-sort-key="role">Role</th>
           {canEdit && <th class="py-3 pr-6 font-medium"><span class="sr-only">Delete</span></th>}
         </tr>
       </thead>
@@ -212,7 +212,7 @@ const driverText = (p: (typeof profiles)[number]) =>
           const label = nameOf(profile);
           return (
           <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
-            <td class="py-3 pl-6 pr-3" data-col="name">
+            <td class="py-3 pl-6 pr-3" data-col="name" data-sort-value={label}>
               <p class="font-semibold">
                 {label}
                 {profile.id === currentUserId && <span class="ml-2 text-xs text-white/40">(you)</span>}
@@ -222,7 +222,8 @@ const driverText = (p: (typeof profiles)[number]) =>
             <td class="py-3 pr-3 text-white/60" data-col="email" data-sort-value={emailById.get(profile.id) ?? ''}>
               {emailById.get(profile.id) ?? '—'}
             </td>
-            <td class="py-3 pr-3">
+            {/* Sorts by the linked driver's name; the select's own text would list every driver. Unlinked ("—") sorts last. */}
+            <td class="py-3 pr-3" data-col="driver" data-sort-value={driverText(profile)}>
               {canEdit ? (
                 /* Saves as soon as a driver is picked. "No driver" unlinks; Broadcaster moves the one marker here. */
                 <form method="POST" data-astro-reload>
@@ -254,7 +255,7 @@ const driverText = (p: (typeof profiles)[number]) =>
                 <span class="text-white/70" data-testid="users-driver-text">{driverText(profile)}</span>
               )}
             </td>
-            <td class="py-3 pr-3">
+            <td class="py-3 pr-3" data-col="role" data-sort-value={ROLE_LABELS[profile.role] ?? profile.role}>
               {canEdit ? (
                 <form method="POST" data-astro-reload>
                   <input type="hidden" name="intent" value="set-role" />

@@ -383,7 +383,7 @@ export type ShapedRequest =
   | { ok: false; field: RequestField; message: string; values: RequestFormValues };
 
 export const REQUEST_FIELD_MESSAGES: Record<RequestField, string> = {
-  name: 'Enter your full name (up to 80 characters).',
+  name: 'Enter a username (up to 80 characters).',
   car_number: 'Enter a car number from 0 to 999.',
   irating: 'Enter your iRating (a whole number from 0 to 20000).',
   iracing_cust_id: 'Enter your iRacing customer ID (a whole number).',
