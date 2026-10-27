@@ -32,9 +32,10 @@ import { getIncidentsForSubsessions } from '../../../../../lib/incidents';
 import { getPostedSubsessionIds } from '../../../../../lib/incidentReports';
 import { driverNumberLabel, roundLabel, sessionLabel } from '../../../../../lib/incidentDisplay';
 import { logActivity, actorNameFor } from '../../../../../lib/activityLog';
-import { requireAdmin } from '../../../../../lib/auth';
+import { requireFullAdmin } from '../../../../../lib/auth';
 
-const admin = requireAdmin(Astro);
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -202,11 +203,9 @@ const pitBlocks = [
 ] as const;
 ---
 
-<AdminLayout title="Layout Map">
-  <div class="reveal mt-8">
+<AdminLayout title="Layout Map" heading={`Layout Map · ${circuit.name} — ${displayLayoutName(layout.name)}`}>
+  <div class="reveal">
     <a href={`/admin/circuits/${circuit.id}`} class="text-sm text-white/50 hover:text-white">&larr; Back to {circuit.name}</a>
-    <h1 class="mt-2 font-display text-3xl">Layout map</h1>
-    <p class="text-white/50">{circuit.name} — {displayLayoutName(layout.name)}</p>
 
     {saved && <p class="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-white/80">Saved.</p>}
     {saveError && <p class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{saveError}</p>}

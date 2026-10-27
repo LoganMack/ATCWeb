@@ -1,6 +1,6 @@
 /**
  * Runs on every on-demand request: resolves the session from cookies (refreshing it), exposes it as
- * `Astro.locals.session`, and gates /admin to signed-in admins. Also an edge cache via the Workers Cache API,
+ * `Astro.locals.session`, and gates /admin to Admin and Staff. Also an edge cache via the Workers Cache API,
  * since a Cache-Control header alone doesn't cache a Worker response. Copies are kept for fresh plus stale
  * time, longer than the page declares, because the Cache API drops a copy at its own s-maxage and a stale one
  * must still be there to serve while the page renders again. Never return a `cache.match()` response directly:
@@ -17,8 +17,13 @@ import {
   VIEW_MODE_COOKIE,
   BROADCASTER_COOKIE,
   authCookieOptions,
+  broadcasterModeFor,
   getUser,
   getProfile,
+  hasPanelAccess,
+  isFullAdmin,
+  isStaffRestrictedPath,
+  normalisePath,
   refreshSession,
 } from './lib/auth';
 import { contentSecurityPolicy, newCspNonce } from './lib/csp';
@@ -66,31 +71,6 @@ function forBrowser(response: Response): Response {
     response.headers.set('Cache-Control', 'public, max-age=0, must-revalidate');
   }
   return response;
-}
-
-/**
- * Canonical form of a request path for access-control decisions: fully
- * percent-decoded, backslashes treated as slashes, duplicate slashes
- * collapsed, trailing slash dropped, lowercased. Returns null when the path
- * has invalid encoding (callers should fail closed).
- */
-function normalisePath(pathname: string): string | null {
-  let p = pathname;
-  try {
-    for (let i = 0; i < 5; i++) {
-      const decoded = decodeURIComponent(p);
-      if (decoded === p) break;
-      p = decoded;
-    }
-  } catch {
-    return null;
-  }
-  p = p
-    .replace(/\\/g, '/')
-    .replace(/\/{2,}/g, '/')
-    .toLowerCase();
-  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
-  return p;
 }
 
 /**
@@ -144,8 +124,8 @@ function isRejectedRefresh(err: unknown): boolean {
 
 /**
  * Broadcaster mode: hand the most recent round's id to every downstream resolveSupabaseEnv(locals) call, which
- * makes restGet/restGetAll exclude it. A failed lookup means nothing is hidden this render (logged), so that
- * unfiltered render must never be stored under the broadcaster cache key.
+ * makes restGet/restGetAll exclude it. A failed lookup means nothing is hidden this render (logged). Only the
+ * signed-in Broadcaster gets the mode, and a signed-in render is never edge-cached.
  */
 async function hideLatestRound(context: APIContext, env: SupabaseEnv): Promise<void> {
   if (!env.url || !env.anonKey) return;
@@ -179,8 +159,8 @@ const refreshGuard = createRefreshGuard();
 /**
  * Renders a stale page again, in `waitUntil`, and stores it if it is storable. Only the middleware's own stale
  * path calls this, so no request can trigger it. It runs only for cache-anonymous GETs, after the session step
- * is skipped, so it never resolves a session; the broadcaster variant runs the same latest-round lookup as the
- * foreground render. A failed or unstorable render keeps the stale copy and logs the key.
+ * is skipped, so it never resolves a session. A failed or unstorable render keeps the stale copy and logs the
+ * key.
  */
 async function refreshStaleCopy(
   context: APIContext,
@@ -197,7 +177,6 @@ async function refreshStaleCopy(
     });
     await cache.put(markerKey, marker as unknown as EdgeCacheResponse);
 
-    if (context.locals.broadcasterMode) await hideLatestRound(context, resolveSupabaseEnv(context.locals));
     const rendered = await next();
     if (!isStorable(context, rendered)) {
       console.error('Edge cache refresh not storable; kept the stale copy:', cacheKey, rendered.status);
@@ -223,11 +202,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const accessToken = context.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   const refreshToken = context.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   const cookieOptions = authCookieOptions(context.url);
-  // "View as Broadcaster" (src/lib/auth.ts BROADCASTER_COOKIE): anyone can turn
-  // it on. Its render differs from the normal page, so it gets its own edge
-  // cache entry and is never stored by the browser.
-  const broadcasterMode = context.cookies.get(BROADCASTER_COOKIE)?.value === '1';
-  context.locals.broadcasterMode = broadcasterMode;
+  // "View as Broadcaster" is decided once the session is known (broadcasterModeFor); until then it is off.
+  context.locals.broadcasterMode = false;
 
   // Treated as a signed-out visitor for the shared cache unless the cookies
   // could hold a real session (see isCacheAnonymous). A malformed access
@@ -240,7 +216,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // not in `astro dev`, so the cache simply no-ops there.
   const cache = context.locals.runtime?.caches?.default;
   const cacheEligible = Boolean(cache) && context.request.method === 'GET' && cacheAnonymous;
-  const cacheKey = cacheKeyUrl(context.url, broadcasterMode ? 'broadcaster' : 'default');
+  const cacheKey = cacheKeyUrl(context.url);
 
   // --- Edge cache read ------------------------------------------------------
   // fresh: HIT. stale: STALE now, and the page renders again in the background (one refresh per key at a
@@ -256,13 +232,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
         if (state === 'stale' && refreshGuard.tryStart(cacheKey)) {
           context.locals.runtime.ctx.waitUntil(refreshStaleCopy(context, next, cache, cacheKey));
         }
-        if (broadcasterMode) hit.headers.set('Cache-Control', 'private, no-store');
         return withSecurityHeaders(forBrowser(hit));
       }
     }
   }
-
-  if (broadcasterMode) await hideLatestRound(context, env);
 
   if (env.url && env.anonKey && !cacheAnonymous) {
     try {
@@ -307,10 +280,19 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   // "View as Visitor" (see src/lib/auth.ts's isAdminView): computed on every
   // request since the footer toggle renders on every page. Independent of the
-  // /admin gate below, which stays keyed on the REAL role.
-  context.locals.isRealAdmin = context.locals.session?.profile?.role === 'admin';
+  // /admin gate below, which stays keyed on the REAL role (Admin or Staff).
+  const profile = context.locals.session?.profile;
+  context.locals.isRealAdmin = hasPanelAccess(profile);
   context.locals.viewAsVisitor =
     context.locals.isRealAdmin && context.cookies.get(VIEW_MODE_COOKIE)?.value === 'visitor';
+
+  // "View as Broadcaster" (BR1.8): the cookie counts only for the signed-in Broadcaster, read from the
+  // profile above, so it adds no read. Anyone else with an old cookie gets the normal site.
+  context.locals.broadcasterMode = broadcasterModeFor(
+    profile,
+    context.cookies.get(BROADCASTER_COOKIE)?.value,
+  );
+  if (context.locals.broadcasterMode) await hideLatestRound(context, env);
 
   const pathname = context.url.pathname;
   // SECURITY: gate on a NORMALISED path (Astro's router percent-decodes, so
@@ -324,9 +306,12 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   let response: Response;
   if (isAdminRoute) {
-    const session = context.locals.session;
-    if (!session || session.profile?.role !== 'admin') {
+    if (!hasPanelAccess(profile)) {
       response = context.redirect(`/login?next=${encodeURIComponent(pathname)}`, 302);
+    } else if (!isFullAdmin(profile) && isStaffRestrictedPath(pathname)) {
+      // Staff on Site Properties, Seasons, Rulesets, Media or Circuits (BR2.7); the database refuses the
+      // writes anyway, and each page checks again with requireFullAdmin.
+      response = context.redirect('/admin', 302);
     } else {
       response = await next();
     }
@@ -338,8 +323,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // anywhere, whatever Cache-Control the page set afterwards.
   if (context.locals.uncacheable) response.headers.set('Cache-Control', 'no-store');
 
-  // --- Edge cache write: cache-eligible and storable (isStorable). The broadcaster render has its own key; the
-  // write runs in `waitUntil` on a clone kept for fresh plus stale time (toStoredCopy).
+  // --- Edge cache write: cache-eligible and storable (isStorable). The write runs in `waitUntil` on a clone
+  // kept for fresh plus stale time (toStoredCopy).
   if (cache && cacheEligible && isStorable(context, response)) {
     const copy = toStoredCopy(response, Date.now());
     context.locals.runtime.ctx.waitUntil(
@@ -355,9 +340,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     response.headers.set('X-ATC-Subrequests', String(context.locals.subrequestCounter.count));
   }
 
-  // Never let a browser or intermediary hold a broadcaster render (set after
-  // the edge copy above captured the page's own header).
-  if (broadcasterMode) response.headers.set('Cache-Control', 'private, no-store');
+  // Never let a browser or intermediary hold a broadcaster render.
+  if (context.locals.broadcasterMode) response.headers.set('Cache-Control', 'private, no-store');
 
   forBrowser(response);
   response = withSecurityHeaders(response);

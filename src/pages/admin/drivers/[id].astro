@@ -424,9 +424,8 @@ if (!isNew && driver && (driver.created_by || driver.updated_by)) {
 }
 ---
 
-<AdminLayout title={isNew ? 'New Driver' : d.name || 'Edit Driver'}>
-  <div class="reveal flex items-start justify-between gap-4">
-    <h1 class="font-display text-4xl">{isNew ? 'New Driver' : d.name}</h1>
+<AdminLayout title={isNew ? 'New Driver' : d.name || 'Edit Driver'} heading={isNew ? 'New Driver' : d.name || 'Edit Driver'}>
+  <div class="reveal flex items-start justify-end gap-4">
     {!isNew && (
       <div class="flex flex-col items-end gap-1 text-right">
         <div class="rounded-md border border-white/10 bg-brand-ink px-3 py-1.5 text-sm font-semibold text-white/80">

@@ -35,9 +35,10 @@ import { getSiteSettings, upsertSiteSetting } from '../../../lib/db/assets';
 import { INCIDENT_REPORT_PERIOD_HOURS_KEY, INCIDENT_APPEAL_PERIOD_HOURS_KEY, siteSettingInt } from '../../../lib/siteSettings';
 import { getChampions } from '../../../lib/results/champions';
 import { driversSelect } from '../../../lib/results/rows';
-import { requireAdmin } from '../../../lib/auth';
+import { requireFullAdmin } from '../../../lib/auth';
 
-const admin = requireAdmin(Astro);
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -408,11 +409,6 @@ if (activeTab === 'settings') {
 ---
 
 <AdminLayout title="Site Properties">
-  <h1 class="reveal font-display text-4xl">Site Properties</h1>
-  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    One-off, site-wide settings that don't belong to any one page.
-  </p>
-
   {error && (
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}

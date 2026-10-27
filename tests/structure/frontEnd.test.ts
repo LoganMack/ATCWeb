@@ -255,13 +255,20 @@ describe('front-end loading (U5)', () => {
     expect(login).toContain('href="/signup"');
   });
 
-  it('shows signed-in accounts without a driver a red dot on My Profile (U2: BR3.1, NFR3.1)', () => {
+  it('shows signed-in accounts without a driver a red dot on a "Link Driver" link (U2: BR3.1, NFR3.1; BR1.9)', () => {
     const nav = ASTRO['/src/components/Nav.astro'];
-    expect(nav).toMatch(/const needsDriverLink = Boolean\(Astro\.locals\.session\) && !myDriverId;/);
+    // The Broadcaster has no driver to link, so no dot.
+    expect(nav).toMatch(
+      /const needsDriverLink = Boolean\(Astro\.locals\.session\) && !myDriverId && !isBroadcasterAccount\(Astro\.locals\);/,
+    );
     const link =
       /<a href="\/my-profile"([^>]*data-testid="nav-my-profile-link-driver"[^>]*)>([\s\S]*?)<\/a>/.exec(nav);
     expect(link, 'Nav has the unlinked My Profile link').not.toBeNull();
-    expect(link![1]).toContain('aria-label="My Profile, link your driver"');
+    expect(link![1]).toContain('aria-label="Link Driver"');
+    // The Broadcaster's link reads "Broadcaster" through myProfileLabel.
+    expect(nav).toMatch(
+      /<a href="\/my-profile"[^>]*aria-label=\{profileLabel\}[^>]*data-testid="nav-my-profile-broadcaster"/,
+    );
     expect(link![1]).toMatch(/class="btn btn-primary relative !px-2\.5"/);
     const dot =
       /<span data-link-driver-dot class="([^"]+)" aria-hidden="true"><span class="([^"]+)"><\/span><\/span>/.exec(
@@ -279,19 +286,30 @@ describe('front-end loading (U5)', () => {
     expect(signedOut[2]).not.toContain('data-link-driver-dot');
   });
 
-  it('gives the linking page its warning, dialog and request form, with the shared buttons (U2: BR3.5)', () => {
+  it('gives the linking page its dialogs, Broadcaster row and sign-up popup, with the shared buttons (U2: BR3.5; C6)', () => {
     const page = ASTRO['/src/pages/link-driver.astro'];
+    // The warning lives in the confirmation popup only, no longer in a box on the page.
     expect(page).toContain(
       'This is a permanent action. Once linked, you must contact an admin to change linked drivers.',
     );
+    expect(page).not.toContain('data-testid="link-driver-warning"');
+    expect(page).not.toContain("Can't find your name?");
     expect(page).toMatch(/<dialog\s+data-link-driver-dialog/);
+    expect(page).toMatch(/<dialog\s+id="link-driver-signup-dialog"\s+data-signup-dialog/);
     expect(page).toMatch(/name="intent" value="link-driver"/);
     expect(page).toMatch(/name="intent" value="request-driver"/);
+    expect(page).toContain("intent === 'claim-broadcaster'");
     expect(page).toMatch(/data-testid="link-driver-row-link"/);
+    expect(page).toMatch(/data-testid="link-driver-broadcaster-row"/);
+    expect(page).toContain('set:html={safeJson(takenNumbers)}');
     expect(page).toContain('return Astro.redirect(`/login?next=${LINK_DRIVER_PATH}`, 302)');
     // Data access goes through src/lib only.
     expect(page).not.toMatch(/rest\/v1|fetch\(/);
-    for (const button of page.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-/);
+    // Every button is a shared .btn, except the popups' ✕ close icons, styled as in ReportIncidentDialog.
+    for (const button of page.match(/<button[^>]*>/g) ?? []) {
+      if (/aria-label="Close"/.test(button)) continue;
+      expect(button).toMatch(/class="btn btn-/);
+    }
   });
 
   it('labels website requests and cancelled rows on Admin > Sign-ups (U2: BR3.13, BR3.14)', () => {

@@ -8,6 +8,7 @@
  */
 
 import type { SupabaseEnv } from './db/client';
+import { COUNTRIES } from './countries';
 import {
   AuthRequestError,
   changeEmail,
@@ -56,14 +57,26 @@ export const DRIVER_ACCOUNT_ERROR_CODES = [
   'REQUESTER_ALREADY_LINKED',
   'DRIVER_ALREADY_LINKED',
   'RATE_LIMITED',
+  'BROADCASTER_TAKEN',
+  'CAR_NUMBER_REQUESTED',
+  'ACCOUNT_LINKED',
+  'REQUESTER_IS_BROADCASTER',
 ] as const;
 
 export type DriverAccountErrorCode = (typeof DRIVER_ACCOUNT_ERROR_CODES)[number] | 'UNKNOWN';
 
-/** The website request form's fields, as the database names them in INVALID errors. */
-export type RequestField = 'name' | 'car_number' | 'iracing_cust_id';
+/** The New Driver Sign-Up form's fields, as the database names them in INVALID errors. */
+export type RequestField =
+  'name' | 'car_number' | 'irating' | 'iracing_cust_id' | 'nationality_1' | 'nationality_2';
 
-const REQUEST_FIELDS: readonly RequestField[] = ['name', 'car_number', 'iracing_cust_id'];
+const REQUEST_FIELDS: readonly RequestField[] = [
+  'name',
+  'car_number',
+  'irating',
+  'iracing_cust_id',
+  'nationality_1',
+  'nationality_2',
+];
 
 export interface MappedDbError {
   code: DriverAccountErrorCode;
@@ -140,7 +153,7 @@ export function mapDbError(err: unknown): MappedDbError {
     let detail = prefixed[2].trim();
     let field: RequestField | null = null;
     if (code === 'INVALID') {
-      const named = /^([a-z_]+):\s*([\s\S]*)$/.exec(detail);
+      const named = /^([a-z0-9_]+):\s*([\s\S]*)$/.exec(detail);
       if (named && (REQUEST_FIELDS as readonly string[]).includes(named[1])) {
         field = named[1] as RequestField;
         detail = named[2].trim();
@@ -222,6 +235,10 @@ export interface LinkRequest {
 export interface LinkState {
   linked: boolean;
   driverId: string | null;
+  /** True when this account is the Broadcaster (never linked to a driver). */
+  broadcaster: boolean;
+  /** True when some account holds the Broadcaster slot, so the Link Driver page shows it as Taken. */
+  broadcasterSlotTaken: boolean;
   /** The latest website request while it is pending, or rejected and not superseded. */
   request: LinkRequest | null;
 }
@@ -242,6 +259,8 @@ export function parseLinkState(raw: unknown): LinkState {
   return {
     linked: obj.linked === true || driverId !== null,
     driverId,
+    broadcaster: obj.broadcaster === true,
+    broadcasterSlotTaken: obj.broadcaster_slot_taken === true,
     request:
       req && status
         ? {
@@ -262,22 +281,35 @@ export function listUnlinkedDrivers(env: SupabaseEnv, accessToken: string): Prom
   return userRpc<UnlinkedDriver[]>(env, accessToken, 'list_unlinked_drivers', {});
 }
 
+/** The car numbers taken for a new sign-up (a non-Inactive driver's, or asked for by a pending request). */
+export async function getTakenCarNumbers(env: SupabaseEnv, accessToken: string): Promise<number[]> {
+  const raw = await userRpc<unknown>(env, accessToken, 'taken_car_numbers', {});
+  return Array.isArray(raw) ? raw.filter((n): n is number => Number.isInteger(n)) : [];
+}
+
 export interface LinkPageData {
   state: LinkState | null;
   drivers: UnlinkedDriver[];
-  /** True when either read failed; the page then shows its load error instead of throwing. */
+  /** For the live number hint only; empty when the read failed, since the server checks again. */
+  takenNumbers: number[];
+  /** True when the state or the list could not be read; the page then shows its load error instead of throwing. */
   loadError: boolean;
 }
 
-/** What /link-driver renders: the link state and the list, read in parallel (NFR3.2, NFR4.2). */
+/**
+ * What /link-driver renders, read in parallel (NFR3.2, NFR4.2): the link state (which also says whether the
+ * Broadcaster slot is taken), the list, and the taken numbers, one read more than before (NFR3).
+ */
 export async function loadLinkPage(env: SupabaseEnv, accessToken: string): Promise<LinkPageData> {
-  const [state, drivers] = await Promise.allSettled([
+  const [state, drivers, takenNumbers] = await Promise.allSettled([
     getLinkState(env, accessToken),
     listUnlinkedDrivers(env, accessToken),
+    getTakenCarNumbers(env, accessToken),
   ]);
   return {
     state: state.status === 'fulfilled' ? state.value : null,
     drivers: drivers.status === 'fulfilled' ? drivers.value : [],
+    takenNumbers: takenNumbers.status === 'fulfilled' ? takenNumbers.value : [],
     loadError: state.status === 'rejected' || drivers.status === 'rejected',
   };
 }
@@ -292,24 +324,39 @@ export async function linkMyDriver(env: SupabaseEnv, accessToken: string, driver
   return typeof result?.driver_id === 'string' ? result.driver_id : driverId;
 }
 
+/** Makes the signed-in account the Broadcaster, once, from "no driver, not Broadcaster" (BR1.3). */
+export async function claimBroadcaster(env: SupabaseEnv, accessToken: string): Promise<void> {
+  await userRpc<unknown>(env, accessToken, 'claim_broadcaster', {});
+}
+
 export interface DriverRequestInput {
   name: string;
   carNumber: number;
+  irating: number;
   iracingCustId: number;
+  /** Lowercase site country codes, or null. */
+  nationality1: string | null;
+  nationality2: string | null;
 }
 
-/** Sends a website request for a new driver entry. Resolves to the request id. */
-export function submitDriverRequest(
+/** Sends a New Driver Sign-Up request through submit_driver_signup. Resolves to the request id. */
+export function submitDriverSignup(
   env: SupabaseEnv,
   accessToken: string,
   input: DriverRequestInput,
 ): Promise<string> {
-  return userRpc<string>(env, accessToken, 'submit_driver_request', {
+  return userRpc<string>(env, accessToken, 'submit_driver_signup', {
     p_name: input.name,
     p_car_number: input.carNumber,
+    p_irating: input.irating,
     p_iracing_cust_id: input.iracingCustId,
+    p_nationality_1: input.nationality1,
+    p_nationality_2: input.nationality2,
   });
 }
+
+// The live hint under Car Number lives in its own import-free module so the browser script can share it.
+export { carNumberStatus, type CarNumberStatus } from './carNumberStatus';
 
 // --- Input shaping (NFR1.9; the database repeats every check) ------------------------------------
 
@@ -325,7 +372,10 @@ export function parseDriverId(raw: unknown): string | null {
 export interface RequestFormValues {
   name: string;
   car_number: string;
+  irating: string;
   iracing_cust_id: string;
+  nationality_1: string;
+  nationality_2: string;
 }
 
 export type ShapedRequest =
@@ -335,28 +385,41 @@ export type ShapedRequest =
 export const REQUEST_FIELD_MESSAGES: Record<RequestField, string> = {
   name: 'Enter your full name (up to 80 characters).',
   car_number: 'Enter a car number from 0 to 999.',
+  irating: 'Enter your iRating (a whole number from 0 to 20000).',
   iracing_cust_id: 'Enter your iRacing customer ID (a whole number).',
+  nationality_1: 'Pick a country from the list.',
+  nationality_2: 'Pick Nationality 1 first, and a different country here.',
 };
 
 const formText = (raw: unknown) => (typeof raw === 'string' ? raw : '');
+const COUNTRY_CODES = new Set(COUNTRIES.map((c) => c.code));
 
 /**
- * Shapes the request form: the name has control characters removed and is trimmed to 1-80 characters; the car
- * number is a whole number 0-999; the iRacing id a positive whole number. `values` echoes what was typed (name
- * cleaned) so the form can keep it after an error.
+ * Shapes the New Driver Sign-Up form (BR5.1): the name has control characters removed and is trimmed to 1-80
+ * characters; the car number is a whole number 0-999, iRating 0-20000 and the iRacing id a positive whole
+ * number of up to 16 digits; the nationalities are optional site countries, the second only with the first and
+ * not the same. `values` echoes what was typed (name cleaned) so the form can keep it after an error.
  */
 export function shapeRequestInput(form: {
   name: unknown;
   car_number: unknown;
+  irating: unknown;
   iracing_cust_id: unknown;
+  nationality_1?: unknown;
+  nationality_2?: unknown;
 }): ShapedRequest {
   const name = formText(form.name)
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, '')
     .trim();
-  const carNumberText = formText(form.car_number).trim();
-  const iracingText = formText(form.iracing_cust_id).trim();
-  const values: RequestFormValues = { name, car_number: carNumberText, iracing_cust_id: iracingText };
+  const values: RequestFormValues = {
+    name,
+    car_number: formText(form.car_number).trim(),
+    irating: formText(form.irating).trim(),
+    iracing_cust_id: formText(form.iracing_cust_id).trim(),
+    nationality_1: formText(form.nationality_1).trim().toLowerCase(),
+    nationality_2: formText(form.nationality_2).trim().toLowerCase(),
+  };
   const fail = (field: RequestField): ShapedRequest => ({
     ok: false,
     field,
@@ -365,12 +428,34 @@ export function shapeRequestInput(form: {
   });
 
   if (name.length < 1 || name.length > 80) return fail('name');
-  if (!/^\d{1,3}$/.test(carNumberText)) return fail('car_number');
-  const iracingCustId = Number(iracingText);
-  if (!/^\d{1,16}$/.test(iracingText) || !Number.isSafeInteger(iracingCustId) || iracingCustId <= 0) {
+  if (!/^\d{1,3}$/.test(values.car_number)) return fail('car_number');
+  if (!/^\d{1,5}$/.test(values.irating) || Number(values.irating) > 20000) return fail('irating');
+  const iracingCustId = Number(values.iracing_cust_id);
+  if (
+    !/^\d{1,16}$/.test(values.iracing_cust_id) ||
+    !Number.isSafeInteger(iracingCustId) ||
+    iracingCustId <= 0
+  ) {
     return fail('iracing_cust_id');
   }
-  return { ok: true, input: { name, carNumber: Number(carNumberText), iracingCustId }, values };
+  const nationality1 = values.nationality_1 || null;
+  const nationality2 = values.nationality_2 || null;
+  if (nationality1 && !COUNTRY_CODES.has(nationality1)) return fail('nationality_1');
+  if (nationality2 && (!nationality1 || nationality2 === nationality1 || !COUNTRY_CODES.has(nationality2))) {
+    return fail('nationality_2');
+  }
+  return {
+    ok: true,
+    input: {
+      name,
+      carNumber: Number(values.car_number),
+      irating: Number(values.irating),
+      iracingCustId,
+      nationality1,
+      nationality2,
+    },
+    values,
+  };
 }
 
 // --- Messages (the functional spec's error catalogue) --------------------------------------------
@@ -384,6 +469,7 @@ export function linkErrorMessage(code: DriverAccountErrorCode, driverName?: stri
     return `${driverName?.trim() || 'That driver'} was just linked to another account. Pick your driver again.`;
   }
   if (code === 'NOT_FOUND') return "That driver can't be linked.";
+  if (code === 'BROADCASTER_TAKEN') return 'The Broadcaster slot was just taken by another account.';
   return GENERIC_ERROR_MESSAGE;
 }
 
@@ -405,8 +491,20 @@ export function requestErrorMessage(
             ? 'That car number already belongs to a driver.'
             : `Car number ${carNumber} already belongs to a driver.`,
       };
+    case 'CAR_NUMBER_REQUESTED':
+      return {
+        field: 'car_number',
+        message:
+          carNumber === undefined
+            ? 'Another driver has already asked for that car number.'
+            : `Another driver has already asked for car number ${carNumber}.`,
+      };
     case 'IRACING_ID_TAKEN':
-      return { field: 'iracing_cust_id', message: 'That iRacing customer ID already belongs to a driver.' };
+      return {
+        field: 'iracing_cust_id',
+        message:
+          'That iRacing customer ID already belongs to a driver. Link that driver from the list instead.',
+      };
     case 'INVALID':
       return err.field
         ? { field: err.field, message: REQUEST_FIELD_MESSAGES[err.field] }

@@ -254,8 +254,6 @@ const d: Partial<EventRecord> = event ?? {
 ---
 
 <AdminLayout title={isNew ? 'New Event' : 'Edit Event'}>
-  <h1 class="reveal font-display text-4xl">{isNew ? 'New Event' : 'Edit Event'}</h1>
-
   {error && (
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}

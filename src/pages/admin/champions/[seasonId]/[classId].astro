@@ -10,9 +10,10 @@ import { uploadToStorage } from '../../../../lib/db/assets';
 import { displayDriverName } from '../../../../lib/db/circuits';
 import { computeSeasonStandings } from '../../../../lib/results/standings';
 import { logActivity, actorNameFor } from '../../../../lib/activityLog';
-import { requireAdmin } from '../../../../lib/auth';
+import { requireFullAdmin } from '../../../../lib/auth';
 
-const admin = requireAdmin(Astro);
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -103,15 +104,11 @@ const photos = await getChampionPhotos(supabaseEnv, season.id, classId);
 const photoBySlot = [0, 1, 2, 3, 4].map((slot) => photos.find((p) => p.sort_order === slot) ?? null);
 ---
 
-<AdminLayout title={`${season.name} ${driverClass.name} Champion`}>
+<AdminLayout title={`${season.name} ${driverClass.name} Champion`} heading={`${season.name} · ${driverClass.name}`}>
   <a href="/admin/site-properties?tab=champions" class="text-sm text-white/50 hover:text-white">&larr; Back to Champions</a>
 
-  <h1 class="reveal mt-3 font-display text-4xl" style="transition-delay: 40ms">
-    {season.name} · {driverClass.name}
-  </h1>
-
   {champion ? (
-    <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
+    <p class="reveal mt-4 text-sm text-white/60" style="transition-delay: 60ms">
       Computed champion: <span class="font-semibold text-white">{displayDriverName(champion.driver.name)}</span> — {champion.totalPoints} pts
     </p>
   ) : (

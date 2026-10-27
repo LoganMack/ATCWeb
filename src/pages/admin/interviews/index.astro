@@ -83,11 +83,6 @@ function afterRace(iso: string, raceStart: string | undefined): string | null {
 ---
 
 <AdminLayout title="Interviews">
-  <h1 class="reveal font-display text-4xl">Interviews</h1>
-  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Post-race comments recorded by drivers from the microphone button on a round's results page — up to 60 seconds each,
-    newest first.
-  </p>
 
   {error && <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>}
   {loadError && (

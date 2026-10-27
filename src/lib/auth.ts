@@ -36,13 +36,18 @@ export interface Session {
   user: AuthUser;
 }
 
+/** Admin and Staff both have panel access; only Admin is a full Admin (20261109120000_staff_role_and_broadcaster.sql). */
+export type ProfileRole = 'admin' | 'staff' | 'driver';
+
 export interface Profile {
   id: string;
-  role: 'admin' | 'driver';
+  role: ProfileRole;
   display_name: string | null;
   driver_id: string | null;
   iracing_cust_id: number | null;
   iracing_name: string | null;
+  /** The one Broadcaster account: never linked to a driver, privileged in masking, the only one with View as Broadcaster. */
+  is_broadcaster: boolean;
   /** Name of the roster driver this login is linked to (profiles.driver_id), or null when unlinked. Wherever the site shows "who" a user is, this wins over display_name — see userDisplayName. */
   driver_name: string | null;
 }
@@ -50,13 +55,13 @@ export interface Profile {
 /** Raw PostgREST row: the embedded `driver:drivers_shown!driver_id(name)` join, before it's flattened into `driver_name`. */
 type ProfileRow = Omit<Profile, 'driver_name'> & { driver: { name: string } | null };
 
-const PROFILE_SELECT_PLAIN = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name';
+const PROFILE_SELECT_PLAIN = 'id,role,display_name,driver_id,iracing_cust_id,iracing_name,is_broadcaster';
 // Through the masked drivers_shown (U4): a linked user and an admin are privileged, so the name is real.
 // Shared with the CI embed check.
 const PROFILE_SELECT = privacyReads.profile.select;
 
 function toProfile({ driver, ...rest }: ProfileRow): Profile {
-  return { ...rest, driver_name: driver?.name ?? null };
+  return { ...rest, is_broadcaster: rest.is_broadcaster === true, driver_name: driver?.name ?? null };
 }
 
 /**
@@ -264,10 +269,7 @@ export function classifyChangeEmailError(status: number, body: string): ChangeEm
   const errorCode = typeof parsed?.error_code === 'string' ? parsed.error_code : '';
   if (status === 429 || errorCode === 'over_email_send_rate_limit') return 'RATE_LIMITED';
   if (errorCode === 'email_address_invalid') return 'INVALID';
-  if (
-    errorCode === 'email_exists' ||
-    EMAIL_IN_USE_MESSAGE.test(goTrueErrorMessage(status, body))
-  ) {
+  if (errorCode === 'email_exists' || EMAIL_IN_USE_MESSAGE.test(goTrueErrorMessage(status, body))) {
     return 'EMAIL_IN_USE';
   }
   if (status === 400) return 'INVALID';
@@ -461,12 +463,12 @@ export async function setProfileDriver(
   if (!res.ok) throw new Error(`Failed to link driver (${res.status}): ${await res.text()}`);
 }
 
-/** Update a profile's role. Requires an admin's access token — RLS rejects this otherwise. */
+/** Update a profile's role. Requires a full Admin's access token — the profiles guard rejects anyone else. */
 export async function setProfileRole(
   env: SupabaseEnv,
   accessToken: string,
   profileId: string,
-  role: 'admin' | 'driver',
+  role: ProfileRole,
 ): Promise<void> {
   const res = await fetch(`${env.url}/rest/v1/profiles?id=eq.${encodeURIComponent(profileId)}`, {
     method: 'PATCH',
@@ -474,6 +476,32 @@ export async function setProfileRole(
     body: JSON.stringify({ role }),
   });
   if (!res.ok) throw new Error(`Failed to update role (${res.status}): ${await res.text()}`);
+}
+
+/**
+ * Makes `profileId` the Broadcaster (moving it from any other account), or with null removes it, through the
+ * full-Admin admin_set_broadcaster() function. Throws with the database's message, e.g. 'ACCOUNT_LINKED: ...'
+ * for an account linked to a driver.
+ */
+export async function setBroadcaster(
+  env: SupabaseEnv,
+  accessToken: string,
+  profileId: string | null,
+): Promise<void> {
+  const res = await fetch(`${env.url}/rest/v1/rpc/admin_set_broadcaster`, {
+    method: 'POST',
+    headers: authHeaders(env, accessToken),
+    body: JSON.stringify({ p_profile_id: profileId }),
+  });
+  if (!res.ok) {
+    let message = await res.text();
+    try {
+      message = (JSON.parse(message) as { message?: string }).message ?? message;
+    } catch {
+      // keep raw text
+    }
+    throw new Error(message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -509,53 +537,156 @@ export const VIEW_MODE_COOKIE = 'atc_view_mode';
 
 /**
  * The admin check for pages outside /admin, which respects "View as Visitor"; /admin pages stay
- * real-admin-only (see `viewAsVisitor` in src/env.d.ts).
+ * panel-access-only (see `viewAsVisitor` in src/env.d.ts). Staff count, as everywhere outside Admin > Users
+ * and the five restricted areas.
  */
 export function isAdminView(locals: App.Locals): boolean {
-  return locals.session?.profile?.role === 'admin' && !locals.viewAsVisitor;
+  return hasPanelAccess(locals.session?.profile) && !locals.viewAsVisitor;
+}
+
+// ---------------------------------------------------------------------------
+// Roles: panel access (Admin or Staff) and full Admin. The database enforces both; these only decide what
+// to render and where to send a request.
+// ---------------------------------------------------------------------------
+
+type RoleHolder = { role?: string | null } | null | undefined;
+
+/** Admin or Staff: may open /admin. */
+export function hasPanelAccess(profile: RoleHolder): boolean {
+  return profile?.role === 'admin' || profile?.role === 'staff';
+}
+
+/** Admin only: Admin > Users changes and the restricted areas. */
+export function isFullAdmin(profile: RoleHolder): boolean {
+  return profile?.role === 'admin';
+}
+
+/** The admin areas Staff can't open (BR2.7): Site Properties (and its champions sub-pages), Seasons, Rulesets, Media and Circuits. */
+const STAFF_RESTRICTED_AREAS = [
+  'site-properties',
+  'champions',
+  'seasons',
+  'rulesets',
+  'media',
+  'circuits',
+] as const;
+
+/** Their /admin paths; everything under each is restricted too. */
+export const STAFF_RESTRICTED_PREFIXES: readonly string[] = STAFF_RESTRICTED_AREAS.map(
+  (area) => `/admin/${area}`,
+);
+
+/**
+ * Canonical form of a request path for access-control decisions: fully percent-decoded, backslashes treated
+ * as slashes, duplicate slashes collapsed, trailing slash dropped, lowercased. Null when the path has invalid
+ * encoding (callers should fail closed).
+ */
+export function normalisePath(pathname: string): string | null {
+  let p = pathname;
+  try {
+    for (let i = 0; i < 5; i++) {
+      const decoded = decodeURIComponent(p);
+      if (decoded === p) break;
+      p = decoded;
+    }
+  } catch {
+    return null;
+  }
+  p = p
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .toLowerCase();
+  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
+  return p;
+}
+
+/** True when a Staff member may not open this path. An undecodable path counts as restricted (fails closed). */
+export function isStaffRestrictedPath(pathname: string): boolean {
+  const p = normalisePath(pathname);
+  if (p === null) return true;
+  return STAFF_RESTRICTED_PREFIXES.some((prefix) => p === prefix || p.startsWith(`${prefix}/`));
+}
+
+/** The admin dashboard's tools this account may open: everything for a full Admin, no restricted area for Staff. */
+export function adminToolsFor<T extends { href: string }>(tools: readonly T[], profile: RoleHolder): T[] {
+  return isFullAdmin(profile) ? [...tools] : tools.filter((tool) => !isStaffRestrictedPath(tool.href));
 }
 
 // ---------------------------------------------------------------------------
 // Typed admin session (replaces `Astro.locals.session!` in pages)
 // ---------------------------------------------------------------------------
 
-/** A signed-in session whose profile has the real `admin` role. */
-export type AdminSession = NonNullable<App.Locals['session']> & { profile: Profile & { role: 'admin' } };
+/** A signed-in session with panel access (the real role, Admin or Staff). */
+export type AdminSession = NonNullable<App.Locals['session']> & {
+  profile: Profile & { role: 'admin' | 'staff' };
+};
 
-/** The session when it belongs to an admin (real role, as in the middleware), otherwise null. Never redirects. */
+/** A signed-in session whose profile has the real `admin` role. */
+export type FullAdminSession = NonNullable<App.Locals['session']> & { profile: Profile & { role: 'admin' } };
+
+/** The session when it has panel access (real role, as in the middleware), otherwise null. Never redirects. */
 export function requireAdminSession(locals: App.Locals): AdminSession | null {
   const session = locals.session;
-  return session?.profile?.role === 'admin' ? (session as AdminSession) : null;
+  return hasPanelAccess(session?.profile) ? (session as AdminSession) : null;
 }
 
-/**
- * The signed-in admin's session, or a redirect to the login page when there
- * isn't one. Same role test, target and status as the middleware's /admin
- * gate, so on /admin pages this is a second line of defence.
- */
-export function requireAdmin(ctx: {
+type GuardContext = {
   locals: App.Locals;
   url: URL;
   redirect: (path: string, status?: 301 | 302 | 303 | 307 | 308) => Response;
-}): AdminSession | Response {
+};
+
+/**
+ * The session of a signed-in Admin or Staff member, or a redirect to the login page when there isn't one.
+ * Same role test, target and status as the middleware's /admin gate, so on /admin pages this is a second
+ * line of defence.
+ */
+export function requireAdmin(ctx: GuardContext): AdminSession | Response {
   return (
     requireAdminSession(ctx.locals) ??
     ctx.redirect('/login?next=' + encodeURIComponent(ctx.url.pathname), 302)
   );
 }
 
+/**
+ * For the restricted areas and Admin > Users actions: the full Admin's session; Staff go back to the
+ * dashboard, and anyone else to the login page.
+ */
+export function requireFullAdmin(ctx: GuardContext): FullAdminSession | Response {
+  const session = ctx.locals.session;
+  if (isFullAdmin(session?.profile)) return session as FullAdminSession;
+  if (hasPanelAccess(session?.profile)) return ctx.redirect('/admin', 302);
+  return ctx.redirect('/login?next=' + encodeURIComponent(ctx.url.pathname), 302);
+}
+
 /** The page where a signed-in account without a driver picks one (U2 driver-linking, C10). */
 export const LINK_DRIVER_PATH = '/link-driver';
 
+/** The Broadcaster account's own page (email and password only). */
+export const BROADCASTER_PATH = '/broadcaster';
+
+/** True when the signed-in account is the Broadcaster. */
+export function isBroadcasterAccount(locals: App.Locals): boolean {
+  return locals.session?.profile?.is_broadcaster === true;
+}
+
 /**
- * Where the header's My Profile link (`/my-profile`) leads: sign in first when signed out, then the linked
- * driver's page, or the linking page for an account without a linked driver.
+ * Where the header's My Profile link (`/my-profile`) leads (BR1.9): sign in first when signed out, then the
+ * linked driver's page, the Broadcaster page, or the linking page for an account with neither.
  */
 export function myProfilePath(locals: App.Locals): string {
   const session = locals.session;
   if (!session) return '/login?next=/my-profile';
   const driverId = session.profile?.driver_id;
-  return driverId ? `/drivers/${encodeURIComponent(driverId)}` : LINK_DRIVER_PATH;
+  if (driverId) return `/drivers/${encodeURIComponent(driverId)}`;
+  return isBroadcasterAccount(locals) ? BROADCASTER_PATH : LINK_DRIVER_PATH;
+}
+
+/** The header link's hover text and label, matching myProfilePath's destination. */
+export function myProfileLabel(locals: App.Locals): 'My Profile' | 'Broadcaster' | 'Link Driver' {
+  const session = locals.session;
+  if (!session || session.profile?.driver_id) return 'My Profile';
+  return isBroadcasterAccount(locals) ? 'Broadcaster' : 'Link Driver';
 }
 
 // ---------------------------------------------------------------------------
@@ -563,8 +694,18 @@ export function myProfilePath(locals: App.Locals): string {
 // ---------------------------------------------------------------------------
 
 /**
- * '1' while any visitor uses "View as Broadcaster": src/middleware.ts hides the latest round from every
- * statistic (SupabaseEnv.hiddenSubsessionIds in src/lib/db/client.ts) and skips the edge cache. Set by
- * api/broadcaster-mode.ts.
+ * '1' while the Broadcaster uses "View as Broadcaster": src/middleware.ts hides the latest round from every
+ * statistic (SupabaseEnv.hiddenSubsessionIds in src/lib/db/client.ts). Set by api/broadcaster-mode.ts.
  */
 export const BROADCASTER_COOKIE = 'atc_broadcaster';
+
+/**
+ * Whether this request renders in Broadcaster mode (BR1.8): only for the signed-in Broadcaster with the cookie
+ * on. Anyone else's cookie is ignored. Presentation only: what the mode hides is public anyway.
+ */
+export function broadcasterModeFor(
+  profile: { is_broadcaster?: boolean } | null | undefined,
+  cookieValue: string | undefined,
+): boolean {
+  return profile?.is_broadcaster === true && cookieValue === '1';
+}

@@ -265,6 +265,96 @@ export async function createIncidentReport(
     throw new Error(`Supabase rpc error ${res.status} on submit_incident_report: ${await res.text()}`);
 }
 
+// --- Edit Submission (20261109120002_incident_report_edit.sql; BR4.1-BR4.5) ------
+
+export interface EditSubmissionInput {
+  report_id: string;
+  session: string;
+  lap: number;
+  turn: string;
+  driver_ids: string[];
+}
+
+export type EditSubmissionField = 'session' | 'lap' | 'turn' | 'driver_ids';
+export type EditSubmissionErrorCode = 'REPORT_NOT_OPEN' | 'REPORT_NOT_FOUND' | 'INVALID' | 'UNKNOWN';
+
+export type EditSubmissionResult =
+  | { ok: true; changed: boolean }
+  | { ok: false; code: EditSubmissionErrorCode; field: EditSubmissionField | null; message: string };
+
+const EDIT_FIELDS: readonly EditSubmissionField[] = ['session', 'lap', 'turn', 'driver_ids'];
+
+export const EDIT_SUBMISSION_MESSAGES = {
+  REPORT_NOT_OPEN: "This report is no longer open, so it can't be edited.",
+  REPORT_NOT_FOUND: 'That incident report no longer exists.',
+  UNKNOWN: "Couldn't save the changes. Try again.",
+  session: 'Pick the race the incident happened in.',
+  lap: 'Enter a lap from 0 to 1000.',
+  turn: 'Enter the turns (up to 80 characters).',
+  driver_ids: 'Pick between 1 and 100 cars.',
+} as const;
+
+/** Maps the edit function's '<CODE>: ...' error (a PostgREST body's message) to a result the page can show. */
+export function mapEditSubmissionError(message: string): Extract<EditSubmissionResult, { ok: false }> {
+  const match = /^([A-Z_]+):\s*(?:([a-z_]+):)?/.exec(message.trim());
+  const code = match?.[1];
+  if (code === 'REPORT_NOT_OPEN' || code === 'REPORT_NOT_FOUND') {
+    return { ok: false, code, field: null, message: EDIT_SUBMISSION_MESSAGES[code] };
+  }
+  const field = match?.[2] as EditSubmissionField | undefined;
+  if (code === 'INVALID' && field && EDIT_FIELDS.includes(field)) {
+    return { ok: false, code: 'INVALID', field, message: EDIT_SUBMISSION_MESSAGES[field] };
+  }
+  return { ok: false, code: 'UNKNOWN', field: null, message: EDIT_SUBMISSION_MESSAGES.UNKNOWN };
+}
+
+/**
+ * Admin or Staff: corrects an open report's race, lap, turns and cars through
+ * edit_incident_report_submission, which checks everything again under a row lock and logs the change in the
+ * same transaction. Never throws; failures are logged by code only.
+ */
+export async function editIncidentReportSubmission(
+  env: SupabaseEnv,
+  accessToken: string,
+  input: EditSubmissionInput,
+): Promise<EditSubmissionResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${env.url}/rest/v1/rpc/edit_incident_report_submission`, {
+      method: 'POST',
+      headers: {
+        apikey: env.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_report_id: input.report_id,
+        p_session: input.session,
+        p_lap: input.lap,
+        p_turn: input.turn,
+        p_driver_ids: input.driver_ids,
+      }),
+    });
+  } catch {
+    console.error('edit_incident_report_submission failed', 'UNKNOWN');
+    return { ok: false, code: 'UNKNOWN', field: null, message: EDIT_SUBMISSION_MESSAGES.UNKNOWN };
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    let message = text;
+    try {
+      message = (JSON.parse(text) as { message?: string }).message ?? text;
+    } catch {
+      // keep raw text
+    }
+    const mapped = mapEditSubmissionError(message);
+    console.error('edit_incident_report_submission failed', mapped.code);
+    return mapped;
+  }
+  const body = (await res.json().catch(() => null)) as { changed?: unknown } | null;
+  return { ok: true, changed: body?.changed === true };
+}
+
 /** Admin (or own-reporter) read — RLS filters to whatever the token may see. */
 export async function getIncidentReportsForSubsession(
   env: SupabaseEnv,

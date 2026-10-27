@@ -3,9 +3,20 @@ export const prerender = false;
 
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, getDrivers } from '../../../lib/db/client';
-import { getAllProfiles, setProfileRole, setProfileDriver, deleteUser, getUserEmails, userDisplayName, requireAdmin } from '../../../lib/auth';
+import {
+  getAllProfiles,
+  setProfileRole,
+  setProfileDriver,
+  setBroadcaster,
+  deleteUser,
+  getUserEmails,
+  userDisplayName,
+  requireAdmin,
+  isFullAdmin,
+  type ProfileRole,
+} from '../../../lib/auth';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
-import { errorCodeOf } from '../../../lib/driverAccount';
+import { adminLinkErrorMessage, errorCodeOf } from '../../../lib/driverAccount';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -14,6 +25,12 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = admin.accessToken;
 const currentUserId = admin.user.id;
 const actor = { id: currentUserId, name: actorNameFor(admin) };
+// Staff see the list read-only (BR2.3); the database refuses their changes too.
+const canEdit = isFullAdmin(admin.profile);
+const ROLES: ProfileRole[] = ['driver', 'staff', 'admin'];
+const ROLE_LABELS: Record<ProfileRole, string> = { driver: 'Driver', staff: 'Staff', admin: 'Admin' };
+// The driver select's Broadcaster entry: not a driver id, so it can never collide with one.
+const BROADCASTER_OPTION = 'broadcaster';
 
 let error: string | null = null;
 
@@ -35,14 +52,19 @@ async function load() {
 }
 await load();
 
+const nameOf = (p: (typeof profiles)[number]) =>
+  userDisplayName(p, null) === 'Unknown' ? `User ${p.id.slice(0, 8)}` : userDisplayName(p, null);
+
 if (Astro.request.method === 'POST' && !loadError) {
   const form = await Astro.request.formData();
   const intent = String(form.get('intent') ?? 'set-role');
   const profileId = String(form.get('profile_id') ?? '');
   const target = profiles.find((p) => p.id === profileId);
-  if (target) {
+  if (!canEdit) {
+    error = 'Staff can view accounts but not change them.';
+  } else if (target) {
     // Name shown in the activity log: the user's linked driver, else their display name.
-    const targetName = userDisplayName(target, null) === 'Unknown' ? `User ${profileId.slice(0, 8)}` : userDisplayName(target, null);
+    const targetName = nameOf(target);
     try {
       if (intent === 'delete-user') {
         if (profileId === currentUserId) {
@@ -59,24 +81,54 @@ if (Astro.request.method === 'POST' && !loadError) {
           });
         }
       } else if (intent === 'set-driver') {
-        const driverId = String(form.get('driver_id') ?? '') || null;
-        const driver = driverId ? drivers.find((d) => d.id === driverId) : null;
-        if (driverId && !driver) {
-          error = 'That driver is no longer on the roster.';
-        } else if (driverId && profiles.some((p) => p.driver_id === driverId && p.id !== profileId)) {
-          error = `${driver!.name} is already linked to another user.`;
+        const choice = String(form.get('driver_id') ?? '');
+        if (choice === BROADCASTER_OPTION) {
+          if (target.driver_id) {
+            error = "Remove this account's driver link first.";
+          } else if (!target.is_broadcaster) {
+            await setBroadcaster(supabaseEnv, accessToken, profileId);
+            await logActivity(supabaseEnv, accessToken, actor, {
+              action: 'edit',
+              entity_type: 'user',
+              entity_label: targetName,
+              entity_id: profileId,
+              details: `Broadcaster set to ${targetName}`,
+            });
+          }
         } else {
-          await setProfileDriver(supabaseEnv, accessToken, profileId, driverId);
-          await logActivity(supabaseEnv, accessToken, actor, {
-            action: 'edit',
-            entity_type: 'user',
-            entity_label: driver?.name ?? targetName,
-            entity_id: profileId,
-            details: driver ? `Linked to driver ${driver.name}` : `Unlinked from driver ${target.driver_name ?? ''}`.trim(),
-          });
+          const driverId = choice || null;
+          const driver = driverId ? drivers.find((d) => d.id === driverId) : null;
+          if (driverId && !driver) {
+            error = 'That driver is no longer on the roster.';
+          } else if (driverId && profiles.some((p) => p.driver_id === driverId && p.id !== profileId)) {
+            error = `${driver!.name} is already linked to another user.`;
+          } else {
+            // Moving the current Broadcaster to a driver (or to none) removes the marker first.
+            if (target.is_broadcaster) {
+              await setBroadcaster(supabaseEnv, accessToken, null);
+              await logActivity(supabaseEnv, accessToken, actor, {
+                action: 'edit',
+                entity_type: 'user',
+                entity_label: targetName,
+                entity_id: profileId,
+                details: 'Broadcaster removed',
+              });
+            }
+            if (driverId || target.driver_id) {
+              await setProfileDriver(supabaseEnv, accessToken, profileId, driverId);
+              await logActivity(supabaseEnv, accessToken, actor, {
+                action: 'edit',
+                entity_type: 'user',
+                entity_label: driver?.name ?? targetName,
+                entity_id: profileId,
+                details: driver ? `Linked to driver ${driver.name}` : `Unlinked from driver ${target.driver_name ?? ''}`.trim(),
+              });
+            }
+          }
         }
       } else {
-        const role = form.get('role') === 'admin' ? 'admin' : 'driver';
+        const posted = String(form.get('role') ?? '');
+        const role: ProfileRole = (ROLES as string[]).includes(posted) ? (posted as ProfileRole) : 'driver';
         await setProfileRole(supabaseEnv, accessToken, profileId, role);
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
@@ -95,7 +147,7 @@ if (Astro.request.method === 'POST' && !loadError) {
             ? // The one-account-per-driver index catches a link made since this page loaded.
               errorCodeOf(err) === 'DRIVER_ALREADY_LINKED'
               ? 'That driver is already linked to another account.'
-              : 'Failed to link that driver.'
+              : (adminLinkErrorMessage(err) ?? 'Failed to link that driver.')
             : 'Failed to update that user’s role.';
     }
     // Re-read so the table below shows what was just saved.
@@ -113,19 +165,21 @@ const unlinkedDrivers = drivers
   .filter((d) => !linkedDriverIds.has(d.id))
   .sort((a, b) => a.name.localeCompare(b.name));
 const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
+const broadcaster = profiles.find((p) => p.is_broadcaster) ?? null;
+const driverText = (p: (typeof profiles)[number]) =>
+  p.is_broadcaster
+    ? 'Broadcaster'
+    : p.driver_id
+      ? (driverNameById.get(p.driver_id) ?? p.driver_name ?? 'Linked driver')
+      : '—';
 ---
 
 <AdminLayout title="Users">
-  <h1 class="reveal font-display text-4xl">Users</h1>
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 60ms">
-    Anyone who has signed in has an account here. Promote trusted people to admin so they can use these tools too, and
-    link each login to its roster driver — once linked, the driver's name is shown wherever the site names that user.
-  </p>
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 70ms" data-testid="users-driver-privacy-note">
-    A driver's privacy settings follow the account linked to it: changing a link moves the driver to the newly linked
-    account's settings, and unlinking leaves the driver with none. Drivers can link themselves once; only you can change
-    or remove a link.
-  </p>
+  {!canEdit && (
+    <p class="reveal rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80" role="note" data-testid="users-staff-note">
+      Staff can view accounts but not change them.
+    </p>
+  )}
 
   {error && (
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
@@ -144,12 +198,12 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
           <th class="py-3 pr-3 font-medium" data-sort-key="email">Email</th>
           <th class="py-3 pr-3 font-medium">Driver</th>
           <th class="py-3 pr-3 font-medium">Role</th>
-          <th class="py-3 pr-6 font-medium"><span class="sr-only">Delete</span></th>
+          {canEdit && <th class="py-3 pr-6 font-medium"><span class="sr-only">Delete</span></th>}
         </tr>
       </thead>
       <tbody>
         {profiles.map((profile) => {
-          const label = userDisplayName(profile) === 'Unknown' ? `User ${profile.id.slice(0, 8)}` : userDisplayName(profile);
+          const label = nameOf(profile);
           return (
           <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
             <td class="py-3 pl-6 pr-3" data-col="name">
@@ -163,81 +217,103 @@ const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
               {emailById.get(profile.id) ?? '—'}
             </td>
             <td class="py-3 pr-3">
-              {/* Saves as soon as a driver is picked. "No driver" unlinks. */}
-              <form method="POST" data-astro-reload>
-                <input type="hidden" name="intent" value="set-driver" />
-                <input type="hidden" name="profile_id" value={profile.id} />
-                <select
-                  name="driver_id"
-                  data-submit-on-change
-                  aria-label="Linked driver"
-                  class="w-56 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
-                >
-                  <option value="" selected={!profile.driver_id} class="bg-brand-ink text-white">
-                    {profile.driver_id ? 'No driver (unlink)' : 'Select driver…'}
-                  </option>
-                  {profile.driver_id && !unlinkedDrivers.some((d) => d.id === profile.driver_id) && (
-                    <option value={profile.driver_id} selected class="bg-brand-ink text-white">
-                      {driverNameById.get(profile.driver_id) ?? profile.driver_name ?? 'Linked driver'}
+              {canEdit ? (
+                /* Saves as soon as a driver is picked. "No driver" unlinks; Broadcaster moves the one marker here. */
+                <form method="POST" data-astro-reload>
+                  <input type="hidden" name="intent" value="set-driver" />
+                  <input type="hidden" name="profile_id" value={profile.id} />
+                  <select
+                    name="driver_id"
+                    data-submit-on-change
+                    aria-label="Linked driver"
+                    class="w-56 rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  >
+                    <option value="" selected={!profile.driver_id && !profile.is_broadcaster} class="bg-brand-ink text-white">
+                      {profile.driver_id || profile.is_broadcaster ? 'None (unlink)' : 'None'}
                     </option>
-                  )}
-                  {unlinkedDrivers.map((d) => (
-                    <option value={d.id} class="bg-brand-ink text-white">{d.name}</option>
-                  ))}
-                </select>
-              </form>
+                    <option value={BROADCASTER_OPTION} selected={profile.is_broadcaster} class="bg-brand-ink text-white">
+                      {broadcaster && broadcaster.id !== profile.id ? `Broadcaster (held by ${nameOf(broadcaster)})` : 'Broadcaster'}
+                    </option>
+                    {profile.driver_id && !unlinkedDrivers.some((d) => d.id === profile.driver_id) && (
+                      <option value={profile.driver_id} selected class="bg-brand-ink text-white">
+                        {driverNameById.get(profile.driver_id) ?? profile.driver_name ?? 'Linked driver'}
+                      </option>
+                    )}
+                    {unlinkedDrivers.map((d) => (
+                      <option value={d.id} class="bg-brand-ink text-white">{d.name}</option>
+                    ))}
+                  </select>
+                </form>
+              ) : (
+                <span class="text-white/70" data-testid="users-driver-text">{driverText(profile)}</span>
+              )}
             </td>
             <td class="py-3 pr-3">
-              <form method="POST" data-astro-reload>
-                <input type="hidden" name="intent" value="set-role" />
-                <input type="hidden" name="profile_id" value={profile.id} />
-                <select
-                  name="role"
-                  data-submit-on-change
-                  aria-label="Role"
-                  class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+              {canEdit ? (
+                <form method="POST" data-astro-reload>
+                  <input type="hidden" name="intent" value="set-role" />
+                  <input type="hidden" name="profile_id" value={profile.id} />
+                  <select
+                    name="role"
+                    data-submit-on-change
+                    aria-label="Role"
+                    class="rounded-md border border-white/15 bg-white/5 px-3 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  >
+                    {ROLES.map((role) => (
+                      <option value={role} selected={profile.role === role} class="bg-brand-ink text-white">{ROLE_LABELS[role]}</option>
+                    ))}
+                  </select>
+                </form>
+              ) : (
+                <span class="text-white/70">{ROLE_LABELS[profile.role] ?? profile.role}</span>
+              )}
+            </td>
+            {canEdit && (
+              <td class="py-3 pr-6 text-right">
+                <button
+                  type="button"
+                  data-delete-user
+                  data-profile-id={profile.id}
+                  data-user-label={label}
+                  disabled={profile.id === currentUserId}
+                  title={profile.id === currentUserId ? "You can't delete your own account" : undefined}
+                  class="btn btn-danger"
                 >
-                  <option value="driver" selected={profile.role === 'driver'} class="bg-brand-ink text-white">Driver</option>
-                  <option value="admin" selected={profile.role === 'admin'} class="bg-brand-ink text-white">Admin</option>
-                </select>
-              </form>
-            </td>
-            <td class="py-3 pr-6 text-right">
-              <button
-                type="button"
-                data-delete-user
-                data-profile-id={profile.id}
-                data-user-label={label}
-                disabled={profile.id === currentUserId}
-                title={profile.id === currentUserId ? "You can't delete your own account" : undefined}
-                class="btn btn-danger"
-              >
-                Delete
-              </button>
-            </td>
+                  Delete
+                </button>
+              </td>
+            )}
           </tr>
           );
         })}
       </tbody>
     </table>
   </div>
+
+  <p class="reveal mt-6 text-sm text-white/50" data-testid="users-driver-privacy-note">
+    A driver's privacy settings follow the account linked to it: changing a link moves the driver to the newly linked
+    account's settings, and unlinking leaves the driver with none. Drivers can link themselves once; only an admin can
+    change or remove a link.
+  </p>
 </AdminLayout>
 
-<dialog data-delete-user-dialog class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60">
-  <form method="POST" data-astro-reload class="flex flex-col gap-4 p-5">
-    <input type="hidden" name="intent" value="delete-user" />
-    <input type="hidden" name="profile_id" data-delete-user-id />
-    <h4 class="font-display text-lg">Delete user</h4>
-    <p class="text-sm text-white/70">
-      Are you sure you want to delete this user?
-      <span data-delete-user-label class="mt-1 block font-semibold text-white"></span>
-    </p>
-    <div class="flex justify-end gap-2">
-      <button type="button" data-delete-user-cancel class="btn btn-neutral">Cancel</button>
-      <button type="submit" class="btn btn-danger">Delete</button>
-    </div>
-  </form>
-</dialog>
+{canEdit && (
+  <dialog data-delete-user-dialog class="w-full max-w-sm rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60">
+    <form method="POST" data-astro-reload class="flex flex-col gap-4 p-5">
+      <input type="hidden" name="intent" value="delete-user" />
+      <input type="hidden" name="profile_id" data-delete-user-id />
+      <h4 class="font-display text-lg">Delete user</h4>
+      <p class="text-sm text-white/70">
+        Are you sure you want to delete this user?
+        <span data-delete-user-label class="mt-1 block font-semibold text-white"></span>
+      </p>
+      <div class="flex justify-end gap-2">
+        <button type="button" data-delete-user-cancel class="btn btn-neutral">Cancel</button>
+        <button type="submit" class="btn btn-danger">Delete</button>
+      </div>
+    </form>
+  </dialog>
+)}
 
 <script>
   function initDeleteUser() {

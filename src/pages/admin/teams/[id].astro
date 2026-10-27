@@ -346,9 +346,7 @@ const rosterDriversOnTeam = rosterDrivers
   .sort((a, b) => a.name.localeCompare(b.name));
 ---
 
-<AdminLayout title={isNew ? 'New Team' : t.name || 'Edit Team'}>
-  <h1 class="reveal font-display text-4xl">{isNew ? 'New Team' : t.name}</h1>
-
+<AdminLayout title={isNew ? 'New Team' : t.name || 'Edit Team'} heading={isNew ? 'New Team' : t.name || 'Edit Team'}>
   {error && (
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}

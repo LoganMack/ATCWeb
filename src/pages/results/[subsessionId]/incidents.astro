@@ -82,6 +82,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
 <script>
   import '../../../scripts/driverPickerSearch';
+  import '../../../scripts/editSubmissionDialog';
 </script>
 
 <script>
@@ -643,9 +644,6 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           ring.className = 'map-turn-ring';
           ring.style.left = `${c.x}%`;
           ring.style.top = `${c.y}%`;
-          const label = document.createElement('b');
-          label.textContent = c.label;
-          ring.append(label);
           plate.append(ring);
         }
         note.classList.toggle('hidden', (data.corners ?? []).length > 0);

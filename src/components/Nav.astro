@@ -1,6 +1,6 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
-import { isAdminView } from '../lib/auth';
+import { isAdminView, isBroadcasterAccount, myProfileLabel } from '../lib/auth';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import { getSeasons } from '../lib/db/seasons';
 import { resizedImageUrl } from '../lib/db/drivers';
@@ -44,7 +44,9 @@ const navLogoLightUrl = currentSeason?.logo_url
 const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
 // A signed-in account with no driver gets a red dot on My Profile (BR3.1). It reads only the session the
 // middleware resolved, so no page makes an extra request, and signed-in renders are never edge-cached.
-const needsDriverLink = Boolean(Astro.locals.session) && !myDriverId;
+// The Broadcaster has no driver to link, so no dot; their link reads "Broadcaster" (BR1.9).
+const needsDriverLink = Boolean(Astro.locals.session) && !myDriverId && !isBroadcasterAccount(Astro.locals);
+const profileLabel = myProfileLabel(Astro.locals);
 // On your own driver page the profile icon becomes an Edit button (the page's own script toggles edit mode).
 const onOwnProfile = Boolean(myDriverId) && Astro.url.pathname.replace(/\/+$/, '') === `/drivers/${myDriverId}`;
 // Admin Panel shortcut beside the profile button. isAdminView, not isRealAdmin, so it hides while
@@ -202,7 +204,7 @@ const links: NavLink[] = [
           )}
           <span data-profile-edit-tooltip class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">{onOwnProfile ? 'Edit Profile' : 'My Profile'}</span>
         </span>
-      ) : !needsDriverLink ? (
+      ) : !Astro.locals.session ? (
         // Signed out: the same static link for every visitor, so cached anonymous pages stay valid;
         // /my-profile decides where it goes.
         <span class="group relative">
@@ -214,11 +216,22 @@ const links: NavLink[] = [
           </a>
           <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">My Profile</span>
         </span>
+      ) : !needsDriverLink ? (
+        // The Broadcaster: /my-profile leads to the Broadcaster page (BR1.9).
+        <span class="group relative">
+          <a href="/my-profile" class="btn btn-primary !px-2.5" aria-label={profileLabel} data-testid="nav-my-profile-broadcaster">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </a>
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">{profileLabel}</span>
+        </span>
       ) : (
         // Signed in without a linked driver: the same link to /my-profile (which leads to /link-driver), with a
         // red dot placed like the admin gear's badge.
         <span class="group relative">
-          <a href="/my-profile" class="btn btn-primary relative !px-2.5" aria-label="My Profile, link your driver" data-testid="nav-my-profile-link-driver">
+          <a href="/my-profile" class="btn btn-primary relative !px-2.5" aria-label="Link Driver" data-testid="nav-my-profile-link-driver">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
               <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
               <circle cx="12" cy="7" r="4" />
@@ -226,7 +239,7 @@ const links: NavLink[] = [
             {/* The canvas-coloured rim is padding on a canvas-coloured disc, so the dot stands off the button in both themes. */}
             <span data-link-driver-dot class="absolute -right-1 -top-1 rounded-full bg-brand-ink p-0.5" aria-hidden="true"><span class="block h-2.5 w-2.5 rounded-full bg-brand-pink"></span></span>
           </a>
-          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">My Profile · Link your driver</span>
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Link Driver</span>
         </span>
       )}
 

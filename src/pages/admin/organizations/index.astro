@@ -23,18 +23,11 @@ try {
 ---
 
 <AdminLayout title="Organizations">
-  <div class="reveal flex items-center justify-between">
-    <h1 class="font-display text-4xl">Organizations</h1>
+  <div class="reveal flex items-center justify-end">
     <a href="/admin/organizations/new" class="btn btn-primary">
       New Organization
     </a>
   </div>
-
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Links a team's identity across renames — e.g. if "Nova Racing" became "Apex Nova" partway through ATC's history,
-    an organization here ties both team records together so Team Stats shows one continuous career. Teams that have
-    never been renamed don't need an organization at all.
-  </p>
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">

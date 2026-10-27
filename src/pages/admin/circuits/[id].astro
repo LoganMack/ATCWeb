@@ -27,9 +27,10 @@ import {
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { uploadToStorage } from '../../../lib/db/assets';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
-import { requireAdmin } from '../../../lib/auth';
+import { requireFullAdmin } from '../../../lib/auth';
 
-const admin = requireAdmin(Astro);
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -276,9 +277,7 @@ if (!isNew && id) {
 }
 ---
 
-<AdminLayout title={isNew ? 'New Circuit' : c.name || 'Edit Circuit'}>
-  <h1 class="reveal font-display text-4xl">{isNew ? 'New Circuit' : c.name}</h1>
-
+<AdminLayout title={isNew ? 'New Circuit' : c.name || 'Edit Circuit'} heading={isNew ? 'New Circuit' : c.name || 'Edit Circuit'}>
   {error && (
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}

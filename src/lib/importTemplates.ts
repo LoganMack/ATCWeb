@@ -1,5 +1,5 @@
 /**
- * CSV templates for the six admin importers, generated from these column lists and served by
+ * CSV templates for the five admin importers, generated from these column lists and served by
  * api/import-templates/[kind].ts, so a column change is made in one place. Importers read columns by header
  * name, so every column an importer reads should be listed here; keep both in sync by hand.
  */
@@ -102,34 +102,6 @@ const EVENTS_TEMPLATE: CsvTemplate = {
       '',
       '',
     ],
-  ],
-};
-
-const CIRCUITS_TEMPLATE: CsvTemplate = {
-  columns: [
-    'name',
-    'location',
-    'logo_url',
-    'layout_name',
-    'layout_length_km',
-    'layout_corners',
-    'layout_lap_record_seconds',
-    'layout_lap_record_holder',
-    'layout_lap_record_date',
-  ],
-  exampleRows: [
-    [
-      'Watkins Glen',
-      'Watkins Glen, NY',
-      '',
-      'Full Course',
-      '5.552',
-      '11',
-      '102.512',
-      'J. Smith',
-      '2026-06-01',
-    ],
-    ['Road Atlanta', 'Braselton, GA', '', 'Full Course', '4.088', '12', '88.204', '', ''],
   ],
 };
 
@@ -364,12 +336,12 @@ const PRACTICE_RESULTS_TEMPLATE: CsvTemplate = {
   ],
 };
 
+// No circuits template: circuits are changed on Admin > Circuits only, a full-Admin area.
 export type ImportTemplateKind =
-  'events' | 'circuits' | 'news' | 'race-results' | 'qualifying-results' | 'practice-results';
+  'events' | 'news' | 'race-results' | 'qualifying-results' | 'practice-results';
 
 const TEMPLATES: Record<ImportTemplateKind, CsvTemplate> = {
   events: EVENTS_TEMPLATE,
-  circuits: CIRCUITS_TEMPLATE,
   news: NEWS_TEMPLATE,
   'race-results': RACE_RESULTS_TEMPLATE,
   'qualifying-results': QUALIFYING_RESULTS_TEMPLATE,

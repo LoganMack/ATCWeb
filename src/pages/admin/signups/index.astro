@@ -124,12 +124,6 @@ const rejectedFlash =
 
 const defaultClassId = classes.find((c) => c.name === 'Alpha')?.id ?? classes[0]?.id;
 
-// How many pending sign-ups ask for each number — flags clashes.
-const pendingRequestsByNumber = new Map<number, number>();
-for (const r of pending) {
-  for (const n of r.requested_numbers) pendingRequestsByNumber.set(n, (pendingRequestsByNumber.get(n) ?? 0) + 1);
-}
-
 /** The number approval would give right now: a returning driver keeps theirs, otherwise the first free choice. */
 function previewNumber(r: SignupRequest, driver: SignupRosterDriver | null): number | null {
   if (driver?.car_number != null) return driver.car_number;
@@ -146,14 +140,6 @@ const fieldClass =
 ---
 
 <AdminLayout title="Sign-ups">
-  <h1 class="reveal font-display text-4xl">Sign-ups</h1>
-  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Driver sign-ups from Discord's <code>/atcsignup</code>, and requests from website accounts whose driver isn't on
-    the roster yet. Approving adds the driver to the roster (or reactivates a returning driver) with the first of their
-    numbers that's free at that moment; a website request's driver is also linked to the account that asked. Rejecting
-    sends a Discord driver your reason by DM; a website requester sees it on their linking page.
-  </p>
-
   {actionError && (
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{actionError}</p>
   )}
@@ -171,7 +157,7 @@ const fieldClass =
     </p>
   )}
 
-  <h2 class="reveal mt-10 font-display text-2xl" style="transition-delay: 80ms">
+  <h2 class="reveal font-display text-2xl" style="transition-delay: 80ms">
     Pending <span class="ml-1 text-base text-white/40">{pending.length}</span>
   </h2>
 
@@ -199,28 +185,6 @@ const fieldClass =
             </p>
           )}
 
-          <ul class="mt-3 flex flex-col gap-1 text-xs">
-            {r.requested_numbers.map((n, i) => {
-              const holder = numberHolder(roster, n, defaultDriver?.id ?? null);
-              const otherPending = (pendingRequestsByNumber.get(n) ?? 1) - 1;
-              return (
-                <li>
-                  <span class="font-semibold text-white/80">Choice {i + 1}: #{n}</span>
-                  {holder ? (
-                    <span class="ml-2 text-brand-pink">taken by {holder.name} ({holder.driver_statuses?.name ?? 'unknown status'})</span>
-                  ) : (
-                    <span class="ml-2 text-white/50">free</span>
-                  )}
-                  {otherPending > 0 && (
-                    <span class="ml-2 text-brand-gold">
-                      also requested by {otherPending} other pending sign-up{otherPending === 1 ? '' : 's'}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-
           {candidates.map((d) => (
             <p class="mt-3 rounded-md border border-brand-gold/30 bg-brand-gold/10 p-2 text-xs text-white/80">
               Looks like returning driver <strong>{d.name}</strong> ({d.driver_statuses?.name ?? 'unknown status'},{' '}
@@ -238,22 +202,27 @@ const fieldClass =
               <input type="hidden" name="intent" value="approve" />
               <input type="hidden" name="request_id" value={r.id} />
               <input type="hidden" name="request_source" value={r.source} />
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Approve as
-                <select name="driver_id" class={fieldClass}>
-                  {candidates.map((d) => (
-                    <option value={d.id} selected={d.id === defaultDriver?.id} class="bg-brand-ink text-white">
-                      Returning: {d.name} — gets #{previewNumber(r, d) ?? '?'}
+              {candidates.length > 0 ? (
+                // Only a likely returning driver needs a choice (BR6.1); otherwise approval makes a new driver.
+                <label class="flex flex-col gap-1 text-[11px] text-white/50" data-testid="signup-approve-as">
+                  Approve as
+                  <select name="driver_id" class={fieldClass}>
+                    {candidates.map((d) => (
+                      <option value={d.id} selected={d.id === defaultDriver?.id} class="bg-brand-ink text-white">
+                        Returning: {d.name} — gets #{previewNumber(r, d) ?? '?'}
+                      </option>
+                    ))}
+                    <option value="" class="bg-brand-ink text-white">
+                      New driver — gets #{newDriverNumber ?? '?'}
                     </option>
-                  ))}
-                  <option value="" selected={!defaultDriver} class="bg-brand-ink text-white">
-                    New driver — gets #{newDriverNumber ?? '?'}
-                  </option>
-                </select>
-              </label>
+                  </select>
+                </label>
+              ) : (
+                <input type="hidden" name="driver_id" value="" />
+              )}
               <div class="grid grid-cols-2 gap-2">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                  Name (new drivers)
+                  Name
                   <input type="text" name="name" value={r.name} maxlength="80" class={fieldClass} />
                 </label>
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">

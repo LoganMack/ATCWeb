@@ -61,7 +61,7 @@
   },
   "profile": {
     "path": "profiles",
-    "select": "id,role,display_name,driver_id,iracing_cust_id,iracing_name,driver:drivers_shown!driver_id(name)",
+    "select": "id,role,display_name,driver_id,iracing_cust_id,iracing_name,is_broadcaster,driver:drivers_shown!driver_id(name)",
     "embeds": ["driver"],
     "callers": ["admin"]
   }

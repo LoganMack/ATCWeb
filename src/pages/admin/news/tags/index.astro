@@ -52,14 +52,7 @@ try {
 ---
 
 <AdminLayout title="News Tags">
-  <div class="reveal flex items-center justify-between gap-3">
-    <h1 class="font-display text-4xl">News Tags</h1>
-    <a href="/admin/news" class="text-sm text-white/50 hover:text-white">&larr; Back to News</a>
-  </div>
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Tags posts can be labeled with, selectable when creating or editing a post. Deleting a tag here removes it from
-    every post it was assigned to.
-  </p>
+  <a href="/admin/news" class="text-sm text-white/50 hover:text-white">&larr; Back to News</a>
 
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">Couldn't load news tags.</p>

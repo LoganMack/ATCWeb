@@ -2,17 +2,22 @@
 /**
  * Report Incident dialog for [data-open-report-dialog] buttons, a native modal <dialog>. Posts
  * `intent=report-incident` to the results page, which re-validates fields, drivers and the reporting window.
+ * In `edit` mode it is the stewards' Edit Submission popup on the incidents page (BR4.3): the same Race, Lap,
+ * Turns and Cars fields, prefilled by src/scripts/editSubmissionDialog.ts, posting `edit-report-submission`.
  * Session/Lap/Turn share a row on sm+.
  */
 interface Props {
   subsessionId: number;
   sessionOptions: { value: string; label: string }[];
   drivers: { id: string; name: string; car_number: number | null }[];
-  /** Where the form POSTs (the results page's fragment, which owns the POST handling). Defaults to the current URL. */
+  /** Where the form POSTs (the page's fragment, which owns the POST handling). Defaults to the current URL. */
   action?: string;
+  /** `report` for a new report (default); `edit` for a steward correcting an open one. */
+  mode?: 'report' | 'edit';
 }
 import { HIDDEN_DRIVER_NAME } from '../lib/privacy';
-const { subsessionId, sessionOptions, drivers, action } = Astro.props;
+const { subsessionId, sessionOptions, drivers, action, mode = 'report' } = Astro.props;
+const editing = mode === 'edit';
 /** "Logan Mack" -> "L. Mack"; anything after the first word is kept as the last name. A single-word name is left as-is. */
 function shortName(name: string): string {
   if (name === HIDDEN_DRIVER_NAME) return name;
@@ -20,7 +25,7 @@ function shortName(name: string): string {
   if (parts.length < 2) return name.trim();
   return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(' ')}`;
 }
-const dialogId = `report-incident-dialog-${subsessionId}`;
+const dialogId = `${editing ? 'edit-submission' : 'report-incident'}-dialog-${subsessionId}`;
 const sortButtonClass =
   'rounded px-1.5 py-0.5 text-white/50 transition hover:text-white aria-pressed:bg-fixed-white/10 aria-pressed:text-fixed-white';
 const fieldClass =
@@ -29,21 +34,42 @@ const fieldClass =
 
 <dialog
   id={dialogId}
-  data-report-dialog
+  data-report-dialog={editing ? undefined : ''}
+  data-edit-submission-dialog={editing ? '' : undefined}
+  aria-labelledby={`${dialogId}-title`}
   class="w-full max-w-xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
 >
-  <form method="POST" action={action} data-astro-reload data-report-form class="flex flex-col gap-3 p-5">
-    <input type="hidden" name="intent" value="report-incident" />
-    {/* Honeypot: hidden from people, tempting to form-filling bots. */}
-    <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="absolute -left-[9999px] h-0 w-0 opacity-0" />
+  <form
+    method="POST"
+    action={action}
+    data-astro-reload
+    data-report-form={editing ? undefined : ''}
+    data-edit-submission-form={editing ? '' : undefined}
+    class="flex flex-col gap-3 p-5"
+  >
+    <input type="hidden" name="intent" value={editing ? 'edit-report-submission' : 'report-incident'} />
+    {editing ? (
+      <input type="hidden" name="report_id" value="" data-edit-report-id />
+    ) : (
+      /* Honeypot: hidden from people, tempting to form-filling bots. */
+      <input type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" class="absolute -left-[9999px] h-0 w-0 opacity-0" />
+    )}
     <div class="flex items-center justify-between">
-      <h4 class="font-display text-xl">Report Incident</h4>
-      <button type="button" data-close-report-dialog class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+      <h4 id={`${dialogId}-title`} class="font-display text-xl">{editing ? 'Edit Submission' : 'Report Incident'}</h4>
+      <button
+        type="button"
+        data-close-report-dialog={editing ? undefined : ''}
+        data-close-edit-submission={editing ? '' : undefined}
+        class="text-white/40 hover:text-white"
+        aria-label="Close"
+      >
+        ✕
+      </button>
     </div>
 
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <label class="flex flex-col gap-1 text-[11px] text-white/50">
-        Session
+        {editing ? 'Race' : 'Session'}
         <select name="session" required class={fieldClass}>
           <option value="" selected disabled hidden class="bg-brand-ink text-white">Select session…</option>
           {sessionOptions.map((o) => <option value={o.value} class="bg-brand-ink text-white">{o.label}</option>)}
@@ -51,18 +77,20 @@ const fieldClass =
       </label>
       <label class="flex flex-col gap-1 text-[11px] text-white/50">
         Lap
-        <input type="number" name="lap" required min="0" step="1" inputmode="numeric" class={fieldClass} />
+        <input type="number" name="lap" required min="0" max={editing ? '1000' : undefined} step="1" inputmode="numeric" class={fieldClass} />
       </label>
       <label class="flex flex-col gap-1 text-[11px] text-white/50">
-        Turn
+        {editing ? 'Turns' : 'Turn'}
         <input type="text" name="turn" required maxlength="80" class={fieldClass} />
       </label>
     </div>
 
-    <label class="flex flex-col gap-1 text-[11px] text-white/50">
-      Description
-      <textarea name="description" required rows="3" maxlength="2000" class={fieldClass}></textarea>
-    </label>
+    {!editing && (
+      <label class="flex flex-col gap-1 text-[11px] text-white/50">
+        Description
+        <textarea name="description" required rows="3" maxlength="2000" class={fieldClass}></textarea>
+      </label>
+    )}
 
     <fieldset class="flex flex-col gap-1 text-[11px] text-white/50" data-driver-picker>
       <legend class="mb-1">Cars Involved</legend>
@@ -95,15 +123,22 @@ const fieldClass =
       </div>
     </fieldset>
 
-    <button
-      type="submit"
-      data-report-submit
-      disabled
-      class="btn btn-primary mt-1"
-    >
-      Submit Report
-    </button>
+    {editing ? (
+      <div class="mt-1 flex justify-end gap-2">
+        <button type="button" data-close-edit-submission class="btn btn-neutral">Cancel</button>
+        <button type="submit" class="btn btn-primary" data-testid="edit-submission-save">Save Changes</button>
+      </div>
+    ) : (
+      <button
+        type="submit"
+        data-report-submit
+        disabled
+        class="btn btn-primary mt-1"
+      >
+        Submit Report
+      </button>
+    )}
   </form>
 </dialog>
 
-{/* Client behavior lives in src/scripts/reportIncidentDialog.ts (loaded by the results page shell — the markup here arrives via a fetched fragment, and scripts inside fetched HTML never run). */}
+{/* Client behavior lives in src/scripts/reportIncidentDialog.ts (loaded by the results page shell) and, for the edit mode, src/scripts/editSubmissionDialog.ts (loaded by the incidents page shell) — the markup here arrives via a fetched fragment, and scripts inside fetched HTML never run. */}

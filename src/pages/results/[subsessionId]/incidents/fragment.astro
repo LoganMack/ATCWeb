@@ -84,6 +84,12 @@ import { handleSetReportStatus } from '../../../../lib/incidentActions/setReport
 import { handleSaveReview } from '../../../../lib/incidentActions/saveReview';
 import { handleSetAppealStatus } from '../../../../lib/incidentActions/setAppealStatus';
 import { handleDeleteIncident } from '../../../../lib/incidentActions/deleteIncident';
+import {
+  handleEditReportSubmission,
+  SUBMISSION_FLASH_MESSAGES,
+  type SubmissionFlash,
+} from '../../../../lib/incidentActions/editReportSubmission';
+import ReportIncidentDialog from '../../../../components/ReportIncidentDialog.astro';
 
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI — and blocks the POST
@@ -149,6 +155,7 @@ const ADMIN_HANDLERS = new Map<
   ['save-review', handleSaveReview],
   ['set-appeal-status', handleSetAppealStatus],
   ['delete-incident', handleDeleteIncident],
+  ['edit-report-submission', handleEditReportSubmission],
 ]);
 
 // Submitting an appeal is open to any signed-in user; every other intent is admin-only (below).
@@ -527,6 +534,12 @@ if (viewReports) {
   else if (flash === 'dismissfailed') reviewFlash = "Couldn't dismiss the incident right now. Please try again.";
   else if (flash === 'reasonnotsaved') reviewFlash = "The incident was dismissed, but its reason couldn't be saved — run supabase/migrations/0111_incident_report_dismissal_reason.sql in the Supabase SQL editor.";
 }
+// How an Edit Submission save went (?submission=, set by handleEditReportSubmission).
+const submissionParam = viewReports ? Astro.url.searchParams.get('submission') : null;
+const submissionFlash =
+  submissionParam && submissionParam in SUBMISSION_FLASH_MESSAGES
+    ? SUBMISSION_FLASH_MESSAGES[submissionParam as SubmissionFlash]
+    : null;
 
 // Every loggable session: each race plus Qualifying and Practice (race_number 0; 0056), whether or not they
 // have results (Logan).
@@ -846,6 +859,14 @@ if (loadError) markUncacheable(Astro);
             {reviewFlash && (
               <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
             )}
+            {submissionFlash && (
+              <p
+                role="status"
+                class={`rounded-lg border p-3 text-sm text-white/80 ${submissionFlash.ok ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}
+              >
+                {submissionFlash.message}
+              </p>
+            )}
             {reviewsLoadFailed && (
               <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
                 Couldn't load the steward reviews, so the reports aren't sorted by what you've reviewed. Try refreshing.
@@ -1015,6 +1036,15 @@ if (loadError) markUncacheable(Astro);
                           Add to Report
                         </button>
                       )}
+                      {r.status === 'open' && (
+                        <button
+                          type="button"
+                          data-edit-submission={JSON.stringify({ report_id: r.id, session: r.session, lap: r.lap, turn: r.turn, driver_ids: r.driver_ids })}
+                          class="btn btn-gold btn-sm"
+                        >
+                          Edit Submission
+                        </button>
+                      )}
                       {r.status === 'open' ? (
                         // Asks for a reason first (the dismiss popup below posts the form).
                         <button
@@ -1045,7 +1075,7 @@ if (loadError) markUncacheable(Astro);
                     {/* Collapsed by default, like the Dismissed group — every action on
                         this page reloads it, so a list that started open would undo
                         any hiding. The count and agreement colour above stay visible. */}
-                    {canSeeReviews && visibleReviews.length > 0 ? (
+                    {canSeeReviews && visibleReviews.length > 0 && (
                       <details class="group/reviews mt-2">
                         <summary class="flex cursor-pointer list-none items-center gap-2 text-xs text-white/50 hover:text-white/70 [&::-webkit-details-marker]:hidden">
                           <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/reviews:rotate-90" aria-hidden="true">&#9654;</span>
@@ -1070,10 +1100,6 @@ if (loadError) markUncacheable(Astro);
                           ))}
                         </ul>
                       </details>
-                    ) : (
-                      reviewCount > 0 && !reviewsLocked && (
-                        <p class="mt-2 text-xs text-white/40">Submit your own review to see the other stewards'.</p>
-                      )
                     )}
                   </div>
                   </div>
@@ -1944,6 +1970,16 @@ if (loadError) markUncacheable(Astro);
               </div>
             </form>
           </dialog>
+        )}
+
+        {viewReports && (
+          <ReportIncidentDialog
+            mode="edit"
+            subsessionId={subsessionId}
+            sessionOptions={sessionOptions}
+            drivers={roundDrivers}
+            action={formAction}
+          />
         )}
 
         {viewReports && reportMapUrl && (
