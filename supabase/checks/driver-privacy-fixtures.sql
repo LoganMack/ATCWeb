@@ -785,8 +785,9 @@ begin
       'admin_list_user_emails', 'approve_signup_request', 'get_page_view_stats', 'incident_report_review_counts',
       'notifications_admin_counts', 'rebuild_season_stats', 'recalculate_season_scores', 'rescore_season',
       'score_round_preview', 'sync_results_with_roster', 'edit_incident_report_submission',
-      -- Return no names (counts, codes, status rows):
+      -- Return no names (counts, codes, status rows; incident_submissions gives car numbers only):
       'can_appeal_penalty', 'get_news_post_view_counts', 'round_stats_status', 'claim_broadcaster',
+      'incident_submissions',
       -- Return only the caller's own data, or names of unlinked drivers, who can never be hidden:
       'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state'
     );
