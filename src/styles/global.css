@@ -423,9 +423,10 @@ a:active {
   opacity: 0.7;
 }
 
+/* A row stays still while a driver link inside it is pressed: :active also matches the row (FR9.2). */
 button:active,
 select:active,
-[role='button']:not(.cm-pin):active {
+[role='button']:not(.cm-pin):not(:has(a.driver-link:active)):active {
   transform: scale(0.97);
 }
 
@@ -449,7 +450,7 @@ select,
   }
   button:active,
   select:active,
-  [role='button']:not(.cm-pin):active {
+  [role='button']:not(.cm-pin):not(:has(a.driver-link:active)):active {
     transform: none;
   }
 }
@@ -1411,4 +1412,13 @@ a.driver-link {
 /* Skip the site-wide link press-dip (a:active above) — it would make a name flicker like a link. */
 a.driver-link:active {
   opacity: 1;
+}
+/* Plain text until hovered or focused, then underlined in its own colour (FR9.1); the roster's link rows
+   underline the name the same way. */
+a.driver-link:hover,
+a.driver-link:focus-visible,
+tr[data-driver-link]:hover .driver-row-name,
+tr[data-driver-link]:focus-visible .driver-row-name {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

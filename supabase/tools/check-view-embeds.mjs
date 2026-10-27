@@ -6,14 +6,15 @@
 //
 // Every select string the site's readers send through the masked *_shown views lives in
 // src/lib/privacyReads.json (the readers import the same file). For each one this calls the local PostgREST,
-// as anon and with an admin token where the entry lists them, and fails on any status other than 200, on no
-// rows, or on an embed that comes back empty for the seeded rows (an embed emptied by Row Level Security
-// returns 200, so the status alone would not catch it).
+// as anon, as a signed-in member with no linked driver ("member") and with an admin token where the entry
+// lists them, and fails on any status other than 200, on no rows, or on an embed that comes back empty for
+// the seeded rows (an embed emptied by Row Level Security returns 200, so the status alone would not catch
+// it).
 //
-// The rows it needs (an admin, a hidden driver with a team, a posted penalty with an offense and an involved
-// driver, a news post and a meetup tagging the driver, a kudos) are inserted and committed with psql first,
-// and deleted again at the end, also on failure. The admin token is signed with the local JWT secret that
-// `supabase status` reports. Connection details can be overridden with DB_URL, SUPABASE_API_URL,
+// The rows it needs (an admin, a member, a hidden driver with a team, a posted penalty with an offense and an
+// involved driver, a news post and a meetup tagging the driver, a kudos, an interview by the other driver)
+// are inserted and committed with psql first, and deleted again at the end, also on failure. The admin and
+// member tokens are signed with the local JWT secret that `supabase status` reports. Connection details can be overridden with DB_URL, SUPABASE_API_URL,
 // SUPABASE_ANON_KEY and SUPABASE_JWT_SECRET.
 import { execFileSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
@@ -37,6 +38,8 @@ export const SEED = {
   post: 'cccccccc-0000-0000-0000-000000000721',
   meetup: 'cccccccc-0000-0000-0000-000000000731',
   kudos: 'cccccccc-0000-0000-0000-000000000741',
+  member: 'eeeeeeee-0000-0000-0000-000000000703',
+  interview: 'cccccccc-0000-0000-0000-000000000751',
 };
 
 /** The filter that narrows each read to the seeded rows. Every entry in privacyReads.json needs one. */
@@ -48,6 +51,9 @@ export const FILTERS = {
   newsPostDrivers: `post_id=eq.${SEED.post}`,
   meetupDrivers: `meetup_id=eq.${SEED.meetup}`,
   kudos: `id=eq.${SEED.kudos}`,
+  kudosInvolving: `id=eq.${SEED.kudos}&involved_match.driver_id=eq.${SEED.driver}`,
+  kudosFeed: `id=eq.${SEED.kudos}`,
+  interviewsShown: `id=eq.${SEED.interview}`,
   profile: `id=eq.${SEED.owner}`,
 };
 
@@ -61,9 +67,11 @@ insert into public.drivers (id, name, car_number, status_id, class_id, team_id, 
   ('${SEED.other}', 'Embed Other Driver', 872, 831, 831, '${SEED.team}', 990000702, false);
 insert into auth.users (id, email, raw_user_meta_data) values
   ('${SEED.admin}', 'embed-admin@example.test', '{"display_name":"Embed Admin"}'),
-  ('${SEED.owner}', 'embed-owner@example.test', '{"display_name":"Embed Owner"}');
-delete from public.profiles where id in ('${SEED.admin}', '${SEED.owner}');
+  ('${SEED.owner}', 'embed-owner@example.test', '{"display_name":"Embed Owner"}'),
+  ('${SEED.member}', 'embed-member@example.test', '{"display_name":"Embed Member"}');
+delete from public.profiles where id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
 insert into public.profiles (id, role, display_name) values ('${SEED.admin}', 'admin', 'Embed Admin');
+insert into public.profiles (id, role, display_name) values ('${SEED.member}', 'driver', 'Embed Member');
 insert into public.profiles (id, role, display_name, driver_id) values ('${SEED.owner}', 'driver', 'Embed Owner', '${SEED.driver}');
 insert into public.account_settings (profile_id, hide_name) values ('${SEED.owner}', true);
 insert into public.curated_rounds (subsession_id, start_time, track_name) values (${SEED.round}, '2026-06-01 18:00+00', 'Embed Park');
@@ -81,11 +89,14 @@ insert into public.media_meetup_drivers (meetup_id, driver_id) values ('${SEED.m
 insert into public.kudos (id, subsession_id, session, lap, turn, author_id, author_name) values
   ('${SEED.kudos}', ${SEED.round}, 'race', 1, 'Turn 1', '${SEED.owner}', 'Embed Hidden Driver');
 insert into public.kudos_drivers (kudos_id, driver_id) values ('${SEED.kudos}', '${SEED.driver}');
+insert into public.race_interviews (id, subsession_id, driver_id, audio_path, audio_type, duration_seconds) values
+  ('${SEED.interview}', ${SEED.round}, '${SEED.other}', '${SEED.other}/${SEED.round}.webm', 'audio/webm', 30);
 update public.scoring_settings set triggers_enabled = true;
 `;
 
 const CLEANUP_SQL = `
 update public.scoring_settings set triggers_enabled = false;
+delete from public.race_interviews where id = '${SEED.interview}';
 delete from public.kudos_drivers where kudos_id = '${SEED.kudos}';
 delete from public.kudos where id = '${SEED.kudos}';
 delete from public.media_meetup_drivers where meetup_id = '${SEED.meetup}';
@@ -98,9 +109,9 @@ delete from public.penalties where id = '${SEED.penalty}';
 delete from public.penalty_offenses where id = '${SEED.offense}';
 delete from public.round_incident_status where subsession_id = ${SEED.round};
 delete from public.curated_rounds where subsession_id = ${SEED.round};
-delete from public.account_settings where profile_id in ('${SEED.admin}', '${SEED.owner}');
-delete from public.profiles where id in ('${SEED.admin}', '${SEED.owner}');
-delete from auth.users where id in ('${SEED.admin}', '${SEED.owner}');
+delete from public.account_settings where profile_id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
+delete from public.profiles where id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
+delete from auth.users where id in ('${SEED.admin}', '${SEED.owner}', '${SEED.member}');
 delete from public.drivers where id in ('${SEED.driver}', '${SEED.other}');
 delete from public.teams where id = '${SEED.team}';
 delete from public.driver_classes where id = 831;
@@ -168,7 +179,9 @@ function psql(dbUrl, sql) {
 
 function localStatus() {
   try {
-    return parseStatusEnv(execFileSync('npx', ['supabase', 'status', '-o', 'env'], { encoding: 'utf8', shell: true }));
+    return parseStatusEnv(
+      execFileSync('npx', ['supabase', 'status', '-o', 'env'], { encoding: 'utf8', shell: true }),
+    );
   } catch (error) {
     throw new Error(`could not read \`supabase status\`: ${error.message}`);
   }
@@ -188,17 +201,17 @@ async function main() {
   const reads = JSON.parse(readFileSync(READS_FILE, 'utf8'));
   const calls = plannedCalls(reads, FILTERS);
   const now = Math.floor(Date.now() / 1000);
-  const adminToken = signJwt(
-    { sub: SEED.admin, role: 'authenticated', aud: 'authenticated', iat: now, exp: now + 600 },
-    jwtSecret,
-  );
+  const tokenFor = (sub) =>
+    signJwt({ sub, role: 'authenticated', aud: 'authenticated', iat: now, exp: now + 600 }, jwtSecret);
+  const tokens = { anon: anonKey, admin: tokenFor(SEED.admin), member: tokenFor(SEED.member) };
 
   psql(dbUrl, CLEANUP_SQL);
   psql(dbUrl, SEED_SQL);
   const failures = [];
   try {
     for (const call of calls) {
-      const token = call.caller === 'admin' ? adminToken : anonKey;
+      const token = tokens[call.caller];
+      if (!token) throw new Error(`unknown caller "${call.caller}" for ${call.name}`);
       const res = await fetch(`${apiUrl}/rest/v1/${call.url}`, {
         headers: { apikey: anonKey, Authorization: `Bearer ${token}` },
       });
@@ -211,7 +224,9 @@ async function main() {
       }
       const problem = embedProblem(res.status, rows, call.embeds);
       if (problem) {
-        failures.push(`${call.name} as ${call.caller}: ${problem}${res.status === 200 ? '' : ` (${text.slice(0, 300)})`}`);
+        failures.push(
+          `${call.name} as ${call.caller}: ${problem}${res.status === 200 ? '' : ` (${text.slice(0, 300)})`}`,
+        );
       } else {
         console.log(`ok ${call.name} as ${call.caller}`);
       }
@@ -221,7 +236,8 @@ async function main() {
   }
 
   const inActions = process.env.GITHUB_ACTIONS === 'true';
-  for (const failure of failures) console.error(inActions ? `::error file=src/lib/privacyReads.json::${failure}` : failure);
+  for (const failure of failures)
+    console.error(inActions ? `::error file=src/lib/privacyReads.json::${failure}` : failure);
   if (failures.length > 0) {
     console.error(`${failures.length} masked-view read(s) failed.`);
     process.exit(1);

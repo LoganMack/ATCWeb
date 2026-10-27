@@ -1,0 +1,121 @@
+---
+export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import HistoryTabs from '../../components/HistoryTabs.astro';
+import DriverLink from '../../components/DriverLink.astro';
+import { markUncacheable } from '../../lib/security';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons, type Season } from '../../lib/db/seasons';
+import { getRoundContexts, type RoundContext } from '../../lib/roundContext';
+import { formatInterviewLength, getMemberInterviews, type MemberInterview } from '../../lib/interviewsFeed';
+import { formatDateShort } from '../../lib/db/circuits';
+
+/**
+ * History > Interviews as a fragment for the interviews.astro shell (driver-profile-polish FR8). Signed out,
+ * it reads nothing and offers a sign-in link. Signed in, it lists one season's interviews, read with the
+ * member's own token through race_interviews_shown, which leaves out drivers hidden from them. Players load
+ * no audio until pressed. Per viewer, so never cached. Never linked directly.
+ */
+
+const session = Astro.locals.session;
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let seasons: Season[] = [];
+let selected: Season | undefined;
+let rounds = new Map<number, RoundContext>();
+let interviews: MemberInterview[] = [];
+if (session) {
+  try {
+    seasons = await getSeasons(supabaseEnv);
+    const requested = Astro.url.searchParams.get('season');
+    selected = seasons.find((s) => s.id === requested) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+    if (selected) {
+      rounds = await getRoundContexts(supabaseEnv, selected.id);
+      interviews = (await getMemberInterviews(supabaseEnv, session.accessToken, [...rounds.keys()])).filter((i) =>
+        rounds.has(i.subsession_id),
+      );
+    }
+  } catch (err) {
+    console.error('Failed to load interviews (fragment):', err);
+    loadError = err instanceof Error ? err.message : String(err);
+  }
+}
+
+const signInHref = `/login?next=${encodeURIComponent(`/interviews${Astro.url.search}`)}`;
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+if (loadError) markUncacheable(Astro);
+---
+
+{loadError && <LoadError />}
+
+{!session && (
+  <div class="reveal is-visible mt-12 rounded-xl border border-white/10 bg-brand-ink p-6 text-center" data-testid="interviews-signed-out">
+    <p class="text-sm text-white/70">Post-race interviews are for signed-in members.</p>
+    <a href={signInHref} class="btn btn-primary mt-4" data-testid="interviews-sign-in-link">Sign in to listen</a>
+  </div>
+)}
+
+{session && !loadError && (
+  <div>
+    <div class="reveal is-visible relative z-30 mt-12 rounded-xl border border-white/10 bg-brand-ink p-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="interviews" />
+        <label class="flex flex-col gap-1.5 sm:w-44">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+          <select
+            aria-label="Season"
+            data-navigate-on-change="/interviews?season="
+            data-testid="interviews-season-select"
+            class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          >
+            {seasons.map((s) => (
+              <option value={s.id} selected={s.id === selected?.id} class="bg-brand-ink text-white">{s.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+
+    {interviews.length === 0 ? (
+      <p class="mt-6 rounded-lg border border-white/10 bg-brand-ink p-6 text-center text-sm text-white/50" data-testid="interviews-empty">
+        No interviews recorded {selected ? `in ${selected.name}` : ''} yet.
+      </p>
+    ) : (
+      <ul class="mt-6 flex flex-col gap-2" data-testid="interviews-list">
+        {interviews.map((i) => {
+          const round = rounds.get(i.subsession_id)!;
+          return (
+            <li class="flex flex-col gap-2 rounded-lg border border-white/10 bg-brand-ink p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+              <div class="min-w-0">
+                <p class="font-semibold text-white/90">
+                  {i.drivers ? (
+                    <DriverLink id={i.drivers.id} hidden={i.drivers.is_hidden}>
+                      {i.drivers.car_number !== null ? `#${i.drivers.car_number} ` : ''}{i.drivers.name}
+                    </DriverLink>
+                  ) : (
+                    'Unknown driver'
+                  )}
+                  <span class="font-normal text-white/40"> · {formatInterviewLength(i.duration_seconds)}</span>
+                </p>
+                <p class="mt-0.5 text-xs text-white/50">
+                  <a href={`/results/${i.subsession_id}`} class="hover:underline focus-visible:underline" data-testid="interviews-round-link">{round.label}</a>
+                  · {round.trackName} · {formatDateShort(round.startTime)}
+                </p>
+              </div>
+              <audio
+                controls
+                preload="none"
+                src={`/api/interviews/${i.id}/audio`}
+                aria-label={`Interview: ${i.drivers?.name ?? 'driver'}, ${round.label}`}
+                class="h-9 w-full sm:w-72"
+                data-testid="interviews-audio-player"
+              ></audio>
+            </li>
+          );
+        })}
+      </ul>
+    )}
+  </div>
+)}

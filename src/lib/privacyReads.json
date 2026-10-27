@@ -41,6 +41,24 @@
     "embeds": ["kudos_drivers"],
     "callers": ["anon", "admin"]
   },
+  "kudosInvolving": {
+    "path": "kudos_shown",
+    "select": "*,kudos_drivers(driver_id,drivers:drivers_shown(id,name,car_number,is_hidden)),involved_match:kudos_drivers!inner(driver_id)",
+    "embeds": ["kudos_drivers", "involved_match"],
+    "callers": ["anon", "admin"]
+  },
+  "kudosFeed": {
+    "path": "kudos_shown",
+    "select": "*,kudos_drivers(driver_id,drivers:drivers_shown(id,name,car_number,is_hidden))",
+    "embeds": ["kudos_drivers"],
+    "callers": ["anon", "admin"]
+  },
+  "interviewsShown": {
+    "path": "race_interviews_shown",
+    "select": "id,subsession_id,driver_id,duration_seconds,created_at,drivers:drivers_shown(id,name,car_number,is_hidden)",
+    "embeds": ["drivers"],
+    "callers": ["member", "admin"]
+  },
   "profile": {
     "path": "profiles",
     "select": "id,role,display_name,driver_id,iracing_cust_id,iracing_name,driver:drivers_shown!driver_id(name)",

@@ -1,0 +1,50 @@
+---
+// One kudos in a list that spans rounds: the History > Kudos page and the driver profile's kudos dialog
+// (driver-profile-polish FR6.2, FR7.2). Names come masked from the views; DriverLink drops a hidden
+// driver's link.
+import DriverLink from './DriverLink.astro';
+import { kudosClipHost, kudosSessionLabel, type KudosEntry } from '../lib/kudos';
+import type { RoundContext } from '../lib/roundContext';
+import { formatDateShort } from '../lib/db/circuits';
+
+interface Props {
+  entry: KudosEntry;
+  round: RoundContext;
+}
+
+const { entry, round } = Astro.props;
+---
+
+<li class="rounded-lg border border-white/10 bg-brand-ink p-3 text-sm" data-testid="kudos-entry">
+  <div class="flex flex-wrap items-start justify-between gap-2">
+    <div class="min-w-0">
+      <p class="font-semibold text-white/90">
+        <a href={`/results/${entry.subsession_id}/kudos`} class="hover:underline focus-visible:underline" data-testid="kudos-entry-round-link">{round.label}</a>
+        <span class="font-normal text-white/40"> · {round.trackName} · {formatDateShort(round.startTime)}</span>
+      </p>
+      <p class="mt-0.5 text-xs text-white/60">
+        {kudosSessionLabel(entry.session)} · Lap {entry.lap} · Turn {entry.turn}
+      </p>
+    </div>
+    {entry.clip_url && (
+      <a
+        href={entry.clip_url}
+        target="_blank"
+        rel="noopener noreferrer nofollow ugc"
+        class="btn btn-gold btn-sm"
+        data-testid="kudos-entry-clip-link"
+      >
+        Watch clip ({kudosClipHost(entry.clip_url)}) ↗
+      </a>
+    )}
+  </div>
+  <p class="mt-1 text-xs text-white/50">
+    Cars: {entry.cars.length === 0 ? '—' : entry.cars.map((c, i) => (
+      <>{i > 0 && ', '}<DriverLink id={c.id} hidden={c.is_hidden}>{c.car_number !== null ? `#${c.car_number} ` : ''}{c.name}</DriverLink></>
+    ))}
+  </p>
+  {entry.description && <p class="mt-1 whitespace-pre-line text-white/70">{entry.description}</p>}
+  <p class="mt-1 text-[11px] text-white/30">
+    Shared by {entry.author_name ?? 'a member'} · {new Date(entry.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
+  </p>
+</li>

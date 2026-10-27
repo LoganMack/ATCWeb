@@ -38,8 +38,8 @@ describe('the admin rulebook editor (FR1.4, FR4.1)', () => {
     for (const button of ADMIN.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-/);
   });
 
-  it('is linked from the admin bar and the dashboard tools', () => {
-    expect(SRC['/src/layouts/AdminLayout.astro']).toContain("{ href: '/admin/rulebook', label: 'Rulebook' }");
+  it('is linked from the dashboard tools, which every admin page links back to', () => {
+    expect(SRC['/src/layouts/AdminLayout.astro']).toContain('href="/admin"');
     const dashboard = SRC['/src/pages/admin/fragment.astro'];
     expect(dashboard).toMatch(/\{ href: '\/admin\/rulebook', label: 'Rulebook'/);
     expect(dashboard).toMatch(/\n {2}Rulebook: \['/);

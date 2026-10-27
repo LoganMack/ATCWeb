@@ -4,6 +4,7 @@
 import { teamInitials } from '../lib/teamLogo';
 import { logoBgAttrs, type LogoBackground } from '../lib/db/circuits';
 import { resizedImageUrl } from '../lib/db/drivers';
+import IconTip from './IconTip.astro';
 
 interface Props {
   name: string;
@@ -25,14 +26,57 @@ interface Props {
   tint?: boolean;
   /** Light/dark plate behind the logo — for track logos (circuits.logo_background). Pass INSTEAD of `tint`, which would turn a plated logo black. */
   logoBg?: LogoBackground | null;
+  /**
+   * A named, focusable image (driver profile header): role="img" with the hover text as its aria-label, and
+   * the name shown on keyboard focus.
+   */
+  labelled?: boolean;
 }
 
-const { name, logoUrl, size = 'h-6 w-6', grayscale = false, title, resizeWidth = 96, tint = false, logoBg = null } = Astro.props;
+const {
+  name,
+  logoUrl,
+  size = 'h-6 w-6',
+  grayscale = false,
+  title,
+  resizeWidth = 96,
+  tint = false,
+  logoBg = null,
+  labelled = false,
+} = Astro.props;
 const hoverText = title ?? name;
 const resizedLogoUrl = resizedImageUrl(logoUrl, { width: resizeWidth });
 ---
 
-{resizedLogoUrl ? (
+{labelled ? (
+  <IconTip label={hoverText}>
+    {resizedLogoUrl ? (
+      <img
+        src={resizedLogoUrl}
+        alt={hoverText}
+        role="img"
+        aria-label={hoverText}
+        title={hoverText}
+        tabindex="0"
+        loading="lazy"
+        class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''} ${tint ? 'theme-tint' : ''}`}
+        data-testid="team-logo-icon"
+        {...logoBgAttrs(logoBg)}
+      />
+    ) : (
+      <span
+        role="img"
+        aria-label={hoverText}
+        title={hoverText}
+        tabindex="0"
+        class={`${size} flex flex-none items-center justify-center rounded bg-white/10 text-[9px] font-bold uppercase tracking-wide text-white/50`}
+        data-testid="team-logo-icon"
+      >
+        <span aria-hidden="true">{teamInitials(name)}</span>
+      </span>
+    )}
+  </IconTip>
+) : resizedLogoUrl ? (
   <img src={resizedLogoUrl} alt="" title={hoverText} loading="lazy" class={`${size} flex-none rounded object-contain ${grayscale ? 'grayscale' : ''} ${tint ? 'theme-tint' : ''}`} {...logoBgAttrs(logoBg)} />
 ) : (
   <div

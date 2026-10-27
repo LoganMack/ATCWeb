@@ -2,17 +2,23 @@
 // A driver's nationality flag from flagcdn.com by ISO code (nothing bundled). Two nationalities split the
 // tile vertically, each flag clipped to its half with `clip-path` so any aspect ratio fills it.
 import { countryName } from '../lib/countries';
+import IconTip from './IconTip.astro';
 
 interface Props {
   nationality1?: string | null;
   nationality2?: string | null;
   /** Tailwind size classes — defaults to a flag-shaped (not square) tile, unlike TeamLogo's default square. */
   size?: string;
-  /** Render each nationality as its own labelled chip (driver profile header) instead of the compact tile. */
+  /** Render each nationality as its own labelled chip instead of the compact tile. */
   showLabel?: boolean;
+  /**
+   * The compact tile as a named, focusable image (driver profile header): role="img" with the country name(s)
+   * as its aria-label and title, and the name shown on keyboard focus.
+   */
+  labelled?: boolean;
 }
 
-const { nationality1, nationality2, size = 'h-4 w-6', showLabel = false } = Astro.props;
+const { nationality1, nationality2, size = 'h-4 w-6', showLabel = false, labelled = false } = Astro.props;
 
 const code1 = nationality1?.toLowerCase() || null;
 const code2 = nationality2?.toLowerCase() || null;
@@ -21,8 +27,38 @@ const name1 = code1 ? countryName(code1) : '';
 const name2 = code2 ? countryName(code2) : '';
 ---
 
-{!showLabel && code1 && code2 && (
-  <span class={`relative inline-block flex-none overflow-hidden rounded-sm ${size}`} title={label} aria-label={label}>
+{labelled && !showLabel && code1 && (
+  <IconTip label={label}>
+    <span
+      class={`relative inline-block flex-none overflow-hidden rounded-sm ${size}`}
+      role="img"
+      aria-label={label}
+      title={label}
+      tabindex="0"
+      data-testid="driver-flag-icon"
+    >
+      <img
+        src={`https://flagcdn.com/w80/${code1}.png`}
+        alt=""
+        loading="lazy"
+        class="absolute inset-0 h-full w-full object-cover"
+        style={code2 ? 'clip-path: inset(0 50% 0 0);' : undefined}
+      />
+      {code2 && (
+        <img
+          src={`https://flagcdn.com/w80/${code2}.png`}
+          alt=""
+          loading="lazy"
+          class="absolute inset-0 h-full w-full object-cover"
+          style="clip-path: inset(0 0 0 50%);"
+        />
+      )}
+    </span>
+  </IconTip>
+)}
+
+{!labelled && !showLabel && code1 && code2 && (
+  <span class={`relative inline-block flex-none overflow-hidden rounded-sm ${size}`} title={label} role="img" aria-label={label}>
     <img
       src={`https://flagcdn.com/w80/${code1}.png`}
       alt=""
@@ -40,7 +76,7 @@ const name2 = code2 ? countryName(code2) : '';
   </span>
 )}
 
-{!showLabel && code1 && !code2 && (
+{!labelled && !showLabel && code1 && !code2 && (
   <img
     src={`https://flagcdn.com/w80/${code1}.png`}
     alt=""

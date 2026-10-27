@@ -1,0 +1,76 @@
+---
+export const prerender = false;
+import { markUncacheable } from '../../../lib/security';
+import KudosEntryCard from '../../../components/KudosEntryCard.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { loadDriverKudos } from '../../../lib/driverPage/kudos';
+
+/**
+ * The driver profile's kudos button and dialog as their own fragment, loaded by the drivers/[id].astro shell
+ * into the header card's corner (driver-profile-polish FR6). Nothing renders for a driver with no kudos or a
+ * private profile. The dialog's open, close and focus return live in src/scripts/driverKudos.ts, imported by
+ * the shell, since scripts in a fragment never run. Takes no query parameters. Returns bare HTML; never
+ * linked directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const driverId = String(Astro.params.id ?? '');
+const { notFound, privateProfile, loadError, entries, rounds } = await loadDriverKudos(supabaseEnv, driverId);
+// Not a UUID, or no such driver: answered before any kudos is read, and never cached.
+if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
+
+const count = entries.length;
+const label = `${count} kudos`;
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=600, stale-while-revalidate=3600');
+if (loadError) markUncacheable(Astro);
+---
+
+{!privateProfile && !loadError && count > 0 && (
+  <>
+    <button
+      type="button"
+      class="btn btn-neutral btn-sm gap-1.5"
+      aria-haspopup="dialog"
+      aria-label={label}
+      title="Kudos"
+      data-open-driver-kudos
+      data-testid="driver-kudos-button"
+    >
+      {/* Thumbs up with a sparkle, as on the round's Kudos button */}
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+        <g transform="translate(0 1) scale(0.92)">
+          <path d="M7 10v12" />
+          <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+        </g>
+        <path d="M20 2v4M18 4h4" stroke-width="1.6" />
+      </svg>
+      <span aria-hidden="true">{count}</span>
+    </button>
+
+    <dialog
+      data-driver-kudos-dialog
+      aria-labelledby="driver-kudos-title"
+      class="w-[calc(100%-2rem)] max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-left text-white backdrop:bg-black/60"
+      data-testid="driver-kudos-dialog"
+    >
+      <div class="flex max-h-[80vh] flex-col">
+        <div class="flex items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <h2 id="driver-kudos-title" class="font-display text-2xl">Kudos <span class="text-white/40">{count}</span></h2>
+          <button
+            type="button"
+            data-close-driver-kudos
+            class="text-white/40 hover:text-white"
+            aria-label="Close"
+            data-testid="driver-kudos-close-button"
+          >
+            ✕
+          </button>
+        </div>
+        <ul class="flex flex-col gap-2 overflow-y-auto p-4">
+          {entries.map((entry) => <KudosEntryCard entry={entry} round={rounds.get(entry.subsession_id)!} />)}
+        </ul>
+      </div>
+    </dialog>
+  </>
+)}

@@ -52,9 +52,16 @@ const onOwnProfile = Boolean(myDriverId) && Astro.url.pathname.replace(/\/+$/, '
 const showAdminLink = isAdminView(Astro.locals);
 
 // `menu` = a hover dropdown on the desktop nav (the mobile nav stays a flat list
-// of the top-level links). `rounds` = the Results menu, whose rounds are fetched
-// from /api/nav-rounds the first time it's hovered (see the script below).
-type NavLink = { href: string; label: string; external?: boolean; menu?: { href: string; label: string }[]; rounds?: boolean };
+// of the top-level links, plus the few menu items marked `mobile`, which no other page links to on a phone).
+// `rounds` = the Results menu, whose rounds are fetched from /api/nav-rounds the first time it's hovered (see
+// the script below).
+type NavLink = {
+  href: string;
+  label: string;
+  external?: boolean;
+  menu?: { href: string; label: string; mobile?: boolean }[];
+  rounds?: boolean;
+};
 const links: NavLink[] = [
   { href: '/news', label: 'News' },
   {
@@ -99,6 +106,8 @@ const links: NavLink[] = [
       { href: '/awards', label: 'Awards' },
       { href: '/circuits', label: 'Circuits' },
       { href: '/incidents', label: 'Incidents' },
+      { href: '/kudos', label: 'Kudos', mobile: true },
+      { href: '/interviews', label: 'Interviews', mobile: true },
     ],
   },
   { href: '/rulebook', label: 'Rulebook' },
@@ -132,7 +141,7 @@ const links: NavLink[] = [
               {link.label}
             </a>
             <div class="invisible absolute left-0 top-full z-50 -ml-3 pt-3 opacity-0 transition duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100">
-              <div class="min-w-[11rem] rounded-[10px] border border-white/10 bg-brand-ink p-1.5 font-sans text-sm normal-case tracking-normal shadow-xl">
+              <div class="min-w-[11rem] rounded-[10px] border border-white/10 bg-brand-ink p-1.5 font-sans text-sm not-italic normal-case tracking-normal shadow-xl">
                 {link.menu?.map((item) => (
                   <a href={item.href} class="block whitespace-nowrap rounded-md px-3 py-2 text-white/80 transition hover:bg-white/[0.06] hover:text-white">{item.label}</a>
                 ))}
@@ -313,14 +322,21 @@ const links: NavLink[] = [
     class="hidden flex-col border-t border-white/10 bg-brand-ink px-6 py-4 font-display text-lg uppercase tracking-widest lg:hidden"
   >
     {links.map((link) => (
-      <a
-        href={link.href}
-        target={link.external ? '_blank' : undefined}
-        rel={link.external ? 'noopener noreferrer' : undefined}
-        class="border-b border-white/5 py-3 text-white/80 transition last:border-none hover:text-white"
-      >
-        {link.label}
-      </a>
+      <>
+        <a
+          href={link.href}
+          target={link.external ? '_blank' : undefined}
+          rel={link.external ? 'noopener noreferrer' : undefined}
+          class="border-b border-white/5 py-3 text-white/80 transition last:border-none hover:text-white"
+        >
+          {link.label}
+        </a>
+        {link.menu?.filter((item) => item.mobile).map((item) => (
+          <a href={item.href} class="border-b border-white/5 py-2.5 pl-4 text-base text-white/60 transition hover:text-white">
+            {item.label}
+          </a>
+        ))}
+      </>
     ))}
   </nav>
 </header>

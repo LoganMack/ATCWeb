@@ -57,6 +57,20 @@ export function roundTrackLabel(round: { track_name: string }, maxChars: number)
     : round.track_name;
 }
 
+/**
+ * "ATC17, Round 4": the season label, then the round's displayed number. A round with no number (exhibition,
+ * test, or a non-championship season) reads "ATC17, Exhibition"; with no season label only the round part
+ * is shown.
+ */
+export function seasonRoundLabel(
+  seasonLabel: string | null | undefined,
+  displayRoundNumber: number | null | undefined,
+): string {
+  const round = displayRoundNumber != null ? `Round ${displayRoundNumber}` : 'Exhibition';
+  const season = seasonLabel?.trim();
+  return season ? `${season}, ${round}` : round;
+}
+
 export interface RoundGroup<T> {
   label: string;
   rounds: T[];
