@@ -12,9 +12,10 @@ import {
   type ScoringRuleset,
 } from '../../../lib/db/seasons';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
-import { requireAdmin } from '../../../lib/auth';
+import { requireFullAdmin } from '../../../lib/auth';
 
-const admin = requireAdmin(Astro);
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -487,18 +488,7 @@ const newRulesetTemplateData = {
 };
 ---
 
-<AdminLayout title="Rulesets">
-  <h1 class="reveal font-display text-4xl">Scoring Rulesets</h1>
-  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Each season on <a href="/admin/seasons" class="underline decoration-white/30 hover:text-white">Admin &gt; Seasons</a>
-    can be assigned one of these. A season left unassigned uses whichever ruleset is marked
-    <span class="font-semibold text-brand-primary">Default</span> below. Add or edit a ruleset with the popup editor —
-    the fields that actually vary season to season (points tables, bonuses, class-podium bonuses, classified minimums,
-    incident limits, PP limit, and whether the final round can be dropped) get their own inputs; everything else lives
-    in the Advanced JSON block. The scoring engine reads this when (re)computing a round's points — editing it here
-    only changes what a <em>future</em> recalculation produces; it doesn't retroactively touch points already scored.
-  </p>
-
+<AdminLayout title="Rulesets" heading="Scoring Rulesets">
   {error && (
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}

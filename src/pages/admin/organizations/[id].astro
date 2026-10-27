@@ -151,10 +151,8 @@ if (!isNew && id) {
 }
 ---
 
-<AdminLayout title={isNew ? 'New Organization' : o.name || 'Edit Organization'}>
+<AdminLayout title={isNew ? 'New Organization' : o.name || 'Edit Organization'} heading={isNew ? 'New Organization' : o.name || 'Edit Organization'}>
   <a href="/admin/organizations" class="text-sm text-white/50 hover:text-white">&larr; Back to Organizations</a>
-
-  <h1 class="reveal mt-3 font-display text-4xl" style="transition-delay: 40ms">{isNew ? 'New Organization' : o.name}</h1>
 
   {error && (
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>

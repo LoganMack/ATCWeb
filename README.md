@@ -39,7 +39,7 @@ Built with [Astro](https://astro.build), [Tailwind CSS](https://tailwindcss.com)
 
 ### Admin portal
 
-Everything is managed in the browser under `/admin`: seasons, events, rulesets, results imports, penalties and penalty offenses, incident reporting and appeals, drivers, teams, organizations, circuits, car logos, news, awards, champions, page banners, site properties, users, the rulebook, and an activity log. Admin pages are only available to signed-in users with the `admin` role.
+Everything is managed in the browser under `/admin`: seasons, events, rulesets, results imports, penalties and penalty offenses, incident reporting and appeals, drivers, teams, organizations, circuits, car logos, news, awards, champions, page banners, site properties, users, the rulebook, and an activity log. Admin pages are only available to signed-in users with the `admin` or `staff` role; see [Authentication and admin access](#authentication-and-admin-access) for what Staff can't change.
 
 **Rulebook.** Admin > Rulebook (`/admin/rulebook`) edits the rulebook as markdown with a live preview. Each save becomes the new public version, and the 10 most recent versions are kept, each viewable and restorable. The table `rulebook_versions` is public to read; writes go only through `save_rulebook_version()`, which refuses non-admins, empty input and a save from an editor opened before someone else's save (`supabase/checks/rulebook-fixtures.sql` checks this in CI). Raw HTML in the markdown is shown as text and only web, email and in-page links stay links (`src/lib/rulebookMarkdown.ts`, shared by the page and the preview).
 
@@ -195,7 +195,11 @@ Database URLs use Supabase's session-pooler form, because GitHub runners are IPv
 
 ## Authentication and admin access
 
-Users sign in with email and password through Supabase Auth. Each user has a row in `profiles` with a `role` (`admin` or `driver`) and an optional link to a driver in the roster. A linked user is shown by their driver name throughout the site. Sign-in through iRacing is planned.
+Users sign in with email and password through Supabase Auth. Each user has a row in `profiles` with a `role` (`admin`, `staff` or `driver`) and an optional link to a driver in the roster. A linked user is shown by their driver name throughout the site. Sign-in through iRacing is planned.
+
+- **Admin** can do everything in the admin portal.
+- **Staff** have the same admin portal, except that Admin → Users is read-only for them and they can't open Site Properties (including the champion and Hall of Fame photo pages), Seasons, Rulesets, Media or Circuits. The database enforces this: `private.is_admin()` means Admin or Staff, `private.is_full_admin()` means Admin only, and the restricted areas' policies, the banners, logos and photos storage policies, the profiles guard and `admin_delete_user` use the full-Admin check (`supabase/migrations/20261109120000_staff_role_and_broadcaster.sql`, `20261109120001_staff_restricted_areas.sql`).
+- **Broadcaster** is not a role but a marker on one account (`profiles.is_broadcaster`, unique, never together with a driver link). The account sees hidden drivers' names like a linked driver, is the only one with **View as Broadcaster** in the footer (the spoiler-free mode that hides the latest round), and has its own page, `/broadcaster`, for its email and password. A signed-in account with no driver can claim it once from the Link Driver page; an Admin can assign, move or remove it from Admin → Users.
 
 To create the first admin, sign up on the site, then run this in the SQL editor with that user's id:
 
@@ -203,7 +207,7 @@ To create the first admin, sign up on the site, then run this in the SQL editor 
 update profiles set role = 'admin' where id = '<auth-user-uuid>';
 ```
 
-After that, admins manage other users from **Admin → Users**: linking drivers, changing roles and removing accounts.
+After that, admins manage other users from **Admin → Users**: linking drivers, changing roles (Driver, Staff, Admin), assigning the Broadcaster and removing accounts.
 
 ## Results, scoring and penalties
 

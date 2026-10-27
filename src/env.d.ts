@@ -46,7 +46,7 @@ type Session = {
 declare namespace App {
   interface Locals extends Runtime {
     session: Session;
-    /** True when `session` belongs to an actual admin — independent of `viewAsVisitor` below, so the footer's toggle (see Footer.astro) can always find its way back even mid-preview. Set once by src/middleware.ts on every request. */
+    /** True when `session` has real panel access (Admin or Staff) — independent of `viewAsVisitor` below, so the footer's toggle (see Footer.astro) can always find its way back even mid-preview. Set once by src/middleware.ts on every request. */
     isRealAdmin: boolean;
     /**
      * True while a real admin uses "View as Visitor" (`atc_view_mode`). Admin UI outside /admin checks
@@ -56,7 +56,7 @@ declare namespace App {
     viewAsVisitor: boolean;
     /** viewAsVisitor outside /admin: resolveSupabaseEnv then reads without the session's token (U4). */
     readAsVisitor?: boolean;
-    /** True when the visitor has "View as Broadcaster" on (`atc_broadcaster` cookie) — see src/lib/auth.ts's BROADCASTER_COOKIE. */
+    /** True when the signed-in Broadcaster has "View as Broadcaster" on (`atc_broadcaster` cookie) — see src/lib/auth.ts's broadcasterModeFor. */
     broadcasterMode: boolean;
     /** Subsession id(s) hidden from every subsession-keyed read while `broadcasterMode` is on (the most recent round). Carried onto SupabaseEnv by resolveSupabaseEnv. */
     broadcasterHiddenSubsessionIds?: number[];

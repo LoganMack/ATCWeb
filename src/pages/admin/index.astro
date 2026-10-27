@@ -7,10 +7,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 ---
 
 <AdminLayout title="Dashboard">
-  <h1 class="reveal font-display text-4xl">Dashboard</h1>
-
   <div data-admin-dashboard data-fragment-url="/admin/fragment">
-    <div class="mt-8 flex flex-col gap-8" aria-live="polite" aria-busy="true">
+    <div class="flex flex-col gap-8" aria-live="polite" aria-busy="true">
       <span class="sr-only">Loading Dashboard…</span>
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="h-20 animate-pulse rounded-xl border border-white/10 bg-white/[0.03]"></div>

@@ -4,6 +4,11 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getCircuits, getCircuitLogoBackgrounds, logoBgAttrs } from '../../../lib/db/circuits';
+import { requireFullAdmin } from '../../../lib/auth';
+
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
+if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -19,8 +24,7 @@ try {
 ---
 
 <AdminLayout title="Circuits">
-  <div class="reveal flex flex-wrap items-center justify-between gap-3">
-    <h1 class="font-display text-4xl">Circuits</h1>
+  <div class="reveal flex flex-wrap items-center justify-end gap-3">
     <div class="flex items-center gap-2">
       <a href="/admin/import" class="btn btn-neutral">
         Import from CSV

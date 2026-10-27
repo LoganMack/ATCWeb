@@ -30,9 +30,10 @@ import {
 import { getAllRounds } from '../../../lib/results/rounds';
 import { driversSelect, type RoundSummary, type DriverBasic } from '../../../lib/results/rows';
 import { isHttpUrl } from '../../../lib/security';
-import { requireAdmin } from '../../../lib/auth';
+import { requireFullAdmin } from '../../../lib/auth';
 
-const admin = requireAdmin(Astro);
+// A restricted area (BR2.7): full Admin only.
+const admin = requireFullAdmin(Astro);
 if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -237,13 +238,6 @@ const racePhotoRows = rounds
 ---
 
 <AdminLayout title="Media">
-  <h1 class="reveal font-display text-4xl">Media</h1>
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Manages the public Media page's Videos (Cinematics/Educational/Other — Broadcasts comes from Race Results links,
-    and Track Guide comes from each circuit layout's own field on the Circuits admin page), Race Photos, Posters,
-    and Meetups tabs.
-  </p>
-
   {loadError && (
     <p class="mt-8 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">Couldn't load Media page content.</p>
   )}

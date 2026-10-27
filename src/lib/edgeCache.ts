@@ -20,7 +20,10 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/news(\/fragment)?$/, ['q', 'season']],
   [/^\/results(\/fragment)?$/, ['season']],
   [/^\/results\/[^/]+(\/fragment)?$/, ['category', 'class', 'links_error', 'report', 'season', 'session']],
-  [/^\/results\/[^/]+\/incidents(\/fragment)?$/, ['appeal', 'review', 'roundpenalty', 'season', 'view']],
+  [
+    /^\/results\/[^/]+\/incidents(\/fragment)?$/,
+    ['appeal', 'review', 'roundpenalty', 'season', 'submission', 'view'],
+  ],
   [/^\/results\/[^/]+\/kudos(\/fragment)?$/, ['kudos', 'season']],
   [/^\/standings(\/fragment)?$/, ['championship', 'class', 'mode', 'round', 'season', 'view']],
   [/^\/team-stats(\/fragment)?$/, ['view']],
@@ -39,17 +42,15 @@ export function cacheQueryParams(pathname: string): string[] {
 }
 
 /**
- * The edge-cache key for a request: origin + path + the route's known
- * parameters (first value each, sorted), plus `__variant=broadcaster` for the
- * broadcaster render so the two never share an entry.
+ * The edge-cache key for a request: origin + path + the route's known parameters (first value each, sorted).
+ * Only signed-out renders are stored, so the Broadcaster's spoiler-free render never needs a key of its own.
  */
-export function cacheKeyUrl(url: URL, variant: 'default' | 'broadcaster' = 'default'): string {
+export function cacheKeyUrl(url: URL): string {
   const key = new URL(url.origin + url.pathname);
   for (const name of [...cacheQueryParams(url.pathname)].sort()) {
     const value = url.searchParams.get(name);
     if (value !== null) key.searchParams.set(name, value);
   }
-  if (variant === 'broadcaster') key.searchParams.set('__variant', 'broadcaster');
   return key.toString();
 }
 

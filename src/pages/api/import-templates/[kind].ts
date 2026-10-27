@@ -9,7 +9,8 @@ export const prerender = false;
 const RESULT_KINDS = new Set(['race-results', 'qualifying-results', 'practice-results']);
 
 /**
- * The admin "Download CSV template" links, generated from src/lib/importTemplates.ts. Not admin-gated (empty
+ * The admin "Download CSV template" links, generated from src/lib/importTemplates.ts; an unknown kind
+ * (including the removed circuits template) is a 404. Not admin-gated (empty
  * example data). For an admin downloading a results template for one event (?eventId=), the round columns are
  * prefilled from the event, import_key reuses the event's existing manual round, and exhibition/test come
  * from the event's category (the only way those flags are set for manual rounds). Otherwise the plain

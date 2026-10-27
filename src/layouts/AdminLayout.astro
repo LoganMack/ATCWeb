@@ -1,40 +1,45 @@
 ---
-// Shared chrome for /admin/* pages. src/middleware.ts already redirects non-admins, so the session here is a
-// signed-in admin. The dashboard (/admin) links to every admin page, so the other pages carry only a link
-// back to it (driver-profile-polish FR10.3).
+// Shared chrome for /admin/* pages. src/middleware.ts already redirects anyone without panel access, so the
+// session here is a signed-in Admin or Staff member. The dashboard (/admin) links to every admin page, so the
+// other pages carry only a link back to it (driver-profile-polish FR10.3). The page title sits on the account
+// line, and pages render no title or subtitle of their own (BR3.1).
 import Layout from './Layout.astro';
 import { userDisplayName } from '../lib/auth';
 
 interface Props {
+  /** The browser tab title, after "Admin · ". */
   title: string;
+  /** The visible page title; defaults to `title`. */
+  heading?: string;
 }
 
-const { title } = Astro.props;
+const { title, heading = title } = Astro.props;
 const session = Astro.locals.session;
 const onDashboard = Astro.url.pathname.replace(/\/+$/, '') === '/admin';
 ---
 
 <Layout title={`Admin · ${title}`}>
-  <div class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
-    <div class="reveal flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
-      {!onDashboard && (
-        <a
-          href="/admin"
-          class="text-sm font-semibold text-white/60 transition hover:text-white hover:underline"
-          data-testid="admin-back-to-dashboard-link"
-        >
-          ← Back to dashboard
-        </a>
-      )}
+  <div class="mx-auto max-w-6xl px-6 pb-24 pt-8">
+    {!onDashboard && (
+      <a
+        href="/admin"
+        class="reveal inline-block text-sm font-semibold text-white/60 transition hover:text-white hover:underline"
+        data-testid="admin-back-to-dashboard-link"
+      >
+        ← Back to Dashboard
+      </a>
+    )}
+    <div
+      class:list={[
+        'reveal flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-b border-white/10 pb-6',
+        !onDashboard && 'mt-3',
+      ]}
+    >
+      <h1 class="font-display text-4xl" data-testid="admin-page-heading">{heading}</h1>
       <div class="ml-auto flex items-center gap-3 text-sm text-white/60">
         <span>{userDisplayName(session?.profile, session?.user.email)}</span>
         <form method="POST" data-astro-reload action="/api/logout">
-          <button
-            type="submit"
-            class="btn btn-neutral"
-          >
-            Log Out
-          </button>
+          <button type="submit" class="btn btn-neutral" data-testid="admin-logout-button">Log Out</button>
         </form>
       </div>
     </div>

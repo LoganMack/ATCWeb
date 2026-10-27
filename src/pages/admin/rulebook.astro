@@ -117,14 +117,9 @@ const fieldClass =
 ---
 
 <AdminLayout title="Rulebook">
-  <div class="reveal flex flex-wrap items-center justify-between gap-3">
-    <h1 class="font-display text-4xl">Rulebook</h1>
+  <div class="reveal flex flex-wrap items-center justify-end gap-3">
     <a href="/rulebook" class="btn btn-neutral" data-testid="admin-rulebook-public-link">View Public Page</a>
   </div>
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Write the rulebook in markdown. Each save becomes the new public version; the 10 most recent versions are kept.
-    Raw HTML is shown as text, and only web, email and in-page links stay links.
-  </p>
 
   {saved && <p class="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-white/80" role="status" data-testid="admin-rulebook-saved">Saved. The public page can take a few minutes to show the new version.</p>}
   {restored && <p class="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-white/80" role="status" data-testid="admin-rulebook-restored">Restored as the new latest version.</p>}

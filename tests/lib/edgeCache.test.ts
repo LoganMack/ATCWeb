@@ -7,6 +7,7 @@ import {
   MAX_STALE_SECONDS,
   PAGE_CACHE_CONTROL_HEADER,
   STORED_AT_HEADER,
+  cacheKeyUrl,
   cacheWindows,
   createRefreshGuard,
   readStoredCopy,
@@ -98,6 +99,14 @@ describe('readStoredCopy', () => {
   });
 });
 
+describe('cacheKeyUrl', () => {
+  it('has one key per page, with no broadcaster variant (only signed-out renders are stored)', () => {
+    const key = cacheKeyUrl(new URL('https://x.test/standings?season=atc-17&__variant=broadcaster'));
+    expect(key).toBe('https://x.test/standings?season=atc-17');
+    expect(cacheKeyUrl.length).toBe(1);
+  });
+});
+
 describe('createRefreshGuard', () => {
   function clock(start = 0) {
     let now = start;
@@ -130,7 +139,7 @@ describe('createRefreshGuard', () => {
   it('keeps keys independent', () => {
     const guard = createRefreshGuard(clock().now);
     expect(guard.tryStart('https://x.test/standings')).toBe(true);
-    expect(guard.tryStart('https://x.test/standings?__variant=broadcaster')).toBe(true);
+    expect(guard.tryStart('https://x.test/standings?season=atc-17')).toBe(true);
     expect(guard.tryStart('https://x.test/standings')).toBe(false);
   });
 });

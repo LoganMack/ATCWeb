@@ -132,12 +132,6 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
 ---
 
 <AdminLayout title="Incident Reporting">
-  <h1 class="reveal font-display text-4xl">Incident Reporting</h1>
-  <p class="reveal mt-2 max-w-2xl text-sm text-white/60" style="transition-delay: 40ms">
-    Driver-submitted incident reports for each round. Log or dismiss reports from a round's Edit Report page, then switch
-    <strong class="font-semibold text-white/80">Posted</strong> on to make the round's incident report public and re-enable its
-    Incident Report button.
-  </p>
 
   {(error || loadError) && (
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error ?? loadError}</p>

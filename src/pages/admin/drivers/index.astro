@@ -124,8 +124,7 @@ const activeFilter = Astro.url.searchParams.get('filter') === 'ai' ? 'ai' : 'all
 ---
 
 <AdminLayout title="Drivers">
-  <div class="reveal flex flex-wrap items-center justify-between gap-3">
-    <h1 class="font-display text-4xl">Drivers</h1>
+  <div class="reveal flex flex-wrap items-center justify-end gap-3">
     <div class="flex flex-wrap items-center gap-2">
       <form method="POST" data-astro-reload>
         <input type="hidden" name="intent" value="sync-statuses" />

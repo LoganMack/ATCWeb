@@ -1,19 +1,13 @@
 ---
 export const prerender = false;
 
-// Events/Circuits/News CSV importers (reference data), separate from the results importers on /admin/import.
-// Templates are generated from src/lib/importTemplates.ts so they can't drift from what the importers read.
+// Events/News CSV importers (reference data), separate from the results importers on /admin/import. Circuits
+// are edited on Admin > Circuits only, a full-Admin area. Templates are generated from
+// src/lib/importTemplates.ts so they can't drift from what the importers read.
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import { getEvents, createEvent, updateEvent, type EventFormat, type Weather } from '../../../lib/db/events';
-import {
-  getCircuits,
-  createCircuit,
-  updateCircuit,
-  getAllCircuitLayouts,
-  createCircuitLayout,
-  updateCircuitLayout,
-} from '../../../lib/db/circuits';
+import { getCircuits } from '../../../lib/db/circuits';
 import { getAllNewsPosts, createNewsPost, updateNewsPost } from '../../../lib/db/news';
 import { parseCsv } from '../../../lib/csv';
 import { slugify } from '../../../lib/slug';
@@ -25,7 +19,7 @@ if (admin instanceof Response) return admin;
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
-type ImportKind = 'events' | 'circuits' | 'news';
+type ImportKind = 'events' | 'news';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
@@ -40,7 +34,6 @@ if (Astro.request.method === 'POST') {
   // copy RESULT_LABELS, which is declared later in the file (using it here would hit the temporal dead zone).
   const IMPORT_KIND_NOUNS: Record<ImportKind, string> = {
     events: 'event',
-    circuits: 'circuit',
     news: 'post',
   };
 
@@ -175,100 +168,6 @@ if (Astro.request.method === 'POST') {
     return redirectWithCounts('events', imported, skipped);
   }
 
-  if (intent === 'import-circuits') {
-    let imported = 0;
-    let skipped = 0;
-    let uploadedFile: File | null = null;
-    try {
-      const file = form.get('csv_file');
-      if (file instanceof File) {
-        uploadedFile = file;
-        const [existingCircuits, existingLayouts] = await Promise.all([getCircuits(supabaseEnv), getAllCircuitLayouts(supabaseEnv)]);
-        const text = await file.text();
-        const rows = parseCsv(text);
-        const header = (rows[0] ?? []).map((h) => h.trim().toLowerCase());
-        const colIndex = (name: string) => header.indexOf(name);
-        const get = (row: string[], name: string) => {
-          const i = colIndex(name);
-          return i >= 0 ? (row[i] ?? '').trim() : '';
-        };
-
-        for (const row of rows.slice(1)) {
-          if (row.every((c) => c.trim() === '')) continue;
-
-          const name = get(row, 'name');
-          if (!name) {
-            skipped++;
-            continue;
-          }
-
-          try {
-            let circuit = existingCircuits.find((c) => c.name.toLowerCase() === name.toLowerCase());
-            const location = get(row, 'location');
-            const logoUrl = get(row, 'logo_url');
-
-            if (circuit) {
-              const patch: Record<string, unknown> = {};
-              if (location) patch.location = location;
-              if (logoUrl) patch.logo_url = logoUrl;
-              if (Object.keys(patch).length > 0) await updateCircuit(supabaseEnv, accessToken, circuit.id, patch);
-            } else {
-              circuit = await createCircuit(supabaseEnv, accessToken, {
-                name,
-                location: location || null,
-                logo_url: logoUrl || null,
-              });
-              existingCircuits.push(circuit);
-            }
-
-            const layoutName = get(row, 'layout_name');
-            if (layoutName) {
-              const existingLayout = existingLayouts.find(
-                (l) => l.circuit_id === circuit!.id && l.name.toLowerCase() === layoutName.toLowerCase()
-              );
-              const numOrUndef = (v: string) => (v ? Number(v) : undefined);
-              const lengthKm = numOrUndef(get(row, 'layout_length_km'));
-              const corners = numOrUndef(get(row, 'layout_corners'));
-              const lapRecordSeconds = numOrUndef(get(row, 'layout_lap_record_seconds'));
-              const lapRecordHolder = get(row, 'layout_lap_record_holder');
-              const lapRecordDate = get(row, 'layout_lap_record_date');
-
-              if (existingLayout) {
-                const patch: Record<string, unknown> = {};
-                if (lengthKm !== undefined) patch.length_km = lengthKm;
-                if (corners !== undefined) patch.corners = corners;
-                if (lapRecordSeconds !== undefined) patch.lap_record_seconds = lapRecordSeconds;
-                if (lapRecordHolder) patch.lap_record_holder = lapRecordHolder;
-                if (lapRecordDate) patch.lap_record_date = lapRecordDate;
-                if (Object.keys(patch).length > 0) await updateCircuitLayout(supabaseEnv, accessToken, existingLayout.id, patch);
-              } else {
-                const created = await createCircuitLayout(supabaseEnv, accessToken, {
-                  circuit_id: circuit.id,
-                  name: layoutName,
-                  length_km: lengthKm ?? null,
-                  corners: corners ?? null,
-                  lap_record_seconds: lapRecordSeconds ?? null,
-                  lap_record_holder: lapRecordHolder || null,
-                  lap_record_date: lapRecordDate || null,
-                });
-                existingLayouts.push(created);
-              }
-            }
-
-            imported++;
-          } catch (err) {
-            console.error('Failed to import a circuit row:', err);
-            skipped++;
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to import circuits CSV:', err);
-    }
-    if (uploadedFile) await logImport('circuits', uploadedFile, imported, skipped);
-    return redirectWithCounts('circuits', imported, skipped);
-  }
-
   if (intent === 'import-news') {
     let imported = 0;
     let skipped = 0;
@@ -361,7 +260,6 @@ const skippedCount = Astro.url.searchParams.get('skipped');
 
 const RESULT_LABELS: Record<string, { noun: string; skipReason: string }> = {
   events: { noun: 'event', skipReason: 'unrecognized circuit, or missing date/Race 1 start time' },
-  circuits: { noun: 'circuit', skipReason: 'missing name' },
   news: { noun: 'post', skipReason: 'missing title/body' },
 };
 
@@ -384,14 +282,6 @@ const panels: ImportPanel[] = [
       'Times are entered as Eastern, same as the event form. Rows are matched by circuit + date — re-uploading updates those events in place (a blank cell leaves that field as-is) instead of duplicating them. An unrecognized circuit name, or a row missing its date/Race 1 start time, is skipped rather than failing the whole import.',
   },
   {
-    kind: 'circuits',
-    title: 'Circuits',
-    intent: 'import-circuits',
-    writesTo: 'circuits, circuit_layouts',
-    help:
-      "One row per circuit, optionally with one layout's details attached — repeat a circuit's name across rows to add more than one layout. Rows are matched by name — re-uploading updates in place (a blank cell leaves that field as-is) instead of duplicating. Logo is a direct image URL, not a file upload.",
-  },
-  {
     kind: 'news',
     title: 'News',
     intent: 'import-news',
@@ -403,13 +293,6 @@ const panels: ImportPanel[] = [
 ---
 
 <AdminLayout title="Import Tools">
-  <h1 class="reveal font-display text-4xl">Import Tools</h1>
-  <p class="reveal mt-2 text-sm text-white/60" style="transition-delay: 40ms">
-    Bulk-load reference data from a CSV file — one panel per screen. Download a template, fill it in, and upload it;
-    a row that already exists is updated in place instead of duplicated. Looking to upload a round's results
-    instead? That's on <a href="/admin/import" class="text-brand-primary hover:underline">Add Race Result</a>.
-  </p>
-
   {importedCount !== null && resultKind && RESULT_LABELS[resultKind] && (
     <p class="reveal mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80" style="transition-delay: 60ms">
       Imported {importedCount} {RESULT_LABELS[resultKind].noun}{importedCount === '1' ? '' : 's'}.

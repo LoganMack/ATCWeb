@@ -1356,7 +1356,7 @@ input[class~='file:bg-white/10']::file-selector-button {
 }
 .map-turn-ring {
   position: absolute;
-  width: 20%;
+  width: 10%;
   aspect-ratio: 1 / 1;
   transform: translate(-50%, -50%);
   border-radius: 9999px;
@@ -1366,28 +1366,14 @@ input[class~='file:bg-white/10']::file-selector-button {
     0 0 10px rgb(245 66 110 / 0.6);
   pointer-events: none;
 }
-.map-turn-ring > b {
-  position: absolute;
-  left: 50%;
-  bottom: 100%;
-  transform: translateX(-50%);
-  padding: 0 3px;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.3;
-  color: #f5426e;
-  white-space: nowrap;
-}
-/* The View Map popup on a reported incident: a square plate no taller than the window, rings bigger than the in-row ones used to be. */
+/* The View Map popup on a reported incident: a square plate no taller than the window. The ring has no label,
+   since the card already names the turn. */
 .map-plate-dialog {
   width: min(100%, 70vh);
   margin: 0 auto;
 }
 .map-plate-dialog .map-turn-ring {
-  width: 12%;
-}
-.map-plate-dialog .map-turn-ring > b {
-  font-size: 13px;
+  width: 6%;
 }
 
 .layout-map-plate[data-armed] {

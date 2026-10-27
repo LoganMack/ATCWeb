@@ -1,18 +1,19 @@
 ---
 import { resolveSiteLinks } from '../lib/links';
+import { isBroadcasterAccount } from '../lib/auth';
 
 const { discordUrl, redbubbleUrl } = resolveSiteLinks(Astro.locals);
 
-// "View as Visitor" lets a real admin preview the site with admin UI hidden. It checks the real role, not
-// isAdminView(), so the toggle stays visible to switch back.
+// "View as Visitor" lets Admin and Staff preview the site with admin UI hidden. It checks the real role (panel
+// access), not isAdminView(), so the toggle stays visible to switch back.
 const isRealAdmin = Astro.locals.isRealAdmin;
 const viewAsVisitor = Astro.locals.viewAsVisitor;
 const currentPath = `${Astro.url.pathname}${Astro.url.search}`;
 const isSignedIn = Boolean(Astro.locals.session);
 
-// "View as Broadcaster" — visible to everyone. While on, the most recent
-// round is hidden from every statistic (see src/middleware.ts) so a
-// broadcaster can record a delayed broadcast without spoilers.
+// "View as Broadcaster" — only for the signed-in Broadcaster (BR1.8). While on, the most recent round is
+// hidden from every statistic (see src/middleware.ts) so a delayed broadcast has no spoilers.
+const showBroadcasterToggle = isBroadcasterAccount(Astro.locals);
 const broadcasterMode = Astro.locals.broadcasterMode;
 
 // The Admin Panel link lives in the header now (Nav.astro, gear icon).
@@ -43,19 +44,21 @@ const broadcasterMode = Astro.locals.broadcasterMode;
           <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
         </svg>
       </button>
-      <form method="POST" action="/api/broadcaster-mode" data-astro-reload>
-        <input type="hidden" name="next" value={currentPath} />
-        <input type="hidden" name="mode" value={broadcasterMode ? 'off' : 'on'} />
-        <button
-          type="submit"
-          title="Hide the most recent round from every statistic on the site, so a delayed broadcast has no spoilers."
-          class={broadcasterMode
-            ? 'btn btn-gold btn-sm'
-            : 'btn btn-neutral btn-sm'}
-        >
-          {broadcasterMode ? 'Broadcaster View On' : 'View as Broadcaster'}
-        </button>
-      </form>
+      {showBroadcasterToggle && (
+        <form method="POST" action="/api/broadcaster-mode" data-astro-reload>
+          <input type="hidden" name="next" value={currentPath} />
+          <input type="hidden" name="mode" value={broadcasterMode ? 'off' : 'on'} />
+          <button
+            type="submit"
+            title="Hide the most recent round from every statistic on the site, so a delayed broadcast has no spoilers."
+            class={broadcasterMode
+              ? 'btn btn-gold btn-sm'
+              : 'btn btn-neutral btn-sm'}
+          >
+            {broadcasterMode ? 'Broadcaster View On' : 'View as Broadcaster'}
+          </button>
+        </form>
+      )}
       {isRealAdmin && (
         <form method="POST" action="/api/view-mode" data-astro-reload>
           <input type="hidden" name="next" value={currentPath} />

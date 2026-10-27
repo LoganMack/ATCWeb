@@ -9,7 +9,7 @@ import { getCircuits } from '../../lib/db/circuits';
 import { getSeasons } from '../../lib/db/seasons';
 import { getMissingRaceResultsCount, getActivityLogCountSince } from '../../lib/db/analytics';
 import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
-import { requireAdmin } from '../../lib/auth';
+import { adminToolsFor, isFullAdmin, requireAdmin } from '../../lib/auth';
 import { getNotificationCounts, type NotificationCounts } from '../../lib/notifications/counts';
 
 const admin = requireAdmin(Astro);
@@ -161,11 +161,16 @@ const notifications: DashboardCard[] = [
 const userManagement: DashboardCard[] = [
   { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} driver${driverCount === 1 ? '' : 's'}` },
   { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
-  { href: '/admin/users', label: 'Users', detail: 'Admin access & driver links' },
+  {
+    href: '/admin/users',
+    label: 'Users',
+    detail: isFullAdmin(admin.profile) ? 'Admin access & driver links' : 'View accounts',
+  },
 ];
 
-// Everything else, as icon buttons. `detail` shows in the hover note after the title.
-const tools: DashboardCard[] = [
+// Everything else, as icon buttons. `detail` shows in the hover note after the title. Staff don't see the
+// five restricted areas (BR2.7).
+const allTools: DashboardCard[] = [
   { href: '/admin/import', label: 'Add Race Result', detail: `${missingRaceResultsCount} event${missingRaceResultsCount === 1 ? '' : 's'} missing results` },
   { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming, ${pastEventCount} past` },
   { href: '/admin/organizations', label: 'Organizations', detail: `${organizationCount} organization${organizationCount === 1 ? '' : 's'}` },
@@ -183,17 +188,12 @@ const tools: DashboardCard[] = [
   },
   { href: '/admin/site-properties', label: 'Site Properties', detail: 'Web graphics and configurations' },
 ];
+const tools = adminToolsFor(allTools, admin.profile);
 
 // No Cache-Control: per-admin data, like every /admin page.
 ---
 
-{currentSeasonName && (
-  <p class="text-sm text-white/60">
-    Current season: <span class="font-semibold text-brand-primary">{currentSeasonName}</span>
-  </p>
-)}
-
-<section class="mt-8">
+<section>
   <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Notifications</h2>
 
   <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
