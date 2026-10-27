@@ -115,7 +115,13 @@ if (Astro.request.method === 'POST' && !loadError) {
               });
             }
             if (driverId || target.driver_id) {
-              await setProfileDriver(supabaseEnv, accessToken, profileId, driverId);
+              try {
+                await setProfileDriver(supabaseEnv, accessToken, profileId, driverId);
+              } catch (err) {
+                // The marker and a driver link can't coexist, so it had to go first; put it back if the link fails.
+                if (target.is_broadcaster) await setBroadcaster(supabaseEnv, accessToken, profileId);
+                throw err;
+              }
               await logActivity(supabaseEnv, accessToken, actor, {
                 action: 'edit',
                 entity_type: 'user',

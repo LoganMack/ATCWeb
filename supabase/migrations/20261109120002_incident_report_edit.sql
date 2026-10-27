@@ -64,6 +64,17 @@ begin
   select coalesce(array_agg(driver_id order by driver_id), '{}') into v_old_ids
   from public.incident_report_drivers where report_id = p_report_id;
 
+  -- A car a steward has already blamed stays on the report, so no review ends up naming a car that isn't in it.
+  if exists (
+    select 1
+    from public.incident_report_review_drivers rd
+    join public.incident_report_reviews r on r.id = rd.review_id
+    where r.report_id = p_report_id and rd.driver_id <> all (v_new_ids)
+  ) then
+    raise exception 'INVALID: driver_ids: A steward review names a car you removed; keep it on the report'
+      using errcode = 'P0001';
+  end if;
+
   if p_session is distinct from v_report.session then
     v_changes := v_changes || format('Race: %s -> %s', v_report.session, p_session);
   end if;

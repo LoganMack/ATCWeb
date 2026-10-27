@@ -44,9 +44,22 @@ function fillForm(form: HTMLFormElement, prefill: SubmissionPrefill): void {
   set('lap', prefill.lap === null ? '' : String(prefill.lap));
   set('turn', prefill.turn);
   const picked = new Set(prefill.driver_ids);
+  form.querySelectorAll('[data-edit-extra-car]').forEach((el) => el.remove());
+  const offered = new Set<string>();
   form.querySelectorAll<HTMLInputElement>('input[name="involved_driver_ids"]').forEach((box) => {
+    offered.add(box.value);
     box.checked = picked.has(box.value);
   });
+  // A report car the picker doesn't list (not in this round's results) is kept rather than silently dropped.
+  for (const id of picked) {
+    if (offered.has(id)) continue;
+    const keep = document.createElement('input');
+    keep.type = 'hidden';
+    keep.name = 'involved_driver_ids';
+    keep.value = id;
+    keep.dataset.editExtraCar = '';
+    form.append(keep);
+  }
   // Re-run the picker's filter so every ticked car shows (driverPickerSearch.ts keeps checked ones).
   const search = form.querySelector<HTMLInputElement>('[data-driver-search]');
   if (search) {

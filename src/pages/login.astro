@@ -5,7 +5,13 @@ import Layout from '../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import { safeNext } from '../lib/security';
 import { resolveSiteLinks } from '../lib/links';
-import { signInWithPassword, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE, authCookieOptions } from '../lib/auth';
+import {
+  signInWithPassword,
+  hasPanelAccess,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  authCookieOptions,
+} from '../lib/auth';
 
 // The one sign-in page for every account; middleware checks profiles.role on /admin, so there's no separate
 // admin login.
@@ -16,9 +22,9 @@ const next = safeNext(Astro.url.searchParams.get('next'), '/');
 const session = Astro.locals.session;
 const { discordUrl } = resolveSiteLinks(Astro.locals);
 
-// Already signed in as a non-admin with `next` in /admin: redirecting would bounce back here, so show a "no
-// admin access" notice.
-const needsPromotion = Boolean(session && next.startsWith('/admin') && session.profile?.role !== 'admin');
+// Already signed in without panel access (Admin or Staff) and `next` in /admin: redirecting would bounce back
+// here, so show a "no admin access" notice.
+const needsPromotion = Boolean(session && next.startsWith('/admin') && !hasPanelAccess(session.profile));
 if (session && !needsPromotion) {
   return Astro.redirect(next, 302);
 }

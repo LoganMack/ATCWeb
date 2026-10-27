@@ -637,6 +637,30 @@ begin
 end $$;
 rollback to savepoint fixture;
 
+-- T18b A car a steward review blames can't be removed from the report (BR4.3) -----------------------------
+do $$
+declare
+  v_review uuid;
+  v_drop text;
+begin
+  insert into public.incident_report_reviews (report_id, reviewer_id, reviewer_name, explanation)
+  values ('aaaaaaaa-0000-0000-0000-000000000b01', 'eeeeeeee-0000-0000-0000-000000000b01', 'Site Admin', 'Bea at fault')
+  returning id into v_review;
+  insert into public.incident_report_review_drivers (review_id, driver_id, penalty)
+  values (v_review, '99999999-0000-0000-0000-000000000b02', '2');
+  perform staff_fixture.claims('eeeeeeee-0000-0000-0000-000000000b02');
+  set local role authenticated;
+  v_drop := staff_fixture.error_field($q$select public.edit_incident_report_submission('aaaaaaaa-0000-0000-0000-000000000b01',
+    'race:1', 4, 'T1', array['99999999-0000-0000-0000-000000000b01']::uuid[])$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  perform staff_fixture.expect('T18b blamed car kept', v_drop, 'INVALID driver_ids');
+  perform staff_fixture.expect('T18b cars unchanged',
+    (select count(*) from public.incident_report_drivers where report_id = 'aaaaaaaa-0000-0000-0000-000000000b01'), 2::bigint);
+  raise notice 'ok T18b blamed car kept';
+end $$;
+rollback to savepoint fixture;
+
 -- T19 Bad values are refused with their field (BR4.3) ----------------------------------------------------
 do $$
 declare
