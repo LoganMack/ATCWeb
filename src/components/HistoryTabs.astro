@@ -1,8 +1,17 @@
 ---
-// The history pages' section picker: a dropdown placed first in each page's filter card, shared so all seven
+// The history pages' section picker: a dropdown placed first in each page's filter card, shared so all nine
 // pages stay in sync (the nav links only /champions). Each option's value is its URL.
 interface Props {
-  active: 'champions' | 'driverStats' | 'teamStats' | 'hallOfFame' | 'awards' | 'circuits' | 'incidents';
+  active:
+    | 'champions'
+    | 'driverStats'
+    | 'teamStats'
+    | 'hallOfFame'
+    | 'awards'
+    | 'circuits'
+    | 'incidents'
+    | 'kudos'
+    | 'interviews';
 }
 
 const { active } = Astro.props;
@@ -15,6 +24,8 @@ const sections: { key: Props['active']; href: string; label: string }[] = [
   { key: 'awards', href: '/awards', label: 'Awards' },
   { key: 'circuits', href: '/circuits', label: 'Circuits' },
   { key: 'incidents', href: '/incidents', label: 'Incidents' },
+  { key: 'kudos', href: '/kudos', label: 'Kudos' },
+  { key: 'interviews', href: '/interviews', label: 'Interviews' },
 ];
 ---
 

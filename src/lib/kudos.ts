@@ -65,6 +65,94 @@ export async function getKudosForSubsession(env: SupabaseEnv, subsessionId: numb
   return rows.map(({ kudos_drivers, ...k }) => ({ ...k, driver_ids: kudos_drivers.map((d) => d.driver_id) }));
 }
 
+// --- Kudos across rounds (driver-profile-polish FR6, FR7) ----------------------------------------------
+
+/** One car involved in a kudos, from drivers_shown: a hidden driver's name arrives masked and is_hidden set. */
+export interface KudosCar {
+  id: string;
+  name: string;
+  car_number: number | null;
+  is_hidden: boolean;
+}
+
+/** A kudos with its cars in car-number order, for lists that span rounds (profile dialog, History > Kudos). */
+export interface KudosEntry extends Omit<Kudos, 'driver_ids'> {
+  cars: KudosCar[];
+}
+
+export interface KudosFeedRow extends Omit<Kudos, 'driver_ids'> {
+  kudos_drivers: { driver_id: string; drivers: KudosCar | null }[];
+  involved_match?: unknown;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** At most this many kudos per read: one page of a season, or one driver's dialog. */
+export const KUDOS_FEED_LIMIT = 300;
+
+/** Rows from the kudosFeed / kudosInvolving reads to entries; a car whose driver row is gone is dropped. */
+export function toKudosEntries(rows: KudosFeedRow[]): KudosEntry[] {
+  return rows.map(({ kudos_drivers, involved_match: _match, ...k }) => ({
+    ...k,
+    cars: kudos_drivers
+      .map((link) => link.drivers)
+      .filter((d): d is KudosCar => d !== null)
+      .map((d) => ({ ...d, is_hidden: d.is_hidden === true }))
+      .sort(
+        (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name),
+      ),
+  }));
+}
+
+/** "Race 2", "Qualifying" or "Practice" for a kudos session value ("race:2"). */
+export function kudosSessionLabel(session: string): string {
+  const [type, num] = session.split(':');
+  if (type === 'qualifying') return 'Qualifying';
+  if (type === 'practice') return 'Practice';
+  if (type === 'race') return num ? `Race ${num}` : 'Race';
+  return session;
+}
+
+/** "youtube.com": just the host, for a clip link's label. */
+export function kudosClipHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return 'clip';
+  }
+}
+
+/**
+ * Every kudos the driver is one of the cars involved in, newest first, from the masked kudos_shown. The
+ * `!inner` alias filters to the driver while the plain embed still lists every car.
+ */
+export async function getKudosInvolvingDriver(env: SupabaseEnv, driverId: string): Promise<KudosEntry[]> {
+  if (!UUID.test(driverId)) return [];
+  const { path, select } = privacyReads.kudosInvolving;
+  const rows = await restGet<KudosFeedRow[]>(
+    env,
+    `${path}?select=${encodeURIComponent(select)}&involved_match.driver_id=eq.${driverId}` +
+      `&order=created_at.desc&limit=${KUDOS_FEED_LIMIT}`,
+  );
+  return toKudosEntries(rows);
+}
+
+/** Every kudos for these rounds (one season on History > Kudos), newest first, in one read. */
+export async function getKudosForSubsessions(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<KudosEntry[]> {
+  const ids = [...new Set(subsessionIds)].filter((id) => Number.isSafeInteger(id));
+  if (ids.length === 0) return [];
+  const { path, select } = privacyReads.kudosFeed;
+  const rows = await restGet<KudosFeedRow[]>(
+    env,
+    `${path}?select=${encodeURIComponent(select)}&subsession_id=in.(${ids.join(',')})` +
+      `&order=created_at.desc&limit=${KUDOS_FEED_LIMIT}`,
+  );
+  return toKudosEntries(rows);
+}
+
 /**
  * Signed-in users only: goes through the submit_kudos SECURITY DEFINER
  * function (0101), which validates the input and derives the author from the

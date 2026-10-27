@@ -1,0 +1,56 @@
+---
+export const prerender = false;
+
+import Layout from '../layouts/Layout.astro';
+import HistoryTabs from '../components/HistoryTabs.astro';
+import PageBanner from '../components/PageBanner.astro';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getPageBanners } from '../lib/db/assets';
+import { bannerUrlFor } from '../lib/pageBanners';
+
+// Shell: the same for every visitor, so it stays publicly cached. The list is members-only and per viewer,
+// so it loads from interviews/fragment.astro, which is never cached (driver-profile-polish FR8).
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let bannerUrl: string | null = null;
+try {
+  bannerUrl = bannerUrlFor(await getPageBanners(supabaseEnv), 'interviews');
+} catch (err) {
+  console.error('Failed to load page banner:', err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Interviews" description="Post-race interviews from Alpha Touring Challenge drivers, for signed-in members.">
+  <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
+    <PageBanner imageUrl={bannerUrl} />
+    <h1 class="reveal font-display text-2xl sm:text-5xl">Interviews</h1>
+
+    <div data-interviews-results data-fragment-url={`/interviews/fragment${Astro.url.search}`}>
+      <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Loading interviews…</span>
+        <div class="flex flex-wrap items-end gap-3">
+          <HistoryTabs active="interviews" />
+          <div class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+            <div class="h-9 animate-pulse rounded-md border border-white/10 bg-white/[0.03]"></div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-6 h-96 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+    </div>
+  </section>
+
+  <script>
+    import { bindFragment, reloadOnRedirect } from '../scripts/fragmentLoader';
+
+    bindFragment('[data-interviews-results]', {
+      label: 'Interviews',
+      logMessage: 'Failed to load interviews:',
+      errorHtml: '<p class="mt-10 text-white/60">Couldn’t load interviews right now — try refreshing the page.</p>',
+      checkResponse: reloadOnRedirect,
+    });
+  </script>
+</Layout>

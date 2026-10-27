@@ -1,6 +1,7 @@
 ---
 // Shared chrome for /admin/* pages. src/middleware.ts already redirects non-admins, so the session here is a
-// signed-in admin.
+// signed-in admin. The dashboard (/admin) links to every admin page, so the other pages carry only a link
+// back to it (driver-profile-polish FR10.3).
 import Layout from './Layout.astro';
 import { userDisplayName } from '../lib/auth';
 
@@ -10,39 +11,22 @@ interface Props {
 
 const { title } = Astro.props;
 const session = Astro.locals.session;
-
-// Tools that are icons on the dashboard (admin/fragment.astro `tools`) are left off this list to avoid
-// listing them twice; keep the two in sync by hand.
-const links = [
-  { href: '/admin', label: 'Dashboard' },
-  { href: '/admin/news', label: 'News' },
-  { href: '/admin/drivers', label: 'Drivers' },
-  { href: '/admin/signups', label: 'Sign-Ups' },
-  { href: '/admin/teams', label: 'Teams' },
-  { href: '/admin/organizations', label: 'Organizations' },
-  { href: '/admin/events', label: 'Events' },
-  { href: '/admin/import', label: 'Add Race Result' },
-  { href: '/admin/incident-reporting', label: 'Incident Reports' },
-  { href: '/admin/interviews', label: 'Interviews' },
-  { href: '/admin/rulebook', label: 'Rulebook' },
-  { href: '/admin/activity-log', label: 'Activity Log' },
-];
+const onDashboard = Astro.url.pathname.replace(/\/+$/, '') === '/admin';
 ---
 
 <Layout title={`Admin · ${title}`}>
   <div class="mx-auto max-w-6xl px-6 pb-24 pt-28 sm:pt-36">
     <div class="reveal flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-6">
-      <nav class="flex flex-wrap gap-1">
-        {links.map((link) => (
-          <a
-            href={link.href}
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/5 hover:text-white"
-          >
-            {link.label}
-          </a>
-        ))}
-      </nav>
-      <div class="flex items-center gap-3 text-sm text-white/60">
+      {!onDashboard && (
+        <a
+          href="/admin"
+          class="text-sm font-semibold text-white/60 transition hover:text-white hover:underline"
+          data-testid="admin-back-to-dashboard-link"
+        >
+          ← Back to dashboard
+        </a>
+      )}
+      <div class="ml-auto flex items-center gap-3 text-sm text-white/60">
         <span>{userDisplayName(session?.profile, session?.user.email)}</span>
         <form method="POST" data-astro-reload action="/api/logout">
           <button

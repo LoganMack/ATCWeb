@@ -161,6 +161,8 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'hall-of-fame/fragment.astro': [],
   'home/fragment.astro': [],
   'incidents/fragment.astro': [],
+  'interviews/fragment.astro': ['season'],
+  'kudos/fragment.astro': ['season'],
   'media/fragment.astro': ['filter', 'layout', 'tab'],
   'news/fragment.astro': ['q', 'season'],
   'results/[subsessionId]/fragment.astro': [
@@ -186,13 +188,18 @@ function paramsRead(text: string): string[] {
 }
 
 describe('fragment URLs and parameters (BR4.3)', () => {
-  it('keeps every fragment route and the query parameters it reads; the only new route is the awards card', () => {
+  it('keeps every fragment route and the query parameters it reads; the driver’s awards and kudos cards take none', () => {
     const now: Record<string, string[]> = {};
+    const cards = ['drivers/[id]/awards.astro', 'drivers/[id]/kudos.astro'];
     for (const [path, text] of Object.entries(PAGES)) {
       const rel = path.replace('/src/pages/', '');
-      if (rel.endsWith('/fragment.astro') || rel === 'drivers/[id]/awards.astro') now[rel] = paramsRead(text);
+      if (rel.endsWith('/fragment.astro') || cards.includes(rel)) now[rel] = paramsRead(text);
     }
-    expect(now).toEqual({ ...MAIN_FRAGMENTS, 'drivers/[id]/awards.astro': [] });
+    expect(now).toEqual({
+      ...MAIN_FRAGMENTS,
+      'drivers/[id]/awards.astro': [],
+      'drivers/[id]/kudos.astro': [],
+    });
   });
 
   it('keys the edge cache of every fragment on the parameters it reads', () => {
@@ -206,6 +213,31 @@ describe('fragment URLs and parameters (BR4.3)', () => {
       if (rel.startsWith('admin/')) continue; // never cached: admin responses carry a session
       expect(cacheQueryParams(route(rel)).sort(), rel).toEqual(expect.arrayContaining(params));
     }
+  });
+});
+
+describe("the driver profile's Kudos fragment (driver-profile-polish FR6.5)", () => {
+  const kudos = PAGES['/src/pages/drivers/[id]/kudos.astro'];
+
+  it('is cached like the awards card, under its bare path, and never for an unknown id', () => {
+    expect(kudos).toContain(
+      "Astro.response.headers.set('Cache-Control', 'public, s-maxage=600, stale-while-revalidate=3600');",
+    );
+    expect(kudos).toContain(
+      "return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });",
+    );
+    expect(code(kudos)).toMatch(/markUncacheable\(Astro\)/);
+    expect(cacheKeyUrl(new URL('https://atc.example/drivers/abc/kudos?x=1'))).toBe(
+      'https://atc.example/drivers/abc/kudos',
+    );
+  });
+
+  it('is loaded by the shell into a placeholder the shell renders, so the shell reads nothing more', () => {
+    const shell = page('drivers/[id].astro');
+    expect(shell).toContain('data-driver-kudos={`/drivers/${driverId}/kudos`}');
+    expect(shell).toMatch(/querySelector<HTMLElement>\('\[data-driver-kudos\]'\)/);
+    expect(shell).toMatch(/void loadFragment\(corner,/);
+    expect(shell).not.toMatch(/getKudosInvolvingDriver|loadDriverKudos/);
   });
 });
 

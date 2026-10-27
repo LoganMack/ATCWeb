@@ -1,0 +1,20 @@
+---
+// Shows an icon's name under it while the icon has focus, where a `title` never appears (driver-profile-polish
+// FR2.5). The slotted icon must be focusable; mouse users still get its `title`. The tip is aria-hidden
+// because the icon's own aria-label already names it.
+interface Props {
+  label: string;
+}
+
+const { label } = Astro.props;
+---
+
+<span class="group relative inline-flex flex-none">
+  <slot />
+  <span
+    aria-hidden="true"
+    class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 font-sans text-[11px] font-semibold not-italic normal-case tracking-normal text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-focus-within:opacity-100"
+  >
+    {label}
+  </span>
+</span>

@@ -89,18 +89,30 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
     }));
   }
 
+  // Team split rows carry the team's logo the same way (FR5), from the first of its races that has one;
+  // "Independent" has none.
+  function buildTeamRows(
+    posFn: (r: DriverRaceHistoryRow) => number,
+    qualPosFn: (r: DriverRaceHistoryRow) => number | null,
+  ): SplitRow[] {
+    return buildUnorderedRows(teamGroups, posFn, qualPosFn).map((row) => ({
+      ...row,
+      logoUrl: teamGroups.get(row.label)?.find((r) => r.team?.logoUrl)?.team?.logoUrl ?? null,
+    }));
+  }
+
   const splitGroupsOverall: SplitGroup[] = [
     { name: 'Month', rows: buildSplitRows(monthGroups, overallPos, overallQualPos, MONTH_NAMES) },
     { name: 'Round', rows: buildSplitRows(roundGroups, overallPos, overallQualPos, ROUND_BUCKETS) },
     { name: 'Car', rows: buildCarRows(overallPos, overallQualPos) },
-    { name: 'Team', rows: buildUnorderedRows(teamGroups, overallPos, overallQualPos) },
+    { name: 'Team', rows: buildTeamRows(overallPos, overallQualPos) },
     { name: 'Layout', rows: buildUnorderedRows(layoutGroups, overallPos, overallQualPos) },
   ];
   const splitGroupsClass: SplitGroup[] = [
     { name: 'Month', rows: buildSplitRows(monthGroups, classPos, classQualPos, MONTH_NAMES) },
     { name: 'Round', rows: buildSplitRows(roundGroups, classPos, classQualPos, ROUND_BUCKETS) },
     { name: 'Car', rows: buildCarRows(classPos, classQualPos) },
-    { name: 'Team', rows: buildUnorderedRows(teamGroups, classPos, classQualPos) },
+    { name: 'Team', rows: buildTeamRows(classPos, classQualPos) },
     { name: 'Layout', rows: buildUnorderedRows(layoutGroups, classPos, classQualPos) },
   ];
 

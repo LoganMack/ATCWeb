@@ -1,0 +1,78 @@
+---
+export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import HistoryTabs from '../../components/HistoryTabs.astro';
+import KudosEntryCard from '../../components/KudosEntryCard.astro';
+import { markUncacheable } from '../../lib/security';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getSeasons, type Season } from '../../lib/db/seasons';
+import { getRoundContexts, type RoundContext } from '../../lib/roundContext';
+import { getKudosForSubsessions, type KudosEntry } from '../../lib/kudos';
+
+/**
+ * History > Kudos as a fragment for the kudos.astro shell: one season's kudos, newest first, from the masked
+ * kudos_shown view (driver-profile-polish FR7). Three reads: seasons, the season's rounds with their
+ * numbering, and the kudos. Never linked directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let seasons: Season[] = [];
+let selected: Season | undefined;
+let rounds = new Map<number, RoundContext>();
+let entries: KudosEntry[] = [];
+try {
+  seasons = await getSeasons(supabaseEnv);
+  const requested = Astro.url.searchParams.get('season');
+  selected = seasons.find((s) => s.id === requested) ?? seasons.find((s) => s.is_current) ?? seasons[0];
+  if (selected) {
+    rounds = await getRoundContexts(supabaseEnv, selected.id);
+    // A kudos whose round is not listed (hidden by "View as Broadcaster") is left out.
+    entries = (await getKudosForSubsessions(supabaseEnv, [...rounds.keys()])).filter((k) =>
+      rounds.has(k.subsession_id),
+    );
+  }
+} catch (err) {
+  console.error('Failed to load kudos (fragment):', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
+---
+
+{loadError && <LoadError />}
+
+{!loadError && (
+  <div>
+    <div class="reveal is-visible relative z-30 mt-12 rounded-xl border border-white/10 bg-brand-ink p-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <HistoryTabs active="kudos" />
+        <label class="flex flex-col gap-1.5 sm:w-44">
+          <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+          <select
+            aria-label="Season"
+            data-navigate-on-change="/kudos?season="
+            data-testid="kudos-season-select"
+            class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          >
+            {seasons.map((s) => (
+              <option value={s.id} selected={s.id === selected?.id} class="bg-brand-ink text-white">{s.name}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+
+    {entries.length === 0 ? (
+      <p class="mt-6 rounded-lg border border-white/10 bg-brand-ink p-6 text-center text-sm text-white/50" data-testid="kudos-empty">
+        No kudos shared {selected ? `in ${selected.name}` : ''} yet.
+      </p>
+    ) : (
+      <ul class="mt-6 flex flex-col gap-2" data-testid="kudos-list">
+        {entries.map((entry) => <KudosEntryCard entry={entry} round={rounds.get(entry.subsession_id)!} />)}
+      </ul>
+    )}
+  </div>
+)}

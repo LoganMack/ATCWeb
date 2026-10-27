@@ -52,6 +52,8 @@ export const BANNER_PAGES: BannerPageDef[] = [
   { key: 'awards', label: 'Awards', description: '/awards', width: 1024 },
   { key: 'media', label: 'Media', description: '/media', width: 1024 },
   { key: 'incidents', label: 'Incidents', description: '/incidents', width: 1152 },
+  { key: 'kudos', label: 'Kudos', description: '/kudos', width: 1152 },
+  { key: 'interviews', label: 'Interviews', description: '/interviews', width: 1152 },
 ];
 
 import { resizedImageSrcset, resizedImageUrl } from './db/drivers';

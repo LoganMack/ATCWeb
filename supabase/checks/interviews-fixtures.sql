@@ -3,7 +3,8 @@
 -- admin); ownership after the account relinks to another driver; the uploader-only storage delete;
 -- my_interview_audio_exists and delete_my_interview_record with every code, including an object with the same
 -- name in another bucket; the re-upload lock on a submitted path; and a new recording after a full delete,
--- inside and outside the 7-day window (V01-V11).
+-- inside and outside the 7-day window (V01-V11); and the members' read through race_interviews_shown
+-- (20261107120000_interviews_members_view.sql), which leaves out drivers hidden from the caller (V12).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- incident-management-fixtures.sql:
@@ -207,15 +208,17 @@ begin
 end $$;
 rollback to savepoint fixture;
 
--- V03 Objects: the uploader reads their own, another account and anon none, an admin both (BR12.2; NFR1.3)
+-- V03 Objects: any signed-in account reads shown interviews' audio, anon none, an admin both (BR12.2 amended by
+-- driver-profile-polish FR8.4; NFR1.3)
 do $$
 declare
   v_i1 text := '99999999-0000-0000-0000-000000000901/9909001.webm';
   v_i2 text := '99999999-0000-0000-0000-000000000902/9909001.webm';
 begin
   perform interview_fixture.expect('V03 Ana reads I1', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000902', v_i1), '1');
-  perform interview_fixture.expect('V03 Ana cannot read I2', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000902', v_i2), '0');
-  perform interview_fixture.expect('V03 unlinked reads none', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000904', v_i1), '0');
+  perform interview_fixture.expect('V03 Ana reads I2', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000902', v_i2), '1');
+  perform interview_fixture.expect('V03 unlinked reads I1', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000904', v_i1), '1');
+  perform interview_fixture.expect('V03 anon reads none', interview_fixture.objects_as('anon', v_i2), '0');
   perform interview_fixture.expect('V03 anon reads none', interview_fixture.objects_as('anon', v_i1), '0');
   perform interview_fixture.expect('V03 admin reads I2', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000901', v_i2), '1');
   raise notice 'ok V03 object reads';
@@ -366,6 +369,31 @@ begin
     $q$select public.submit_race_interview(gen_random_uuid(), 9909002, %L, 'audio/webm', 20)$q$, v_old)),
     'interview window closed');
   raise notice 'ok V11 window closed';
+end $$;
+rollback to savepoint fixture;
+
+-- V12 Members' view: anon has no grant; with Ben's name hidden, an unlinked account no longer sees I2's row or
+-- audio, while a linked account and an admin still do (driver-profile-polish FR8.2-FR8.4; NFR1)
+do $$
+declare
+  v_i2 text := '99999999-0000-0000-0000-000000000902/9909001.webm';
+  v_ids text := 'select string_agg(id::text, '','' order by id) from public.race_interviews_shown';
+begin
+  perform interview_fixture.expect('V12 anon cannot read the view', interview_fixture.state_as('anon',
+    'select count(*) from public.race_interviews_shown'), '42501');
+  perform interview_fixture.expect('V12 unlinked reads both before', interview_fixture.text_as('eeeeeeee-0000-0000-0000-000000000904',
+    v_ids), 'a1a1a1a1-0000-0000-0000-000000000901,a1a1a1a1-0000-0000-0000-000000000902');
+  insert into public.account_settings (profile_id, hide_name, hide_profile)
+  values ('eeeeeeee-0000-0000-0000-000000000903', true, false)
+  on conflict (profile_id) do update set hide_name = true;
+  perform interview_fixture.expect('V12 unlinked reads I1 only', interview_fixture.text_as('eeeeeeee-0000-0000-0000-000000000904',
+    v_ids), 'a1a1a1a1-0000-0000-0000-000000000901');
+  perform interview_fixture.expect('V12 unlinked cannot read hidden audio',
+    interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000904', v_i2), '0');
+  perform interview_fixture.expect('V12 Ana still reads I2', interview_fixture.objects_as('eeeeeeee-0000-0000-0000-000000000902', v_i2), '1');
+  perform interview_fixture.expect('V12 admin reads both', interview_fixture.text_as('eeeeeeee-0000-0000-0000-000000000901',
+    'select count(*) from public.race_interviews_shown'), '2');
+  raise notice 'ok V12 members view';
 end $$;
 rollback to savepoint fixture;
 
