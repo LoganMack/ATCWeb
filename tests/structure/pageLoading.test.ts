@@ -181,6 +181,7 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
     'submission',
     'view',
   ],
+  'results/[subsessionId]/incidents/submissions/fragment.astro': [],
   'results/[subsessionId]/kudos/fragment.astro': ['kudos'],
   'results/fragment.astro': ['season'],
   'roster/fragment.astro': [],

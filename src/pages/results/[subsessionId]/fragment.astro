@@ -393,9 +393,8 @@ const activeClass = classes.find((c) => c.name.toLowerCase() === classParam) ?? 
 const classKey = activeClass ? activeClass.name.toLowerCase() : 'all';
 
 // --- Incident reporting (Logan): open for the configured hours after the race (src/lib/incidentReports.ts).
-// The button reads "Report Incident" while open and links to the Incident Report once stewards post the round
-// (which ends reporting); in between, no button (#75). Admins always get the link; the POST re-checks the
-// window.
+// "Report Incident" shows while reporting is open; next to it, every visitor gets "Incident Submissions"
+// until stewards post the round (which ends reporting), then "Incident Report". The POST re-checks the window.
 const reportSessionOptions: { value: string; label: string }[] = [
   ...overallRaceNumbers.map((n) => ({ value: `race:${n}`, label: `Race ${n}` })),
   { value: 'qualifying:0', label: 'Qualifying' },
@@ -411,11 +410,8 @@ const reportDrivers = [...reportDriverById.values()].sort(
   (a, b) => (a.car_number ?? Infinity) - (b.car_number ?? Infinity) || a.name.localeCompare(b.name)
 );
 const reportingOpen = !roundPosted && isReportingOpen(reportingWindow);
-const incidentButtonState: 'report' | 'view' | null = isAdmin || roundPosted ? 'view' : reportingOpen ? 'report' : null;
-// Admins normally only see the "Incident Report" link, but while reporting
-// is still open they also get the Report Incident button (placed between the
-// Race Links and Incident Report buttons) so they can file one themselves.
-const showReportButton = reportingOpen && (incidentButtonState === 'report' || isAdmin);
+const incidentButtonState: 'submissions' | 'view' = roundPosted ? 'view' : 'submissions';
+const showReportButton = reportingOpen;
 // Reporting is open to signed-out visitors too; a signed-in reporter's
 // identity is attached server-side (submit_incident_report reads their JWT).
 const reportSession = Astro.locals.session;
@@ -691,10 +687,10 @@ if (loadError) markUncacheable(Astro);
             </select>
           </label>
           <div class="flex flex-wrap items-center gap-2 sm:ml-auto">
-            {isAdmin && showReportButton && (
+            {showReportButton && (
               <IncidentButton state="report" incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />
             )}
-            {incidentButtonState && <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} closesAtIso={reportingWindow?.closesUtc.toISOString() ?? null} />}
+            <IncidentButton state={incidentButtonState} incidentsHref={incidentsHref} />
             <RaceLinksBlock links={raceLinks} isAdmin={isAdmin} subsessionId={subsessionId} canonicalRaceNumber={canonicalRaceNumber} action={formAction} fieldError={isAdmin ? Astro.url.searchParams.get('links_error') : null} />
             {/* Icon-only; the label shows on hover/keyboard focus (same tooltip look as the incident button's). */}
             <span class="group relative">

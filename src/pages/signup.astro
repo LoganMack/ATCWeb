@@ -123,12 +123,12 @@ if (Astro.request.method === 'POST') {
           <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off" /></label>
         </div>
         <label class="flex flex-col gap-1.5 text-sm">
-          <span class="text-white/70">Display name</span>
+          <span class="text-white/70">Username</span>
           <input
             type="text"
             name="display_name"
             maxlength="60"
-            autocomplete="name"
+            autocomplete="username"
             value={submittedName}
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
