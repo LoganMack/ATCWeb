@@ -1,0 +1,96 @@
+---
+/**
+ * One table per session of an unposted round's incident submissions, in event order (BR2.8). Every table uses
+ * a fixed layout and the same column widths, so the columns line up from table to table (BR2.9). The
+ * viewer's own car stands out in the brand pink with a screen-reader note (BR2.10). Used by the public
+ * Incident Submissions page and, without actions, above an admin's incidents table (BR2.11).
+ */
+import {
+  INCIDENT_SUBMISSION_COL_WIDTHS,
+  INCIDENT_SUBMISSION_COLUMNS,
+  type IncidentSubmissionSession,
+} from '../lib/incidentSubmissions';
+
+interface Props {
+  sessions: IncidentSubmissionSession[];
+  /** False hides the Add Comment buttons (the admin view). */
+  showActions?: boolean;
+}
+
+const { sessions, showActions = true } = Astro.props;
+---
+
+{
+  sessions.map((s) => (
+    <div class="mt-10" data-submissions-session={s.key}>
+      <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{s.label}</h3>
+      <div class="mt-2 rounded-xl border border-white/10">
+        <table class="w-full table-fixed border-collapse">
+          <colgroup>
+            {INCIDENT_SUBMISSION_COL_WIDTHS.map((width) => (
+              <col class={width || undefined} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+              <th class="py-3 pl-4 pr-3 font-medium">{INCIDENT_SUBMISSION_COLUMNS[0]}</th>
+              <th class="py-3 pr-3 text-center font-medium">{INCIDENT_SUBMISSION_COLUMNS[1]}</th>
+              <th class="py-3 pr-3 font-medium">{INCIDENT_SUBMISSION_COLUMNS[2]}</th>
+              <th class="py-3 pr-4"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {s.rows.map((row) => (
+              <tr class="border-b border-white/5 text-sm" data-incident-row={row.id}>
+                <td class="py-2.5 pl-4 pr-3 text-white/60">{row.numberLabel}</td>
+                <td class="py-2.5 pr-3 text-center text-white/60">{row.lap ?? '—'}</td>
+                <td class="break-words py-2.5 pr-3 text-white/70" data-involved-cars>
+                  {row.involved.length === 0
+                    ? '—'
+                    : row.involved.map((car, i) => (
+                        <>
+                          {i > 0 && ', '}
+                          {car.mine ? (
+                            <span class="font-semibold text-brand-pink" data-my-car>
+                              #{car.car}
+                              <span class="sr-only"> (your car)</span>
+                            </span>
+                          ) : (
+                            <span>#{car.car}</span>
+                          )}
+                        </>
+                      ))}
+                </td>
+                <td class="py-2.5 pr-4">
+                  {showActions && (
+                    <div class="flex flex-wrap items-center justify-end gap-2" data-incident-row-actions>
+                      {(row.comment || row.commentSent) && (
+                        <span class="text-xs text-white/50" data-incident-row-status>
+                          {row.commentSent ? 'Comment sent' : ''}
+                        </span>
+                      )}
+                      {row.comment && (
+                        <button
+                          type="button"
+                          class="btn btn-gold btn-sm"
+                          data-incident-comment
+                          data-report-id={row.id}
+                          data-round={row.comment.roundLabel}
+                          data-session={row.comment.sessionLabel}
+                          data-lap={row.comment.lap}
+                          data-turn={row.comment.turn}
+                        >
+                          Add Comment
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  ))
+}

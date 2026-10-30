@@ -102,12 +102,18 @@ describe('submissionFlashFor', () => {
 });
 
 describe('the incidents screen markup', () => {
-  it('puts Edit Submission after Add to Report, on open reports only', () => {
-    const add = FRAGMENT.search(/>\s*Add to Report\s*</);
+  // The card's button order (incident clips, FR3.1): ... Add/Edit Review, Edit Submission, Add/Edit Video,
+  // Add to Report, then Dismiss.
+  it('puts Edit Submission after the review button and before Add/Edit Video and Add to Report, on open reports only', () => {
+    const review = FRAGMENT.search(/\{myReview \? 'Edit Review' : 'Add Review'\}\s*<\/button>\s*\)\}/);
     const edit = FRAGMENT.search(/>\s*Edit Submission\s*</);
-    expect(add).toBeGreaterThan(-1);
-    expect(edit).toBeGreaterThan(add);
-    expect(FRAGMENT.slice(add, edit)).toMatch(
+    const video = FRAGMENT.indexOf('data-testid="report-edit-video"');
+    const add = FRAGMENT.search(/>\s*Add to Report\s*</);
+    expect(review).toBeGreaterThan(-1);
+    expect(edit).toBeGreaterThan(review);
+    expect(video).toBeGreaterThan(edit);
+    expect(add).toBeGreaterThan(video);
+    expect(FRAGMENT.slice(review, edit)).toMatch(
       /\{r\.status === 'open' && \(\s*<button\s+type="button"\s+data-edit-submission=/,
     );
     expect(FRAGMENT).toMatch(/data-edit-submission=[\s\S]{0,200}class="btn btn-gold btn-sm"/);

@@ -89,7 +89,21 @@ import {
   SUBMISSION_FLASH_MESSAGES,
   type SubmissionFlash,
 } from '../../../../lib/incidentActions/editReportSubmission';
+import {
+  handleSetIncidentVideo,
+  handleSetReportVideo,
+  VIDEO_FLASH_MESSAGES,
+  type VideoFlash,
+} from '../../../../lib/incidentActions/setVideo';
+import { INCIDENT_FIELD_MESSAGES, type IncidentFieldFlash } from '../../../../lib/incidentActions/saveIncident';
 import ReportIncidentDialog from '../../../../components/ReportIncidentDialog.astro';
+import IncidentSubmissionsTables from '../../../../components/IncidentSubmissionsTables.astro';
+import { applyReportOrder, getIncidentReportOrder } from '../../../../lib/incidentOrder';
+import {
+  buildIncidentSubmissionsView,
+  getIncidentSubmissions,
+  type IncidentSubmissionSession,
+} from '../../../../lib/incidentSubmissions';
 
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI — and blocks the POST
@@ -156,6 +170,8 @@ const ADMIN_HANDLERS = new Map<
   ['set-appeal-status', handleSetAppealStatus],
   ['delete-incident', handleDeleteIncident],
   ['edit-report-submission', handleEditReportSubmission],
+  ['set-report-video', handleSetReportVideo],
+  ['set-incident-video', handleSetIncidentVideo],
 ]);
 
 // Submitting an appeal is open to any signed-in user; every other intent is admin-only (below).
@@ -260,37 +276,35 @@ const raceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
 // shown above the incident list; RLS already limits non-admins to nothing
 // but their own rows, but this page only ever renders it for admins.
 let incidentReports: IncidentReport[] = [];
+// "INC n": the database's shared order (private.incident_report_order, BR2.1), the same numbers the public
+// Incident Submissions page shows. Event order (Practice, Qualifying, Race 1..n), lap, natural turn order,
+// submission time; dismissed reports get no number and close the gap.
+let reportNumberById = new Map<string, number>();
 if (adminSession) {
   try {
-    incidentReports = await getIncidentReportsForSubsession(supabaseEnv, adminSession.accessToken, subsessionId);
+    const [reports, order] = await Promise.all([
+      getIncidentReportsForSubsession(supabaseEnv, adminSession.accessToken, subsessionId),
+      getIncidentReportOrder(supabaseEnv, adminSession.accessToken, subsessionId),
+    ]);
+    ({ reports: incidentReports, numbers: reportNumberById } = applyReportOrder(reports, order));
   } catch (err) {
     console.error('Failed to load incident reports:', err);
   }
 }
 
-// Chronological: Practice → Qualifying → Race 1 → Race 2 → Race 3, then lap,
-// then turn. `turn` is free text ("3", "10b", "back straight"), so it's a
-// natural sort — 3 before 10 before 10b, with wordy turns after numbered ones.
-function reportSessionRank(session: string): number {
-  const [type, num] = session.split(':');
-  if (type === 'practice') return 0;
-  if (type === 'qualifying') return 1;
-  if (type === 'race') return 2 + (Number(num) || 0);
-  return Number.MAX_SAFE_INTEGER;
+// Admins and staff see the public Incident Submissions tables above the incidents while the round is
+// unposted (BR2.11), read the same way the public page reads them.
+let adminSubmissionSessions: IncidentSubmissionSession[] = [];
+if (adminSession && round && !postedFlag) {
+  try {
+    adminSubmissionSessions = buildIncidentSubmissionsView(
+      await getIncidentSubmissions(resolveSupabaseEnv(Astro.locals), subsessionId),
+      null,
+    );
+  } catch (err) {
+    console.error('Failed to load the incident submissions for the admin view:', err);
+  }
 }
-incidentReports.sort(
-  (a, b) =>
-    reportSessionRank(a.session) - reportSessionRank(b.session) ||
-    a.lap - b.lap ||
-    a.turn.localeCompare(b.turn, undefined, { numeric: true, sensitivity: 'base' }) ||
-    new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-);
-// "INC n", numbered in that chronological order across every group below.
-// Dismissed reports get no number and close the gap, so dismissing or
-// reopening one renumbers the reports after it.
-const reportNumberById = new Map(
-  incidentReports.filter((r) => r.status !== 'dismissed').map((r, i) => [r.id, i + 1])
-);
 
 // Likely duplicate reports: same session, lap and turn with at least one car in common (reporters often leave
 // cars out). Turn ignores case and a leading "T"/"Turn". Dismissed reports are skipped, so dismissing a
@@ -343,12 +357,12 @@ const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
 // Reports still waiting on the stewards — the number on the View Reported Incidents button.
 const openReportCount = incidentReports.filter((r) => r.status === 'open').length;
 
-// This round's layout map and its numbered corners (layout_corners, 0110),
-// View Incidents only: each report card shows the map with the reported
-// turn(s) circled. Failure-tolerant — no map just means no map column.
+// This round's layout map and its numbered corners (layout_corners, 0110): each report card and each
+// incident's popup open the map with the turn(s) circled (BR4.4, BR4.6). Failure-tolerant — no map just
+// means no map button.
 let reportMapUrl: string | null = null;
 let reportMapCorners: MapCorner[] = [];
-if (viewReports && round) {
+if (round) {
   try {
     const [circuits, layouts, roundLayouts] = await Promise.all([
       getCircuits(supabaseEnv),
@@ -540,6 +554,18 @@ const submissionFlash =
   submissionParam && submissionParam in SUBMISSION_FLASH_MESSAGES
     ? SUBMISSION_FLASH_MESSAGES[submissionParam as SubmissionFlash]
     : null;
+// How an Add/Edit Video save went (?video=, set by src/lib/incidentActions/setVideo.ts). A refused link also
+// names the dialog to re-open (?video_for=); the dialog's script puts the typed link back from its draft.
+const videoParam = isAdmin ? Astro.url.searchParams.get('video') : null;
+const videoFlash =
+  videoParam && Object.hasOwn(VIDEO_FLASH_MESSAGES, videoParam) ? VIDEO_FLASH_MESSAGES[videoParam as VideoFlash] : null;
+const videoErrorFor = videoParam === 'invalid' ? (Astro.url.searchParams.get('video_for') ?? '') : '';
+// A refused Turn or copied clip on Add/Edit Incident (?incident=, set by handleSaveIncident).
+const incidentParam = isAdmin ? Astro.url.searchParams.get('incident') : null;
+const incidentFieldFlash =
+  incidentParam === 'turn' || incidentParam === 'video'
+    ? INCIDENT_FIELD_MESSAGES[incidentParam as IncidentFieldFlash]
+    : null;
 
 // Every loggable session: each race plus Qualifying and Practice (race_number 0; 0056), whether or not they
 // have results (Logan).
@@ -590,6 +616,13 @@ function incidentSummaryFor(p: Penalty) {
     canAppeal: Astro.locals.session
       ? myDriverId !== null && (p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId))
       : null,
+    // The popup's icon buttons (BR4.6): the clip, the map with the turn ringed, and for admins the clip editor
+    // keyed by the incident's identity (every row of the incident shares the clip).
+    videoUrl: p.video_url ?? null,
+    turn: p.turn ?? null,
+    mapCorners: reportMapUrl ? matchCorners(p.turn ?? '', reportMapCorners) : null,
+    sessionValue: sessionKey(p),
+    incidentNumberRaw: (p.incident_number ?? '').trim(),
   };
 }
 
@@ -649,6 +682,9 @@ for (const p of sortedPenalties) {
 /** Edit / Remove icon buttons at the end of admin rows (the icon's name shows on hover). */
 const iconBtn = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition hover:bg-white/10 hover:text-white';
 const iconBtnDanger = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-white/40 transition hover:bg-white/10 hover:text-brand-pink';
+/** Icon-only buttons in the Reported Incidents cards and the incident popup: the shared .btn styles (BR3.5). */
+const reportIconBtn = 'btn btn-primary btn-sm px-2';
+const reportDismissBtn = 'btn btn-danger btn-sm px-2';
 
 const sessionKeysWithIncidents = sessionOptions.map((o) => o.value).filter((key) => penaltiesBySession.has(key));
 
@@ -848,6 +884,20 @@ if (loadError) markUncacheable(Astro);
             {appealFlash.message}
           </p>
         )}
+        {videoFlash && (
+          <p
+            role="status"
+            data-video-flash
+            class={`mt-4 rounded-lg border p-3 text-sm text-white/80 ${videoFlash.ok ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}
+          >
+            {videoFlash.message}
+          </p>
+        )}
+        {incidentFieldFlash && (
+          <p role="status" class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
+            Couldn't save the incident. {incidentFieldFlash}
+          </p>
+        )}
 
         {viewReports && incidentReports.length === 0 && (
           <p class="mt-6 text-white/60">No submitted incidents for this round.</p>
@@ -954,23 +1004,53 @@ if (loadError) markUncacheable(Astro);
                   )}
 
                   <div class="mt-3 border-t border-white/10 pt-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex flex-wrap items-start justify-between gap-2">
                       {r.status === 'dismissed' ? (
                         // In the Dismissed list the reason takes the place of the review count.
                         <p class="min-w-0 flex-1 whitespace-pre-line text-xs text-white/60">
                           <span class="font-semibold text-white/50">Dismissal reason:</span>{' '}
                           {r.dismissal_reason ?? <span class="text-white/40">None given.</span>}
                         </p>
+                      ) : canSeeReviews && visibleReviews.length > 0 ? (
+                        // One line that opens the reviews (BR3.6). Collapsed by default: every action on this page
+                        // reloads it, so a list that started open would undo any hiding.
+                        <details class="group/reviews min-w-0 flex-1" data-review-summary>
+                          <summary class={`flex cursor-pointer list-none flex-wrap items-center gap-x-2 text-xs text-white/50 hover:text-white/70 [&::-webkit-details-marker]:hidden ${dimClass}`}>
+                            <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/reviews:rotate-90" aria-hidden="true">&#9654;</span>
+                            <span>Steward Reviews: {reviewCount}</span>
+                            {style && <span class={`font-semibold ${style.text}`}>{style.label}</span>}
+                            {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
+                              <span class="text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
+                            )}
+                          </summary>
+                          <ul class="mt-1.5 flex flex-col gap-2">
+                            {visibleReviews.map((v) => (
+                              <li class="rounded-md bg-white/5 p-2 text-xs">
+                                <p class="font-semibold text-white/80">
+                                  {v.reviewer_id === myUserId ? 'You' : (v.reviewer_name ?? 'Unknown steward')}
+                                  <span class="font-normal text-white/50">
+                                    {' · '}
+                                    {v.faults.length === 0
+                                      ? 'Racing Incident'
+                                      : v.faults.map((f) => `${reviewDriverLabel(f.driver_id)} · ${reviewPenaltyLabel(f.penalty)}`).join(', ')}
+                                  </span>
+                                  {v.edited_at && <span class="ml-1 font-normal italic text-white/40">(edited)</span>}
+                                </p>
+                                <p class="mt-1 whitespace-pre-line text-white/70">{v.explanation}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
                       ) : (
-                        <p class={`text-xs text-white/50 ${dimClass}`}>
-                          Steward reviews: {reviewCount}
+                        <p class={`text-xs text-white/50 ${dimClass}`} data-review-summary>
+                          Steward Reviews: {reviewCount}
                           {style && <span class={`ml-2 font-semibold ${style.text}`}>{style.label}</span>}
                           {myReview && !style && reviewCount < REVIEW_AGREEMENT_MIN && (
                             <span class="ml-2 text-white/30">({REVIEW_AGREEMENT_MIN} needed to compare)</span>
                           )}
                         </p>
                       )}
-                      <div class="flex flex-wrap items-center gap-2">
+                      <div class="flex flex-wrap items-center gap-2" data-report-actions>
                       {reviewsLocked && r.status === 'open' && (
                         <span class="text-xs text-white/40">Reopened after logging — log or dismiss it</span>
                       )}
@@ -989,6 +1069,20 @@ if (loadError) markUncacheable(Astro);
                           <span class={reviewTipClass} role="tooltip">No logged incident was found for this report.</span>
                         </span>
                       ))}
+                      {r.video_url && (
+                        <button
+                          type="button"
+                          data-open-video
+                          data-video-url={r.video_url}
+                          data-video-title={`Incident${reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`}
+                          data-testid="report-watch-video"
+                          aria-label="Watch video"
+                          title="Watch video"
+                          class={reportIconBtn}
+                        >
+                          <RowIcon name="video" />
+                        </button>
+                      )}
                       {reportMapUrl && (
                         <button
                           type="button"
@@ -998,9 +1092,12 @@ if (loadError) markUncacheable(Astro);
                             subtitle: reportSubtitle(r),
                             corners: turnCorners,
                           })}
-                          class="btn btn-primary btn-sm"
+                          data-testid="report-view-map"
+                          aria-label="View map"
+                          title="View map"
+                          class={reportIconBtn}
                         >
-                          View Map
+                          <RowIcon name="map" />
                         </button>
                       )}
                       {reviewBlockedReason ? (
@@ -1029,20 +1126,35 @@ if (loadError) markUncacheable(Astro);
                       {r.status === 'open' && (
                         <button
                           type="button"
-                          data-log-report
-                          data-report={JSON.stringify({ id: r.id, number: reportNumberById.get(r.id) ?? null, session: r.session, lap: r.lap, turn: r.turn, description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
-                          class="btn btn-gold btn-sm"
-                        >
-                          Add to Report
-                        </button>
-                      )}
-                      {r.status === 'open' && (
-                        <button
-                          type="button"
                           data-edit-submission={JSON.stringify({ report_id: r.id, session: r.session, lap: r.lap, turn: r.turn, driver_ids: r.driver_ids })}
                           class="btn btn-gold btn-sm"
                         >
                           Edit Submission
+                        </button>
+                      )}
+                      {/* Any status: a clip can be added after logging or dismissing too (BR3.1). */}
+                      <button
+                        type="button"
+                        data-edit-video={JSON.stringify({
+                          intent: 'set-report-video',
+                          target: `report:${r.id}`,
+                          fields: { report_id: r.id },
+                          url: r.video_url ?? '',
+                          heading: `Incident${reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`,
+                        })}
+                        data-testid="report-edit-video"
+                        class="btn btn-gold btn-sm"
+                      >
+                        {r.video_url ? 'Edit Video' : 'Add Video'}
+                      </button>
+                      {r.status === 'open' && (
+                        <button
+                          type="button"
+                          data-log-report
+                          data-report={JSON.stringify({ id: r.id, number: reportNumberById.get(r.id) ?? null, session: r.session, lap: r.lap, turn: r.turn, video_url: r.video_url ?? '', description: r.description, reporter: r.reporter_name, driver_ids: r.driver_ids })}
+                          class="btn btn-gold btn-sm"
+                        >
+                          Add to Report
                         </button>
                       )}
                       {r.status === 'open' ? (
@@ -1051,9 +1163,12 @@ if (loadError) markUncacheable(Astro);
                           type="button"
                           data-open-dismiss-dialog
                           data-dismiss={JSON.stringify({ report_id: r.id, label: `Incident${reportNumberById.get(r.id) ? ` #${reportNumberById.get(r.id)}` : ''}: ${reportSubtitle(r)}` })}
-                          class="btn btn-danger btn-sm"
+                          data-testid="report-dismiss"
+                          aria-label="Dismiss"
+                          title="Dismiss"
+                          class={reportDismissBtn}
                         >
-                          Dismiss
+                          <RowIcon name="remove" />
                         </button>
                       ) : (
                         <form method="POST" action={formAction} data-astro-reload>
@@ -1072,35 +1187,6 @@ if (loadError) markUncacheable(Astro);
                       </p>
                     )}
 
-                    {/* Collapsed by default, like the Dismissed group — every action on
-                        this page reloads it, so a list that started open would undo
-                        any hiding. The count and agreement colour above stay visible. */}
-                    {canSeeReviews && visibleReviews.length > 0 && (
-                      <details class="group/reviews mt-2">
-                        <summary class="flex cursor-pointer list-none items-center gap-2 text-xs text-white/50 hover:text-white/70 [&::-webkit-details-marker]:hidden">
-                          <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/reviews:rotate-90" aria-hidden="true">&#9654;</span>
-                          <span class="group-open/reviews:hidden">Show reviews ({visibleReviews.length})</span>
-                          <span class="hidden group-open/reviews:inline">Hide reviews</span>
-                        </summary>
-                        <ul class="mt-1.5 flex flex-col gap-2">
-                          {visibleReviews.map((v) => (
-                            <li class="rounded-md bg-white/5 p-2 text-xs">
-                              <p class="font-semibold text-white/80">
-                                {v.reviewer_id === myUserId ? 'You' : (v.reviewer_name ?? 'Unknown steward')}
-                                <span class="font-normal text-white/50">
-                                  {' · '}
-                                  {v.faults.length === 0
-                                    ? 'Racing Incident'
-                                    : v.faults.map((f) => `${reviewDriverLabel(f.driver_id)} · ${reviewPenaltyLabel(f.penalty)}`).join(', ')}
-                                </span>
-                                {v.edited_at && <span class="ml-1 font-normal italic text-white/40">(edited)</span>}
-                              </p>
-                              <p class="mt-1 whitespace-pre-line text-white/70">{v.explanation}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
                   </div>
                   </div>
                 </li>
@@ -1202,6 +1288,16 @@ if (loadError) markUncacheable(Astro);
             </ul>
           </details>
           </div>
+        )}
+
+        {/* While the round is unposted, admins and staff see what the public Incident Submissions page shows,
+            above the incidents (BR2.11); no Add Comment for them. */}
+        {!viewReports && adminSubmissionSessions.length > 0 && (
+          <section class="mt-10" data-admin-submissions>
+            <h2 class="font-display text-2xl">Incident Submissions</h2>
+            <p class="mt-1 text-sm text-white/60">What everyone else sees on this page until the round is posted.</p>
+            <IncidentSubmissionsTables sessions={adminSubmissionSessions} showActions={false} />
+          </section>
         )}
 
         {/* Admins reach the submitted reports from the View Reported Incidents button at the top of the page,
@@ -1335,6 +1431,7 @@ if (loadError) markUncacheable(Astro);
                                         driver_id: p.driver_id,
                                         incident_number: p.incident_number,
                                         lap: p.lap,
+                                        turn: p.turn ?? '',
                                         description: p.description,
                                         time_penalty_seconds: p.time_penalty_seconds,
                                         points_penalty: p.points_penalty,
@@ -1633,13 +1730,15 @@ if (loadError) markUncacheable(Astro);
               {/* Edit only: the car the row belonged to before this edit, so its PP is re-tallied if the edit moves the penalty to another car. */}
               <input type="hidden" name="original_driver_id" data-incident-original-driver-field value="" />
               <input type="hidden" name="from_report_id" data-incident-from-report-field value="" />
+              {/* Add to Report copies the report's clip here; every row the save creates gets it (BR4.1). */}
+              <input type="hidden" name="video_url" data-incident-video-field value="" />
 
               <div class="flex items-center justify-between">
                 <h4 class="font-display text-xl" data-incident-heading>Add Incident</h4>
                 <button type="button" data-close-incident-dialog class="text-white/40 hover:text-white">✕</button>
               </div>
 
-              <div class="grid grid-cols-3 gap-3">
+              <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Incident #
                   <input type="text" name="incident_number" data-incident-number-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
@@ -1659,6 +1758,11 @@ if (loadError) markUncacheable(Astro);
                 <label class="flex flex-col gap-1 text-[11px] text-white/50">
                   Lap
                   <input type="number" name="lap" data-incident-lap-field required class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
+                </label>
+                {/* Optional; only rings the corner on the layout map (BR4.3, BR4.4). */}
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Turn
+                  <input type="text" name="turn" maxlength="80" data-incident-turn-field class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary" />
                 </label>
               </div>
               {/* Shown when the Incident # is already used by a logged incident this round. A warning only — saving is still allowed. */}
@@ -1806,6 +1910,56 @@ if (loadError) markUncacheable(Astro);
           </dialog>
         )}
 
+        {/* Add/Edit Video (BR3.2, BR3.4, BR5.1): one dialog for report and incident clips. The opener
+           (videoClips.ts, bound in incidents.astro) sets the heading, intent, ids and link. An empty box
+           removes the clip. A refused link re-opens it here with the message (data-video-error). */}
+        {isAdmin && (
+          <dialog
+            data-video-url-dialog
+            data-video-error={videoErrorFor}
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload data-video-url-form class="flex flex-col gap-4 p-5">
+              <input type="hidden" name="intent" data-video-intent value="set-report-video" />
+              <input type="hidden" name="report_id" data-video-field="report_id" disabled />
+              <input type="hidden" name="session" data-video-field="session" disabled />
+              <input type="hidden" name="incident_number" data-video-field="incident_number" disabled />
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h4 data-video-dialog-title class="font-display text-lg">Add Video</h4>
+                  <p data-video-dialog-heading class="text-xs text-white/50"></p>
+                </div>
+                <button type="button" data-close-video-url-dialog class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+              </div>
+              <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                Video URL
+                <input
+                  type="url"
+                  name="video_url"
+                  maxlength="500"
+                  inputmode="url"
+                  autocomplete="off"
+                  placeholder="https://"
+                  data-video-url-input
+                  class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                />
+              </label>
+              <p class="text-[11px] text-white/40">A YouTube link, a video file link (such as a Discord attachment) or any other link. Leave empty to remove the clip.</p>
+              <p
+                data-video-url-error
+                role="alert"
+                class={`rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90 ${videoErrorFor ? '' : 'hidden'}`}
+              >
+                {VIDEO_FLASH_MESSAGES.invalid.message}
+              </p>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-close-video-url-dialog class="btn btn-neutral">Cancel</button>
+                <button type="submit" class="btn btn-gold">Save</button>
+              </div>
+            </form>
+          </dialog>
+        )}
+
         {/* "Incident Details" popup, for every viewer: description, offenses and appeal notes, plus "Submit
            Appeal" while the appeal window is open. */}
         <dialog
@@ -1874,7 +2028,7 @@ if (loadError) markUncacheable(Astro);
               </div>
             </dl>
 
-            <div class="flex justify-end">
+            <div class="flex flex-wrap items-center justify-end gap-2">
               {appealOpen && !Astro.locals.session ? (
                 <a href={`/login?next=${encodeURIComponent(shellPath)}`} class="btn btn-gold">Sign in to appeal</a>
               ) : (
@@ -1888,6 +2042,37 @@ if (loadError) markUncacheable(Astro);
                   class="btn btn-gold"
                 >
                   Submit Appeal
+                </button>
+              )}
+              {/* Bottom right (BR4.6): filled in by openDetails in incidents.astro from the incident's summary. */}
+              {/* Hidden with the `hidden` class, not the attribute: .btn sets its own display. */}
+              <button
+                type="button"
+                data-open-video
+                data-mobile-video
+                data-testid="incident-watch-video"
+                aria-label="Watch video"
+                title="Watch video"
+                class={`${reportIconBtn} hidden`}
+              >
+                <RowIcon name="video" />
+              </button>
+              {reportMapUrl && (
+                <button
+                  type="button"
+                  data-open-report-map
+                  data-mobile-map
+                  data-testid="incident-view-map"
+                  aria-label="View map"
+                  title="View map"
+                  class={`${reportIconBtn} hidden`}
+                >
+                  <RowIcon name="map" />
+                </button>
+              )}
+              {isAdmin && (
+                <button type="button" data-edit-video data-mobile-edit-video data-testid="incident-edit-video" class="btn btn-gold hidden">
+                  Add Video
                 </button>
               )}
             </div>
@@ -1982,7 +2167,7 @@ if (loadError) markUncacheable(Astro);
           />
         )}
 
-        {viewReports && reportMapUrl && (
+        {reportMapUrl && (
           <dialog
             data-report-map-dialog
             class="w-full max-w-xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
@@ -1997,9 +2182,9 @@ if (loadError) markUncacheable(Astro);
               </div>
               {/* The reported turn(s) are ringed by script (initReportMapDialog in incidents.astro) from the clicked card's data-map. */}
               <div data-report-map-plate class="layout-map-plate map-plate-dialog border border-white/10" role="img" aria-label="Layout map">
-                <img class="layout-map-img" src={reportMapUrl} alt="" decoding="async" />
+                <img class="layout-map-img" src={reportMapUrl} alt="" decoding="async" loading="lazy" />
               </div>
-              <p data-report-map-note class="hidden text-xs text-white/40">This report's turn isn't marked on the map.</p>
+              <p data-report-map-note class="hidden text-xs text-white/40">This turn isn't marked on the map.</p>
             </div>
           </dialog>
         )}

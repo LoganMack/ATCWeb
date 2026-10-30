@@ -6,7 +6,8 @@
  * TIME_LIMITED_RACE_ASSUMED_MINUTES; only `raceEndUtc` changes once one exists.
  */
 
-import { restGet, restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
+import { restGet, restGetAuthed, restPatch, restRpc, withAccessToken, type SupabaseEnv } from './db/client';
+import { clipWriteFailure, type ClipWriteResult } from './clipLink';
 import { getSiteSettings } from './db/assets';
 import { siteSettingInt, INCIDENT_REPORT_PERIOD_HOURS_KEY } from './siteSettings';
 import { zonedTimeToUtc, LEAGUE_TIME_ZONE } from './timezone';
@@ -165,29 +166,86 @@ export async function getPostedSubsessionIds(env: SupabaseEnv): Promise<Set<numb
   return new Set(rows.map((r) => r.subsession_id));
 }
 
-/** Admin: post/unpost a round's incident report. */
+/** One round's posting state for the Incident Reporting table. `posted_at` counts only while `posted`. */
+export interface RoundPostingStatus {
+  posted: boolean;
+  posted_at: string | null;
+  first_posted_at: string | null;
+}
+
+/** Every round's posting state, by subsession id, in one read. Rounds with no row have never been posted. */
+export async function getRoundPostingStatuses(env: SupabaseEnv): Promise<Map<number, RoundPostingStatus>> {
+  const rows = await restGet<(RoundPostingStatus & { subsession_id: number })[]>(
+    env,
+    'round_incident_status?select=subsession_id,posted,posted_at,first_posted_at',
+  );
+  return new Map(rows.map(({ subsession_id, ...s }) => [subsession_id, s]));
+}
+
+/** On a re-post, whether the post date (the appeal window's start) is reset to now or the previous one kept. */
+export type PostChoice = 'reset' | 'keep';
+
+export interface SetRoundPostedResult {
+  posted: boolean;
+  /** A new post date was set (a first post, or a re-post with Reset). */
+  reset: boolean;
+  /** The round had never been posted before. */
+  firstPost: boolean;
+}
+
+/**
+ * Admin or Staff: posts or unposts a round's incident report through set_round_incident_posted, which checks
+ * the caller and picks the date. Unposting keeps the date; first_posted_at and the posted email stay with the
+ * database's own trigger. Throws on any failure.
+ */
 export async function setRoundPosted(
   env: SupabaseEnv,
   accessToken: string,
   subsessionId: number,
+  { posted, resetDate }: { posted: boolean; resetDate: boolean },
+): Promise<SetRoundPostedResult> {
+  const body = await restRpc<{ posted?: unknown; reset?: unknown; first_post?: unknown } | null>(
+    withAccessToken(env, accessToken),
+    'set_round_incident_posted',
+    { p_subsession_id: subsessionId, p_posted: posted, p_reset_date: resetDate },
+  );
+  return { posted, reset: body?.reset === true, firstPost: body?.first_post === true };
+}
+
+/** The date choice a posting form sent. With no script (no popup) nothing is sent, which counts as Reset (BR1.12). */
+export function parsePostChoice(form: { get(name: string): unknown }): PostChoice {
+  return form.get('date') === 'keep' ? 'keep' : 'reset';
+}
+
+/** The activity-log line for a post or unpost (BR1.9). */
+export function postingLogLabel(
   posted: boolean,
-): Promise<void> {
-  const res = await fetch(`${env.url}/rest/v1/round_incident_status?on_conflict=subsession_id`, {
-    method: 'POST',
-    headers: {
-      apikey: env.anonKey,
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      Prefer: 'resolution=merge-duplicates,return=minimal',
-    },
-    body: JSON.stringify({
-      subsession_id: subsessionId,
-      posted,
-      posted_at: posted ? new Date().toISOString() : null,
-    }),
-  });
-  if (!res.ok)
-    throw new Error(`Supabase upsert error ${res.status} on round_incident_status: ${await res.text()}`);
+  wasPostedBefore: boolean,
+  choice: PostChoice,
+  trackName: string,
+): string {
+  const action = !posted
+    ? 'Unposted incident report'
+    : !wasPostedBefore
+      ? 'Posted incident report'
+      : choice === 'keep'
+        ? 'Re-posted incident report (original post date kept)'
+        : 'Re-posted incident report (new post date)';
+  return trackName ? `${action} — ${trackName}` : action;
+}
+
+/**
+ * The Post Date cell (BR1.10): the post date while posted; the last (or first) post date, muted, once
+ * unposted; nothing for a round never posted. The caller formats `date`.
+ */
+export function postDateCell(
+  status: RoundPostingStatus | undefined,
+): { date: string; muted: boolean } | null {
+  if (!status) return null;
+  if (status.posted && status.posted_at) return { date: status.posted_at, muted: false };
+  const last = status.posted_at ?? status.first_posted_at;
+  if (!last) return null;
+  return { date: last, muted: !status.posted };
 }
 
 /**
@@ -222,6 +280,8 @@ export interface IncidentReport {
   reviews_closed_at: string | null;
   /** Why a steward dismissed it (0111) — null for reports dismissed before that, and for anything not dismissed. */
   dismissal_reason: string | null;
+  /** Clip of the incident, set by admins and staff (20261111120000). Absent before that migration. */
+  video_url?: string | null;
   driver_ids: string[];
 }
 
@@ -372,6 +432,27 @@ export async function getIncidentReportsForSubsession(
     ...r,
     driver_ids: incident_report_drivers.map((d) => d.driver_id),
   }));
+}
+
+/**
+ * Admin or Staff: sets (or, with an empty value, clears) a report's clip through set_incident_report_video,
+ * which checks the caller and the link again. Never throws; failures come back as a message to show.
+ */
+export async function setIncidentReportVideo(
+  env: SupabaseEnv,
+  accessToken: string,
+  reportId: string,
+  url: string,
+): Promise<ClipWriteResult> {
+  try {
+    await restRpc(withAccessToken(env, accessToken), 'set_incident_report_video', {
+      p_report_id: reportId,
+      p_url: url,
+    });
+    return { ok: true };
+  } catch (err) {
+    return clipWriteFailure('set_incident_report_video', err);
+  }
 }
 
 export async function setIncidentReportStatus(
