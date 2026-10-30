@@ -1,5 +1,15 @@
-import { restDelete, restGet, restGetAll, restPatch, restPost, type SupabaseEnv } from './client';
+import {
+  restDelete,
+  restGet,
+  restGetAll,
+  restPatch,
+  restPost,
+  restRpc,
+  withAccessToken,
+  type SupabaseEnv,
+} from './client';
 import privacyReads from '../privacyReads.json';
+import { clipWriteFailure, type ClipWriteResult } from '../clipLink';
 
 // ---------------------------------------------------------------------------
 // PENALTIES (rulebook 18.3, section 5 "Stewarding") — see 0014_penalties.sql
@@ -82,6 +92,10 @@ export interface Penalty {
   appeal_time_penalty_seconds: number | null;
   appeal_points_penalty: number;
   appeal_penalty_points: number;
+  /** Where on track it happened (20261111120000); only rings the corner on the layout map. */
+  turn?: string | null;
+  /** Clip of the incident, shared by every row of the incident (20261111120000). */
+  video_url?: string | null;
 }
 
 export interface PenaltyRow {
@@ -103,6 +117,8 @@ export interface PenaltyRow {
   appeal_time_penalty_seconds: number | null;
   appeal_points_penalty: number;
   appeal_penalty_points: number;
+  turn?: string | null;
+  video_url?: string | null;
   penalty_offense_links: { offense_id: string }[];
   penalty_involved_drivers: { driver_id: string }[];
 }
@@ -197,6 +213,10 @@ export interface PenaltyInput {
   appeal_time_penalty_seconds: number | null;
   appeal_points_penalty: number;
   appeal_penalty_points: number;
+  /** Optional turn, trimmed, at most 80 characters (the column check refuses more). */
+  turn?: string | null;
+  /** Optional clip, already checked with normalizeClipUrl. */
+  video_url?: string | null;
 }
 
 /** Inserts a penalty and links it to every selected offense/involved driver — three REST calls, not a real transaction (this backend is plain PostgREST, no server-side function for this yet), so a failure partway through can in principle leave a penalty with no tags/involved cars linked. Acceptable for now: the penalty's own time/points/PP fields (the numbers that actually drive recalculation) are set atomically on the first insert either way. */
@@ -258,6 +278,39 @@ export async function updatePenalty(
       'penalty_involved_drivers',
       involvedDriverIds.map((driver_id) => ({ penalty_id: id, driver_id })),
     );
+  }
+}
+
+/** One incident: every penalties row with the same round, session type, race number and incident number. */
+export interface IncidentIdentity {
+  subsession_id: number;
+  session_type: 'race' | 'qualifying' | 'practice';
+  race_number: number;
+  incident_number: string;
+}
+
+/**
+ * Admin or Staff: sets (or, with an empty value, clears) the clip on every row of one incident through
+ * set_incident_video, which checks the caller and the link and refuses an incident without a number. Never
+ * throws; failures come back as a message to show.
+ */
+export async function setIncidentVideo(
+  env: SupabaseEnv,
+  accessToken: string,
+  incident: IncidentIdentity,
+  url: string,
+): Promise<ClipWriteResult> {
+  try {
+    await restRpc(withAccessToken(env, accessToken), 'set_incident_video', {
+      p_subsession_id: incident.subsession_id,
+      p_session_type: incident.session_type,
+      p_race_number: incident.race_number,
+      p_incident_number: incident.incident_number,
+      p_url: url,
+    });
+    return { ok: true };
+  } catch (err) {
+    return clipWriteFailure('set_incident_video', err);
   }
 }
 

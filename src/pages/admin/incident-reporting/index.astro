@@ -7,7 +7,14 @@ import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { resolveSupabaseEnv, restGetAuthed } from '../../../lib/db/client';
 import { getStandingsExcludedRoundIds } from '../../../lib/db/rounds';
 import { getAllRounds, computeDisplayRoundNumbers } from '../../../lib/results/rounds';
-import { getPostedSubsessionIds, setRoundPosted } from '../../../lib/incidentReports';
+import {
+  getRoundPostingStatuses,
+  parsePostChoice,
+  postDateCell,
+  postingLogLabel,
+  setRoundPosted,
+} from '../../../lib/incidentReports';
+import { formatDate } from '../../../lib/db/circuits';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
 
@@ -25,22 +32,37 @@ if (Astro.request.method === 'POST') {
   if (String(form.get('intent') ?? '') === 'set-posted') {
     const subsessionId = Number(form.get('subsession_id'));
     const posted = String(form.get('posted') ?? '') === 'true';
+    // The re-post popup sends Reset or Keep original date; with no script nothing is sent, which is a Reset.
+    const choice = parsePostChoice(form);
     if (Number.isFinite(subsessionId)) {
       try {
-        await setRoundPosted(supabaseEnv, accessToken, subsessionId, posted);
+        const result = await setRoundPosted(supabaseEnv, accessToken, subsessionId, {
+          posted,
+          resetDate: choice === 'reset',
+        });
         const rounds = await getAllRounds(supabaseEnv);
         const round = rounds.find((r) => r.subsession_id === subsessionId);
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
           entity_type: 'incident_report',
-          entity_label: `${posted ? 'Posted' : 'Unposted'} incident report — ${round?.track_name ?? subsessionId}`,
+          entity_label: postingLogLabel(
+            posted,
+            !result.firstPost,
+            result.reset ? 'reset' : 'keep',
+            round?.track_name ?? String(subsessionId),
+          ),
           entity_id: String(subsessionId),
         });
         const keep = new URL(Astro.request.url).searchParams.get('all') === '1' ? '?all=1' : '';
         return Astro.redirect(`/admin/incident-reporting${keep}`, 302);
       } catch (err) {
         console.error('Failed to update posted flag:', err);
-        error = err instanceof Error ? err.message : 'Failed to update posted status.';
+        error =
+          err instanceof Error && /Only an admin or staff member can post a round/.test(err.message)
+            ? 'Only an admin or staff member can post a round.'
+            : err instanceof Error
+              ? err.message
+              : 'Failed to update posted status.';
       }
     }
   }
@@ -59,16 +81,19 @@ interface Row {
   dismissed: number;
   logged: number;
   posted: boolean;
+  /** Posted before (now or earlier), so turning Posted on asks whether to reset the date (BR1.1). */
+  postedBefore: boolean;
+  postDate: { date: string; muted: boolean } | null;
 }
 
 let rows: Row[] = [];
 let totalRounds = 0;
 let loadError: string | null = null;
 try {
-  const [allRoundRows, excluded, postedIds, reports] = await Promise.all([
+  const [allRoundRows, excluded, postingStatuses, reports] = await Promise.all([
     getAllRounds(supabaseEnv),
     getStandingsExcludedRoundIds(supabaseEnv),
-    getPostedSubsessionIds(supabaseEnv),
+    getRoundPostingStatuses(supabaseEnv),
     // Admin token — RLS only lets admins read every report.
     restGetAuthed<{ subsession_id: number; status: 'open' | 'logged' | 'dismissed' }[]>(
       supabaseEnv,
@@ -108,6 +133,7 @@ try {
     .map((r) => {
       const c = counts.get(r.subsession_id) ?? { open: 0, logged: 0, dismissed: 0 };
       const n = displayNumber.get(r.subsession_id);
+      const status = postingStatuses.get(r.subsession_id);
       const season = r.season_label ?? '';
       // "ATC18, Round 3" — then the table adds ": Track Name".
       const label = `${season ? season + ', ' : ''}${n != null ? `Round ${n}` : 'Exhibition'}`;
@@ -120,7 +146,9 @@ try {
         pending: c.open,
         dismissed: c.dismissed,
         logged: c.logged,
-        posted: postedIds.has(r.subsession_id),
+        posted: status?.posted === true,
+        postedBefore: !!(status?.first_posted_at || status?.posted_at),
+        postDate: postDateCell(status),
       };
     });
 } catch (err) {
@@ -137,16 +165,19 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error ?? loadError}</p>
   )}
 
+  {/* Phones (BR1.11): the track name and the four count columns hide below `sm`, and the table only takes a
+     fixed minimum width from `sm` up, so Round, Posted, Post Date and the links fit without sideways scrolling. */}
   <div class="reveal mt-8 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
-    <table class="w-full min-w-[880px] text-left text-sm">
+    <table class="w-full text-left text-sm sm:min-w-[880px]">
       <thead class="bg-brand-ink text-xs uppercase tracking-wide text-white/50">
         <tr>
           <th class="px-4 py-3 font-semibold">Round</th>
-          <th class="px-3 py-3 text-center font-semibold">Reported</th>
-          <th class="px-3 py-3 text-center font-semibold">Pending</th>
-          <th class="px-3 py-3 text-center font-semibold">Dismissed</th>
-          <th class="px-3 py-3 text-center font-semibold">Logged</th>
+          <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Reported</th>
+          <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Pending</th>
+          <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Dismissed</th>
+          <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Logged</th>
           <th class="px-3 py-3 text-center font-semibold">Posted</th>
+          <th class="px-3 py-3 font-semibold">Post Date</th>
           <th class="px-4 py-3 text-right font-semibold"></th>
         </tr>
       </thead>
@@ -154,17 +185,28 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
         {visibleRows.map((r) => (
           <tr class={`border-t border-white/5 ${r.posted ? 'text-white/40' : ''}`}>
             <td class="px-4 py-3">
-              <div class={`font-semibold ${r.posted ? 'text-white/40' : 'text-white'}`}>{r.label}: {r.trackName}</div>
+              <div class={`font-semibold ${r.posted ? 'text-white/40' : 'text-white'}`}>
+                {r.label}<span class="hidden sm:inline">: {r.trackName}</span>
+              </div>
             </td>
-            <td class="px-3 py-3 text-center tabular-nums">{r.reported}</td>
-            <td class={`px-3 py-3 text-center tabular-nums ${r.pending > 0 && !r.posted ? 'font-semibold text-brand-gold' : ''}`}>{r.pending}</td>
-            <td class="px-3 py-3 text-center tabular-nums">{r.dismissed}</td>
-            <td class="px-3 py-3 text-center tabular-nums">{r.logged}</td>
+            <td class="hidden px-3 py-3 text-center tabular-nums sm:table-cell">{r.reported}</td>
+            <td class={`hidden px-3 py-3 text-center tabular-nums sm:table-cell ${r.pending > 0 && !r.posted ? 'font-semibold text-brand-gold' : ''}`}>{r.pending}</td>
+            <td class="hidden px-3 py-3 text-center tabular-nums sm:table-cell">{r.dismissed}</td>
+            <td class="hidden px-3 py-3 text-center tabular-nums sm:table-cell">{r.logged}</td>
             <td class="px-3 py-3 text-center">
-              <form method="POST" data-astro-reload action={showAll ? '?all=1' : undefined} class="inline-flex">
+              {/* data-first-posted: turning Posted back on asks whether to reset the date (repostDialog.ts). */}
+              <form
+                method="POST"
+                data-astro-reload
+                action={showAll ? '?all=1' : undefined}
+                class="inline-flex"
+                data-post-switch
+                data-first-posted={r.postedBefore && !r.posted ? 'true' : undefined}
+              >
                 <input type="hidden" name="intent" value="set-posted" />
                 <input type="hidden" name="subsession_id" value={r.subsessionId} />
                 <input type="hidden" name="posted" value={r.posted ? 'false' : 'true'} />
+                <input type="hidden" name="date" value="reset" data-post-date-choice />
                 <button
                   type="submit"
                   role="switch"
@@ -176,9 +218,13 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
                 </button>
               </form>
             </td>
+            {/* A round unposted after posting keeps its last date, shown muted (BR1.10). */}
+            <td class={`whitespace-nowrap px-3 py-3 tabular-nums ${!r.postDate || r.postDate.muted ? 'text-white/40' : ''}`}>
+              {r.postDate ? formatDate(r.postDate.date) : '—'}
+            </td>
             <td class="whitespace-nowrap px-4 py-3 text-right">
-              {/* Two fixed-width slots so "View Incidents" never shifts with the width of "View Report" / "Edit Report". ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
-              <span class="inline-flex gap-4">
+              {/* Two fixed-width slots so "View Incidents" never shifts with the width of "View Report" / "Edit Report"; stacked on phones. ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
+              <span class="inline-flex flex-col items-end gap-1 sm:flex-row sm:gap-4">
                 <a
                   href={`/results/${r.subsessionId}/incidents?view=reports`}
                   class={`inline-block w-28 text-left font-semibold hover:underline ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
@@ -192,11 +238,35 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
           </tr>
         ))}
         {visibleRows.length === 0 && (
-          <tr><td colspan="7" class="px-4 py-6 text-center text-white/50">No rounds yet.</td></tr>
+          <tr><td colspan="8" class="px-4 py-6 text-center text-white/50">No rounds yet.</td></tr>
         )}
       </tbody>
     </table>
   </div>
+
+  {/* Re-posting a round that was posted before (BR1.1, BR1.10): reset the post date, which restarts the
+     incident reporting and appeal windows, or keep the original one. Cancel leaves the round unposted. */}
+  <dialog
+    data-repost-dialog
+    class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+  >
+    <div class="flex flex-col gap-4 p-5">
+      <h4 class="font-display text-lg">Reset post date for incident reporting and appeal windows?</h4>
+      <p class="text-sm text-white/60">
+        Reset starts both windows again from now. Keep original date leaves them where they were, so they may
+        already be closed.
+      </p>
+      <div class="flex flex-wrap justify-end gap-2">
+        <button type="button" data-repost-cancel class="btn btn-neutral">Cancel</button>
+        <button type="button" data-repost-choice="keep" class="btn btn-neutral">Keep original date</button>
+        <button type="button" data-repost-choice="reset" class="btn btn-primary">Reset</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    import '../../../scripts/repostDialog';
+  </script>
 
   {!showAll && totalRounds > DEFAULT_LIMIT && (
     <p class="mt-4 text-sm"><a href="?all=1" class="text-brand-primary hover:underline">Show all {totalRounds} rounds</a></p>

@@ -9,10 +9,11 @@ import { getRoundBySubsessionId } from '../../../../../lib/results/rounds';
 import type { RoundSummary } from '../../../../../lib/results/rows';
 import { isRoundPosted } from '../../../../../lib/incidentReports';
 import { getMyIncidents, type IncidentManagementRow } from '../../../../../lib/incidents';
+import IncidentSubmissionsTables from '../../../../../components/IncidentSubmissionsTables.astro';
 import {
   buildIncidentSubmissionsView,
   getIncidentSubmissions,
-  INCIDENT_SUBMISSION_COLUMNS,
+  getViewerCarNumber,
   type IncidentSubmissionDbRow,
 } from '../../../../../lib/incidentSubmissions';
 
@@ -29,6 +30,7 @@ let posted = false;
 let submissions: IncidentSubmissionDbRow[] = [];
 let loadError: string | null = null;
 let mine: IncidentManagementRow[] | null = null;
+let viewerCar: string | null = null;
 if (Number.isFinite(subsessionId)) {
   try {
     [round, posted, submissions] = await Promise.all([
@@ -42,11 +44,15 @@ if (Number.isFinite(subsessionId)) {
   }
   // Only for the comment buttons: a failure leaves the list without them.
   if (!loadError && !posted && session && myDriverId && submissions.length > 0) {
-    try {
-      mine = (await getMyIncidents(supabaseEnv, session.accessToken)).rows;
-    } catch (err) {
-      console.error('Failed to load the viewer’s incidents:', err instanceof Error ? err.message : 'unknown');
-    }
+    const [mineResult, car] = await Promise.all([
+      getMyIncidents(supabaseEnv, session.accessToken).catch((err) => {
+        console.error('Failed to load the viewer’s incidents:', err instanceof Error ? err.message : 'unknown');
+        return null;
+      }),
+      getViewerCarNumber(supabaseEnv, myDriverId),
+    ]);
+    mine = mineResult?.rows ?? null;
+    viewerCar = car;
   }
 }
 
@@ -55,7 +61,7 @@ if (!loadError && !round) {
   return new Response(null, { status: 404, headers: { 'X-Redirect-To': '/results' } });
 }
 
-const sessions = buildIncidentSubmissionsView(submissions, mine);
+const sessions = buildIncidentSubmissionsView(submissions, mine, viewerCar);
 const commentAction = myDriverId ? `/drivers/${encodeURIComponent(myDriverId)}` : null;
 const showComments = commentAction !== null && sessions.some((s) => s.rows.some((r) => r.comment));
 
@@ -90,55 +96,7 @@ if (loadError) markUncacheable(Astro);
         {sessions.length === 0 ? (
           <p class="mt-8 text-white/60">No incidents have been reported for this round.</p>
         ) : (
-          sessions.map((s) => (
-            <div class="mt-10" data-submissions-session={s.key}>
-              <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{s.label}</h3>
-              <div class="mt-2 rounded-xl border border-white/10">
-                <table class="w-full border-collapse">
-                  <thead>
-                    <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
-                      <th class="py-3 pl-4 pr-3 font-medium">{INCIDENT_SUBMISSION_COLUMNS[0]}</th>
-                      <th class="py-3 pr-3 text-center font-medium">{INCIDENT_SUBMISSION_COLUMNS[1]}</th>
-                      <th class="py-3 pr-3 font-medium">{INCIDENT_SUBMISSION_COLUMNS[2]}</th>
-                      <th class="py-3 pr-4"><span class="sr-only">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {s.rows.map((row) => (
-                      <tr class="border-b border-white/5 text-sm" data-incident-row={row.id}>
-                        <td class="py-2.5 pl-4 pr-3 text-white/60">{row.numberLabel}</td>
-                        <td class="py-2.5 pr-3 text-center text-white/60">{row.lap ?? '—'}</td>
-                        <td class="py-2.5 pr-3 text-white/70">{row.involvedLabel}</td>
-                        <td class="py-2.5 pr-4">
-                          <div class="flex flex-wrap items-center justify-end gap-2" data-incident-row-actions>
-                            {(row.comment || row.commentSent) && (
-                              <span class="text-xs text-white/50" data-incident-row-status>
-                                {row.commentSent ? 'Comment sent' : ''}
-                              </span>
-                            )}
-                            {row.comment && (
-                              <button
-                                type="button"
-                                class="btn btn-gold btn-sm"
-                                data-incident-comment
-                                data-report-id={row.id}
-                                data-round={row.comment.roundLabel}
-                                data-session={row.comment.sessionLabel}
-                                data-lap={row.comment.lap}
-                                data-turn={row.comment.turn}
-                              >
-                                Add Comment
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))
+          <IncidentSubmissionsTables sessions={sessions} />
         )}
         {showComments && <p class="mt-4 text-xs text-white/40">ⓘ Comments go to the stewards only.</p>}
       </div>

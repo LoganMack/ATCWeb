@@ -1,6 +1,7 @@
 -- Incident Submissions fixtures for 20261110120000_incident_submissions.sql (incident-submissions-page), cases
 -- S01-S06: what anon and a signed-in driver read from incident_submissions() on an unposted round (every
--- report, dismissed and logged ones too, numbered by submission time), that it returns only id, number,
+-- report that is not dismissed, logged ones too, numbered in event order by private.incident_report_order
+-- since 20261111120000_incident_clips_and_ordering.sql), that it returns only id, number,
 -- session, lap and involved cars, that a posted round returns nothing, that the base tables stay closed to
 -- anon, and the function's definer settings and grants.
 --
@@ -111,14 +112,15 @@ insert into public.incident_report_drivers (report_id, driver_id) values
 
 savepoint fixture;
 
--- S01 Anon and a signed-in driver read every report of an unposted round, dismissed and logged ones too ----
+-- S01 Anon and a signed-in driver read an unposted round's reports in event order (qualifying before the
+-- races), logged ones too; the dismissed R2 is left out and takes no number ----------------------------------
 do $$
 begin
   perform submissions_fixture.expect('S01 anon', submissions_fixture.list('anon', 9911001),
-    '1:race:2:4:891/892,2:race:1:9:893,3:qualifying:0:1:');
+    '1:qualifying:0:1:,2:race:2:4:891/892');
   perform submissions_fixture.expect('S01 driver',
     submissions_fixture.list('eeeeeeee-0000-0000-0000-000000000911', 9911001),
-    '1:race:2:4:891/892,2:race:1:9:893,3:qualifying:0:1:');
+    '1:qualifying:0:1:,2:race:2:4:891/892');
   raise notice 'ok S01 unposted round listed';
 end $$;
 rollback to savepoint fixture;

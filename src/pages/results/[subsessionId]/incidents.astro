@@ -87,6 +87,19 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         </div>
       </div>
     </div>
+
+    {/* Watch video (BR5.2): one player for every clip on the page, built by videoClips.ts on open and emptied
+       on close. Here rather than in the fragment because every viewer can watch. */}
+    <dialog
+      data-video-player-dialog
+      class="w-full max-w-3xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+    >
+      <div class="flex items-center justify-between gap-3 px-4 py-3">
+        <h4 data-video-player-title class="font-display text-lg">Incident video</h4>
+        <button type="button" data-close-video-player class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+      </div>
+      <div data-video-player-frame class="aspect-video w-full bg-black"></div>
+    </dialog>
   </section>
 </Layout>
 
@@ -95,6 +108,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   import '../../../scripts/editSubmissionDialog';
   // The Incident Submissions list's Add Comment popup, the same one as the profile's Incident Management tab.
   import '../../../scripts/incidentManagement';
+  // Watch video and Add/Edit Video on the incident cards and the details popup.
+  import '../../../scripts/videoClips';
 </script>
 
 <script>
@@ -219,6 +234,42 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
         setRowVisible('[data-mobile-appeal-row]', Boolean(summary.isAppealed));
         setField('[data-mobile-appeal]', summary.appealResult || 'No appeal notes recorded.');
+
+        // Bottom-right buttons (BR4.6): watch the clip, see the turn on the map, and for admins add or edit
+        // the clip. Each shows only when it has something to do; their data is read when clicked.
+        const popupTitle = summary.incidentNumber && summary.incidentNumber !== '—' ? `Incident ${summary.incidentNumber}` : 'Incident';
+        const watchBtn = mobileDialog.querySelector<HTMLButtonElement>('[data-mobile-video]');
+        if (watchBtn) {
+          watchBtn.dataset.videoUrl = summary.videoUrl ?? '';
+          watchBtn.dataset.videoTitle = popupTitle;
+          watchBtn.classList.toggle('hidden', !summary.videoUrl);
+        }
+        const mapBtn = mobileDialog.querySelector<HTMLButtonElement>('[data-mobile-map]');
+        if (mapBtn) {
+          mapBtn.dataset.map = JSON.stringify({
+            title: popupTitle,
+            subtitle: [summary.session, summary.turn].filter(Boolean).join(' · '),
+            corners: summary.mapCorners ?? [],
+          });
+          mapBtn.classList.toggle('hidden', summary.mapCorners == null);
+        }
+        const editVideoBtn = mobileDialog.querySelector<HTMLButtonElement>('[data-mobile-edit-video]');
+        if (editVideoBtn) {
+          const number: string = summary.incidentNumberRaw ?? '';
+          const [type, race] = String(summary.sessionValue ?? '').split(':');
+          editVideoBtn.dataset.editVideo = JSON.stringify({
+            intent: 'set-incident-video',
+            target: `incident:${type}:${race}:${number}`,
+            fields: { session: summary.sessionValue ?? '', incident_number: number },
+            url: summary.videoUrl ?? '',
+            heading: `${popupTitle} · ${summary.session ?? ''}`,
+          });
+          editVideoBtn.textContent = summary.videoUrl ? 'Edit Video' : 'Add Video';
+          // An unnumbered incident can't be told apart from the round's other unnumbered rows.
+          editVideoBtn.disabled = number === '';
+          editVideoBtn.title = number === '' ? 'Give the incident a number before adding a clip.' : '';
+          editVideoBtn.classList.remove('hidden');
+        }
 
         // Signed in but not involved: no Submit Appeal at all (U5, BR11.9).
         appealBtn?.classList.toggle('hidden', summary.canAppeal === false);
@@ -396,8 +447,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     lapField.addEventListener('input', updateFormValidity);
 
     // Every way of opening the dialog starts from this blank Add state.
+    const turnField = dialog.querySelector<HTMLInputElement>('[data-incident-turn-field]')!;
+    const videoField = dialog.querySelector<HTMLInputElement>('[data-incident-video-field]')!;
     function resetForAdd(fromReportId: string) {
       form.reset();
+      // reset() leaves a hidden input's script-set value alone; only Add to Report carries a clip.
+      videoField.value = '';
       resetDriverSearch();
       faults.clear();
       // Fresh dialog, fresh tracking — clear() above already ran the sync, so
@@ -442,6 +497,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         set('incident_number', p.incident_number ?? '');
         ownIncidentNumber = normalizeIncidentNumber(p.incident_number ?? '');
         set('lap', p.lap ?? '');
+        set('turn', p.turn ?? '');
         set('description', p.description ?? '');
         set('appeal_result', p.appeal_result ?? '');
         set('appeal_time_penalty_seconds', p.appeal_time_penalty_seconds ?? '');
@@ -498,6 +554,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         if (r.number != null) numberField.value = String(r.number);
         sessionField.value = r.session;
         lapField.value = String(r.lap);
+        // The report's turn and clip carry over to every incident row this creates (BR4.1).
+        turnField.value = r.turn ?? '';
+        videoField.value = r.video_url ?? '';
         dialog.querySelectorAll<HTMLInputElement>('[name="involved_driver_ids"]').forEach((cb) => {
           cb.checked = (r.driver_ids ?? []).includes(cb.value);
         });

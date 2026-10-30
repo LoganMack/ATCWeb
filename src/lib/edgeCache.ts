@@ -22,7 +22,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/results\/[^/]+(\/fragment)?$/, ['category', 'class', 'links_error', 'report', 'season', 'session']],
   [
     /^\/results\/[^/]+\/incidents(\/fragment)?$/,
-    ['appeal', 'review', 'roundpenalty', 'season', 'submission', 'view'],
+    ['appeal', 'incident', 'review', 'roundpenalty', 'season', 'submission', 'video', 'video_for', 'view'],
   ],
   [/^\/results\/[^/]+\/kudos(\/fragment)?$/, ['kudos', 'season']],
   [/^\/standings(\/fragment)?$/, ['championship', 'class', 'mode', 'round', 'season', 'view']],

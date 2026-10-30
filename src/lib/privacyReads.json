@@ -13,13 +13,13 @@
   },
   "penalties": {
     "path": "penalties_shown",
-    "select": "id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)",
+    "select": "id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,turn,video_url,penalty_offense_links(offense_id),penalty_involved_drivers(driver_id)",
     "embeds": ["penalty_offense_links", "penalty_involved_drivers"],
     "callers": ["anon", "admin"]
   },
   "penaltiesInvolving": {
     "path": "penalties_shown",
-    "select": "id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,penalty_offense_links(offense_id),penalty_involved_drivers(driver_id),involved_match:penalty_involved_drivers!inner(driver_id)",
+    "select": "id,subsession_id,race_number,session_type,driver_id,incident_number,lap,description,time_penalty_seconds,points_penalty,penalty_points,is_warning,created_at,is_appealed,appeal_result,appeal_time_penalty_seconds,appeal_points_penalty,appeal_penalty_points,turn,video_url,penalty_offense_links(offense_id),penalty_involved_drivers(driver_id),involved_match:penalty_involved_drivers!inner(driver_id)",
     "embeds": ["penalty_offense_links", "penalty_involved_drivers", "involved_match"],
     "callers": ["anon", "admin"]
   },

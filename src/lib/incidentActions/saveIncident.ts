@@ -2,8 +2,37 @@ import { createPenalty, updatePenalty, type PenaltyInput } from '../db/penalties
 import { recomputeDriverSeasonPP, strOrNullField, numOrNullField, numOrZeroField } from '../penaltyActions';
 import { setIncidentReportStatus } from '../incidentReports';
 import { logActivity } from '../activityLog';
+import { CLIP_URL_ERROR, normalizeClipUrl } from '../clipLink';
 import { REPORTS_ANCHOR } from './anchors';
 import type { IncidentActionContext, IncidentActionRedirect } from './context';
+
+export const INCIDENT_TURN_MAX_LENGTH = 80;
+
+/** The `?incident=` value the page shows when an incident's turn or clip is refused before saving. */
+export type IncidentFieldFlash = 'turn' | 'video';
+
+export const INCIDENT_FIELD_MESSAGES: Record<IncidentFieldFlash, string> = {
+  turn: 'Turn: up to 80 characters',
+  video: CLIP_URL_ERROR,
+};
+
+/**
+ * The optional Turn (BR4.3) and, on an add, the clip copied from the report (BR4.1). An edit leaves the clip
+ * alone: after Add to Report the incident's clip is changed only through its own Add/Edit Video.
+ */
+export function readIncidentTurnAndClip(
+  form: FormData,
+  intent: string,
+):
+  | { ok: true; fields: { turn: string | null; video_url?: string | null } }
+  | { ok: false; flash: IncidentFieldFlash } {
+  const turn = String(form.get('turn') ?? '').trim();
+  if (turn.length > INCIDENT_TURN_MAX_LENGTH) return { ok: false, flash: 'turn' };
+  if (intent !== 'add-incident') return { ok: true, fields: { turn: turn || null } };
+  const clip = normalizeClipUrl(form.get('video_url'));
+  if (!clip.ok) return { ok: false, flash: 'video' };
+  return { ok: true, fields: { turn: turn || null, video_url: clip.url || null } };
+}
 
 /** `add-incident` and `update-incident` (admin only). */
 export async function handleSaveIncident(
@@ -12,6 +41,12 @@ export async function handleSaveIncident(
   intent: string,
 ): Promise<IncidentActionRedirect> {
   const { supabaseEnv, accessToken, actor, roundLabel, shellPath, subsessionId } = ctx;
+  const turnAndClip = readIncidentTurnAndClip(form, intent);
+  if (!turnAndClip.ok) {
+    const url = new URL(ctx.url);
+    url.searchParams.set('incident', turnAndClip.flash);
+    return ctx.redirect(`${shellPath}${url.search}`);
+  }
   // The Session value encodes kind and race: "race:2", "qualifying:0", "practice:0". The 0 sentinel (0056)
   // never collides with a real race (1-5); a qualifying/practice penalty scores on race 1 (scoringRaceNumber
   // in src/lib/penalties/effective.ts; score_round does the same).
@@ -34,6 +69,7 @@ export async function handleSaveIncident(
     session_type: sessionType,
     incident_number: strOrNullField(form, 'incident_number'),
     lap: numOrNullField(form, 'lap'),
+    ...turnAndClip.fields,
     description: strOrNullField(form, 'description'),
     // Appeals are edit-only in the dialog (they're about one car's existing
     // penalty), so these are blank on every Add.
@@ -117,5 +153,7 @@ export async function handleSaveIncident(
   }
   // Logged from the Reported Incidents panel → back to it, like Dismiss/Reopen below.
   const fromReport = intent === 'add-incident' && Boolean(form.get('from_report_id'));
-  return ctx.redirect(`${shellPath}${ctx.url.search}${fromReport ? `#${REPORTS_ANCHOR}` : ''}`);
+  const back = new URL(ctx.url);
+  back.searchParams.delete('incident');
+  return ctx.redirect(`${shellPath}${back.search}${fromReport ? `#${REPORTS_ANCHOR}` : ''}`);
 }

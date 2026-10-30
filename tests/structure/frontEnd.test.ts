@@ -480,7 +480,8 @@ describe('the Incident Management tab (U5: BR11.4-BR11.14, NFR1.8, NFR2.1)', () 
     const fragment = ASTRO[`${P}results/[subsessionId]/incidents/fragment.astro`];
     const comments = fragment.indexOf('data-driver-comments');
     expect(comments).toBeGreaterThan(-1);
-    expect(fragment.indexOf('Steward reviews: {reviewCount}')).toBeGreaterThan(comments);
+    // The one-line "Steward Reviews: x" summary (incident clips, FR3.5) still sits below the comments.
+    expect(fragment.indexOf('Steward Reviews: {reviewCount}')).toBeGreaterThan(comments);
     expect(fragment).toContain('>Driver comments</p>');
     expect(fragment).toMatch(/getDriverCommentsForReports\(supabaseEnv, token, incidentReports\.map/);
   });

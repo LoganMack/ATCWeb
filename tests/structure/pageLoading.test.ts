@@ -175,10 +175,14 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   ],
   'results/[subsessionId]/incidents/fragment.astro': [
     'appeal',
+    // A refused Turn or copied clip on Add/Edit Incident, and the Add/Edit Video result (incident clips).
+    'incident',
     'review',
     'roundpenalty',
     'season',
     'submission',
+    'video',
+    'video_for',
     'view',
   ],
   'results/[subsessionId]/incidents/submissions/fragment.astro': [],
