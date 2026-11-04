@@ -173,17 +173,23 @@ end $$;
 rollback to savepoint fixture;
 
 -- K08 An event pinned to another round (events.subsession_id) is taken; pinned to this round, it matches.
-update public.events set subsession_id = 9959999 where id = 'aaaaaaaa-0000-0000-0000-00000000e001';
-update public.events set subsession_id = 9950014 where id = 'aaaaaaaa-0000-0000-0000-00000000e002';
+--     events.subsession_id references curated_rounds, so a pin needs its round to exist first. The pinned
+--     rounds are CSV rounds (negative ids), which the trigger leaves alone.
+insert into public.curated_rounds (subsession_id, start_time, track_name, season_label)
+values (-9959999, '2026-05-01 23:00+00', 'Za Park', 'Za Season'),
+       (-9950014, '2026-06-08 23:00+00', 'Zb Ring', 'Za Season');
+update public.events set subsession_id = -9959999 where id = 'aaaaaaaa-0000-0000-0000-00000000e001';
+update public.events set subsession_id = -9950014 where id = 'aaaaaaaa-0000-0000-0000-00000000e002';
 insert into public.curated_rounds (subsession_id, start_time, track_name, season_label)
 values (9950013, '2026-06-01 23:00+00', 'Za Park', 'Za Season');
-insert into public.curated_rounds (subsession_id, start_time, track_name, season_label)
-values (9950014, '2026-06-08 23:00+00', 'Zb Ring', 'Za Season');
 do $$
 begin
-  perform autolink_fixture.expect('K08 pinned elsewhere', autolink_fixture.code(9950013), 'event_taken');
-  perform autolink_fixture.expect('K08 pinned here',
-    autolink_fixture.round(9950014), 'Za Season|true|aaaaaaaa-0000-0000-0000-00000000e002|North|-');
+  perform autolink_fixture.expect('K08 pinned elsewhere', autolink_fixture.round(9950013), 'Za Season|false|-|-|-');
+  perform autolink_fixture.expect('K08 pinned elsewhere code', autolink_fixture.code(9950013), 'event_taken');
+  perform autolink_fixture.expect('K08 pinned here', autolink_fixture.code(-9950014), 'match');
+  perform autolink_fixture.expect('K08 pinned here event',
+    (select m.event_id from public.round_event_matches(array[-9950014::bigint]) m),
+    'aaaaaaaa-0000-0000-0000-00000000e002'::uuid);
   raise notice 'ok K08 pinned events';
 end $$;
 rollback to savepoint fixture;
