@@ -13,7 +13,7 @@ import {
   logoBgAttrs,
 } from '../../../lib/db/circuits';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
-import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
+import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, describeLinkReason, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
 import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
 import { requireAdmin } from '../../../lib/auth';
 
@@ -123,9 +123,11 @@ const flashRows = Astro.url.searchParams.get('rows');
         {orphans.length > 0 && <span class="ml-2 text-sm font-normal text-white/40">{orphans.length}</span>}
       </h2>
       <p class="mt-1 max-w-3xl text-sm text-white/50">
-        Imported rounds that aren't fully connected yet. A round with no season doesn't show on the Results page at all
-        and can't be scored; a round with no event isn't tied to the calendar. Pick a season and/or event and press
-        Link — the round is saved to that season/event and scored right away.
+        Imported rounds that aren't fully connected yet. A new round is linked to its calendar event and scored
+        automatically when exactly one event matches its season, date and circuit; the rows below are the ones it
+        couldn't match, with the reason. A round with no season doesn't show on the Results page at all and can't be
+        scored; a round with no event isn't tied to the calendar. Pick a season and/or event and press Link — the
+        round is saved to that season/event and scored right away.
       </p>
 
       {flash === 'ok' && (
@@ -176,6 +178,9 @@ const flashRows = Astro.url.searchParams.get('rows');
                     <td class="py-3 pl-6 pr-3">
                       <p class="font-semibold">{r.track_name}{r.layout ? <span class="font-normal text-white/50"> — {r.layout}</span> : null}</p>
                       <p class="text-xs text-white/40">{formatEventDate(r.localDate)}{r.season_label ? ` · ${r.season_label}` : ''} · #{r.subsession_id}</p>
+                      {!r.event_id && r.linkReason && (
+                        <p class="mt-1 text-xs text-brand-gold/80" data-link-reason={r.linkReason}>{describeLinkReason(r.linkReason)}</p>
+                      )}
                     </td>
                     <td class="py-3 pr-3">
                       <div class="flex flex-wrap gap-1.5">

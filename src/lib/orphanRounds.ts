@@ -1,9 +1,11 @@
 /**
  * Rounds the pipeline inserted but that aren't wired in: no season_id (not listed under a season, can't be
- * scored) or no event_id (no reporting window, event flags or results link; 0078). Admin > Events lists them
- * with pickers; associateRound() applies the choice and rescores.
+ * scored) or no event_id (no reporting window, event flags or results link; 0078). The database links a new
+ * round to its event itself when exactly one matches (20261112120000_round_auto_link.sql); the rest are listed
+ * on Admin > Events with why they weren't linked and pickers, and associateRound() applies the choice and
+ * rescores.
  */
-import { restGet, restGetAll, restPatch, type SupabaseEnv } from './db/client';
+import { restGet, restGetAll, restPatch, restRpc, type SupabaseEnv } from './db/client';
 import { getEvents, type EventWithCircuit } from './db/events';
 import { getSeasons, type Season } from './db/seasons';
 import { LEAGUE_TIME_ZONE } from './timezone';
@@ -21,6 +23,52 @@ export interface OrphanRound {
   scored: boolean;
   /** League-local calendar date (YYYY-MM-DD) of the round's start — what events.event_date is compared against. */
   localDate: string;
+  /** Why the database didn't link it to an event (round_event_matches), or null when that couldn't be read. */
+  linkReason: RoundLinkReason | null;
+}
+
+/** Codes public.round_event_matches() returns. */
+export type RoundLinkReason =
+  | 'linked'
+  | 'match'
+  | 'no_round'
+  | 'no_season'
+  | 'no_event'
+  | 'event_taken'
+  | 'several_events'
+  | 'several_rounds'
+  | 'season_locked';
+
+const LINK_REASON_TEXT: Record<RoundLinkReason, string> = {
+  linked: 'Already linked to an event.',
+  match: 'One event matches; press Link to use it.',
+  no_round: 'This round no longer exists.',
+  no_season: "Its season label doesn't name a season, so it couldn't be matched.",
+  no_event: 'No event in its season on this date at this circuit.',
+  event_taken: 'The matching event already has a round linked.',
+  several_events: 'More than one event matches this date and circuit.',
+  several_rounds: 'Another imported round matches the same event.',
+  season_locked: "The matching event's season has locked standings.",
+};
+
+/** Plain-English reason for a round_event_matches() code; unknown codes are shown as they are. */
+export function describeLinkReason(code: string | null): string | null {
+  if (!code) return null;
+  return (LINK_REASON_TEXT as Record<string, string>)[code] ?? code;
+}
+
+/** round_event_matches() for these rounds, keyed by subsession id. */
+export async function getRoundLinkReasons(
+  env: SupabaseEnv,
+  subsessionIds: number[],
+): Promise<Map<number, RoundLinkReason>> {
+  if (subsessionIds.length === 0) return new Map();
+  const rows = await restRpc<{ subsession_id: number; event_id: string | null; reason: RoundLinkReason }[]>(
+    env,
+    'round_event_matches',
+    { p_subsession_ids: subsessionIds },
+  );
+  return new Map(rows.map((r) => [r.subsession_id, r.reason]));
 }
 
 const dayFormatter = new Intl.DateTimeFormat('en-CA', {
@@ -32,7 +80,7 @@ const dayFormatter = new Intl.DateTimeFormat('en-CA', {
 
 /** Every round missing a season or an event, newest first, flagged with whether it has been scored yet. */
 export async function getOrphanedRounds(env: SupabaseEnv): Promise<OrphanRound[]> {
-  const rounds = await restGetAll<Omit<OrphanRound, 'scored' | 'localDate'>>(
+  const rounds = await restGetAll<Omit<OrphanRound, 'scored' | 'localDate' | 'linkReason'>>(
     env,
     'curated_rounds?select=subsession_id,start_time,track_name,layout,season_label,season_id,event_id,format&or=(season_id.is.null,event_id.is.null)&order=start_time.desc',
   );
@@ -43,10 +91,21 @@ export async function getOrphanedRounds(env: SupabaseEnv): Promise<OrphanRound[]
     `race_score_results_public?select=subsession_id&subsession_id=in.(${ids})&race_number=eq.1`,
   );
   const scored = new Set(scoredRows.map((r) => r.subsession_id));
+  // The reasons are a help, not the list: if they can't be read the rounds still show.
+  let reasons = new Map<number, RoundLinkReason>();
+  try {
+    reasons = await getRoundLinkReasons(
+      env,
+      rounds.map((r) => r.subsession_id),
+    );
+  } catch (err) {
+    console.error('Failed to read why orphaned rounds were not linked:', err);
+  }
   return rounds.map((r) => ({
     ...r,
     scored: scored.has(r.subsession_id),
     localDate: dayFormatter.format(new Date(r.start_time)),
+    linkReason: reasons.get(r.subsession_id) ?? null,
   }));
 }
 

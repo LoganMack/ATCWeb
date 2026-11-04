@@ -788,7 +788,7 @@ begin
       'incident_report_order', 'set_round_incident_posted', 'set_incident_report_video', 'set_incident_video',
       -- Return no names (counts, codes, status rows; incident_submissions gives car numbers only):
       'can_appeal_penalty', 'get_news_post_view_counts', 'round_stats_status', 'claim_broadcaster',
-      'incident_submissions',
+      'incident_submissions', 'round_event_matches',
       -- Return only the caller's own data, or names of unlinked drivers, who can never be hidden:
       'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state'
     );
