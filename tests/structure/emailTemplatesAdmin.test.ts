@@ -54,8 +54,9 @@ describe('the template forms', () => {
     }
   });
 
-  it('shows smaller analytics cards in four columns on wide screens', () => {
-    expect(fragment).toContain('<dl class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">');
+  it('shows smaller analytics cards in five columns on wide screens (nav-admin-polish BR5.13)', () => {
+    expect(fragment).toContain('<dl class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">');
+    expect(fragment).toContain("label: 'Sent in the last 7 days'");
     expect(fragment).toContain('rounded-xl border border-white/10 bg-brand-ink p-4');
     expect(fragment).toContain('font-display text-xl leading-7');
   });

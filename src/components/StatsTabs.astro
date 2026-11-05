@@ -1,0 +1,30 @@
+---
+// The stats pages' section picker (BR6.6), placed first in each page's filter card like HistoryTabs. Circuits
+// is reachable only from here, not from the nav menus. Each option's value is its URL.
+interface Props {
+  active: 'drivers' | 'teams' | 'circuits' | 'advanced';
+}
+
+const { active } = Astro.props;
+
+const sections: { key: Props['active']; href: string; label: string }[] = [
+  { key: 'drivers', href: '/driver-stats', label: 'Drivers' },
+  { key: 'teams', href: '/team-stats', label: 'Teams' },
+  { key: 'circuits', href: '/circuits', label: 'Circuits' },
+  { key: 'advanced', href: '/advanced-stats', label: 'Advanced' },
+];
+---
+
+<label class="flex flex-col gap-1.5 sm:w-44">
+  <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Stats</span>
+  <select
+    aria-label="Stats section"
+    class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+    data-navigate-on-change
+    data-testid="stats-section-picker"
+  >
+    {sections.map((s) => (
+      <option value={s.href} selected={s.key === active} class="bg-brand-ink text-white">{s.label}</option>
+    ))}
+  </select>
+</label>

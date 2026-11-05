@@ -10,6 +10,7 @@ import PageBanner from '../../../components/PageBanner.astro';
 import { getRoundBySubsessionId } from '../../../lib/results/rounds';
 import { isRoundPosted } from '../../../lib/incidentReports';
 import { isAdminView } from '../../../lib/auth';
+import { incidentBackLink, parseIncidentOrigin } from '../../../lib/incidentPageOrigin';
 
 // Shell: paints the frame, back link and a skeleton; incidents/fragment.astro holds the data and the POST
 // handling (its forms post to it and redirect here). The interaction script stays here because scripts in
@@ -46,10 +47,11 @@ try {
 }
 const seasonParam = Astro.url.searchParams.get('season');
 const backToRoundHref = `/results/${subsessionId}${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
-const showIncidentReportingLink = isAdminView(Astro.locals);
+// One back link (BR2.1-BR2.3): to Incident Reports when the page was opened from there, else to Results.
+const backLink = incidentBackLink(parseIncidentOrigin(Astro.url.searchParams.get('from')), backToRoundHref);
 // Until the round is posted, everyone but admins gets the public Incident Submissions list instead, which
 // carries no decisions or descriptions (incidents/submissions/fragment.astro).
-const showSubmissions = !roundPosted && !showIncidentReportingLink;
+const showSubmissions = !roundPosted && !isAdminView(Astro.locals);
 const pageHeading = showSubmissions ? 'Incident Submissions' : 'Incident Report';
 const description =
   incidentCount !== null
@@ -69,11 +71,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <div class="flex flex-wrap items-center gap-x-5 gap-y-1">
-      <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
-      {/* Admins usually arrive here from admin > Incident Reporting (Review Submissions / Preview Report), so one click back there (#60). */}
-      {showIncidentReportingLink && (
-        <a href="/admin/incident-reporting" class="text-sm text-white/50 hover:text-white">&larr; Incident Reporting</a>
-      )}
+      <a href={backLink.href} class="text-sm text-white/50 hover:text-white" data-testid="incident-page-back-link">{backLink.label}</a>
     </div>
 
     <div data-incident-results data-fragment-url={fragmentUrl}>

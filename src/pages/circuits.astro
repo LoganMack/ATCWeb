@@ -4,7 +4,7 @@ import LoadError from '../components/LoadError.astro';
 import { markUncacheable } from '../lib/security';
 
 import Layout from '../layouts/Layout.astro';
-import HistoryTabs from '../components/HistoryTabs.astro';
+import StatsTabs from '../components/StatsTabs.astro';
 import PageBanner from '../components/PageBanner.astro';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import {
@@ -78,7 +78,7 @@ if (loadError) markUncacheable(Astro);
     {!loadError && sortedLayouts.length > 0 && (
       <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 80ms">
        <div class="flex flex-wrap items-end gap-3">
-        <HistoryTabs active="circuits" />
+        <StatsTabs active="circuits" />
         <input
           type="search"
           id="circuit-search"

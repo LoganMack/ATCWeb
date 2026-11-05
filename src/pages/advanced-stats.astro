@@ -1,0 +1,25 @@
+---
+export const prerender = false;
+// Advanced Stats (BR6.7): a coming-soon page behind the nav's Stats > Advanced link. It reads no data of its
+// own; the site-standard cache time keeps its nav in step with the other pages after a deploy.
+import Layout from '../layouts/Layout.astro';
+import StatsTabs from '../components/StatsTabs.astro';
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Advanced Stats" description="Advanced statistics for Alpha Touring Challenge are coming soon.">
+  <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
+    <h1 class="reveal font-display text-2xl sm:text-5xl">Advanced Stats</h1>
+
+    <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
+      <div class="flex flex-wrap items-end gap-3">
+        <StatsTabs active="advanced" />
+      </div>
+    </div>
+
+    <p class="reveal mt-10 text-white/60" data-testid="advanced-stats-coming-soon">
+      Advanced stats are coming soon. Check back later for deeper numbers on drivers, teams and races.
+    </p>
+  </section>
+</Layout>

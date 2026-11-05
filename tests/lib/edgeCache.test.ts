@@ -105,6 +105,31 @@ describe('cacheKeyUrl', () => {
     expect(key).toBe('https://x.test/standings?season=atc-17');
     expect(cacheKeyUrl.length).toBe(1);
   });
+
+  it('keys the incident page shell and fragment on from=reporting (nav-admin-polish BR2.6)', () => {
+    expect(cacheKeyUrl(new URL('https://x.test/results/42/incidents?from=reporting&season=atc-18'))).toBe(
+      'https://x.test/results/42/incidents?from=reporting&season=atc-18',
+    );
+    expect(
+      cacheKeyUrl(new URL('https://x.test/results/42/incidents/fragment?view=reports&from=reporting')),
+    ).toBe('https://x.test/results/42/incidents/fragment?from=reporting&view=reports');
+  });
+
+  it('drops any other from value, so it shares the page without the marker', () => {
+    for (const value of ['xyz', 'REPORTING', '']) {
+      expect(
+        cacheKeyUrl(new URL(`https://x.test/results/42/incidents?view=reports&from=${value}`)),
+        value,
+      ).toBe('https://x.test/results/42/incidents?view=reports');
+    }
+  });
+
+  it('ignores from on every other route', () => {
+    expect(cacheKeyUrl(new URL('https://x.test/results/42?from=reporting&season=atc-18'))).toBe(
+      'https://x.test/results/42?season=atc-18',
+    );
+    expect(cacheKeyUrl(new URL('https://x.test/standings?from=reporting'))).toBe('https://x.test/standings');
+  });
 });
 
 describe('createRefreshGuard', () => {

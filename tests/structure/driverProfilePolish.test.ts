@@ -181,7 +181,8 @@ describe('FR10: admin panel', () => {
     expect(layout).toContain('userDisplayName(session?.profile, session?.user.email)');
     expect(layout).toMatch(/action="\/api\/logout"[\s\S]*Log Out/);
     expect(layout).toMatch(/\{!onDashboard && \(\s*<a\s+href="\/admin"/);
-    expect(layout).toContain('← Back to Dashboard');
+    // Renamed by nav-admin-polish BR3.1.
+    expect(layout).toContain('← Back to Admin Panel');
   });
 
   it('puts Email below Site Analytics and drops the Import Tools tool', () => {

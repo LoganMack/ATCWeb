@@ -44,6 +44,7 @@ import {
   type RoundPPSummary,
 } from '../../../../lib/penalties/penaltyPoints';
 import { isAdminView, requireAdminSession } from '../../../../lib/auth';
+import { parseIncidentOrigin, withIncidentOrigin } from '../../../../lib/incidentPageOrigin';
 import {
   getRoundPenaltyData,
   roundPenaltyLabel,
@@ -364,7 +365,9 @@ function reportLabel(r: IncidentReport): string {
 // "View Incidents" (?view=reports) shows the reports queue; "Edit Report" shows the not-yet-posted notice and
 // Add Incident. POSTs redirect to pathname + search, so the mode survives.
 const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
-// Reports still waiting on the stewards — the number on the View Reported Incidents button.
+// Opened from admin > Incident Reports (?from=reporting): the links between the two views keep the marker.
+const origin = parseIncidentOrigin(Astro.url.searchParams.get('from'));
+// Reports still waiting on the stewards — the number on the Review Submissions button.
 const openReportCount = incidentReports.filter((r) => r.status === 'open').length;
 
 // This round's layout map and its numbered corners (layout_corners, 0110): each report card and each
@@ -481,12 +484,11 @@ function reviewDriverLabel(driverId: string | null): string {
 }
 const offenseNameById = new Map(offenses.map((o) => [o.id, o.name]));
 
-// Appeals (0093_incident_appeals.sql) — admin-only queue, shown beneath the
-// reported incidents. Attached files live in a private bucket, so each gets a
-// one-hour signed download link here.
+// Appeals (0093_incident_appeals.sql) — admin-only queue, shown only in Review Submissions (BR2.8).
+// Attached files live in a private bucket, so each gets a one-hour signed download link here.
 let incidentAppeals: IncidentAppeal[] = [];
 const appealFileUrls = new Map<string, string | null>();
-if (adminSession) {
+if (adminSession && viewReports) {
   try {
     const token = adminSession.accessToken;
     incidentAppeals = await getIncidentAppealsForSubsession(supabaseEnv, token, subsessionId);
@@ -504,7 +506,7 @@ const filterCounts = countFilters([
   ...incidentAppeals.map((): IncidentFilter => 'appeals'),
 ]);
 const activeFilter = initialFilter(filterCounts);
-const showIncidentList = viewReports ? incidentReports.length > 0 || incidentAppeals.length > 0 : isAdmin && incidentAppeals.length > 0;
+const showIncidentList = viewReports && (incidentReports.length > 0 || incidentAppeals.length > 0);
 
 // Whether the Submit Appeal button in the details popup is live: open from
 // the moment the round was posted until the Incident Appeal Window runs out.
@@ -811,8 +813,14 @@ summaryRows.sort(
 const seasonParam = Astro.url.searchParams.get('season');
 // Links between this page's two admin views (see viewReports), carrying
 // ?season= along for the same reason as backToRoundHref.
-const editReportHref = `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`;
-const viewReportsHref = `/results/${subsessionId}/incidents?${seasonParam ? `season=${encodeURIComponent(seasonParam)}&` : ''}view=reports`;
+const editReportHref = withIncidentOrigin(
+  `/results/${subsessionId}/incidents${seasonParam ? `?season=${encodeURIComponent(seasonParam)}` : ''}`,
+  origin,
+);
+const viewReportsHref = withIncidentOrigin(
+  `/results/${subsessionId}/incidents?${seasonParam ? `season=${encodeURIComponent(seasonParam)}&` : ''}view=reports`,
+  origin,
+);
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 
@@ -857,8 +865,9 @@ if (loadError) markUncacheable(Astro);
             <a
               href={viewReports ? editReportHref : viewReportsHref}
               class="btn btn-neutral"
+              data-testid="incident-view-toggle"
             >
-              {viewReports ? 'View Report' : `View Reported Incidents${openReportCount > 0 ? ` (${openReportCount})` : ''}`}
+              {viewReports ? 'View Report' : `Review Submissions${openReportCount > 0 ? ` (${openReportCount})` : ''}`}
             </a>
             {!viewReports && (
               <div class="flex flex-wrap items-center gap-2">
@@ -925,24 +934,21 @@ if (loadError) markUncacheable(Astro);
                 Couldn't load the drivers' comments. Try refreshing.
               </p>
             )}
-            {viewReports ? (
-              // One filter bar over one list (FR1.2): the selected filter's cards show, the others are hidden.
-              <div role="group" aria-label="Filter submissions" class="flex flex-wrap gap-2" data-incident-filters>
-                {FILTER_ORDER.map((f) => (
-                  <button
-                    type="button"
-                    class={`btn btn-sm ${f === activeFilter ? 'btn-active' : 'btn-neutral'}`}
-                    aria-pressed={f === activeFilter ? 'true' : 'false'}
-                    data-incident-filter={f}
-                    data-testid={`incident-filter-${f}`}
-                  >
-                    {FILTER_LABELS[f]} ({filterCounts[f]})
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <h2 class="font-display text-2xl">Submitted Appeals</h2>
-            )}
+            {/* One filter bar over one list (FR1.2): the selected filter's cards show, the others are hidden.
+                Appeals appear only here, under their filter (BR2.8). */}
+            <div role="group" aria-label="Filter submissions" class="flex flex-wrap gap-2" data-incident-filters>
+              {FILTER_ORDER.map((f) => (
+                <button
+                  type="button"
+                  class={`btn btn-sm ${f === activeFilter ? 'btn-active' : 'btn-neutral'}`}
+                  aria-pressed={f === activeFilter ? 'true' : 'false'}
+                  data-incident-filter={f}
+                  data-testid={`incident-filter-${f}`}
+                >
+                  {FILTER_LABELS[f]} ({filterCounts[f]})
+                </button>
+              ))}
+            </div>
             <ul class="flex flex-col gap-2" data-incident-list>
               {viewReports && incidentReports.map((r) => {
                 const filterGroup = reportFilterById.get(r.id) ?? 'needs_review';
@@ -1330,7 +1336,7 @@ if (loadError) markUncacheable(Astro);
           </section>
         )}
 
-        {/* Admins reach the submitted reports from the View Reported Incidents button at the top of the page,
+        {/* Admins reach the submitted reports from the Review Submissions button at the top of the page,
             which carries the number of reports still waiting. */}
         {!viewReports && sortedPenalties.length === 0 && (
           <p class="mt-10 text-white/60">

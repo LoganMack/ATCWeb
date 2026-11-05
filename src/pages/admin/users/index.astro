@@ -172,6 +172,12 @@ const unlinkedDrivers = drivers
   .sort((a, b) => a.name.localeCompare(b.name));
 const driverNameById = new Map(drivers.map((d) => [d.id, d.name]));
 const broadcaster = profiles.find((p) => p.is_broadcaster) ?? null;
+// A to Z by the shown name, ignoring case, then by email (BR4.3); header clicks still re-sort.
+const sortedProfiles = [...profiles].sort(
+  (a, b) =>
+    nameOf(a).localeCompare(nameOf(b), undefined, { sensitivity: 'base' }) ||
+    (emailById.get(a.id) ?? '').localeCompare(emailById.get(b.id) ?? '', undefined, { sensitivity: 'base' }),
+);
 const driverText = (p: (typeof profiles)[number]) =>
   p.is_broadcaster
     ? 'Broadcaster'
@@ -196,7 +202,35 @@ const driverText = (p: (typeof profiles)[number]) =>
     </p>
   )}
 
-  <div class="reveal mt-8 rounded-xl border border-white/10" style="transition-delay: 80ms" data-sticky-thead>
+  <div class="reveal mt-8 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4" style="transition-delay: 60ms">
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Search</span>
+        <input
+          type="search"
+          id="admin-users-search"
+          placeholder="Search name or email…"
+          class="search-input h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          data-testid="users-search"
+        />
+      </label>
+      <label class="flex flex-col gap-1.5 sm:w-44">
+        <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Role</span>
+        <select
+          id="admin-users-role"
+          class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+          data-testid="users-role-filter"
+        >
+          <option value="" class="bg-brand-ink text-white">All</option>
+          <option value="admin" class="bg-brand-ink text-white">Admin</option>
+          <option value="staff" class="bg-brand-ink text-white">Staff</option>
+          <option value="driver" class="bg-brand-ink text-white">Driver</option>
+        </select>
+      </label>
+    </div>
+  </div>
+
+  <div class="reveal mt-4 rounded-xl border border-white/10" style="transition-delay: 80ms" data-sticky-thead>
     <table class="w-full border-collapse" data-sortable>
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
@@ -207,11 +241,15 @@ const driverText = (p: (typeof profiles)[number]) =>
           {canEdit && <th class="py-3 pr-6 font-medium"><span class="sr-only">Delete</span></th>}
         </tr>
       </thead>
-      <tbody>
-        {profiles.map((profile) => {
+      <tbody id="admin-users-body">
+        {sortedProfiles.map((profile) => {
           const label = nameOf(profile);
           return (
-          <tr class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]">
+          <tr
+            class="border-b border-white/5 text-sm transition hover:bg-white/[0.03]"
+            data-search={`${label} ${emailById.get(profile.id) ?? ''}`.toLowerCase()}
+            data-role={profile.role}
+          >
             <td class="py-3 pl-6 pr-3" data-col="name" data-sort-value={label}>
               <p class="font-semibold">
                 {label}
@@ -295,13 +333,8 @@ const driverText = (p: (typeof profiles)[number]) =>
         })}
       </tbody>
     </table>
+    <p id="admin-users-search-empty" class="hidden px-6 py-4 text-sm text-white/40" data-testid="users-no-matches">No matches.</p>
   </div>
-
-  <p class="reveal mt-6 text-sm text-white/50" data-testid="users-driver-privacy-note">
-    A driver's privacy settings follow the account linked to it: changing a link moves the driver to the newly linked
-    account's settings, and unlinking leaves the driver with none. Drivers can link themselves once; only an admin can
-    change or remove a link.
-  </p>
 </AdminLayout>
 
 {canEdit && (
@@ -339,4 +372,29 @@ const driverText = (p: (typeof profiles)[number]) =>
   }
   initDeleteUser();
   document.addEventListener('astro:page-load', initDeleteUser);
+
+  // Search (name or email, any part) and Role combine; a row shows only when it matches both (BR4.4, BR4.5).
+  function initUsersFilter() {
+    const input = document.getElementById('admin-users-search') as HTMLInputElement | null;
+    const role = document.getElementById('admin-users-role') as HTMLSelectElement | null;
+    const body = document.getElementById('admin-users-body');
+    const empty = document.getElementById('admin-users-search-empty');
+    if (!input || !role || !body || input.dataset.ready === 'true') return;
+    input.dataset.ready = 'true';
+    const apply = () => {
+      const term = input.value.trim().toLowerCase();
+      let visibleCount = 0;
+      body.querySelectorAll<HTMLElement>('[data-search]').forEach((row) => {
+        const matches =
+          (!term || (row.dataset.search ?? '').includes(term)) && (!role.value || row.dataset.role === role.value);
+        row.style.display = matches ? '' : 'none';
+        if (matches) visibleCount += 1;
+      });
+      empty?.classList.toggle('hidden', visibleCount > 0);
+    };
+    input.addEventListener('input', apply);
+    role.addEventListener('change', apply);
+  }
+  initUsersFilter();
+  document.addEventListener('astro:page-load', initUsersFilter);
 </script>

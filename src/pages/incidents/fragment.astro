@@ -8,7 +8,7 @@ import { displayDriverName, formatDateShort } from '../../lib/db/circuits';
 import HistoryTabs from '../../components/HistoryTabs.astro';
 import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
 import IncidentDetailsDialog from '../../components/IncidentDetailsDialog.astro';
-import { getAllIncidents } from '../../lib/incidents';
+import { getAllIncidents, sortIncidentRowsNewestFirst } from '../../lib/incidents';
 import { sessionLabel, roundLabel, driverNumberLabel } from '../../lib/incidentDisplay';
 
 /**
@@ -78,7 +78,7 @@ if (loadError) markUncacheable(Astro);
       {data.all.length === 0 ? (
         <p class="mt-6 text-white/60">No incidents logged yet.</p>
       ) : (
-        <IncidentsAllTable rows={data.all} />
+        <IncidentsAllTable rows={sortIncidentRowsNewestFirst(data.all)} />
       )}
     </div>
 

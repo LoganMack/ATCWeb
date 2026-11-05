@@ -1,15 +1,22 @@
 ---
 export const prerender = false;
 
-import { resolveSupabaseEnv, getDrivers, restGetAuthed } from '../../lib/db/client';
-import { getTeams, getOrganizations } from '../../lib/db/teams';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getOrganizations } from '../../lib/db/teams';
 import { getAllNewsPosts } from '../../lib/db/news';
 import { getEvents } from '../../lib/db/events';
 import { getCircuits } from '../../lib/db/circuits';
 import { getSeasons } from '../../lib/db/seasons';
-import { getMissingRaceResultsCount, getActivityLogCountSince } from '../../lib/db/analytics';
+import { getMissingRaceResultsCount } from '../../lib/db/analytics';
 import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
-import { adminToolsFor, isFullAdmin, requireAdmin } from '../../lib/auth';
+import { adminToolsFor, requireAdmin } from '../../lib/auth';
+import {
+  appealWindowText,
+  countLabel,
+  getLatestEventSummary,
+  submissionWindowText,
+  type LatestEventResult,
+} from '../../lib/adminLatestEvent';
 import { getNotificationCounts, type NotificationCounts } from '../../lib/notifications/counts';
 import {
   EMAIL_TEMPLATES_ANCHOR,
@@ -34,8 +41,6 @@ if (admin instanceof Response) return admin;
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const accessToken = admin.accessToken;
 
-let driverCount = 0;
-let teamCount = 0;
 let draftCount = 0;
 let upcomingEventCount = 0;
 let pastEventCount = 0;
@@ -44,9 +49,9 @@ let seasonCount = 0;
 let currentSeasonName: string | null = null;
 let organizationCount = 0;
 let missingRaceResultsCount = 0;
-let activityLogCount24h = 0;
-let openIncidentReportCount = 0;
-let pendingSignupCount = 0;
+// The latest-event card (BR5.3-BR5.10); the loader never throws, it answers 'error' instead. Cast like
+// emailCounts, as it is assigned inside a callback below.
+let latestEvent = { state: 'error' } as LatestEventResult;
 // Null when the counts could not be read; the Email section then says so instead of failing the page.
 // (The cast keeps TypeScript from narrowing it to null: it is assigned inside a callback below.)
 let emailCounts = null as NotificationCounts | null;
@@ -56,17 +61,13 @@ let emailTemplateRows = null as EmailTemplateRow[] | null;
 // Independent fetches run together; the counts with their own .catch are separate Promise.all entries.
 async function loadCounts() {
   try {
-    const [drivers, teams, news, events, circuits, seasons, organizations] = await Promise.all([
-      getDrivers(supabaseEnv),
-      getTeams(supabaseEnv),
+    const [news, events, circuits, seasons, organizations] = await Promise.all([
       getAllNewsPosts(supabaseEnv, accessToken),
       getEvents(supabaseEnv),
       getCircuits(supabaseEnv),
       getSeasons(supabaseEnv),
       getOrganizations(supabaseEnv),
     ]);
-    driverCount = drivers.length;
-    teamCount = teams.length;
     draftCount = news.filter((p) => p.status === 'draft').length;
     const todayStr = new Date().toISOString().slice(0, 10);
     upcomingEventCount = events.filter((e) => e.event_date >= todayStr).length;
@@ -80,22 +81,14 @@ async function loadCounts() {
   }
 }
 
-const oneDayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+const now = new Date();
 
 await Promise.all([
   loadCounts(),
   getMissingRaceResultsCount(supabaseEnv)
     .then((count) => (missingRaceResultsCount = count))
     .catch((err) => console.error('Failed to load missing race results count:', err)),
-  restGetAuthed<{ id: string }[]>(supabaseEnv, accessToken, 'signup_requests?select=id&status=eq.pending')
-    .then((rows) => (pendingSignupCount = rows.length))
-    .catch((err) => console.error('Failed to load pending sign-up count:', err)),
-  restGetAuthed<{ id: string }[]>(supabaseEnv, accessToken, 'incident_reports?select=id&status=eq.open')
-    .then((rows) => (openIncidentReportCount = rows.length))
-    .catch((err) => console.error('Failed to load open incident report count:', err)),
-  getActivityLogCountSince(supabaseEnv, accessToken, oneDayAgoIso)
-    .then((count) => (activityLogCount24h = count))
-    .catch((err) => console.error('Failed to load activity log count:', err)),
+  getLatestEventSummary(supabaseEnv, accessToken, now).then((result) => (latestEvent = result)),
   getNotificationCounts(supabaseEnv, accessToken).then((counts) => (emailCounts = counts)),
   getEmailTemplates(supabaseEnv, accessToken)
     .then((rows) => (emailTemplateRows = rows))
@@ -146,14 +139,35 @@ const emailStats = emailCounts
         value: String(emailCounts.enqueueFailures7d),
         detail: 'Emails that could not be queued',
       },
+      {
+        label: 'Sent in the last 7 days',
+        // A dash when the database has not yet got the sent_7d key; the other figures still show (BR5.13).
+        value: emailCounts.sent7d === null ? '—' : String(emailCounts.sent7d),
+        detail: 'Emails Resend accepted',
+      },
     ]
   : [];
 
-interface DashboardCard {
+// Icon and title only (BR5.1).
+interface DashboardButton {
   href: string;
   label: string;
+}
+
+interface DashboardCard extends DashboardButton {
   detail: string;
 }
+
+// The latest-event card's lines (BR5.4-BR5.9), worked out once at load; no live countdown.
+const latestEventLines =
+  latestEvent.state === 'ok'
+    ? [
+        countLabel(latestEvent.summary.submissionsTotal, latestEvent.summary.submissionsOpen, 'submission'),
+        `Submissions: ${submissionWindowText(latestEvent.summary.submissionWindow, latestEvent.summary.submissionClosesAt, now)}`,
+        countLabel(latestEvent.summary.appealsTotal, latestEvent.summary.appealsOpen, 'appeal'),
+        `Appeals: ${appealWindowText(latestEvent.summary.appealWindow, latestEvent.summary.appealClosesAt, now)}`,
+      ]
+    : [];
 
 // Outline icons (24x24 stroke paths) — one per dashboard card, keyed by the
 // card's label. Each entry is a list of SVG path `d` strings.
@@ -184,33 +198,22 @@ const ICONS: Record<string, string[]> = {
 // --- Dashboard layout (Logan): Notifications and User Management as cards, everything else as icon buttons
 // with hover titles, Site Analytics underneath. Keep the tool list in sync with AdminLayout's links. ---
 
-const notifications: DashboardCard[] = [
-  {
-    href: '/admin/incident-reporting',
-    label: 'Incident Reports',
-    detail: `${openIncidentReportCount} open report${openIncidentReportCount === 1 ? '' : 's'}`,
-  },
-  { href: '/admin/signups', label: 'Sign-Ups', detail: `${pendingSignupCount} pending` },
-  {
-    href: '/admin/activity-log',
-    label: 'Activity Log',
-    detail: `${activityLogCount24h} entr${activityLogCount24h === 1 ? 'y' : 'ies'} in the last 24 hours`,
-  },
+// The latest-event card sits first in this row, where the Incident Reports button was (FR5.3).
+const notifications: DashboardButton[] = [
+  { href: '/admin/signups', label: 'Sign-Ups' },
+  { href: '/admin/activity-log', label: 'Activity Log' },
 ];
 
-const userManagement: DashboardCard[] = [
-  { href: '/admin/drivers', label: 'Drivers', detail: `${driverCount} driver${driverCount === 1 ? '' : 's'}` },
-  { href: '/admin/teams', label: 'Teams', detail: `${teamCount} teams` },
-  {
-    href: '/admin/users',
-    label: 'Users',
-    detail: isFullAdmin(admin.profile) ? 'Admin access & driver links' : 'View accounts',
-  },
+const userManagement: DashboardButton[] = [
+  { href: '/admin/drivers', label: 'Drivers' },
+  { href: '/admin/teams', label: 'Teams' },
+  { href: '/admin/users', label: 'Users' },
 ];
 
 // Everything else, as icon buttons. `detail` shows in the hover note after the title. Staff don't see the
 // five restricted areas (BR2.7).
 const allTools: DashboardCard[] = [
+  { href: '/admin/incident-reporting', label: 'Incident Reports', detail: 'Submissions and posting per round' },
   { href: '/admin/import', label: 'Add Race Result', detail: `${missingRaceResultsCount} event${missingRaceResultsCount === 1 ? '' : 's'} missing results` },
   { href: '/admin/events', label: 'Events', detail: `${upcomingEventCount} upcoming, ${pastEventCount} past` },
   { href: '/admin/organizations', label: 'Organizations', detail: `${organizationCount} organization${organizationCount === 1 ? '' : 's'}` },
@@ -236,23 +239,40 @@ const tools = adminToolsFor(allTools, admin.profile);
 <section>
   <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Notifications</h2>
 
-  <div class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <div class="mt-4 grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="rounded-xl border border-white/10 bg-brand-ink p-6 sm:row-span-2 lg:row-span-1" data-testid="latest-event-card">
+      <p class="text-xs font-semibold uppercase tracking-wide text-white/40">Latest event</p>
+      {latestEvent.state === 'ok' ? (
+        <>
+          <h3 class="mt-1 font-display text-2xl leading-8" data-testid="latest-event-label">{latestEvent.summary.label}</h3>
+          <ul class="mt-2 flex flex-col gap-0.5 text-sm leading-5 text-white/60">
+            {latestEventLines.map((line) => <li>{line}</li>)}
+          </ul>
+          <a
+            href={`/results/${latestEvent.summary.subsessionId}/incidents?view=reports`}
+            class="btn btn-primary btn-sm mt-4 inline-block"
+            data-testid="latest-event-review-link"
+          >
+            Review Submissions
+          </a>
+        </>
+      ) : (
+        <p class="mt-1 text-sm text-white/60" data-testid="latest-event-empty">
+          {latestEvent.state === 'none' ? 'No events yet' : 'Latest event unavailable'}
+        </p>
+      )}
+    </div>
     {notifications.map((card) => (
       <a
         href={card.href}
         class="group rounded-xl border border-white/10 bg-brand-ink p-6 transition hover:border-white/20 hover:bg-white/[0.03]"
+        data-testid="admin-dashboard-button"
       >
-        {/* Icon is exactly as tall as the title (32px) + subtitle (20px) +
-            gap (4px) beside it, so it spans from the top of the title to
-            the bottom of the subtitle; both texts sit to its right. */}
         <div class="flex items-center gap-4">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-14 w-14 flex-none text-brand-primary" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 flex-none text-brand-primary" aria-hidden="true">
             {(ICONS[card.label] ?? []).map((d) => <path d={d} />)}
           </svg>
-          <div class="min-w-0">
-            <h3 class="font-display text-2xl leading-8">{card.label}</h3>
-            <p class="mt-1 text-sm leading-5 text-white/60">{card.detail}</p>
-          </div>
+          <h3 class="min-w-0 font-display text-2xl leading-8">{card.label}</h3>
         </div>
       </a>
     ))}
@@ -267,18 +287,13 @@ const tools = adminToolsFor(allTools, admin.profile);
       <a
         href={card.href}
         class="group rounded-xl border border-white/10 bg-brand-ink p-6 transition hover:border-white/20 hover:bg-white/[0.03]"
+        data-testid="admin-dashboard-button"
       >
-        {/* Icon is exactly as tall as the title (32px) + subtitle (20px) +
-            gap (4px) beside it, so it spans from the top of the title to
-            the bottom of the subtitle; both texts sit to its right. */}
         <div class="flex items-center gap-4">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-14 w-14 flex-none text-brand-primary" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="h-8 w-8 flex-none text-brand-primary" aria-hidden="true">
             {(ICONS[card.label] ?? []).map((d) => <path d={d} />)}
           </svg>
-          <div class="min-w-0">
-            <h3 class="font-display text-2xl leading-8">{card.label}</h3>
-            <p class="mt-1 text-sm leading-5 text-white/60">{card.detail}</p>
-          </div>
+          <h3 class="min-w-0 font-display text-2xl leading-8">{card.label}</h3>
         </div>
       </a>
     ))}
@@ -340,7 +355,7 @@ const tools = adminToolsFor(allTools, admin.profile);
   )}
 
   {emailCounts ? (
-    <dl class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <dl class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
       {emailStats.map((stat) => (
         <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
           <dt class="text-sm leading-5 text-white/60">{stat.label}</dt>
@@ -353,11 +368,12 @@ const tools = adminToolsFor(allTools, admin.profile);
     <p class="mt-4 text-sm text-white/60" data-email-counts-unavailable>Email counts unavailable</p>
   )}
 
-  <div id={EMAIL_TEMPLATES_ANCHOR} class="mt-8 scroll-mt-24" data-testid="email-templates">
-    <h3 class="font-display text-xl uppercase tracking-widest text-white/50">Email wording</h3>
-    <p class="mt-1 text-sm text-white/60">
-      Links and the footer stay fixed. Leave a field empty, or use Reset, to send the default wording.
-    </p>
+  {/* Collapsed until clicked, and open after a save or reset so its message shows (BR5.12). */}
+  <details id={EMAIL_TEMPLATES_ANCHOR} class="group/templates mt-8 scroll-mt-24" open={emailFlash ? true : undefined} data-testid="email-templates">
+    <summary class="flex cursor-pointer list-none items-center gap-2 font-display text-xl uppercase tracking-widest text-white/50 hover:text-white" data-testid="email-templates-toggle">
+      <span aria-hidden="true" class="inline-block transition group-open/templates:rotate-90">&rsaquo;</span>
+      <h3>Email Templates</h3>
+    </summary>
 
     {emailFlash && !emailFlash.kind && (
       <p role="alert" class="mt-4 rounded-md border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80" data-testid="email-templates-flash">
@@ -428,5 +444,5 @@ const tools = adminToolsFor(allTools, admin.profile);
     ) : (
       <p class="mt-4 text-sm text-white/60" data-email-templates-unavailable>Email templates unavailable</p>
     )}
-  </div>
+  </details>
 </section>
