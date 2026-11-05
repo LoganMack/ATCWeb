@@ -573,6 +573,8 @@ describe('admin counts reader (BR10.17, NFR9.3)', () => {
       capDropped7d: 1,
       unknown7d: 0,
       enqueueFailures7d: 1,
+      // This raw shape predates sent_7d, so the new figure is null and the rest still read.
+      sent7d: null,
       lastRunStatus: 'no_key',
       lastRunAt: '2026-10-24T12:45:00+00:00',
       sendingOff: true,

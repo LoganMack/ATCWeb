@@ -18,7 +18,7 @@ export const TIME_LIMITED_RACE_ASSUMED_MINUTES = 60;
 /** Default reporting-period length — the live value is the `incident_report_period_hours` site setting (admin > Site Properties); see getReportingPeriodHours. */
 export const REPORTING_WINDOW_HOURS = 24;
 
-interface WindowEvent {
+export interface WindowEvent {
   event_date: string;
   race1_start_time: string | null;
   race1_laps: number | null;
@@ -28,7 +28,7 @@ interface WindowEvent {
   race3_laps: number | null;
 }
 
-const EVENT_WINDOW_SELECT =
+export const EVENT_WINDOW_SELECT =
   'event_date,race1_start_time,race1_laps,race2_start_time,race2_laps,race3_start_time,race3_laps';
 
 export interface ReportingWindow {

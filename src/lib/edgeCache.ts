@@ -22,7 +22,18 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/results\/[^/]+(\/fragment)?$/, ['category', 'class', 'links_error', 'report', 'season', 'session']],
   [
     /^\/results\/[^/]+\/incidents(\/fragment)?$/,
-    ['appeal', 'incident', 'review', 'roundpenalty', 'season', 'submission', 'video', 'video_for', 'view'],
+    [
+      'appeal',
+      'from',
+      'incident',
+      'review',
+      'roundpenalty',
+      'season',
+      'submission',
+      'video',
+      'video_for',
+      'view',
+    ],
   ],
   [/^\/results\/[^/]+\/kudos(\/fragment)?$/, ['kudos', 'season']],
   [/^\/standings(\/fragment)?$/, ['championship', 'class', 'mode', 'round', 'season', 'view']],
@@ -32,6 +43,10 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/api\/photo-album-thumbnail$/, ['url']],
   [/^\/api\/import-templates\/[^/]+$/, ['eventId']],
 ];
+
+// Parameters kept in the key only with one of these values; any other value is dropped, so stray values
+// can't create extra cache entries (the incident page's origin marker, BR2.6).
+const ALLOWED_PARAM_VALUES: Record<string, readonly string[]> = { from: ['reporting'] };
 
 /** Query parameters that are part of the cache key for this path. */
 export function cacheQueryParams(pathname: string): string[] {
@@ -49,7 +64,8 @@ export function cacheKeyUrl(url: URL): string {
   const key = new URL(url.origin + url.pathname);
   for (const name of [...cacheQueryParams(url.pathname)].sort()) {
     const value = url.searchParams.get(name);
-    if (value !== null) key.searchParams.set(name, value);
+    const allowed = ALLOWED_PARAM_VALUES[name];
+    if (value !== null && (!allowed || allowed.includes(value))) key.searchParams.set(name, value);
   }
   return key.toString();
 }

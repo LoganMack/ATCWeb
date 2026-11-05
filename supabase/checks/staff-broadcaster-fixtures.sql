@@ -3,7 +3,8 @@
 -- 20261109120003_website_signup_fields.sql (broadcaster-staff-roles; rules BR1-BR5), cases T01-T24:
 --   (a) T01      no write policy on a restricted area, the profiles insert or the three buckets accepts
 --                panel access without a full Admin;
---   (b) T02-T07  Staff: restricted writes refused, shared writes kept, Users read-only;
+--   (b) T02-T07  Staff: restricted writes refused, shared writes kept, Users read-only (T06b: links stay
+--                Admin-only once Staff have a driver);
 --   (c) T08-T15  the Broadcaster: claim, one slot, never with a driver, admin assign, masking, deletion;
 --   (d) T16-T20  Edit Submission: who, open reports only, the log row, no-op, bad values;
 --   (e) T21-T24  New Driver Sign-Up: required iRating, taken and requested numbers, the old call, approval.
@@ -319,6 +320,39 @@ begin
     (select string_agg(role, ',' order by id) from public.profiles
      where id in ('eeeeeeee-0000-0000-0000-000000000b02', 'eeeeeeee-0000-0000-0000-000000000b03')), 'staff,driver');
   raise notice 'ok T06 users read-only';
+end $$;
+rollback to savepoint fixture;
+
+-- T06b Once Staff have a driver, they can't change or remove their own link, or remove another account's
+--      link; only an Admin changes a link (nav-admin-polish BR4.1; FR4.1, NFR1) ----------------------------
+do $$
+declare
+  v_change_own text;
+  v_remove_own text;
+  v_remove_other bigint;
+begin
+  -- An Admin gives the Staff account a driver first, so the self-link opening (no driver yet) is out of play.
+  perform staff_fixture.claims('eeeeeeee-0000-0000-0000-000000000b01');
+  set local role authenticated;
+  update public.profiles set driver_id = '99999999-0000-0000-0000-000000000b01'
+  where id = 'eeeeeeee-0000-0000-0000-000000000b02';
+  perform staff_fixture.claims('eeeeeeee-0000-0000-0000-000000000b02');
+  v_change_own := staff_fixture.error_state($q$update public.profiles set driver_id = '99999999-0000-0000-0000-000000000b04'
+    where id = 'eeeeeeee-0000-0000-0000-000000000b02'$q$);
+  v_remove_own := staff_fixture.error_state($q$update public.profiles set driver_id = null
+    where id = 'eeeeeeee-0000-0000-0000-000000000b02'$q$);
+  v_remove_other := staff_fixture.affected($q$update public.profiles set driver_id = null
+    where id = 'eeeeeeee-0000-0000-0000-000000000b05'$q$);
+  reset role;
+  perform set_config('request.jwt.claims', '', true);
+  perform staff_fixture.expect('T06b change their own link', v_change_own, '42501');
+  perform staff_fixture.expect('T06b remove their own link', v_remove_own, '42501');
+  perform staff_fixture.expect('T06b remove another account''s link', v_remove_other, 0::bigint);
+  perform staff_fixture.expect('T06b links unchanged',
+    (select string_agg(coalesce(driver_id::text, '-'), ',' order by id) from public.profiles
+     where id in ('eeeeeeee-0000-0000-0000-000000000b02', 'eeeeeeee-0000-0000-0000-000000000b05')),
+    '99999999-0000-0000-0000-000000000b01,99999999-0000-0000-0000-000000000b03');
+  raise notice 'ok T06b staff links admin-only';
 end $$;
 rollback to savepoint fixture;
 

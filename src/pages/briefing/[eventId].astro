@@ -46,7 +46,7 @@ import {
 import { driversSelect } from '../../lib/results/rows';
 import { classTagFull } from '../../lib/classColors';
 import ClassBadge from '../../components/ClassBadge.astro';
-import { getIncidentsForSubsessions, type IncidentRow } from '../../lib/incidents';
+import { getIncidentsForSubsessions, sortIncidentRowsNewestFirst, type IncidentRow } from '../../lib/incidents';
 import WeatherIcon from '../../components/WeatherIcon.astro';
 import LayoutMap from '../../components/LayoutMap.astro';
 import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
@@ -152,7 +152,7 @@ if (!loadError && event && event.circuit_id) {
     recordCarName = resolvedRecordCar?.carName ?? null;
     recordCarLogoUrl = resolvedRecordCar?.carLogoUrl ?? null;
 
-    incidentRows = incidents;
+    incidentRows = sortIncidentRowsNewestFirst(incidents);
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
 
     const byRoundDesc = (a: MediaEntry, b: MediaEntry) => b.round.startTime.localeCompare(a.round.startTime);

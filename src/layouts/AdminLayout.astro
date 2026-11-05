@@ -23,10 +23,10 @@ const onDashboard = Astro.url.pathname.replace(/\/+$/, '') === '/admin';
     {!onDashboard && (
       <a
         href="/admin"
-        class="reveal inline-block text-sm font-semibold text-white/60 transition hover:text-white hover:underline"
+        class="reveal inline-block text-sm text-white/50 hover:text-white"
         data-testid="admin-back-to-dashboard-link"
       >
-        ← Back to Dashboard
+        ← Back to Admin Panel
       </a>
     )}
     <div

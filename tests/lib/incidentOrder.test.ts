@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { applyReportOrder, getIncidentReportOrder, type ReportOrderRow } from '../../src/lib/incidentOrder';
+import { sortIncidentRowsNewestFirst, type IncidentRow } from '../../src/lib/incidents';
 import {
   buildIncidentSubmissionsView,
   type IncidentSubmissionDbRow,
@@ -105,6 +106,113 @@ describe('admin and public numbers match (FR2.3)', () => {
 
     expect(Object.fromEntries(publicNumbers)).toEqual(Object.fromEntries(adminNumbers));
     expect(publicNumbers.has('r-b')).toBe(false);
+  });
+});
+
+// --- The All Incidents table's initial order (nav-admin-polish FR1.3; BR1.3-BR1.7) -------------------------
+
+function incident(id: string, over: Partial<IncidentRow> = {}): IncidentRow {
+  return {
+    id,
+    subsessionId: 100,
+    seasonLabel: 'ATC18',
+    displayRoundNumber: 1,
+    trackName: 'Track',
+    startTime: '2026-10-01T18:00:00Z',
+    sessionType: 'race',
+    raceNumber: 1,
+    incidentNumber: null,
+    lap: 1,
+    driver: null,
+    involvedDrivers: [],
+    offenseIds: [],
+    offenseNames: [],
+    penaltyPoints: 0,
+    timePenaltySeconds: null,
+    pointsPenalty: 0,
+    isWarning: false,
+    isAppealed: false,
+    description: null,
+    createdAt: '2026-10-01T20:00:00Z',
+    ...over,
+  };
+}
+
+const ids = (rows: IncidentRow[]) => rows.map((r) => r.id);
+
+describe('sortIncidentRowsNewestFirst', () => {
+  it('lists every incident of the newer season before any of the older one', () => {
+    const rows = [
+      incident('old-r9', { seasonLabel: 'ATC17', displayRoundNumber: 9, startTime: '2026-03-01T18:00:00Z' }),
+      incident('new-r1', { seasonLabel: 'ATC18', displayRoundNumber: 1, startTime: '2026-09-01T18:00:00Z' }),
+      incident('old-r1', { seasonLabel: 'ATC17', displayRoundNumber: 1, startTime: '2026-01-01T18:00:00Z' }),
+      incident('new-r2', { seasonLabel: 'ATC18', displayRoundNumber: 2, startTime: '2026-09-08T18:00:00Z' }),
+    ];
+    expect(ids(sortIncidentRowsNewestFirst(rows))).toEqual(['new-r2', 'new-r1', 'old-r9', 'old-r1']);
+  });
+
+  it('orders one round as Race 2 lap 10, Race 2 lap 3, Race 1 lap 12, Qualifying lap 2, then Practice', () => {
+    const rows = [
+      incident('q2', { sessionType: 'qualifying', raceNumber: 0, lap: 2 }),
+      incident('r1l12', { raceNumber: 1, lap: 12 }),
+      incident('p5', { sessionType: 'practice', raceNumber: 0, lap: 5 }),
+      incident('r2l3', { raceNumber: 2, lap: 3 }),
+      incident('r2l10', { raceNumber: 2, lap: 10 }),
+    ];
+    expect(ids(sortIncidentRowsNewestFirst(rows))).toEqual(['r2l10', 'r2l3', 'r1l12', 'q2', 'p5']);
+  });
+
+  it('lists an incident with no lap after the lapped ones of its session', () => {
+    const rows = [
+      incident('r1-none', { raceNumber: 1, lap: null }),
+      incident('r1l4', { raceNumber: 1, lap: 4 }),
+      incident('q1', { sessionType: 'qualifying', raceNumber: 0, lap: 1 }),
+      incident('r1l9', { raceNumber: 1, lap: 9 }),
+    ];
+    expect(ids(sortIncidentRowsNewestFirst(rows))).toEqual(['r1l9', 'r1l4', 'r1-none', 'q1']);
+  });
+
+  it('puts exhibitions after the numbered rounds of their season, later exhibition first', () => {
+    const rows = [
+      incident('exh-early', {
+        subsessionId: 201,
+        displayRoundNumber: null,
+        startTime: '2026-09-02T18:00:00Z',
+      }),
+      incident('r1', { subsessionId: 101, displayRoundNumber: 1, startTime: '2026-09-01T18:00:00Z' }),
+      incident('exh-late', {
+        subsessionId: 202,
+        displayRoundNumber: null,
+        startTime: '2026-09-20T18:00:00Z',
+      }),
+      incident('r2', { subsessionId: 102, displayRoundNumber: 2, startTime: '2026-09-08T18:00:00Z' }),
+    ];
+    expect(ids(sortIncidentRowsNewestFirst(rows))).toEqual(['r2', 'r1', 'exh-late', 'exh-early']);
+  });
+
+  it('lists rounds with no season after every season', () => {
+    const rows = [
+      incident('no-season', {
+        seasonLabel: null,
+        displayRoundNumber: null,
+        startTime: '2026-12-01T18:00:00Z',
+      }),
+      incident('old-season', { seasonLabel: 'ATC10', startTime: '2020-01-01T18:00:00Z' }),
+    ];
+    expect(ids(sortIncidentRowsNewestFirst(rows))).toEqual(['old-season', 'no-season']);
+  });
+
+  it('keeps the given order when every key ties', () => {
+    const rows = [incident('first'), incident('second'), incident('third')];
+    expect(ids(sortIncidentRowsNewestFirst(rows))).toEqual(['first', 'second', 'third']);
+  });
+
+  it('returns a new list and leaves the input alone', () => {
+    const rows = [incident('a', { lap: 1 }), incident('b', { lap: 2 })];
+    const sorted = sortIncidentRowsNewestFirst(rows);
+    expect(ids(sorted)).toEqual(['b', 'a']);
+    expect(ids(rows)).toEqual(['a', 'b']);
+    expect(sorted).not.toBe(rows);
   });
 });
 

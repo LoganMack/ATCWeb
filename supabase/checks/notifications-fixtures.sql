@@ -2,7 +2,8 @@
 -- grants and lockdown, the three enqueue triggers (with the real setRoundPosted upsert shape), the failure
 -- capture, reminders (window, championship only, moved and already-sent events, daylight saving), claims
 -- (disjoint batches, the daily cap, attempt levels, re-checks), marks, stored renderings, stale batches and
--- the 20-hour cutoff, expiry with cap_expired, retention, the run log and the admin counts (N01-N27).
+-- the 20-hour cutoff, expiry with cap_expired, retention, the run log and the admin counts (N01-N27), and
+-- the 'sent_7d' count from 20261114120000_email_counts_sent_7d.sql (N28).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- driver-privacy-fixtures.sql:
@@ -885,6 +886,33 @@ begin
     '1,1,1,2,1,no_key');
   perform notifications_fixture.expect('N27 linked driver refused', v_driver, '42501');
   raise notice 'ok N27 admin counts';
+end $$;
+rollback to savepoint fixture;
+
+-- N28 Admin counts, sent in the last 7 days: a row sent 2 days ago counts, one sent 8 days ago and a queued
+--     row don't; a linked driver is still refused (20261114120000_email_counts_sent_7d.sql; BR5.13) -------
+do $$
+declare
+  v_counts jsonb;
+  v_driver text;
+begin
+  perform notifications_fixture.queue('appeal_reviewed', 'eeeeeeee-0000-0000-0000-000000000702', 'still-queued');
+  insert into public.email_outbox (kind, profile_id, subject_id, dedupe_key, payload, send_by, status, sent_at, finished_at) values
+    ('report_posted', 'eeeeeeee-0000-0000-0000-000000000702', 'sent-recent', 'sent-recent', '{}', now(), 'sent',
+     now() - interval '2 days', now() - interval '2 days'),
+    ('report_posted', 'eeeeeeee-0000-0000-0000-000000000702', 'sent-old', 'sent-old', '{}', now(), 'sent',
+     now() - interval '8 days', now() - interval '8 days');
+
+  perform notifications_fixture.act_as('eeeeeeee-0000-0000-0000-000000000701');
+  v_counts := public.notifications_admin_counts();
+  perform notifications_fixture.as_owner();
+  v_driver := notifications_fixture.state_as('eeeeeeee-0000-0000-0000-000000000702',
+    'select public.notifications_admin_counts()');
+
+  perform notifications_fixture.expect('N28 sent_7d', v_counts ->> 'sent_7d', '1');
+  perform notifications_fixture.expect('N28 queued still counted apart', v_counts ->> 'queued', '1');
+  perform notifications_fixture.expect('N28 linked driver refused', v_driver, '42501');
+  raise notice 'ok N28 sent in the last 7 days';
 end $$;
 rollback to savepoint fixture;
 

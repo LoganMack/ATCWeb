@@ -11,6 +11,8 @@ export interface NotificationCounts {
   capDropped7d: number;
   unknown7d: number;
   enqueueFailures7d: number;
+  /** Emails sent in the last 7 days; null when the function predates the key, so the tile shows a dash. */
+  sent7d: number | null;
   lastRunStatus: string | null;
   lastRunAt: string | null;
   /** The latest run found no RESEND_API_KEY, so nothing is being sent. */
@@ -36,6 +38,8 @@ export function parseNotificationCounts(raw: unknown): NotificationCounts | null
     capDropped7d,
     unknown7d,
     enqueueFailures7d,
+    // Optional: a missing or bad value never invalidates the other figures.
+    sent7d: count(r.sent_7d),
     lastRunStatus,
     lastRunAt: typeof r.last_run_at === 'string' ? r.last_run_at : null,
     sendingOff: lastRunStatus === 'no_key',

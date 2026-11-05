@@ -37,10 +37,13 @@ describe('AdminLayout', () => {
     expect(name).toBeLessThan(logout);
   });
 
-  it('puts exactly "← Back to Dashboard" above the header, off the dashboard only', () => {
-    expect(LAYOUT).toMatch(/>\s*← Back to Dashboard\s*</);
-    expect(LAYOUT).not.toContain('← Back to dashboard');
-    expect(LAYOUT.indexOf('← Back to Dashboard')).toBeLessThan(LAYOUT.indexOf('<h1'));
+  it('puts exactly "← Back to Admin Panel" above the header, off the dashboard only (nav-admin-polish BR3.1)', () => {
+    expect(LAYOUT).toMatch(/>\s*← Back to Admin Panel\s*</);
+    expect(LAYOUT).not.toContain('Back to Dashboard');
+    expect(LAYOUT).not.toContain('← Back to admin panel');
+    expect(LAYOUT.indexOf('← Back to Admin Panel')).toBeLessThan(LAYOUT.indexOf('<h1'));
+    // The standard back-link style, as on the public pages.
+    expect(LAYOUT).toMatch(/class="reveal inline-block text-sm text-white\/50 hover:text-white"/);
     expect(LAYOUT).toMatch(/\{!onDashboard && \(\s*<a\s+href="\/admin"/);
   });
 

@@ -175,6 +175,8 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   ],
   'results/[subsessionId]/incidents/fragment.astro': [
     'appeal',
+    // Opened from admin > Incident Reports: the links between the two views keep it (nav-admin-polish BR2.4).
+    'from',
     // A refused Turn or copied clip on Add/Edit Incident, and the Add/Edit Video result (incident clips).
     'incident',
     'review',

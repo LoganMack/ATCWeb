@@ -14,9 +14,18 @@ import {
   postingLogLabel,
   setRoundPosted,
 } from '../../../lib/incidentReports';
-import { formatDate } from '../../../lib/db/circuits';
+import {
+  formatDate,
+  getCircuits,
+  getCircuitLogoBackgrounds,
+  logoBgAttrs,
+  type LogoBackground,
+} from '../../../lib/db/circuits';
+import { resizedImageUrl } from '../../../lib/db/drivers';
+import { normalizeTrackOrLayoutName } from '../../../lib/results/layouts';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
+import { REPORTING_ORIGIN, withIncidentOrigin } from '../../../lib/incidentPageOrigin';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -84,6 +93,25 @@ interface Row {
   /** Posted before (now or earlier), so turning Posted on asks whether to reset the date (BR1.1). */
   postedBefore: boolean;
   postDate: { date: string; muted: boolean } | null;
+  logoUrl: string | null;
+  logoBg: LogoBackground | null;
+}
+
+// Track logos, matched by track name as on the results list (BR3.3). A failed read leaves the cells empty.
+let trackLogoByName = new Map<string, string | null>();
+let trackLogoBgByName = new Map<string, LogoBackground>();
+try {
+  const [circuits, logoBackgrounds] = await Promise.all([
+    getCircuits(supabaseEnv),
+    getCircuitLogoBackgrounds(supabaseEnv),
+  ]);
+  trackLogoByName = new Map(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c.logo_url ?? null]));
+  for (const c of circuits) {
+    const bg = logoBackgrounds[c.id];
+    if (bg) trackLogoBgByName.set(normalizeTrackOrLayoutName(c.name), bg);
+  }
+} catch (err) {
+  console.error('Failed to load circuits for incident reporting logos:', err);
 }
 
 let rows: Row[] = [];
@@ -135,8 +163,9 @@ try {
       const n = displayNumber.get(r.subsession_id);
       const status = postingStatuses.get(r.subsession_id);
       const season = r.season_label ?? '';
-      // "ATC18, Round 3" — then the table adds ": Track Name".
+      // "ATC18, Round 3" or "ATC18, Exhibition"; the track shows only as the logo (BR3.2).
       const label = `${season ? season + ', ' : ''}${n != null ? `Round ${n}` : 'Exhibition'}`;
+      const trackKey = normalizeTrackOrLayoutName(r.track_name);
       return {
         subsessionId: r.subsession_id,
         label,
@@ -149,6 +178,8 @@ try {
         posted: status?.posted === true,
         postedBefore: !!(status?.first_posted_at || status?.posted_at),
         postDate: postDateCell(status),
+        logoUrl: resizedImageUrl(trackLogoByName.get(trackKey) ?? null, { width: 96 }),
+        logoBg: trackLogoBgByName.get(trackKey) ?? null,
       };
     });
 } catch (err) {
@@ -165,34 +196,64 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
     <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error ?? loadError}</p>
   )}
 
-  {/* Phones (BR1.11): the track name and the four count columns hide below `sm`, and the table only takes a
-     fixed minimum width from `sm` up, so Round, Posted, Post Date and the links fit without sideways scrolling. */}
+  {/* Phones (BR1.11, BR3.4): the four count columns and Post Date hide below `sm` and the logo below `lg`, and
+     the table only takes a fixed minimum width from `sm` up, so Round, the links and Posted fit on a phone. */}
   <div class="reveal mt-8 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
     <table class="w-full text-left text-sm sm:min-w-[880px]">
       <thead class="bg-brand-ink text-xs uppercase tracking-wide text-white/50">
         <tr>
           <th class="px-4 py-3 font-semibold">Round</th>
+          <th class="hidden px-3 py-3 font-semibold lg:table-cell"><span class="sr-only">Logo</span></th>
           <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Reported</th>
           <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Pending</th>
           <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Dismissed</th>
           <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Logged</th>
-          <th class="px-3 py-3 text-center font-semibold">Posted</th>
           <th class="hidden px-3 py-3 font-semibold sm:table-cell">Post Date</th>
           <th class="px-4 py-3 text-right font-semibold"></th>
+          <th class="px-3 py-3 text-center font-semibold">Posted</th>
         </tr>
       </thead>
       <tbody>
         {visibleRows.map((r) => (
           <tr class={`border-t border-white/5 ${r.posted ? 'text-white/40' : ''}`}>
             <td class="px-4 py-3">
-              <div class={`font-semibold ${r.posted ? 'text-white/40' : 'text-white'}`}>
-                {r.label}<span class="hidden sm:inline">: {r.trackName}</span>
-              </div>
+              <div class={`font-semibold ${r.posted ? 'text-white/40' : 'text-white'}`}>{r.label}</div>
+            </td>
+            <td class="hidden px-3 py-2 lg:table-cell" data-testid="incident-reporting-logo">
+              {r.logoUrl && (
+                <img
+                  src={r.logoUrl}
+                  alt={r.trackName}
+                  title={r.trackName}
+                  loading="lazy"
+                  class={`h-8 w-8 rounded object-contain ${r.posted ? 'opacity-50' : ''}`}
+                  {...logoBgAttrs(r.logoBg)}
+                />
+              )}
             </td>
             <td class="hidden px-3 py-3 text-center tabular-nums sm:table-cell">{r.reported}</td>
             <td class={`hidden px-3 py-3 text-center tabular-nums sm:table-cell ${r.pending > 0 && !r.posted ? 'font-semibold text-brand-gold' : ''}`}>{r.pending}</td>
             <td class="hidden px-3 py-3 text-center tabular-nums sm:table-cell">{r.dismissed}</td>
             <td class="hidden px-3 py-3 text-center tabular-nums sm:table-cell">{r.logged}</td>
+            {/* A round unposted after posting keeps its last date, shown muted (BR1.10). */}
+            <td class={`hidden whitespace-nowrap px-3 py-3 tabular-nums sm:table-cell ${!r.postDate || r.postDate.muted ? 'text-white/40' : ''}`}>
+              {r.postDate ? formatDate(r.postDate.date) : '—'}
+            </td>
+            <td class="whitespace-nowrap px-4 py-3 text-right">
+              {/* Two fixed-width slots so "Review Submissions" never shifts with the width of "View Report" / "Preview Report". ?view=reports switches the round's incident page to its submitted-reports view; from=reporting gives it a link back here (BR2.7). Phones show only the first link (BR3.1). */}
+              <span class="inline-flex items-center gap-4">
+                <a
+                  href={withIncidentOrigin(`/results/${r.subsessionId}/incidents?view=reports`, REPORTING_ORIGIN)}
+                  class={`inline-block text-left font-semibold hover:underline sm:w-40 ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
+                  data-testid="incident-reporting-review-link"
+                >Review Submissions</a>
+                <a
+                  href={withIncidentOrigin(`/results/${r.subsessionId}/incidents`, REPORTING_ORIGIN)}
+                  class={`hidden w-28 text-left font-semibold hover:underline sm:inline-block ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
+                  data-testid="incident-reporting-report-link"
+                >{r.posted ? 'View Report' : 'Preview Report'}</a>
+              </span>
+            </td>
             <td class="px-3 py-3 text-center">
               {/* data-first-posted: turning Posted back on asks whether to reset the date (repostDialog.ts). */}
               <form
@@ -218,29 +279,10 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
                 </button>
               </form>
             </td>
-            {/* A round unposted after posting keeps its last date, shown muted (BR1.10). */}
-            <td class={`hidden whitespace-nowrap px-3 py-3 tabular-nums sm:table-cell ${!r.postDate || r.postDate.muted ? 'text-white/40' : ''}`}>
-              {r.postDate ? formatDate(r.postDate.date) : '—'}
-            </td>
-            <td class="whitespace-nowrap px-4 py-3 text-right">
-              {/* Two fixed-width slots so "Review Submissions" never shifts with the width of "View Report" / "Preview Report". ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). Phones show only the first link (BR3.1). */}
-              <span class="inline-flex items-center gap-4">
-                <a
-                  href={`/results/${r.subsessionId}/incidents?view=reports`}
-                  class={`inline-block text-left font-semibold hover:underline sm:w-40 ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
-                  data-testid="incident-reporting-review-link"
-                >Review Submissions</a>
-                <a
-                  href={`/results/${r.subsessionId}/incidents`}
-                  class={`hidden w-28 text-left font-semibold hover:underline sm:inline-block ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
-                  data-testid="incident-reporting-report-link"
-                >{r.posted ? 'View Report' : 'Preview Report'}</a>
-              </span>
-            </td>
           </tr>
         ))}
         {visibleRows.length === 0 && (
-          <tr><td colspan="8" class="px-4 py-6 text-center text-white/50">No rounds yet.</td></tr>
+          <tr><td colspan="9" class="px-4 py-6 text-center text-white/50">No rounds yet.</td></tr>
         )}
       </tbody>
     </table>

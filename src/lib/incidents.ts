@@ -236,6 +236,56 @@ function buildIncidentRows(
   return all;
 }
 
+/** Higher first, null last. */
+function descNullLast(a: number | null, b: number | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return b - a;
+}
+
+function timeOrNull(iso: string): number | null {
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+/** Race 100 + n, Qualifying 2, Practice 1, anything else 0, so later sessions rank higher (BR1.5). */
+export function incidentSessionRank(row: Pick<IncidentRow, 'sessionType' | 'raceNumber'>): number {
+  if (row.sessionType === 'race') return 100 + row.raceNumber;
+  if (row.sessionType === 'qualifying') return 2;
+  if (row.sessionType === 'practice') return 1;
+  return 0;
+}
+
+/**
+ * The All Incidents table's initial order (BR1.3-BR1.7): newest season first (by its newest round's start,
+ * no season last), then round (exhibitions after numbered rounds, later start first), session, lap (none
+ * last), then the given order. Pure and stable; buildIncidentRows stays as it is for its other callers.
+ */
+export function sortIncidentRowsNewestFirst(rows: IncidentRow[]): IncidentRow[] {
+  const seasonNewest = new Map<string, number>();
+  for (const row of rows) {
+    const t = timeOrNull(row.startTime);
+    if (row.seasonLabel === null || t === null) continue;
+    seasonNewest.set(row.seasonLabel, Math.max(t, seasonNewest.get(row.seasonLabel) ?? t));
+  }
+  const seasonRank = (row: IncidentRow) =>
+    row.seasonLabel === null ? null : (seasonNewest.get(row.seasonLabel) ?? null);
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort(
+      (a, b) =>
+        descNullLast(seasonRank(a.row), seasonRank(b.row)) ||
+        descNullLast(a.row.displayRoundNumber, b.row.displayRoundNumber) ||
+        descNullLast(timeOrNull(a.row.startTime), timeOrNull(b.row.startTime)) ||
+        b.row.subsessionId - a.row.subsessionId ||
+        incidentSessionRank(b.row) - incidentSessionRank(a.row) ||
+        descNullLast(a.row.lap, b.row.lap) ||
+        a.index - b.index,
+    )
+    .map(({ row }) => row);
+}
+
 function rollUpByDriver(
   all: IncidentRow[],
   racesStartedByDriver: Map<string, Set<string>>,

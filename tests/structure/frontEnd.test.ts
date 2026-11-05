@@ -333,7 +333,9 @@ describe('front-end loading (U5)', () => {
     expect(page).toMatch(/name="custom_reason" rows="3" maxlength="500" required/);
     const users = ASTRO['/src/pages/admin/users/index.astro'];
     expect(users).toContain("'That driver is already linked to another account.'");
-    expect(users).toContain('data-testid="users-driver-privacy-note"');
+    // The driver privacy note was removed (nav-admin-polish FR4.6, BR4.6).
+    expect(users).not.toContain('data-testid="users-driver-privacy-note"');
+    expect(users).not.toContain('privacy settings follow the account');
   });
 
   it('renders the editing tabs only for the owner, with no Save/Cancel under the bio (U3: BR4.2, BR5.1, NFR2.2)', () => {
