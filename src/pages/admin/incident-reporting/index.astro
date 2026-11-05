@@ -177,7 +177,7 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
           <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Dismissed</th>
           <th class="hidden px-3 py-3 text-center font-semibold sm:table-cell">Logged</th>
           <th class="px-3 py-3 text-center font-semibold">Posted</th>
-          <th class="px-3 py-3 font-semibold">Post Date</th>
+          <th class="hidden px-3 py-3 font-semibold sm:table-cell">Post Date</th>
           <th class="px-4 py-3 text-right font-semibold"></th>
         </tr>
       </thead>
@@ -219,20 +219,22 @@ const visibleRows = showAll ? rows : rows.slice(0, DEFAULT_LIMIT);
               </form>
             </td>
             {/* A round unposted after posting keeps its last date, shown muted (BR1.10). */}
-            <td class={`whitespace-nowrap px-3 py-3 tabular-nums ${!r.postDate || r.postDate.muted ? 'text-white/40' : ''}`}>
+            <td class={`hidden whitespace-nowrap px-3 py-3 tabular-nums sm:table-cell ${!r.postDate || r.postDate.muted ? 'text-white/40' : ''}`}>
               {r.postDate ? formatDate(r.postDate.date) : '—'}
             </td>
             <td class="whitespace-nowrap px-4 py-3 text-right">
-              {/* Two fixed-width slots so "View Incidents" never shifts with the width of "View Report" / "Edit Report"; stacked on phones. ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). */}
-              <span class="inline-flex flex-col items-end gap-1 sm:flex-row sm:gap-4">
+              {/* Two fixed-width slots so "Review Submissions" never shifts with the width of "View Report" / "Preview Report". ?view=reports switches the round's incident page to its submitted-reports view (it says so itself when a round has no reports). Phones show only the first link (BR3.1). */}
+              <span class="inline-flex items-center gap-4">
                 <a
                   href={`/results/${r.subsessionId}/incidents?view=reports`}
-                  class={`inline-block w-28 text-left font-semibold hover:underline ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
-                >View Incidents</a>
+                  class={`inline-block text-left font-semibold hover:underline sm:w-40 ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
+                  data-testid="incident-reporting-review-link"
+                >Review Submissions</a>
                 <a
                   href={`/results/${r.subsessionId}/incidents`}
-                  class={`inline-block w-28 text-left font-semibold hover:underline ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
-                >{r.posted ? 'View Report' : 'Edit Report'}</a>
+                  class={`hidden w-28 text-left font-semibold hover:underline sm:inline-block ${r.posted ? 'text-white/40 hover:text-white/70' : 'text-brand-primary'}`}
+                  data-testid="incident-reporting-report-link"
+                >{r.posted ? 'View Report' : 'Preview Report'}</a>
               </span>
             </td>
           </tr>

@@ -2,12 +2,39 @@
 export const prerender = false;
 
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { requireAdmin } from '../../lib/auth';
+import { handleEmailTemplateForm } from '../../lib/notifications/emailTemplates';
 
 // Dashboard shell: renders at once with a skeleton and fetches admin/fragment.astro for the dashboard.
+
+const admin = requireAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+// The Email section's template forms (FR2.1, FR2.5) post here; RLS decides who may write (BR2.1).
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+  if (intent === 'save-email-template' || intent === 'reset-email-template') {
+    const query = await handleEmailTemplateForm(resolveSupabaseEnv(Astro.locals), admin.accessToken, intent, form);
+    return Astro.redirect(`/admin${query}`, 303);
+  }
+  return Astro.redirect('/admin', 303);
+}
+
+// The save outcome rides on the redirect's query; only its own keys are passed on to the fragment.
+const FLASH_KEYS = ['email', 'kind', 'field', 'reason', 'ph'];
+const flashParams = new URLSearchParams();
+for (const key of FLASH_KEYS) {
+  const value = Astro.url.searchParams.get(key);
+  if (value) flashParams.set(key, value.slice(0, 60));
+}
+const flashQuery = flashParams.toString();
+const fragmentUrl = flashQuery ? `/admin/fragment?${flashQuery}` : '/admin/fragment';
 ---
 
 <AdminLayout title="Dashboard">
-  <div data-admin-dashboard data-fragment-url="/admin/fragment">
+  <div data-admin-dashboard data-fragment-url={fragmentUrl}>
     <div class="flex flex-col gap-8" aria-live="polite" aria-busy="true">
       <span class="sr-only">Loading Dashboard…</span>
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -32,7 +59,8 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
   </div>
 
   <script>
-    import { bindFragment, reloadOnRedirect } from '../../scripts/fragmentLoader';
+    import { bindFragment, hashScroll, reloadOnRedirect } from '../../scripts/fragmentLoader';
+    import { bindEmailTemplatePreviews } from '../../scripts/emailTemplatePreview';
 
     bindFragment('[data-admin-dashboard]', {
       label: 'Admin dashboard',
@@ -40,7 +68,9 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
       errorHtml:
         '<p class="mt-10 text-white/60">Couldn’t load the dashboard right now — try refreshing the page.</p>',
       checkResponse: reloadOnRedirect,
+      afterDispatch: hashScroll,
     });
+    bindEmailTemplatePreviews();
 
     // If the session expired, middleware redirects the fragment request to /login and fetch() follows
     // silently, so the body would be the login page. Reload instead; the never-settling promise keeps

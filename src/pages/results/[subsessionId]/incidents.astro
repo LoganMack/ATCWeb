@@ -70,7 +70,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     <PageBanner imageUrl={bannerUrl} />
     <div class="flex flex-wrap items-center gap-x-5 gap-y-1">
       <a href={backToRoundHref} class="text-sm text-white/50 hover:text-white">&larr; Back to Results</a>
-      {/* Admins usually arrive here from admin > Incident Reporting (View Incidents / Edit Report), so one click back there (#60). */}
+      {/* Admins usually arrive here from admin > Incident Reporting (Review Submissions / Preview Report), so one click back there (#60). */}
       {showIncidentReportingLink && (
         <a href="/admin/incident-reporting" class="text-sm text-white/50 hover:text-white">&larr; Incident Reporting</a>
       )}
@@ -110,6 +110,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   import '../../../scripts/incidentManagement';
   // Watch video and Add/Edit Video on the incident cards and the details popup.
   import '../../../scripts/videoClips';
+  // The Reported Incidents filter bar and the cards' inline clips on desktop.
+  import '../../../scripts/incidentFilters';
 </script>
 
 <script>

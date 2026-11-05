@@ -27,18 +27,57 @@ export function normalizeClipUrl(raw: unknown): ClipUrlCheck {
 const FILE_EXTENSIONS = /\.(mp4|webm|mov|m4v|ogv)$/i;
 const FILE_HOSTS = new Set(['cdn.discordapp.com', 'media.discordapp.net']);
 
-export type ClipKind = { kind: 'youtube'; embedUrl: string } | { kind: 'file' } | { kind: 'link' };
+export type ClipKind =
+  | { kind: 'youtube'; embedUrl: string }
+  | { kind: 'streamable'; embedUrl: string }
+  | { kind: 'file' }
+  | { kind: 'link' };
+
+const STREAMABLE_HOSTS = new Set(['streamable.com', 'www.streamable.com']);
+const STREAMABLE_PATH = /^\/(?:e\/)?([A-Za-z0-9]{4,16})\/?$/;
+// Site pages shaped like a clip id: linking them is fine, embedding them is not.
+const STREAMABLE_RESERVED = new Set([
+  'login',
+  'signup',
+  'about',
+  'pricing',
+  'blog',
+  'terms',
+  'privacy',
+  'upload',
+  'settings',
+  'videos',
+]);
 
 /**
- * How a clip plays: a YouTube link in a privacy-enhanced embed, a direct video file (by extension, or a
- * Discord attachment) in a <video>, anything else as a link. No host allow-list. Null for a link that fails
- * normalizeClipUrl, so nothing unchecked ever reaches an href or src.
+ * The Streamable embed for a clip page link (BR1.4), rebuilt from the validated id only so the raw URL never
+ * reaches an iframe src. Null for anything that isn't exactly an https Streamable clip page.
+ */
+export function streamableEmbedUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || !STREAMABLE_HOSTS.has(parsed.hostname.toLowerCase())) return null;
+  const id = STREAMABLE_PATH.exec(parsed.pathname)?.[1];
+  if (!id || STREAMABLE_RESERVED.has(id.toLowerCase())) return null;
+  return `https://streamable.com/e/${id}`;
+}
+
+/**
+ * How a clip plays: a YouTube link in a privacy-enhanced embed, a Streamable clip in Streamable's embed, a
+ * direct video file (by extension, or a Discord attachment) in a <video>, anything else as a link. Null for a
+ * link that fails normalizeClipUrl, so nothing unchecked ever reaches an href or src.
  */
 export function clipKind(raw: string): ClipKind | null {
   const check = normalizeClipUrl(raw);
   if (!check.ok || check.url === '') return null;
   const embedUrl = youtubeEmbedUrl(check.url);
   if (embedUrl) return { kind: 'youtube', embedUrl };
+  const streamable = streamableEmbedUrl(check.url);
+  if (streamable) return { kind: 'streamable', embedUrl: streamable };
   const parsed = new URL(check.url);
   if (FILE_EXTENSIONS.test(parsed.pathname) || FILE_HOSTS.has(parsed.hostname.toLowerCase())) {
     return { kind: 'file' };

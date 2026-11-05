@@ -38,7 +38,8 @@ import { driversSelect } from '../../../lib/results/rows';
 import { describePenaltyResolution } from '../../../lib/results/standingsCore';
 import DriverLink from '../../../components/DriverLink.astro';
 import { CATEGORY_LABELS } from '../../../lib/eventFormatting';
-import { classBadgeLetter, classTagFull, classTagShort } from '../../../lib/classColors';
+import { classTagFull } from '../../../lib/classColors';
+import ClassBadge from '../../../components/ClassBadge.astro';
 
 const layoutId = Astro.params.layoutId ?? '';
 
@@ -179,9 +180,7 @@ if (loadError) markUncacheable(Astro);
           <div class="mt-1.5 space-y-1.5">
             {gammaBestLap && gammaClassId !== null && (
               <p class="flex flex-wrap items-center gap-2">
-                <span class={classTagShort(classNameById.get(gammaClassId) ?? '')}>
-                  {classBadgeLetter(classNameById.get(gammaClassId) ?? '')}
-                </span>
+                <ClassBadge className={classNameById.get(gammaClassId)} />
                 <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
                 <span class="text-white/70"><DriverLink id={gammaBestLap.driver.id} hidden={gammaBestLap.driver.is_hidden}>{displayDriverName(gammaBestLap.driver.name)}</DriverLink></span>
                 {gammaBestLap.carLogoUrl && (
@@ -192,9 +191,7 @@ if (loadError) markUncacheable(Astro);
             )}
             {deltaBestLap && deltaClassId !== null && (
               <p class="flex flex-wrap items-center gap-2">
-                <span class={classTagShort(classNameById.get(deltaClassId) ?? '')}>
-                  {classBadgeLetter(classNameById.get(deltaClassId) ?? '')}
-                </span>
+                <ClassBadge className={classNameById.get(deltaClassId)} />
                 <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
                 <span class="text-white/70"><DriverLink id={deltaBestLap.driver.id} hidden={deltaBestLap.driver.is_hidden}>{displayDriverName(deltaBestLap.driver.name)}</DriverLink></span>
                 {deltaBestLap.carLogoUrl && (

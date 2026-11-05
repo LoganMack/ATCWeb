@@ -10,6 +10,7 @@ import {
   clipWriteFailure,
   mapClipWriteError,
   normalizeClipUrl,
+  streamableEmbedUrl,
 } from '../../src/lib/clipLink';
 
 afterEach(() => vi.restoreAllMocks());
@@ -96,6 +97,36 @@ describe('clipKind', () => {
   it('gives nothing for an empty or refused link, so it never reaches an href or src', () => {
     expect(clipKind('')).toBeNull();
     expect(clipKind('javascript:alert(1)')).toBeNull();
+  });
+});
+
+describe('Streamable clips (FR1.4; BR1.4)', () => {
+  it('plays a Streamable clip page or embed link in the Streamable embed', () => {
+    for (const url of [
+      'https://streamable.com/abc12x',
+      'https://www.streamable.com/abc12x',
+      'https://streamable.com/abc12x/',
+      'https://streamable.com/e/abc12x',
+      'https://streamable.com/abc12x?t=3',
+    ]) {
+      expect(clipKind(url)).toEqual({ kind: 'streamable', embedUrl: 'https://streamable.com/e/abc12x' });
+      expect(streamableEmbedUrl(url)).toBe('https://streamable.com/e/abc12x');
+    }
+  });
+
+  it('keeps anything else on or near streamable.com as a plain link', () => {
+    for (const url of [
+      'http://streamable.com/abc12x',
+      'https://streamable.com/login',
+      'https://streamable.com/abc12x/extra',
+      'https://streamable.com/',
+      'https://streamable.com/ab-12',
+      'https://notstreamable.com/abc12x',
+      'https://streamable.com.evil.test/abc12x',
+    ]) {
+      expect(streamableEmbedUrl(url)).toBeNull();
+      expect(clipKind(url)).toEqual({ kind: 'link' });
+    }
   });
 });
 

@@ -55,7 +55,7 @@ import { getSeasons } from '../../lib/db/seasons';
 import { getTeamRosterWithTeamsForSeason } from '../../lib/db/teams';
 import { getOfficialRoundStartTimes } from '../../lib/results/rounds';
 import { isOnProbationNow } from '../../lib/penalties/penaltyPoints';
-import { classBadgeClasses, classBadgeLetter } from '../../lib/classColors';
+import ClassBadge from '../../components/ClassBadge.astro';
 import {
   PROBATION_DAYS_KEY,
   PROBATION_ROUNDS_KEY,
@@ -316,14 +316,14 @@ if (loadError || isOwner) markUncacheable(Astro);
               {className && (
                 <IconTip label={className}>
                   <span
-                    class={`flex h-8 w-8 flex-none items-center justify-center text-2xl font-bold sm:h-12 sm:w-12 sm:text-3xl ${classBadgeClasses(className)}`}
+                    class="flex h-8 w-8 flex-none items-center justify-center sm:h-12 sm:w-12"
                     role="img"
                     aria-label={className}
                     title={className}
                     tabindex="0"
                     data-testid="driver-class-icon"
                   >
-                    <span aria-hidden="true">{classBadgeLetter(className)}</span>
+                    <ClassBadge className={className} size="lg" decorative />
                   </span>
                 </IconTip>
               )}

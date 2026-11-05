@@ -28,4 +28,10 @@ describe('contentSecurityPolicy and clips', () => {
     expect(policy).toContain("'nonce-abc'");
     expect(policy).not.toMatch(/unsafe-inline|unsafe-eval/);
   });
+
+  it('leaves Streamable embeds allowed: no directive names a frame source (incident-email-badges FR1.4)', () => {
+    const policy = contentSecurityPolicy('abc');
+    expect(policy).not.toMatch(/(?:^|;)\s*(?:frame-src|child-src|default-src)\b/);
+    expect(policy).not.toContain('streamable');
+  });
 });

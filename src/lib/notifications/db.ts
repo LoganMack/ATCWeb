@@ -24,8 +24,12 @@ export type NotificationRpc =
   | 'notifications_mark_batch'
   | 'notifications_record_run';
 
+/** The table reads the run may make (a PostgREST path with its query string). */
+export type NotificationSelect = 'email_templates?select=kind,subject,lead,link_text';
+
 export interface ServiceDb {
   rpc<T>(fn: NotificationRpc, args?: Record<string, unknown>): Promise<T>;
+  select<T>(path: NotificationSelect): Promise<T>;
 }
 
 /** PostgREST error bodies are JSON with a `message`; kept short so a log line stays one line. */
@@ -55,6 +59,16 @@ export function createServiceDb(env: NotificationEnv): ServiceDb {
       if (!res.ok) throw new Error(`Supabase rpc error ${res.status} on ${fn}: ${await readDbError(res)}`);
       const text = await res.text();
       return (text ? JSON.parse(text) : null) as T;
+    },
+    async select<T>(path: NotificationSelect): Promise<T> {
+      if (!url || !key) throw new Error('PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured');
+      const res = await fetch(`${url}/rest/v1/${path}`, {
+        headers: { apikey: key, Authorization: `Bearer ${key}` },
+      });
+      const table = path.split('?')[0];
+      if (!res.ok)
+        throw new Error(`Supabase read error ${res.status} on ${table}: ${await readDbError(res)}`);
+      return (await res.json()) as T;
     },
   };
 }

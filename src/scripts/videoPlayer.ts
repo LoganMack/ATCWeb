@@ -60,6 +60,18 @@ export function buildClipPlayer(doc: ClipDocument, url: string): HTMLElement | n
     return frame;
   }
 
+  if (kind.kind === 'streamable') {
+    const frame = doc.createElement('iframe');
+    frame.setAttribute('src', kind.embedUrl);
+    frame.setAttribute('title', 'Incident video');
+    frame.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture');
+    frame.setAttribute('allowfullscreen', '');
+    frame.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    frame.setAttribute('loading', 'lazy');
+    frame.className = 'h-full w-full border-0';
+    return frame;
+  }
+
   if (kind.kind === 'file') {
     const video = doc.createElement('video');
     video.setAttribute('src', href);

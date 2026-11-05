@@ -15,7 +15,7 @@ import { displayDriverName } from '../../lib/db/circuits';
 import { computeTeamCareerStats, type TeamCareerStats } from '../../lib/results/teamCareer';
 import { computeDriverCareerStats, loadCareerRefs } from '../../lib/results/careerStats';
 import { getOrganizations, getAllOrganizationTeamSeasons } from '../../lib/db/teams';
-import { classBadgeLetter, classTagShort } from '../../lib/classColors';
+import ClassBadge from '../../components/ClassBadge.astro';
 
 /**
  * The team career-stats table as a fragment for the team-stats.astro shell, since computeTeamCareerStats()
@@ -176,12 +176,7 @@ if (loadError) markUncacheable(Astro);
                               <div class="flex flex-col gap-1">
                                 {r.drivers.map((d) => (
                                   <span class="inline-flex items-center gap-1 whitespace-nowrap text-white/70">
-                                    <span
-                                      class={classTagShort(d.className)}
-                                      title={d.className}
-                                    >
-                                      {classBadgeLetter(d.className)}
-                                    </span>
+                                    <ClassBadge className={d.className} />
                                     <DriverFlag nationality1={d.nationality1} nationality2={d.nationality2} />
                                     <DriverLink id={d.driverId} hidden={d.hidden}>{displayDriverName(d.name)}</DriverLink>
                                     {d.carNumber !== null && <span class="text-white/40">#{d.carNumber}</span>}

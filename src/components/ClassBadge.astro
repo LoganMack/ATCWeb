@@ -1,0 +1,47 @@
+---
+// A driver class's badge (FR5; BR5.1): the Alpha, Gamma or Delta image at 1x and 2x, or the coloured letter for
+// any other class. `decorative` is for a wrapper that already names the class (the profile header's IconTip).
+import { classBadgeClasses, classBadgeImage, classBadgeLetter, classTagShort } from '../lib/classColors';
+
+interface Props {
+  className: string | null | undefined;
+  size?: 'sm' | 'lg';
+  decorative?: boolean;
+  class?: string;
+  'data-testid'?: string;
+}
+
+const { className, size = 'sm', decorative = false, class: extra = '', 'data-testid': testId } = Astro.props;
+const name = (className ?? '').trim();
+const image = classBadgeImage(name);
+const sizeClass = size === 'lg' ? 'h-8 w-8 sm:h-12 sm:w-12' : 'h-5 w-5';
+const letterClass =
+  size === 'lg'
+    ? `flex h-8 w-8 flex-none items-center justify-center text-2xl font-bold sm:h-12 sm:w-12 sm:text-3xl ${classBadgeClasses(name)}`
+    : classTagShort(name);
+---
+
+{image ? (
+  <img
+    src={image.src}
+    srcset={image.srcset}
+    width="64"
+    height="64"
+    alt={decorative ? '' : image.alt}
+    title={decorative ? undefined : image.alt}
+    aria-hidden={decorative ? 'true' : undefined}
+    decoding="async"
+    loading="lazy"
+    class={`${sizeClass} flex-none object-contain ${extra}`.trim()}
+    data-testid={testId}
+  />
+) : (
+  <span
+    class={`${letterClass} ${extra}`.trim()}
+    title={decorative || !name ? undefined : name}
+    aria-hidden={decorative ? 'true' : undefined}
+    data-testid={testId}
+  >
+    {classBadgeLetter(name)}
+  </span>
+)}
