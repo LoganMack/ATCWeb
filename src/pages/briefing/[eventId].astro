@@ -44,7 +44,8 @@ import {
   type ClassBestLap,
 } from '../../lib/results/layoutLaps';
 import { driversSelect } from '../../lib/results/rows';
-import { classBadgeLetter, classTagFull, classTagShort } from '../../lib/classColors';
+import { classTagFull } from '../../lib/classColors';
+import ClassBadge from '../../components/ClassBadge.astro';
 import { getIncidentsForSubsessions, type IncidentRow } from '../../lib/incidents';
 import WeatherIcon from '../../components/WeatherIcon.astro';
 import LayoutMap from '../../components/LayoutMap.astro';
@@ -295,9 +296,7 @@ if (loadError) markUncacheable(Astro);
               <div class="mt-3 space-y-1.5 border-t border-white/10 pt-3">
                 {gammaBestLap && gammaClass && (
                   <p class="flex flex-wrap items-center gap-2">
-                    <span class={classTagShort(gammaClass.name)}>
-                      {classBadgeLetter(gammaClass.name)}
-                    </span>
+                    <ClassBadge className={gammaClass.name} />
                     <span class="font-semibold">{formatLapTime(gammaBestLap.seconds)}</span>
                     <span class="text-white/70"><DriverLink id={gammaBestLap.driver.id} hidden={gammaBestLap.driver.is_hidden}>{shortDriverName(gammaBestLap.driver.name)}</DriverLink></span>
                     {gammaBestLap.carLogoUrl && (
@@ -313,9 +312,7 @@ if (loadError) markUncacheable(Astro);
                 )}
                 {deltaBestLap && deltaClass && (
                   <p class="flex flex-wrap items-center gap-2">
-                    <span class={classTagShort(deltaClass.name)}>
-                      {classBadgeLetter(deltaClass.name)}
-                    </span>
+                    <ClassBadge className={deltaClass.name} />
                     <span class="font-semibold">{formatLapTime(deltaBestLap.seconds)}</span>
                     <span class="text-white/70"><DriverLink id={deltaBestLap.driver.id} hidden={deltaBestLap.driver.is_hidden}>{shortDriverName(deltaBestLap.driver.name)}</DriverLink></span>
                     {deltaBestLap.carLogoUrl && (

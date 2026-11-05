@@ -96,6 +96,16 @@ describe('the clip player', () => {
     expect(a.getAttribute('rel')).toBe('noopener noreferrer');
   });
 
+  it('plays a Streamable clip in a lazy embed built from its id (FR1.4)', () => {
+    const frame = build('https://streamable.com/abc12x?src=player')!;
+    expect(frame.tagName).toBe('IFRAME');
+    expect(frame.getAttribute('src')).toBe('https://streamable.com/e/abc12x');
+    expect(frame.getAttribute('title')).toBe('Incident video');
+    expect(frame.getAttribute('allow')).toBe('autoplay; fullscreen; picture-in-picture');
+    expect(frame.getAttribute('loading')).toBe('lazy');
+    expect(frame.attributes.has('allowfullscreen')).toBe(true);
+  });
+
   it('builds nothing for a link that fails the clip check', () => {
     expect(build('javascript:alert(1)')).toBeNull();
     expect(build('')).toBeNull();

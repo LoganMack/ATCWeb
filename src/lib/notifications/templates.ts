@@ -5,6 +5,12 @@
  * falls back to neutral wording, so one odd row can't hold up a batch.
  */
 import { LEAGUE_TIME_ZONE } from '../timezone';
+import {
+  checkTemplateField,
+  fillPlaceholders,
+  normalizeTemplateField,
+  type EmailTemplateField,
+} from './templateRules';
 
 export type NotificationKind = 'appeal_reviewed' | 'report_posted' | 'event_reminder';
 
@@ -101,13 +107,81 @@ interface EmailParts {
   linkUrl: string;
 }
 
+/** Edited wording for one email: null fields (or a missing entry) use the built-in wording. */
+export interface EmailTemplateText {
+  subject: string | null;
+  lead: string | null;
+  link_text: string | null;
+}
+
+/** The stored templates by kind, as the admin panel and the scheduled sender load them. */
+export type EmailTemplateSet = Partial<Record<NotificationKind, EmailTemplateText>>;
+
+/**
+ * The built-in wording written with placeholders, as the admin editor shows it. Filling these gives exactly
+ * what renderEmail sends with no template (a reminder with no known start says "starts soon" instead).
+ */
+export const DEFAULT_TEMPLATE_TEXT: Record<
+  NotificationKind,
+  { subject: string; lead: string; link_text: string }
+> = {
+  appeal_reviewed: {
+    subject: 'Your appeal has been reviewed',
+    lead: "The stewards have reviewed your appeal for {round}. The decision is on the round's incidents page.",
+    link_text: 'View the incidents',
+  },
+  report_posted: {
+    subject: 'Incident report posted: {round}',
+    lead: 'The incident report for {round} is now posted.',
+    link_text: 'Read the incident report',
+  },
+  event_reminder: {
+    subject: 'Reminder: {event} starts at {time} ET {day}',
+    lead: '{event} starts at {time} ET {day}.',
+    link_text: 'Open the event briefing',
+  },
+};
+
+/** What the admin editor's preview shows for typed wording (plain text; the page escapes it). */
+export interface TemplatePreview {
+  subject: string;
+  lead: string;
+  linkText: string;
+  footer: string;
+}
+
+/**
+ * The preview of an edited email with the sample values. A field that is empty or would fall back when sent
+ * shows the built-in wording, exactly as renderEmail would send it.
+ */
+export function previewTemplate(kind: NotificationKind, text: Partial<EmailTemplateText>): TemplatePreview {
+  const values = SAMPLE_PLACEHOLDER_VALUES;
+  const defaults = DEFAULT_TEMPLATE_TEXT[kind];
+  const pick = (name: EmailTemplateField) =>
+    editedField(kind, name, text[name], values) ?? fillPlaceholders(defaults[name], values) ?? defaults[name];
+  return {
+    subject: pick('subject'),
+    lead: pick('lead'),
+    linkText: pick('link_text'),
+    footer: `You are getting this email because "${SETTING_NAMES[kind]}" is on in your profile settings. Turn it off on your profile.`,
+  };
+}
+
+/** Example placeholder values for the admin preview. */
+export const SAMPLE_PLACEHOLDER_VALUES: Record<string, string> = {
+  round: 'ATC18 Round 3',
+  event: 'ATC18 Round 3 at Sonoma',
+  time: '8:00 PM',
+  day: 'tomorrow',
+};
+
 function render(kind: NotificationKind, parts: EmailParts, siteUrl: string): RenderedEmail {
   const setting = SETTING_NAMES[kind];
   const profileUrl = `${siteUrl}/my-profile`;
   const footer = `You are getting this email because "${setting}" is on in your profile settings.`;
   const html =
     '<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#0B0B0E;line-height:1.5">' +
-    `<p>${escapeHtml(parts.lead)}</p>` +
+    `<p>${escapeHtml(parts.lead).replace(/\n/g, '<br>')}</p>` +
     `<p><a href="${escapeHtml(parts.linkUrl)}">${escapeHtml(parts.linkText)}</a></p>` +
     `<hr><p style="font-size:12px">${escapeHtml(footer)} ` +
     `<a href="${escapeHtml(profileUrl)}">Turn it off on your profile</a>.</p></body></html>`;
@@ -117,50 +191,90 @@ function render(kind: NotificationKind, parts: EmailParts, siteUrl: string): Ren
   return { subject: parts.subject, html, text };
 }
 
-function reminderParts(payload: Record<string, unknown>, context: RenderContext): EmailParts {
+/** Built-in wording plus the placeholder values an edited template may use. */
+interface BuiltIn {
+  parts: EmailParts;
+  values: Record<string, string>;
+}
+
+function reminderParts(payload: Record<string, unknown>, context: RenderContext): BuiltIn {
   const event = eventLabel(payload);
   const startsAt = new Date(field(payload, 'starts_at') ?? '');
   const when = Number.isNaN(startsAt.getTime()) ? null : startWording(startsAt, context.now);
   const timing = when ? `starts at ${when.time} ET ${when.day}` : 'starts soon';
   return {
-    subject: `Reminder: ${event} ${timing}`,
-    lead: `${event} ${timing}.`,
-    linkText: 'Open the event briefing',
-    linkUrl: briefingUrl(context.siteUrl, payload),
+    parts: {
+      subject: `Reminder: ${event} ${timing}`,
+      lead: `${event} ${timing}.`,
+      linkText: 'Open the event briefing',
+      linkUrl: briefingUrl(context.siteUrl, payload),
+    },
+    // No {time} or {day} without a known start: fields using them keep the built-in "starts soon".
+    values: when ? { event, time: when.time, day: when.day } : { event },
   };
 }
 
+function builtIn(kind: NotificationKind, values: Record<string, unknown>, context: RenderContext): BuiltIn {
+  if (kind === 'event_reminder') return reminderParts(values, context);
+  const round = roundLabel(values);
+  const linkUrl = incidentsUrl(context.siteUrl, values);
+  if (kind === 'appeal_reviewed') {
+    return {
+      parts: {
+        subject: 'Your appeal has been reviewed',
+        lead: `The stewards have reviewed your appeal for ${round}. The decision is on the round's incidents page.`,
+        linkText: 'View the incidents',
+        linkUrl,
+      },
+      values: { round },
+    };
+  }
+  return {
+    parts: {
+      subject: `Incident report posted: ${round}`,
+      lead: `The incident report for ${round} is now posted.`,
+      linkText: 'Read the incident report',
+      linkUrl,
+    },
+    values: { round },
+  };
+}
+
+/** One edited field, filled; null (use the built-in wording) when it is empty, invalid or needs a missing value. */
+function editedField(
+  kind: NotificationKind,
+  name: EmailTemplateField,
+  text: string | null | undefined,
+  values: Record<string, string>,
+): string | null {
+  const normalized = normalizeTemplateField(text);
+  if (normalized === null || checkTemplateField(kind, name, normalized) !== null) return null;
+  return fillPlaceholders(normalized, values);
+}
+
+/**
+ * Renders one email. `templates` holds the admin's edited wording (BR2.4): each field falls back on its own to
+ * the built-in wording when it is missing, empty, fails the checks or names a placeholder with no value. The
+ * link address, the footer and the HTML around the text never change (BR2.5).
+ */
 export function renderEmail(
   kind: NotificationKind,
   payload: Record<string, unknown> | null,
   context: RenderContext,
+  templates?: EmailTemplateSet | null,
 ): RenderedEmail {
-  const values = payload ?? {};
   const siteUrl = context.siteUrl.replace(/\/+$/, '');
-  if (kind === 'appeal_reviewed') {
-    return render(
-      kind,
-      {
-        subject: 'Your appeal has been reviewed',
-        lead: `The stewards have reviewed your appeal for ${roundLabel(values)}. The decision is on the round's incidents page.`,
-        linkText: 'View the incidents',
-        linkUrl: incidentsUrl(siteUrl, values),
-      },
-      siteUrl,
-    );
-  }
-  if (kind === 'report_posted') {
-    const label = roundLabel(values);
-    return render(
-      kind,
-      {
-        subject: `Incident report posted: ${label}`,
-        lead: `The incident report for ${label} is now posted.`,
-        linkText: 'Read the incident report',
-        linkUrl: incidentsUrl(siteUrl, values),
-      },
-      siteUrl,
-    );
-  }
-  return render(kind, reminderParts(values, { ...context, siteUrl }), siteUrl);
+  const { parts, values } = builtIn(kind, payload ?? {}, { ...context, siteUrl });
+  const edited = templates?.[kind];
+  if (!edited) return render(kind, parts, siteUrl);
+  return render(
+    kind,
+    {
+      subject: editedField(kind, 'subject', edited.subject, values) ?? parts.subject,
+      lead: editedField(kind, 'lead', edited.lead, values) ?? parts.lead,
+      linkText: editedField(kind, 'link_text', edited.link_text, values) ?? parts.linkText,
+      linkUrl: parts.linkUrl,
+    },
+    siteUrl,
+  );
 }

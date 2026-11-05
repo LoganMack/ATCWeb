@@ -15,7 +15,7 @@ export async function handleSetReportStatus(
   const dismissalReason = String(form.get('reason') ?? '')
     .trim()
     .slice(0, 500);
-  let statusFlash: 'dismissreason' | 'dismissfailed' | 'reasonnotsaved' | null = null;
+  let statusFlash: 'dismissreason' | 'dismissfailed' | 'reasonnotsaved' | 'statusinvolved' | null = null;
   if (reportId && (status === 'open' || status === 'dismissed' || status === 'logged')) {
     if (status === 'dismissed' && !dismissalReason) {
       statusFlash = 'dismissreason';
@@ -24,7 +24,10 @@ export async function handleSetReportStatus(
         await setIncidentReportStatus(supabaseEnv, accessToken, reportId, status, dismissalReason);
       } catch (err) {
         console.error('Failed to update incident report status:', err);
-        if (status === 'dismissed') {
+        // The database refuses a status change by a steward involved in the report (BR1.6).
+        if (err instanceof Error && err.message.includes('INVOLVED_STEWARD')) {
+          statusFlash = 'statusinvolved';
+        } else if (status === 'dismissed') {
           statusFlash = 'dismissfailed';
           // Migration 0111 (the dismissal_reason column) hasn't been run yet: still dismiss
           // the report, and say plainly that the reason couldn't be saved.

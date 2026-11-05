@@ -11,6 +11,16 @@ import { getMissingRaceResultsCount, getActivityLogCountSince } from '../../lib/
 import { ANALYTICS_RANGES } from '../../lib/analyticsRanges';
 import { adminToolsFor, isFullAdmin, requireAdmin } from '../../lib/auth';
 import { getNotificationCounts, type NotificationCounts } from '../../lib/notifications/counts';
+import {
+  EMAIL_TEMPLATES_ANCHOR,
+  EMAIL_TEMPLATE_KINDS,
+  EMAIL_TEMPLATE_LIMITS,
+  PLACEHOLDERS_BY_KIND,
+  getEmailTemplates,
+  parseEmailTemplateFlash,
+  type EmailTemplateRow,
+} from '../../lib/notifications/emailTemplates';
+import { DEFAULT_TEMPLATE_TEXT, SETTING_NAMES, previewTemplate } from '../../lib/notifications/templates';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -40,6 +50,8 @@ let pendingSignupCount = 0;
 // Null when the counts could not be read; the Email section then says so instead of failing the page.
 // (The cast keeps TypeScript from narrowing it to null: it is assigned inside a callback below.)
 let emailCounts = null as NotificationCounts | null;
+// Null when the templates could not be read; the editor then says so.
+let emailTemplateRows = null as EmailTemplateRow[] | null;
 
 // Independent fetches run together; the counts with their own .catch are separate Promise.all entries.
 async function loadCounts() {
@@ -85,7 +97,35 @@ await Promise.all([
     .then((count) => (activityLogCount24h = count))
     .catch((err) => console.error('Failed to load activity log count:', err)),
   getNotificationCounts(supabaseEnv, accessToken).then((counts) => (emailCounts = counts)),
+  getEmailTemplates(supabaseEnv, accessToken)
+    .then((rows) => (emailTemplateRows = rows))
+    .catch((err) => console.error('Failed to load email templates:', err)),
 ]);
+
+// The template editor (FR2.1-FR2.4): stored text, or the default wording when there is no row.
+const emailFlash = parseEmailTemplateFlash(Astro.url.searchParams);
+const emailTemplates = emailTemplateRows
+  ? EMAIL_TEMPLATE_KINDS.map((kind) => {
+      const row = emailTemplateRows!.find((r) => r.kind === kind) ?? null;
+      const defaults = DEFAULT_TEMPLATE_TEXT[kind];
+      const values = {
+        subject: row?.subject ?? defaults.subject,
+        lead: row?.lead ?? defaults.lead,
+        link_text: row?.link_text ?? defaults.link_text,
+      };
+      return {
+        kind,
+        name: SETTING_NAMES[kind],
+        usingDefault: row === null,
+        values,
+        placeholders: PLACEHOLDERS_BY_KIND[kind].map((p) => `{${p}}`).join(', '),
+        preview: previewTemplate(kind, values),
+        flash: emailFlash?.kind === kind ? emailFlash : null,
+      };
+    })
+  : null;
+const emailFieldClass =
+  'w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary';
 
 // The email outbox at a glance (U7, BR10.17): what waits, what was dropped and what may not have arrived.
 const emailStats = emailCounts
@@ -300,16 +340,93 @@ const tools = adminToolsFor(allTools, admin.profile);
   )}
 
   {emailCounts ? (
-    <dl class="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <dl class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {emailStats.map((stat) => (
-        <div class="rounded-xl border border-white/10 bg-brand-ink p-6">
+        <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
           <dt class="text-sm leading-5 text-white/60">{stat.label}</dt>
-          <dd class="font-display text-2xl leading-8">{stat.value}</dd>
-          <dd class="mt-1 text-sm leading-5 text-white/60">{stat.detail}</dd>
+          <dd class="font-display text-xl leading-7">{stat.value}</dd>
+          <dd class="mt-1 text-xs leading-5 text-white/60">{stat.detail}</dd>
         </div>
       ))}
     </dl>
   ) : (
     <p class="mt-4 text-sm text-white/60" data-email-counts-unavailable>Email counts unavailable</p>
   )}
+
+  <div id={EMAIL_TEMPLATES_ANCHOR} class="mt-8 scroll-mt-24" data-testid="email-templates">
+    <h3 class="font-display text-xl uppercase tracking-widest text-white/50">Email wording</h3>
+    <p class="mt-1 text-sm text-white/60">
+      Links and the footer stay fixed. Leave a field empty, or use Reset, to send the default wording.
+    </p>
+
+    {emailFlash && !emailFlash.kind && (
+      <p role="alert" class="mt-4 rounded-md border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80" data-testid="email-templates-flash">
+        {emailFlash.message}
+      </p>
+    )}
+
+    {emailTemplates ? (
+      <div class="mt-4 flex flex-col gap-6">
+        {emailTemplates.map((t) => (
+          <section class="rounded-xl border border-white/10 bg-brand-ink p-4 sm:p-6" data-email-template={t.kind} data-testid={`email-template-${t.kind}`}>
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <h4 class="font-display text-lg uppercase tracking-wide">{t.name}</h4>
+              {t.usingDefault && <span class="text-xs text-white/50" data-testid="email-template-default">Using default wording</span>}
+            </div>
+
+            {t.flash && (
+              <p
+                role={t.flash.ok ? 'status' : 'alert'}
+                class={`mt-3 rounded-md border p-3 text-sm text-white/80 ${t.flash.ok ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}
+                data-testid="email-template-flash"
+              >
+                {t.flash.message}
+              </p>
+            )}
+
+            <div class="mt-4 grid gap-6 lg:grid-cols-2">
+              <form method="POST" action="/admin" data-astro-reload class="flex min-w-0 flex-col gap-3" data-email-template-form data-testid={`email-template-form-${t.kind}`}>
+                <input type="hidden" name="intent" value="save-email-template" />
+                <input type="hidden" name="kind" value={t.kind} />
+                <label class="flex flex-col gap-1.5 text-sm">
+                  <span class="text-white/70">Subject</span>
+                  <input type="text" name="subject" value={t.values.subject} maxlength={EMAIL_TEMPLATE_LIMITS.subject.max} class={emailFieldClass} />
+                </label>
+                <label class="flex flex-col gap-1.5 text-sm">
+                  <span class="text-white/70">Message</span>
+                  <textarea name="lead" rows="4" maxlength={EMAIL_TEMPLATE_LIMITS.lead.max} class={emailFieldClass}>{t.values.lead}</textarea>
+                </label>
+                <label class="flex flex-col gap-1.5 text-sm">
+                  <span class="text-white/70">Link text</span>
+                  <input type="text" name="link_text" value={t.values.link_text} maxlength={EMAIL_TEMPLATE_LIMITS.link_text.max} class={emailFieldClass} />
+                </label>
+                <p class="text-xs text-white/50">Placeholders: {t.placeholders}</p>
+                <div>
+                  <button type="submit" class="btn btn-primary btn-sm" data-testid={`email-template-save-${t.kind}`}>Save</button>
+                </div>
+              </form>
+
+              <div class="flex min-w-0 flex-col gap-2 text-sm" aria-live="polite">
+                <span class="text-white/70">Preview</span>
+                <div class="rounded-md border border-white/10 bg-white/5 p-3 sm:p-4" data-testid={`email-template-preview-${t.kind}`}>
+                  <p class="break-words font-semibold text-white" data-preview-subject>{t.preview.subject}</p>
+                  <p class="mt-3 whitespace-pre-line break-words text-white/80" data-preview-lead>{t.preview.lead}</p>
+                  <p class="mt-3 break-words text-brand-primary underline" data-preview-link>{t.preview.linkText}</p>
+                  <p class="mt-4 text-xs text-white/50">{t.preview.footer}</p>
+                </div>
+              </div>
+            </div>
+
+            <form method="POST" action="/admin" data-astro-reload class="mt-3">
+              <input type="hidden" name="intent" value="reset-email-template" />
+              <input type="hidden" name="kind" value={t.kind} />
+              <button type="submit" class="btn btn-neutral btn-sm" disabled={t.usingDefault} data-testid={`email-template-reset-${t.kind}`}>Reset to default</button>
+            </form>
+          </section>
+        ))}
+      </div>
+    ) : (
+      <p class="mt-4 text-sm text-white/60" data-email-templates-unavailable>Email templates unavailable</p>
+    )}
+  </div>
 </section>

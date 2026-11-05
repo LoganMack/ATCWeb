@@ -16,6 +16,16 @@ import { getEvents } from '../../../../lib/db/events';
 import { formatDate, shortDriverName, getCircuits, getAllCircuitLayouts } from '../../../../lib/db/circuits';
 import { getLayoutMapDetails } from '../../../../lib/db/layoutMaps';
 import SectionIcon from '../../../../components/SectionIcon.astro';
+import {
+  FILTER_EMPTY,
+  FILTER_LABELS,
+  FILTER_ORDER,
+  canSeeReviews as canSeeReviewsFor,
+  countFilters,
+  filterGroupOf,
+  initialFilter,
+  type IncidentFilter,
+} from '../../../../lib/incidentReportFilters';
 import { getRoundBySubsessionId, getRoundsForSeason } from '../../../../lib/results/rounds';
 import { getRoundResults, type RaceResultRow, type RoundResults } from '../../../../lib/results/roundResults';
 import { getRoundLayoutsForSubsessions } from '../../../../lib/results/layoutLaps';
@@ -447,35 +457,14 @@ if (adminSession && viewReports && incidentReports.length > 0) {
 function myReviewOf(reportId: string): IncidentReportReview | null {
   return reviewsByReport.get(reportId)?.find((v) => v.reviewer_id === myUserId) ?? null;
 }
-// Reports in three groups, each chronological so the next one to review is first: Needs your review; Reviewed
-// (by you, logged and closed, or you were involved); Dismissed and Logged, collapsed at the bottom. If
-// reviews didn't load, open reports go in one ungrouped list with a warning.
-interface ReportGroup { title: string; icon: 'review' | 'reviewed' | 'open' | 'dismissed' | 'logged'; empty: string | null; collapsed: boolean; reports: IncidentReport[]; alwaysShow?: boolean }
-const needsReviewGroup: ReportGroup = { title: 'Needs Review', icon: 'review', empty: null, collapsed: false, reports: [], alwaysShow: true };
-const reviewedGroup: ReportGroup = { title: 'Reviewed', icon: 'reviewed', empty: null, collapsed: false, reports: [] };
-const openGroup: ReportGroup = { title: 'Open', icon: 'open', empty: null, collapsed: false, reports: [] };
-const dismissedGroup: ReportGroup = { title: 'Dismissed', icon: 'dismissed', empty: null, collapsed: true, reports: [] };
-const loggedGroup: ReportGroup = { title: 'Decided', icon: 'logged', empty: null, collapsed: true, reports: [] };
-for (const r of incidentReports) {
-  const group =
-    r.status === 'dismissed' ? dismissedGroup
-    : r.status === 'logged' ? loggedGroup
-    : reviewsLoadFailed ? openGroup
-    : myReviewOf(r.id) || r.reviews_closed_at || isInvolved(r) ? reviewedGroup
-    : needsReviewGroup;
-  group.reports.push(r);
-}
-const reportGroups = reviewsLoadFailed
-  ? [openGroup, dismissedGroup, loggedGroup]
-  : [needsReviewGroup, reviewedGroup, dismissedGroup, loggedGroup];
-// Colour for each group's icon (SectionIcon.astro), matching the agreement colours below.
-const groupIconColor: Record<ReportGroup['icon'], string> = {
-  review: 'text-brand-gold',
-  reviewed: 'text-emerald-400',
-  open: 'text-brand-gold',
-  dismissed: 'text-white/40',
-  logged: 'text-brand-primary',
-};
+// Each report's filter (FR1.2, BR1.2), in the list's own order so the next one to review comes first. If the
+// reviews didn't load, open reports all stay under Needs Review with a warning.
+const reportFilterById = new Map<string, IncidentFilter>(
+  incidentReports.map((r) => [
+    r.id,
+    filterGroupOf(r, { reviewedByMe: Boolean(myReviewOf(r.id)), involved: isInvolved(r), reviewsLoadFailed }),
+  ]),
+);
 // Hover note on a disabled Add/Edit Review button — same look as the results page's disabled Incident Report button (IncidentButton.astro).
 // Uses a NAMED group (group/reviewbtn): a plain group-hover would also fire whenever the pointer is over the enclosing card's own `group`, showing every row's note at once.
 const reviewTipClass =
@@ -508,6 +497,14 @@ if (adminSession) {
     console.error('Failed to load incident appeals:', err);
   }
 }
+// The filter bar's counts and the filter shown first (FR1.3, BR1.3). The server hides the other cards, so the
+// list is right before the filter script runs.
+const filterCounts = countFilters([
+  ...reportFilterById.values(),
+  ...incidentAppeals.map((): IncidentFilter => 'appeals'),
+]);
+const activeFilter = initialFilter(filterCounts);
+const showIncidentList = viewReports ? incidentReports.length > 0 || incidentAppeals.length > 0 : isAdmin && incidentAppeals.length > 0;
 
 // Whether the Submit Appeal button in the details popup is live: open from
 // the moment the round was posted until the Incident Appeal Window runs out.
@@ -546,6 +543,7 @@ if (viewReports) {
   else if (flash === 'failed') reviewFlash = "Couldn't save your review right now. Please try again.";
   else if (flash === 'dismissreason') reviewFlash = "Couldn't dismiss the incident — a reason is required.";
   else if (flash === 'dismissfailed') reviewFlash = "Couldn't dismiss the incident right now. Please try again.";
+  else if (flash === 'statusinvolved') reviewFlash = "Couldn't change the incident — you were involved in it, so another steward must decide it.";
   else if (flash === 'reasonnotsaved') reviewFlash = "The incident was dismissed, but its reason couldn't be saved — run supabase/migrations/0111_incident_report_dismissal_reason.sql in the Supabase SQL editor.";
 }
 // How an Edit Submission save went (?submission=, set by handleEditReportSubmission).
@@ -899,12 +897,12 @@ if (loadError) markUncacheable(Astro);
           </p>
         )}
 
-        {viewReports && incidentReports.length === 0 && (
+        {viewReports && !showIncidentList && (
           <p class="mt-6 text-white/60">No submitted incidents for this round.</p>
         )}
 
-        {viewReports && incidentReports.length > 0 && (
-          <div id={REPORTS_ANCHOR} class="mt-6 flex scroll-mt-[var(--sticky-header-offset)] flex-col gap-4">
+        {showIncidentList && (
+          <div id={viewReports ? REPORTS_ANCHOR : undefined} class="mt-6 flex scroll-mt-[var(--sticky-header-offset)] flex-col gap-4" data-incident-list-section>
             {/* Above the cards, not inside one: a failed save lands back here at #reported-incidents. */}
             {reviewFlash && (
               <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">{reviewFlash}</p>
@@ -919,7 +917,7 @@ if (loadError) markUncacheable(Astro);
             )}
             {reviewsLoadFailed && (
               <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
-                Couldn't load the steward reviews, so the reports aren't sorted by what you've reviewed. Try refreshing.
+                Couldn't load the steward reviews, so every open report is under Needs Review. Try refreshing.
               </p>
             )}
             {commentsLoadFailed && (
@@ -927,33 +925,36 @@ if (loadError) markUncacheable(Astro);
                 Couldn't load the drivers' comments. Try refreshing.
               </p>
             )}
-            {reportGroups.map((g) => (g.reports.length === 0 && !g.empty && !g.alwaysShow) ? null : (
-            <div class="rounded-xl border border-white/10 bg-brand-ink p-4">
-            <details open={!g.collapsed} class="group">
-              {/* Same card header as the driver profile's collapsible sections (Awards, Career Moves…). */}
-              <summary class="flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-                <span class="flex items-center gap-2">
-                  <SectionIcon name={g.icon} class={`h-6 w-6 flex-none ${groupIconColor[g.icon]}`} />
-                  <h2 class="font-display text-2xl">{g.title}</h2>
-                  <span class="font-display text-2xl text-white/40">{g.reports.length}</span>
-                </span>
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
-                  <polyline points="9 6 15 12 9 18" />
-                </svg>
-              </summary>
-            {g.reports.length === 0 && <p class="mt-3 text-sm text-white/40">{g.empty}</p>}
-            <ul class="mt-3 flex flex-col gap-2">
-              {g.reports.map((r) => {
+            {viewReports ? (
+              // One filter bar over one list (FR1.2): the selected filter's cards show, the others are hidden.
+              <div role="group" aria-label="Filter submissions" class="flex flex-wrap gap-2" data-incident-filters>
+                {FILTER_ORDER.map((f) => (
+                  <button
+                    type="button"
+                    class={`btn btn-sm ${f === activeFilter ? 'btn-active' : 'btn-neutral'}`}
+                    aria-pressed={f === activeFilter ? 'true' : 'false'}
+                    data-incident-filter={f}
+                    data-testid={`incident-filter-${f}`}
+                  >
+                    {FILTER_LABELS[f]} ({filterCounts[f]})
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <h2 class="font-display text-2xl">Submitted Appeals</h2>
+            )}
+            <ul class="flex flex-col gap-2" data-incident-list>
+              {viewReports && incidentReports.map((r) => {
+                const filterGroup = reportFilterById.get(r.id) ?? 'needs_review';
                 const visibleReviews = reviewsByReport.get(r.id) ?? [];
                 const myReview = myReviewOf(r.id);
                 const reviewCount = reviewCounts.get(r.id) ?? visibleReviews.length;
                 // Closed for good once first logged — a Reopen doesn't reopen voting (0096).
                 const reviewsLocked = Boolean(r.reviews_closed_at);
                 const involved = isInvolved(r);
-                // Others' reviews (and the colour) only once you've voted, or once
-                // the report is logged and voting is over — otherwise it would leak the outcome.
-                // An involved steward can't vote, so there's no vote to keep blind.
-                const canSeeReviews = Boolean(myReview) || reviewsLocked || involved;
+                // Others' reviews (and the colour) only once you've voted, once voting is closed, or for an
+                // involved steward once the report is dismissed (BR1.1; the read policy enforces the same).
+                const canSeeReviews = canSeeReviewsFor(r, { reviewedByMe: Boolean(myReview), involved });
                 const agreement = canSeeReviews ? reviewAgreement(visibleReviews) : null;
                 const style = agreement ? agreementStyles[agreement] : null;
                 const duplicateOriginal = duplicateOriginalById.get(r.id);
@@ -967,8 +968,17 @@ if (loadError) markUncacheable(Astro);
                 const dimClass = r.status === 'open' ? '' : 'opacity-50';
                 const decisionPenalty = r.status === 'logged' ? decisionPenaltyFor(r) : null;
                 const turnCorners = reportMapUrl ? matchCorners(r.turn ?? '', reportMapCorners) : [];
+                // The clip and the map beside the text on desktop (FR1.6); phones keep the icon buttons.
+                const hasMedia = Boolean(r.video_url) || Boolean(reportMapUrl);
                 return (
-                <li class={`flex flex-col gap-3 rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-brand-ink'} `}>
+                // The `hidden` attribute sits on a plain <li>: a display utility on the same element would beat it.
+                <li data-filter-group={filterGroup} data-testid="incident-report-card" hidden={filterGroup !== activeFilter}>
+                <div
+                  class={`flex flex-col gap-3 rounded-lg border p-3 text-sm ${style ? style.item : 'border-white/10 bg-brand-ink'}`}
+                >
+                  <div class="min-w-0 flex-1">
+                  {/* The report text with the clip and map on its right (desktop); reviews and buttons run full width below. */}
+                  <div class="lg:flex lg:items-start lg:gap-4">
                   <div class="min-w-0 flex-1">
                   <p
                     class={`font-semibold text-white/90 ${dimClass}`}
@@ -1002,6 +1012,34 @@ if (loadError) markUncacheable(Astro);
                       </ul>
                     </div>
                   )}
+                  </div>
+                  {hasMedia && (
+                    // Desktop only (BR1.5): display:none keeps the lazy map image unloaded on phones, and the
+                    // clip is built by script (incidentFilters.ts) only when this card is on screen.
+                    <div class="hidden flex-none items-start gap-3 lg:flex" data-report-media>
+                      {r.video_url && (
+                        <div
+                          class="aspect-video w-64 overflow-hidden rounded-lg bg-black xl:w-72"
+                          data-inline-clip={r.video_url}
+                          data-testid="report-inline-clip"
+                        ></div>
+                      )}
+                      {reportMapUrl && (
+                        <div
+                          class="layout-map-plate w-36 flex-none border border-white/10 xl:w-40"
+                          role="img"
+                          aria-label={`Map: ${reportSubtitle(r)}`}
+                          data-testid="report-inline-map"
+                        >
+                          <img class="layout-map-img" src={reportMapUrl} alt="" decoding="async" loading="lazy" />
+                          {turnCorners.map((c) => (
+                            <span class="map-turn-ring" style={`left: ${c.x}%; top: ${c.y}%`}></span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  </div>
 
                   <div class="mt-3 border-t border-white/10 pt-3">
                     <div class="flex flex-wrap items-start justify-between gap-2">
@@ -1078,7 +1116,7 @@ if (loadError) markUncacheable(Astro);
                           data-testid="report-watch-video"
                           aria-label="Watch video"
                           title="Watch video"
-                          class={reportIconBtn}
+                          class={`${reportIconBtn} lg:hidden`}
                         >
                           <RowIcon name="video" />
                         </button>
@@ -1095,32 +1133,9 @@ if (loadError) markUncacheable(Astro);
                           data-testid="report-view-map"
                           aria-label="View map"
                           title="View map"
-                          class={reportIconBtn}
+                          class={`${reportIconBtn} lg:hidden`}
                         >
                           <RowIcon name="map" />
-                        </button>
-                      )}
-                      {reviewBlockedReason ? (
-                        <span class="group/reviewbtn relative">
-                          <button type="button" disabled aria-disabled="true" class="btn btn-gold btn-sm">
-                            {myReview ? 'Edit Review' : 'Add Review'}
-                          </button>
-                          <span class={reviewTipClass} role="tooltip">{reviewBlockedReason}</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          data-open-review-dialog
-                          data-review={JSON.stringify({
-                            report_id: r.id,
-                            label: reportLabel(r),
-                            // Null = not reviewed yet; [] = a Racing Incident review.
-                            faults: myReview ? myReview.faults : null,
-                            explanation: myReview?.explanation ?? '',
-                          })}
-                          class="btn btn-gold btn-sm"
-                        >
-                          {myReview ? 'Edit Review' : 'Add Review'}
                         </button>
                       )}
                       {r.status === 'open' && (
@@ -1147,7 +1162,8 @@ if (loadError) markUncacheable(Astro);
                       >
                         {r.video_url ? 'Edit Video' : 'Add Video'}
                       </button>
-                      {r.status === 'open' && (
+                      {/* A steward involved in the report can't decide it (BR1.6): no Add to Report, Dismiss or Reopen. */}
+                      {r.status === 'open' && !involved && (
                         <button
                           type="button"
                           data-log-report
@@ -1157,7 +1173,30 @@ if (loadError) markUncacheable(Astro);
                           Add to Report
                         </button>
                       )}
-                      {r.status === 'open' ? (
+                      {reviewBlockedReason ? (
+                        <span class="group/reviewbtn relative">
+                          <button type="button" disabled aria-disabled="true" class="btn btn-gold btn-sm">
+                            {myReview ? 'Edit Review' : 'Add Review'}
+                          </button>
+                          <span class={reviewTipClass} role="tooltip">{reviewBlockedReason}</span>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          data-open-review-dialog
+                          data-review={JSON.stringify({
+                            report_id: r.id,
+                            label: reportLabel(r),
+                            // Null = not reviewed yet; [] = a Racing Incident review.
+                            faults: myReview ? myReview.faults : null,
+                            explanation: myReview?.explanation ?? '',
+                          })}
+                          class="btn btn-gold btn-sm"
+                        >
+                          {myReview ? 'Edit Review' : 'Add Review'}
+                        </button>
+                      )}
+                      {involved ? null : r.status === 'open' ? (
                         // Asks for a reason first (the dismiss popup below posts the form).
                         <button
                           type="button"
@@ -1189,37 +1228,20 @@ if (loadError) markUncacheable(Astro);
 
                   </div>
                   </div>
+                </div>
                 </li>
                 );
               })}
-            </ul>
-            </details>
-            </div>
-            ))}
-          </div>
-        )}
-
-        {isAdmin && (viewReports || incidentAppeals.length > 0) && (
-          <div class="mt-6 rounded-xl border border-white/10 bg-brand-ink p-4">
-          <details open={incidentAppeals.some((a) => a.status === 'open')} class="group">
-            {/* Same card header as the Needs Review / Dismissed / Logged cards above. */}
-            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
-              <span class="flex items-center gap-2">
-                <SectionIcon name="appeals" class="h-6 w-6 flex-none text-brand-gold" />
-                <h2 class="font-display text-2xl">Submitted Appeals</h2>
-                <span class="font-display text-2xl text-white/40">{incidentAppeals.length}</span>
-              </span>
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 flex-none text-white/40 transition-transform group-open:rotate-90" aria-hidden="true">
-                <polyline points="9 6 15 12 9 18" />
-              </svg>
-            </summary>
-            {incidentAppeals.length === 0 && <p class="mt-3 text-sm text-white/40">No appeals have been submitted.</p>}
-            <ul class="mt-3 flex flex-col gap-2">
               {incidentAppeals.map((a) => {
                 const appealed = penalties.find((p) => p.id === a.penalty_id);
                 const appealedDriver = appealed?.driver_id ? driverById.get(appealed.driver_id) : undefined;
                 return (
-                  <li class={`rounded-lg border border-white/10 bg-brand-ink p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}>
+                  <li
+                    class={`rounded-lg border border-white/10 bg-brand-ink p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}
+                    data-filter-group="appeals"
+                    data-testid="incident-appeal-card"
+                    hidden={viewReports && activeFilter !== 'appeals'}
+                  >
                     <div class="flex flex-wrap items-center justify-between gap-2">
                       <p class="font-semibold text-white/80">
                         {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
@@ -1285,8 +1307,16 @@ if (loadError) markUncacheable(Astro);
                   </li>
                 );
               })}
+              {viewReports && FILTER_ORDER.map((f) => (
+                <li
+                  class="text-sm text-white/40"
+                  data-filter-empty={f}
+                  hidden={!(f === activeFilter && filterCounts[f] === 0)}
+                >
+                  {FILTER_EMPTY[f]}
+                </li>
+              ))}
             </ul>
-          </details>
           </div>
         )}
 

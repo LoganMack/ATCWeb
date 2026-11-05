@@ -74,6 +74,11 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
     hooks: ['data-incident-management'],
     shells: ['drivers/[id].astro', 'results/[subsessionId]/incidents.astro'],
   },
+  // incident-email-badges: the Reported Incidents filter bar and inline clips (FR1.2, FR1.6).
+  incidentFilters: {
+    hooks: ['data-incident-filters', 'data-inline-clip'],
+    shells: ['results/[subsessionId]/incidents.astro'],
+  },
   // U6 interviews: the Interviews tab's download, confirm popup and delete.
   interviews: { hooks: ['data-interviews-panel'], shells: ['drivers/[id].astro'] },
   // profile-liveries: the Liveries tab's uploads, downloads and popups.

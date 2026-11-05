@@ -14,6 +14,8 @@ import {
   type LogoBackground,
 } from '../../lib/db/circuits';
 import TeamLogo from '../../components/TeamLogo.astro';
+import ClassBadge from '../../components/ClassBadge.astro';
+import { SLOT_CLASS_NAME, getRaceWinnersForRounds, type RaceWinners } from '../../lib/results/raceWinners';
 import { getRoundsForSeason, getAllRounds, computeDisplayRoundNumbers } from '../../lib/results/rounds';
 import { isChampionshipSeason } from '../../lib/results/shared';
 import { getRoundLayoutsForSubsessions } from '../../lib/results/layoutLaps';
@@ -66,6 +68,8 @@ let layoutBySubsession: Map<number, string | null> = new Map();
 // Track logo per round (circuit matched by track name, same as the Standings matrix headers); a track without one gets TeamLogo's initials tile.
 let trackLogoByName: Map<string, string | null> = new Map();
 let trackLogoBgByName: Map<string, LogoBackground> = new Map();
+// Each race's class and team winners (FR4.2), from one database call; empty when it fails.
+let winnersBySubsession: Map<number, RaceWinners[]> = new Map();
 
 if (!loadError && (activeSeason || activePooledFilter)) {
   try {
@@ -84,10 +88,11 @@ if (!loadError && (activeSeason || activePooledFilter)) {
         ? seasonRounds.filter((r) => !exhibitionRoundIds.has(r.subsession_id) && !testRoundIds.has(r.subsession_id))
         : seasonRounds; // a whole exhibition season: every round already belongs there, nothing to hide
     }
-    layoutBySubsession = await getRoundLayoutsForSubsessions(
-      supabaseEnv,
-      rounds.map((r) => r.subsession_id)
-    );
+    const roundIds = rounds.map((r) => r.subsession_id);
+    [layoutBySubsession, winnersBySubsession] = await Promise.all([
+      getRoundLayoutsForSubsessions(supabaseEnv, roundIds),
+      getRaceWinnersForRounds(supabaseEnv, roundIds),
+    ]);
     try {
       const [circuits, logoBackgrounds] = await Promise.all([getCircuits(supabaseEnv), getCircuitLogoBackgrounds(supabaseEnv)]);
       trackLogoByName = new Map(circuits.map((c) => [normalizeTrackOrLayoutName(c.name), c.logo_url ?? null]));
@@ -170,6 +175,7 @@ if (loadError) markUncacheable(Astro);
           // Course").
           const layoutRaw = layoutBySubsession.get(round.subsession_id) ?? null;
           const trackLabel = layoutRaw ? `${round.track_name}, ${displayLayoutName(layoutRaw)}` : round.track_name;
+          const races = winnersBySubsession.get(round.subsession_id) ?? [];
           return (
           <a
             href={`/results/${round.subsession_id}${currentSeasonParam ? `?season=${encodeURIComponent(currentSeasonParam)}` : ''}`}
@@ -177,7 +183,7 @@ if (loadError) markUncacheable(Astro);
           >
             <div class="flex min-w-0 items-center gap-4">
               <TeamLogo name={round.track_name} logoUrl={trackLogoByName.get(normalizeTrackOrLayoutName(round.track_name)) ?? null} size="h-10 w-10" logoBg={trackLogoBgByName.get(normalizeTrackOrLayoutName(round.track_name)) ?? null} />
-              <div>
+              <div class="min-w-0">
               <p class="font-semibold">
                 {titlePrefix}{trackLabel}
               </p>
@@ -185,6 +191,26 @@ if (loadError) markUncacheable(Astro);
                 {formatDate(round.start_time)}
                 {round.format && ` · ${round.format === 'endurance' ? 'Endurance' : 'Sprint'}`}
               </p>
+              {races.map((race) => (
+                <p class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/80" data-testid="race-winners">
+                  <span class="text-xs font-semibold uppercase tracking-wide text-white/40">
+                    {races.length > 1 ? `Race ${race.raceNumber}` : 'Race'}
+                  </span>
+                  {race.winners.map((w) =>
+                    w.kind === 'driver' ? (
+                      <span class="inline-flex min-w-0 items-center gap-1.5">
+                        <ClassBadge className={SLOT_CLASS_NAME[w.slot]} />
+                        <span class="break-words">{w.name}</span>
+                      </span>
+                    ) : (
+                      <span class="inline-flex min-w-0 items-center gap-1.5" title={`${SLOT_CLASS_NAME[w.slot]} Team winner`}>
+                        <TeamLogo name={w.name} logoUrl={w.logoUrl} size="h-5 w-5" />
+                        <span class="break-words">{w.name}</span>
+                      </span>
+                    ),
+                  )}
+                </p>
+              ))}
               </div>
             </div>
             <div class="flex items-center gap-3 text-sm text-white/50">
@@ -198,8 +224,6 @@ if (loadError) markUncacheable(Astro);
                   Test
                 </span>
               )}
-              {round.num_drivers !== null && <span class="hidden sm:inline">Grid {round.num_drivers}</span>}
-              {round.strength_of_field !== null && <span class="hidden sm:inline">SoF {round.strength_of_field}</span>}
             </div>
           </a>
           );

@@ -68,12 +68,21 @@ const claiming =
     cap_left: 100 - count,
   });
 
-function harness(handlers: Partial<Record<NotificationRpc, Handler>> = {}, outcomes: SendOutcome[] = []) {
+function harness(
+  handlers: Partial<Record<NotificationRpc, Handler>> = {},
+  outcomes: SendOutcome[] = [],
+  templates: () => unknown = () => [],
+) {
   const calls: { fn: NotificationRpc; args: Record<string, unknown> }[] = [];
+  const selects: string[] = [];
   const db: ServiceDb = {
     async rpc<T>(fn: NotificationRpc, args: Record<string, unknown> = {}) {
       calls.push({ fn, args });
       return (await (handlers[fn] ?? DEFAULTS[fn])(args)) as T;
+    },
+    async select<T>(path: string) {
+      selects.push(path);
+      return (await templates()) as T;
     },
   };
   const logs: string[] = [];
@@ -98,7 +107,7 @@ function harness(handlers: Partial<Record<NotificationRpc, Handler>> = {}, outco
   };
   const fnCalls = () => calls.map((c) => c.fn.replace('notifications_', ''));
   const argsOf = (fn: NotificationRpc) => calls.filter((c) => c.fn === fn).map((c) => c.args);
-  return { deps, calls, fnCalls, argsOf, send, logs, errors };
+  return { deps, calls, selects, fnCalls, argsOf, send, logs, errors };
 }
 
 const lastSummary = (logs: string[]) => JSON.parse(logs[logs.length - 1]) as RunSummary;
@@ -394,8 +403,8 @@ describe('runNotifications: Resend outcomes (BR10.12)', () => {
 });
 
 describe('runNotifications: budget, secrets and CPU (NFR3.1, NFR3.2, NFR5.1)', () => {
-  it('makes at most 8 RPCs and 2 Resend calls through real fetch, and logs no key or address', async () => {
-    const counts = { rpc: 0, resend: 0 };
+  it('makes at most 8 RPCs, 1 template read and 2 Resend calls through real fetch, and logs no key or address', async () => {
+    const counts = { rpc: 0, select: 0, resend: 0 };
     const responses: Record<string, unknown> = {
       notifications_enqueue_reminders: { enqueued: 2, missed_windows: [] },
       notifications_drop_expired: { dropped: [], retention_deleted: 0 },
@@ -425,11 +434,15 @@ describe('runNotifications: budget, secrets and CPU (NFR3.1, NFR3.2, NFR5.1)', (
           status: 200,
         });
       }
-      counts.rpc += 1;
-      const fn = url.split('/rpc/')[1];
       const headers = init?.headers as Record<string, string>;
       expect(headers.apikey).toBe(SERVICE_KEY);
       expect(headers.Authorization).toBe(`Bearer ${SERVICE_KEY}`);
+      if (url.includes('/rest/v1/email_templates?')) {
+        counts.select += 1;
+        return new Response('[]', { status: 200 });
+      }
+      counts.rpc += 1;
+      const fn = url.split('/rpc/')[1];
       const body =
         fn === 'notifications_claim_batch'
           ? {
@@ -451,7 +464,7 @@ describe('runNotifications: budget, secrets and CPU (NFR3.1, NFR3.2, NFR5.1)', (
     expect(summary.sent).toBe(51);
     expect(counts.rpc).toBeLessThanOrEqual(8);
     expect(counts.resend).toBeLessThanOrEqual(2);
-    expect(counts).toEqual({ rpc: 8, resend: 2 });
+    expect(counts).toEqual({ rpc: 8, select: 1, resend: 2 });
     const logged = lines.join('\n');
     for (const secret of [RESEND_KEY, SERVICE_KEY, '@example.test']) expect(logged).not.toContain(secret);
   });
@@ -474,6 +487,49 @@ describe('runNotifications: budget, secrets and CPU (NFR3.1, NFR3.2, NFR5.1)', (
     expect(body.length).toBeGreaterThan(10_000);
     // The target is 5 ms; the margin keeps a slow CI runner from failing on noise.
     expect(elapsed).toBeLessThan(25);
+  });
+});
+
+describe('runNotifications: edited email wording (FR2.5, FR2.6; BR2.4)', () => {
+  const storedSubjects = (h: ReturnType<typeof harness>) =>
+    (h.argsOf('notifications_store_rendered')[0].p_rendered as { rendered: { subject: string } }[]).map(
+      (r) => r.rendered.subject,
+    );
+
+  it('reads the templates once per batch and renders the batch with them', async () => {
+    const h = harness({ notifications_claim_batch: claiming(3) }, [], () => [
+      { kind: 'report_posted', subject: 'Posted now: {round}', lead: null, link_text: null },
+    ]);
+    await runNotifications(ENV, h.deps);
+    expect(h.selects).toEqual(['email_templates?select=kind,subject,lead,link_text']);
+    expect(storedSubjects(h)).toEqual(Array(3).fill('Posted now: Zr Season Round 3'));
+    expect(h.send.mock.calls[0][0].emails[0].subject).toBe('Posted now: Zr Season Round 3');
+  });
+
+  it('skips the read when nothing is claimed', async () => {
+    const h = harness();
+    await runNotifications(ENV, h.deps);
+    expect(h.selects).toEqual([]);
+  });
+
+  it('still sends in the built-in wording when the templates cannot be read, and logs it', async () => {
+    const h = harness({ notifications_claim_batch: claiming(2) }, [], () => {
+      throw new Error('Supabase read error 500 on email_templates: down');
+    });
+    const summary = await runNotifications(ENV, h.deps);
+    const builtIn = renderEmail('report_posted', PAYLOAD, { siteUrl: ENV.SITE_URL, now: NOW }).subject;
+    expect(storedSubjects(h)).toEqual([builtIn, builtIn]);
+    expect(summary.sent).toBe(2);
+    expect(summary.failed_steps).toEqual([]);
+    expect(h.errors.some((line) => JSON.parse(line).event === 'notifications-templates-failed')).toBe(true);
+  });
+
+  it('ignores rows of an unknown kind', async () => {
+    const h = harness({ notifications_claim_batch: claiming(1) }, [], () => [
+      { kind: 'newsletter', subject: 'Nope', lead: null, link_text: null },
+    ]);
+    await runNotifications(ENV, h.deps);
+    expect(storedSubjects(h)).toEqual(['Incident report posted: Zr Season Round 3']);
   });
 });
 

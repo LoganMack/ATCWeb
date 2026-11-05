@@ -2,12 +2,24 @@
  * One scheduled notifications run (every 15 minutes; BR10.6-BR10.13, BR10.19, BR10.20). The steps run in
  * order, each in its own try/catch so one failure is logged and the rest still run: enqueue reminders,
  * drop expired rows, stop if RESEND_API_KEY is missing, re-send one stale batch, claim and send one new
- * batch, then record the run and log one summary line. At most 8 RPCs and 2 Resend calls. Logs carry ids,
- * kinds and reasons only, never an address or the key.
+ * batch, then record the run and log one summary line. At most 8 RPCs, one read of the edited email wording
+ * (only when a batch is claimed) and 2 Resend calls. Logs carry ids, kinds and reasons only, never an address
+ * or the key.
  */
 import { createServiceDb, type NotificationEnv, type ServiceDb } from './db';
 import { sendBatch, type OutgoingEmail, type SendBatchInput, type SendOutcome } from './sender';
-import { renderEmail, type NotificationKind, type RenderedEmail } from './templates';
+import { isEmailTemplateKind } from './templateRules';
+import {
+  renderEmail,
+  type EmailTemplateSet,
+  type EmailTemplateText,
+  type NotificationKind,
+  type RenderedEmail,
+} from './templates';
+
+interface TemplateRow extends EmailTemplateText {
+  kind: string;
+}
 
 export const DEFAULT_EMAIL_FROM = 'Alpha Touring Challenge <noreply@alphatouringchallenge.com>';
 export const DEFAULT_SITE_URL = 'https://alphatouringchallenge.com';
@@ -218,10 +230,11 @@ class NotificationRun {
     this.summary.claimed = claim.rows.length;
 
     const context = { siteUrl: this.config.siteUrl, now: this.deps.now() };
+    const templates = await this.loadTemplates();
     const rows = claim.rows.map((r) => ({
       id: r.id,
       to: r.to,
-      email: renderEmail(r.kind, r.payload, context),
+      email: renderEmail(r.kind, r.payload, context, templates),
     }));
     const stored = await this.deps.db.rpc<number>('notifications_store_rendered', {
       p_batch_id: batchId,
@@ -231,6 +244,34 @@ class NotificationRun {
     if (stored !== rows.length)
       throw new Error(`stored ${stored} of ${rows.length} renderings for batch ${batchId}`);
     await this.deliver(batchId, rows);
+  }
+
+  /**
+   * The admin's edited wording, read once per batch (BR2.4). A failed read is logged and the batch goes out in
+   * the built-in wording, so an edit can never stop the emails.
+   */
+  private async loadTemplates(): Promise<EmailTemplateSet | null> {
+    try {
+      const rows = await this.deps.db.select<TemplateRow[]>(
+        'email_templates?select=kind,subject,lead,link_text',
+      );
+      const set: EmailTemplateSet = {};
+      for (const row of rows ?? []) {
+        if (isEmailTemplateKind(row.kind)) {
+          set[row.kind] = { subject: row.subject, lead: row.lead, link_text: row.link_text };
+        }
+      }
+      return set;
+    } catch (err) {
+      this.deps.logError(
+        JSON.stringify({
+          event: 'notifications-templates-failed',
+          run_id: this.summary.run_id,
+          error: errorText(err),
+        }),
+      );
+      return null;
+    }
   }
 
   private async mark(batchId: string, result: Record<string, unknown>): Promise<void> {
@@ -319,8 +360,11 @@ export async function runNotifications(
 
   const { summary } = run;
   // A refused key, quota or rate limit fails no step, so failed sends also make the run partial.
-  summary.status =
-    !config.apiKey ? 'no_key' : summary.failed_steps.length > 0 || summary.failed > 0 ? 'partial' : 'ok';
+  summary.status = !config.apiKey
+    ? 'no_key'
+    : summary.failed_steps.length > 0 || summary.failed > 0
+      ? 'partial'
+      : 'ok';
   summary.duration_ms = deps.now().getTime() - started;
   await run.step('record_run', () => run.record());
   if (summary.failed_steps.includes('record_run') && summary.status === 'ok') summary.status = 'partial';

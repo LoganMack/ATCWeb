@@ -25,6 +25,25 @@ export function classBadgeLetter(className: string): string {
   return className.charAt(0).toUpperCase();
 }
 
+/** A class's badge image: 64 px and 128 px WebP (1x and 2x), with the class name as its text alternative. */
+export interface ClassBadgeImage {
+  src: string;
+  srcset: string;
+  alt: string;
+}
+
+// The league's three class badges (public/images/classes/); any other class keeps its letter.
+const CLASS_IMAGE_SLUGS: Record<string, string> = { alpha: 'alpha', gamma: 'gamma', delta: 'delta' };
+
+/** The badge image for Alpha, Gamma or Delta (any letter case), else null. */
+export function classBadgeImage(className: string | null | undefined): ClassBadgeImage | null {
+  const name = (className ?? '').trim();
+  const key = name.toLowerCase();
+  if (!Object.hasOwn(CLASS_IMAGE_SLUGS, key)) return null;
+  const base = `/images/classes/${CLASS_IMAGE_SLUGS[key]}`;
+  return { src: `${base}-64.webp`, srcset: `${base}-64.webp 1x, ${base}-128.webp 2x`, alt: name };
+}
+
 /**
  * Shared shape for every class tag (plain bold uppercase text, per Logan) with one fixed width per variant,
  * so full-name and one-letter tags each line up. Full literal class strings, since Tailwind only sees names
