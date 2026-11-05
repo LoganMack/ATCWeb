@@ -790,7 +790,9 @@ begin
       'can_appeal_penalty', 'get_news_post_view_counts', 'round_stats_status', 'claim_broadcaster',
       'incident_submissions', 'round_event_matches',
       -- Return only the caller's own data, or names of unlinked drivers, who can never be hidden:
-      'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state'
+      'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state',
+      -- Security invoker, names only through the masked drivers_shown view (race-winners-fixtures.sql X02):
+      'race_winners_for_rounds'
     );
   perform privacy_fixture.expect('P21 unlisted functions', coalesce(v_unlisted, ''), '');
   raise notice 'ok P21 function allow-list';
