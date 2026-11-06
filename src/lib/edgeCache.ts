@@ -4,11 +4,15 @@
  * `?x=<random>` can't force an uncached render; shells list their fragment's parameters too. Add a route's
  * new parameters here, or it is cached under its bare path.
  */
+import { CLASS_FILTER_VALUES } from './results/classFilter';
+import { canonicalSeasonNumber } from './compareRows';
 
 const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/calendar(\/fragment)?$/, ['season']],
   [/^\/champions(\/fragment)?$/, ['class', 'team']],
   [/^\/champions\/season-results\/[^/]+\/[^/]+$/, ['class']],
+  // The Compare picks (a-d) are read only in the browser, so they are never part of the key (BR5.2).
+  [/^\/advanced-stats(\/fragment)?$/, ['class', 'season', 'view']],
   [/^\/driver-stats(\/fragment)?$/, ['class']],
   [/^\/drivers\/[^/]+$/, ['profile_error', 'saved']],
   [/^\/drivers\/[^/]+\/fragment$/, ['hof']],
@@ -48,12 +52,36 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
 // can't create extra cache entries (the incident page's origin marker, BR2.6).
 const ALLOWED_PARAM_VALUES: Record<string, readonly string[]> = { from: ['reporting'] };
 
+// The same, for one route only, where the parameter name is shared with routes that take other values. The
+// class filter's values must match what resolveClassFilter accepts exactly: anything it would read as
+// Overall is dropped, so it lands on the bare key that Overall renders under.
+const isClassFilterValue = (value: string) => CLASS_FILTER_VALUES.includes(value);
+const ROUTE_PARAM_VALUES: [RegExp, Record<string, (value: string) => boolean>][] = [
+  [/^\/driver-stats(\/fragment)?$/, { class: isClassFilterValue }],
+  [
+    /^\/advanced-stats(\/fragment)?$/,
+    {
+      class: isClassFilterValue,
+      season: (value) => value === 'all' || canonicalSeasonNumber(value) !== null,
+      view: (value) => value === 'compare',
+    },
+  ],
+];
+
 /** Query parameters that are part of the cache key for this path. */
 export function cacheQueryParams(pathname: string): string[] {
   for (const [pattern, params] of ROUTE_QUERY_PARAMS) {
     if (pattern.test(pathname)) return params;
   }
   return [];
+}
+
+function keepsValue(pathname: string, name: string, value: string): boolean {
+  const allowed = ALLOWED_PARAM_VALUES[name];
+  if (allowed && !allowed.includes(value)) return false;
+  const routeRules = ROUTE_PARAM_VALUES.find(([pattern]) => pattern.test(pathname))?.[1];
+  const check = routeRules?.[name];
+  return !check || check(value);
 }
 
 /**
@@ -64,8 +92,7 @@ export function cacheKeyUrl(url: URL): string {
   const key = new URL(url.origin + url.pathname);
   for (const name of [...cacheQueryParams(url.pathname)].sort()) {
     const value = url.searchParams.get(name);
-    const allowed = ALLOWED_PARAM_VALUES[name];
-    if (value !== null && (!allowed || allowed.includes(value))) key.searchParams.set(name, value);
+    if (value !== null && keepsValue(url.pathname, name, value)) key.searchParams.set(name, value);
   }
   return key.toString();
 }

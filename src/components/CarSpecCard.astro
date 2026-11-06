@@ -1,0 +1,29 @@
+---
+// One series car's spec card on /cars (FR2.2-FR2.5): the logo (initials fallback when none), the name, and
+// the ten common fields, pre-formatted by carSpecRows (BR2.4).
+import TeamLogo from './TeamLogo.astro';
+import { carSpecRows, type CarSpec } from '../lib/carSpecs';
+
+interface Props {
+  spec: CarSpec;
+  logoUrl: string | null;
+}
+
+const { spec, logoUrl } = Astro.props;
+const rows = carSpecRows(spec);
+---
+
+<article class="rounded-xl border border-white/10 bg-brand-ink p-5" data-car-spec-card={spec.carName}>
+  <div class="flex items-center gap-4">
+    <TeamLogo name={spec.displayName} logoUrl={logoUrl} size="h-14 w-14" resizeWidth={168} tint />
+    <h2 class="font-display text-3xl leading-none">{spec.displayName}</h2>
+  </div>
+  <dl class="mt-5 divide-y divide-white/10 text-sm">
+    {rows.map((row) => (
+      <div class="grid grid-cols-[minmax(0,10rem)_1fr] gap-3 py-2">
+        <dt class="text-xs font-semibold uppercase tracking-wide text-white/40">{row.label}</dt>
+        <dd class="text-white/80">{row.value}</dd>
+      </div>
+    ))}
+  </dl>
+</article>

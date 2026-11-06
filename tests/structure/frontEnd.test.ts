@@ -42,6 +42,8 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   },
   circuitLayoutDetail: { hooks: ['data-layout-detail-body'], shells: ['circuits.astro'] },
   hofClassFilter: { hooks: ['data-hof-card'], shells: ['hall-of-fame.astro'] },
+  // cars-overall-compare: the Advanced Stats Compare view's slots, pickers and pick-keeping selects.
+  compareView: { hooks: ['data-compare-view'], shells: ['advanced-stats.astro'] },
   addToCalendar: {
     hooks: ['data-ics-event', 'data-ics-download'],
     shells: ['calendar.astro', 'index.astro'],

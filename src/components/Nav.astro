@@ -84,13 +84,15 @@ const links: NavLink[] = [
       { href: '/standings?championship=teams', label: 'Teams' },
     ],
   },
-  // Roster and Stats (BR6.2, BR6.3): on phones the pages behind their own link are listed as sub-items.
+  // Roster and Stats (BR6.2, BR6.3; cars-overall-compare BR1.1-BR1.3): on phones the pages behind their own
+  // link are listed as sub-items.
   {
     href: '/roster',
     label: 'Roster',
     menu: [
       { href: '/roster', label: 'Drivers' },
       { href: '/teams', label: 'Teams', mobile: true },
+      { href: '/cars', label: 'Cars', mobile: true },
     ],
   },
   {
@@ -99,6 +101,7 @@ const links: NavLink[] = [
     menu: [
       { href: '/driver-stats', label: 'Drivers' },
       { href: '/team-stats', label: 'Teams', mobile: true },
+      { href: '/circuits', label: 'Circuits', mobile: true },
       { href: '/advanced-stats', label: 'Advanced', mobile: true },
     ],
   },

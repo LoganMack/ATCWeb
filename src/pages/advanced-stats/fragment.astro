@@ -1,0 +1,78 @@
+---
+export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import { markUncacheable, safeJson } from '../../lib/security';
+
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getDriverClasses } from '../../lib/db/lookups';
+import { getSeasons } from '../../lib/db/seasons';
+import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
+import { computeCareerData, loadCareerRefs } from '../../lib/results/careerStats';
+import { resolveClassFilter } from '../../lib/results/classFilter';
+import { buildCompareLists, resolveCompareSeason } from '../../lib/results/compareStats';
+import type { CompareData } from '../../lib/compareRows';
+
+/**
+ * The Compare view's data for the advanced-stats.astro shell (FR4, BR5.1): every pickable driver, team and car
+ * under the class filter and season, from one career computation. Embedded as JSON for
+ * src/scripts/compareView.ts, which draws the slots; the picks never reach this route. Never linked directly.
+ */
+
+// Compare is the only view, so `view` is not read here; the edge cache still keys on view=compare so a
+// later view can be added without changing the key rules.
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let data: CompareData | null = null;
+try {
+  const [classes, seasons, exhibitionRoundIds, refs] = await Promise.all([
+    getDriverClasses(supabaseEnv),
+    getSeasons(supabaseEnv),
+    getStandingsExcludedRoundIds(supabaseEnv),
+    loadCareerRefs(supabaseEnv),
+  ]);
+  const filter = resolveClassFilter(Astro.url.searchParams.get('class'), classes);
+  const season = resolveCompareSeason(Astro.url.searchParams.get('season'), seasons);
+  const { drivers: careers, teamTitles } = await computeCareerData(
+    supabaseEnv,
+    seasons,
+    classes,
+    exhibitionRoundIds,
+    refs,
+    // Only Compare credits teams and cars round by round, so only it asks for the per-round lists.
+    { withRounds: true },
+  );
+  const lists = buildCompareLists({
+    careers,
+    teamTitles,
+    filter,
+    season,
+    teams: refs.teams,
+    carLogos: refs.carLogos,
+    seasonLogoRows: refs.seasonLogoRows,
+  });
+  data = { classLabel: filter.label, seasonLabel: season ? season.name : 'All seasons', ...lists };
+} catch (err) {
+  console.error('Failed to build the compare view (fragment):', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
+---
+
+{loadError && <LoadError />}
+
+{!loadError && data && (
+  <div data-compare-root>
+    <script type="application/json" id="compare-data" set:html={safeJson(data)} />
+    <p class="mt-6 text-sm text-white/50" data-compare-summary>
+      {data.classLabel} · {data.seasonLabel}
+    </p>
+    <div class="mt-3" data-compare-slots>
+      <noscript>
+        <p class="text-white/60">The compare view needs JavaScript to pick drivers, teams and cars.</p>
+      </noscript>
+    </div>
+  </div>
+)}

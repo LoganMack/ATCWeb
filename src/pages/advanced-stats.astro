@@ -1,25 +1,103 @@
 ---
 export const prerender = false;
-// Advanced Stats (BR6.7): a coming-soon page behind the nav's Stats > Advanced link. It reads no data of its
-// own; the site-standard cache time keeps its nav in step with the other pages after a deploy.
+import LoadError from '../components/LoadError.astro';
+import { markUncacheable } from '../lib/security';
+
 import Layout from '../layouts/Layout.astro';
 import StatsTabs from '../components/StatsTabs.astro';
+import ClassFilterSelect from '../components/ClassFilterSelect.astro';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getDriverClasses } from '../lib/db/lookups';
+import { getSeasons, type Season } from '../lib/db/seasons';
+import { classFilterOptions, resolveClassFilter } from '../lib/results/classFilter';
+import { compareQuery, compareSeasonOptions, resolveCompareSeason } from '../lib/results/compareStats';
+
+// Advanced Stats (FR4): the Compare view. The shell reads only the filter lists; the drivers, teams and cars
+// come from advanced-stats/fragment.astro and src/scripts/compareView.ts draws the four slots from them. The
+// slot picks (a-d) live only in the address and the browser, never in cached HTML, so the selects carry them
+// through compareView.ts (data-compare-nav) rather than the site-wide navigate-on-change handler.
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
+let seasons: Season[] = [];
+let loadError: string | null = null;
+try {
+  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+} catch (err) {
+  console.error('Failed to load advanced stats filters:', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+const classFilter = resolveClassFilter(Astro.url.searchParams.get('class'), classes);
+const season = resolveCompareSeason(Astro.url.searchParams.get('season'), seasons);
+const seasonParams: Record<string, string> = season ? { season: String(season.number) } : {};
+const classOptions = classFilterOptions('/advanced-stats', classFilter, classes, seasonParams);
+const seasonOptions = compareSeasonOptions('/advanced-stats', classFilter, season, seasons);
+// Built from the resolved filters, never the raw search, so the picks stay out of the fragment request.
+const query = compareQuery(classFilter, season);
+
+const selectClass =
+  'h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5';
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
 ---
 
-<Layout title="Advanced Stats" description="Advanced statistics for Alpha Touring Challenge are coming soon.">
+<Layout title="Advanced Stats" description="Compare drivers, teams and cars from Alpha Touring Challenge side by side.">
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <h1 class="reveal font-display text-2xl sm:text-5xl">Advanced Stats</h1>
 
-    <div class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
-      <div class="flex flex-wrap items-end gap-3">
-        <StatsTabs active="advanced" />
-      </div>
-    </div>
+    {loadError && <LoadError />}
 
-    <p class="reveal mt-10 text-white/60" data-testid="advanced-stats-coming-soon">
-      Advanced stats are coming soon. Check back later for deeper numbers on drivers, teams and races.
-    </p>
+    {!loadError && (
+      <div
+        class="reveal mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4"
+        data-testid="compare-filters"
+      >
+        <div class="flex flex-wrap items-end gap-3">
+          <StatsTabs active="advanced" />
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
+            <select aria-label="View" class={selectClass} data-compare-nav data-testid="advanced-view-select">
+              <option value={`/advanced-stats${query}`} selected class="bg-brand-ink text-white">Compare</option>
+            </select>
+          </label>
+          <ClassFilterSelect options={classOptions} compareNav />
+          <label class="flex flex-col gap-1.5 sm:w-44">
+            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
+            <select aria-label="Season" class={selectClass} data-compare-nav data-testid="advanced-season-select">
+              {seasonOptions.map((o) => (
+                <option value={o.href} selected={o.selected} class="bg-brand-ink text-white">{o.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+    )}
+
+    {!loadError && (
+      <div data-compare-view data-fragment-url={`/advanced-stats/fragment${query}`}>
+        <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-live="polite" aria-busy="true">
+          <span class="sr-only">Loading the compare view…</span>
+          <div class="h-48 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+          <div class="h-48 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+          <div class="h-48 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+          <div class="h-48 animate-pulse rounded-xl border border-white/10 bg-white/[0.02]"></div>
+        </div>
+      </div>
+    )}
   </section>
+
+  <script>
+    import { bindFragment } from '../scripts/fragmentLoader';
+    import '../scripts/compareView';
+
+    bindFragment('[data-compare-view]', {
+      label: 'Advanced stats',
+      logMessage: 'Failed to load advanced stats:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load the compare view right now — try refreshing the page.</p>',
+    });
+  </script>
 </Layout>

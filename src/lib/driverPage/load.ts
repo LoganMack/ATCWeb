@@ -292,12 +292,16 @@ export async function loadDriverAwards(supabaseEnv: SupabaseEnv, driverId: strin
 /** Class, team and Delta team championships. Not for a season still in progress, per Logan. */
 function championshipAwards(career: DriverCareerStats | null): AwardEntry[] {
   const out: AwardEntry[] = [];
+  // A driver with two class rows in one season has the same team positions on both: one trophy per season.
+  const teamTitleSeasons = new Set<string>();
   for (const s of career?.seasons ?? []) {
     if (s.season.is_current) continue;
     const base = { seasonNumber: s.season.number, seasonName: s.season.name };
     if (s.classPosition === 1) {
       out.push({ ...base, label: `${s.className} Champion`, detail: null, className: s.className });
     }
+    if (teamTitleSeasons.has(s.season.id)) continue;
+    teamTitleSeasons.add(s.season.id);
     // Team trophies are tinted by the driver's own class that season: a roster can mix classes.
     if (s.teamPosition === 1) {
       out.push({

@@ -15,10 +15,12 @@ import { getStandingsExcludedRoundIds } from '../../lib/db/rounds';
 import { displayDriverName } from '../../lib/db/circuits';
 import {
   computeDriverCareerStats,
-  aggregateDriverCareerStats,
+  aggregateCareer,
+  isFilterChampion,
   loadCareerRefs,
   type DriverCareerStats,
 } from '../../lib/results/careerStats';
+import { countsFor, resolveClassFilter } from '../../lib/results/classFilter';
 import { classTagFull } from '../../lib/classColors';
 
 /**
@@ -46,20 +48,13 @@ try {
   loadError = err instanceof Error ? err.message : String(err);
 }
 
-// Same query-param resolution as driver-stats.astro — see that file for the
-// full explanation. Kept in sync by hand since it's cheap, dependency-free
-// query-param interpretation, not a fetch to dedupe.
-const requestedClassName = Astro.url.searchParams.get('class');
-const activeClass = classes.find((c) => c.name === requestedClassName) ?? null;
-
-const careerStats: DriverCareerStats[] = activeClass
-  ? allCareerStats
-      .map((entry) => {
-        const classSeasons = entry.seasons.filter((s) => s.classId === activeClass.id);
-        return classSeasons.length > 0 ? aggregateDriverCareerStats(entry.driver, classSeasons) : null;
-      })
-      .filter((entry): entry is DriverCareerStats => entry !== null)
-  : allCareerStats;
+// The same shared resolver as the shell (BR3.1); every driver is aggregated once under it (BR3.11). A class
+// lists only drivers with a season in it.
+const classFilter = resolveClassFilter(Astro.url.searchParams.get('class'), classes);
+const careerStats: DriverCareerStats[] = allCareerStats
+  .map((entry) => aggregateCareer(entry.driver, entry.seasons, classFilter))
+  .filter((entry) => entry.seasons.length > 0);
+const championTitle = classFilter.kind === 'overall' ? 'Overall champion' : 'Class champion';
 
 function raceWord(n: number): string {
   return `${n} race${n === 1 ? '' : 's'}`;
@@ -166,15 +161,16 @@ if (loadError) markUncacheable(Astro);
                     <tbody>
                       {entry.seasons.map((r) => {
                         const seasonCpi = r.totalCorners !== null && r.incidents > 0 ? r.totalCorners / r.incidents : null;
+                        // The counts that match the filter: classless under Overall, class otherwise.
+                        const c = countsFor(r, classFilter);
                         return (
                           <tr class="border-b border-white/5">
                             <td class="py-2 pr-3 font-semibold text-white/90">
                               <span class="inline-flex items-center gap-1.5">
                                 <span class="inline-flex w-3.5 shrink-0 justify-center">
-                                  {/* Not r.season.is_current — no trophy for a still-in-progress
-                                      season's current P1, per Logan (same gate
-                                      aggregateDriverCareerStats' own championships count uses). */}
-                                  {r.classPosition === 1 && !r.season.is_current && <TrophyIcon title="Class champion" />}
+                                  {/* No trophy for a still-in-progress season's current P1, per Logan (the
+                                      same gate as the championships count). */}
+                                  {isFilterChampion(r, classFilter) && <TrophyIcon title={championTitle} />}
                                 </span>
                                 {r.season.name}
                               </span>
@@ -200,11 +196,11 @@ if (loadError) markUncacheable(Astro);
                                 {r.teams.length === 0 && <span class="text-white/30">—</span>}
                               </div>
                             </td>
-                            <td class="py-2 pr-3 text-center text-white/70">{r.wins}</td>
-                            <td class="py-2 pr-3 text-center text-white/70">{r.poles}</td>
-                            <td class="py-2 pr-3 text-center text-white/70">{r.podiums}</td>
-                            <td class="py-2 pr-3 text-center text-white/70">{r.top5s}</td>
-                            <td class="py-2 pr-3 text-center text-white/70">{r.top10s}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{c.wins}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{c.poles}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{c.podiums}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{c.top5s}</td>
+                            <td class="py-2 pr-3 text-center text-white/70">{c.top10s}</td>
                             <td class="py-2 pr-3 text-center text-white/70">{r.laps}</td>
                             <td class="py-2 pr-3 text-center text-white/70">{r.lapsLed}</td>
                             <td class="py-2 pr-3 text-center text-white/70">{seasonCpi !== null ? seasonCpi.toFixed(1) : '—'}</td>
