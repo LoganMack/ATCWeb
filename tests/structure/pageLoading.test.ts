@@ -153,6 +153,8 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'admin/analytics/fragment.astro': ['range'],
   'admin/drivers/fragment.astro': ['filter'],
   'admin/fragment.astro': [],
+  // Compare (FR4): the slot picks a-d stay in the browser; view has one value and is not read.
+  'advanced-stats/fragment.astro': ['class', 'season'],
   'awards/fragment.astro': [],
   'calendar/fragment.astro': ['season'],
   'champions/fragment.astro': ['class', 'team'],

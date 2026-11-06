@@ -24,7 +24,9 @@ import { getCarLogos } from '../../../lib/db/assets';
 import { getRaceLinksForSubsessions, type RaceLinks } from '../../../lib/db/rounds';
 import {
   findRoundsForLayout,
+  emptyLayoutHighlights,
   getLayoutClassHighlights,
+  layoutHighlightGroups,
   type LayoutRoundSummary,
   type LayoutHighlights,
 } from '../../../lib/results/layouts';
@@ -51,7 +53,7 @@ if (!layoutRow) {
 let circuitName = 'this layout';
 let classNameById = new Map<number, string>();
 let historicalRounds: LayoutRoundSummary[] = [];
-let highlights: LayoutHighlights = { winnersByClass: new Map(), polesByClass: new Map() };
+let highlights: LayoutHighlights = emptyLayoutHighlights();
 let classBestLaps: Map<number, ClassBestLap> = new Map();
 let guideCount = 0;
 interface IncidentEntry {
@@ -154,7 +156,11 @@ if (layoutRow) {
   }
 }
 
-const orderedClassIdsWithWinners = [...classNameById.keys()].filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
+// The Overall group (classless winner and pole, BR3.9) first, then each class.
+const highlightGroups = layoutHighlightGroups(
+  highlights,
+  [...classNameById.entries()].map(([id, name]) => ({ id, name })),
+);
 
 // Gamma/Delta only (Logan, as on the Event Briefing): Alpha's class best would mostly repeat the Record
 // column.
@@ -214,17 +220,15 @@ if (loadError) markUncacheable(Astro);
 
     <div>
       <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Past Winners &amp; Pole-Sitters</p>
-      {orderedClassIdsWithWinners.length === 0 ? (
+      {highlightGroups.length === 0 ? (
         <p class="mt-1.5 text-white/40">No history at {circuitName} yet.</p>
       ) : (
-        <div class="mt-1.5 grid gap-3 sm:grid-cols-3">
-          {orderedClassIdsWithWinners.map((classId) => {
-            const winners = highlights.winnersByClass.get(classId) ?? [];
-            const poles = highlights.polesByClass.get(classId) ?? [];
+        <div class="mt-1.5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {highlightGroups.map(({ key, label, winners, poles }) => {
             return (
-              <div class="rounded-lg border border-white/10 p-3">
-                <span class={classTagFull(classNameById.get(classId) ?? '')}>
-                  {classNameById.get(classId) ?? '—'}
+              <div class="rounded-lg border border-white/10 p-3" data-highlight-group={key}>
+                <span class={classTagFull(label)}>
+                  {label}
                 </span>
                 <div class="mt-2">
                   <p class="text-[10px] font-medium uppercase tracking-wide text-white/40">Winners</p>

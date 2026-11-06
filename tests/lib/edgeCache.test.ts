@@ -13,6 +13,9 @@ import {
   readStoredCopy,
   toStoredCopy,
 } from '../../src/lib/edgeCache';
+import { canonicalSeasonNumber } from '../../src/lib/compareRows';
+import { resolveCompareSeason } from '../../src/lib/results/compareStats';
+import type { Season } from '../../src/lib/db/seasons';
 
 const PAGE_CC = 'public, s-maxage=60, stale-while-revalidate=300';
 const STORED_AT = 1_800_000_000_000;
@@ -129,6 +132,67 @@ describe('cacheKeyUrl', () => {
       'https://x.test/results/42?season=atc-18',
     );
     expect(cacheKeyUrl(new URL('https://x.test/standings?from=reporting'))).toBe('https://x.test/standings');
+  });
+
+  it('keys Advanced Stats on class, season and view, never on the slot picks (BR5.2)', () => {
+    for (const path of ['/advanced-stats', '/advanced-stats/fragment']) {
+      expect(
+        cacheKeyUrl(
+          new URL(`https://x.test${path}?a=d:1&class=Delta&b=t:2&season=17&c=c:x&d=d:3&view=compare`),
+        ),
+        path,
+      ).toBe(`https://x.test${path}?class=Delta&season=17&view=compare`);
+      expect(cacheKeyUrl(new URL(`https://x.test${path}?a=d:1&b=d:2`)), path).toBe(`https://x.test${path}`);
+    }
+  });
+
+  it('drops an unknown class, view or season on Advanced Stats, so stray values share the default copy', () => {
+    expect(
+      cacheKeyUrl(new URL('https://x.test/advanced-stats/fragment?class=alpha&view=table&season=atc-17')),
+    ).toBe('https://x.test/advanced-stats/fragment');
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?class=Combined&season=all'))).toBe(
+      'https://x.test/advanced-stats?class=Combined&season=all',
+    );
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?season=12345'))).toBe(
+      'https://x.test/advanced-stats',
+    );
+  });
+
+  it('keeps the Advanced Stats season only in canonical form, so 0007 or 9999 never get their own copy', () => {
+    for (const path of ['/advanced-stats', '/advanced-stats/fragment']) {
+      for (const value of ['0007', '07', '9999', '-1', 'abc', '0', '']) {
+        expect(cacheKeyUrl(new URL(`https://x.test${path}?season=${value}`)), `${path} ${value}`).toBe(
+          `https://x.test${path}`,
+        );
+      }
+      expect(cacheKeyUrl(new URL(`https://x.test${path}?season=17`))).toBe(`https://x.test${path}?season=17`);
+      expect(cacheKeyUrl(new URL(`https://x.test${path}?season=7`))).toBe(`https://x.test${path}?season=7`);
+    }
+  });
+
+  it('reads the season the same way on the page, so a dropped value renders All like the bare key', () => {
+    const seasons = [
+      { id: 's7', name: 'ATC7', number: 7, is_current: false },
+      { id: 's17', name: 'ATC17', number: 17, is_current: false },
+    ] as Season[];
+    for (const value of ['0007', '07', '9999', '-1', 'abc']) {
+      expect(canonicalSeasonNumber(value), value).toBeNull();
+      expect(resolveCompareSeason(value, seasons), value).toBeNull();
+    }
+    expect(resolveCompareSeason('7', seasons)?.id).toBe('s7');
+    expect(resolveCompareSeason('17', seasons)?.id).toBe('s17');
+  });
+
+  it('keeps class=Combined on Driver Stats and drops an unknown class (BR3.1)', () => {
+    expect(cacheKeyUrl(new URL('https://x.test/driver-stats/fragment?class=Combined'))).toBe(
+      'https://x.test/driver-stats/fragment?class=Combined',
+    );
+    expect(cacheKeyUrl(new URL('https://x.test/driver-stats?class=Overall'))).toBe(
+      'https://x.test/driver-stats?class=Overall',
+    );
+    expect(cacheKeyUrl(new URL('https://x.test/driver-stats?class=Nonsense'))).toBe(
+      'https://x.test/driver-stats',
+    );
   });
 });
 

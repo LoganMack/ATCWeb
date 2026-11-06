@@ -1,0 +1,38 @@
+---
+export const prerender = false;
+// Cars (FR2): the four series cars' spec cards in their fixed order. The specs live in code
+// (src/lib/carSpecs.ts); the only read is the car logos, and a failed read still renders every card with the
+// initials fallback (BR2.2).
+import Layout from '../layouts/Layout.astro';
+import CarSpecCard from '../components/CarSpecCard.astro';
+import { resolveSupabaseEnv } from '../lib/db/client';
+import { getCarLogos, type CarLogo } from '../lib/db/assets';
+import { CAR_SPECS } from '../lib/carSpecs';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let carLogos: CarLogo[] = [];
+try {
+  carLogos = await getCarLogos(supabaseEnv);
+} catch (err) {
+  console.error('Failed to load car logos for /cars; showing fallbacks:', err);
+}
+const logoByCarName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+---
+
+<Layout title="Cars" description="The four TCR cars raced in Alpha Touring Challenge and their specifications.">
+  <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
+    <h1 class="reveal font-display text-2xl sm:text-5xl">Cars</h1>
+    <p class="reveal mt-3 max-w-2xl text-white/60">
+      The four TCR cars on the Alpha Touring Challenge grid. Measurements are metric, with imperial in brackets.
+    </p>
+
+    <div class="reveal mt-10 grid grid-cols-1 gap-5 md:grid-cols-2" data-testid="car-spec-grid">
+      {CAR_SPECS.map((spec) => (
+        <CarSpecCard spec={spec} logoUrl={logoByCarName.get(spec.carName) ?? null} />
+      ))}
+    </div>
+  </section>
+</Layout>

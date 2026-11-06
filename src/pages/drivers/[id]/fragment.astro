@@ -44,6 +44,14 @@ const {
 // Not a UUID, or no such driver: nothing heavy was read, and the answer is never cached.
 if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
 const { raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(raceHistory, []);
+// The Seasons tab's counted columns, each rendered twice (overall and class counts, BR3.8) with its own sort
+// key per set, so sorting always reads the set that is showing.
+const SEASON_COUNT_COLUMNS = [
+  { key: 'wins', classKey: 'classWins', label: 'Wins', field: 'wins' },
+  { key: 'poles', classKey: 'classPoles', label: 'Poles', field: 'poles' },
+  { key: 'podiums', classKey: 'classPodiums', label: 'Podiums', field: 'podiums' },
+  { key: 'top5s', classKey: 'classTop5s', label: 'Top 5s', field: 'top5s' },
+] as const;
 // Shared like the other public fragments; markUncacheable after it turns a failed load into no-store.
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 if (loadError) markUncacheable(Astro);
@@ -118,7 +126,30 @@ if (loadError) markUncacheable(Astro);
         {!career || career.seasons.length === 0 ? (
           <p class="text-sm text-white/40">No season history yet.</p>
         ) : (
-          <div class="max-h-[32rem] overflow-auto">
+          <!-- Overall / Class toggle (BR3.8), pure CSS like the Splits toggle because scripts in this fragment
+               never run: the radios are siblings of the table's wrapper, which hides one count set. The peer
+               names match the Splits toggle's so the label styles reuse the same compiled colours; peers only
+               reach their own siblings, so the two toggles never interfere. The focus ring takes the label's
+               own text colour, so both themes keep their compiled colours. data-sort-reset lets the site-wide
+               sortable-table.ts restore the default order when a switch hides the sorted column. -->
+          <div class="flex flex-wrap items-center gap-1 text-xs" data-seasons-toggle>
+            <input type="radio" name="seasons-mode" id="seasons-mode-overall" class="peer/overall sr-only" checked data-sort-reset />
+            <input type="radio" name="seasons-mode" id="seasons-mode-class" class="peer/class sr-only" data-sort-reset />
+            <label
+              for="seasons-mode-overall"
+              class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/overall:bg-white/10 peer-checked/overall:text-white peer-focus-visible/overall:outline peer-focus-visible/overall:outline-2 peer-focus-visible/overall:outline-offset-2"
+              title="Wins, poles, podiums and top 5s in the overall finishing order, across every class."
+            >
+              Overall
+            </label>
+            <label
+              for="seasons-mode-class"
+              class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/class:bg-white/10 peer-checked/class:text-white peer-focus-visible/class:outline peer-focus-visible/class:outline-2 peer-focus-visible/class:outline-offset-2"
+              title="Wins, poles, podiums and top 5s within the class the driver raced that season."
+            >
+              Class
+            </label>
+          <div class="mt-3 max-h-[32rem] w-full overflow-auto [&_.season-count-class]:hidden peer-checked/class:[&_.season-count-class]:table-cell peer-checked/class:[&_.season-count-overall]:hidden">
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left align-middle text-[10px] uppercase tracking-wide text-white/30">
@@ -126,10 +157,12 @@ if (loadError) markUncacheable(Astro);
                   <th class="py-2 pr-2 font-medium align-middle" data-sort-key="class">Class</th>
                   <th class="py-2 pr-2 font-medium align-middle" data-sort-key="cars">Car(s)</th>
                   <th class="py-2 pr-2 font-medium align-middle" data-sort-key="teams">Team(s)</th>
-                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="wins">Wins</th>
-                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="poles">Poles</th>
-                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="podiums">Podiums</th>
-                  <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="top5s">Top 5s</th>
+                  {SEASON_COUNT_COLUMNS.map((col) => (
+                    <>
+                      <th class="season-count-overall py-2 pr-2 text-center font-medium align-middle" data-sort-key={col.key} data-count-set="overall">{col.label}</th>
+                      <th class="season-count-class py-2 pr-2 text-center font-medium align-middle" data-sort-key={col.classKey} data-count-set="class">{col.label}</th>
+                    </>
+                  ))}
                   <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="laps">Laps</th>
                   <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="lapsLed">Led</th>
                   <th class="py-2 pr-2 text-center font-medium align-middle" data-sort-key="cpi">CPI</th>
@@ -192,10 +225,12 @@ if (loadError) markUncacheable(Astro);
                           {r.teams.length === 0 && <span class="text-white/30">—</span>}
                         </div>
                       </td>
-                      <td class="py-2 pr-2 text-center text-white/70" data-col="wins">{r.wins}</td>
-                      <td class="py-2 pr-2 text-center text-white/70" data-col="poles">{r.poles}</td>
-                      <td class="py-2 pr-2 text-center text-white/70" data-col="podiums">{r.podiums}</td>
-                      <td class="py-2 pr-2 text-center text-white/70" data-col="top5s">{r.top5s}</td>
+                      {SEASON_COUNT_COLUMNS.map((col) => (
+                        <>
+                          <td class="season-count-overall py-2 pr-2 text-center text-white/70" data-col={col.key} data-sort-value={r.overallCounts[col.field]} data-count-set="overall">{r.overallCounts[col.field]}</td>
+                          <td class="season-count-class py-2 pr-2 text-center text-white/70" data-col={col.classKey} data-sort-value={r.classCounts[col.field]} data-count-set="class">{r.classCounts[col.field]}</td>
+                        </>
+                      ))}
                       <td class="py-2 pr-2 text-center text-white/70" data-col="laps">{r.laps}</td>
                       <td class="py-2 pr-2 text-center text-white/70" data-col="lapsLed">{r.lapsLed}</td>
                       <td class="py-2 pr-2 text-center text-white/70" data-col="cpi">{seasonCpi !== null ? seasonCpi.toFixed(1) : '—'}</td>
@@ -207,6 +242,7 @@ if (loadError) markUncacheable(Astro);
                 })}
               </tbody>
             </table>
+          </div>
           </div>
         )}
         </div>
@@ -298,13 +334,13 @@ if (loadError) markUncacheable(Astro);
               <input type="radio" name="splits-mode" id="splits-mode-class" class="peer/class sr-only" />
               <label
                 for="splits-mode-overall"
-                class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/overall:bg-white/10 peer-checked/overall:text-white"
+                class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/overall:bg-white/10 peer-checked/overall:text-white peer-focus-visible/overall:outline peer-focus-visible/overall:outline-2 peer-focus-visible/overall:outline-offset-2"
               >
                 Overall
               </label>
               <label
                 for="splits-mode-class"
-                class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/class:bg-white/10 peer-checked/class:text-white"
+                class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/class:bg-white/10 peer-checked/class:text-white peer-focus-visible/class:outline peer-focus-visible/class:outline-2 peer-focus-visible/class:outline-offset-2"
                 title="This driver's own position within whichever class they raced, not their raw overall running order — a month split between two classes still shows as one combined row."
               >
                 Class

@@ -161,9 +161,42 @@ export interface LayoutHighlights {
   winnersByClass: Map<number, ClassHighlight[]>;
   /** Same shape, for each class's pole-sitter. */
   polesByClass: Map<number, ClassHighlight[]>;
+  /** The overall winner of each round (each race when all races are shown) across every class (BR3.9). */
+  overallWinners: ClassHighlight[];
+  /** The overall pole-sitter of each round: the lowest race-1 starting position across every class. */
+  overallPoles: ClassHighlight[];
 }
 
-interface RaceOneScoreRow {
+/** One column of the past winners and pole-sitters list. */
+export interface HighlightGroup {
+  key: string;
+  label: string;
+  winners: ClassHighlight[];
+  poles: ClassHighlight[];
+}
+
+/** The "Overall" group first, then each class with any entry, in `classes` order (BR3.9). */
+export function layoutHighlightGroups(
+  h: LayoutHighlights,
+  classes: { id: number; name: string }[],
+): HighlightGroup[] {
+  const groups: HighlightGroup[] = [];
+  if (h.overallWinners.length > 0 || h.overallPoles.length > 0) {
+    groups.push({ key: 'overall', label: 'Overall', winners: h.overallWinners, poles: h.overallPoles });
+  }
+  for (const c of classes) {
+    const winners = h.winnersByClass.get(c.id) ?? [];
+    const poles = h.polesByClass.get(c.id) ?? [];
+    if (winners.length > 0 || poles.length > 0) groups.push({ key: String(c.id), label: c.name, winners, poles });
+  }
+  return groups;
+}
+
+export function emptyLayoutHighlights(): LayoutHighlights {
+  return { winnersByClass: new Map(), polesByClass: new Map(), overallWinners: [], overallPoles: [] };
+}
+
+export interface RaceOneScoreRow {
   subsession_id: number;
   race_number: number;
   driver_id: string;
@@ -173,7 +206,7 @@ interface RaceOneScoreRow {
   dsq: boolean;
 }
 
-interface RaceOneCuratedRow {
+export interface RaceOneCuratedRow {
   subsession_id: number;
   cust_id: number;
   starting_position: number | null;
@@ -192,13 +225,9 @@ export async function getLayoutClassHighlights(
   options: { allRaces?: boolean } = {},
 ): Promise<LayoutHighlights> {
   const allRaces = options.allRaces === true;
-  const winnersByClass = new Map<number, ClassHighlight[]>();
-  const polesByClass = new Map<number, ClassHighlight[]>();
-  if (rounds.length === 0) return { winnersByClass, polesByClass };
+  if (rounds.length === 0) return emptyLayoutHighlights();
 
   const subsessionIds = rounds.map((r) => r.subsessionId);
-  const roundBySubsession = new Map(rounds.map((r) => [r.subsessionId, r]));
-
   const [drivers, scoreRows, curatedRows] = await Promise.all([
     driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
     restGetAll<RaceOneScoreRow>(
@@ -210,7 +239,23 @@ export async function getLayoutClassHighlights(
       `curated_race_results_shown?select=subsession_id,cust_id,starting_position&subsession_id=in.(${subsessionIds.join(',')})&race_number=eq.1`,
     ),
   ]);
+  return buildLayoutHighlights(rounds, drivers, scoreRows, curatedRows, allRaces);
+}
 
+/**
+ * The highlights from rows already read (pure). Class winners and poles as before; the overall entries take
+ * the same rows across every class, so a round with no classified rows gets no overall winner (BR3.9).
+ */
+export function buildLayoutHighlights(
+  rounds: LayoutRoundSummary[],
+  drivers: DriverBasic[],
+  scoreRows: RaceOneScoreRow[],
+  curatedRows: RaceOneCuratedRow[],
+  allRaces: boolean,
+): LayoutHighlights {
+  const winnersByClass = new Map<number, ClassHighlight[]>();
+  const polesByClass = new Map<number, ClassHighlight[]>();
+  const roundBySubsession = new Map(rounds.map((r) => [r.subsessionId, r]));
   const driverById = new Map(drivers.map((d) => [d.id, d]));
   const driverByCustId = new Map(
     drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
@@ -278,5 +323,63 @@ export async function getLayoutClassHighlights(
   for (const list of winnersByClass.values()) list.sort(byRoundDesc);
   for (const list of polesByClass.values()) list.sort(byRoundDesc);
 
-  return { winnersByClass, polesByClass };
+  const overallWinners = overallWinnerHighlights(scoreRows, roundBySubsession, driverById, allRaces);
+  // A round with no classified rows gets no overall entry at all (BR3.9), pole included.
+  const roundsWithWinner = new Set(overallWinners.map((w) => w.round.subsessionId));
+  const overallPoles: ClassHighlight[] = [];
+  const overallPoleBySub = new Map<number, { custId: number; position: number }>();
+  for (const c of curatedRows) {
+    if (c.starting_position === null || !roundsWithWinner.has(c.subsession_id)) continue;
+    const driver = driverByCustId.get(c.cust_id);
+    // Same gate as a class pole: the driver must have scored in the round.
+    if (!driver || !classIdBySubDriver.has(`${c.subsession_id}:${driver.id}`)) continue;
+    const existing = overallPoleBySub.get(c.subsession_id);
+    if (!existing || c.starting_position < existing.position) {
+      overallPoleBySub.set(c.subsession_id, { custId: c.cust_id, position: c.starting_position });
+    }
+  }
+  for (const [subsessionId, { custId }] of overallPoleBySub) {
+    const round = roundBySubsession.get(subsessionId);
+    const driver = driverByCustId.get(custId);
+    if (round && driver) overallPoles.push({ round, driver, raceNumber: 1, raceCount: 1 });
+  }
+  overallWinners.sort(byRoundDesc);
+  overallPoles.sort(byRoundDesc);
+
+  return { winnersByClass, polesByClass, overallWinners, overallPoles };
+}
+
+/** The lowest shown position across every class per round (or per race), classified and not DSQ only. */
+function overallWinnerHighlights(
+  scoreRows: RaceOneScoreRow[],
+  roundBySubsession: Map<number, LayoutRoundSummary>,
+  driverById: Map<string, DriverBasic>,
+  allRaces: boolean,
+): ClassHighlight[] {
+  const raceNumbersBySub = new Map<number, Set<number>>();
+  const winnerByKey = new Map<string, { driverId: string; position: number; raceNumber: number }>();
+  for (const s of scoreRows) {
+    if (!raceNumbersBySub.has(s.subsession_id)) raceNumbersBySub.set(s.subsession_id, new Set());
+    raceNumbersBySub.get(s.subsession_id)!.add(s.race_number);
+    if (!s.classified || s.dsq || s.shown_position === null) continue;
+    const key = allRaces ? `${s.subsession_id}:${s.race_number}` : String(s.subsession_id);
+    const existing = winnerByKey.get(key);
+    if (!existing || s.shown_position < existing.position) {
+      winnerByKey.set(key, { driverId: s.driver_id, position: s.shown_position, raceNumber: s.race_number });
+    }
+  }
+  const out: ClassHighlight[] = [];
+  for (const [key, w] of winnerByKey) {
+    const subsessionId = Number(key.split(':')[0]);
+    const round = roundBySubsession.get(subsessionId);
+    const driver = driverById.get(w.driverId);
+    if (!round || !driver) continue;
+    out.push({
+      round,
+      driver,
+      raceNumber: allRaces ? w.raceNumber : 1,
+      raceCount: raceNumbersBySub.get(subsessionId)?.size ?? 1,
+    });
+  }
+  return out;
 }

@@ -32,7 +32,9 @@ import { getEventSessions, formatSessionTime, CATEGORY_LABELS } from '../../lib/
 import {
   resolveLayout,
   findRoundsForLayout,
+  emptyLayoutHighlights,
   getLayoutClassHighlights,
+  layoutHighlightGroups,
   type LayoutRoundSummary,
   type LayoutHighlights,
 } from '../../lib/results/layouts';
@@ -86,9 +88,8 @@ let mapDetails: LayoutMapDetails = emptyLayoutMapDetails();
 let circuitCoordinates: { latitude: number | null; longitude: number | null } = { latitude: null, longitude: null };
 let logoBg: LogoBackground | null = null;
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
-let classNameById = new Map<number, string>();
 let historicalRounds: LayoutRoundSummary[] = [];
-let highlights: LayoutHighlights = { winnersByClass: new Map(), polesByClass: new Map() };
+let highlights: LayoutHighlights = emptyLayoutHighlights();
 let classBestLaps: Map<number, ClassBestLap> = new Map();
 /** Every posted incident at this layout, newest first — rendered with the same table (and click-for-details popup) as History → Incidents. */
 let incidentRows: IncidentRow[] = [];
@@ -125,7 +126,6 @@ if (!loadError && event && event.circuit_id) {
     circuitCoordinates = { latitude: coords?.latitude ?? null, longitude: coords?.longitude ?? null };
     logoBg = circuit ? ((await getCircuitLogoBackgrounds(supabaseEnv))[circuit.id] ?? null) : null;
     classes = driverClasses;
-    classNameById = new Map(classes.map((c) => [c.id, c.name]));
 
     const roundLayoutBySubsession = await getRoundLayoutsForSubsessions(
       supabaseEnv,
@@ -178,7 +178,8 @@ if (!loadError && event && event.circuit_id) {
   }
 }
 
-const orderedClassIdsWithWinners = classes.map((c) => c.id).filter((id) => highlights.winnersByClass.has(id) || highlights.polesByClass.has(id));
+// The Overall group (classless winner and pole, BR3.9) first, then each class.
+const highlightGroups = layoutHighlightGroups(highlights, classes);
 
 // Gamma/Delta only (Logan): Alpha's class best would mostly repeat the track record above.
 const gammaClass = classes.find((c) => c.name === 'Gamma') ?? null;
@@ -335,17 +336,15 @@ if (loadError) markUncacheable(Astro);
            src/lib/results/layouts.ts); multi-race rounds tag each winner "Race N". */}
         <div class="reveal mt-8" style="transition-delay: 120ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Past Winners &amp; Pole-Sitters</h2>
-          {orderedClassIdsWithWinners.length === 0 ? (
+          {highlightGroups.length === 0 ? (
             <p class="mt-3 text-sm text-white/40">No history at this layout yet.</p>
           ) : (
-            <div class="mt-3 grid gap-4 sm:grid-cols-3">
-              {orderedClassIdsWithWinners.map((classId) => {
-                const winners = highlights.winnersByClass.get(classId) ?? [];
-                const poles = highlights.polesByClass.get(classId) ?? [];
+            <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {highlightGroups.map(({ key, label, winners, poles }) => {
                 return (
-                  <div class="rounded-xl border border-white/10 p-4">
-                    <span class={classTagFull(classNameById.get(classId) ?? '')}>
-                      {classNameById.get(classId) ?? '—'}
+                  <div class="rounded-xl border border-white/10 p-4" data-highlight-group={key}>
+                    <span class={classTagFull(label)}>
+                      {label}
                     </span>
                     <div class="mt-3">
                       <p class="text-[11px] font-medium uppercase tracking-wide text-white/40">Winners</p>

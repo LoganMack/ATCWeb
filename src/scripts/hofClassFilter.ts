@@ -1,7 +1,8 @@
 /**
- * Hall of Fame card stat filter (Overall/Alpha/Gamma/Delta): all four panels are rendered and this shows the
- * chosen one within its own [data-hof-card]. Delegated on `document`, bound once with a module guard like
- * expandRows.ts, because the cards arrive in a fetched fragment.
+ * Hall of Fame card stat filter (Overall, Combined, Alpha, Gamma, Delta; BR3.7): all five panels are rendered
+ * and this shows the chosen one within its own [data-hof-card]. Any key works, so it follows whatever panels
+ * the fragment renders. Delegated on `document`, bound once with a module guard like expandRows.ts, because
+ * the cards arrive in a fetched fragment.
  */
 let hofClassFilterInitialized = false;
 
