@@ -641,8 +641,11 @@ begin
     poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections,0,options}',
       (v_base #> '{sections,0,options}') || jsonb_build_array(jsonb_build_object('name', 'Delta')))),
     'locked_by_votes');
+  -- A single-choice section needs two options, so Bravo is swapped for a new option: the count stays valid
+  -- and the vote lock is what refuses it.
   perform poll_fixture.expect('Q11 remove an option',
-    poll_fixture.save(v_adm, v_poll, v_base #- '{sections,0,options,1}'), 'locked_by_votes');
+    poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections,0,options,1}', jsonb_build_object('name', 'Echo'))),
+    'locked_by_votes');
   perform poll_fixture.expect('Q11 reorder options',
     poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections,0,options}',
       jsonb_build_array(v_base #> '{sections,0,options,1}', v_base #> '{sections,0,options,0}'))),
