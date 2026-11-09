@@ -8,9 +8,12 @@ export const prerender = false;
 /**
  * Opening the bell's popup (notifications U3, BR2.1): lists the caller's 50 newest notifications, with text
  * and links built here, and marks those read in the same database call. No CSRF token: it only marks the
- * caller's own rows, and Astro's origin check still refuses a cross-site POST.
+ * caller's own rows, and the session cookie is SameSite=Lax, so a cross-site POST arrives signed out.
+ * Astro's own origin check skips this request (it has no form body), so a foreign Origin is refused here too.
  */
-export const POST: APIRoute = async ({ locals }) => {
+export const POST: APIRoute = async ({ locals, request, url }) => {
+  const origin = request.headers.get('Origin');
+  if (origin !== null && origin !== url.origin) return json({ error: 'Cross-site request refused' }, 403);
   const session = locals.session;
   if (!session) return json({ error: 'Sign in first' }, 401);
   try {

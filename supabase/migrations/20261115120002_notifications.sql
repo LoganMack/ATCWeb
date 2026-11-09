@@ -21,8 +21,8 @@
 --        polls                 insert or update                kind 6 to every driver-linked account when a
 --                                                              schedule-vote poll becomes posted
 --   5. public.notification_unread_count() and public.open_my_notifications() for the site, SECURITY DEFINER
---      with an empty search_path, executable by authenticated only. open_my_notifications() is one statement:
---      it returns the caller's 50 newest rows, marks only those read, and returns the unread count left, so
+--      with an empty search_path, executable by authenticated only. open_my_notifications() lists the
+--      caller's 50 newest rows and marks only those read in one statement, then counts the unread left, so
 --      a row committed meanwhile, or unread beyond the 50 shown, keeps the dot.
 --
 -- Why in the database: who receives what, and who may read or mark a row, are access and business rules
@@ -260,13 +260,17 @@ $$;
 comment on function public.notification_unread_count() is
   'The caller''s unread notifications (U3, BR1.2).';
 
--- Opening the popup (BR2.1). One statement, so every part sees one snapshot: shown is the caller's 50
--- newest rows with was_unread as they stood, marked updates only those of them that were unread, and
--- unread_left is the unread count before the call minus the rows marked. Labels are read now (ADR-002).
+-- Opening the popup (BR2.1). The first statement lists the caller's 50 newest rows with was_unread as they
+-- stood and marks only those it shows. unread_left is counted by a second statement, after the update: an
+-- overlapping open (two tabs, a double click) waits on the first one's row locks, so by then it sees that
+-- open's marks and never reports a stale count. Labels are read now (ADR-002).
 create function public.open_my_notifications() returns jsonb
-  language sql security definer
+  language plpgsql security definer
   set search_path = ''
   as $$
+declare
+  v_items jsonb;
+begin
   with shown as (
     select n.id, n.kind, n.created_at, n.read_at is null as was_unread, n.subsession_id, n.appeal_id, n.poll_id
     from public.notifications n
@@ -281,14 +285,8 @@ create function public.open_my_notifications() returns jsonb
        and n.read_at is null
        and n.id in (select s.id from shown s)
     returning n.id
-  ),
-  unread_before as (
-    select count(*)::integer as total
-    from public.notifications n
-    where n.user_id = (select auth.uid()) and n.read_at is null
   )
-  select jsonb_build_object(
-    'items', coalesce((
+  select coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', s.id,
                'kind', s.kind,
@@ -305,14 +303,23 @@ create function public.open_my_notifications() returns jsonb
       left join public.curated_rounds cr on cr.subsession_id = s.subsession_id
       left join public.seasons se on se.id = cr.season_id
       left join public.incident_appeals a on a.id = s.appeal_id
-    ), '[]'::jsonb),
-    'unread_left', (select u.total from unread_before u) - (select count(*)::integer from marked)
+    ), '[]'::jsonb)
+  into v_items;
+
+  return jsonb_build_object(
+    'items', v_items,
+    'unread_left', (
+      select count(*)::integer
+      from public.notifications n
+      where n.user_id = (select auth.uid()) and n.read_at is null
+    )
   );
+end;
 $$;
 
 comment on function public.open_my_notifications() is
-  'Lists the caller''s 50 newest notifications and marks those read in one statement (U3, BR2.1). Returns '
-  '{items, unread_left}; no driver names (BR5.2).';
+  'Lists the caller''s 50 newest notifications and marks those read in one statement, then counts the unread '
+  'left (U3, BR2.1). Returns {items, unread_left}; no driver names (BR5.2).';
 
 revoke all on function public.notification_unread_count() from public, anon;
 grant execute on function public.notification_unread_count() to authenticated;

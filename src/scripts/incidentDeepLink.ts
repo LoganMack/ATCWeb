@@ -76,6 +76,8 @@ interface Clickable {
 /** What the opener needs from the page, injectable for tests. */
 export interface DeepLinkPage {
   href: string;
+  /** Whether the fragment is in: it always renders the notice element, rows or not. */
+  loaded(): boolean;
   /** Every [data-incident-summary] element, in document order. */
   summaries(): Clickable[];
   /** The details popup's [data-open-appeal-dialog] button, or null (a signed-out viewer gets a link). */
@@ -87,14 +89,20 @@ export interface DeepLinkPage {
 
 export type DeepLinkOutcome = 'none' | 'waiting' | 'opened' | 'notice' | 'not-found';
 
-/** Acts on the page's deep link once the fragment's rows are in; until then it keeps the parameters. */
+/** Acts on the page's deep link once the fragment is in; until then it keeps the parameters. */
 export function runDeepLink(page: DeepLinkPage): DeepLinkOutcome {
   const link = parseDeepLink(new URL(page.href).search);
   if (!link) return 'none';
-  const rows = page.summaries();
-  // Fragment pages fire astro:page-load twice; the first time the rows are not there yet.
-  if (rows.length === 0) return 'waiting';
+  // Fragment pages fire astro:page-load twice; the first time the fragment is not there yet.
+  if (!page.loaded()) return 'waiting';
   page.replaceUrl(urlWithoutDeepLink(page.href));
+  const rows = page.summaries();
+  // A round with no logged incidents has no rows: there is nothing to open or appeal.
+  if (rows.length === 0) {
+    if (link.kind === 'incident') return 'not-found';
+    page.showNotice('nothing');
+    return 'notice';
+  }
   const summaries = rows.map((row) => readSummary(row.dataset.incidentSummary));
 
   if (link.kind === 'incident') {
@@ -132,6 +140,7 @@ function showNotice(kind: NoticeKind): void {
 function browserPage(): DeepLinkPage {
   return {
     href: location.href,
+    loaded: () => document.querySelector('[data-incident-deeplink-notice]') !== null,
     summaries: () => [...document.querySelectorAll<HTMLElement>('[data-incident-summary]')],
     appealButton: () => document.querySelector<HTMLButtonElement>('[data-open-appeal-dialog]'),
     showNotice,

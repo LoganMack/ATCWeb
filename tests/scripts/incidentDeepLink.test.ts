@@ -28,7 +28,12 @@ interface FakeElement {
   click(): void;
 }
 
-function fakePage(href: string, summaries: IncidentSummary[], appealWindow: { open: boolean; closesAt?: string } | null) {
+function fakePage(
+  href: string,
+  summaries: IncidentSummary[],
+  appealWindow: { open: boolean; closesAt?: string } | null,
+  loaded = true,
+) {
   const log: string[] = [];
   const notices: NoticeKind[] = [];
   let replaced: string | null = null;
@@ -46,6 +51,7 @@ function fakePage(href: string, summaries: IncidentSummary[], appealWindow: { op
     : null;
   const page: DeepLinkPage = {
     href,
+    loaded: () => loaded,
     summaries: () => rows,
     appealButton: () => button,
     showNotice: (kind) => notices.push(kind),
@@ -134,11 +140,23 @@ describe('?open=incident&penalty= (BR3.4)', () => {
 });
 
 describe('timing and parsing', () => {
-  it('waits, keeping the parameters, until the fragment rows exist', () => {
-    const { page, log, replaced } = fakePage(`${BASE}?open=appeal`, [], { open: true });
+  it('waits, keeping the parameters, until the fragment is in', () => {
+    const { page, log, notices, replaced } = fakePage(`${BASE}?open=appeal`, [], { open: true }, false);
     expect(runDeepLink(page)).toBe('waiting');
     expect(log).toEqual([]);
+    expect(notices).toEqual([]);
     expect(replaced()).toBeNull();
+  });
+
+  it('says there is nothing to appeal on a loaded round with no incidents, and drops the parameters', () => {
+    const appeal = fakePage(`${BASE}?open=appeal`, [], { open: true });
+    expect(runDeepLink(appeal.page)).toBe('notice');
+    expect(appeal.notices).toEqual(['nothing']);
+    expect(appeal.log).toEqual([]);
+    expect(appeal.replaced()).toBe('/results/81234567/incidents');
+    const incident = fakePage(`${BASE}?open=incident&penalty=p1`, [], { open: true });
+    expect(runDeepLink(incident.page)).toBe('not-found');
+    expect(incident.replaced()).toBe('/results/81234567/incidents');
   });
 
   it('ignores a page with no deep link', () => {

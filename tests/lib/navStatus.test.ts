@@ -19,8 +19,14 @@ const staffNoDriver = session({ driver_id: null, role: 'staff' });
 const adminDriver = session({ driver_id: 'd2', role: 'admin' });
 const noDriver = session({ driver_id: null, role: 'driver' });
 
-function ctx(sess: unknown, viewAsVisitor = false) {
-  return { locals: { session: sess, runtime: RUNTIME, viewAsVisitor } } as unknown as Parameters<typeof GET>[0];
+const SITE = 'https://atc.example.test';
+
+function ctx(sess: unknown, viewAsVisitor = false, origin: string | null = null) {
+  return {
+    locals: { session: sess, runtime: RUNTIME, viewAsVisitor },
+    request: { headers: new Headers(origin === null ? {} : { Origin: origin }) },
+    url: new URL(`${SITE}/api/notifications/open`),
+  } as unknown as Parameters<typeof GET>[0];
 }
 
 /** Answers by path: the unread RPC, the pending sign-ups read, or the open RPC. */
@@ -127,6 +133,15 @@ describe('POST /api/notifications/open (BR2.1)', () => {
       ],
       unread: 0,
     });
+  });
+
+  it('refuses a request from another origin with 403 and reads nothing, but accepts its own', async () => {
+    const urls = stubFetch({ open: new Response(JSON.stringify({ items: [], unread_left: 0 })) });
+    const foreign = await POST(ctx(driver, false, 'https://evil.example.test'));
+    expect(foreign.status).toBe(403);
+    expect(foreign.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(urls).toEqual([]);
+    expect((await POST(ctx(driver, false, SITE))).status).toBe(200);
   });
 
   it('answers 502 on a database error', async () => {

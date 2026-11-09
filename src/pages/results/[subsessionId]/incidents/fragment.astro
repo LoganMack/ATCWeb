@@ -385,15 +385,42 @@ const openReportCount = incidentReports.filter((r) => r.status === 'open').lengt
 // This round's layout map and its numbered corners (layout_corners, 0110): each report card and each
 // incident's popup open the map with the turn(s) circled (BR4.4, BR4.6). Failure-tolerant — no map just
 // means no map button.
+// Whether the Submit Appeal button in the details popup is live: open from
+// the moment the round was posted until the Incident Appeal Window runs out.
+// The button re-checks this live in the browser too (the page can be cached).
+const appealClosesAt = roundPosted ? appealClosesAtRead : null;
+const appealOpen = isAppealOpen(appealClosesAt);
+// The penalties this viewer already appealed, so the notifications' ?open=appeal link skips them (U3, BR3.3;
+// the database refuses a second appeal anyway). Read with the viewer's token, in parallel with the map reads,
+// and only while appeals are open and the viewer's driver is in one of the round's penalties.
+const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+const viewerSession = Astro.locals.session ?? null;
+const viewerMayAppeal =
+  appealOpen &&
+  myDriverId !== null &&
+  penalties.some((p) => p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId));
+const myAppealsRead: Promise<Set<string>> =
+  viewerSession && viewerMayAppeal
+    ? getMyAppealedPenaltyIds(supabaseEnv, viewerSession.accessToken, viewerSession.user.id, subsessionId).catch(
+        (err) => {
+          console.error('Failed to load the viewer’s own appeals:', err);
+          return new Set<string>();
+        },
+      )
+    : Promise.resolve(new Set<string>());
+let myAppealedPenaltyIds = new Set<string>();
+
 let reportMapUrl: string | null = null;
 let reportMapCorners: MapCorner[] = [];
 if (round) {
   try {
-    const [circuits, layouts, roundLayouts] = await Promise.all([
+    const [circuits, layouts, roundLayouts, myAppeals] = await Promise.all([
       getCircuits(supabaseEnv),
       getAllCircuitLayouts(supabaseEnv),
       getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
+      myAppealsRead,
     ]);
+    myAppealedPenaltyIds = myAppeals;
     const layout = resolveLayout(round.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
     reportMapUrl = layout?.image_url ?? null;
     if (layout && reportMapUrl) reportMapCorners = (await getLayoutMapDetails(supabaseEnv, layout.id)).corners;
@@ -427,8 +454,7 @@ function reportSubtitle(r: IncidentReport): string {
 // the counts RPC says how many exist in total.
 const myUserId = Astro.locals.session?.user.id ?? null;
 // A steward linked to one of a report's drivers can't review it, but can read
-// everyone else's reviews of it (0099).
-const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+// everyone else's reviews of it (0099). myDriverId is set above, with the appeal window.
 function isInvolved(r: IncidentReport): boolean {
   return myDriverId !== null && r.driver_ids.includes(myDriverId);
 }
@@ -562,26 +588,6 @@ const appealActionFlash =
     : null;
 const showIncidentList = viewReports && (incidentReports.length > 0 || incidentAppeals.length > 0);
 
-// Whether the Submit Appeal button in the details popup is live: open from
-// the moment the round was posted until the Incident Appeal Window runs out.
-// The button re-checks this live in the browser too (the page can be cached).
-const appealClosesAt = roundPosted ? appealClosesAtRead : null;
-const appealOpen = isAppealOpen(appealClosesAt);
-// The penalties this viewer already appealed, so the notifications' ?open=appeal link skips them (U3, BR3.3;
-// the database refuses a second appeal anyway). Read with the viewer's token, only while appeals are open.
-let myAppealedPenaltyIds = new Set<string>();
-if (appealOpen && Astro.locals.session && myDriverId !== null) {
-  try {
-    myAppealedPenaltyIds = await getMyAppealedPenaltyIds(
-      supabaseEnv,
-      Astro.locals.session.accessToken,
-      Astro.locals.session.user.id,
-      subsessionId,
-    );
-  } catch (err) {
-    console.error('Failed to load the viewer’s own appeals:', err);
-  }
-}
 let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 {
   const flash = Astro.url.searchParams.get('appeal');

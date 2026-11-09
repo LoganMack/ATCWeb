@@ -94,6 +94,10 @@ describe('the incident page deep links (N3; BR3.3, BR3.4)', () => {
 
   it('gives the opener what it reads: the viewer’s own appeals and a notice above the list', () => {
     expect(FRAGMENT).toContain('appealedByMe: myAppealedPenaltyIds.has(p.id)');
+    // Read in parallel with the map reads, and only when the viewer could appeal something (review R-03).
+    expect(FRAGMENT).toMatch(/getRoundLayoutsForSubsessions\([^)]*\),\s*myAppealsRead,\s*\]\)/);
+    expect(FRAGMENT).toMatch(/viewerSession && viewerMayAppeal\s*\?\s*getMyAppealedPenaltyIds/);
+    expect(FRAGMENT).not.toContain('await getMyAppealedPenaltyIds');
     expect(FRAGMENT).toMatch(/<p\s+role="status"\s+hidden\s+data-incident-deeplink-notice/);
     expect(SRC['/src/lib/incidentAppeals.ts']).toContain('&submitter_id=eq.${encodeURIComponent(userId)}');
   });
@@ -124,6 +128,9 @@ describe('the migration (BR5.1)', () => {
     const body = MIGRATION.slice(MIGRATION.indexOf('create function public.open_my_notifications()'));
     expect(body).toMatch(/limit 50/);
     expect(body).toMatch(/and n\.id in \(select s\.id from shown s\)/);
+    // unread_left is counted after the update, never from the listing's snapshot (review R-02).
+    expect(body).not.toContain('unread_before');
+    expect(body.indexOf("'unread_left'")).toBeGreaterThan(body.indexOf('into v_items'));
   });
 
   it('drops everything it created in the down script', () => {

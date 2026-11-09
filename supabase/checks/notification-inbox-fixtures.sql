@@ -1,8 +1,8 @@
 -- In-site notifications fixtures for 20261115120002_notifications.sql (notifications unit U3): the five
 -- triggers (a round linked on insert and on update, results added to a linked round, the first report post,
 -- Close Appeal, a schedule-vote poll), a failing trigger body never blocking its event, own-rows-only reads
--- with no site writes, open_my_notifications() (50 newest, marks only those, unread_left), and the grants
--- (N01-N10).
+-- with no site writes, open_my_notifications() (50 newest, marks only those, unread_left), the grants, and
+-- unread_left counted after the marking (N01-N11).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- poll-fixtures.sql:
@@ -496,6 +496,43 @@ begin
     concat_ws('|', v -> 'items' -> 0 ->> 'kind', v -> 'items' -> 0 ->> 'penalty_id', v -> 'items' -> 0 ->> 'round_number'),
     '5|cccccccc-0000-0000-0000-000000000911|5');
   raise notice 'ok N10 settings and grants';
+end $$;
+rollback to savepoint fixture;
+
+-- N11 unread_left is counted after the marking, so it always equals the unread rows left: three opens in a
+--     row, with another tab marking and a new event arriving in between, each report the true count. A real
+--     overlap needs two sessions, which this file cannot run, so it also checks the count is its own
+--     statement (plpgsql) and not a figure from the listing's snapshot (review R-02) -----------------------------
+do $$
+declare
+  v jsonb;
+begin
+  -- 52 unread rows for a: an open shows and marks 50, leaving the 2 oldest.
+  insert into public.notifications (user_id, kind, subsession_id, dedupe_key, created_at)
+  select 'eeeeeeee-0000-0000-0000-000000000902', 1, 9909001, 'fx:' || i, now() - make_interval(mins => i)
+  from generate_series(1, 52) i;
+
+  v := inbox_fixture.open_as('eeeeeeee-0000-0000-0000-000000000902');
+  perform inbox_fixture.expect('N11 first open unread_left', (v ->> 'unread_left')::integer, 2);
+
+  -- Another tab's open has marked everything, and an older-dated event has arrived since.
+  update public.notifications set read_at = now()
+   where user_id = 'eeeeeeee-0000-0000-0000-000000000902' and read_at is null;
+  insert into public.notifications (user_id, kind, subsession_id, dedupe_key, created_at)
+  values ('eeeeeeee-0000-0000-0000-000000000902', 2, 9909001, '2:9909001', now() - interval '2 hours');
+
+  v := inbox_fixture.open_as('eeeeeeee-0000-0000-0000-000000000902');
+  perform inbox_fixture.expect('N11 second open unread_left', (v ->> 'unread_left')::integer, 1);
+  perform inbox_fixture.expect('N11 agrees with the count',
+    inbox_fixture.read_as('eeeeeeee-0000-0000-0000-000000000902', 'select public.notification_unread_count()::text'),
+    '1');
+
+  v := inbox_fixture.open_as('eeeeeeee-0000-0000-0000-000000000902');
+  perform inbox_fixture.expect('N11 third open unread_left', (v ->> 'unread_left')::integer, 1);
+  perform inbox_fixture.expect('N11 counted by its own statement',
+    (select l.lanname::text from pg_proc p join pg_language l on l.oid = p.prolang
+     where p.oid = 'public.open_my_notifications()'::regprocedure), 'plpgsql');
+  raise notice 'ok N11 unread_left counted after marking';
 end $$;
 rollback to savepoint fixture;
 
