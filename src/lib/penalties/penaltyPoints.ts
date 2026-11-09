@@ -4,7 +4,7 @@
  * so stewards handle them by hand.
  */
 
-import { effectivePenaltyPoints, type PenaltyLike } from './effective';
+import { effectiveIsWarning, effectivePenaltyPoints, type PenaltyLike, type WarningLike } from './effective';
 
 // ---------------------------------------------------------------------------
 // Penalty points (PP), warnings & probation — rules 57-62
@@ -207,7 +207,7 @@ export function computeRoundPPSummary(
   return { before: before.penalty_points, after: state.penalty_points, earned, doubled, hitLimit };
 }
 
-/** Counts is_warning penalties from an already season-filtered list — see getPenaltiesForSeason. Kept as a tiny function (rather than inlining) so both the per-driver dialog note and any future season-wide tally read it the same way. */
-export function countWarnings(penalties: { is_warning: boolean }[]): number {
-  return penalties.filter((p) => p.is_warning).length;
+/** Counts warnings (the effective flag, so an appeal can add or remove one) from an already season-filtered list — see getPenaltiesForSeason. Kept as a tiny function (rather than inlining) so both the per-driver dialog note and any future season-wide tally read it the same way. */
+export function countWarnings(penalties: WarningLike[]): number {
+  return penalties.filter((p) => effectiveIsWarning(p)).length;
 }

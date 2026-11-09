@@ -28,6 +28,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
     /^\/results\/[^/]+\/incidents(\/fragment)?$/,
     [
       'appeal',
+      'appealaction',
       'from',
       'incident',
       'review',

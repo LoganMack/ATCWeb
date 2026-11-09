@@ -56,6 +56,7 @@ export interface PenaltyDbRow {
   appeal_time_penalty_seconds?: number | null;
   appeal_points_penalty?: number;
   appeal_penalty_points?: number;
+  appeal_is_warning?: boolean | null;
 }
 
 export type MappedPenalty = PenaltyLike & {
@@ -65,6 +66,7 @@ export type MappedPenalty = PenaltyLike & {
   session_type: 'race' | 'qualifying' | 'practice';
   driver_id: string | null;
   is_warning: boolean;
+  appeal_is_warning: boolean | null;
   created_at: string;
 };
 
@@ -84,6 +86,7 @@ export function toPenalties(rows: PenaltyDbRow[] = []): MappedPenalty[] {
     appeal_time_penalty_seconds: r.appeal_time_penalty_seconds ?? null,
     appeal_points_penalty: r.appeal_points_penalty ?? 0,
     appeal_penalty_points: r.appeal_penalty_points ?? 0,
+    appeal_is_warning: r.appeal_is_warning ?? null,
   }));
 }
 

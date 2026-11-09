@@ -786,9 +786,10 @@ begin
       'notifications_admin_counts', 'rebuild_season_stats', 'recalculate_season_scores', 'rescore_season',
       'score_round_preview', 'sync_results_with_roster', 'edit_incident_report_submission',
       'incident_report_order', 'set_round_incident_posted', 'set_incident_report_video', 'set_incident_video',
+      'incident_appeal_comments_for_round',
       -- Return no names (counts, codes, status rows; incident_submissions gives car numbers only):
       'can_appeal_penalty', 'get_news_post_view_counts', 'round_stats_status', 'claim_broadcaster',
-      'incident_submissions', 'round_event_matches',
+      'incident_submissions', 'round_event_matches', 'close_incident_appeal', 'save_incident_appeal_comment',
       -- Return only the caller's own data, or names of unlinked drivers, who can never be hidden:
       'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state',
       -- Security invoker, names only through the masked drivers_shown view (race-winners-fixtures.sql X02):

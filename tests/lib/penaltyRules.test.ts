@@ -14,6 +14,7 @@ import {
   type DriverPPState,
 } from '../../src/lib/penalties/penaltyPoints';
 import {
+  effectiveIsWarning,
   effectivePenaltyPoints,
   effectivePointsPenalty,
   effectiveTimePenaltySeconds,
@@ -37,6 +38,30 @@ describe('effectiveTimePenaltySeconds / effectivePointsPenalty / effectivePenalt
       }).toEqual(c.expected);
     },
   );
+});
+
+describe('effectiveIsWarning (appeals BR4.1)', () => {
+  // [is_warning, is_appealed, appeal_is_warning, expected]
+  it.each([
+    [false, false, null, false],
+    [true, false, null, true],
+    [true, false, false, true],
+    [false, false, true, false],
+    [true, true, null, true],
+    [false, true, null, false],
+    [true, true, false, false],
+    [false, true, true, true],
+    [true, true, true, true],
+    [false, true, false, false],
+  ] as const)('is_warning %s, appealed %s, appeal flag %s -> %s', (isWarning, isAppealed, appealFlag, expected) => {
+    expect(
+      effectiveIsWarning({ is_warning: isWarning, is_appealed: isAppealed, appeal_is_warning: appealFlag }),
+    ).toBe(expected);
+  });
+
+  it('keeps the original when an older select has no appeal flag at all', () => {
+    expect(effectiveIsWarning({ is_warning: true, is_appealed: true })).toBe(true);
+  });
 });
 
 describe('scoringRaceNumber', () => {

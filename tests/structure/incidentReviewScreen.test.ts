@@ -38,7 +38,9 @@ describe('the filter bar', () => {
     expect(list).toContain('data-filter-group="appeals"');
     expect(list).toContain("hidden={viewReports && activeFilter !== 'appeals'}");
     expect(list).toContain('data-filter-empty={f}');
-    expect(FRAGMENT).toContain('const activeFilter = initialFilter(filterCounts);');
+    expect(FRAGMENT).toContain('const activeFilter = initialFilter(filterCounts, openAppealCount);');
+    // Appeals BR1.1: the open appeals, not every appeal, decide whether the screen opens on Appeals.
+    expect(FRAGMENT).toContain("const openAppealCount = incidentAppeals.filter((a) => a.status === 'open').length;");
   });
 
   it('has no collapsible sections for the report groups or appeals', () => {
@@ -94,6 +96,99 @@ describe('the report card', () => {
   it('explains a status change the database refused for an involved steward', () => {
     expect(SRC['/src/lib/incidentActions/setReportStatus.ts']).toContain("includes('INVOLVED_STEWARD')");
     expect(FRAGMENT).toContain("flash === 'statusinvolved'");
+  });
+});
+
+describe('the appeal card (appeals BR1.2, BR1.3, BR5.1)', () => {
+  const appealCard = list.slice(list.indexOf('{incidentAppeals.map((a) => {'), list.indexOf('{viewReports && FILTER_ORDER.map'));
+  const actions = appealCard.slice(appealCard.indexOf('data-appeal-actions'));
+
+  it('decides its buttons with the shared rule, including involvement', () => {
+    expect(appealCard).toContain('const card = appealCardView(a, myComment !== null, isInvolvedInAppeal(appealed));');
+  });
+
+  it('shows each button only for the status that allows it', () => {
+    expect(actions).toContain('{card.viewDecision && appealed && (');
+    expect(actions).toContain('{card.dismiss && (');
+    expect(actions).toContain('{card.closeAppeal && appealed && (');
+    expect(actions).toContain('{card.commentLabel && (');
+    expect(actions).toContain('{card.reopen && (');
+    // Dismiss posts dismissed and Reopen posts open; nothing on the card posts reviewed (BR3.6).
+    expect(actions).toContain('<input type="hidden" name="status" value="dismissed" />');
+    expect(actions).toContain('<input type="hidden" name="status" value="open" />');
+    expect(appealCard).not.toContain('value="reviewed"');
+  });
+
+  it('orders View Decision, Dismiss, Close Appeal, then Add/Edit Comment, at the lower right like the report card', () => {
+    const order = [
+      actions.indexOf('data-testid="appeal-view-decision"'),
+      actions.indexOf('data-testid="appeal-dismiss"'),
+      actions.indexOf('data-testid="appeal-close"'),
+      actions.indexOf('data-testid="appeal-comment"'),
+      actions.indexOf('data-testid="appeal-reopen"'),
+    ];
+    expect(order.every((i) => i > -1)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(appealCard).toContain('<div class="mt-3 border-t border-white/10 pt-3">');
+    expect(appealCard).toContain('<div class="flex flex-wrap items-center gap-2" data-appeal-actions>');
+  });
+
+  it('shows the steward comments collapsed, like the reviews, and the close record on a closed card', () => {
+    expect(appealCard).toContain('<details class="group/comments min-w-0 flex-1" data-appeal-comments data-testid="appeal-comments">');
+    expect(appealCard).toContain('<span>Steward comments ({appealComments.length})</span>');
+    expect(appealCard).toContain('{card.outcome && (');
+    expect(appealCard).toContain('Closed by {card.outcome.closedBy}');
+  });
+
+  it('uses the shared button classes only', () => {
+    for (const button of actions.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-(primary|danger|gold) btn-sm"/);
+  });
+
+  it('no longer offers Mark reviewed anywhere', () => {
+    expect(FRAGMENT).not.toMatch(/Mark reviewed/i);
+    expect(SRC['/src/lib/incidentActions/setAppealStatus.ts']).toContain("status === 'open' || status === 'dismissed'");
+    expect(SRC['/src/lib/incidentActions/setAppealStatus.ts']).not.toContain("status === 'reviewed'");
+  });
+
+  it('registers the two new steward actions', () => {
+    expect(FRAGMENT).toContain("['close-appeal', handleCloseAppeal],");
+    expect(FRAGMENT).toContain("['save-appeal-comment', handleSaveAppealComment],");
+  });
+});
+
+describe('the appeal popups (appeals BR2.2, BR3.1)', () => {
+  const dialogOf = (attr: string) => {
+    const start = FRAGMENT.search(new RegExp(`data-${attr}\\s`));
+    return FRAGMENT.slice(start, FRAGMENT.indexOf('</dialog>', start));
+  };
+
+  it('has a Close Appeal popup with the penalty summary, four prefilled inputs and a required comment with a counter', () => {
+    const dialog = dialogOf('decide-appeal-dialog');
+    expect(dialog).toContain('data-testid="close-appeal-dialog"');
+    expect(dialog).toContain('<input type="hidden" name="intent" value="close-appeal" />');
+    expect(dialog).toContain('data-decide-appeal-summary');
+    for (const name of ['time_penalty_seconds', 'points_penalty', 'penalty_points']) {
+      expect(dialog).toMatch(new RegExp(`name="${name}"[\\s\\S]*?required[\\s\\S]*?min="0"`));
+    }
+    expect(dialog).toContain('step="0.001"');
+    expect(dialog).toContain('name="is_warning"');
+    expect(dialog).toMatch(/name="comment"[\s\S]*?required[\s\S]*?maxlength=\{APPEAL_COMMENT_MAX_LENGTH\}/);
+    expect(dialog).toContain('data-decide-appeal-counter');
+    // The Submit Appeal popup's Cancel buttons own data-close-appeal-dialog; nothing new may reuse it.
+    expect(FRAGMENT.match(/data-close-appeal-dialog/g)).toHaveLength(2);
+    expect(dialog).toContain('data-testid="close-appeal-submit" disabled class="btn btn-gold"');
+  });
+
+  it('has an Add/Edit Comment popup with a required comment and a counter', () => {
+    const dialog = dialogOf('appeal-comment-dialog');
+    expect(dialog).toContain('data-testid="appeal-comment-dialog"');
+    expect(dialog).toContain('<input type="hidden" name="intent" value="save-appeal-comment" />');
+    expect(dialog).toMatch(/name="body"[\s\S]*?required[\s\S]*?maxlength=\{APPEAL_COMMENT_MAX_LENGTH\}/);
+    expect(dialog).toContain('data-appeal-comment-counter');
+  });
+
+  it('loads its script from the shell page', () => {
+    expect(SHELL).toContain("import '../../../scripts/appealDialogs';");
   });
 });
 

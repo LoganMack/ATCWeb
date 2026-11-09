@@ -4,7 +4,7 @@
  * appeals closed (Logan). The database also enforces the window, per-user limits and upload folder (0113).
  */
 
-import { restGet, restGetAuthed, restPatch, type SupabaseEnv } from './db/client';
+import { restGet, restGetAuthed, restPatch, restRpc, withAccessToken, type SupabaseEnv } from './db/client';
 import { getSiteSettings } from './db/assets';
 import { siteSettingInt, INCIDENT_APPEAL_PERIOD_HOURS_KEY } from './siteSettings';
 import { getRoundPostedAt } from './incidentReports';
@@ -45,6 +45,60 @@ export interface IncidentAppeal {
   submitter_name: string | null;
   status: 'open' | 'reviewed' | 'dismissed';
   created_at: string;
+  /** The close record (U1): all null on open, dismissed and legacy reviewed appeals. */
+  closed_at: string | null;
+  /** Null after a close when the closing steward's profile was deleted ("a former steward"). */
+  closed_by: string | null;
+  close_comment: string | null;
+  decided_time_penalty_seconds: number | null;
+  decided_points_penalty: number | null;
+  decided_penalty_points: number | null;
+  decided_is_warning: boolean | null;
+  /** The closing steward's profile, embedded through closed_by. */
+  closer?: { display_name: string | null } | null;
+}
+
+/** What Close Appeal returned (close_incident_appeal's status codes). */
+export type CloseAppealOutcome = 'ok' | 'already_closed' | 'not_allowed' | 'invalid';
+/** What saving a steward comment returned (save_incident_appeal_comment's status codes). */
+export type AppealCommentOutcome = 'ok' | 'not_open' | 'not_allowed' | 'invalid';
+
+/** The decision Close Appeal records, already validated (parseCloseAppealForm). */
+export interface CloseAppealInput {
+  timePenaltySeconds: number;
+  pointsPenalty: number;
+  penaltyPoints: number;
+  isWarning: boolean;
+  comment: string;
+}
+
+/** One steward comment as incident_appeal_comments_for_round returns it. */
+export interface AppealComment {
+  appeal_id: string;
+  author_name: string;
+  body: string;
+  updated_at: string;
+  /** The signed-in steward wrote it, so the card offers Edit Comment. */
+  is_mine: boolean;
+}
+
+export const APPEAL_COMMENT_MAX_LENGTH = 4000;
+
+const CLOSE_OUTCOMES: readonly CloseAppealOutcome[] = ['ok', 'already_closed', 'not_allowed', 'invalid'];
+const COMMENT_OUTCOMES: readonly AppealCommentOutcome[] = ['ok', 'not_open', 'not_allowed', 'invalid'];
+
+/** A close status code from the database; throws on anything else, so a changed function fails loudly. */
+export function toCloseAppealOutcome(raw: unknown): CloseAppealOutcome {
+  const found = CLOSE_OUTCOMES.find((code) => code === raw);
+  if (!found) throw new Error(`Unexpected close_incident_appeal result: ${String(raw)}`);
+  return found;
+}
+
+/** A comment status code from the database; throws on anything else. */
+export function toAppealCommentOutcome(raw: unknown): AppealCommentOutcome {
+  const found = COMMENT_OUTCOMES.find((code) => code === raw);
+  if (!found) throw new Error(`Unexpected save_incident_appeal_comment result: ${String(raw)}`);
+  return found;
 }
 
 /** The configured appeal-window length in hours (site setting, default 24). Never throws. */
@@ -132,8 +186,57 @@ export async function getIncidentAppealsForSubsession(
   return restGetAuthed<IncidentAppeal[]>(
     env,
     accessToken,
-    `incident_appeals?select=*&subsession_id=eq.${subsessionId}&order=created_at.asc`,
+    `incident_appeals?select=*,closer:profiles!incident_appeals_closed_by_fkey(display_name)&subsession_id=eq.${subsessionId}&order=created_at.asc`,
   );
+}
+
+/**
+ * Close Appeal (close_incident_appeal, U1): the database checks the steward, locks the appeal and writes the
+ * decision to the appeal and its penalty in one transaction. Throws on a transport error or an unknown code.
+ */
+export async function closeIncidentAppeal(
+  env: SupabaseEnv,
+  accessToken: string,
+  appealId: string,
+  input: CloseAppealInput,
+): Promise<CloseAppealOutcome> {
+  const raw = await restRpc<unknown>(withAccessToken(env, accessToken), 'close_incident_appeal', {
+    p_appeal_id: appealId,
+    p_time: input.timePenaltySeconds,
+    p_points: input.pointsPenalty,
+    p_licence: input.penaltyPoints,
+    p_is_warning: input.isWarning,
+    p_comment: input.comment,
+  });
+  return toCloseAppealOutcome(raw);
+}
+
+/** Adds or replaces the signed-in steward's comment on an open appeal (save_incident_appeal_comment, U1). */
+export async function saveIncidentAppealComment(
+  env: SupabaseEnv,
+  accessToken: string,
+  appealId: string,
+  body: string,
+): Promise<AppealCommentOutcome> {
+  const raw = await restRpc<unknown>(withAccessToken(env, accessToken), 'save_incident_appeal_comment', {
+    p_appeal_id: appealId,
+    p_body: body,
+  });
+  return toAppealCommentOutcome(raw);
+}
+
+/**
+ * The steward comments on this round's appeals that the caller may read. The database leaves out every
+ * appeal the caller is involved in (BR2.1, BR2.4), so the page needs no filter of its own.
+ */
+export async function getAppealCommentsForSubsession(
+  env: SupabaseEnv,
+  accessToken: string,
+  subsessionId: number,
+): Promise<AppealComment[]> {
+  return restRpc<AppealComment[]>(withAccessToken(env, accessToken), 'incident_appeal_comments_for_round', {
+    p_subsession_id: subsessionId,
+  });
 }
 
 /** A driver's comment on a pending incident report (U5, driver_incident_comments). */
@@ -172,11 +275,12 @@ export async function getPenaltySubsession(env: SupabaseEnv, penaltyId: string):
   return rows[0]?.subsession_id ?? null;
 }
 
+/** Dismiss or Reopen. Reviewed is set only by Close Appeal; the database refuses it here (BR3.5, BR3.6). */
 export async function setIncidentAppealStatus(
   env: SupabaseEnv,
   accessToken: string,
   appealId: string,
-  status: 'open' | 'reviewed' | 'dismissed',
+  status: 'open' | 'dismissed',
 ): Promise<void> {
   await restPatch(env, accessToken, `incident_appeals?id=eq.${encodeURIComponent(appealId)}`, { status });
 }

@@ -55,6 +55,18 @@ describe('initialFilter (BR1.3)', () => {
   });
 });
 
+describe('initialFilter with open appeals (appeals BR1.1)', () => {
+  it('opens on Appeals while any appeal is open, even ahead of reports needing review', () => {
+    expect(initialFilter({ needs_review: 4, appeals: 2 }, 1)).toBe('appeals');
+    expect(initialFilter({}, 3)).toBe('appeals');
+  });
+
+  it('keeps the button-order rule when every appeal is closed or dismissed', () => {
+    expect(initialFilter({ reviewed: 1, appeals: 2 }, 0)).toBe('reviewed');
+    expect(initialFilter({ appeals: 2 }, 0)).toBe('appeals');
+  });
+});
+
 describe('countFilters', () => {
   it('counts every filter, including ones with nothing in them', () => {
     expect(countFilters(['reviewed', 'appeals', 'reviewed'])).toEqual({

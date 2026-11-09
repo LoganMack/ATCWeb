@@ -10,6 +10,7 @@ import {
 } from './client';
 import privacyReads from '../privacyReads.json';
 import { clipWriteFailure, type ClipWriteResult } from '../clipLink';
+import { effectiveIsWarning } from '../penalties/effective';
 
 // ---------------------------------------------------------------------------
 // PENALTIES (rulebook 18.3, section 5 "Stewarding") — see 0014_penalties.sql
@@ -92,6 +93,8 @@ export interface Penalty {
   appeal_time_penalty_seconds: number | null;
   appeal_points_penalty: number;
   appeal_penalty_points: number;
+  /** The warning flag an appeal decided (20261115120000); null means unchanged. Read through effectiveIsWarning. */
+  appeal_is_warning?: boolean | null;
   /** Where on track it happened (20261111120000); only rings the corner on the layout map. */
   turn?: string | null;
   /** Clip of the incident, shared by every row of the incident (20261111120000). */
@@ -117,6 +120,7 @@ export interface PenaltyRow {
   appeal_time_penalty_seconds: number | null;
   appeal_points_penalty: number;
   appeal_penalty_points: number;
+  appeal_is_warning?: boolean | null;
   turn?: string | null;
   video_url?: string | null;
   penalty_offense_links: { offense_id: string }[];
@@ -330,15 +334,18 @@ export async function getWarningCounts(
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (subsessionIds.length === 0) return out;
-  const rows = await restGet<{ driver_id: string | null }[]>(
+  // Either flag may make it a warning once appealed (BR4.1), so fetch both and decide here.
+  const rows = await restGet<
+    { driver_id: string | null; is_warning: boolean; is_appealed: boolean; appeal_is_warning: boolean | null }[]
+  >(
     env,
-    `penalties_shown?select=driver_id&is_warning=eq.true&subsession_id=in.(${subsessionIds.join(',')})`,
+    `penalties_shown?select=driver_id,is_warning,is_appealed,appeal_is_warning&or=(is_warning.eq.true,appeal_is_warning.eq.true)&subsession_id=in.(${subsessionIds.join(',')})`,
   );
   // A Racing Incident (driver_id null) is never a warning in practice — the
   // add/edit dialog hides that checkbox once "Racing Incident" is selected
   // — but guard anyway rather than let a null slip into the map's keys.
   for (const r of rows) {
-    if (!r.driver_id) continue;
+    if (!r.driver_id || !effectiveIsWarning(r)) continue;
     out.set(r.driver_id, (out.get(r.driver_id) ?? 0) + 1);
   }
   return out;

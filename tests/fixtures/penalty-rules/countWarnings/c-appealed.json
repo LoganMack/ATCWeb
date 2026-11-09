@@ -1,0 +1,13 @@
+{
+  "description": "An appeal removes one warning and adds another; an appeal that leaves the flag null keeps the original.",
+  "rule_ref": "appeals BR4.1 (effective warning: appeal_is_warning once appealed and set, otherwise is_warning)",
+  "input": {
+    "penalties": [
+      { "driver_id": "A", "is_warning": true, "is_appealed": true, "appeal_is_warning": false },
+      { "driver_id": "A", "is_warning": false, "is_appealed": true, "appeal_is_warning": true },
+      { "driver_id": "A", "is_warning": true, "is_appealed": true, "appeal_is_warning": null },
+      { "driver_id": "A", "is_warning": false, "is_appealed": false, "appeal_is_warning": true }
+    ]
+  },
+  "expected": { "warnings": 2 }
+}

@@ -8,6 +8,7 @@ import type { RaceResultRow } from '../lib/results/roundResults';
 import type { Penalty } from '../lib/db/penalties';
 import { displayDriverName, shortDriverName } from '../lib/db/circuits';
 import {
+  effectiveIsWarning,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
@@ -57,7 +58,7 @@ function penaltyTagLabel(rowPenalties: Penalty[]): string {
   if (rowPenalties.length === 0) return '';
   const totalPP = rowPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
   if (totalPP > 0) return `${totalPP}PP`;
-  if (rowPenalties.some((p) => p.is_warning)) return 'Warning';
+  if (rowPenalties.some((p) => effectiveIsWarning(p))) return 'Warning';
   const hasTimeOrPointsEffect = rowPenalties.some(
     (p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0
   );
