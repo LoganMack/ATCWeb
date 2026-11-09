@@ -1,0 +1,61 @@
+---
+export const prerender = false;
+
+// Admin > Polls > New poll (polls W1): one form read, the checks, then create, upload and save in src/lib.
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import PollEditor from '../../../components/PollEditor.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { POLL_UNKNOWN_ERROR, PollError, pollImageUrl } from '../../../lib/db/polls';
+import { editorStateFromForm, newEditorState, type EditorState } from '../../../lib/polls/editorState';
+import { parsePollForm, type PollFormError } from '../../../lib/polls/validate';
+import { savePollFromForm } from '../../../lib/polls/save';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { requireFullAdmin } from '../../../lib/auth';
+
+const admin = requireFullAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
+const imageUrl = (path: string | null, width: number) => pollImageUrl(supabaseEnv.url, path, width);
+
+let state: EditorState = newEditorState();
+let values = { title: '', description: '', closesAt: '', isScheduleVote: false, updatedAt: '' };
+let errors: PollFormError[] = [];
+let filesDropped = false;
+
+if (Astro.request.method === 'POST') {
+  const data = await Astro.request.formData();
+  if (String(data.get('intent') ?? '') === 'save') {
+    const parsed = parsePollForm(data, null);
+    errors = parsed.errors;
+    if (errors.length === 0) {
+      try {
+        const { pollId } = await savePollFromForm(supabaseEnv, accessToken, null, parsed.form);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'add',
+          entity_type: 'poll',
+          entity_label: parsed.form.title.trim(),
+          entity_id: pollId,
+        });
+        return Astro.redirect(`/admin/polls/${pollId}?saved=1`, 302);
+      } catch (err) {
+        if (!(err instanceof PollError)) console.error('Failed to create the poll:', err);
+        errors = [{ field: 'form', message: err instanceof PollError ? err.message : POLL_UNKNOWN_ERROR }];
+      }
+    }
+    const { form } = parsed;
+    state = editorStateFromForm(form, null, errors, imageUrl);
+    values = { title: form.title, description: form.description, closesAt: form.closesAt, isScheduleVote: form.isScheduleVote, updatedAt: '' };
+    filesDropped = form.sections.some((s) => s.options.some((o) => o.file));
+  }
+}
+---
+
+<AdminLayout title="New Poll">
+  <PollEditor state={state} values={values} errors={errors} submitLabel="Create Poll" filesDropped={filesDropped} />
+  <script>
+    import '../../../scripts/pollEditor';
+  </script>
+</AdminLayout>

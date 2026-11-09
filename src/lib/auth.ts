@@ -561,7 +561,7 @@ export function isFullAdmin(profile: RoleHolder): boolean {
   return profile?.role === 'admin';
 }
 
-/** The admin areas Staff can't open (BR2.7): Site Properties (and its champions sub-pages), Seasons, Rulesets, Media and Circuits. */
+/** The admin areas Staff can't open (BR2.7): Site Properties (and its champions sub-pages), Seasons, Rulesets, Media, Circuits and Polls (polls BR5.1). */
 const STAFF_RESTRICTED_AREAS = [
   'site-properties',
   'champions',
@@ -569,6 +569,7 @@ const STAFF_RESTRICTED_AREAS = [
   'rulesets',
   'media',
   'circuits',
+  'polls',
 ] as const;
 
 /** Their /admin paths; everything under each is restricted too. */

@@ -1,0 +1,341 @@
+/**
+ * The poll editor (Admin > Polls, new and edit pages): add, remove and reorder sections and options in the
+ * browser, keep the hidden `structure` JSON in step, and open a Preview drawn with the public page's renderer
+ * (polls BR1.4, BR3.2). The state helpers are pure and tested; the DOM part binds once per page load.
+ */
+import { pollViewHtml } from '../lib/polls/view';
+import { ANSWER_TYPE_LABELS, isAnswerType, type PollView } from '../lib/polls/types';
+import { blankOption, type EditorOption, type EditorSection, type EditorState } from '../lib/polls/editorState';
+
+// --- State -------------------------------------------------------------------------------------------------
+
+function nextKey(state: EditorState): string {
+  return `k${state.next_key++}`;
+}
+
+export function addSection(state: EditorState): EditorSection {
+  const section: EditorSection = {
+    id: null,
+    key: nextKey(state),
+    name: '',
+    answer_type: 'single',
+    error: null,
+    options: [blankOption(nextKey(state)), blankOption(nextKey(state))],
+  };
+  state.sections.push(section);
+  return section;
+}
+
+export function addOption(state: EditorState, sectionKey: string): EditorOption | null {
+  const section = state.sections.find((s) => s.key === sectionKey);
+  if (!section) return null;
+  const option = blankOption(nextKey(state));
+  section.options.push(option);
+  return option;
+}
+
+function move<T>(list: T[], index: number, delta: number): boolean {
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= list.length) return false;
+  [list[index], list[target]] = [list[target], list[index]];
+  return true;
+}
+
+export function moveSection(state: EditorState, key: string, delta: -1 | 1): boolean {
+  return move(state.sections, state.sections.findIndex((s) => s.key === key), delta);
+}
+
+export function removeSection(state: EditorState, key: string): void {
+  state.sections = state.sections.filter((s) => s.key !== key);
+}
+
+export function findOption(state: EditorState, key: string): { section: EditorSection; option: EditorOption } | null {
+  for (const section of state.sections) {
+    const option = section.options.find((o) => o.key === key);
+    if (option) return { section, option };
+  }
+  return null;
+}
+
+export function moveOption(state: EditorState, key: string, delta: -1 | 1): boolean {
+  const found = findOption(state, key);
+  if (!found) return false;
+  return move(found.section.options, found.section.options.indexOf(found.option), delta);
+}
+
+export function removeOption(state: EditorState, key: string): void {
+  const found = findOption(state, key);
+  if (found) found.section.options = found.section.options.filter((o) => o.key !== key);
+}
+
+/** The hidden field parsePollForm reads: ids, keys, names, types and image choices, in on-screen order. */
+export function structureJson(state: EditorState): string {
+  return JSON.stringify({
+    sections: state.sections.map((s) => ({
+      id: s.id,
+      key: s.key,
+      name: s.name,
+      answer_type: s.answer_type,
+      options: s.options.map((o) => ({
+        id: o.id,
+        key: o.key,
+        name: o.name,
+        image_path: o.image_path,
+        remove_image: o.remove_image,
+      })),
+    })),
+  });
+}
+
+/**
+ * What the Preview draws (BR3.2): the editor as it is now, saved or not. A chosen file shows through its local
+ * object URL; a removed image shows nothing; otherwise the stored image at preview size.
+ */
+export function previewView(
+  state: EditorState,
+  title: string,
+  description: string,
+  localUrls: ReadonlyMap<string, string>,
+): PollView {
+  return {
+    title: title.trim() || 'Untitled poll',
+    description: description.trim() || null,
+    sections: state.sections.map((s) => ({
+      name: s.name.trim() || 'Untitled section',
+      answerType: isAnswerType(s.answer_type) ? s.answer_type : 'single',
+      options: s.options.map((o) => ({
+        name: o.name.trim() || 'Untitled option',
+        imageUrl: localUrls.get(o.key) ?? (o.remove_image ? null : o.preview_url),
+      })),
+    })),
+  };
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+/** A stored instant as the value of a datetime-local input, in the browser's time zone. */
+export function isoToLocal(iso: string): string {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** A datetime-local value (browser time zone) as an ISO instant in UTC; '' for none or a bad value. */
+export function localToIso(local: string): string {
+  if (!local) return '';
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+// --- DOM -----------------------------------------------------------------------------------------------------
+
+const FIELD = 'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary';
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ''): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
+  if (text) node.textContent = text;
+  return node;
+}
+
+function button(action: string, label: string, kind = 'btn-neutral'): HTMLButtonElement {
+  return el('button', { type: 'button', class: `btn ${kind} btn-sm`, 'data-action': action }, label);
+}
+
+function errorLine(message: string | null): HTMLParagraphElement {
+  const p = el('p', { class: 'text-sm text-brand-pink', 'data-error': '' }, message ?? '');
+  p.hidden = !message;
+  return p;
+}
+
+function optionRow(option: EditorOption): HTMLLIElement {
+  const row = el('li', { class: 'flex flex-col gap-2 rounded-lg border border-white/10 p-3', 'data-option-key': option.key });
+  const line = el('div', { class: 'flex flex-wrap items-center gap-2' });
+  const name = el('input', { type: 'text', maxlength: '120', class: `${FIELD} min-w-0 flex-1`, 'data-field': 'name', 'aria-label': 'Option name' });
+  name.value = option.name;
+  line.append(name);
+  if (option.thumb_url) {
+    line.append(el('img', { src: option.thumb_url, alt: '', width: '40', height: '40', class: 'h-10 w-10 rounded-md object-cover' }));
+    const remove = el('label', { class: 'flex items-center gap-1.5 text-xs text-white/70' });
+    const box = el('input', { type: 'checkbox', 'data-field': 'remove_image' });
+    box.checked = option.remove_image;
+    remove.append(box, document.createTextNode('Remove image'));
+    line.append(remove);
+  }
+  const file = el('input', {
+    type: 'file',
+    name: `image_${option.key}`,
+    accept: 'image/png,image/jpeg,image/webp',
+    class: `${FIELD} max-w-full file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-white`,
+    'aria-label': 'Option image',
+  });
+  line.append(file, button('option-up', 'Move up'), button('option-down', 'Move down'), button('remove-option', 'Remove', 'btn-danger'));
+  row.append(line, errorLine(option.error));
+  return row;
+}
+
+function sectionCard(section: EditorSection): HTMLDivElement {
+  const card = el('div', { class: 'flex flex-col gap-3 rounded-xl border border-white/10 bg-brand-ink p-4', 'data-section-key': section.key });
+  const head = el('div', { class: 'flex flex-wrap items-end gap-3' });
+  const nameLabel = el('label', { class: 'flex min-w-0 flex-1 flex-col gap-1.5 text-sm' });
+  const name = el('input', { type: 'text', maxlength: '120', class: FIELD, 'data-field': 'name' });
+  name.value = section.name;
+  nameLabel.append(el('span', { class: 'text-white/70' }, 'Section name'), name);
+  const typeLabel = el('label', { class: 'flex flex-col gap-1.5 text-sm' });
+  const select = el('select', { class: FIELD, 'data-field': 'answer_type' });
+  for (const [value, label] of Object.entries(ANSWER_TYPE_LABELS)) {
+    const option = el('option', { value, class: 'bg-brand-ink text-white' }, label);
+    option.selected = section.answer_type === value;
+    select.append(option);
+  }
+  typeLabel.append(el('span', { class: 'text-white/70' }, 'Answer type'), select);
+  head.append(nameLabel, typeLabel);
+  const actions = el('div', { class: 'flex flex-wrap gap-2' });
+  actions.append(
+    button('add-option', 'Add option'),
+    button('section-up', 'Move up'),
+    button('section-down', 'Move down'),
+    button('remove-section', 'Remove section', 'btn-danger'),
+  );
+  card.append(head, errorLine(section.error), el('ol', { class: 'flex flex-col gap-2', 'data-options': '' }), actions);
+  section.options.forEach((o) => card.querySelector('[data-options]')!.append(optionRow(o)));
+  return card;
+}
+
+/** Move buttons name their item, so screen readers can tell them apart. */
+function refreshLabels(root: HTMLElement, state: EditorState): void {
+  state.sections.forEach((section, i) => {
+    const card = root.querySelector<HTMLElement>(`[data-section-key="${section.key}"]`);
+    if (!card) return;
+    const sectionName = section.name.trim() || `section ${i + 1}`;
+    card.querySelector('[data-action="section-up"]')?.setAttribute('aria-label', `Move ${sectionName} up`);
+    card.querySelector('[data-action="section-down"]')?.setAttribute('aria-label', `Move ${sectionName} down`);
+    card.querySelector('[data-action="remove-section"]')?.setAttribute('aria-label', `Remove ${sectionName}`);
+    section.options.forEach((option, j) => {
+      const row = card.querySelector<HTMLElement>(`[data-option-key="${option.key}"]`);
+      const optionName = option.name.trim() || `option ${j + 1}`;
+      row?.querySelector('[data-action="option-up"]')?.setAttribute('aria-label', `Move ${optionName} up`);
+      row?.querySelector('[data-action="option-down"]')?.setAttribute('aria-label', `Move ${optionName} down`);
+      row?.querySelector('[data-action="remove-option"]')?.setAttribute('aria-label', `Remove ${optionName}`);
+    });
+  });
+}
+
+/** Puts cards and rows in state order, reusing existing nodes so chosen files and focus survive a move. */
+function render(root: HTMLElement, state: EditorState): void {
+  const cards = new Map([...root.querySelectorAll<HTMLElement>('[data-section-key]')].map((c) => [c.dataset.sectionKey!, c]));
+  const rows = new Map([...root.querySelectorAll<HTMLElement>('[data-option-key]')].map((r) => [r.dataset.optionKey!, r]));
+  const keep = new Set<HTMLElement>();
+  for (const section of state.sections) {
+    const card = cards.get(section.key) ?? sectionCard(section);
+    keep.add(card);
+    root.append(card);
+    const list = card.querySelector<HTMLElement>('[data-options]')!;
+    for (const option of section.options) {
+      const row = rows.get(option.key) ?? optionRow(option);
+      keep.add(row);
+      list.append(row);
+    }
+  }
+  for (const node of [...cards.values(), ...rows.values()]) if (!keep.has(node)) node.remove();
+  refreshLabels(root, state);
+}
+
+function readState(form: HTMLFormElement): EditorState | null {
+  const data = form.querySelector('[data-poll-editor-state]')?.textContent;
+  try {
+    return data ? (JSON.parse(data) as EditorState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function initPollEditor(): void {
+  const form = document.querySelector<HTMLFormElement>('form[data-poll-editor]');
+  const root = form?.querySelector<HTMLElement>('[data-poll-sections]');
+  const structure = form?.querySelector<HTMLInputElement>('input[name="structure"]');
+  if (!form || !root || !structure || form.dataset.pollEditorInit === 'true') return;
+  const state = readState(form);
+  if (!state) return;
+  form.dataset.pollEditorInit = 'true';
+  const localUrls = new Map<string, string>();
+  const sync = () => (structure.value = structureJson(state));
+
+  const closesLocal = form.querySelector<HTMLInputElement>('[data-poll-closes-local]');
+  const closesIso = form.querySelector<HTMLInputElement>('input[name="closes_at"]');
+  if (closesLocal && closesIso) {
+    closesLocal.value = isoToLocal(closesIso.value);
+    closesLocal.addEventListener('input', () => (closesIso.value = localToIso(closesLocal.value)));
+  }
+
+  root.addEventListener('input', (e) => onEdit(e.target));
+  root.addEventListener('change', (e) => onEdit(e.target));
+  function onEdit(target: EventTarget | null): void {
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+    const row = target.closest<HTMLElement>('[data-option-key]');
+    const card = target.closest<HTMLElement>('[data-section-key]');
+    const field = target.dataset.field;
+    if (row) {
+      const found = findOption(state!, row.dataset.optionKey!);
+      if (!found) return;
+      if (field === 'name') found.option.name = target.value;
+      if (field === 'remove_image' && target instanceof HTMLInputElement) found.option.remove_image = target.checked;
+      if (target instanceof HTMLInputElement && target.type === 'file') {
+        const old = localUrls.get(found.option.key);
+        if (old) URL.revokeObjectURL(old);
+        const file = target.files?.[0];
+        if (file) localUrls.set(found.option.key, URL.createObjectURL(file));
+        else localUrls.delete(found.option.key);
+      }
+    } else if (card) {
+      const section = state!.sections.find((s) => s.key === card.dataset.sectionKey);
+      if (!section) return;
+      if (field === 'name') section.name = target.value;
+      if (field === 'answer_type' && isAnswerType(target.value)) section.answer_type = target.value;
+    }
+    refreshLabels(root!, state!);
+    sync();
+  }
+
+  root.addEventListener('click', (e) => {
+    const action = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
+    if (!action) return;
+    const optionKey = action.closest<HTMLElement>('[data-option-key]')?.dataset.optionKey;
+    const sectionKey = action.closest<HTMLElement>('[data-section-key]')?.dataset.sectionKey ?? '';
+    const name = action.dataset.action;
+    if (name === 'add-option') addOption(state, sectionKey);
+    else if (name === 'section-up' || name === 'section-down') moveSection(state, sectionKey, name === 'section-up' ? -1 : 1);
+    else if (name === 'remove-section') removeSection(state, sectionKey);
+    else if (optionKey && (name === 'option-up' || name === 'option-down')) moveOption(state, optionKey, name === 'option-up' ? -1 : 1);
+    else if (optionKey && name === 'remove-option') removeOption(state, optionKey);
+    render(root, state);
+    sync();
+    // A removed row takes its button with it; focus then falls back to the list.
+    if (action.isConnected) action.focus();
+    else root.focus();
+  });
+
+  form.querySelector('[data-poll-add-section]')?.addEventListener('click', () => {
+    const section = addSection(state);
+    render(root, state);
+    sync();
+    root.querySelector<HTMLInputElement>(`[data-section-key="${section.key}"] input[data-field="name"]`)?.focus();
+  });
+
+  const dialog = document.querySelector<HTMLDialogElement>('dialog[data-poll-preview-dialog]');
+  const body = dialog?.querySelector<HTMLElement>('[data-poll-preview-body]');
+  form.querySelector('[data-poll-preview]')?.addEventListener('click', () => {
+    if (!dialog || !body) return;
+    const title = form.querySelector<HTMLInputElement>('input[name="title"]')?.value ?? '';
+    const description = form.querySelector<HTMLTextAreaElement>('textarea[name="description"]')?.value ?? '';
+    body.innerHTML = pollViewHtml(previewView(state, title, description, localUrls));
+    dialog.showModal();
+  });
+  dialog?.querySelector('[data-poll-preview-close]')?.addEventListener('click', () => dialog.close());
+  form.addEventListener('submit', sync);
+
+  render(root, state);
+  sync();
+}
+
+if (typeof document !== 'undefined') document.addEventListener('astro:page-load', initPollEditor);

@@ -106,7 +106,7 @@ export async function upsertSiteSetting(env: SupabaseEnv, accessToken: string, d
 export async function uploadToStorage(
   env: SupabaseEnv,
   accessToken: string,
-  bucket: 'logos' | 'photos' | 'banners' | 'imports',
+  bucket: 'logos' | 'photos' | 'banners' | 'imports' | 'poll-images',
   path: string,
   file: File,
 ): Promise<string> {
@@ -124,4 +124,47 @@ export async function uploadToStorage(
     throw new Error(`Storage upload failed (${res.status}): ${await res.text()}`);
   }
   return `${env.url}/storage/v1/object/public/${bucket}/${path}`;
+}
+
+/**
+ * Storage's bulk delete, as the token's account. True when Storage accepted the request (objects already
+ * gone count as deleted); false on any failure, which callers log, since file cleanup is best effort.
+ */
+export async function deleteFromStorage(
+  env: SupabaseEnv,
+  accessToken: string,
+  bucket: 'poll-images',
+  paths: readonly string[],
+): Promise<boolean> {
+  if (paths.length === 0) return true;
+  try {
+    const res = await fetch(`${env.url}/storage/v1/object/${bucket}`, {
+      method: 'DELETE',
+      headers: writeHeaders(env, accessToken),
+      body: JSON.stringify({ prefixes: paths }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** The file paths directly in one folder of a bucket (up to 1000), as `<folder>/<name>`. Throws on failure. */
+export async function listStorageFolder(
+  env: SupabaseEnv,
+  accessToken: string,
+  bucket: 'poll-images',
+  folder: string,
+): Promise<string[]> {
+  const res = await fetch(`${env.url}/storage/v1/object/list/${bucket}`, {
+    method: 'POST',
+    headers: writeHeaders(env, accessToken),
+    body: JSON.stringify({ prefix: folder, limit: 1000, offset: 0 }),
+  });
+  if (!res.ok) throw new Error(`Storage list failed (${res.status}): ${await res.text()}`);
+  const items = (await res.json()) as { name?: unknown; id?: unknown }[];
+  // Sub-folders come back with a null id; only files are returned.
+  return items
+    .filter((item) => typeof item.name === 'string' && item.id !== null && item.name !== '.emptyFolderPlaceholder')
+    .map((item) => `${folder}/${item.name as string}`);
 }

@@ -1,0 +1,109 @@
+---
+/**
+ * The poll editor form shared by /admin/polls/new and /admin/polls/<id> (polls S3). The sections and options
+ * are drawn by src/scripts/pollEditor.ts from the JSON state below, which each page imports itself.
+ */
+import { safeJson } from '../lib/security';
+import type { EditorState } from '../lib/polls/editorState';
+import {
+  POLL_DESCRIPTION_MAX,
+  POLL_NEW_IMAGES_MAX,
+  POLL_TITLE_MAX,
+  type PollFormError,
+} from '../lib/polls/validate';
+
+interface Props {
+  state: EditorState;
+  values: { title: string; description: string; closesAt: string; isScheduleVote: boolean; updatedAt: string };
+  errors: PollFormError[];
+  submitLabel: string;
+  /** Whether the page came back after a failed save that carried files, which browsers cannot keep. */
+  filesDropped?: boolean;
+}
+
+const { state, values, errors, submitLabel, filesDropped = false } = Astro.props;
+const fieldError = (field: string) => errors.find((e) => e.field === field)?.message ?? null;
+const field =
+  'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary';
+---
+
+{errors.length > 0 && (
+  <div class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80" role="alert" data-testid="poll-editor-errors">
+    <p class="font-semibold">The poll was not saved. Everything you typed is kept below.</p>
+    <ul class="mt-2 list-disc pl-5">
+      {errors.map((e) => <li>{e.message}</li>)}
+    </ul>
+    {filesDropped && <p class="mt-2">Browsers cannot keep chosen files after a failed save, so choose the images again.</p>}
+  </div>
+)}
+
+<form
+  method="POST"
+  data-astro-reload
+  enctype="multipart/form-data"
+  class="reveal mt-8 flex max-w-3xl flex-col gap-4"
+  data-poll-editor
+  data-testid="poll-editor-form"
+>
+  <input type="hidden" name="intent" value="save" />
+  <input type="hidden" name="updated_at" value={values.updatedAt} />
+  <input type="hidden" name="structure" value="" />
+  <input type="hidden" name="closes_at" value={values.closesAt} />
+  <script type="application/json" is:inline data-poll-editor-state set:html={safeJson(state)} />
+
+  <label class="flex flex-col gap-1.5 text-sm">
+    <span class="text-white/70">Title</span>
+    <input type="text" name="title" required maxlength={POLL_TITLE_MAX} value={values.title} class={field} data-testid="poll-editor-title" />
+    {fieldError('title') && <span class="text-brand-pink">{fieldError('title')}</span>}
+  </label>
+  <label class="flex flex-col gap-1.5 text-sm">
+    <span class="text-white/70">Description (optional)</span>
+    <textarea name="description" rows="3" maxlength={POLL_DESCRIPTION_MAX} class={field}>{values.description}</textarea>
+    {fieldError('description') && <span class="text-brand-pink">{fieldError('description')}</span>}
+  </label>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <label class="flex flex-col gap-1.5 text-sm">
+      <span class="text-white/70">Closing date and time (optional, your local time)</span>
+      <input type="datetime-local" class={field} data-poll-closes-local data-testid="poll-editor-closes" />
+      {fieldError('closes_at') && <span class="text-brand-pink">{fieldError('closes_at')}</span>}
+    </label>
+    <label class="flex items-center gap-2 self-end pb-2 text-sm">
+      <input type="checkbox" name="is_schedule_vote" checked={values.isScheduleVote} />
+      <span>Next season schedule vote</span>
+    </label>
+  </div>
+
+  <div class="flex flex-col gap-1">
+    <h3 class="font-display text-xl uppercase tracking-wide text-white">Sections</h3>
+    <p class="text-xs text-white/50">
+      Images are PNG, JPEG or WebP up to 5 MB, and one save can carry {POLL_NEW_IMAGES_MAX} new images.
+    </p>
+    {fieldError('sections') && <p class="text-sm text-brand-pink">{fieldError('sections')}</p>}
+    {fieldError('images') && <p class="text-sm text-brand-pink">{fieldError('images')}</p>}
+  </div>
+  <div class="flex flex-col gap-4" tabindex="-1" data-poll-sections data-testid="poll-editor-sections"></div>
+  <div>
+    <button type="button" class="btn btn-neutral" data-poll-add-section data-testid="poll-editor-add-section">Add section</button>
+  </div>
+
+  <div class="mt-2 flex flex-wrap gap-3">
+    <button type="submit" class="btn btn-primary btn-lg" data-testid="poll-editor-save">{submitLabel}</button>
+    <button type="button" class="btn btn-neutral btn-lg" data-poll-preview data-testid="poll-editor-preview">Preview</button>
+    <a href="/admin/polls" class="btn btn-neutral btn-lg">Cancel</a>
+  </div>
+</form>
+
+<dialog
+  data-poll-preview-dialog
+  aria-label="Poll preview"
+  class="w-full max-w-2xl rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+  data-testid="poll-preview-dialog"
+>
+  <div class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+    <p class="text-xs uppercase tracking-wide text-white/50">Preview: this is how the public page will look.</p>
+    <div data-poll-preview-body></div>
+    <div class="flex justify-end">
+      <button type="button" class="btn btn-neutral" data-poll-preview-close data-testid="poll-preview-close">Close</button>
+    </div>
+  </div>
+</dialog>

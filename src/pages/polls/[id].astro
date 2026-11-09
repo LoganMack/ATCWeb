@@ -1,0 +1,49 @@
+---
+export const prerender = false;
+
+// A posted poll, read-only until voting arrives (polls S4, BR3.3). getPostedPoll filters on posted status, so
+// a draft or unknown id is not found for everyone, full admins included. Not linked from the nav.
+import Layout from '../../layouts/Layout.astro';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { getPostedPoll, pollToView } from '../../lib/db/polls';
+import { pollDisplayStatus, pollPublicNote } from '../../lib/polls/status';
+import { pollViewHtml } from '../../lib/polls/view';
+import { publicLoadErrorMessage } from '../../lib/security';
+import type { Poll } from '../../lib/polls/types';
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const pollId = Astro.params.id ?? '';
+
+let poll: Poll | null = null;
+let loadFailed = false;
+try {
+  poll = await getPostedPoll(supabaseEnv, pollId);
+} catch (err) {
+  console.error('Failed to load the poll:', err);
+  loadFailed = true;
+}
+
+let html = '';
+if (poll) {
+  const note = pollPublicNote(pollDisplayStatus(poll, new Date()));
+  html = pollViewHtml(pollToView(poll, supabaseEnv.url, 320), { note });
+  Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+} else {
+  Astro.response.status = loadFailed ? 503 : 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+---
+
+<Layout title={poll ? poll.title : 'Poll not found'} description={poll?.description ?? undefined}>
+  <section class="mx-auto max-w-3xl px-6 pb-24 pt-12">
+    {poll ? (
+      <div class="reveal" set:html={html} data-testid="poll-public-view" />
+    ) : (
+      <div class="reveal flex flex-col items-start gap-4">
+        <h1 class="font-display text-4xl uppercase tracking-wide text-white">{loadFailed ? 'Poll unavailable' : 'Poll not found'}</h1>
+        <p class="text-white/70">{loadFailed ? publicLoadErrorMessage() : 'This poll does not exist or is not posted.'}</p>
+        <a href="/" class="btn btn-neutral">Back to the home page</a>
+      </div>
+    )}
+  </section>
+</Layout>

@@ -222,6 +222,11 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/appeal-close-fixtures.sql
 
+      # Same convention: the poll tables, functions, reads and the poll-images bucket.
+      - name: Poll fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/poll-fixtures.sql
+
       # Every select string the readers send through the masked views, called through the local PostgREST
       # as anon and as an admin (NFR8.6). It seeds and commits its own rows and removes them at the end.
       - name: Masked view embeds through PostgREST
