@@ -792,6 +792,8 @@ begin
       'incident_submissions', 'round_event_matches', 'close_incident_appeal', 'save_incident_appeal_comment',
       -- Return only the caller's own data, or names of unlinked drivers, who can never be hidden:
       'link_my_driver', 'list_unlinked_drivers', 'my_incidents', 'my_link_state',
+      -- The caller's own notifications, labelled by season, round and track only (U3, BR5.2):
+      'open_my_notifications',
       -- Security invoker, names only through the masked drivers_shown view (race-winners-fixtures.sql X02):
       'race_winners_for_rounds'
     );

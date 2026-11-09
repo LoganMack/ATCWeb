@@ -177,6 +177,24 @@ export async function createIncidentAppeal(
     throw new Error(`Supabase rpc error ${res.status} on submit_incident_appeal: ${await res.text()}`);
 }
 
+/**
+ * The penalties the signed-in caller has appealed in a round, read with their own token (the "submitter read
+ * own" policy), so the notifications' appeal link can skip them (U3, BR3.3).
+ */
+export async function getMyAppealedPenaltyIds(
+  env: SupabaseEnv,
+  accessToken: string,
+  userId: string,
+  subsessionId: number,
+): Promise<Set<string>> {
+  const rows = await restGetAuthed<{ penalty_id: string }[]>(
+    env,
+    accessToken,
+    `incident_appeals?select=penalty_id&subsession_id=eq.${subsessionId}&submitter_id=eq.${encodeURIComponent(userId)}`,
+  );
+  return new Set(rows.map((r) => r.penalty_id));
+}
+
 /** Admin read. */
 export async function getIncidentAppealsForSubsession(
   env: SupabaseEnv,

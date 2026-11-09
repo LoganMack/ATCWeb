@@ -65,6 +65,7 @@ import {
   getIncidentAppealsForSubsession,
   getAppealCommentsForSubsession,
   getDriverCommentsForReports,
+  getMyAppealedPenaltyIds,
   signAppealFileUrl,
   APPEAL_COMMENT_MAX_LENGTH,
   APPEAL_MAX_FILES,
@@ -566,6 +567,21 @@ const showIncidentList = viewReports && (incidentReports.length > 0 || incidentA
 // The button re-checks this live in the browser too (the page can be cached).
 const appealClosesAt = roundPosted ? appealClosesAtRead : null;
 const appealOpen = isAppealOpen(appealClosesAt);
+// The penalties this viewer already appealed, so the notifications' ?open=appeal link skips them (U3, BR3.3;
+// the database refuses a second appeal anyway). Read with the viewer's token, only while appeals are open.
+let myAppealedPenaltyIds = new Set<string>();
+if (appealOpen && Astro.locals.session && myDriverId !== null) {
+  try {
+    myAppealedPenaltyIds = await getMyAppealedPenaltyIds(
+      supabaseEnv,
+      Astro.locals.session.accessToken,
+      Astro.locals.session.user.id,
+      subsessionId,
+    );
+  } catch (err) {
+    console.error('Failed to load the viewer’s own appeals:', err);
+  }
+}
 let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 {
   const flash = Astro.url.searchParams.get('appeal');
@@ -669,6 +685,8 @@ function incidentSummaryFor(p: Penalty) {
     canAppeal: Astro.locals.session
       ? myDriverId !== null && (p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId))
       : null,
+    // Already appealed by this viewer; read only by the notifications' deep link (src/scripts/incidentDeepLink.ts).
+    appealedByMe: myAppealedPenaltyIds.has(p.id),
     // The popup's icon buttons (BR4.6): the clip, the map with the turn ringed, and for admins the clip editor
     // keyed by the incident's identity (every row of the incident shares the clip).
     videoUrl: p.video_url ?? null,
@@ -954,6 +972,14 @@ if (loadError) markUncacheable(Astro);
             {appealFlash.message}
           </p>
         )}
+        {/* Filled by src/scripts/incidentDeepLink.ts when a notification's appeal link finds nothing to open. */}
+        <p
+          role="status"
+          hidden
+          data-incident-deeplink-notice
+          data-testid="incident-deeplink-notice"
+          class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80"
+        ></p>
         {videoFlash && (
           <p
             role="status"
