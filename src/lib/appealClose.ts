@@ -5,11 +5,7 @@
  * write (BR3.2, BR3.5).
  */
 
-import {
-  APPEAL_COMMENT_MAX_LENGTH,
-  type CloseAppealInput,
-  type IncidentAppeal,
-} from './incidentAppeals';
+import { APPEAL_COMMENT_MAX_LENGTH, type CloseAppealInput, type IncidentAppeal } from './incidentAppeals';
 import {
   effectiveIsWarning,
   effectivePenaltyPoints,
@@ -38,8 +34,7 @@ export function commentLength(text: string): number {
 }
 
 export type CloseAppealParse =
-  | { ok: true; appealId: string; input: CloseAppealInput }
-  | { ok: false; message: string };
+  { ok: true; appealId: string; input: CloseAppealInput } | { ok: false; message: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -52,7 +47,9 @@ export function parseAppealId(form: FormData): string | null {
 /**
  * A steward comment as posted: trimmed, 1 to 4,000 characters (BR2.2). Returns the text to save, or a message.
  */
-export function parseAppealCommentBody(form: FormData): { ok: true; body: string } | { ok: false; message: string } {
+export function parseAppealCommentBody(
+  form: FormData,
+): { ok: true; body: string } | { ok: false; message: string } {
   const body = String(form.get('body') ?? '').trim();
   if (body === '') return { ok: false, message: 'Write a comment before saving.' };
   if (commentLength(body) > APPEAL_COMMENT_MAX_LENGTH)
@@ -80,9 +77,11 @@ export function parseCloseAppealForm(form: FormData): CloseAppealParse {
     return n <= MAX_INT ? n : null;
   };
   const pointsPenalty = whole('points_penalty');
-  if (pointsPenalty === null) return { ok: false, message: 'The points penalty must be a whole number of 0 or more.' };
+  if (pointsPenalty === null)
+    return { ok: false, message: 'The points penalty must be a whole number of 0 or more.' };
   const penaltyPoints = whole('penalty_points');
-  if (penaltyPoints === null) return { ok: false, message: 'Penalty points must be a whole number of 0 or more.' };
+  if (penaltyPoints === null)
+    return { ok: false, message: 'Penalty points must be a whole number of 0 or more.' };
 
   const comment = String(form.get('comment') ?? '').trim();
   if (comment === '') return { ok: false, message: 'Write a comment explaining the decision.' };

@@ -63,7 +63,8 @@ function invalidMessage(field: string, reason: string): string {
   }
   if (field === 'sections') return 'A poll needs 1 to 20 sections.';
   if (field.endsWith('.options')) return `${prefix}this answer type needs a different number of options.`;
-  if (reason === 'duplicate' && field.endsWith('.name')) return `${prefix}this name is already an option in this section.`;
+  if (reason === 'duplicate' && field.endsWith('.name'))
+    return `${prefix}this name is already an option in this section.`;
   if (field.endsWith('.name')) return `${prefix}the name must be 1 to 120 characters.`;
   if (field.endsWith('.answer_type')) return `${prefix}choose an answer type.`;
   if (field.endsWith('.image')) return `${prefix}the image is not valid.`;
@@ -80,7 +81,12 @@ export function pollErrorMessage(code: string): string {
 }
 
 /** Calls one poll function as the admin; a refusal becomes a PollError with its mapped message. */
-async function callPollRpc<T>(env: SupabaseEnv, accessToken: string, name: string, args: Record<string, unknown>): Promise<T> {
+async function callPollRpc<T>(
+  env: SupabaseEnv,
+  accessToken: string,
+  name: string,
+  args: Record<string, unknown>,
+): Promise<T> {
   const res = await fetch(`${env.url}/rest/v1/rpc/${name}`, {
     method: 'POST',
     headers: writeHeaders(env, accessToken),
@@ -167,15 +173,31 @@ function toPoll(row: PollRow): Poll {
 }
 
 /** One poll with its sections and options, for the editor (admin token, so drafts are included). */
-export async function getPollForEdit(env: SupabaseEnv, accessToken: string, pollId: string): Promise<Poll | null> {
+export async function getPollForEdit(
+  env: SupabaseEnv,
+  accessToken: string,
+  pollId: string,
+): Promise<Poll | null> {
   if (!UUID_PATTERN.test(pollId)) return null;
-  const rows = await restGetAuthed<PollRow[]>(env, accessToken, `polls?id=eq.${pollId}&select=${POLL_SELECT}`);
+  const rows = await restGetAuthed<PollRow[]>(
+    env,
+    accessToken,
+    `polls?id=eq.${pollId}&select=${POLL_SELECT}`,
+  );
   return rows[0] ? toPoll(rows[0]) : null;
 }
 
 /** The poll's stored updated_at, read right after create_poll so the first save is not stale. */
-export async function getPollUpdatedAt(env: SupabaseEnv, accessToken: string, pollId: string): Promise<string | null> {
-  const rows = await restGetAuthed<{ updated_at: string }[]>(env, accessToken, `polls?id=eq.${pollId}&select=updated_at`);
+export async function getPollUpdatedAt(
+  env: SupabaseEnv,
+  accessToken: string,
+  pollId: string,
+): Promise<string | null> {
+  const rows = await restGetAuthed<{ updated_at: string }[]>(
+    env,
+    accessToken,
+    `polls?id=eq.${pollId}&select=updated_at`,
+  );
   return rows[0]?.updated_at ?? null;
 }
 
@@ -203,7 +225,10 @@ export function pollToView(poll: Poll, supabaseUrl: string, imageWidth = 320): P
     sections: poll.sections.map((s) => ({
       name: s.name,
       answerType: s.answer_type,
-      options: s.options.map((o) => ({ name: o.name, imageUrl: pollImageUrl(supabaseUrl, o.image_path, imageWidth) })),
+      options: s.options.map((o) => ({
+        name: o.name,
+        imageUrl: pollImageUrl(supabaseUrl, o.image_path, imageWidth),
+      })),
     })),
   };
 }

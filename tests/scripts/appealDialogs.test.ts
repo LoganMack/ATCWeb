@@ -3,7 +3,12 @@
  * as the database does, and Save stays disabled until the values would pass the server's checks.
  */
 import { describe, expect, it } from 'vitest';
-import { appealTextProblem, closeAppealProblem, counterText, textLength } from '../../src/scripts/appealDialogs';
+import {
+  appealTextProblem,
+  closeAppealProblem,
+  counterText,
+  textLength,
+} from '../../src/scripts/appealDialogs';
 import { parseCloseAppealForm } from '../../src/lib/appealClose';
 
 const ok = { time: '2.5', points: '0', licence: '1', comment: 'Reduced.' };

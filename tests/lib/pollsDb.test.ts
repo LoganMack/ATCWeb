@@ -95,12 +95,29 @@ describe('reads', () => {
     stubFetch(
       respond([
         {
-          id: POLL_ID, title: 'T', description: null, closes_at: null, is_schedule_vote: false, status: 'draft',
-          posted_at: null, first_posted_at: null, created_at: UPDATED_AT, updated_at: UPDATED_AT,
+          id: POLL_ID,
+          title: 'T',
+          description: null,
+          closes_at: null,
+          is_schedule_vote: false,
+          status: 'draft',
+          posted_at: null,
+          first_posted_at: null,
+          created_at: UPDATED_AT,
+          updated_at: UPDATED_AT,
           poll_sections: [
-            { id: 's2', name: 'Second', answer_type: 'stars', position: 1, poll_options: [{ id: 'c', name: 'C', image_path: null, position: 0 }] },
             {
-              id: 's1', name: 'First', answer_type: 'single', position: 0,
+              id: 's2',
+              name: 'Second',
+              answer_type: 'stars',
+              position: 1,
+              poll_options: [{ id: 'c', name: 'C', image_path: null, position: 0 }],
+            },
+            {
+              id: 's1',
+              name: 'First',
+              answer_type: 'single',
+              position: 0,
               poll_options: [
                 { id: 'b', name: 'B', image_path: null, position: 1 },
                 { id: 'a', name: 'A', image_path: `${POLL_ID}/a-1.png`, position: 0 },
@@ -167,7 +184,9 @@ describe('writes', () => {
       'Section 1: this answer type needs a different number of options.',
     );
     expect(pollErrorMessage('invalid:closes_at:past')).toBe('The closing date must be in the future.');
-    expect(pollErrorMessage('invalid:section.1.option.1.image:path')).toBe('Section 1, option 1: the image is not valid.');
+    expect(pollErrorMessage('invalid:section.1.option.1.image:path')).toBe(
+      'Section 1, option 1: the image is not valid.',
+    );
     expect(pollErrorMessage('boom')).toBe(POLL_UNKNOWN_ERROR);
   });
 
@@ -183,14 +202,23 @@ describe('writes', () => {
 
 describe('savePollFromForm (W1, W2, BR4.2)', () => {
   it('creates, uploads under the new folder, saves and returns the new id', async () => {
-    const fetchMock = stubFetch(respond(JSON.stringify(POLL_ID)), respond([{ updated_at: UPDATED_AT }]), respond({}), respond([]));
+    const fetchMock = stubFetch(
+      respond(JSON.stringify(POLL_ID)),
+      respond([{ updated_at: UPDATED_AT }]),
+      respond({}),
+      respond([]),
+    );
     expect(await savePollFromForm(env, TOKEN, null, form())).toEqual({ pollId: POLL_ID, created: true });
     expect(call(fetchMock, 0).url.pathname).toBe('/rest/v1/rpc/create_poll');
     expect(call(fetchMock, 0).body).toEqual({ p_title: 'Next season' });
-    expect(call(fetchMock, 2).url.pathname).toMatch(new RegExp(`^/storage/v1/object/poll-images/${POLL_ID}/a-\\d+\\.png$`));
+    expect(call(fetchMock, 2).url.pathname).toMatch(
+      new RegExp(`^/storage/v1/object/poll-images/${POLL_ID}/a-\\d+\\.png$`),
+    );
     const save = call(fetchMock, 3);
     expect(save.body.p_expected_updated_at).toBe(UPDATED_AT);
-    expect(save.body.p_poll.sections[0].options[0].image_path).toMatch(new RegExp(`^${POLL_ID}/a-\\d+\\.png$`));
+    expect(save.body.p_poll.sections[0].options[0].image_path).toMatch(
+      new RegExp(`^${POLL_ID}/a-\\d+\\.png$`),
+    );
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
@@ -224,7 +252,16 @@ describe('savePollFromForm (W1, W2, BR4.2)', () => {
 
   it('deletes the files the save no longer uses', async () => {
     const fetchMock = stubFetch(respond([`${POLL_ID}/old-1.png`]), respond([]));
-    await savePollFromForm(env, TOKEN, POLL_ID, form({ sections: [{ ...form().sections[0], options: form().sections[0].options.map((o) => ({ ...o, file: null })) }] }));
+    await savePollFromForm(
+      env,
+      TOKEN,
+      POLL_ID,
+      form({
+        sections: [
+          { ...form().sections[0], options: form().sections[0].options.map((o) => ({ ...o, file: null })) },
+        ],
+      }),
+    );
     expect(call(fetchMock, 0).url.pathname).toBe('/rest/v1/rpc/save_poll');
     expect(call(fetchMock, 1).body).toEqual({ prefixes: [`${POLL_ID}/old-1.png`] });
   });
@@ -254,7 +291,15 @@ describe('savePollFromForm when save_poll may have committed', () => {
       created_at: UPDATED_AT,
       updated_at: UPDATED_AT,
       poll_sections: paths.length
-        ? [{ id: 's', name: 'Track', answer_type: 'single', position: 0, poll_options: paths.map((p, i) => ({ id: `o${i}`, name: `O${i}`, image_path: p, position: i })) }]
+        ? [
+            {
+              id: 's',
+              name: 'Track',
+              answer_type: 'single',
+              position: 0,
+              poll_options: paths.map((p, i) => ({ id: `o${i}`, name: `O${i}`, image_path: p, position: i })),
+            },
+          ]
         : [],
     },
   ];
@@ -300,7 +345,10 @@ describe('deletePollWithFiles (BR2.5)', () => {
   it('deletes the poll, lists its folder and deletes every file', async () => {
     const fetchMock = stubFetch(
       respond(''),
-      respond([{ name: 'a-1.png', id: 'x' }, { name: 'sub', id: null }]),
+      respond([
+        { name: 'a-1.png', id: 'x' },
+        { name: 'sub', id: null },
+      ]),
       respond([]),
     );
     await deletePollWithFiles(env, TOKEN, POLL_ID);
@@ -318,7 +366,12 @@ describe('deletePollWithFiles (BR2.5)', () => {
   });
 
   it('lists only files', async () => {
-    stubFetch(respond([{ name: '.emptyFolderPlaceholder', id: 'p' }, { name: 'b-2.webp', id: 'y' }]));
+    stubFetch(
+      respond([
+        { name: '.emptyFolderPlaceholder', id: 'p' },
+        { name: 'b-2.webp', id: 'y' },
+      ]),
+    );
     expect(await listStorageFolder(env, TOKEN, 'poll-images', POLL_ID)).toEqual([`${POLL_ID}/b-2.webp`]);
   });
 });

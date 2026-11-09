@@ -58,7 +58,8 @@ export type AppealPick = { action: 'open'; index: number } | { action: 'notice';
 
 /** The first row, in list order, the viewer may still appeal; or the notice explaining why there is none. */
 export function pickAppealTarget(summaries: (IncidentSummary | null)[], windowOpen: boolean): AppealPick {
-  if (summaries.some((s) => s !== null && s.canAppeal === null)) return { action: 'notice', notice: 'signed-out' };
+  if (summaries.some((s) => s !== null && s.canAppeal === null))
+    return { action: 'notice', notice: 'signed-out' };
   if (!windowOpen) return { action: 'notice', notice: 'closed' };
   const index = summaries.findIndex((s) => s?.canAppeal === true && s.appealedByMe !== true);
   return index < 0 ? { action: 'notice', notice: 'nothing' } : { action: 'open', index };

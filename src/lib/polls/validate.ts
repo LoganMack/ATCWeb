@@ -135,7 +135,10 @@ function checkPoll(form: PollForm, existingClosesAt: string | null, now: Date): 
     errors.push({ field: 'title', message: `The title must be 1 to ${POLL_TITLE_MAX} characters.` });
   }
   if (charLength(form.description.trim()) > POLL_DESCRIPTION_MAX) {
-    errors.push({ field: 'description', message: `The description can be at most ${POLL_DESCRIPTION_MAX.toLocaleString('en-US')} characters.` });
+    errors.push({
+      field: 'description',
+      message: `The description can be at most ${POLL_DESCRIPTION_MAX.toLocaleString('en-US')} characters.`,
+    });
   }
   if (form.closesAt) {
     const closes = new Date(form.closesAt).getTime();
@@ -174,15 +177,27 @@ function checkSection(section: PollFormSection, n: number): PollFormError[] {
     const optionName = option.name.trim();
     const optionField = `option:${option.key}`;
     if (charLength(optionName) < 1 || charLength(optionName) > POLL_NAME_MAX) {
-      errors.push({ field: optionField, message: `Section ${n}, option ${j + 1}: the name must be 1 to ${POLL_NAME_MAX} characters.` });
+      errors.push({
+        field: optionField,
+        message: `Section ${n}, option ${j + 1}: the name must be 1 to ${POLL_NAME_MAX} characters.`,
+      });
     } else if (seen.has(optionName.toLowerCase())) {
-      errors.push({ field: optionField, message: `Section ${n}, option ${j + 1}: "${optionName}" is already an option in this section.` });
+      errors.push({
+        field: optionField,
+        message: `Section ${n}, option ${j + 1}: "${optionName}" is already an option in this section.`,
+      });
     }
     seen.add(optionName.toLowerCase());
     if (option.file && !POLL_IMAGE_EXTENSIONS[option.file.type]) {
-      errors.push({ field: optionField, message: `Section ${n}, option ${j + 1}: the image must be a PNG, JPEG or WebP file.` });
+      errors.push({
+        field: optionField,
+        message: `Section ${n}, option ${j + 1}: the image must be a PNG, JPEG or WebP file.`,
+      });
     } else if (option.file && option.file.size > POLL_IMAGE_MAX_BYTES) {
-      errors.push({ field: optionField, message: `Section ${n}, option ${j + 1}: the image must be 5 MB or smaller.` });
+      errors.push({
+        field: optionField,
+        message: `Section ${n}, option ${j + 1}: the image must be 5 MB or smaller.`,
+      });
     }
   });
   return errors;

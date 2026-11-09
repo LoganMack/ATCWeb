@@ -16,7 +16,12 @@ import {
 import { POLL_IMAGE_BUCKET, pollImagePath } from './images';
 import { pollSavePayload, type PollForm } from './validate';
 
-async function removeFiles(env: SupabaseEnv, accessToken: string, paths: string[], why: string): Promise<void> {
+async function removeFiles(
+  env: SupabaseEnv,
+  accessToken: string,
+  paths: string[],
+  why: string,
+): Promise<void> {
   if (paths.length === 0) return;
   const ok = await deleteFromStorage(env, accessToken, POLL_IMAGE_BUCKET, paths);
   if (!ok) console.error(`Poll image cleanup failed (${why}):`, paths.join(', '));
@@ -36,12 +41,19 @@ async function uploadImages(
     for (const [j, option] of section.options.entries()) {
       if (!option.file) continue;
       const path = pollImagePath(pollId, option.key, option.file.type, base + n++);
-      if (!path) throw new PollError('upload', `Section ${i + 1}, option ${j + 1}: the image must be a PNG, JPEG or WebP file.`);
+      if (!path)
+        throw new PollError(
+          'upload',
+          `Section ${i + 1}, option ${j + 1}: the image must be a PNG, JPEG or WebP file.`,
+        );
       try {
         await uploadToStorage(env, accessToken, POLL_IMAGE_BUCKET, path, option.file);
       } catch (err) {
         console.error('Poll image upload failed:', err);
-        throw new PollError('upload', `Section ${i + 1}, option ${j + 1}: the image could not be uploaded. Try again.`);
+        throw new PollError(
+          'upload',
+          `Section ${i + 1}, option ${j + 1}: the image could not be uploaded. Try again.`,
+        );
       }
       uploaded.set(option.key, path);
     }
@@ -50,7 +62,10 @@ async function uploadImages(
 
 /** True for a refusal the database raised itself, so the save surely rolled back (not a lost response). */
 export function isPollRefusal(err: unknown): boolean {
-  return err instanceof PollError && (Object.hasOwn(POLL_ERROR_MESSAGES, err.code) ||err.code.startsWith('invalid:'));
+  return (
+    err instanceof PollError &&
+    (Object.hasOwn(POLL_ERROR_MESSAGES, err.code) || err.code.startsWith('invalid:'))
+  );
 }
 
 /** Removes the new draft after a failed first save; a failure here is only logged. */
@@ -81,7 +96,12 @@ async function cleanUpUncertainSave(
   }
   if (!poll) return;
   const referenced = new Set(poll.sections.flatMap((s) => s.options.map((o) => o.image_path)));
-  await removeFiles(env, accessToken, uploaded.filter((path) => !referenced.has(path)), 'failed save');
+  await removeFiles(
+    env,
+    accessToken,
+    uploaded.filter((path) => !referenced.has(path)),
+    'failed save',
+  );
   if (created && poll.sections.length === 0) await removeDraft(env, accessToken, pollId);
 }
 
@@ -121,7 +141,11 @@ export async function savePollFromForm(
 }
 
 /** Deletes a draft, then every file in its image folder (best effort, BR2.5). */
-export async function deletePollWithFiles(env: SupabaseEnv, accessToken: string, pollId: string): Promise<void> {
+export async function deletePollWithFiles(
+  env: SupabaseEnv,
+  accessToken: string,
+  pollId: string,
+): Promise<void> {
   await deletePoll(env, accessToken, pollId);
   try {
     const files = await listStorageFolder(env, accessToken, POLL_IMAGE_BUCKET, pollId);

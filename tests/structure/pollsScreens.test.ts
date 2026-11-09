@@ -27,7 +27,9 @@ describe('Staff and the Polls tool (BR5.1)', () => {
 
   it('guards every admin poll page with requireFullAdmin', () => {
     for (const page of [LIST, NEW, EDIT]) {
-      expect(page).toMatch(/const admin = requireFullAdmin\(Astro\);\s*if \(admin instanceof Response\) return admin;/);
+      expect(page).toMatch(
+        /const admin = requireFullAdmin\(Astro\);\s*if \(admin instanceof Response\) return admin;/,
+      );
       expect(page).not.toMatch(/\brequireAdmin\(/);
     }
   });
@@ -40,7 +42,9 @@ describe('Staff and the Polls tool (BR5.1)', () => {
       expect(page).toContain('await logActivity(');
       expect(page).toContain("entity_type: 'poll'");
     }
-    expect(LIST).toContain('data-confirm={`${p.status === \'posted\' ? \'Unpost\' : \'Post\'} the poll "${p.title}"?`}');
+    expect(LIST).toContain(
+      "data-confirm={`${p.status === 'posted' ? 'Unpost' : 'Post'} the poll \"${p.title}\"?`}",
+    );
     expect(LIST).toContain('data-confirm={`Delete the poll "${p.title}" with its images?');
   });
 });
@@ -51,7 +55,10 @@ describe('the Admin Tools card (S1)', () => {
     expect(tools).toContain("{ href: '/admin/polls', label: 'Polls', detail: `${pollDraftCount} draft");
     expect(DASHBOARD).toMatch(/\n {2}Polls: \['M3 13\.125/);
     expect(DASHBOARD).toMatch(/isFullAdmin\(admin\.profile\)\s*\?\s*countDraftPolls\(/);
-    const cards = [{ href: '/admin/polls', label: 'Polls' }, { href: '/admin/news', label: 'News' }];
+    const cards = [
+      { href: '/admin/polls', label: 'Polls' },
+      { href: '/admin/news', label: 'News' },
+    ];
     expect(adminToolsFor(cards, { role: 'staff' }).map((c) => c.label)).toEqual(['News']);
     expect(adminToolsFor(cards, { role: 'admin' }).map((c) => c.label)).toEqual(['Polls', 'News']);
   });
@@ -59,14 +66,21 @@ describe('the Admin Tools card (S1)', () => {
 
 describe('the editor script (S3)', () => {
   it('is imported by the two editor pages and nothing else', () => {
-    const importers = Object.keys(SRC).filter((path) => /import ['"](?:\.\.\/)+scripts\/pollEditor['"]/.test(SRC[path]));
-    expect(importers.sort()).toEqual(['/src/pages/admin/polls/[id].astro', '/src/pages/admin/polls/new.astro']);
+    const importers = Object.keys(SRC).filter((path) =>
+      /import ['"](?:\.\.\/)+scripts\/pollEditor['"]/.test(SRC[path]),
+    );
+    expect(importers.sort()).toEqual([
+      '/src/pages/admin/polls/[id].astro',
+      '/src/pages/admin/polls/new.astro',
+    ]);
     for (const page of [NEW, EDIT]) expect(page).toContain('<PollEditor ');
   });
 
   it('posts one multipart form that the client router leaves alone', () => {
     const editor = SRC['/src/components/PollEditor.astro'];
-    expect(editor).toMatch(/<form\s[^>]*method="POST"[^>]*data-astro-reload[^>]*enctype="multipart\/form-data"/);
+    expect(editor).toMatch(
+      /<form\s[^>]*method="POST"[^>]*data-astro-reload[^>]*enctype="multipart\/form-data"/,
+    );
     expect(editor).toContain('name="updated_at"');
     expect(editor).toContain('name="structure"');
     for (const button of editor.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-/);
@@ -78,7 +92,9 @@ describe('the editor script (S3)', () => {
       const check = page.indexOf("pollSaveSizeError(Astro.request.headers.get('content-length'))");
       expect(check).toBeGreaterThan(-1);
       expect(check).toBeLessThan(page.indexOf('await Astro.request.formData()'));
-      expect(page).toMatch(/Astro\.request\.method === 'POST' && !tooLarge\) \{\s*const data = await Astro\.request\.formData\(\);/);
+      expect(page).toMatch(
+        /Astro\.request\.method === 'POST' && !tooLarge\) \{\s*const data = await Astro\.request\.formData\(\);/,
+      );
     }
   });
 

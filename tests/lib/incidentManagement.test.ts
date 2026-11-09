@@ -616,7 +616,8 @@ describe('the steward appeal actions (appeals BR2.1-BR2.3, BR3.1-BR3.7)', () => 
       redirect: (location: string) => ({ location, status: 302 as const }),
     };
   }
-  const flashOf = (location: string) => new URL(location, 'https://atc.example.test').searchParams.get('appealaction');
+  const flashOf = (location: string) =>
+    new URL(location, 'https://atc.example.test').searchParams.get('appealaction');
 
   function closeForm(overrides: Record<string, string> = {}) {
     const f = new FormData();
@@ -656,7 +657,9 @@ describe('the steward appeal actions (appeals BR2.1-BR2.3, BR3.1-BR3.7)', () => 
     ['invalid', 'invalid'],
   ])('close-appeal turns %s into ?appealaction=%s', async (code, flash) => {
     captureLogs();
-    const calls = stubFetch((c) => (c.url.endsWith('/rpc/close_incident_appeal') ? respond(code) : respond([{}])));
+    const calls = stubFetch((c) =>
+      c.url.endsWith('/rpc/close_incident_appeal') ? respond(code) : respond([{}]),
+    );
     const result = await handleCloseAppeal(stewardContext(), closeForm(), 'close-appeal');
     expect(result.location.startsWith(`${SHELL}?`)).toBe(true);
     expect(result.location.endsWith('#reported-incidents')).toBe(true);
@@ -697,10 +700,19 @@ describe('the steward appeal actions (appeals BR2.1-BR2.3, BR3.1-BR3.7)', () => 
     ['invalid', 'invalid'],
   ])('save-appeal-comment turns %s into ?appealaction=%s', async (code, flash) => {
     captureLogs();
-    const calls = stubFetch((c) => (c.url.endsWith('/rpc/save_incident_appeal_comment') ? respond(code) : respond([{}])));
-    const result = await handleSaveAppealComment(stewardContext(), commentForm('  I would uphold it.  '), 'save-appeal-comment');
+    const calls = stubFetch((c) =>
+      c.url.endsWith('/rpc/save_incident_appeal_comment') ? respond(code) : respond([{}]),
+    );
+    const result = await handleSaveAppealComment(
+      stewardContext(),
+      commentForm('  I would uphold it.  '),
+      'save-appeal-comment',
+    );
     expect(flashOf(result.location)).toBe(flash);
-    expect(JSON.parse(String(calls[0].body))).toEqual({ p_appeal_id: APPEAL_ID, p_body: 'I would uphold it.' });
+    expect(JSON.parse(String(calls[0].body))).toEqual({
+      p_appeal_id: APPEAL_ID,
+      p_body: 'I would uphold it.',
+    });
     // The comment text never reaches the activity log (BR2.4).
     const log = calls.find((c) => c.url.endsWith('/activity_log'));
     expect(Boolean(log)).toBe(code === 'ok');
@@ -709,21 +721,43 @@ describe('the steward appeal actions (appeals BR2.1-BR2.3, BR3.1-BR3.7)', () => 
 
   it('save-appeal-comment refuses a blank or too-long comment before calling the database', async () => {
     const calls = stubFetch(() => respond('ok'));
-    expect(flashOf((await handleSaveAppealComment(stewardContext(), commentForm('   '), 'save-appeal-comment')).location)).toBe('invalid');
-    expect(flashOf((await handleSaveAppealComment(stewardContext(), commentForm('x'.repeat(4001)), 'save-appeal-comment')).location)).toBe('invalid');
+    expect(
+      flashOf(
+        (await handleSaveAppealComment(stewardContext(), commentForm('   '), 'save-appeal-comment')).location,
+      ),
+    ).toBe('invalid');
+    expect(
+      flashOf(
+        (
+          await handleSaveAppealComment(
+            stewardContext(),
+            commentForm('x'.repeat(4001)),
+            'save-appeal-comment',
+          )
+        ).location,
+      ),
+    ).toBe('invalid');
     expect(calls).toHaveLength(0);
   });
 
   it('set-appeal-status ignores reviewed, so only Close Appeal can close (BR3.6)', async () => {
     const calls = stubFetch(() => respond([{}]));
-    const result = await handleSetAppealStatus(stewardContext('?view=reports'), statusForm('reviewed'), 'set-appeal-status');
+    const result = await handleSetAppealStatus(
+      stewardContext('?view=reports'),
+      statusForm('reviewed'),
+      'set-appeal-status',
+    );
     expect(calls).toHaveLength(0);
     expect(result.location).toBe(`${SHELL}?view=reports`);
   });
 
   it('set-appeal-status still dismisses and reopens, clearing an old message', async () => {
     const calls = stubFetch(() => respond([{}]));
-    const result = await handleSetAppealStatus(stewardContext('?appealaction=invalid'), statusForm('dismissed'), 'set-appeal-status');
+    const result = await handleSetAppealStatus(
+      stewardContext('?appealaction=invalid'),
+      statusForm('dismissed'),
+      'set-appeal-status',
+    );
     expect(calls).toHaveLength(1);
     expect(calls[0].method).toBe('PATCH');
     expect(JSON.parse(String(calls[0].body))).toEqual({ status: 'dismissed' });
@@ -735,8 +769,17 @@ describe('the steward appeal actions (appeals BR2.1-BR2.3, BR3.1-BR3.7)', () => 
   it('set-appeal-status shows the database refusal for an involved steward or a closed appeal (BR3.5, BR3.7)', async () => {
     captureLogs();
     stubFetch(() => pgError('INVOLVED_STEWARD', 'You are involved in this incident'));
-    expect(flashOf((await handleSetAppealStatus(stewardContext(), statusForm('dismissed'), 'set-appeal-status')).location)).toBe('not-allowed');
+    expect(
+      flashOf(
+        (await handleSetAppealStatus(stewardContext(), statusForm('dismissed'), 'set-appeal-status'))
+          .location,
+      ),
+    ).toBe('not-allowed');
     stubFetch(() => pgError('ALREADY_CLOSED', 'This appeal is already closed'));
-    expect(flashOf((await handleSetAppealStatus(stewardContext(), statusForm('open'), 'set-appeal-status')).location)).toBe('already-closed');
+    expect(
+      flashOf(
+        (await handleSetAppealStatus(stewardContext(), statusForm('open'), 'set-appeal-status')).location,
+      ),
+    ).toBe('already-closed');
   });
 });

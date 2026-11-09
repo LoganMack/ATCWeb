@@ -10,9 +10,27 @@ const view: PollView = {
   title: 'Next season',
   description: 'Pick wisely.\nVotes open soon.',
   sections: [
-    { name: 'Track', answerType: 'single', options: [{ name: 'Spa', imageUrl: '/cdn-cgi/image/width=320/https://x.supabase.co/a.png' }, { name: 'Monza', imageUrl: null }] },
-    { name: 'Cars', answerType: 'multiple', options: [{ name: 'GT3', imageUrl: null }, { name: 'GT4', imageUrl: null }] },
-    { name: 'Rate', answerType: 'stars', options: [{ name: 'Season', imageUrl: 'blob:http://localhost/abc' }] },
+    {
+      name: 'Track',
+      answerType: 'single',
+      options: [
+        { name: 'Spa', imageUrl: '/cdn-cgi/image/width=320/https://x.supabase.co/a.png' },
+        { name: 'Monza', imageUrl: null },
+      ],
+    },
+    {
+      name: 'Cars',
+      answerType: 'multiple',
+      options: [
+        { name: 'GT3', imageUrl: null },
+        { name: 'GT4', imageUrl: null },
+      ],
+    },
+    {
+      name: 'Rate',
+      answerType: 'stars',
+      options: [{ name: 'Season', imageUrl: 'blob:http://localhost/abc' }],
+    },
   ],
 };
 
@@ -43,7 +61,9 @@ describe('pollViewHtml', () => {
       {
         title: '<script>alert(1)</script>',
         description: 'a & b',
-        sections: [{ name: '"><img src=x>', answerType: 'stars', options: [{ name: "O'Neil <b>", imageUrl: null }] }],
+        sections: [
+          { name: '"><img src=x>', answerType: 'stars', options: [{ name: "O'Neil <b>", imageUrl: null }] },
+        ],
       },
       { note: '<i>soon</i>' },
     );
@@ -63,13 +83,24 @@ describe('pollViewHtml', () => {
     expect(count(html, /data-poll-option-image/g)).toBe(2);
     const bad = pollViewHtml({
       ...view,
-      sections: [{ name: 'S', answerType: 'single', options: [{ name: 'A', imageUrl: 'javascript:alert(1)' }, { name: 'B', imageUrl: '//evil.test/x.png' }] }],
+      sections: [
+        {
+          name: 'S',
+          answerType: 'single',
+          options: [
+            { name: 'A', imageUrl: 'javascript:alert(1)' },
+            { name: 'B', imageUrl: '//evil.test/x.png' },
+          ],
+        },
+      ],
     });
     expect(bad).not.toContain('<img');
   });
 
   it('shows the note when given, and the description only when there is one', () => {
-    expect(pollViewHtml(view, { note: 'Voting opens soon' })).toContain('data-poll-note>Voting opens soon</p>');
+    expect(pollViewHtml(view, { note: 'Voting opens soon' })).toContain(
+      'data-poll-note>Voting opens soon</p>',
+    );
     expect(pollViewHtml(view, { note: 'This poll has closed' })).toContain('This poll has closed');
     expect(pollViewHtml(view)).not.toContain('data-poll-note');
     expect(pollViewHtml({ ...view, description: null })).not.toContain('whitespace-pre-line');

@@ -5,7 +5,12 @@
  */
 import { pollViewHtml } from '../lib/polls/view';
 import { ANSWER_TYPE_LABELS, isAnswerType, type PollView } from '../lib/polls/types';
-import { blankOption, type EditorOption, type EditorSection, type EditorState } from '../lib/polls/editorState';
+import {
+  blankOption,
+  type EditorOption,
+  type EditorSection,
+  type EditorState,
+} from '../lib/polls/editorState';
 import { pollImagesBudgetMessage } from '../lib/polls/requestSize';
 import { shrinkPollImage } from './pollImageResize';
 
@@ -44,14 +49,21 @@ function move<T>(list: T[], index: number, delta: number): boolean {
 }
 
 export function moveSection(state: EditorState, key: string, delta: -1 | 1): boolean {
-  return move(state.sections, state.sections.findIndex((s) => s.key === key), delta);
+  return move(
+    state.sections,
+    state.sections.findIndex((s) => s.key === key),
+    delta,
+  );
 }
 
 export function removeSection(state: EditorState, key: string): void {
   state.sections = state.sections.filter((s) => s.key !== key);
 }
 
-export function findOption(state: EditorState, key: string): { section: EditorSection; option: EditorOption } | null {
+export function findOption(
+  state: EditorState,
+  key: string,
+): { section: EditorSection; option: EditorOption } | null {
   for (const section of state.sections) {
     const option = section.options.find((o) => o.key === key);
     if (option) return { section, option };
@@ -131,9 +143,14 @@ export function localToIso(local: string): string {
 
 // --- DOM -----------------------------------------------------------------------------------------------------
 
-const FIELD = 'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary';
+const FIELD =
+  'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary';
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, string> = {}, text = ''): HTMLElementTagNameMap[K] {
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  attrs: Record<string, string> = {},
+  text = '',
+): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, value);
   if (text) node.textContent = text;
@@ -151,13 +168,30 @@ function errorLine(message: string | null): HTMLParagraphElement {
 }
 
 function optionRow(option: EditorOption): HTMLLIElement {
-  const row = el('li', { class: 'flex flex-col gap-2 rounded-lg border border-white/10 p-3', 'data-option-key': option.key });
+  const row = el('li', {
+    class: 'flex flex-col gap-2 rounded-lg border border-white/10 p-3',
+    'data-option-key': option.key,
+  });
   const line = el('div', { class: 'flex flex-wrap items-center gap-2' });
-  const name = el('input', { type: 'text', maxlength: '120', class: `${FIELD} min-w-0 flex-1`, 'data-field': 'name', 'aria-label': 'Option name' });
+  const name = el('input', {
+    type: 'text',
+    maxlength: '120',
+    class: `${FIELD} min-w-0 flex-1`,
+    'data-field': 'name',
+    'aria-label': 'Option name',
+  });
   name.value = option.name;
   line.append(name);
   if (option.thumb_url) {
-    line.append(el('img', { src: option.thumb_url, alt: '', width: '40', height: '40', class: 'h-10 w-10 rounded-md object-cover' }));
+    line.append(
+      el('img', {
+        src: option.thumb_url,
+        alt: '',
+        width: '40',
+        height: '40',
+        class: 'h-10 w-10 rounded-md object-cover',
+      }),
+    );
     const remove = el('label', { class: 'flex items-center gap-1.5 text-xs text-white/70' });
     const box = el('input', { type: 'checkbox', 'data-field': 'remove_image' });
     box.checked = option.remove_image;
@@ -171,13 +205,21 @@ function optionRow(option: EditorOption): HTMLLIElement {
     class: `${FIELD} max-w-full file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1 file:text-white`,
     'aria-label': 'Option image',
   });
-  line.append(file, button('option-up', 'Move up'), button('option-down', 'Move down'), button('remove-option', 'Remove', 'btn-danger'));
+  line.append(
+    file,
+    button('option-up', 'Move up'),
+    button('option-down', 'Move down'),
+    button('remove-option', 'Remove', 'btn-danger'),
+  );
   row.append(line, errorLine(option.error));
   return row;
 }
 
 function sectionCard(section: EditorSection): HTMLDivElement {
-  const card = el('div', { class: 'flex flex-col gap-3 rounded-xl border border-white/10 bg-brand-ink p-4', 'data-section-key': section.key });
+  const card = el('div', {
+    class: 'flex flex-col gap-3 rounded-xl border border-white/10 bg-brand-ink p-4',
+    'data-section-key': section.key,
+  });
   const head = el('div', { class: 'flex flex-wrap items-end gap-3' });
   const nameLabel = el('label', { class: 'flex min-w-0 flex-1 flex-col gap-1.5 text-sm' });
   const name = el('input', { type: 'text', maxlength: '120', class: FIELD, 'data-field': 'name' });
@@ -199,7 +241,12 @@ function sectionCard(section: EditorSection): HTMLDivElement {
     button('section-down', 'Move down'),
     button('remove-section', 'Remove section', 'btn-danger'),
   );
-  card.append(head, errorLine(section.error), el('ol', { class: 'flex flex-col gap-2', 'data-options': '' }), actions);
+  card.append(
+    head,
+    errorLine(section.error),
+    el('ol', { class: 'flex flex-col gap-2', 'data-options': '' }),
+    actions,
+  );
   section.options.forEach((o) => card.querySelector('[data-options]')!.append(optionRow(o)));
   return card;
 }
@@ -211,13 +258,17 @@ function refreshLabels(root: HTMLElement, state: EditorState): void {
     if (!card) return;
     const sectionName = section.name.trim() || `section ${i + 1}`;
     card.querySelector('[data-action="section-up"]')?.setAttribute('aria-label', `Move ${sectionName} up`);
-    card.querySelector('[data-action="section-down"]')?.setAttribute('aria-label', `Move ${sectionName} down`);
+    card
+      .querySelector('[data-action="section-down"]')
+      ?.setAttribute('aria-label', `Move ${sectionName} down`);
     card.querySelector('[data-action="remove-section"]')?.setAttribute('aria-label', `Remove ${sectionName}`);
     section.options.forEach((option, j) => {
       const row = card.querySelector<HTMLElement>(`[data-option-key="${option.key}"]`);
       const optionName = option.name.trim() || `option ${j + 1}`;
       row?.querySelector('[data-action="option-up"]')?.setAttribute('aria-label', `Move ${optionName} up`);
-      row?.querySelector('[data-action="option-down"]')?.setAttribute('aria-label', `Move ${optionName} down`);
+      row
+        ?.querySelector('[data-action="option-down"]')
+        ?.setAttribute('aria-label', `Move ${optionName} down`);
       row?.querySelector('[data-action="remove-option"]')?.setAttribute('aria-label', `Remove ${optionName}`);
     });
   });
@@ -225,8 +276,12 @@ function refreshLabels(root: HTMLElement, state: EditorState): void {
 
 /** Puts cards and rows in state order, reusing existing nodes so chosen files and focus survive a move. */
 function render(root: HTMLElement, state: EditorState): void {
-  const cards = new Map([...root.querySelectorAll<HTMLElement>('[data-section-key]')].map((c) => [c.dataset.sectionKey!, c]));
-  const rows = new Map([...root.querySelectorAll<HTMLElement>('[data-option-key]')].map((r) => [r.dataset.optionKey!, r]));
+  const cards = new Map(
+    [...root.querySelectorAll<HTMLElement>('[data-section-key]')].map((c) => [c.dataset.sectionKey!, c]),
+  );
+  const rows = new Map(
+    [...root.querySelectorAll<HTMLElement>('[data-option-key]')].map((r) => [r.dataset.optionKey!, r]),
+  );
   const keep = new Set<HTMLElement>();
   for (const section of state.sections) {
     const card = cards.get(section.key) ?? sectionCard(section);
@@ -281,7 +336,8 @@ function initPollEditor(): void {
       const found = findOption(state!, row.dataset.optionKey!);
       if (!found) return;
       if (field === 'name') found.option.name = target.value;
-      if (field === 'remove_image' && target instanceof HTMLInputElement) found.option.remove_image = target.checked;
+      if (field === 'remove_image' && target instanceof HTMLInputElement)
+        found.option.remove_image = target.checked;
     } else if (card) {
       const section = state!.sections.find((s) => s.key === card.dataset.sectionKey);
       if (!section) return;
@@ -362,9 +418,11 @@ function initPollEditor(): void {
     const sectionKey = action.closest<HTMLElement>('[data-section-key]')?.dataset.sectionKey ?? '';
     const name = action.dataset.action;
     if (name === 'add-option') addOption(state, sectionKey);
-    else if (name === 'section-up' || name === 'section-down') moveSection(state, sectionKey, name === 'section-up' ? -1 : 1);
+    else if (name === 'section-up' || name === 'section-down')
+      moveSection(state, sectionKey, name === 'section-up' ? -1 : 1);
     else if (name === 'remove-section') removeSection(state, sectionKey);
-    else if (optionKey && (name === 'option-up' || name === 'option-down')) moveOption(state, optionKey, name === 'option-up' ? -1 : 1);
+    else if (optionKey && (name === 'option-up' || name === 'option-down'))
+      moveOption(state, optionKey, name === 'option-up' ? -1 : 1);
     else if (optionKey && name === 'remove-option') removeOption(state, optionKey);
     render(root, state);
     sync();
@@ -377,7 +435,9 @@ function initPollEditor(): void {
     const section = addSection(state);
     render(root, state);
     sync();
-    root.querySelector<HTMLInputElement>(`[data-section-key="${section.key}"] input[data-field="name"]`)?.focus();
+    root
+      .querySelector<HTMLInputElement>(`[data-section-key="${section.key}"] input[data-field="name"]`)
+      ?.focus();
   });
 
   const dialog = document.querySelector<HTMLDialogElement>('dialog[data-poll-preview-dialog]');

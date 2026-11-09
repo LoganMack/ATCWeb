@@ -20,7 +20,8 @@ export function formatMegabytes(bytes: number): string {
  * may be parsed. The body is never read, so only the stored poll (or a blank form) can be shown again.
  */
 export function pollSaveSizeError(contentLength: string | null): PollFormError | null {
-  const bytes = contentLength !== null && /^\d+$/.test(contentLength.trim()) ? Number(contentLength.trim()) : NaN;
+  const bytes =
+    contentLength !== null && /^\d+$/.test(contentLength.trim()) ? Number(contentLength.trim()) : NaN;
   if (Number.isNaN(bytes)) {
     return { field: 'form', message: 'The save could not be read because its size was not sent. Try again.' };
   }

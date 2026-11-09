@@ -54,7 +54,13 @@ function stubFetch(handler: (call: Call) => Response): Call[] {
   return calls;
 }
 
-const decision = { timePenaltySeconds: 2.5, pointsPenalty: 1, penaltyPoints: 0, isWarning: false, comment: 'Reduced.' };
+const decision = {
+  timePenaltySeconds: 2.5,
+  pointsPenalty: 1,
+  penaltyPoints: 0,
+  isWarning: false,
+  comment: 'Reduced.',
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -62,9 +68,12 @@ afterEach(() => {
 });
 
 describe('the close and comment status codes', () => {
-  it.each(['ok', 'already_closed', 'not_open', 'not_allowed', 'invalid'] as const)('maps the close code %s', (code) => {
-    expect(toCloseAppealOutcome(code)).toBe(code);
-  });
+  it.each(['ok', 'already_closed', 'not_open', 'not_allowed', 'invalid'] as const)(
+    'maps the close code %s',
+    (code) => {
+      expect(toCloseAppealOutcome(code)).toBe(code);
+    },
+  );
 
   it('tells the steward a dismissed appeal was not closed', () => {
     expect(APPEAL_ACTION_FLASH_MESSAGES.dismissed.message).toMatch(/dismissed/);
@@ -134,7 +143,15 @@ describe('saveIncidentAppealComment', () => {
 
 describe('the appeal reads', () => {
   it('reads the round comments through incident_appeal_comments_for_round', async () => {
-    const rows = [{ appeal_id: APPEAL_ID, author_name: 'Steward Two', body: 'Reduce', updated_at: '2026-11-09T12:00:00Z', is_mine: false }];
+    const rows = [
+      {
+        appeal_id: APPEAL_ID,
+        author_name: 'Steward Two',
+        body: 'Reduce',
+        updated_at: '2026-11-09T12:00:00Z',
+        is_mine: false,
+      },
+    ];
     const calls = stubFetch(() => respond(rows));
     await expect(getAppealCommentsForSubsession(env, TOKEN, 9001)).resolves.toEqual(rows);
     expect(calls[0]).toMatchObject({
@@ -169,7 +186,12 @@ function closeForm(fields: Record<string, string>): FormData {
 describe('closeAppealPrefill (BR3.1)', () => {
   it('opens with the effective values, a missing time shown as 0', () => {
     const [plain] = toPenalties([{ driver_id: 'A', points_penalty: 2, penalty_points: 3, is_warning: true }]);
-    expect(closeAppealPrefill(plain)).toEqual({ timePenaltySeconds: 0, pointsPenalty: 2, penaltyPoints: 3, isWarning: true });
+    expect(closeAppealPrefill(plain)).toEqual({
+      timePenaltySeconds: 0,
+      pointsPenalty: 2,
+      penaltyPoints: 3,
+      isWarning: true,
+    });
   });
 
   it('opens with the earlier close values on a second appeal (BR3.4)', () => {
@@ -185,22 +207,42 @@ describe('closeAppealPrefill (BR3.1)', () => {
         appeal_is_warning: false,
       },
     ]);
-    expect(closeAppealPrefill(appealed)).toEqual({ timePenaltySeconds: 2.5, pointsPenalty: 0, penaltyPoints: 1, isWarning: false });
+    expect(closeAppealPrefill(appealed)).toEqual({
+      timePenaltySeconds: 2.5,
+      pointsPenalty: 0,
+      penaltyPoints: 1,
+      isWarning: false,
+    });
   });
 });
 
 describe('parseCloseAppealForm (BR3.1)', () => {
   it('reads a valid decision, trimming the comment and reading the warning tick', () => {
-    expect(parseCloseAppealForm(closeForm({ time_penalty_seconds: '2.125', is_warning: 'on', comment: '  Reduced.  ' }))).toEqual({
+    expect(
+      parseCloseAppealForm(
+        closeForm({ time_penalty_seconds: '2.125', is_warning: 'on', comment: '  Reduced.  ' }),
+      ),
+    ).toEqual({
       ok: true,
       appealId: APPEAL_ID,
-      input: { timePenaltySeconds: 2.125, pointsPenalty: 2, penaltyPoints: 3, isWarning: true, comment: 'Reduced.' },
+      input: {
+        timePenaltySeconds: 2.125,
+        pointsPenalty: 2,
+        penaltyPoints: 3,
+        isWarning: true,
+        comment: 'Reduced.',
+      },
     });
   });
 
   it('takes 0 everywhere and no tick as no warning', () => {
-    const parsed = parseCloseAppealForm(closeForm({ time_penalty_seconds: '0', points_penalty: '0', penalty_points: '0' }));
-    expect(parsed).toMatchObject({ ok: true, input: { timePenaltySeconds: 0, pointsPenalty: 0, penaltyPoints: 0, isWarning: false } });
+    const parsed = parseCloseAppealForm(
+      closeForm({ time_penalty_seconds: '0', points_penalty: '0', penalty_points: '0' }),
+    );
+    expect(parsed).toMatchObject({
+      ok: true,
+      input: { timePenaltySeconds: 0, pointsPenalty: 0, penaltyPoints: 0, isWarning: false },
+    });
   });
 
   it.each([
@@ -321,7 +363,14 @@ describe('appealCardView (BR1.2, BR1.3, BR5.1)', () => {
 
   it('shows a closed appeal its own decision, comment and closer, with no buttons', () => {
     const view = appealCardView(closed(), true);
-    expect(view).toMatchObject({ badge: 'Closed', viewDecision: false, dismiss: false, closeAppeal: false, commentLabel: null, reopen: false });
+    expect(view).toMatchObject({
+      badge: 'Closed',
+      viewDecision: false,
+      dismiss: false,
+      closeAppeal: false,
+      commentLabel: null,
+      reopen: false,
+    });
     expect(view.outcome).toEqual({
       lines: ['Time penalty: 2.5 s', 'Points penalty: 1', 'Penalty points: 0', 'Warning: No'],
       comment: 'Reduced to a reprimand.',
@@ -331,10 +380,16 @@ describe('appealCardView (BR1.2, BR1.3, BR5.1)', () => {
   });
 
   it('names a deleted steward "a former steward"', () => {
-    expect(appealCardView(closed({ closed_by: null, closer: null }), false).outcome?.closedBy).toBe('a former steward');
+    expect(appealCardView(closed({ closed_by: null, closer: null }), false).outcome?.closedBy).toBe(
+      'a former steward',
+    );
   });
 
   it('shows only the Closed badge for an appeal reviewed before Close Appeal existed', () => {
-    expect(appealCardView(appeal({ status: 'reviewed' }), false)).toMatchObject({ badge: 'Closed', outcome: null, reopen: false });
+    expect(appealCardView(appeal({ status: 'reviewed' }), false)).toMatchObject({
+      badge: 'Closed',
+      outcome: null,
+      reopen: false,
+    });
   });
 });

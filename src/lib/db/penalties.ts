@@ -336,7 +336,12 @@ export async function getWarningCounts(
   if (subsessionIds.length === 0) return out;
   // Either flag may make it a warning once appealed (BR4.1), so fetch both and decide here.
   const rows = await restGet<
-    { driver_id: string | null; is_warning: boolean; is_appealed: boolean; appeal_is_warning: boolean | null }[]
+    {
+      driver_id: string | null;
+      is_warning: boolean;
+      is_appealed: boolean;
+      appeal_is_warning: boolean | null;
+    }[]
   >(
     env,
     `penalties_shown?select=driver_id,is_warning,is_appealed,appeal_is_warning&or=(is_warning.eq.true,appeal_is_warning.eq.true)&subsession_id=in.(${subsessionIds.join(',')})`,

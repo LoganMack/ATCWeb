@@ -46,7 +46,12 @@ export function appealTextProblem(text: string, max = APPEAL_TEXT_MAX): string |
 }
 
 /** Why the Close Appeal values can't be saved yet, or null when they can (BR3.1, as parseCloseAppealForm). */
-export function closeAppealProblem(values: { time: string; points: string; licence: string; comment: string }): string | null {
+export function closeAppealProblem(values: {
+  time: string;
+  points: string;
+  licence: string;
+  comment: string;
+}): string | null {
   if (!/^\d+(\.\d{1,3})?$/.test(values.time.trim()))
     return 'The time penalty must be 0 or more seconds, with at most 3 decimals.';
   if (!/^\d+$/.test(values.points.trim())) return 'The points penalty must be a whole number of 0 or more.';
@@ -88,7 +93,8 @@ function openCloseDialog(dialog: HTMLDialogElement, data: CloseAppealData): void
 }
 
 function syncCloseDialog(dialog: HTMLDialogElement): void {
-  const value = (selector: string) => field<HTMLInputElement | HTMLTextAreaElement>(dialog, selector)?.value ?? '';
+  const value = (selector: string) =>
+    field<HTMLInputElement | HTMLTextAreaElement>(dialog, selector)?.value ?? '';
   const comment = value('[data-decide-appeal-comment]');
   const counter = field<HTMLElement>(dialog, '[data-decide-appeal-counter]');
   if (counter) counter.textContent = counterText(comment);
@@ -150,12 +156,15 @@ function initAppealDialogs(): void {
       return;
     }
     // The ✕ and Cancel buttons, and a click on the backdrop (the <dialog> itself, outside its form).
-    const dismiss = target.closest<HTMLElement>('[data-decide-appeal-dismiss], [data-appeal-comment-dismiss]');
+    const dismiss = target.closest<HTMLElement>(
+      '[data-decide-appeal-dismiss], [data-appeal-comment-dismiss]',
+    );
     if (dismiss) {
       dismiss.closest('dialog')?.close();
       return;
     }
-    if (target instanceof HTMLDialogElement && (target === closeDialog() || target === commentDialog())) target.close();
+    if (target instanceof HTMLDialogElement && (target === closeDialog() || target === commentDialog()))
+      target.close();
   });
 
   document.addEventListener('input', (event) => {

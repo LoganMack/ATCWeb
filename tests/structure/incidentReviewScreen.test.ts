@@ -40,7 +40,9 @@ describe('the filter bar', () => {
     expect(list).toContain('data-filter-empty={f}');
     expect(FRAGMENT).toContain('const activeFilter = initialFilter(filterCounts, openAppealCount);');
     // Appeals BR1.1: the open appeals, not every appeal, decide whether the screen opens on Appeals.
-    expect(FRAGMENT).toContain("const openAppealCount = incidentAppeals.filter((a) => a.status === 'open').length;");
+    expect(FRAGMENT).toContain(
+      "const openAppealCount = incidentAppeals.filter((a) => a.status === 'open').length;",
+    );
   });
 
   it('has no collapsible sections for the report groups or appeals', () => {
@@ -100,11 +102,16 @@ describe('the report card', () => {
 });
 
 describe('the appeal card (appeals BR1.2, BR1.3, BR5.1)', () => {
-  const appealCard = list.slice(list.indexOf('{incidentAppeals.map((a) => {'), list.indexOf('{viewReports && FILTER_ORDER.map'));
+  const appealCard = list.slice(
+    list.indexOf('{incidentAppeals.map((a) => {'),
+    list.indexOf('{viewReports && FILTER_ORDER.map'),
+  );
   const actions = appealCard.slice(appealCard.indexOf('data-appeal-actions'));
 
   it('decides its buttons with the shared rule, including involvement', () => {
-    expect(appealCard).toContain('const card = appealCardView(a, myComment !== null, isInvolvedInAppeal(appealed));');
+    expect(appealCard).toContain(
+      'const card = appealCardView(a, myComment !== null, isInvolvedInAppeal(appealed));',
+    );
   });
 
   it('shows each button only for the status that allows it', () => {
@@ -134,19 +141,24 @@ describe('the appeal card (appeals BR1.2, BR1.3, BR5.1)', () => {
   });
 
   it('shows the steward comments collapsed, like the reviews, and the close record on a closed card', () => {
-    expect(appealCard).toContain('<details class="group/comments min-w-0 flex-1" data-appeal-comments data-testid="appeal-comments">');
+    expect(appealCard).toContain(
+      '<details class="group/comments min-w-0 flex-1" data-appeal-comments data-testid="appeal-comments">',
+    );
     expect(appealCard).toContain('<span>Steward comments ({appealComments.length})</span>');
     expect(appealCard).toContain('{card.outcome && (');
     expect(appealCard).toContain('Closed by {card.outcome.closedBy}');
   });
 
   it('uses the shared button classes only', () => {
-    for (const button of actions.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-(primary|danger|gold) btn-sm"/);
+    for (const button of actions.match(/<button[^>]*>/g) ?? [])
+      expect(button).toMatch(/class="btn btn-(primary|danger|gold) btn-sm"/);
   });
 
   it('no longer offers Mark reviewed anywhere', () => {
     expect(FRAGMENT).not.toMatch(/Mark reviewed/i);
-    expect(SRC['/src/lib/incidentActions/setAppealStatus.ts']).toContain("status === 'open' || status === 'dismissed'");
+    expect(SRC['/src/lib/incidentActions/setAppealStatus.ts']).toContain(
+      "status === 'open' || status === 'dismissed'",
+    );
     expect(SRC['/src/lib/incidentActions/setAppealStatus.ts']).not.toContain("status === 'reviewed'");
   });
 

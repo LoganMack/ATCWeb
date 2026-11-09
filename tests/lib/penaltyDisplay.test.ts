@@ -97,10 +97,18 @@ describe('sharedPenaltyTagLabel with an appealed warning (appeals BR4.1)', () =>
     ]);
     expect(sharedPenaltyTagLabel([removed])).toBe('Penalty');
     const [cleared] = toPenalties([
-      { driver_id: 'A', is_warning: true, is_appealed: true, appeal_time_penalty_seconds: 0, appeal_is_warning: false },
+      {
+        driver_id: 'A',
+        is_warning: true,
+        is_appealed: true,
+        appeal_time_penalty_seconds: 0,
+        appeal_is_warning: false,
+      },
     ]);
     expect(sharedPenaltyTagLabel([cleared])).toBe('Racing Incident');
-    const [kept] = toPenalties([{ driver_id: 'A', is_warning: true, is_appealed: true, appeal_is_warning: null }]);
+    const [kept] = toPenalties([
+      { driver_id: 'A', is_warning: true, is_appealed: true, appeal_is_warning: null },
+    ]);
     expect(sharedPenaltyTagLabel([kept])).toBe('Warning');
   });
 

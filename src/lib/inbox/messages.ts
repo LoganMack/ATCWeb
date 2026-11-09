@@ -31,7 +31,9 @@ export interface NotificationItem {
 const FALLBACK_ROUND = 'a recent round';
 
 /** "ATC18, Round 7 at Portland"; the round part is left out until the round has a number (Q2 A). */
-export function roundLabel(row: Pick<NotificationRow, 'season_label' | 'round_number' | 'track_name'>): string {
+export function roundLabel(
+  row: Pick<NotificationRow, 'season_label' | 'round_number' | 'track_name'>,
+): string {
   const season = row.season_label?.trim();
   const track = row.track_name?.trim();
   if (!season || !track) return FALLBACK_ROUND;
@@ -102,7 +104,9 @@ export function unreadBadgeText(count: number): string {
 
 /** The bell's accessible name, with the count when there is one (BR1.2, NFR6). */
 export function bellLabel(count: number): string {
-  return Number.isFinite(count) && count > 0 ? `Notifications (${Math.floor(count)} unread)` : 'Notifications';
+  return Number.isFinite(count) && count > 0
+    ? `Notifications (${Math.floor(count)} unread)`
+    : 'Notifications';
 }
 
 const UNITS: [limitMs: number, unitMs: number, name: string][] = [

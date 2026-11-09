@@ -45,7 +45,10 @@ function fakePage(
   const button: FakeElement | null = appealWindow
     ? {
         name: 'appeal',
-        dataset: { appealOpen: String(appealWindow.open), appealClosesAt: appealWindow.closesAt ?? OPEN_UNTIL },
+        dataset: {
+          appealOpen: String(appealWindow.open),
+          appealClosesAt: appealWindow.closesAt ?? OPEN_UNTIL,
+        },
         click: () => log.push('appeal'),
       }
     : null;
@@ -105,14 +108,21 @@ describe('?open=appeal (BR3.3)', () => {
     const closed = fakePage(`${BASE}?open=appeal`, [mine('p1')], { open: false });
     runDeepLink(closed.page);
     expect(closed.notices).toEqual(['closed']);
-    const passed = fakePage(`${BASE}?open=appeal`, [mine('p1')], { open: true, closesAt: '2026-11-09T11:00:00Z' });
+    const passed = fakePage(`${BASE}?open=appeal`, [mine('p1')], {
+      open: true,
+      closesAt: '2026-11-09T11:00:00Z',
+    });
     runDeepLink(passed.page);
     expect(passed.notices).toEqual(['closed']);
     expect(NOTICE_TEXT.closed).toBe('The appeal window for this round has closed.');
   });
 
   it('asks a signed-out viewer to sign in and opens nothing', () => {
-    const { page, log, notices } = fakePage(`${BASE}?open=appeal`, [{ penaltyId: 'p1', canAppeal: null }], null);
+    const { page, log, notices } = fakePage(
+      `${BASE}?open=appeal`,
+      [{ penaltyId: 'p1', canAppeal: null }],
+      null,
+    );
     expect(runDeepLink(page)).toBe('notice');
     expect(notices).toEqual(['signed-out']);
     expect(log).toEqual([]);
@@ -132,7 +142,9 @@ describe('?open=incident&penalty= (BR3.4)', () => {
   });
 
   it('does nothing when no row matches, but still drops the parameters', () => {
-    const { page, log, replaced } = fakePage(`${BASE}?open=incident&penalty=gone`, [others('p1')], { open: true });
+    const { page, log, replaced } = fakePage(`${BASE}?open=incident&penalty=gone`, [others('p1')], {
+      open: true,
+    });
     expect(runDeepLink(page)).toBe('not-found');
     expect(log).toEqual([]);
     expect(replaced()).toBe('/results/81234567/incidents');
@@ -170,7 +182,9 @@ describe('timing and parsing', () => {
     expect(parseDeepLink('?open=incident&penalty=p9')).toEqual({ kind: 'incident', penaltyId: 'p9' });
     expect(parseDeepLink('?open=incident')).toBeNull();
     expect(parseDeepLink('?open=other')).toBeNull();
-    expect(urlWithoutDeepLink(`${BASE}?open=appeal&season=ATC18`)).toBe('/results/81234567/incidents?season=ATC18');
+    expect(urlWithoutDeepLink(`${BASE}?open=appeal&season=ATC18`)).toBe(
+      '/results/81234567/incidents?season=ATC18',
+    );
   });
 
   it('reads the window from the Submit Appeal button as the page does', () => {

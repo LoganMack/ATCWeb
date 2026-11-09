@@ -22,7 +22,11 @@ export interface NavStatusInput {
 
 /** Pending sign-up requests, read with the caller's token as /api/pending-signups does, so RLS applies. */
 export async function getPendingSignupCount(env: SupabaseEnv, accessToken: string): Promise<number> {
-  const rows = await restGetAuthed<{ id: string }[]>(env, accessToken, 'signup_requests?select=id&status=eq.pending');
+  const rows = await restGetAuthed<{ id: string }[]>(
+    env,
+    accessToken,
+    'signup_requests?select=id&status=eq.pending',
+  );
   return rows.length;
 }
 

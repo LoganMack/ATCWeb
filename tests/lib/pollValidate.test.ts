@@ -53,9 +53,15 @@ const fields = (errors: { field: string }[]) => errors.map((e) => e.field);
 describe('parsePollForm', () => {
   it('accepts a poll with mixed answer types and keeps the loaded updated_at as text', () => {
     const { form, errors } = parsePollForm(
-      formData([pickOne(), { key: 's2', name: 'Rate', answer_type: 'stars', options: [{ key: 's2o0', name: 'Season' }] }], {
-        is_schedule_vote: 'on',
-      }),
+      formData(
+        [
+          pickOne(),
+          { key: 's2', name: 'Rate', answer_type: 'stars', options: [{ key: 's2o0', name: 'Season' }] },
+        ],
+        {
+          is_schedule_vote: 'on',
+        },
+      ),
       null,
       NOW,
     );
@@ -66,12 +72,18 @@ describe('parsePollForm', () => {
   });
 
   it('checks the title and description limits (BR1.1)', () => {
-    expect(fields(parsePollForm(formData([pickOne()], { title: '   ' }), null, NOW).errors)).toEqual(['title']);
-    expect(fields(parsePollForm(formData([pickOne()], { title: 't'.repeat(121) }), null, NOW).errors)).toEqual(['title']);
-    expect(parsePollForm(formData([pickOne()], { title: ` ${'t'.repeat(120)} ` }), null, NOW).errors).toEqual([]);
-    expect(fields(parsePollForm(formData([pickOne()], { description: 'd'.repeat(2001) }), null, NOW).errors)).toEqual([
-      'description',
+    expect(fields(parsePollForm(formData([pickOne()], { title: '   ' }), null, NOW).errors)).toEqual([
+      'title',
     ]);
+    expect(
+      fields(parsePollForm(formData([pickOne()], { title: 't'.repeat(121) }), null, NOW).errors),
+    ).toEqual(['title']);
+    expect(parsePollForm(formData([pickOne()], { title: ` ${'t'.repeat(120)} ` }), null, NOW).errors).toEqual(
+      [],
+    );
+    expect(
+      fields(parsePollForm(formData([pickOne()], { description: 'd'.repeat(2001) }), null, NOW).errors),
+    ).toEqual(['description']);
   });
 
   it('needs 1 to 20 sections, each named and with an answer type (BR1.2)', () => {
@@ -79,10 +91,12 @@ describe('parsePollForm', () => {
     const many = Array.from({ length: 21 }, (_, i) => pickOne(['A', 'B'], `s${i}`));
     expect(fields(parsePollForm(formData(many), null, NOW).errors)).toContain('sections');
     const unnamed = parsePollForm(formData([{ ...pickOne(), name: ' ' }]), null, NOW).errors;
-    expect(unnamed).toEqual([{ field: 'section:s1', message: 'Section 1: the name must be 1 to 120 characters.' }]);
-    expect(fields(parsePollForm(formData([{ ...pickOne(), answer_type: 'ranked' }]), null, NOW).errors)).toEqual([
-      'section:s1',
+    expect(unnamed).toEqual([
+      { field: 'section:s1', message: 'Section 1: the name must be 1 to 120 characters.' },
     ]);
+    expect(
+      fields(parsePollForm(formData([{ ...pickOne(), answer_type: 'ranked' }]), null, NOW).errors),
+    ).toEqual(['section:s1']);
   });
 
   it('applies the option counts per answer type (BR1.3)', () => {
@@ -94,9 +108,9 @@ describe('parsePollForm', () => {
       'Section 1: Star rating needs 1 to 30 options.',
     );
     const thirtyOne = Array.from({ length: 31 }, (_, i) => `O${i}`);
-    expect(fields(parsePollForm(formData([{ ...pickOne(thirtyOne), answer_type: 'multiple' }]), null, NOW).errors)).toEqual([
-      'section:s1',
-    ]);
+    expect(
+      fields(parsePollForm(formData([{ ...pickOne(thirtyOne), answer_type: 'multiple' }]), null, NOW).errors),
+    ).toEqual(['section:s1']);
   });
 
   it('refuses option names that repeat ignoring case and spaces, within a section only (BR1.3)', () => {
@@ -104,9 +118,10 @@ describe('parsePollForm', () => {
     expect(errors).toEqual([
       { field: 'option:s1o1', message: 'Section 1, option 2: "red" is already an option in this section.' },
     ]);
-    expect(parsePollForm(formData([pickOne(['Red', 'Blue'], 'a'), pickOne(['Red', 'Blue'], 'b')]), null, NOW).errors).toEqual(
-      [],
-    );
+    expect(
+      parsePollForm(formData([pickOne(['Red', 'Blue'], 'a'), pickOne(['Red', 'Blue'], 'b')]), null, NOW)
+        .errors,
+    ).toEqual([]);
   });
 
   it('counts characters as the database does', () => {
@@ -120,15 +135,29 @@ describe('parsePollForm', () => {
     expect(parsePollForm(formData([pickOne()], { closes_at: past }), null, NOW).errors).toEqual([
       { field: 'closes_at', message: 'The closing date must be in the future.' },
     ]);
-    expect(parsePollForm(formData([pickOne()], { closes_at: past }), '2026-11-14T12:00:00+00:00', NOW).errors).toEqual([]);
-    expect(parsePollForm(formData([pickOne()], { closes_at: NOW.toISOString() }), null, NOW).errors).toHaveLength(1);
-    expect(parsePollForm(formData([pickOne()], { closes_at: 'soon' }), null, NOW).errors[0].field).toBe('closes_at');
-    expect(parsePollForm(formData([pickOne()], { closes_at: '2026-11-16T09:30:00.000Z' }), null, NOW).errors).toEqual([]);
+    expect(
+      parsePollForm(formData([pickOne()], { closes_at: past }), '2026-11-14T12:00:00+00:00', NOW).errors,
+    ).toEqual([]);
+    expect(
+      parsePollForm(formData([pickOne()], { closes_at: NOW.toISOString() }), null, NOW).errors,
+    ).toHaveLength(1);
+    expect(parsePollForm(formData([pickOne()], { closes_at: 'soon' }), null, NOW).errors[0].field).toBe(
+      'closes_at',
+    );
+    expect(
+      parsePollForm(formData([pickOne()], { closes_at: '2026-11-16T09:30:00.000Z' }), null, NOW).errors,
+    ).toEqual([]);
   });
 
   it('checks image type, size and the per-save count (BR4.1)', () => {
-    const gif = parsePollForm(formData([pickOne()], {}, { image_s1o0: image('image/gif', 10) }), null, NOW).errors;
-    expect(gif).toEqual([{ field: 'option:s1o0', message: 'Section 1, option 1: the image must be a PNG, JPEG or WebP file.' }]);
+    const gif = parsePollForm(
+      formData([pickOne()], {}, { image_s1o0: image('image/gif', 10) }),
+      null,
+      NOW,
+    ).errors;
+    expect(gif).toEqual([
+      { field: 'option:s1o0', message: 'Section 1, option 1: the image must be a PNG, JPEG or WebP file.' },
+    ]);
     const big = parsePollForm(
       formData([pickOne()], {}, { image_s1o1: image('image/png', POLL_IMAGE_MAX_BYTES + 1) }),
       null,
@@ -136,12 +165,18 @@ describe('parsePollForm', () => {
     ).errors;
     expect(big[0].message).toMatch(/5 MB or smaller/);
     expect(
-      parsePollForm(formData([pickOne()], {}, { image_s1o1: image('image/webp', POLL_IMAGE_MAX_BYTES) }), null, NOW).errors,
+      parsePollForm(
+        formData([pickOne()], {}, { image_s1o1: image('image/webp', POLL_IMAGE_MAX_BYTES) }),
+        null,
+        NOW,
+      ).errors,
     ).toEqual([]);
 
     const names = Array.from({ length: POLL_NEW_IMAGES_MAX + 1 }, (_, i) => `O${i}`);
     const files = Object.fromEntries(names.map((_, i) => [`image_s1o${i}`, image('image/jpeg', 100)]));
-    expect(fields(parsePollForm(formData([pickOne(names)], {}, files), null, NOW).errors)).toEqual(['images']);
+    expect(fields(parsePollForm(formData([pickOne(names)], {}, files), null, NOW).errors)).toEqual([
+      'images',
+    ]);
   });
 
   it('reads a malformed structure as no sections, and drops ids that are not uuids', () => {

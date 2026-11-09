@@ -38,7 +38,11 @@ describe('notificationMessage and notificationHref (BR3.1, BR3.2)', () => {
   it.each([
     [1, 'Race Results Posted for ATC18, Round 7 at Portland', '/results/81234567'],
     [2, 'Incident Report Posted for ATC18, Round 7 at Portland', '/results/81234567/incidents'],
-    [3, 'Incident Appeals now open for ATC18, Round 7 at Portland', '/results/81234567/incidents?open=appeal'],
+    [
+      3,
+      'Incident Appeals now open for ATC18, Round 7 at Portland',
+      '/results/81234567/incidents?open=appeal',
+    ],
     [4, 'Incident Submissions now open for ATC18, Round 7 at Portland', '/results/81234567?submit=incident'],
     [
       5,
@@ -52,14 +56,18 @@ describe('notificationMessage and notificationHref (BR3.1, BR3.2)', () => {
   });
 
   it('leaves the round part out until the round has a number (Q2 A)', () => {
-    expect(notificationMessage(row(1, { round_number: null }))).toBe('Race Results Posted for ATC18 at Portland');
+    expect(notificationMessage(row(1, { round_number: null }))).toBe(
+      'Race Results Posted for ATC18 at Portland',
+    );
     expect(roundLabel({ season_label: ' ATC18 ', round_number: null, track_name: 'Portland' })).toBe(
       'ATC18 at Portland',
     );
   });
 
   it('falls back to "a recent round" when the season or track is missing', () => {
-    expect(notificationMessage(row(2, { season_label: null }))).toBe('Incident Report Posted for a recent round');
+    expect(notificationMessage(row(2, { season_label: null }))).toBe(
+      'Incident Report Posted for a recent round',
+    );
     expect(notificationMessage(row(5, { track_name: '  ' }))).toBe(
       'Your Incident Appeal for a recent round has been closed',
     );

@@ -7,15 +7,12 @@ import type { IncidentActionContext, IncidentActionRedirect } from './context';
  * `invalid`).
  */
 export type AppealActionFlash =
-  | 'closed-ok'
-  | 'comment-ok'
-  | 'already-closed'
-  | 'dismissed'
-  | 'not-allowed'
-  | 'invalid'
-  | 'failed';
+  'closed-ok' | 'comment-ok' | 'already-closed' | 'dismissed' | 'not-allowed' | 'invalid' | 'failed';
 
-export const APPEAL_ACTION_FLASH_MESSAGES: Record<AppealActionFlash, { kind: 'ok' | 'error'; message: string }> = {
+export const APPEAL_ACTION_FLASH_MESSAGES: Record<
+  AppealActionFlash,
+  { kind: 'ok' | 'error'; message: string }
+> = {
   'closed-ok': { kind: 'ok', message: 'Appeal closed. The penalty now shows your decision.' },
   'comment-ok': { kind: 'ok', message: 'Comment saved.' },
   'already-closed': { kind: 'error', message: 'This appeal is no longer open, so nothing was changed.' },
@@ -29,13 +26,17 @@ export const APPEAL_ACTION_FLASH_MESSAGES: Record<AppealActionFlash, { kind: 'ok
   },
   invalid: {
     kind: 'error',
-    message: 'Check the values: whole numbers of 0 or more, a time with at most 3 decimals, and a comment of 1 to 4,000 characters.',
+    message:
+      'Check the values: whole numbers of 0 or more, a time with at most 3 decimals, and a comment of 1 to 4,000 characters.',
   },
   failed: { kind: 'error', message: "Couldn't save that right now. Please try again." },
 };
 
 /** Back to the reported incidents with this outcome, replacing any earlier one. */
-export function appealActionRedirect(ctx: IncidentActionContext, code: AppealActionFlash): IncidentActionRedirect {
+export function appealActionRedirect(
+  ctx: IncidentActionContext,
+  code: AppealActionFlash,
+): IncidentActionRedirect {
   const url = new URL(ctx.url);
   url.searchParams.set('appealaction', code);
   return ctx.redirect(`${ctx.shellPath}${url.search}#${REPORTS_ANCHOR}`);

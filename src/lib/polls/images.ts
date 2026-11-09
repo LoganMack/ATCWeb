@@ -22,7 +22,12 @@ function safePrefix(prefix: string): string {
 }
 
 /** `<poll id>/<prefix>-<timestamp>.<ext>`, or null for a file type the bucket refuses. */
-export function pollImagePath(pollId: string, prefix: string, contentType: string, timestamp: number): string | null {
+export function pollImagePath(
+  pollId: string,
+  prefix: string,
+  contentType: string,
+  timestamp: number,
+): string | null {
   const ext = pollImageExtension(contentType);
   if (!ext) return null;
   return `${pollId}/${safePrefix(prefix)}-${Math.max(0, Math.trunc(timestamp))}.${ext}`;

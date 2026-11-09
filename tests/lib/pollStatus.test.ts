@@ -17,7 +17,9 @@ describe('pollDisplayStatus', () => {
   it('is Posted until the closing time and Closed from it', () => {
     expect(pollDisplayStatus({ status: 'posted', closes_at: '2026-11-15T12:00:01Z' }, NOW)).toBe('posted');
     expect(pollDisplayStatus({ status: 'posted', closes_at: '2026-11-15T12:00:00Z' }, NOW)).toBe('closed');
-    expect(pollDisplayStatus({ status: 'posted', closes_at: '2026-11-15T07:00:00-05:00' }, NOW)).toBe('closed');
+    expect(pollDisplayStatus({ status: 'posted', closes_at: '2026-11-15T07:00:00-05:00' }, NOW)).toBe(
+      'closed',
+    );
   });
 
   it('treats an unreadable closing date as no closing date', () => {

@@ -51,7 +51,10 @@ export function applyNavStatus(status: NavStatusResponse, targets: NavStatusTarg
   if (typeof pending === 'number' && pending > 0 && targets.gear && targets.badge) {
     targets.badge.textContent = pending > 9 ? '9+' : String(pending);
     targets.badge.classList.toggle('hidden', false);
-    targets.gear.setAttribute('aria-label', `Admin Panel (${pending} pending sign-up${pending === 1 ? '' : 's'})`);
+    targets.gear.setAttribute(
+      'aria-label',
+      `Admin Panel (${pending} pending sign-up${pending === 1 ? '' : 's'})`,
+    );
   }
   if (typeof status.unread === 'number' && targets.bell && targets.dot) {
     setBellCount(targets.bell, targets.dot, status.unread);
@@ -107,7 +110,10 @@ function renderItems(body: HTMLElement, items: NotificationItem[]): void {
     const meta = el('span', 'mt-1 flex items-center gap-2 text-xs text-white/50');
     meta.append(el('span', '', relativeTime(item.createdAt, now)));
     // A word, not colour alone, marks what was unread (NFR6).
-    if (item.unread) meta.append(el('span', 'rounded bg-brand-gold px-1.5 text-[10px] font-bold uppercase text-brand-ink', 'New'));
+    if (item.unread)
+      meta.append(
+        el('span', 'rounded bg-brand-gold px-1.5 text-[10px] font-bold uppercase text-brand-ink', 'New'),
+      );
     link.append(meta);
     const row = el('li', '');
     row.append(link);

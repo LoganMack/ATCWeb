@@ -60,7 +60,10 @@ export function filterGroupOf(report: FilterReport, viewer: FilterViewer): Repor
  * The filter selected on load: Appeals while any appeal is open (appeals BR1.1), otherwise the first one with
  * something in it, else Needs Review (BR1.3).
  */
-export function initialFilter(counts: Partial<Record<IncidentFilter, number>>, openAppeals = 0): IncidentFilter {
+export function initialFilter(
+  counts: Partial<Record<IncidentFilter, number>>,
+  openAppeals = 0,
+): IncidentFilter {
   if (openAppeals > 0) return 'appeals';
   return FILTER_ORDER.find((f) => (counts[f] ?? 0) > 0) ?? 'needs_review';
 }

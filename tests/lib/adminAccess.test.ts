@@ -14,7 +14,15 @@ const PAGES = import.meta.glob('/src/pages/admin/**/*.astro', {
   eager: true,
 }) as Record<string, string>;
 
-const RESTRICTED_FOLDERS = ['site-properties', 'champions', 'seasons', 'rulesets', 'media', 'circuits', 'polls'];
+const RESTRICTED_FOLDERS = [
+  'site-properties',
+  'champions',
+  'seasons',
+  'rulesets',
+  'media',
+  'circuits',
+  'polls',
+];
 const restrictedPages = Object.keys(PAGES).filter((path) =>
   RESTRICTED_FOLDERS.some((folder) => path.startsWith(`/src/pages/admin/${folder}/`)),
 );

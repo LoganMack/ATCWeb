@@ -165,6 +165,8 @@ export async function listStorageFolder(
   const items = (await res.json()) as { name?: unknown; id?: unknown }[];
   // Sub-folders come back with a null id; only files are returned.
   return items
-    .filter((item) => typeof item.name === 'string' && item.id !== null && item.name !== '.emptyFolderPlaceholder')
+    .filter(
+      (item) => typeof item.name === 'string' && item.id !== null && item.name !== '.emptyFolderPlaceholder',
+    )
     .map((item) => `${folder}/${item.name as string}`);
 }

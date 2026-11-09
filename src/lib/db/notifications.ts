@@ -21,7 +21,10 @@ export async function getUnreadCount(env: SupabaseEnv, accessToken: string): Pro
 }
 
 /** Lists the 50 newest and marks those read in one database call (open_my_notifications). */
-export async function openNotifications(env: SupabaseEnv, accessToken: string): Promise<OpenNotificationsResult> {
+export async function openNotifications(
+  env: SupabaseEnv,
+  accessToken: string,
+): Promise<OpenNotificationsResult> {
   const raw = await restRpc<{ items?: unknown; unread_left?: unknown } | null>(
     withAccessToken(env, accessToken),
     'open_my_notifications',

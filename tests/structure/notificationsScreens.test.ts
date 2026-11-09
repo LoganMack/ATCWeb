@@ -10,11 +10,17 @@ import { describe, expect, it } from 'vitest';
 const raw = (files: Record<string, unknown>) => files as Record<string, string>;
 const SRC = raw(import.meta.glob('/src/**/*.{astro,ts}', { query: '?raw', import: 'default', eager: true }));
 const SQL = raw(
-  import.meta.glob(['/supabase/migrations/20261115120002_notifications.sql', '/supabase/down/20261115120002_notifications.down.sql'], {
-    query: '?raw',
-    import: 'default',
-    eager: true,
-  }),
+  import.meta.glob(
+    [
+      '/supabase/migrations/20261115120002_notifications.sql',
+      '/supabase/down/20261115120002_notifications.down.sql',
+    ],
+    {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    },
+  ),
 );
 
 const NAV = SRC['/src/components/Nav.astro'];
@@ -24,7 +30,9 @@ const MIGRATION = SQL['/supabase/migrations/20261115120002_notifications.sql'];
 const DOWN = SQL['/supabase/down/20261115120002_notifications.down.sql'];
 
 const importers = (script: string) =>
-  Object.keys(SRC).filter((path) => new RegExp(`import ['"](?:\\.\\.\\/)+scripts\\/${script}['"]`).test(SRC[path]));
+  Object.keys(SRC).filter((path) =>
+    new RegExp(`import ['"](?:\\.\\.\\/)+scripts\\/${script}['"]`).test(SRC[path]),
+  );
 
 describe('the nav bell (N1; BR1.1, BR1.3)', () => {
   it('renders the bell only for a driver-linked account, between My Profile and the gear', () => {
@@ -55,12 +63,16 @@ describe('the nav bell (N1; BR1.1, BR1.3)', () => {
     expect(importers('notificationsBell')).toEqual(['/src/components/Nav.astro']);
     const script = SRC['/src/scripts/notificationsBell.ts'];
     expect(script.match(/fetch\('\/api\/nav-status'\)/g)).toHaveLength(1);
-    expect(script).toContain('claimNavStatusFetch(document.documentElement, location.pathname + location.search)');
+    expect(script).toContain(
+      'claimNavStatusFetch(document.documentElement, location.pathname + location.search)',
+    );
     expect(script).toContain("fetch('/api/notifications/open', { method: 'POST' })");
     expect(NAV).not.toContain('/api/pending-signups');
     expect(NAV).not.toContain('loadPendingSignups');
     // Kept for one release, unchanged.
-    expect(SRC['/src/pages/api/pending-signups.ts']).toContain("'signup_requests?select=id&status=eq.pending'");
+    expect(SRC['/src/pages/api/pending-signups.ts']).toContain(
+      "'signup_requests?select=id&status=eq.pending'",
+    );
   });
 
   it('keeps the endpoints private and data access in src/lib', () => {
@@ -118,8 +130,16 @@ describe('the migration (BR5.1)', () => {
       expect(MIGRATION).toContain(`revoke all on function public.${fn}() from public, anon;`);
       expect(MIGRATION).toContain(`grant execute on function public.${fn}() to authenticated;`);
     }
-    for (const fn of ['notify_round_linked', 'notify_results_added', 'notify_report_posted', 'notify_appeal_closed', 'notify_schedule_vote']) {
-      expect(MIGRATION).toContain(`revoke all on function private.${fn}() from public, anon, authenticated, service_role;`);
+    for (const fn of [
+      'notify_round_linked',
+      'notify_results_added',
+      'notify_report_posted',
+      'notify_appeal_closed',
+      'notify_schedule_vote',
+    ]) {
+      expect(MIGRATION).toContain(
+        `revoke all on function private.${fn}() from public, anon, authenticated, service_role;`,
+      );
     }
     expect(MIGRATION.match(/security definer\s+set search_path = ''/g)?.length).toBe(8);
   });

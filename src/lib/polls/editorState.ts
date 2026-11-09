@@ -58,7 +58,16 @@ export function newEditorState(): EditorState {
 }
 
 export function blankOption(key: string): EditorOption {
-  return { id: null, key, name: '', image_path: null, thumb_url: null, preview_url: null, remove_image: false, error: null };
+  return {
+    id: null,
+    key,
+    name: '',
+    image_path: null,
+    thumb_url: null,
+    preview_url: null,
+    remove_image: false,
+    error: null,
+  };
 }
 
 export function editorStateFromPoll(poll: Poll, imageUrl: ImageUrlFor): EditorState {
@@ -104,7 +113,8 @@ export function editorStateFromForm(
     id: s.id,
     key: track(s.key),
     name: s.name,
-    answer_type: (['single', 'multiple', 'stars'].includes(s.answerType) ? s.answerType : '') as AnswerType | '',
+    answer_type: (['single', 'multiple', 'stars'].includes(s.answerType) ? s.answerType : '') as
+      AnswerType | '',
     error: errorFor(`section:${s.key}`),
     options: s.options.map((o) => {
       const path = pollId && o.imagePath && isPollImagePath(pollId, o.imagePath) ? o.imagePath : null;

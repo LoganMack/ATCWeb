@@ -16,7 +16,12 @@ import {
   removeSection,
   structureJson,
 } from '../../src/scripts/pollEditor';
-import { editorStateFromForm, editorStateFromPoll, newEditorState, type EditorState } from '../../src/lib/polls/editorState';
+import {
+  editorStateFromForm,
+  editorStateFromPoll,
+  newEditorState,
+  type EditorState,
+} from '../../src/lib/polls/editorState';
 import { parsePollForm } from '../../src/lib/polls/validate';
 import type { Poll } from '../../src/lib/polls/types';
 
@@ -52,7 +57,8 @@ function stored(): Poll {
   };
 }
 
-const names = (state: EditorState) => state.sections.map((s) => `${s.name}:${s.options.map((o) => o.name).join('|')}`);
+const names = (state: EditorState) =>
+  state.sections.map((s) => `${s.name}:${s.options.map((o) => o.name).join('|')}`);
 
 describe('editing the structure', () => {
   it('adds sections with two blank options and never reuses a key', () => {
@@ -140,10 +146,18 @@ describe('previewView (BR3.2)', () => {
     added.answer_type = 'stars';
     added.name = 'Rate';
     added.options[0].name = 'Season';
-    const view = previewView(state, '  Draft title ', '', new Map([[state.sections[0].options[1].key, 'blob:local-1']]));
+    const view = previewView(
+      state,
+      '  Draft title ',
+      '',
+      new Map([[state.sections[0].options[1].key, 'blob:local-1']]),
+    );
     expect(view.title).toBe('Draft title');
     expect(view.description).toBeNull();
-    expect(view.sections[0].options.map((o) => o.imageUrl)).toEqual([`/img/320/${POLL_ID}/spa-1.png`, 'blob:local-1']);
+    expect(view.sections[0].options.map((o) => o.imageUrl)).toEqual([
+      `/img/320/${POLL_ID}/spa-1.png`,
+      'blob:local-1',
+    ]);
     expect(view.sections[1].answerType).toBe('stars');
     expect(view.sections[1].options.map((o) => o.name)).toEqual(['Season', 'Untitled option']);
 

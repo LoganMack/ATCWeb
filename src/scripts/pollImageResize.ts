@@ -16,7 +16,11 @@ export const POLL_IMAGE_KEEP_BYTES = 500 * 1024;
 const QUALITY = 0.85;
 
 /** The width and height that fit inside `max` on the longest side, never enlarged. */
-export function fitWithin(width: number, height: number, max = POLL_IMAGE_MAX_SIDE): { width: number; height: number } {
+export function fitWithin(
+  width: number,
+  height: number,
+  max = POLL_IMAGE_MAX_SIDE,
+): { width: number; height: number } {
   const longest = Math.max(width, height);
   if (longest <= max || longest <= 0) return { width, height };
   const scale = max / longest;
@@ -63,7 +67,8 @@ export async function shrinkPollImage(file: File): Promise<File> {
     let blob = await canvasBlob(canvas, 'image/webp');
     // A browser that cannot encode WebP hands back a PNG instead.
     if (!blob || blob.type !== 'image/webp') blob = await canvasBlob(canvas, 'image/jpeg');
-    if (!blob || (blob.type !== 'image/webp' && blob.type !== 'image/jpeg') || blob.size >= file.size) return file;
+    if (!blob || (blob.type !== 'image/webp' && blob.type !== 'image/jpeg') || blob.size >= file.size)
+      return file;
     return new File([blob], resizedName(file.name, blob.type), { type: blob.type, lastModified: Date.now() });
   } finally {
     bitmap.close();

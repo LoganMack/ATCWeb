@@ -53,11 +53,14 @@ describe('effectiveIsWarning (appeals BR4.1)', () => {
     [false, true, true, true],
     [true, true, true, true],
     [false, true, false, false],
-  ] as const)('is_warning %s, appealed %s, appeal flag %s -> %s', (isWarning, isAppealed, appealFlag, expected) => {
-    expect(
-      effectiveIsWarning({ is_warning: isWarning, is_appealed: isAppealed, appeal_is_warning: appealFlag }),
-    ).toBe(expected);
-  });
+  ] as const)(
+    'is_warning %s, appealed %s, appeal flag %s -> %s',
+    (isWarning, isAppealed, appealFlag, expected) => {
+      expect(
+        effectiveIsWarning({ is_warning: isWarning, is_appealed: isAppealed, appeal_is_warning: appealFlag }),
+      ).toBe(expected);
+    },
+  );
 
   it('keeps the original when an older select has no appeal flag at all', () => {
     expect(effectiveIsWarning({ is_warning: true, is_appealed: true })).toBe(true);

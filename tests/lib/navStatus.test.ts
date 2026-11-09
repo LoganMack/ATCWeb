@@ -87,7 +87,10 @@ describe('GET /api/nav-status (BR1.3)', () => {
 
   it('leaves out a part that failed and still answers 200, logging no token', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    stubFetch({ unread: new Response('down', { status: 503 }), pending: new Response(JSON.stringify([{ id: 'a' }])) });
+    stubFetch({
+      unread: new Response('down', { status: 503 }),
+      pending: new Response(JSON.stringify([{ id: 'a' }])),
+    });
     const res = await GET(ctx(adminDriver));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ pendingSignups: 1 });
@@ -181,7 +184,11 @@ describe('the bell script: one request fills both badges (BR1.2, BR1.3)', () => 
   it('fills the dot and the gear badge from one response', () => {
     const [dot, gearBadge, bell, gear] = [badge(), badge(), labelled(), labelled()];
     applyNavStatus({ unread: 12, pendingSignups: 1 }, { bell, dot, gear, badge: gearBadge });
-    expect([dot.textContent, dot.isHidden(), bell.attrs['aria-label']]).toEqual(['9+', false, 'Notifications (12 unread)']);
+    expect([dot.textContent, dot.isHidden(), bell.attrs['aria-label']]).toEqual([
+      '9+',
+      false,
+      'Notifications (12 unread)',
+    ]);
     expect([gearBadge.textContent, gearBadge.isHidden(), gear.attrs['aria-label']]).toEqual([
       '1',
       false,
