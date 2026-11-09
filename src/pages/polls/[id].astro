@@ -27,7 +27,8 @@ let html = '';
 if (poll) {
   const note = pollPublicNote(pollDisplayStatus(poll, new Date()));
   html = pollViewHtml(pollToView(poll, supabaseEnv.url, 320), { note });
-  Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+  // Short, with no stale serving, so an unposted poll leaves the edge cache within about 30 seconds.
+  Astro.response.headers.set('Cache-Control', 'public, s-maxage=30');
 } else {
   Astro.response.status = loadFailed ? 503 : 404;
   Astro.response.headers.set('Cache-Control', 'no-store');

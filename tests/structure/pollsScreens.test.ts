@@ -70,6 +70,23 @@ describe('the editor script (S3)', () => {
     expect(editor).toContain('name="updated_at"');
     expect(editor).toContain('name="structure"');
     for (const button of editor.match(/<button[^>]*>/g) ?? []) expect(button).toMatch(/class="btn btn-/);
+    expect(editor).toContain('data-poll-size-message');
+  });
+
+  it('refuses an oversized save before parsing the body', () => {
+    for (const page of [NEW, EDIT]) {
+      const check = page.indexOf("pollSaveSizeError(Astro.request.headers.get('content-length'))");
+      expect(check).toBeGreaterThan(-1);
+      expect(check).toBeLessThan(page.indexOf('await Astro.request.formData()'));
+      expect(page).toMatch(/Astro\.request\.method === 'POST' && !tooLarge\) \{\s*const data = await Astro\.request\.formData\(\);/);
+    }
+  });
+
+  it('shrinks chosen images and checks their total before submitting', () => {
+    const script = SRC['/src/scripts/pollEditor.ts'];
+    expect(script).toContain('shrinkPollImage(chosen)');
+    expect(script).toContain('pollImagesBudgetMessage(');
+    expect(script).toContain('await Promise.all(waiting)');
   });
 });
 
@@ -83,6 +100,8 @@ describe('the shared view and the public page (FR1.8, BR3.3)', () => {
     expect(PUBLIC).toMatch(/await getPostedPoll\(supabaseEnv, pollId\)/);
     expect(PUBLIC).toContain('pollViewHtml(pollToView(');
     expect(PUBLIC).toContain('Astro.response.status = loadFailed ? 503 : 404;');
+    expect(PUBLIC).toContain("Astro.response.headers.set('Cache-Control', 'public, s-maxage=30');");
+    expect(PUBLIC).not.toContain('stale-while-revalidate');
     expect(PUBLIC).not.toMatch(/getPollForEdit|restGet|fetch\(/);
     const lib = SRC['/src/lib/db/polls.ts'];
     const posted = lib.slice(lib.indexOf('export async function getPostedPoll'));

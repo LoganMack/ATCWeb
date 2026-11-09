@@ -9,6 +9,7 @@ import { POLL_UNKNOWN_ERROR, PollError, pollImageUrl } from '../../../lib/db/pol
 import { editorStateFromForm, newEditorState, type EditorState } from '../../../lib/polls/editorState';
 import { parsePollForm, type PollFormError } from '../../../lib/polls/validate';
 import { savePollFromForm } from '../../../lib/polls/save';
+import { pollSaveSizeError } from '../../../lib/polls/requestSize';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireFullAdmin } from '../../../lib/auth';
 
@@ -25,7 +26,14 @@ let values = { title: '', description: '', closesAt: '', isScheduleVote: false, 
 let errors: PollFormError[] = [];
 let filesDropped = false;
 
-if (Astro.request.method === 'POST') {
+// A body over the limit is refused unread: parsing it is what would cost CPU.
+const tooLarge = Astro.request.method === 'POST' ? pollSaveSizeError(Astro.request.headers.get('content-length')) : null;
+if (tooLarge) {
+  errors = [tooLarge];
+  filesDropped = true;
+}
+
+if (Astro.request.method === 'POST' && !tooLarge) {
   const data = await Astro.request.formData();
   if (String(data.get('intent') ?? '') === 'save') {
     const parsed = parsePollForm(data, null);

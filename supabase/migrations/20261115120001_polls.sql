@@ -199,9 +199,13 @@ begin
     end if;
   end if;
 
+  -- The type is checked before the length: jsonb_array_length raises on a non-array, and OR does not
+  -- promise to stop at the first true operand.
   v_sections := p_poll -> 'sections';
-  if v_sections is null or jsonb_typeof(v_sections) <> 'array'
-     or jsonb_array_length(v_sections) not between 1 and 20 then
+  if v_sections is null or jsonb_typeof(v_sections) <> 'array' then
+    raise exception 'invalid:sections:count' using errcode = 'P0001';
+  end if;
+  if jsonb_array_length(v_sections) not between 1 and 20 then
     raise exception 'invalid:sections:count' using errcode = 'P0001';
   end if;
 
@@ -235,8 +239,10 @@ begin
 
     v_options := v_section -> 'options';
     v_min := case when v_section ->> 'answer_type' = 'stars' then 1 else 2 end;
-    if v_options is null or jsonb_typeof(v_options) <> 'array'
-       or jsonb_array_length(v_options) not between v_min and 30 then
+    if v_options is null or jsonb_typeof(v_options) <> 'array' then
+      raise exception 'invalid:%.options:count', v_field using errcode = 'P0001';
+    end if;
+    if jsonb_array_length(v_options) not between v_min and 30 then
       raise exception 'invalid:%.options:count', v_field using errcode = 'P0001';
     end if;
 
@@ -481,16 +487,18 @@ begin
     if not exists (select 1 from public.poll_sections s where s.poll_id = p_poll_id) then
       raise exception 'invalid:sections:count' using errcode = 'P0001';
     end if;
+    -- updated_at moves on Post and Unpost too, so an editor opened before either is refused as stale (BR5.5).
     update public.polls set
       status = 'posted',
       posted_at = now(),
-      first_posted_at = coalesce(first_posted_at, now())
+      first_posted_at = coalesce(first_posted_at, now()),
+      updated_at = now()
     where id = p_poll_id;
   else
     if v_poll.status = 'draft' then
       return;
     end if;
-    update public.polls set status = 'draft', posted_at = null where id = p_poll_id;
+    update public.polls set status = 'draft', posted_at = null, updated_at = now() where id = p_poll_id;
   end if;
 end;
 $$;

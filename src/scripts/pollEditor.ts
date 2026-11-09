@@ -6,6 +6,8 @@
 import { pollViewHtml } from '../lib/polls/view';
 import { ANSWER_TYPE_LABELS, isAnswerType, type PollView } from '../lib/polls/types';
 import { blankOption, type EditorOption, type EditorSection, type EditorState } from '../lib/polls/editorState';
+import { pollImagesBudgetMessage } from '../lib/polls/requestSize';
+import { shrinkPollImage } from './pollImageResize';
 
 // --- State -------------------------------------------------------------------------------------------------
 
@@ -280,13 +282,6 @@ function initPollEditor(): void {
       if (!found) return;
       if (field === 'name') found.option.name = target.value;
       if (field === 'remove_image' && target instanceof HTMLInputElement) found.option.remove_image = target.checked;
-      if (target instanceof HTMLInputElement && target.type === 'file') {
-        const old = localUrls.get(found.option.key);
-        if (old) URL.revokeObjectURL(old);
-        const file = target.files?.[0];
-        if (file) localUrls.set(found.option.key, URL.createObjectURL(file));
-        else localUrls.delete(found.option.key);
-      }
     } else if (card) {
       const section = state!.sections.find((s) => s.key === card.dataset.sectionKey);
       if (!section) return;
@@ -296,6 +291,69 @@ function initPollEditor(): void {
     refreshLabels(root!, state!);
     sync();
   }
+
+  // A chosen image is shrunk in the browser and swapped into its input before the form can send it.
+  const pending = new Map<string, Promise<void>>();
+  const setPreview = (key: string, file: File | undefined) => {
+    const old = localUrls.get(key);
+    if (old) URL.revokeObjectURL(old);
+    if (file) localUrls.set(key, URL.createObjectURL(file));
+    else localUrls.delete(key);
+  };
+  root.addEventListener('change', (e) => {
+    const input = e.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== 'file') return;
+    const key = input.closest<HTMLElement>('[data-option-key]')?.dataset.optionKey;
+    if (!key) return;
+    const chosen = input.files?.[0];
+    setPreview(key, chosen);
+    if (!chosen) return;
+    const job = shrinkPollImage(chosen)
+      .then((file) => {
+        // Skip a result the admin has already replaced with another file.
+        if (file === chosen || input.files?.[0] !== chosen) return;
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        input.files = transfer.files;
+        setPreview(key, file);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (pending.get(key) === job) pending.delete(key);
+      });
+    pending.set(key, job);
+  });
+
+  const sizeMessage = form.querySelector<HTMLElement>('[data-poll-size-message]');
+  const showSizeMessage = (text: string | null) => {
+    if (!sizeMessage) return;
+    sizeMessage.textContent = text ?? '';
+    sizeMessage.hidden = !text;
+  };
+  let resubmitting = false;
+  form.addEventListener('submit', async (e) => {
+    sync();
+    if (resubmitting) return;
+    const waiting = [...pending.values()];
+    if (waiting.length > 0) {
+      e.preventDefault();
+      showSizeMessage('Preparing the images…');
+      await Promise.all(waiting);
+    }
+    const files = [...root.querySelectorAll<HTMLInputElement>('input[type="file"]')].map((i) => i.files?.[0]);
+    const message = pollImagesBudgetMessage(files.reduce((sum, f) => sum + (f?.size ?? 0), 0));
+    if (message) {
+      e.preventDefault();
+      showSizeMessage(message);
+      return;
+    }
+    showSizeMessage(null);
+    if (waiting.length > 0) {
+      resubmitting = true;
+      const submitter = e.submitter instanceof HTMLButtonElement ? e.submitter : undefined;
+      form.requestSubmit(submitter);
+    }
+  });
 
   root.addEventListener('click', (e) => {
     const action = (e.target as HTMLElement).closest<HTMLElement>('[data-action]');
@@ -332,7 +390,6 @@ function initPollEditor(): void {
     dialog.showModal();
   });
   dialog?.querySelector('[data-poll-preview-close]')?.addEventListener('click', () => dialog.close());
-  form.addEventListener('submit', sync);
 
   render(root, state);
   sync();

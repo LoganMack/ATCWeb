@@ -239,6 +239,63 @@ describe('savePollFromForm (W1, W2, BR4.2)', () => {
   });
 });
 
+describe('savePollFromForm when save_poll may have committed', () => {
+  /** The stored poll as PostgREST returns it, with option images at `paths`. */
+  const storedRow = (paths: string[]) => [
+    {
+      id: POLL_ID,
+      title: 'Next season',
+      description: null,
+      closes_at: null,
+      is_schedule_vote: false,
+      status: 'draft',
+      posted_at: null,
+      first_posted_at: null,
+      created_at: UPDATED_AT,
+      updated_at: UPDATED_AT,
+      poll_sections: paths.length
+        ? [{ id: 's', name: 'Track', answer_type: 'single', position: 0, poll_options: paths.map((p, i) => ({ id: `o${i}`, name: `O${i}`, image_path: p, position: i })) }]
+        : [],
+    },
+  ];
+  const uploadedPath = (fetchMock: ReturnType<typeof vi.fn>, i: number) =>
+    decodeURIComponent(call(fetchMock, i).url.pathname.replace('/storage/v1/object/poll-images/', ''));
+
+  it('keeps an uploaded file the stored poll now uses after a lost response', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = stubFetch(respond({}));
+    fetchMock.mockRejectedValueOnce(new TypeError('network connection lost'));
+    fetchMock.mockImplementationOnce(async () => respond(storedRow([uploadedPath(fetchMock, 0)])));
+    await expect(savePollFromForm(env, TOKEN, POLL_ID, form())).rejects.toThrow('network connection lost');
+    expect(call(fetchMock, 2).url.pathname).toBe('/rest/v1/polls');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('deletes unused uploads and the still-empty new draft after a gateway error', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = stubFetch(
+      respond(JSON.stringify(POLL_ID)),
+      respond([{ updated_at: UPDATED_AT }]),
+      respond({}),
+      respond('Bad gateway', 502),
+      respond(storedRow([])),
+      respond([]),
+      respond(''),
+    );
+    const err = (await savePollFromForm(env, TOKEN, null, form()).catch((e: unknown) => e)) as PollError;
+    expect(err.message).toBe(POLL_UNKNOWN_ERROR);
+    expect(call(fetchMock, 5).body).toEqual({ prefixes: [uploadedPath(fetchMock, 2)] });
+    expect(call(fetchMock, 6).url.pathname).toBe('/rest/v1/rpc/delete_poll');
+  });
+
+  it('removes nothing when the poll cannot be re-read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fetchMock = stubFetch(respond({}), respond('Bad gateway', 504), respond('down', 503));
+    await expect(savePollFromForm(env, TOKEN, POLL_ID, form())).rejects.toThrow(POLL_UNKNOWN_ERROR);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe('deletePollWithFiles (BR2.5)', () => {
   it('deletes the poll, lists its folder and deletes every file', async () => {
     const fetchMock = stubFetch(

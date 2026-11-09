@@ -11,6 +11,7 @@ import {
   POLL_TITLE_MAX,
   type PollFormError,
 } from '../lib/polls/validate';
+import { POLL_SAVE_MAX_BYTES, formatMegabytes } from '../lib/polls/requestSize';
 
 interface Props {
   state: EditorState;
@@ -76,7 +77,8 @@ const field =
   <div class="flex flex-col gap-1">
     <h3 class="font-display text-xl uppercase tracking-wide text-white">Sections</h3>
     <p class="text-xs text-white/50">
-      Images are PNG, JPEG or WebP up to 5 MB, and one save can carry {POLL_NEW_IMAGES_MAX} new images.
+      Images are PNG, JPEG or WebP. Large ones are shrunk in your browser before saving, and one save can carry
+      {POLL_NEW_IMAGES_MAX} new images and about {formatMegabytes(POLL_SAVE_MAX_BYTES)} in total.
     </p>
     {fieldError('sections') && <p class="text-sm text-brand-pink">{fieldError('sections')}</p>}
     {fieldError('images') && <p class="text-sm text-brand-pink">{fieldError('images')}</p>}
@@ -86,6 +88,7 @@ const field =
     <button type="button" class="btn btn-neutral" data-poll-add-section data-testid="poll-editor-add-section">Add section</button>
   </div>
 
+  <p class="text-sm text-brand-pink" role="alert" hidden data-poll-size-message data-testid="poll-editor-size-message"></p>
   <div class="mt-2 flex flex-wrap gap-3">
     <button type="submit" class="btn btn-primary btn-lg" data-testid="poll-editor-save">{submitLabel}</button>
     <button type="button" class="btn btn-neutral btn-lg" data-poll-preview data-testid="poll-editor-preview">Preview</button>

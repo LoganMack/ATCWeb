@@ -1,7 +1,8 @@
 -- Poll fixtures for 20261115120001_polls.sql (polls unit U2; rules BR1.1-BR5.6): creating and saving a poll
 -- with mixed answer types, the payload refusals, a name swap and reorder in one save, stale saves and ids or
 -- image paths from elsewhere, Staff, drivers and anon refused, what each caller can read, Post and Unpost,
--- Delete, the vote lock stub, the bucket policies and the grants (Q01-Q10).
+-- Delete, the vote lock stub, the bucket policies and the grants (Q01-Q10), and the vote lock with a stub
+-- that reports votes (Q11).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- appeal-close-fixtures.sql:
@@ -457,16 +458,24 @@ declare
 begin
   perform poll_fixture.save(v_adm, v_poll, jsonb_build_object('title', 'Lifecycle',
     'sections', jsonb_build_array(poll_fixture.section('Q', 'stars', array['A']))));
+  -- updated_at is moved back before each change so the check can see Post and Unpost bump it (an editor
+  -- opened before the change is then stale, BR5.5).
+  update public.polls set updated_at = now() - interval '1 day' where id = v_poll;
   perform poll_fixture.expect('Q07 post', poll_fixture.err_as(v_adm, format('select public.set_poll_posted(%L, true)', v_poll)), 'ok');
   perform poll_fixture.expect('Q07 posted row',
-    (select status || '/' || (posted_at = now())::text || '/' || (first_posted_at = now())::text from public.polls where id = v_poll),
-    'posted/true/true');
+    (select status || '/' || (posted_at = now())::text || '/' || (first_posted_at = now())::text || '/' || (updated_at = now())::text
+     from public.polls where id = v_poll),
+    'posted/true/true/true');
+  update public.polls set updated_at = now() - interval '1 day' where id = v_poll;
   perform poll_fixture.expect('Q07 post again changes nothing',
     poll_fixture.err_as(v_adm, format('select public.set_poll_posted(%L, true)', v_poll)), 'ok');
+  perform poll_fixture.expect('Q07 post again keeps updated_at',
+    (select updated_at < now() from public.polls where id = v_poll), true);
   perform poll_fixture.expect('Q07 unpost', poll_fixture.err_as(v_adm, format('select public.set_poll_posted(%L, false)', v_poll)), 'ok');
   perform poll_fixture.expect('Q07 unposted row',
-    (select status || '/' || (posted_at is null)::text || '/' || (first_posted_at is not null)::text from public.polls where id = v_poll),
-    'draft/true/true');
+    (select status || '/' || (posted_at is null)::text || '/' || (first_posted_at is not null)::text || '/' || (updated_at = now())::text
+     from public.polls where id = v_poll),
+    'draft/true/true/true');
   -- Moved back so the second Post can show it keeps the first stamp.
   update public.polls set first_posted_at = v_first where id = v_poll;
   perform poll_fixture.expect('Q07 repost', poll_fixture.err_as(v_adm, format('select public.set_poll_posted(%L, true)', v_poll)), 'ok');
@@ -586,5 +595,79 @@ begin
   raise notice 'ok Q10 settings and grants';
 end $$;
 rollback to savepoint fixture;
+
+-- Q11 Once a poll has votes, renames and image changes still save, while adding, removing, reordering or
+--     retyping sections and options is refused (BR5.3). poll_has_votes is swapped for one that answers true
+--     after the first save; the savepoint rollback puts the real stub back.
+do $$
+declare
+  v_adm text := 'eeeeeeee-0000-0000-0000-0000000002a1';
+  v_poll uuid := poll_fixture.new_poll('Locked');
+  v_img text;
+  v_s1 uuid;
+  v_s2 uuid;
+  v_a uuid;
+  v_b uuid;
+  v_c uuid;
+  v_base jsonb;
+begin
+  v_img := v_poll::text || '/a-1700000000000.png';
+  perform poll_fixture.expect('Q11 first save',
+    poll_fixture.save(v_adm, v_poll, jsonb_set(jsonb_build_object('title', 'Locked', 'sections', jsonb_build_array(
+      poll_fixture.section('Track', 'single', array['A', 'B']),
+      poll_fixture.section('Rate', 'stars', array['C']))), '{sections,0,options,0,image_path}', to_jsonb(v_img))),
+    '{}');
+  select id into v_s1 from public.poll_sections where poll_id = v_poll and name = 'Track';
+  select id into v_s2 from public.poll_sections where poll_id = v_poll and name = 'Rate';
+  select id into v_a from public.poll_options where section_id = v_s1 and name = 'A';
+  select id into v_b from public.poll_options where section_id = v_s1 and name = 'B';
+  select id into v_c from public.poll_options where section_id = v_s2 and name = 'C';
+
+  execute $f$create or replace function private.poll_has_votes(p_poll_id uuid) returns boolean
+    language sql stable set search_path = '' as 'select true'$f$;
+  perform poll_fixture.expect('Q11 stub swapped', private.poll_has_votes(v_poll), true);
+
+  -- Renamed section and option, a new image on A and a first image on B: same ids, order and answer types.
+  v_base := jsonb_build_object('title', 'Locked (renamed)', 'sections', jsonb_build_array(
+    jsonb_build_object('id', v_s1, 'name', 'Circuit', 'answer_type', 'single', 'options', jsonb_build_array(
+      jsonb_build_object('id', v_a, 'name', 'Alpha', 'image_path', v_poll::text || '/a-1700000000001.png'),
+      jsonb_build_object('id', v_b, 'name', 'Bravo', 'image_path', v_poll::text || '/b-1700000000002.webp'))),
+    jsonb_build_object('id', v_s2, 'name', 'Rating', 'answer_type', 'stars', 'options', jsonb_build_array(
+      jsonb_build_object('id', v_c, 'name', 'Charlie')))));
+  perform poll_fixture.expect('Q11 renames and images save', poll_fixture.save(v_adm, v_poll, v_base), '{' || v_img || '}');
+  perform poll_fixture.expect('Q11 renamed shape', poll_fixture.shape(v_poll), 'Circuit:single:Alpha|Bravo;Rating:stars:Charlie');
+
+  perform poll_fixture.expect('Q11 add an option',
+    poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections,0,options}',
+      (v_base #> '{sections,0,options}') || jsonb_build_array(jsonb_build_object('name', 'Delta')))),
+    'locked_by_votes');
+  perform poll_fixture.expect('Q11 remove an option',
+    poll_fixture.save(v_adm, v_poll, v_base #- '{sections,0,options,1}'), 'locked_by_votes');
+  perform poll_fixture.expect('Q11 reorder options',
+    poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections,0,options}',
+      jsonb_build_array(v_base #> '{sections,0,options,1}', v_base #> '{sections,0,options,0}'))),
+    'locked_by_votes');
+  perform poll_fixture.expect('Q11 retype a section',
+    poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections,0,answer_type}', '"multiple"')), 'locked_by_votes');
+  perform poll_fixture.expect('Q11 add a section',
+    poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections}',
+      (v_base -> 'sections') || jsonb_build_array(poll_fixture.section('Extra', 'stars', array['X'])))),
+    'locked_by_votes');
+  perform poll_fixture.expect('Q11 remove a section',
+    poll_fixture.save(v_adm, v_poll, v_base #- '{sections,1}'), 'locked_by_votes');
+  perform poll_fixture.expect('Q11 reorder sections',
+    poll_fixture.save(v_adm, v_poll, jsonb_set(v_base, '{sections}',
+      jsonb_build_array(v_base #> '{sections,1}', v_base #> '{sections,0}'))),
+    'locked_by_votes');
+  perform poll_fixture.expect('Q11 shape unchanged by the refusals', poll_fixture.shape(v_poll),
+    'Circuit:single:Alpha|Bravo;Rating:stars:Charlie');
+  raise notice 'ok Q11 vote lock';
+end $$;
+rollback to savepoint fixture;
+
+do $$
+begin
+  perform poll_fixture.expect('Q11 stub restored', private.poll_has_votes(gen_random_uuid()), false);
+end $$;
 
 rollback;
