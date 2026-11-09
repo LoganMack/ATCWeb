@@ -18,6 +18,7 @@ import {
   parseAppealCommentBody,
   parseCloseAppealForm,
 } from '../../src/lib/appealClose';
+import { APPEAL_ACTION_FLASH_MESSAGES } from '../../src/lib/incidentActions/appealFlash';
 import { toPenalties } from './penaltyFixtures';
 
 const env = { url: 'https://project.example.test', anonKey: 'anon-key' };
@@ -61,8 +62,13 @@ afterEach(() => {
 });
 
 describe('the close and comment status codes', () => {
-  it.each(['ok', 'already_closed', 'not_allowed', 'invalid'] as const)('maps the close code %s', (code) => {
+  it.each(['ok', 'already_closed', 'not_open', 'not_allowed', 'invalid'] as const)('maps the close code %s', (code) => {
     expect(toCloseAppealOutcome(code)).toBe(code);
+  });
+
+  it('tells the steward a dismissed appeal was not closed', () => {
+    expect(APPEAL_ACTION_FLASH_MESSAGES.dismissed.message).toMatch(/dismissed/);
+    expect(APPEAL_ACTION_FLASH_MESSAGES.dismissed.kind).toBe('error');
   });
 
   it.each(['ok', 'not_open', 'not_allowed', 'invalid'] as const)('maps the comment code %s', (code) => {
@@ -70,7 +76,7 @@ describe('the close and comment status codes', () => {
   });
 
   it('throws on a code the database never sends, so a changed function fails loudly', () => {
-    expect(() => toCloseAppealOutcome('not_open')).toThrow(/close_incident_appeal/);
+    expect(() => toCloseAppealOutcome('dismissed')).toThrow(/close_incident_appeal/);
     expect(() => toCloseAppealOutcome(null)).toThrow();
     expect(() => toAppealCommentOutcome('already_closed')).toThrow(/save_incident_appeal_comment/);
     expect(() => toAppealCommentOutcome(undefined)).toThrow();

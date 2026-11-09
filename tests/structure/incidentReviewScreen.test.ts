@@ -179,6 +179,28 @@ describe('the appeal popups (appeals BR2.2, BR3.1)', () => {
     expect(dialog).toContain('data-testid="close-appeal-submit" disabled class="btn btn-gold"');
   });
 
+  it('says the comment is public and closing is final', () => {
+    const dialog = dialogOf('decide-appeal-dialog');
+    expect(dialog).toContain('Appeal result (shown publicly on this incident)');
+    expect(dialog).toMatch(/Closing is final and cannot be undone\./);
+    expect(dialog).toContain('aria-describedby="close-appeal-counter close-appeal-final"');
+  });
+
+  it('keeps each live counter outside its label and links it to the textarea', () => {
+    for (const [attr, counter] of [
+      ['decide-appeal-dialog', 'close-appeal-counter'],
+      ['appeal-comment-dialog', 'appeal-comment-counter'],
+    ]) {
+      const dialog = dialogOf(attr);
+      expect(dialog).toContain(`<span id="${counter}"`);
+      expect(dialog).toMatch(new RegExp(`aria-describedby="${counter}`));
+      const textareaLabelEnd = dialog.indexOf('</label>', dialog.indexOf('<textarea'));
+      const labelStart = dialog.lastIndexOf('<label', dialog.indexOf('<textarea'));
+      expect(dialog.slice(labelStart, textareaLabelEnd)).not.toContain('aria-live');
+      expect(dialog.indexOf(`<span id="${counter}"`)).toBeGreaterThan(textareaLabelEnd);
+    }
+  });
+
   it('has an Add/Edit Comment popup with a required comment and a counter', () => {
     const dialog = dialogOf('appeal-comment-dialog');
     expect(dialog).toContain('data-testid="appeal-comment-dialog"');

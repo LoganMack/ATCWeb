@@ -651,6 +651,7 @@ describe('the steward appeal actions (appeals BR2.1-BR2.3, BR3.1-BR3.7)', () => 
   it.each([
     ['ok', 'closed-ok'],
     ['already_closed', 'already-closed'],
+    ['not_open', 'dismissed'],
     ['not_allowed', 'not-allowed'],
     ['invalid', 'invalid'],
   ])('close-appeal turns %s into ?appealaction=%s', async (code, flash) => {

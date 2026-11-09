@@ -5,11 +5,12 @@
 --   1. incident_appeals gains the close record: closed_at, closed_by (set null when that profile is
 --      deleted), close_comment and the four decided_* values, all null or all set together.
 --   2. penalties gains appeal_is_warning: null means the appeal left the warning flag unchanged.
---   3. incident_appeal_comments: one internal comment per steward per appeal. No client grants; reads and
---      writes go through the definer functions below.
+--   3. incident_appeal_comments: one internal comment per steward per appeal, kept with a null author when
+--      that profile is deleted. No client grants; reads and writes go through the definer functions below.
 --   4. private.is_involved_in_appeal(): the one involvement test for comments, Close Appeal, Dismiss and
 --      Reopen. The caller's driver is a party to the appeal's penalty, or the caller is involved in the
---      logged incident report that became it (same round, session and lap, naming one of the penalty's cars).
+--      logged incident report that became it (same round and a shared car; same session and lap, else same
+--      session, else same lap, as the admin page matches them).
 --   5. private.incident_appeals_lock() on BEFORE UPDATE: a reviewed appeal is final; only an update that sets
 --      every close field while moving open to reviewed can close one (which close_incident_appeal makes);
 --      close fields never change otherwise, except closed_by going to null alone; an involved steward
@@ -78,7 +79,9 @@ comment on column public.penalties.appeal_is_warning is
 create table public.incident_appeal_comments (
   id uuid primary key default gen_random_uuid(),
   appeal_id uuid not null references public.incident_appeals (id) on delete cascade,
-  author_id uuid not null references public.profiles (id) on delete cascade,
+  -- Set null when the steward's profile is deleted, so the record survives ("A former steward"). Nulls are
+  -- distinct, so the one-per-steward key below still holds for every living author.
+  author_id uuid references public.profiles (id) on delete set null,
   body text not null check (char_length(body) between 1 and 4000 and body = btrim(body)),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -99,39 +102,49 @@ revoke all on table public.incident_appeal_comments from public, anon, authentic
 
 -- 4. The one involvement test (BR2.1, BR3.2, BR3.7) -----------------------------------------------------------
 -- Nothing links a penalty to the report it was logged from, so the report side matches the way the admin page
--- finds a report's decision: a logged report in the same round, session and lap that names one of the
--- penalty's cars.
+-- finds a report's decision (decisionPenaltyFor): a penalty in the round sharing one of the logged report's
+-- cars, at the same session and lap, else the same session, else the same lap (a steward may have changed
+-- either while logging it). Every penalty at the report's best tier counts.
 
 create function private.is_involved_in_appeal(p_appeal_id uuid) returns boolean
   language sql stable security definer
   set search_path = ''
   as $$
-  select exists (
-    select 1
+  with target as (
+    select p.id, p.subsession_id
     from public.incident_appeals a
     join public.penalties p on p.id = a.penalty_id
     where a.id = p_appeal_id
-      and (
-        private.is_penalty_party(p.id, private.caller_driver_id())
-        or exists (
-          select 1
-          from public.incident_reports r
-          where r.subsession_id = p.subsession_id
-            and r.session = p.session_type || ':' || p.race_number
-            and r.lap is not distinct from p.lap
-            and r.status = 'logged'
-            and exists (
-              select 1
-              from public.incident_report_drivers x
-              where x.report_id = r.id
-                and (x.driver_id = p.driver_id
-                     or exists (select 1 from public.penalty_involved_drivers i
-                                where i.penalty_id = p.id and i.driver_id = x.driver_id))
-            )
-            and private.is_involved_in_incident_report(r.id)
-        )
-      )
-  );
+  ),
+  -- Each logged report of the round with each penalty sharing one of its cars, and how well they match:
+  -- 1 same session and lap, 2 same session, 3 same lap, null neither.
+  matches as (
+    select r.id as report_id, q.id as penalty_id,
+      case
+        when r.session = q.session_type || ':' || q.race_number and r.lap is not distinct from q.lap then 1
+        when r.session = q.session_type || ':' || q.race_number then 2
+        when r.lap is not distinct from q.lap then 3
+      end as tier
+    from target t
+    join public.incident_reports r on r.subsession_id = t.subsession_id and r.status = 'logged'
+    join public.penalties q on q.subsession_id = t.subsession_id
+    where exists (
+      select 1
+      from public.incident_report_drivers x
+      where x.report_id = r.id
+        and (x.driver_id = q.driver_id
+             or exists (select 1 from public.penalty_involved_drivers i
+                        where i.penalty_id = q.id and i.driver_id = x.driver_id))
+    )
+  ),
+  decided as (
+    select m.report_id, m.penalty_id
+    from matches m
+    where m.tier = (select min(m2.tier) from matches m2 where m2.report_id = m.report_id)
+  )
+  select exists (select 1 from target t where private.is_penalty_party(t.id, private.caller_driver_id()))
+      or exists (select 1 from target t join decided d on d.penalty_id = t.id
+                 where private.is_involved_in_incident_report(d.report_id));
 $$;
 
 comment on function private.is_involved_in_appeal(uuid) is
@@ -224,8 +237,11 @@ begin
   if not found or private.is_involved_in_appeal(p_appeal_id) then
     return 'not_allowed';
   end if;
-  if v_status <> 'open' then
+  -- A closed appeal is final; a dismissed one must be reopened before it can be closed.
+  if v_status = 'reviewed' then
     return 'already_closed';
+  elsif v_status <> 'open' then
+    return 'not_open';
   end if;
 
   if p_time is null or p_time < 0 or p_time <> round(p_time, 3)
@@ -264,7 +280,7 @@ $$;
 comment on function public.close_incident_appeal(uuid, numeric, integer, integer, boolean, text) is
   'Admins and staff not involved in the incident: close an open appeal with a decision (time, points, licence '
   'points, warning, comment), written to the appeal and to its penalty in one transaction. Returns ok, '
-  'not_allowed, already_closed or invalid.';
+  'not_allowed, already_closed (reviewed), not_open (dismissed) or invalid.';
 
 revoke all on function public.close_incident_appeal(uuid, numeric, integer, integer, boolean, text) from public, anon;
 grant execute on function public.close_incident_appeal(uuid, numeric, integer, integer, boolean, text) to authenticated;
@@ -324,10 +340,11 @@ create function public.incident_appeal_comments_for_round(p_subsession_id bigint
   as $$
   select
     c.appeal_id,
-    coalesce(nullif(btrim(pr.display_name), ''), 'Unknown steward') as author_name,
+    case when c.author_id is null then 'A former steward'
+         else coalesce(nullif(btrim(pr.display_name), ''), 'Unknown steward') end as author_name,
     c.body,
     c.updated_at,
-    c.author_id = (select auth.uid()) as is_mine
+    coalesce(c.author_id = (select auth.uid()), false) as is_mine
   from public.incident_appeal_comments c
   join public.incident_appeals a on a.id = c.appeal_id
   left join public.profiles pr on pr.id = c.author_id

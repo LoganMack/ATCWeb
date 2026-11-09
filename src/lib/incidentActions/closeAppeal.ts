@@ -7,6 +7,7 @@ import type { IncidentActionContext, IncidentActionRedirect } from './context';
 const FLASH_BY_OUTCOME: Record<CloseAppealOutcome, AppealActionFlash> = {
   ok: 'closed-ok',
   already_closed: 'already-closed',
+  not_open: 'dismissed',
   not_allowed: 'not-allowed',
   invalid: 'invalid',
 };

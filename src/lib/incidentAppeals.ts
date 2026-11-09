@@ -58,8 +58,8 @@ export interface IncidentAppeal {
   closer?: { display_name: string | null } | null;
 }
 
-/** What Close Appeal returned (close_incident_appeal's status codes). */
-export type CloseAppealOutcome = 'ok' | 'already_closed' | 'not_allowed' | 'invalid';
+/** What Close Appeal returned (close_incident_appeal's status codes; not_open means dismissed). */
+export type CloseAppealOutcome = 'ok' | 'already_closed' | 'not_open' | 'not_allowed' | 'invalid';
 /** What saving a steward comment returned (save_incident_appeal_comment's status codes). */
 export type AppealCommentOutcome = 'ok' | 'not_open' | 'not_allowed' | 'invalid';
 
@@ -84,7 +84,7 @@ export interface AppealComment {
 
 export const APPEAL_COMMENT_MAX_LENGTH = 4000;
 
-const CLOSE_OUTCOMES: readonly CloseAppealOutcome[] = ['ok', 'already_closed', 'not_allowed', 'invalid'];
+const CLOSE_OUTCOMES: readonly CloseAppealOutcome[] = ['ok', 'already_closed', 'not_open', 'not_allowed', 'invalid'];
 const COMMENT_OUTCOMES: readonly AppealCommentOutcome[] = ['ok', 'not_open', 'not_allowed', 'invalid'];
 
 /** A close status code from the database; throws on anything else, so a changed function fails loudly. */

@@ -241,7 +241,7 @@ begin
     appeal_fixture.close('eeeeeeee-0000-0000-0000-000000000f02', 'dddddddd-0000-0000-0000-000000000f01', 9, 9, 9, true, 'Again'),
     'already_closed');
   perform appeal_fixture.expect('F02 dismissed appeal cannot be closed',
-    appeal_fixture.close(v_out, 'dddddddd-0000-0000-0000-000000000f03', 1, 1, 1, false, 'No'), 'already_closed');
+    appeal_fixture.close(v_out, 'dddddddd-0000-0000-0000-000000000f03', 1, 1, 1, false, 'No'), 'not_open');
   perform appeal_fixture.expect('F02 A1 unchanged',
     (select close_comment || '/' || closed_by::text from public.incident_appeals where id = 'dddddddd-0000-0000-0000-000000000f01'),
     'Dropped/eeeeeeee-0000-0000-0000-000000000f01');
@@ -322,6 +322,69 @@ begin
     (select string_agg(status, ',' order by id) from public.incident_appeals where subsession_id = 9915001),
     'open,open,dismissed');
   raise notice 'ok F04 involvement';
+end $$;
+rollback to savepoint fixture;
+
+-- F04 (changed lap) A steward changed the lap while logging: report R2 (race 2, lap 7) became penalty P2
+--     (race 2, lap 9). Rep, named in R2, is involved in P2's appeal through the same-session match, while Steward
+--     Out is not (BR2.1, BR3.2) ---------------------------------------------------------------------------------
+do $$
+declare
+  v_rep text := 'eeeeeeee-0000-0000-0000-000000000f04';
+begin
+  insert into public.penalties (id, subsession_id, race_number, driver_id, lap, description, penalty_points,
+                                time_penalty_seconds, points_penalty, is_warning) values
+    ('cccccccc-0000-0000-0000-000000000f02', 9915001, 2, '99999999-0000-0000-0000-000000000f01', 9, 'P2', 1, 5, 0, false);
+  insert into public.incident_reports (id, subsession_id, session, lap, turn, description, status) values
+    ('aaaaaaaa-0000-0000-0000-000000000f02', 9915001, 'race:2', 7, '4', 'Lap changed when logged', 'logged');
+  insert into public.incident_report_drivers (report_id, driver_id) values
+    ('aaaaaaaa-0000-0000-0000-000000000f02', '99999999-0000-0000-0000-000000000f01'),
+    ('aaaaaaaa-0000-0000-0000-000000000f02', '99999999-0000-0000-0000-000000000f03');
+  insert into public.incident_appeals (id, subsession_id, penalty_id, message, submitter_id, status) values
+    ('dddddddd-0000-0000-0000-000000000f05', 9915001, 'cccccccc-0000-0000-0000-000000000f02', 'Lap changed', null, 'open');
+  perform appeal_fixture.expect('F04 changed lap: rep close',
+    appeal_fixture.close(v_rep, 'dddddddd-0000-0000-0000-000000000f05', 0, 0, 0, false, 'Mine'), 'not_allowed');
+  perform appeal_fixture.expect('F04 changed lap: rep comment',
+    appeal_fixture.comment(v_rep, 'dddddddd-0000-0000-0000-000000000f05', 'Mine'), 'not_allowed');
+  perform appeal_fixture.expect('F04 changed lap: rep dismiss',
+    appeal_fixture.code_as(v_rep, appeal_fixture.status_sql('dddddddd-0000-0000-0000-000000000f05', 'dismissed')),
+    'INVOLVED_STEWARD');
+  perform appeal_fixture.expect('F04 changed lap: out comments',
+    appeal_fixture.comment('eeeeeeee-0000-0000-0000-000000000f01', 'dddddddd-0000-0000-0000-000000000f05', 'Fine'), 'ok');
+  raise notice 'ok F04 changed lap';
+end $$;
+rollback to savepoint fixture;
+
+-- F04 (changed session) A steward changed the session while logging: report R3 (race 3, lap 6) became penalty
+--     P3 (race 2, lap 6), so Rep is involved in P3's appeal through the same-lap match. Penalty P4 (race 2, lap 5)
+--     shares R1's lap and a car, but R1's own decision is P1 at the same session and lap, so Rep may decide P4's
+--     appeal (BR2.1, BR3.2) ------------------------------------------------------------------------------------
+do $$
+declare
+  v_rep text := 'eeeeeeee-0000-0000-0000-000000000f04';
+begin
+  insert into public.penalties (id, subsession_id, race_number, driver_id, lap, description, penalty_points,
+                                time_penalty_seconds, points_penalty, is_warning) values
+    ('cccccccc-0000-0000-0000-000000000f03', 9915001, 2, '99999999-0000-0000-0000-000000000f01', 6, 'P3', 1, 5, 0, false),
+    ('cccccccc-0000-0000-0000-000000000f04', 9915001, 2, '99999999-0000-0000-0000-000000000f01', 5, 'P4', 1, 5, 0, false);
+  insert into public.incident_reports (id, subsession_id, session, lap, turn, description, status) values
+    ('aaaaaaaa-0000-0000-0000-000000000f03', 9915001, 'race:3', 6, '1', 'Session changed when logged', 'logged');
+  insert into public.incident_report_drivers (report_id, driver_id) values
+    ('aaaaaaaa-0000-0000-0000-000000000f03', '99999999-0000-0000-0000-000000000f01'),
+    ('aaaaaaaa-0000-0000-0000-000000000f03', '99999999-0000-0000-0000-000000000f03');
+  insert into public.incident_appeals (id, subsession_id, penalty_id, message, submitter_id, status) values
+    ('dddddddd-0000-0000-0000-000000000f06', 9915001, 'cccccccc-0000-0000-0000-000000000f03', 'Session changed', null, 'open'),
+    ('dddddddd-0000-0000-0000-000000000f07', 9915001, 'cccccccc-0000-0000-0000-000000000f04', 'Unrelated', null, 'open');
+  perform appeal_fixture.expect('F04 changed session: rep close',
+    appeal_fixture.close(v_rep, 'dddddddd-0000-0000-0000-000000000f06', 0, 0, 0, false, 'Mine'), 'not_allowed');
+  perform appeal_fixture.expect('F04 changed session: rep comment',
+    appeal_fixture.comment(v_rep, 'dddddddd-0000-0000-0000-000000000f06', 'Mine'), 'not_allowed');
+  perform appeal_fixture.expect('F04 changed session: rep dismiss',
+    appeal_fixture.code_as(v_rep, appeal_fixture.status_sql('dddddddd-0000-0000-0000-000000000f06', 'dismissed')),
+    'INVOLVED_STEWARD');
+  perform appeal_fixture.expect('F04 changed session: rep may comment on an unrelated appeal',
+    appeal_fixture.comment(v_rep, 'dddddddd-0000-0000-0000-000000000f07', 'Not mine'), 'ok');
+  raise notice 'ok F04 changed session';
 end $$;
 rollback to savepoint fixture;
 
@@ -478,10 +541,12 @@ begin
 end $$;
 rollback to savepoint fixture;
 
--- F10 closed_by becomes null when the closing steward's profile is deleted, and the rest of the close record
---     stays; the new functions' settings and grants (BR5.1) ------------------------------------------------
+-- F10 closed_by and a comment's author become null when that steward's profile is deleted, and the close
+--     record and the comment stay; the new functions' settings and grants (BR2.3, BR5.1) --------------------
 do $$
 begin
+  perform appeal_fixture.expect('F10 comment before close',
+    appeal_fixture.comment('eeeeeeee-0000-0000-0000-000000000f02', 'dddddddd-0000-0000-0000-000000000f01', 'Keep it'), 'ok');
   perform appeal_fixture.expect('F10 close',
     appeal_fixture.close('eeeeeeee-0000-0000-0000-000000000f02', 'dddddddd-0000-0000-0000-000000000f01', 1, 0, 0, false, 'Kept'),
     'ok');
@@ -490,6 +555,8 @@ begin
     (select status || '/' || coalesce(closed_by::text, 'null') || '/' || close_comment
      from public.incident_appeals where id = 'dddddddd-0000-0000-0000-000000000f01'),
     'reviewed/null/Kept');
+  perform appeal_fixture.expect('F10 comment kept with no author',
+    appeal_fixture.comments('eeeeeeee-0000-0000-0000-000000000f01'), 'A former steward|Keep it|false');
   perform appeal_fixture.expect('F10 definers with an empty search_path',
     (select bool_and(p.prosecdef and p.proconfig = array['search_path=""']) from pg_proc p
      where p.oid in ('public.close_incident_appeal(uuid, numeric, integer, integer, boolean, text)'::regprocedure,

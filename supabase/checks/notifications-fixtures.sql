@@ -375,7 +375,7 @@ begin
   perform notifications_fixture.expect('N07 second close',
     notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000701'), 'already_closed');
   perform notifications_fixture.expect('N07 dismissed cannot be closed',
-    notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000703'), 'already_closed');
+    notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000703'), 'not_open');
   perform notifications_fixture.exec_as(v_admin,
     $q$update public.incident_appeals set status = 'open' where id = 'aaaaaaaa-0000-0000-0000-000000000703'$q$);
   perform notifications_fixture.expect('N07 close after reopen',

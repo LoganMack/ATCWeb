@@ -527,21 +527,23 @@ if (adminSession && incidentAppeals.length > 0) {
 }
 /**
  * Whether this steward is involved in the appeal's incident, by the database's own test
- * (private.is_involved_in_appeal): a party to the penalty, or a car in the logged report it came from. Only
+ * (private.is_involved_in_appeal): a party to the penalty, or a car in the logged report it came from (matched as
+ * decisionPenaltyFor does, so a changed session or lap still counts). Only
  * hides buttons the database would refuse anyway (BR2.1, BR3.7).
  */
 function isInvolvedInAppeal(p: Penalty | undefined): boolean {
   if (!p || myDriverId === null) return false;
   if (p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId)) return true;
-  const cars = [p.driver_id, ...p.involved_driver_ids].filter((id): id is string => id !== null);
-  return incidentReports.some(
-    (r) =>
-      r.status === 'logged' &&
-      r.session === sessionKey(p) &&
-      r.lap === p.lap &&
-      r.driver_ids.some((id) => cars.includes(id)) &&
-      isInvolved(r),
-  );
+  return incidentReports.some((r) => {
+    if (r.status !== 'logged' || !isInvolved(r)) return false;
+    // Every penalty at the report's best match counts, as in the database (decisionPenaltyFor's order).
+    const tier = decisionTier(r, p);
+    if (tier === null) return false;
+    return sortedPenalties.every((q) => {
+      const other = decisionTier(r, q);
+      return other === null || other >= tier;
+    });
+  });
 }
 // The filter bar's counts and the filter shown first (FR1.3, BR1.3): Appeals while any is open (appeals
 // BR1.1). The server hides the other cards, so the list is right before the filter script runs.
@@ -683,6 +685,16 @@ function incidentSummaryFor(p: Penalty) {
  * with one of the report's cars penalized or tagged as involved — loosening the
  * session, then the lap, if a steward changed either while logging it.
  */
+/** How well a penalty matches a logged report: 1 same session and lap, 2 same session, 3 same lap, each with a shared car. */
+function decisionTier(r: IncidentReport, p: Penalty): 1 | 2 | 3 | null {
+  const cars = [p.driver_id, ...p.involved_driver_ids].filter((id): id is string => id !== null);
+  if (!r.driver_ids.some((id) => cars.includes(id))) return null;
+  const sameSession = sessionKey(p) === r.session;
+  const sameLap = p.lap === r.lap;
+  if (sameSession && sameLap) return 1;
+  if (sameSession) return 2;
+  return sameLap ? 3 : null;
+}
 function decisionPenaltyFor(r: IncidentReport): Penalty | null {
   const carsMatch = (p: Penalty) =>
     (p.driver_id !== null && r.driver_ids.includes(p.driver_id)) || p.involved_driver_ids.some((id) => r.driver_ids.includes(id));
@@ -2424,20 +2436,27 @@ if (loadError) markUncacheable(Astro);
                 <input type="checkbox" name="is_warning" data-decide-appeal-warning data-testid="close-appeal-warning" />
                 Warning
               </label>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Comment (shown to stewards and saved as the appeal result)
-                <textarea
-                  name="comment"
-                  data-decide-appeal-comment
-                  data-testid="close-appeal-comment"
-                  required
-                  rows="4"
-                  maxlength={APPEAL_COMMENT_MAX_LENGTH}
-                  placeholder="Why was the penalty kept or changed?"
-                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
-                ></textarea>
-                <span data-decide-appeal-counter class="self-end text-[11px] text-white/30" aria-live="polite">0 / 4,000</span>
-              </label>
+              <div class="flex flex-col gap-1">
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Appeal result (shown publicly on this incident)
+                  <textarea
+                    name="comment"
+                    data-decide-appeal-comment
+                    data-testid="close-appeal-comment"
+                    required
+                    rows="4"
+                    maxlength={APPEAL_COMMENT_MAX_LENGTH}
+                    aria-describedby="close-appeal-counter close-appeal-final"
+                    placeholder="Why was the penalty kept or changed?"
+                    class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
+                  ></textarea>
+                </label>
+                <span id="close-appeal-counter" data-decide-appeal-counter class="self-end text-[11px] text-white/30" aria-live="polite">0 / 4,000</span>
+              </div>
+              <p id="close-appeal-final" class="text-xs text-brand-gold" data-testid="close-appeal-final">
+                Closing is final and cannot be undone. Anyone viewing this incident, signed in or not, will see this
+                comment as the appeal result.
+              </p>
               <div class="flex justify-end gap-2">
                 <button type="button" data-decide-appeal-dismiss class="btn btn-neutral">Cancel</button>
                 <button type="submit" data-decide-appeal-submit data-testid="close-appeal-submit" disabled class="btn btn-gold">Close Appeal</button>
@@ -2464,19 +2483,22 @@ if (loadError) markUncacheable(Astro);
                 </div>
                 <button type="button" data-appeal-comment-dismiss class="text-white/40 hover:text-white" aria-label="Close">✕</button>
               </div>
-              <label class="flex flex-col gap-1 text-[11px] text-white/50">
-                Comment
-                <textarea
-                  name="body"
-                  data-appeal-comment-body
-                  data-testid="appeal-comment-body"
-                  required
-                  rows="5"
-                  maxlength={APPEAL_COMMENT_MAX_LENGTH}
-                  class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
-                ></textarea>
-                <span data-appeal-comment-counter class="self-end text-[11px] text-white/30" aria-live="polite">0 / 4,000</span>
-              </label>
+              <div class="flex flex-col gap-1">
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Comment
+                  <textarea
+                    name="body"
+                    data-appeal-comment-body
+                    data-testid="appeal-comment-body"
+                    required
+                    rows="5"
+                    maxlength={APPEAL_COMMENT_MAX_LENGTH}
+                    aria-describedby="appeal-comment-counter"
+                    class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
+                  ></textarea>
+                </label>
+                <span id="appeal-comment-counter" data-appeal-comment-counter class="self-end text-[11px] text-white/30" aria-live="polite">0 / 4,000</span>
+              </div>
               <p class="text-[11px] text-white/30">
                 Only stewards who aren't involved in this incident can read comments. They can't be deleted.
               </p>

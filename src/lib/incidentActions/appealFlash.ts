@@ -6,12 +6,23 @@ import type { IncidentActionContext, IncidentActionRedirect } from './context';
  * parameter from ?appeal=, which already carries the driver's own Submit Appeal outcome (and its own
  * `invalid`).
  */
-export type AppealActionFlash = 'closed-ok' | 'comment-ok' | 'already-closed' | 'not-allowed' | 'invalid' | 'failed';
+export type AppealActionFlash =
+  | 'closed-ok'
+  | 'comment-ok'
+  | 'already-closed'
+  | 'dismissed'
+  | 'not-allowed'
+  | 'invalid'
+  | 'failed';
 
 export const APPEAL_ACTION_FLASH_MESSAGES: Record<AppealActionFlash, { kind: 'ok' | 'error'; message: string }> = {
   'closed-ok': { kind: 'ok', message: 'Appeal closed. The penalty now shows your decision.' },
   'comment-ok': { kind: 'ok', message: 'Comment saved.' },
   'already-closed': { kind: 'error', message: 'This appeal is no longer open, so nothing was changed.' },
+  dismissed: {
+    kind: 'error',
+    message: 'This appeal was dismissed, so it was not closed. Reopen it first to decide it.',
+  },
   'not-allowed': {
     kind: 'error',
     message: 'You are involved in this incident, so another steward must decide the appeal.',
