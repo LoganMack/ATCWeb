@@ -51,7 +51,15 @@ try {
     carLogos: refs.carLogos,
     seasonLogoRows: refs.seasonLogoRows,
   });
-  data = { classLabel: filter.label, seasonLabel: season ? season.name : 'All seasons', ...lists };
+  // `races` (the Starts % denominator) rides along with the lists; the Percents are worked out in the browser.
+  data = {
+    classLabel: filter.label,
+    seasonLabel: season ? season.name : 'All seasons',
+    races: lists.races,
+    drivers: lists.drivers,
+    teams: lists.teams,
+    cars: lists.cars,
+  };
 } catch (err) {
   console.error('Failed to build the compare view (fragment):', err);
   loadError = err instanceof Error ? err.message : String(err);

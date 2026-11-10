@@ -1,6 +1,7 @@
 /**
  * Compare (FR4.4-FR4.10, BR4.2-BR4.10): drivers, teams credited per round and cars credited per round, the
- * team titles, hidden-driver labels, and the pure row helpers (leaders, bars, rates, slot keys).
+ * team titles, hidden-driver labels, slot keys, and the Percent denominators of the Timing tower redesign
+ * (FR3.4-FR3.6): races the filters cover, races entered, race laps and finished seasons.
  */
 import { describe, expect, it } from 'vitest';
 import type { Season } from '../../src/lib/db/seasons';
@@ -23,10 +24,10 @@ import {
 import {
   COMPARE_ROWS,
   formatEntityKey,
-  formatRate,
+  formatPercentValue,
   parseEntityKey,
+  percentOf,
   resolvePicks,
-  rowLeaders,
   type CompareEntity,
 } from '../../src/lib/compareRows';
 
@@ -258,29 +259,14 @@ describe('a driver with two class rows in one season (BR3.5, BR4.7)', () => {
   });
 });
 
-describe('row helpers (BR4.4, BR4.9, BR4.10)', () => {
-  it('marks the highest value as leader, every tie as a leader, and sizes bars against the best', () => {
-    expect(rowLeaders([4, 8, null, 8])).toEqual({
-      leaders: [false, true, false, true],
-      widths: [50, 100, 0, 100],
-    });
-  });
-
-  it('shows no leader with one value or a best of 0', () => {
-    expect(rowLeaders([5, null, null, null]).leaders).toEqual([false, false, false, false]);
-    expect(rowLeaders([0, 0, null, null])).toEqual({
-      leaders: [false, false, false, false],
-      widths: [0, 0, 0, 0],
-    });
-  });
-
-  it('formats rates per start with one decimal and a dash at 0 starts, and dashes rows that do not apply', () => {
-    expect(formatRate(1, 3)).toBe('33.3%');
-    expect(formatRate(0, 0)).toBe('—');
+describe('slot keys and car rows (BR4.4, BR4.9)', () => {
+  it('shows a car’s win rate per start and dashes the rows that do not apply to it', () => {
     const car = byKey(lists('Combined').cars, 'c:Audi RS3 LMS Gen2 TCR')!;
-    const shown = Object.fromEntries(COMPARE_ROWS.map((r) => [r.key, r.format(car)]));
-    expect(shown).toMatchObject({ winRate: '50.0%', championships: '—', cpi: '—' });
-    expect(COMPARE_ROWS.map((r) => r.key)).toHaveLength(12);
+    const row = (key: string) => COMPARE_ROWS.find((r) => r.key === key)!;
+    expect(formatPercentValue(row('wins').percent(car, { races: 3 }))).toBe('50.0%');
+    expect(row('championships').total.format(car)).toBe('—');
+    expect(row('cpi').total.format(car)).toBe('—');
+    expect(car.championshipSeasons).toBeNull();
   });
 
   it('round-trips slot keys and rejects anything else', () => {
@@ -292,6 +278,126 @@ describe('row helpers (BR4.4, BR4.9, BR4.10)', () => {
       expect(parseEntityKey(formatEntityKey(type, id))).toEqual({ type, id });
     }
     for (const bad of ['', 'x:1', 'd:', 'driver', null]) expect(parseEntityKey(bad)).toBeNull();
+  });
+});
+
+describe('Percent denominators (FR3.4-FR3.6, NFR4)', () => {
+  const S16 = { id: 's16', name: 'ATC16', number: 16, is_current: false } as Season;
+
+  function raced(
+    subsessionId: number,
+    teamId: string,
+    carName: string,
+    starts: number,
+    laps: number,
+  ): CareerRound {
+    return {
+      subsessionId,
+      teamId,
+      carName,
+      starts,
+      laps,
+      lapsLed: 0,
+      classCounts: counts(),
+      overallCounts: counts(),
+    };
+  }
+
+  // Round 10 (ATC17) has two races, run multiclass. Alpha's leader does 40 laps, Gamma's 34. Team X runs two
+  // Alpha cars in both races; Ace Three missed one race. Round 11 (ATC18, still running) is one Alpha race.
+  const field = [
+    careerOf({ id: 'a1', name: 'Ace One' }, [
+      seasonRow(S17, 1, [raced(10, 'tX', 'Car One', 2, 40)]),
+      seasonRow(S18, 1, [raced(11, 'tX', 'Car One', 1, 20)]),
+    ]),
+    careerOf({ id: 'a2', name: 'Ace Two' }, [seasonRow(S17, 1, [raced(10, 'tX', 'Car One', 2, 38)])]),
+    careerOf({ id: 'a3', name: 'Ace Three' }, [seasonRow(S17, 1, [raced(10, 'tY', 'Car Two', 1, 18)])]),
+    careerOf({ id: 'g1', name: 'Gil Gamma' }, [seasonRow(S17, 2, [raced(10, 'tY', 'Car Two', 2, 34)])]),
+    careerOf({ id: 'dl', name: 'Del Delta' }, [seasonRow(S17, 3, [raced(10, 'tY', 'Car Three', 2, 30)])]),
+  ];
+  const fieldTitles: TeamSeasonTitles[] = [
+    { season: S16, overallChampionIds: ['tX'], deltaChampionIds: [] },
+    { season: S17, overallChampionIds: ['tY'], deltaChampionIds: ['tY'] },
+    { season: S18, overallChampionIds: ['tX'], deltaChampionIds: ['tX'] },
+  ];
+  const fieldTeams: TeamBasic[] = [
+    { id: 'tX', name: 'Team X', logo_url: null },
+    { id: 'tY', name: 'Team Y', logo_url: null },
+  ];
+
+  function fieldLists(classValue: string | null, season: Season | null = null) {
+    return buildCompareLists({
+      careers: field,
+      teamTitles: fieldTitles,
+      filter: resolveClassFilter(classValue, CLASSES),
+      season,
+      teams: fieldTeams,
+      carLogos: [],
+    });
+  }
+
+  const startsPercent = (e: CompareEntity | undefined, races: number) => percentOf(e!.racesEntered, races);
+
+  it('counts the races the filters cover: all of them, only a class’s, or only one season’s', () => {
+    expect(fieldLists(null).races).toBe(3); // round 10's two races and round 11's one
+    expect(fieldLists('Combined').races).toBe(3);
+    expect(fieldLists('Alpha').races).toBe(3);
+    expect(fieldLists('Gamma').races).toBe(2); // Gamma never ran round 11
+    expect(fieldLists(null, S18).races).toBe(1);
+    expect(fieldLists('Gamma', S18).races).toBe(0);
+  });
+
+  it('narrows the Starts % denominator with the class and season filters (targeted regression)', () => {
+    const overall = fieldLists(null);
+    const gamma = fieldLists('Gamma');
+    expect(startsPercent(byKey(overall.drivers, 'd:g1'), overall.races)).toBeCloseTo(66.67, 2);
+    expect(startsPercent(byKey(gamma.drivers, 'd:g1'), gamma.races)).toBe(100);
+    const atc18 = fieldLists(null, S18);
+    expect(startsPercent(byKey(atc18.drivers, 'd:a1'), atc18.races)).toBe(100);
+  });
+
+  it('counts a race once for a team with two cars in it, so team and car Starts % never pass 100%', () => {
+    const { races, teams, cars } = fieldLists(null);
+    const teamX = byKey(teams, 't:tX')!;
+    expect(teamX).toMatchObject({ starts: 5, racesEntered: 3 });
+    expect(byKey(cars, 'c:Car One')).toMatchObject({ starts: 5, racesEntered: 3 });
+    for (const e of [...teams, ...cars]) {
+      expect(startsPercent(e, races), e.key).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('scales race laps by the races a driver started, so missing one of two doesn’t halve the rate', () => {
+    const ace3 = byKey(fieldLists(null).drivers, 'd:a3')!;
+    expect(ace3).toMatchObject({ laps: 18, raceLaps: 20, racesEntered: 1 }); // half of the leader's 40
+    expect(percentOf(ace3.laps, ace3.raceLaps)).toBe(90);
+    // A full-distance driver never has fewer race laps than laps completed.
+    expect(byKey(fieldLists(null).drivers, 'd:a1')).toMatchObject({ laps: 60, raceLaps: 60 });
+  });
+
+  it('measures multiclass laps against the driver’s own class leader, and sums a team’s over its rounds', () => {
+    const { drivers, teams } = fieldLists(null);
+    expect(byKey(drivers, 'd:g1')).toMatchObject({ laps: 34, raceLaps: 34 }); // not Alpha's 40
+    // Team X: Ace One 40 + 20 and Ace Two 38, against 40 + 20 + 40.
+    expect(byKey(teams, 't:tX')).toMatchObject({ laps: 98, raceLaps: 100 });
+  });
+
+  it('counts finished seasons: every one, a class’s own, or the Delta team competition’s', () => {
+    const driverSeasons = (classValue: string | null, season: Season | null = null) =>
+      byKey(fieldLists(classValue, season).drivers, 'd:a1')?.championshipSeasons;
+    expect(driverSeasons(null)).toBe(2); // ATC16 and ATC17; ATC18 is still running
+    expect(driverSeasons('Combined')).toBe(2);
+    expect(driverSeasons('Alpha')).toBe(1); // Alpha's rows are ATC17 and the running ATC18
+    expect(driverSeasons(null, S17)).toBe(1);
+    expect(byKey(fieldLists(null).teams, 't:tY')?.championshipSeasons).toBe(2);
+    expect(byKey(fieldLists('Delta').teams, 't:tY')?.championshipSeasons).toBe(1); // ATC16 had no Delta title
+    expect(byKey(fieldLists('Alpha').teams, 't:tX')?.championshipSeasons).toBeNull();
+  });
+
+  it('gives an unfinished chosen season no finished seasons, so Championship % is a dash', () => {
+    const ace1 = byKey(fieldLists(null, S18).drivers, 'd:a1')!;
+    expect(ace1.championshipSeasons).toBe(0);
+    const row = COMPARE_ROWS.find((r) => r.key === 'championships')!;
+    expect(formatPercentValue(row.percent(ace1, { races: 1 }))).toBe('—');
   });
 });
 

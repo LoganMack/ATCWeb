@@ -2,7 +2,8 @@
  * The Compare view's pickable drivers, teams and cars (BR4.2-BR4.8), built in memory from one career
  * computation (BR5.1). Drivers are their career aggregate under the filter; teams and cars are credited round
  * by round from the drivers' CareerRounds, so a driver who changed team mid-season counts for each team only
- * in the rounds raced for it.
+ * in the rounds raced for it. The Percent denominators (races, races entered, race laps and finished seasons;
+ * FR3.4-FR3.6) come from the same rounds, with no extra read.
  */
 import type { CarLogo } from '../db/assets';
 import type { Season } from '../db/seasons';
@@ -15,6 +16,7 @@ import type { TeamBasic } from './rows';
 import { isChampionshipSeason } from './shared';
 import {
   aggregateCareer,
+  type CareerRound,
   type DriverCareerSeasonRow,
   type DriverCareerStats,
   type TeamSeasonTitles,
@@ -41,6 +43,8 @@ export interface CompareInput {
 }
 
 export interface CompareLists {
+  /** Races the Class and Season filters cover: the Starts % denominator (FR3.4). */
+  races: number;
   drivers: CompareEntity[];
   teams: CompareEntity[];
   cars: CompareEntity[];
@@ -51,18 +55,36 @@ interface Totals {
   laps: number;
   lapsLed: number;
   counts: StatCounts;
+  raceLaps: number;
+  /** subsessionId -> the most starts one credited driver had in that round. */
+  roundStarts: Map<number, number>;
+  /** Starts from season rows with no round split, which can't be matched to a round. */
+  unsplitStarts: number;
 }
 
 function newTotals(): Totals {
-  return { starts: 0, laps: 0, lapsLed: 0, counts: emptyCounts() };
+  return {
+    starts: 0,
+    laps: 0,
+    lapsLed: 0,
+    counts: emptyCounts(),
+    raceLaps: 0,
+    roundStarts: new Map(),
+    unsplitStarts: 0,
+  };
 }
 
-function credit(
-  totals: Map<string, Totals>,
-  id: string,
-  part: { starts: number; laps: number; lapsLed: number },
-  counts: StatCounts,
-): void {
+/** One driver's share of a round (or of an unsplit season row) credited to a team or car. */
+interface CreditPart {
+  starts: number;
+  laps: number;
+  lapsLed: number;
+  raceLaps: number;
+  /** Null for a season row with no round split. */
+  subsessionId: number | null;
+}
+
+function credit(totals: Map<string, Totals>, id: string, part: CreditPart, counts: StatCounts): void {
   let t = totals.get(id);
   if (!t) {
     t = newTotals();
@@ -71,7 +93,121 @@ function credit(
   t.starts += part.starts;
   t.laps += part.laps;
   t.lapsLed += part.lapsLed;
+  t.raceLaps += part.raceLaps;
   addCounts(t.counts, counts);
+  if (part.subsessionId === null) t.unsplitStarts += part.starts;
+  else t.roundStarts.set(part.subsessionId, Math.max(t.roundStarts.get(part.subsessionId) ?? 0, part.starts));
+}
+
+/** Races entered: the busiest credited driver per round, so two cars in one race count it once. */
+function racesEntered(t: Totals): number {
+  let n = t.unsplitStarts;
+  for (const starts of t.roundStarts.values()) n += starts;
+  return n;
+}
+
+/** The most starts and laps any driver of one class had in one round. */
+interface ClassRound {
+  races: number;
+  laps: number;
+}
+
+const classRoundKey = (subsessionId: number, classId: number) => `${subsessionId}:${classId}`;
+
+/**
+ * Every round's race count and lap count per class, over every driver whatever the filters (the class's own
+ * leader sets its race laps, so multiclass lapping stays fair). The data has no per-race lap count, so the
+ * most laps any driver of the class completed in the round stands in for the races' length.
+ */
+function classRounds(careers: DriverCareerStats[]): Map<string, ClassRound> {
+  const out = new Map<string, ClassRound>();
+  for (const career of careers) {
+    for (const row of career.seasons) {
+      for (const r of row.rounds) {
+        const key = classRoundKey(r.subsessionId, row.classId);
+        const cr = out.get(key) ?? { races: 0, laps: 0 };
+        cr.races = Math.max(cr.races, r.starts);
+        cr.laps = Math.max(cr.laps, r.laps);
+        out.set(key, cr);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The laps the races a driver started in one round ran (FR3.5): the class leader's laps, scaled by the
+ * driver's share of the round's races so missing one race of two doesn't halve the rate. Never fewer than
+ * the driver's own laps, which can happen when the round's races differ in length.
+ */
+function roundRaceLaps(round: CareerRound, classId: number, rounds: Map<string, ClassRound>): number {
+  const cr = rounds.get(classRoundKey(round.subsessionId, classId));
+  if (!cr || cr.races <= 0) return round.laps;
+  return Math.max(round.laps, (cr.laps * Math.min(round.starts, cr.races)) / cr.races);
+}
+
+/** A kept season row's race laps: its rounds' sum, or its own laps when it has no round split. */
+function rowRaceLaps(row: DriverCareerSeasonRow, rounds: Map<string, ClassRound>): number {
+  if (row.rounds.length === 0) return row.laps;
+  return row.rounds.reduce((sum, r) => sum + roundRaceLaps(r, row.classId, rounds), 0);
+}
+
+/**
+ * Races the filters cover (FR3.4): per kept round, the most starts any kept driver had in it, summed. Under a
+ * class filter only that class's drivers are kept, so only races the class ran count.
+ */
+function racesCovered(input: CompareInput): number {
+  const perRound = new Map<number, number>();
+  for (const career of input.careers) {
+    for (const row of keptRows(career, input)) {
+      for (const r of row.rounds)
+        perRound.set(r.subsessionId, Math.max(perRound.get(r.subsessionId) ?? 0, r.starts));
+    }
+  }
+  let races = 0;
+  for (const n of perRound.values()) races += n;
+  return races;
+}
+
+/**
+ * Finished championship seasons the filters cover, for drivers (FR3.6): every finished season under Overall
+ * or Combined, only the seasons the class ran under a class, narrowed to the chosen season.
+ */
+function driverChampionshipSeasons(input: CompareInput): number {
+  const { filter } = input;
+  const seasons = new Set<string>();
+  if (filter.kind === 'class') {
+    for (const career of input.careers) {
+      for (const row of career.seasons) {
+        if (row.classId === filter.classId && !row.season.is_current) seasons.add(row.season.id);
+      }
+    }
+  } else {
+    for (const t of input.teamTitles) if (!t.season.is_current) seasons.add(t.season.id);
+  }
+  if (input.season) return seasons.has(input.season.id) ? 1 : 0;
+  return seasons.size;
+}
+
+/**
+ * Finished seasons the team competition the filter shows ran (FR3.6): the Delta competition's under Delta,
+ * the overall competition's under Overall or Combined, none (null) under Alpha or Gamma.
+ */
+function teamChampionshipSeasons(input: CompareInput): number | null {
+  const { filter } = input;
+  const useDelta = filter.kind === 'class' && filter.label === 'Delta';
+  if (filter.kind === 'class' && !useDelta) return null;
+  const seasons = new Set(
+    input.teamTitles
+      .filter(
+        (t) =>
+          !t.season.is_current &&
+          (!input.season || t.season.id === input.season.id) &&
+          (!useDelta || t.deltaChampionIds.length > 0),
+      )
+      .map((t) => t.season.id),
+  );
+  return seasons.size;
 }
 
 const IMAGE_WIDTH = 160;
@@ -96,11 +232,13 @@ function hiddenNumbers(careers: DriverCareerStats[]): Map<string, number> {
   return new Map(ids.map((id, i) => [id, i + 1]));
 }
 
-function compareDrivers(input: CompareInput): CompareEntity[] {
+function compareDrivers(input: CompareInput, rounds: Map<string, ClassRound>): CompareEntity[] {
   const hidden = hiddenNumbers(input.careers);
+  const seasons = driverChampionshipSeasons(input);
   const out: CompareEntity[] = [];
   for (const career of input.careers) {
-    const agg = aggregateCareer(career.driver, keptRows(career, input), input.filter);
+    const kept = keptRows(career, input);
+    const agg = aggregateCareer(career.driver, kept, input.filter);
     if (agg.starts <= 0) continue;
     const d = career.driver;
     const hiddenNumber = hidden.get(d.id);
@@ -120,6 +258,9 @@ function compareDrivers(input: CompareInput): CompareEntity[] {
       lapsLed: agg.lapsLed,
       championships: agg.championships,
       cornersPerIncident: agg.cornersPerIncident,
+      racesEntered: agg.starts,
+      raceLaps: kept.reduce((sum, row) => sum + rowRaceLaps(row, rounds), 0),
+      championshipSeasons: seasons,
     });
   }
   return out;
@@ -130,21 +271,26 @@ function compareDrivers(input: CompareInput): CompareEntity[] {
  * neither. A season with no round split (never expected) credits its whole row to the primary team and the
  * most-raced car.
  */
-function creditRounds(input: CompareInput): { teams: Map<string, Totals>; cars: Map<string, Totals> } {
+function creditRounds(
+  input: CompareInput,
+  rounds: Map<string, ClassRound>,
+): { teams: Map<string, Totals>; cars: Map<string, Totals> } {
   const teams = new Map<string, Totals>();
   const cars = new Map<string, Totals>();
   for (const career of input.careers) {
     for (const row of keptRows(career, input)) {
       if (row.rounds.length === 0) {
         const counts = countsFor(row, input.filter);
-        if (row.teams[0]) credit(teams, row.teams[0].teamId, row, counts);
-        if (row.cars[0]) credit(cars, row.cars[0].carName, row, counts);
+        const part = { ...row, raceLaps: row.laps, subsessionId: null };
+        if (row.teams[0]) credit(teams, row.teams[0].teamId, part, counts);
+        if (row.cars[0]) credit(cars, row.cars[0].carName, part, counts);
         continue;
       }
       for (const round of row.rounds) {
         const counts = countsFor(round, input.filter);
-        if (round.teamId) credit(teams, round.teamId, round, counts);
-        if (round.carName) credit(cars, round.carName, round, counts);
+        const part = { ...round, raceLaps: roundRaceLaps(round, row.classId, rounds) };
+        if (round.teamId) credit(teams, round.teamId, part, counts);
+        if (round.carName) credit(cars, round.carName, part, counts);
       }
     }
   }
@@ -182,7 +328,10 @@ function teamLogo(team: TeamBasic, input: CompareInput): string | null {
 }
 
 function entityFromTotals(
-  base: Pick<CompareEntity, 'key' | 'type' | 'name' | 'imageUrl' | 'href' | 'championships'>,
+  base: Pick<
+    CompareEntity,
+    'key' | 'type' | 'name' | 'imageUrl' | 'href' | 'championships' | 'championshipSeasons'
+  >,
   t: Totals,
 ): CompareEntity {
   return {
@@ -192,6 +341,8 @@ function entityFromTotals(
     lapsLed: t.lapsLed,
     ...t.counts,
     cornersPerIncident: null,
+    racesEntered: racesEntered(t),
+    raceLaps: t.raceLaps,
   };
 }
 
@@ -242,11 +393,16 @@ export function compareSeasonOptions(
   ];
 }
 
-/** The three lists for one class filter and season, each holding only entities with a start (BR4.2). */
+/**
+ * The three lists for one class filter and season, each holding only entities with a start (BR4.2), and the
+ * races the filters cover. All in memory from the one career computation (NFR4).
+ */
 export function buildCompareLists(input: CompareInput): CompareLists {
-  const credited = creditRounds(input);
+  const rounds = classRounds(input.careers);
+  const credited = creditRounds(input, rounds);
   const teamById = new Map(input.teams.map((t) => [t.id, t]));
   const carLogoByName = new Map(input.carLogos.map((c) => [c.car_name, c.logo_url]));
+  const teamSeasons = teamChampionshipSeasons(input);
 
   const teams: CompareEntity[] = [];
   for (const [teamId, totals] of credited.teams) {
@@ -259,6 +415,7 @@ export function buildCompareLists(input: CompareInput): CompareLists {
       imageUrl: resizedImageUrl(teamLogo(team, input), { width: IMAGE_WIDTH }),
       href: null,
       championships: teamChampionships(teamId, input),
+      championshipSeasons: teamSeasons,
     };
     teams.push(entityFromTotals(base, totals));
   }
@@ -273,12 +430,14 @@ export function buildCompareLists(input: CompareInput): CompareLists {
       imageUrl: resizedImageUrl(carLogoByName.get(carName) ?? null, { width: IMAGE_WIDTH }),
       href: hasCarPage(carName) ? '/cars' : null,
       championships: null,
+      championshipSeasons: null,
     };
     cars.push(entityFromTotals(base, totals));
   }
 
   return {
-    drivers: compareDrivers(input).sort(byName),
+    races: racesCovered(input),
+    drivers: compareDrivers(input, rounds).sort(byName),
     teams: teams.sort(byName),
     cars: cars.sort(byName),
   };
