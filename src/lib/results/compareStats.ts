@@ -27,6 +27,7 @@ import {
   emptyCounts,
   filterKeepsClass,
   type ClassFilter,
+  type FILTER_CLASS_NAMES,
   type StatCounts,
 } from './classFilter';
 
@@ -93,6 +94,8 @@ function credit(totals: Map<string, Totals>, id: string, part: CreditPart, count
   t.starts += part.starts;
   t.laps += part.laps;
   t.lapsLed += part.lapsLed;
+  // Summed per driver, unlike races entered: every ATC driver runs their own car, so each car in a round has
+  // its own race laps to complete, and the sum keeps a team's Laps % its cars' own completion rate.
   t.raceLaps += part.raceLaps;
   addCounts(t.counts, counts);
   if (part.subsessionId === null) t.unsplitStarts += part.starts;
@@ -189,21 +192,32 @@ function driverChampionshipSeasons(input: CompareInput): number {
   return seasons.size;
 }
 
+/** Typed against the filter's class names, so renaming the class fails the type check instead of going quiet. */
+const DELTA_CLASS: (typeof FILTER_CLASS_NAMES)[number] = 'Delta';
+
+/**
+ * The team competition a filter shows (BR4.7): the overall one under Overall or Combined, the Delta one under
+ * Delta, none (null) under Alpha or Gamma. Shared by the titles and the finished seasons, so they never disagree.
+ */
+export function teamCompetition(filter: ClassFilter): 'overall' | 'delta' | null {
+  if (filter.kind !== 'class') return 'overall';
+  return filter.label === DELTA_CLASS ? 'delta' : null;
+}
+
 /**
  * Finished seasons the team competition the filter shows ran (FR3.6): the Delta competition's under Delta,
  * the overall competition's under Overall or Combined, none (null) under Alpha or Gamma.
  */
 function teamChampionshipSeasons(input: CompareInput): number | null {
-  const { filter } = input;
-  const useDelta = filter.kind === 'class' && filter.label === 'Delta';
-  if (filter.kind === 'class' && !useDelta) return null;
+  const competition = teamCompetition(input.filter);
+  if (!competition) return null;
   const seasons = new Set(
     input.teamTitles
       .filter(
         (t) =>
           !t.season.is_current &&
           (!input.season || t.season.id === input.season.id) &&
-          (!useDelta || t.deltaChampionIds.length > 0),
+          (competition !== 'delta' || t.deltaChampionIds.length > 0),
       )
       .map((t) => t.season.id),
   );
@@ -299,16 +313,15 @@ function creditRounds(
 
 /** Team titles under the filter (BR4.7): overall competition, Delta competition, or none (null). */
 function teamChampionships(teamId: string, input: CompareInput): number | null {
-  const { filter } = input;
-  const useDelta = filter.kind === 'class' && filter.label === 'Delta';
-  if (filter.kind === 'class' && !useDelta) return null;
+  const competition = teamCompetition(input.filter);
+  if (!competition) return null;
   // Counted per season, so a season listed twice can never give a team two titles.
   const seasons = input.teamTitles
     .filter(
       (t) =>
         !t.season.is_current &&
         (!input.season || t.season.id === input.season.id) &&
-        (useDelta ? t.deltaChampionIds : t.overallChampionIds).includes(teamId),
+        (competition === 'delta' ? t.deltaChampionIds : t.overallChampionIds).includes(teamId),
     )
     .map((t) => t.season.id);
   return new Set(seasons).size;

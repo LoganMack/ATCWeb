@@ -19,6 +19,7 @@ import {
   compareQuery,
   compareSeasonOptions,
   resolveCompareSeason,
+  teamCompetition,
   type CompareInput,
 } from '../../src/lib/results/compareStats';
 import {
@@ -398,6 +399,62 @@ describe('Percent denominators (FR3.4-FR3.6, NFR4)', () => {
     expect(ace1.championshipSeasons).toBe(0);
     const row = COMPARE_ROWS.find((r) => r.key === 'championships')!;
     expect(formatPercentValue(row.percent(ace1, { races: 1 }))).toBe('—');
+  });
+
+  it('shows the team that read 66.3% is its drivers’ own lap completion, not a double count (review R-01)', () => {
+    // Shaped like that team: more starts than races entered (several cars in a round), and drivers who
+    // retired. Rounds 30 and 31 each run two Alpha races; the leader completes 36 laps a round. Brake runs
+    // two cars in round 30: Bea finishes (36) and Bo retires in race 2 (20). In round 31 Bea crashes (12).
+    const brakeField = [
+      careerOf({ id: 'ld', name: 'Lee Leader' }, [
+        seasonRow(S17, 1, [raced(30, 'tL', 'Car L', 2, 36), raced(31, 'tL', 'Car L', 2, 36)]),
+      ]),
+      careerOf({ id: 'b1', name: 'Bea Brake' }, [
+        seasonRow(S17, 1, [raced(30, 'tB', 'Car B', 2, 36), raced(31, 'tB', 'Car B', 2, 12)]),
+      ]),
+      careerOf({ id: 'b2', name: 'Bo Brake' }, [seasonRow(S17, 1, [raced(30, 'tB', 'Car B', 2, 20)])]),
+    ];
+    const brakeLists = buildCompareLists({
+      careers: brakeField,
+      teamTitles: fieldTitles,
+      filter: resolveClassFilter(null, CLASSES),
+      season: null,
+      teams: [{ id: 'tB', name: 'Brake', logo_url: null }],
+      carLogos: [],
+    });
+    const brake = byKey(brakeLists.teams, 't:tB')!;
+    // By hand: laps 36 + 12 + 20 = 68 against race laps 36 + 36 + 36 = 108, so 62.96%: between Bea's
+    // 48 / 72 (66.7%) and Bo's 20 / 36 (55.6%), as a team of real cars should be.
+    expect(brake).toMatchObject({ starts: 6, racesEntered: 4, laps: 68, raceLaps: 108 });
+    expect(percentOf(brake.laps, brake.raceLaps)).toBeCloseTo(62.96, 2);
+    const drivers = ['d:b1', 'd:b2'].map((k) => byKey(brakeLists.drivers, k)!);
+    expect(brake.laps).toBe(drivers.reduce((n, d) => n + d.laps, 0));
+    expect(brake.raceLaps).toBe(drivers.reduce((n, d) => n + d.raceLaps, 0));
+    // The car the team ran gets the same figure.
+    expect(byKey(brakeLists.cars, 'c:Car B')).toMatchObject({ laps: 68, raceLaps: 108 });
+  });
+
+  it('keeps a two-car team’s and its car’s Laps % at or under 100%, as each car runs its own race laps', () => {
+    const { teams, cars } = fieldLists(null);
+    const teamX = byKey(teams, 't:tX')!;
+    expect(percentOf(teamX.laps, teamX.raceLaps)).toBe(98); // 98 of 100, unchanged
+    expect(percentOf(byKey(cars, 'c:Car One')!.laps, byKey(cars, 'c:Car One')!.raceLaps)).toBe(98);
+    // Counting race laps once per round (the busiest driver's 40 + 20) would put Team X at 98 of 60.
+    expect(teamX.laps).toBeGreaterThan(40 + 20);
+    for (const e of [...teams, ...cars]) {
+      expect(percentOf(e.laps, e.raceLaps)!, e.key).toBeLessThanOrEqual(100);
+    }
+  });
+});
+
+describe('the team competition a filter shows (BR4.7, review R-05)', () => {
+  it('is the overall one under Overall or Combined, Delta’s under Delta, and none under Alpha or Gamma', () => {
+    const competition = (value: string | null) => teamCompetition(resolveClassFilter(value, CLASSES));
+    expect(competition(null)).toBe('overall');
+    expect(competition('Combined')).toBe('overall');
+    expect(competition('Delta')).toBe('delta');
+    expect(competition('Alpha')).toBeNull();
+    expect(competition('Gamma')).toBeNull();
   });
 });
 

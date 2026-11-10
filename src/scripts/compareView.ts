@@ -285,7 +285,9 @@ function render(state: ViewState): void {
       ? filledSlotHeader(slot, entity, () => setPick(state, slot, null, 'input'))
       : emptySlotHeader(slot, picker(state, slot)),
   );
-  target.replaceChildren(towerElement(compareRowViews(slots, state.data.races), headers));
+  const pill = state.root.querySelector<HTMLTemplateElement>('template[data-compare-pill]');
+  const pillClass = pill?.content.firstElementChild?.getAttribute('class') ?? '';
+  target.replaceChildren(towerElement(compareRowViews(slots, state.data.races), headers, pillClass));
 }
 
 function initCompareView(): void {
