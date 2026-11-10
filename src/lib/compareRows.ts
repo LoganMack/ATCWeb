@@ -1,5 +1,5 @@
 /**
- * The Compare view's pure helpers (BR4.4, BR4.9-BR4.11), shared by the advanced-stats fragment and the
+ * The Compare view's pure helpers (BR4.4, BR4.9-BR4.11; FR3, FR4 of the Timing tower redesign), shared by the advanced-stats fragment and the
  * browser script src/scripts/compareView.ts. Kept free of server imports so the page script stays small.
  */
 
@@ -26,12 +26,20 @@ export interface CompareEntity {
   championships: number | null;
   /** Drivers only; null shows a dash. */
   cornersPerIncident: number | null;
+  /** Races with at least one start: a driver's starts, a team's or car's busiest driver per round, summed. */
+  racesEntered: number;
+  /** The laps the races it started ran: the Lap completion denominator. */
+  raceLaps: number;
+  /** Finished championship seasons the filters cover; null where Championships is a dash. */
+  championshipSeasons: number | null;
 }
 
 /** What the fragment embeds for the browser. */
 export interface CompareData {
   classLabel: string;
   seasonLabel: string;
+  /** Races the Class and Season filters cover: the Starts % denominator. */
+  races: number;
   drivers: CompareEntity[];
   teams: CompareEntity[];
   cars: CompareEntity[];
@@ -64,84 +72,135 @@ export function parseEntityKey(
   return { type: TYPE_BY_PREFIX[match[1]], id: match[2] };
 }
 
-/** Wins or podiums per start as a percentage with one decimal; a dash with no starts (BR4.9). */
-export function formatRate(count: number, starts: number): string {
-  if (starts <= 0) return DASH;
-  return `${((count / starts) * 100).toFixed(1)}%`;
-}
-
-function rateValue(count: number, starts: number): number | null {
-  return starts > 0 ? (count / starts) * 100 : null;
-}
-
-export interface RowLeaders {
-  /** Per slot: whether it leads the row. */
-  leaders: boolean[];
-  /** Per slot: bar width as a percentage of the row's best (0 for an empty or dash cell). */
-  widths: number[];
+/** `count` as a percentage of `denominator`; null (a dash) when the denominator is unknown or 0 (FR3.8). */
+export function percentOf(count: number, denominator: number | null | undefined): number | null {
+  return typeof denominator === 'number' && denominator > 0 ? (count / denominator) * 100 : null;
 }
 
 /**
- * Leaders and bar widths for one row across the slots (BR4.10). Only numeric values count; with fewer than
- * two, or a best of 0, there is no leader. Higher is better for every row, and every tied best leads.
+ * A Percent as shown (FR3.7, FR3.8): one decimal, a dash for an unknown or zero denominator (null), and an
+ * empty string for a row or entry that has no Percent at all (undefined).
  */
-export function rowLeaders(values: (number | null | undefined)[]): RowLeaders {
+export function formatPercentValue(value: number | null | undefined): string {
+  if (value === undefined) return '';
+  if (value === null || !Number.isFinite(value)) return DASH;
+  return `${value.toFixed(1)}%`;
+}
+
+/** `count` per `denominator` as shown: `24.0%`, or a dash when the denominator is unknown or 0. */
+export function formatPercent(count: number, denominator: number | null | undefined): string {
+  return formatPercentValue(percentOf(count, denominator));
+}
+
+/**
+ * Leaders for one row of Totals or of Percents across the slots (FR4.2, FR4.3). Only numeric values count, so
+ * a dash or blank never leads; with fewer than two, or a best of 0, there is no leader. Higher is better and
+ * every tied best leads.
+ */
+export function rowLeaders(values: (number | null | undefined)[]): { leaders: boolean[] } {
   const numeric = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   const best = numeric.length > 0 ? Math.max(...numeric) : 0;
   const hasLeader = numeric.length >= 2 && best > 0;
-  return {
-    leaders: values.map((v) => hasLeader && v === best),
-    widths: values.map((v) => (typeof v === 'number' && best > 0 ? (Math.max(v, 0) / best) * 100 : 0)),
-  };
+  return { leaders: values.map((v) => hasLeader && v === best) };
+}
+
+/** Each slot's colour, by position: slots never take the class colours' meaning. */
+export const SLOT_COLOURS = ['blue', 'pink', 'gold', 'grey'] as const;
+export type SlotColour = (typeof SLOT_COLOURS)[number];
+
+/**
+ * The colours of a stat tab's edge: one per leading slot in slot order, split evenly on a tie, or none (a
+ * neutral line) when nothing leads.
+ */
+export function edgeColours(leaders: boolean[]): SlotColour[] {
+  return leaders.flatMap((lead, i) => (lead && SLOT_COLOURS[i] ? [SLOT_COLOURS[i]] : []));
+}
+
+/** What a Percent is measured against, for the rows that need more than the entity itself. */
+export interface CompareRowContext {
+  /** Races the filters cover (CompareData.races). */
+  races: number;
 }
 
 export interface CompareRowDef {
   key: string;
+  /** The stat's one label (FR2.1). */
   label: string;
-  /** The number leaders and bars compare; null is a dash. */
-  value: (e: CompareEntity) => number | null;
-  /** The text shown. */
-  format: (e: CompareEntity) => string;
+  /** The Percent's denominator as small text under the label, for example "% of starts"; '' for none. */
+  denominator: string;
+  total: {
+    /** The number Total leaders compare; null is a dash. */
+    value: (e: CompareEntity) => number | null;
+    format: (e: CompareEntity) => string;
+  };
+  /** The Percent: a number, null for a dash, or undefined for a blank Percent space (FR3.2, FR3.6). */
+  percent: (e: CompareEntity, ctx: CompareRowContext) => number | null | undefined;
 }
 
-const count = (key: 'starts' | 'wins' | 'podiums' | 'top5s' | 'top10s' | 'poles' | 'laps' | 'lapsLed') => ({
+type CountKey = 'starts' | 'wins' | 'podiums' | 'top5s' | 'top10s' | 'poles' | 'laps' | 'lapsLed';
+
+const countTotal = (key: CountKey) => ({
   value: (e: CompareEntity) => e[key],
   format: (e: CompareEntity) => e[key].toLocaleString('en-US'),
 });
 
-/** The twelve rows in order (FR4.5). */
+const perStart = (key: CountKey, label: string): CompareRowDef => ({
+  key,
+  label,
+  denominator: '% of starts',
+  total: countTotal(key),
+  percent: (e) => percentOf(e[key], e.starts),
+});
+
+/** The ten rows in order (FR3.2, FR3.3): Win % and Podium % are now the Wins and Podiums Percents. */
 export const COMPARE_ROWS: readonly CompareRowDef[] = [
-  { key: 'starts', label: 'Starts', ...count('starts') },
-  { key: 'wins', label: 'Wins', ...count('wins') },
-  { key: 'podiums', label: 'Podiums', ...count('podiums') },
-  { key: 'top5s', label: 'Top 5s', ...count('top5s') },
-  { key: 'top10s', label: 'Top 10s', ...count('top10s') },
-  { key: 'poles', label: 'Poles', ...count('poles') },
-  { key: 'laps', label: 'Laps', ...count('laps') },
-  { key: 'lapsLed', label: 'Laps Led', ...count('lapsLed') },
   {
-    key: 'winRate',
-    label: 'Win %',
-    value: (e) => rateValue(e.wins, e.starts),
-    format: (e) => formatRate(e.wins, e.starts),
+    key: 'starts',
+    label: 'Starts',
+    denominator: '% of races',
+    total: countTotal('starts'),
+    // Races entered, not starts, so a team with two cars in a race counts it once and stays within 100%.
+    percent: (e, ctx) => percentOf(e.racesEntered, ctx.races),
+  },
+  perStart('wins', 'Wins'),
+  perStart('podiums', 'Podiums'),
+  perStart('top5s', 'Top 5s'),
+  perStart('top10s', 'Top 10s'),
+  perStart('poles', 'Poles'),
+  {
+    key: 'laps',
+    label: 'Laps',
+    denominator: '% of race laps',
+    total: countTotal('laps'),
+    percent: (e) => percentOf(e.laps, e.raceLaps),
   },
   {
-    key: 'podiumRate',
-    label: 'Podium %',
-    value: (e) => rateValue(e.podiums, e.starts),
-    format: (e) => formatRate(e.podiums, e.starts),
+    key: 'lapsLed',
+    label: 'Laps Led',
+    denominator: '% of laps',
+    total: countTotal('lapsLed'),
+    percent: (e) => percentOf(e.lapsLed, e.laps),
   },
   {
     key: 'championships',
     label: 'Championships',
-    value: (e) => e.championships,
-    format: (e) => (e.championships === null ? DASH : String(e.championships)),
+    denominator: '% of finished seasons',
+    total: {
+      value: (e) => e.championships,
+      format: (e) => (e.championships === null ? DASH : e.championships.toLocaleString('en-US')),
+    },
+    percent: (e) =>
+      e.championships === null ? undefined : percentOf(e.championships, e.championshipSeasons),
   },
   {
     key: 'cpi',
     label: 'Corners per Incident',
-    value: (e) => e.cornersPerIncident,
-    format: (e) => (e.cornersPerIncident === null ? DASH : e.cornersPerIncident.toFixed(1)),
+    denominator: '',
+    total: {
+      value: (e) => e.cornersPerIncident,
+      format: (e) => (e.cornersPerIncident === null ? DASH : e.cornersPerIncident.toFixed(1)),
+    },
+    percent: () => undefined,
   },
 ];
 
