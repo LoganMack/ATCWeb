@@ -33,6 +33,7 @@ import { resolveLayout } from '../../../../lib/results/layouts';
 import type { DriverBasic } from '../../../../lib/results/rows';
 import { matchCorners, turnLabelsFrom, type MapCorner } from '../../../../lib/turnMatch';
 import {
+  effectiveIsWarning,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
@@ -62,15 +63,21 @@ import {
   getAppealClosesAt,
   isAppealOpen,
   getIncidentAppealsForSubsession,
+  getAppealCommentsForSubsession,
   getDriverCommentsForReports,
+  getMyAppealedPenaltyIds,
   signAppealFileUrl,
+  APPEAL_COMMENT_MAX_LENGTH,
   APPEAL_MAX_FILES,
   APPEAL_MAX_FILE_MB,
   APPEAL_MAX_MESSAGE_LENGTH,
   APPEAL_ALLOWED_MIME_TYPES,
+  type AppealComment,
   type IncidentAppeal,
   type DriverIncidentComment,
 } from '../../../../lib/incidentAppeals';
+import { appealCardView, closeAppealPrefill } from '../../../../lib/appealClose';
+import { describePenaltyResolution } from '../../../../lib/results/standingsCore';
 import {
   getIncidentReportsForSubsession,
   isRoundPosted,
@@ -94,6 +101,9 @@ import { handleSetRoundPenaltyServed } from '../../../../lib/incidentActions/set
 import { handleSetReportStatus } from '../../../../lib/incidentActions/setReportStatus';
 import { handleSaveReview } from '../../../../lib/incidentActions/saveReview';
 import { handleSetAppealStatus } from '../../../../lib/incidentActions/setAppealStatus';
+import { handleCloseAppeal } from '../../../../lib/incidentActions/closeAppeal';
+import { handleSaveAppealComment } from '../../../../lib/incidentActions/saveAppealComment';
+import { APPEAL_ACTION_FLASH_MESSAGES, type AppealActionFlash } from '../../../../lib/incidentActions/appealFlash';
 import { handleDeleteIncident } from '../../../../lib/incidentActions/deleteIncident';
 import {
   handleEditReportSubmission,
@@ -179,6 +189,8 @@ const ADMIN_HANDLERS = new Map<
   ['set-report-status', handleSetReportStatus],
   ['save-review', handleSaveReview],
   ['set-appeal-status', handleSetAppealStatus],
+  ['close-appeal', handleCloseAppeal],
+  ['save-appeal-comment', handleSaveAppealComment],
   ['delete-incident', handleDeleteIncident],
   ['edit-report-submission', handleEditReportSubmission],
   ['set-report-video', handleSetReportVideo],
@@ -373,15 +385,42 @@ const openReportCount = incidentReports.filter((r) => r.status === 'open').lengt
 // This round's layout map and its numbered corners (layout_corners, 0110): each report card and each
 // incident's popup open the map with the turn(s) circled (BR4.4, BR4.6). Failure-tolerant — no map just
 // means no map button.
+// Whether the Submit Appeal button in the details popup is live: open from
+// the moment the round was posted until the Incident Appeal Window runs out.
+// The button re-checks this live in the browser too (the page can be cached).
+const appealClosesAt = roundPosted ? appealClosesAtRead : null;
+const appealOpen = isAppealOpen(appealClosesAt);
+// The penalties this viewer already appealed, so the notifications' ?open=appeal link skips them (U3, BR3.3;
+// the database refuses a second appeal anyway). Read with the viewer's token, in parallel with the map reads,
+// and only while appeals are open and the viewer's driver is in one of the round's penalties.
+const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+const viewerSession = Astro.locals.session ?? null;
+const viewerMayAppeal =
+  appealOpen &&
+  myDriverId !== null &&
+  penalties.some((p) => p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId));
+const myAppealsRead: Promise<Set<string>> =
+  viewerSession && viewerMayAppeal
+    ? getMyAppealedPenaltyIds(supabaseEnv, viewerSession.accessToken, viewerSession.user.id, subsessionId).catch(
+        (err) => {
+          console.error('Failed to load the viewer’s own appeals:', err);
+          return new Set<string>();
+        },
+      )
+    : Promise.resolve(new Set<string>());
+let myAppealedPenaltyIds = new Set<string>();
+
 let reportMapUrl: string | null = null;
 let reportMapCorners: MapCorner[] = [];
 if (round) {
   try {
-    const [circuits, layouts, roundLayouts] = await Promise.all([
+    const [circuits, layouts, roundLayouts, myAppeals] = await Promise.all([
       getCircuits(supabaseEnv),
       getAllCircuitLayouts(supabaseEnv),
       getRoundLayoutsForSubsessions(supabaseEnv, [subsessionId]),
+      myAppealsRead,
     ]);
+    myAppealedPenaltyIds = myAppeals;
     const layout = resolveLayout(round.track_name, roundLayouts.get(subsessionId) ?? null, circuits, layouts);
     reportMapUrl = layout?.image_url ?? null;
     if (layout && reportMapUrl) reportMapCorners = (await getLayoutMapDetails(supabaseEnv, layout.id)).corners;
@@ -415,8 +454,7 @@ function reportSubtitle(r: IncidentReport): string {
 // the counts RPC says how many exist in total.
 const myUserId = Astro.locals.session?.user.id ?? null;
 // A steward linked to one of a report's drivers can't review it, but can read
-// everyone else's reviews of it (0099).
-const myDriverId = Astro.locals.session?.profile?.driver_id ?? null;
+// everyone else's reviews of it (0099). myDriverId is set above, with the appeal window.
 function isInvolved(r: IncidentReport): boolean {
   return myDriverId !== null && r.driver_ids.includes(myDriverId);
 }
@@ -499,20 +537,57 @@ if (adminSession && viewReports) {
     console.error('Failed to load incident appeals:', err);
   }
 }
-// The filter bar's counts and the filter shown first (FR1.3, BR1.3). The server hides the other cards, so the
-// list is right before the filter script runs.
+// Steward comments on the appeals (U1). The database leaves out the appeals this steward is involved in
+// (BR2.1), so an empty list there is not a failure.
+const appealCommentsById = new Map<string, AppealComment[]>();
+let appealCommentsLoadFailed = false;
+if (adminSession && incidentAppeals.length > 0) {
+  try {
+    for (const c of await getAppealCommentsForSubsession(supabaseEnv, adminSession.accessToken, subsessionId)) {
+      if (!appealCommentsById.has(c.appeal_id)) appealCommentsById.set(c.appeal_id, []);
+      appealCommentsById.get(c.appeal_id)!.push(c);
+    }
+  } catch (err) {
+    console.error('Failed to load appeal comments:', err);
+    appealCommentsLoadFailed = true;
+  }
+}
+/**
+ * Whether this steward is involved in the appeal's incident, by the database's own test
+ * (private.is_involved_in_appeal): a party to the penalty, or a car in the logged report it came from (matched as
+ * decisionPenaltyFor does, so a changed session or lap still counts). Only
+ * hides buttons the database would refuse anyway (BR2.1, BR3.7).
+ */
+function isInvolvedInAppeal(p: Penalty | undefined): boolean {
+  if (!p || myDriverId === null) return false;
+  if (p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId)) return true;
+  return incidentReports.some((r) => {
+    if (r.status !== 'logged' || !isInvolved(r)) return false;
+    // Every penalty at the report's best match counts, as in the database (decisionPenaltyFor's order).
+    const tier = decisionTier(r, p);
+    if (tier === null) return false;
+    return sortedPenalties.every((q) => {
+      const other = decisionTier(r, q);
+      return other === null || other >= tier;
+    });
+  });
+}
+// The filter bar's counts and the filter shown first (FR1.3, BR1.3): Appeals while any is open (appeals
+// BR1.1). The server hides the other cards, so the list is right before the filter script runs.
 const filterCounts = countFilters([
   ...reportFilterById.values(),
   ...incidentAppeals.map((): IncidentFilter => 'appeals'),
 ]);
-const activeFilter = initialFilter(filterCounts);
+const openAppealCount = incidentAppeals.filter((a) => a.status === 'open').length;
+const activeFilter = initialFilter(filterCounts, openAppealCount);
+// How a steward's appeal action went (?appealaction=, src/lib/incidentActions/appealFlash.ts).
+const appealActionParam = viewReports ? Astro.url.searchParams.get('appealaction') : null;
+const appealActionFlash =
+  appealActionParam && Object.hasOwn(APPEAL_ACTION_FLASH_MESSAGES, appealActionParam)
+    ? APPEAL_ACTION_FLASH_MESSAGES[appealActionParam as AppealActionFlash]
+    : null;
 const showIncidentList = viewReports && (incidentReports.length > 0 || incidentAppeals.length > 0);
 
-// Whether the Submit Appeal button in the details popup is live: open from
-// the moment the round was posted until the Incident Appeal Window runs out.
-// The button re-checks this live in the browser too (the page can be cached).
-const appealClosesAt = roundPosted ? appealClosesAtRead : null;
-const appealOpen = isAppealOpen(appealClosesAt);
 let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 {
   const flash = Astro.url.searchParams.get('appeal');
@@ -601,7 +676,7 @@ function incidentSummaryFor(p: Penalty) {
     involved: involvedSummary(p),
     description: p.description,
     offenses: p.offense_ids.map((id) => offenseNameById.get(id) ?? '?'),
-    isWarning: p.is_warning,
+    isWarning: effectiveIsWarning(p),
     pp: effectivePenaltyPoints(p),
     time: effectiveTimePenaltySeconds(p),
     points: effectivePointsPenalty(p),
@@ -616,6 +691,8 @@ function incidentSummaryFor(p: Penalty) {
     canAppeal: Astro.locals.session
       ? myDriverId !== null && (p.driver_id === myDriverId || p.involved_driver_ids.includes(myDriverId))
       : null,
+    // Already appealed by this viewer; read only by the notifications' deep link (src/scripts/incidentDeepLink.ts).
+    appealedByMe: myAppealedPenaltyIds.has(p.id),
     // The popup's icon buttons (BR4.6): the clip, the map with the turn ringed, and for admins the clip editor
     // keyed by the incident's identity (every row of the incident shares the clip).
     videoUrl: p.video_url ?? null,
@@ -632,6 +709,16 @@ function incidentSummaryFor(p: Penalty) {
  * with one of the report's cars penalized or tagged as involved — loosening the
  * session, then the lap, if a steward changed either while logging it.
  */
+/** How well a penalty matches a logged report: 1 same session and lap, 2 same session, 3 same lap, each with a shared car. */
+function decisionTier(r: IncidentReport, p: Penalty): 1 | 2 | 3 | null {
+  const cars = [p.driver_id, ...p.involved_driver_ids].filter((id): id is string => id !== null);
+  if (!r.driver_ids.some((id) => cars.includes(id))) return null;
+  const sameSession = sessionKey(p) === r.session;
+  const sameLap = p.lap === r.lap;
+  if (sameSession && sameLap) return 1;
+  if (sameSession) return 2;
+  return sameLap ? 3 : null;
+}
 function decisionPenaltyFor(r: IncidentReport): Penalty | null {
   const carsMatch = (p: Penalty) =>
     (p.driver_id !== null && r.driver_ids.includes(p.driver_id)) || p.involved_driver_ids.some((id) => r.driver_ids.includes(id));
@@ -771,7 +858,7 @@ const summaryRows: SummaryRow[] = [...roundPenaltiesByDriver].map(([driverId, dr
     const race = scoringRaceNumber(p);
     const t = byRace.get(race) ?? { pp: 0, warnings: 0, time: 0, points: 0, fromQualiOrPractice: false };
     t.pp += effectivePenaltyPoints(p);
-    if (p.is_warning) t.warnings += 1;
+    if (effectiveIsWarning(p)) t.warnings += 1;
     t.time += effectiveTimePenaltySeconds(p) ?? 0;
     t.points += effectivePointsPenalty(p);
     if (p.session_type !== 'race') t.fromQualiOrPractice = true;
@@ -891,6 +978,14 @@ if (loadError) markUncacheable(Astro);
             {appealFlash.message}
           </p>
         )}
+        {/* Filled by src/scripts/incidentDeepLink.ts when a notification's appeal link finds nothing to open. */}
+        <p
+          role="status"
+          hidden
+          data-incident-deeplink-notice
+          data-testid="incident-deeplink-notice"
+          class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 p-3 text-sm text-white/80"
+        ></p>
         {videoFlash && (
           <p
             role="status"
@@ -922,6 +1017,20 @@ if (loadError) markUncacheable(Astro);
                 class={`rounded-lg border p-3 text-sm text-white/80 ${submissionFlash.ok ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}
               >
                 {submissionFlash.message}
+              </p>
+            )}
+            {appealActionFlash && (
+              <p
+                role="status"
+                data-testid="appeal-action-flash"
+                class={`rounded-lg border p-3 text-sm text-white/80 ${appealActionFlash.kind === 'ok' ? 'border-brand-primary/30 bg-brand-primary/10' : 'border-brand-pink/30 bg-brand-pink/10'}`}
+              >
+                {appealActionFlash.message}
+              </p>
+            )}
+            {appealCommentsLoadFailed && (
+              <p class="rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-3 text-sm text-white/80">
+                Couldn't load the steward comments on the appeals. Try refreshing.
               </p>
             )}
             {reviewsLoadFailed && (
@@ -1241,75 +1350,170 @@ if (loadError) markUncacheable(Astro);
               {incidentAppeals.map((a) => {
                 const appealed = penalties.find((p) => p.id === a.penalty_id);
                 const appealedDriver = appealed?.driver_id ? driverById.get(appealed.driver_id) : undefined;
+                const appealComments = appealCommentsById.get(a.id) ?? [];
+                const myComment = appealComments.find((c) => c.is_mine) ?? null;
+                // Which buttons and outcome lines this card shows (BR1.2, BR1.3, BR5.1).
+                const card = appealCardView(a, myComment !== null, isInvolvedInAppeal(appealed));
+                // Close Appeal opens on the penalty's effective values (BR3.1, BR3.4).
+                const closePrefill = appealed ? closeAppealPrefill(appealed) : null;
+                const appealTitle = `${appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}${
+                  appealed
+                    ? ` · ${appealed.driver_id === null ? 'Racing Incident' : appealedDriver?.car_number != null ? `#${appealedDriver.car_number} ${appealedDriver.name}` : (appealedDriver?.name ?? 'Unknown driver')}${appealed.lap != null ? ` · Lap ${appealed.lap}` : ''}`
+                    : ''
+                }`;
+                // Closed and dismissed cards fade their text, but keep their buttons at full strength.
+                const appealDim = a.status === 'open' ? '' : 'opacity-50';
+                const badgeClass =
+                  card.badge === 'Open'
+                    ? 'border-brand-gold/60 text-brand-gold'
+                    : card.badge === 'Closed'
+                      ? 'border-emerald-400/60 text-emerald-400'
+                      : 'border-white/20 text-white/50';
+                const etTime = (iso: string) =>
+                  `${new Date(iso).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET`;
                 return (
                   <li
-                    class={`rounded-lg border border-white/10 bg-brand-ink p-3 text-sm ${a.status === 'open' ? '' : 'opacity-50'}`}
+                    class="rounded-lg border border-white/10 bg-brand-ink p-3 text-sm"
                     data-filter-group="appeals"
                     data-testid="incident-appeal-card"
+                    data-appeal-status={a.status}
                     hidden={viewReports && activeFilter !== 'appeals'}
                   >
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <p class="font-semibold text-white/80">
-                        {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
-                        {appealed && (
-                          <span class="font-normal text-white/50">
-                            {' · '}
-                            {appealed.driver_id === null ? 'Racing Incident' : (appealedDriver?.car_number != null ? `#${appealedDriver.car_number} ${appealedDriver.name}` : (appealedDriver?.name ?? 'Unknown driver'))}
-                            {appealed.lap != null && ` · Lap ${appealed.lap}`}
-                          </span>
-                        )}
+                    <div class={appealDim}>
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <p class="font-semibold text-white/80">
+                          {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
+                          {appealed && (
+                            <span class="font-normal text-white/50">
+                              {' · '}
+                              {appealed.driver_id === null ? 'Racing Incident' : (appealedDriver?.car_number != null ? `#${appealedDriver.car_number} ${appealedDriver.name}` : (appealedDriver?.name ?? 'Unknown driver'))}
+                              {appealed.lap != null && ` · Lap ${appealed.lap}`}
+                            </span>
+                          )}
+                        </p>
+                        <span class={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeClass}`} data-testid="appeal-status-badge">
+                          {card.badge}
+                        </span>
+                      </div>
+                      <p class="mt-2 whitespace-pre-line text-white/70">{a.message}</p>
+                      {a.files.length > 0 && (
+                        <ul class="mt-2 flex flex-wrap gap-2">
+                          {a.files.map((f) => {
+                            const url = appealFileUrls.get(f.path) ?? null;
+                            const label = `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`;
+                            return (
+                              <li>
+                                {url ? (
+                                  <a href={url} target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm inline-block">{label}</a>
+                                ) : (
+                                  <span class="inline-block rounded-md bg-white/5 px-2 py-1 text-xs text-white/40" title="Couldn't create a download link">{label}</span>
+                                )}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                      <p class="mt-2 text-[11px] text-white/30">
+                        Submitted by {a.submitter_name ?? (a.submitter_id ? 'a signed-in user' : 'a signed-out visitor')} · {etTime(a.created_at)}
                       </p>
-                      <div class="flex flex-wrap items-center gap-2">
-                        {a.status === 'open' && appealed && (
-                          <button
-                            type="button"
-                            data-view-decision
-                            data-incident-summary={JSON.stringify(incidentSummaryFor(appealed))}
-                            class="btn btn-primary btn-sm"
-                          >
-                            View Decision
-                          </button>
+                      {/* The close record (BR5.1): this close's own decision, even after a later close or edit. */}
+                      {card.outcome && (
+                        <div class="mt-3 rounded-md bg-white/5 p-2 text-xs" data-appeal-outcome data-testid="appeal-outcome">
+                          <p class="font-semibold text-white/80">Decision</p>
+                          <ul class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-white/60">
+                            {card.outcome.lines.map((line) => <li>{line}</li>)}
+                          </ul>
+                          <p class="mt-1 whitespace-pre-line text-white/70">{card.outcome.comment}</p>
+                          <p class="mt-1 text-[11px] text-white/40">Closed by {card.outcome.closedBy} · {etTime(card.outcome.closedAt)}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <div class="mt-3 border-t border-white/10 pt-3">
+                      <div class="flex flex-wrap items-start justify-between gap-2">
+                        {appealComments.length > 0 ? (
+                          // Collapsed by default, like the steward reviews: every action reloads the page.
+                          <details class="group/comments min-w-0 flex-1" data-appeal-comments data-testid="appeal-comments">
+                            <summary class="flex cursor-pointer list-none flex-wrap items-center gap-x-2 text-xs text-white/50 hover:text-white/70 [&::-webkit-details-marker]:hidden">
+                              <span class="inline-block text-[9px] text-white/40 transition-transform duration-150 group-open/comments:rotate-90" aria-hidden="true">&#9654;</span>
+                              <span>Steward comments ({appealComments.length})</span>
+                            </summary>
+                            <ul class="mt-1.5 flex flex-col gap-2">
+                              {appealComments.map((c) => (
+                                <li class="rounded-md bg-white/5 p-2 text-xs">
+                                  <p class="font-semibold text-white/80">
+                                    {c.is_mine ? 'You' : c.author_name}
+                                    <span class="font-normal text-white/40">{' · '}{etTime(c.updated_at)}</span>
+                                  </p>
+                                  <p class="mt-1 whitespace-pre-line text-white/70">{c.body}</p>
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : (
+                          <span class="min-w-0 flex-1" aria-hidden="true"></span>
                         )}
-                        {a.status === 'open' && (
-                          <form method="POST" action={formAction} data-astro-reload>
-                            <input type="hidden" name="intent" value="set-appeal-status" />
-                            <input type="hidden" name="appeal_id" value={a.id} />
-                            <input type="hidden" name="status" value="reviewed" />
-                            <button type="submit" class="btn btn-primary btn-sm">Mark reviewed</button>
-                          </form>
-                        )}
-                        <form method="POST" action={formAction} data-astro-reload>
-                          <input type="hidden" name="intent" value="set-appeal-status" />
-                          <input type="hidden" name="appeal_id" value={a.id} />
-                          <input type="hidden" name="status" value={a.status === 'open' ? 'dismissed' : 'open'} />
-                          <button type="submit" class={a.status === 'open' ? 'btn btn-danger btn-sm' : 'btn btn-gold btn-sm'}>
-                            {a.status === 'open' ? 'Dismiss' : 'Reopen'}
-                          </button>
-                        </form>
+                        <div class="flex flex-wrap items-center gap-2" data-appeal-actions>
+                          {card.viewDecision && appealed && (
+                            <button
+                              type="button"
+                              data-view-decision
+                              data-incident-summary={JSON.stringify(incidentSummaryFor(appealed))}
+                              data-testid="appeal-view-decision"
+                              class="btn btn-primary btn-sm"
+                            >
+                              View Decision
+                            </button>
+                          )}
+                          {card.dismiss && (
+                            <form method="POST" action={formAction} data-astro-reload>
+                              <input type="hidden" name="intent" value="set-appeal-status" />
+                              <input type="hidden" name="appeal_id" value={a.id} />
+                              <input type="hidden" name="status" value="dismissed" />
+                              <button type="submit" class="btn btn-danger btn-sm" data-testid="appeal-dismiss">Dismiss</button>
+                            </form>
+                          )}
+                          {card.closeAppeal && appealed && (
+                            <button
+                              type="button"
+                              data-open-decide-appeal
+                              data-decide-appeal={JSON.stringify({
+                                appeal_id: a.id,
+                                label: appealTitle,
+                                summary: `Now: ${describePenaltyResolution(appealed) ?? 'no penalty'}`,
+                                time: closePrefill?.timePenaltySeconds ?? 0,
+                                points: closePrefill?.pointsPenalty ?? 0,
+                                licence: closePrefill?.penaltyPoints ?? 0,
+                                isWarning: closePrefill?.isWarning ?? false,
+                              })}
+                              data-testid="appeal-close"
+                              class="btn btn-gold btn-sm"
+                            >
+                              Close Appeal
+                            </button>
+                          )}
+                          {card.commentLabel && (
+                            <button
+                              type="button"
+                              data-open-appeal-comment
+                              data-appeal-comment={JSON.stringify({ appeal_id: a.id, label: appealTitle, body: myComment?.body ?? '' })}
+                              data-testid="appeal-comment"
+                              class="btn btn-gold btn-sm"
+                            >
+                              {card.commentLabel}
+                            </button>
+                          )}
+                          {card.reopen && (
+                            <form method="POST" action={formAction} data-astro-reload>
+                              <input type="hidden" name="intent" value="set-appeal-status" />
+                              <input type="hidden" name="appeal_id" value={a.id} />
+                              <input type="hidden" name="status" value="open" />
+                              <button type="submit" class="btn btn-gold btn-sm" data-testid="appeal-reopen">Reopen</button>
+                            </form>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <p class="mt-2 whitespace-pre-line text-white/70">{a.message}</p>
-                    {a.files.length > 0 && (
-                      <ul class="mt-2 flex flex-wrap gap-2">
-                        {a.files.map((f) => {
-                          const url = appealFileUrls.get(f.path) ?? null;
-                          const label = `${f.name} (${(f.size / 1048576).toFixed(1)} MB)`;
-                          return (
-                            <li>
-                              {url ? (
-                                <a href={url} target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm inline-block">{label}</a>
-                              ) : (
-                                <span class="inline-block rounded-md bg-white/5 px-2 py-1 text-xs text-white/40" title="Couldn't create a download link">{label}</span>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                    <p class="mt-2 text-[11px] text-white/30">
-                      Submitted by {a.submitter_name ?? (a.submitter_id ? 'a signed-in user' : 'a signed-out visitor')} · {new Date(a.created_at).toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'medium', timeStyle: 'short' })} ET
-                      {a.status !== 'open' && ` · ${a.status}`}
-                    </p>
                   </li>
                 );
               })}
@@ -1444,7 +1648,7 @@ if (loadError) markUncacheable(Astro);
                           <td class="hidden py-2.5 pr-3 text-white/50 md:table-cell">{involvedSummary(p) ?? '—'}</td>
                           <td class="py-2.5 pr-3 text-center text-white/60">
                             {/* A warning is stored as 0 PP, so show just "Warning", no dash (Logan). */}
-                            {p.is_warning ? (
+                            {effectiveIsWarning(p) ? (
                               <div class="text-[9px] font-semibold uppercase tracking-wide text-brand-gold">Warning</div>
                             ) : (
                               <div>{pp || '—'}</div>
@@ -2188,6 +2392,151 @@ if (loadError) markUncacheable(Astro);
               <div class="flex justify-end gap-2">
                 <button type="button" data-close-dismiss-dialog class="btn btn-neutral">Cancel</button>
                 <button type="submit" data-dismiss-submit disabled class="btn btn-danger">Dismiss</button>
+              </div>
+            </form>
+          </dialog>
+        )}
+
+        {/* Close Appeal (appeals U1, BR3.1): filled from the clicked card's data-decide-appeal by
+            src/scripts/appealDialogs.ts. The database decides who may close and checks every value again. */}
+        {viewReports && incidentAppeals.length > 0 && (
+          <dialog
+            data-decide-appeal-dialog
+            aria-labelledby="close-appeal-title"
+            data-testid="close-appeal-dialog"
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload class="flex max-h-[85vh] flex-col gap-4 overflow-y-auto p-5">
+              <input type="hidden" name="intent" value="close-appeal" />
+              <input type="hidden" name="appeal_id" data-decide-appeal-id />
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h4 id="close-appeal-title" class="font-display text-lg">Close Appeal</h4>
+                  <p data-decide-appeal-label class="text-xs text-white/50"></p>
+                  <p data-decide-appeal-summary class="mt-1 text-xs text-white/70" data-testid="close-appeal-summary"></p>
+                </div>
+                <button type="button" data-decide-appeal-dismiss class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+              </div>
+              <p class="text-[11px] text-white/40">
+                These become the penalty's appealed values; the original penalty stays on record.
+              </p>
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Time penalty (s)
+                  <input
+                    type="number"
+                    name="time_penalty_seconds"
+                    data-decide-appeal-time
+                    data-testid="close-appeal-time"
+                    required
+                    min="0"
+                    step="0.001"
+                    inputmode="decimal"
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  />
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Points penalty
+                  <input
+                    type="number"
+                    name="points_penalty"
+                    data-decide-appeal-points
+                    data-testid="close-appeal-points"
+                    required
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  />
+                </label>
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Penalty points
+                  <input
+                    type="number"
+                    name="penalty_points"
+                    data-decide-appeal-licence
+                    data-testid="close-appeal-licence"
+                    required
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-sm text-white outline-none focus:border-brand-primary"
+                  />
+                </label>
+              </div>
+              <label class="flex items-center gap-2 text-xs text-white/70">
+                <input type="checkbox" name="is_warning" data-decide-appeal-warning data-testid="close-appeal-warning" />
+                Warning
+              </label>
+              <div class="flex flex-col gap-1">
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Appeal result (shown publicly on this incident)
+                  <textarea
+                    name="comment"
+                    data-decide-appeal-comment
+                    data-testid="close-appeal-comment"
+                    required
+                    rows="4"
+                    maxlength={APPEAL_COMMENT_MAX_LENGTH}
+                    aria-describedby="close-appeal-counter close-appeal-final"
+                    placeholder="Why was the penalty kept or changed?"
+                    class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
+                  ></textarea>
+                </label>
+                <span id="close-appeal-counter" data-decide-appeal-counter class="self-end text-[11px] text-white/30" aria-live="polite">0 / 4,000</span>
+              </div>
+              <p id="close-appeal-final" class="text-xs text-brand-gold" data-testid="close-appeal-final">
+                Closing is final and cannot be undone. Anyone viewing this incident, signed in or not, will see this
+                comment as the appeal result.
+              </p>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-decide-appeal-dismiss class="btn btn-neutral">Cancel</button>
+                <button type="submit" data-decide-appeal-submit data-testid="close-appeal-submit" disabled class="btn btn-gold">Close Appeal</button>
+              </div>
+            </form>
+          </dialog>
+        )}
+
+        {/* Add/Edit Comment on an appeal (BR2.1-BR2.3): one comment per steward, replaced on save. */}
+        {viewReports && incidentAppeals.length > 0 && (
+          <dialog
+            data-appeal-comment-dialog
+            aria-labelledby="appeal-comment-title"
+            data-testid="appeal-comment-dialog"
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload class="flex flex-col gap-4 p-5">
+              <input type="hidden" name="intent" value="save-appeal-comment" />
+              <input type="hidden" name="appeal_id" data-appeal-comment-id />
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h4 id="appeal-comment-title" data-appeal-comment-heading class="font-display text-lg">Add Comment</h4>
+                  <p data-appeal-comment-label class="text-xs text-white/50"></p>
+                </div>
+                <button type="button" data-appeal-comment-dismiss class="text-white/40 hover:text-white" aria-label="Close">✕</button>
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="flex flex-col gap-1 text-[11px] text-white/50">
+                  Comment
+                  <textarea
+                    name="body"
+                    data-appeal-comment-body
+                    data-testid="appeal-comment-body"
+                    required
+                    rows="5"
+                    maxlength={APPEAL_COMMENT_MAX_LENGTH}
+                    aria-describedby="appeal-comment-counter"
+                    class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-brand-primary"
+                  ></textarea>
+                </label>
+                <span id="appeal-comment-counter" data-appeal-comment-counter class="self-end text-[11px] text-white/30" aria-live="polite">0 / 4,000</span>
+              </div>
+              <p class="text-[11px] text-white/30">
+                Only stewards who aren't involved in this incident can read comments. They can't be deleted.
+              </p>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-appeal-comment-dismiss class="btn btn-neutral">Cancel</button>
+                <button type="submit" data-appeal-comment-submit data-testid="appeal-comment-submit" disabled class="btn btn-gold">Save Comment</button>
               </div>
             </form>
           </dialog>

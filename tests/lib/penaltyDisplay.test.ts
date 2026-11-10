@@ -12,6 +12,7 @@ import {
   type RoundResults,
 } from '../../src/lib/results/roundResults';
 import type { Penalty } from '../../src/lib/db/penalties';
+import { sharedPenaltyTagLabel } from '../../src/lib/penalties/effective';
 import { toPenalties, toRoundResults, type PenaltyDbRow, type ResultDbRow } from './penaltyFixtures';
 import { inputs } from '../golden/atc17';
 import displayCases from '../fixtures/penalty-display/cases.json';
@@ -79,6 +80,45 @@ describe('applyPenaltyDisplay on small rounds', () => {
     const b = cases.find((c) => c.name === 'b-time-penalty-reorders-and-reprices')!;
     const results = toRoundResults(b.rows);
     expect(display(applyPenaltyDisplay({ ...results, penalties: [] }))).toEqual(display(results));
+  });
+});
+
+describe('sharedPenaltyTagLabel with an appealed warning (appeals BR4.1)', () => {
+  it('drops "Warning" once an appeal removed it, and shows the remaining effect instead', () => {
+    const [removed] = toPenalties([
+      {
+        driver_id: 'A',
+        is_warning: true,
+        time_penalty_seconds: 5,
+        is_appealed: true,
+        appeal_time_penalty_seconds: 5,
+        appeal_is_warning: false,
+      },
+    ]);
+    expect(sharedPenaltyTagLabel([removed])).toBe('Penalty');
+    const [cleared] = toPenalties([
+      {
+        driver_id: 'A',
+        is_warning: true,
+        is_appealed: true,
+        appeal_time_penalty_seconds: 0,
+        appeal_is_warning: false,
+      },
+    ]);
+    expect(sharedPenaltyTagLabel([cleared])).toBe('Racing Incident');
+    const [kept] = toPenalties([
+      { driver_id: 'A', is_warning: true, is_appealed: true, appeal_is_warning: null },
+    ]);
+    expect(sharedPenaltyTagLabel([kept])).toBe('Warning');
+  });
+
+  it('shows "Warning" when an appeal made it one, but PP still wins', () => {
+    const [added] = toPenalties([{ driver_id: 'A', is_appealed: true, appeal_is_warning: true }]);
+    expect(sharedPenaltyTagLabel([added])).toBe('Warning');
+    const [withPP] = toPenalties([
+      { driver_id: 'A', is_appealed: true, appeal_is_warning: true, appeal_penalty_points: 2 },
+    ]);
+    expect(sharedPenaltyTagLabel([withPP])).toBe('2PP');
   });
 });
 

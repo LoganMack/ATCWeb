@@ -630,8 +630,10 @@ declare
   v_ana text := 'eeeeeeee-0000-0000-0000-000000000803';
 begin
   perform incident_fixture.exec_as(v_ana, incident_fixture.appeal_sql('cccccccc-0000-0000-0000-000000000801'));
-  perform incident_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000802',
-    $q$update public.incident_appeals set status = 'reviewed' where penalty_id = 'cccccccc-0000-0000-0000-000000000801'$q$);
+  -- Since 20261115120000_appeal_close_and_comments.sql an appeal becomes reviewed only through Close Appeal.
+  perform incident_fixture.expect('M16 close', incident_fixture.text_as('eeeeeeee-0000-0000-0000-000000000802',
+    $q$select public.close_incident_appeal(a.id, 0, 0, 0, false, 'Upheld') from public.incident_appeals a
+       where a.penalty_id = 'cccccccc-0000-0000-0000-000000000801'$q$), 'ok');
   perform incident_fixture.expect('M16 email queued',
     (select count(*)::int from public.email_outbox o where o.kind = 'appeal_reviewed' and o.profile_id = v_ana::uuid), 1);
   perform incident_fixture.expect('M16 list status', incident_fixture.field(v_ana, 'cccccccc-0000-0000-0000-000000000801',

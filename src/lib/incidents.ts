@@ -18,6 +18,7 @@ import { getAllRounds, computeDisplayRoundNumbers } from './results/rounds';
 import { driversSelect, type DriverBasic, type RoundSummary } from './results/rows';
 import { getPostedSubsessionIds } from './incidentReports';
 import {
+  effectiveIsWarning,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
   effectivePenaltyPoints,
@@ -225,7 +226,7 @@ function buildIncidentRows(
       penaltyPoints: effectivePenaltyPoints(p),
       timePenaltySeconds: effectiveTimePenaltySeconds(p),
       pointsPenalty: effectivePointsPenalty(p),
-      isWarning: p.is_warning,
+      isWarning: effectiveIsWarning(p),
       isAppealed: p.is_appealed,
       description: p.description,
       createdAt: p.created_at,

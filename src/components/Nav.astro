@@ -272,6 +272,49 @@ const links: NavLink[] = [
         </span>
       )}
 
+      {myDriverId && (
+        // Notifications (U3, BR1.1): driver-linked accounts only, icon-only and the gear's size so the header
+        // still fits one line on a phone. The dot and the popup are filled by src/scripts/notificationsBell.ts.
+        <span class="group relative">
+          <button
+            type="button"
+            class="btn btn-neutral relative !px-2.5"
+            aria-label="Notifications"
+            aria-haspopup="dialog"
+            data-notifications-bell
+            data-testid="nav-notifications-bell"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+            </svg>
+            <span
+              data-notifications-dot
+              class="absolute -right-1.5 -top-1.5 hidden min-w-[1.1rem] rounded-full bg-brand-gold px-1 text-center text-[10px] font-bold leading-[1.1rem] text-brand-ink"
+              aria-hidden="true"
+            ></span>
+          </button>
+          <span class="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-max -translate-x-1/2 rounded-md bg-brand-ink px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow-lg ring-1 ring-white/15 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" role="tooltip">Notifications</span>
+          <dialog
+            data-notifications-dialog
+            aria-labelledby="notifications-dialog-title"
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+            data-testid="nav-notifications-dialog"
+          >
+            <div class="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <h2 id="notifications-dialog-title" class="font-display text-xl uppercase tracking-wide">Notifications</h2>
+              <button type="button" data-close-notifications class="btn btn-neutral !px-2" aria-label="Close" data-testid="nav-notifications-close">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="h-4 w-4" aria-hidden="true">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+            <div data-notifications-body class="max-h-[70vh] overflow-y-auto p-2" aria-live="polite"></div>
+          </dialog>
+        </span>
+      )}
+
       {showAdminLink && (
         <span class="group relative">
           <a href="/admin" class="btn btn-neutral relative !px-2.5" aria-label="Admin Panel" data-admin-gear>
@@ -279,7 +322,7 @@ const links: NavLink[] = [
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-            {/* Pending sign-ups count, filled in by the script below from /api/pending-signups (#64). */}
+            {/* Pending sign-ups count, filled in from /api/nav-status by src/scripts/notificationsBell.ts (#64). */}
             <span
               data-pending-signups-badge
               class="absolute -right-1.5 -top-1.5 hidden min-w-[1.1rem] rounded-full bg-brand-gold px-1 text-center text-[10px] font-bold leading-[1.1rem] text-brand-ink"
@@ -371,6 +414,9 @@ const links: NavLink[] = [
 </header>
 
 <script>
+  // Admin gear badge (#64) and notifications bell (U3): one /api/nav-status request per page fills both.
+  import '../scripts/notificationsBell';
+
   function initMobileNav() {
     const toggle = document.getElementById('mobile-nav-toggle');
     const panel = document.getElementById('mobile-nav');
@@ -470,27 +516,6 @@ const links: NavLink[] = [
   }
   document.addEventListener('mouseover', onNavMenuIntent);
   document.addEventListener('focusin', onNavMenuIntent);
-
-  // Admin gear badge: sign-up requests awaiting a decision (#64). Only fetched when the gear is present
-  // (admins), re-checked on each page load; hidden on failure.
-  async function loadPendingSignups() {
-    const gear = document.querySelector<HTMLAnchorElement>('[data-admin-gear]');
-    const badge = gear?.querySelector<HTMLElement>('[data-pending-signups-badge]');
-    if (!gear || !badge || gear.dataset.pendingSignupsInit === 'true') return;
-    gear.dataset.pendingSignupsInit = 'true';
-    try {
-      const res = await fetch('/api/pending-signups');
-      if (!res.ok) return;
-      const { count } = (await res.json()) as { count: number };
-      if (!count) return;
-      badge.textContent = count > 9 ? '9+' : String(count);
-      badge.classList.remove('hidden');
-      gear.setAttribute('aria-label', `Admin Panel (${count} pending sign-up${count === 1 ? '' : 's'})`);
-    } catch {
-      /* leave the badge hidden */
-    }
-  }
-  document.addEventListener('astro:page-load', loadPendingSignups);
 
   // "Happening Now" marquee and live countdown. The server embeds the session's UTC end time and this
   // recomputes "remaining" on a timer, re-querying the elements each tick because layoutMarquee() may replace

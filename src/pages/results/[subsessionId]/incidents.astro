@@ -59,10 +59,16 @@ const description =
     : showSubmissions
       ? 'The incidents reported for this round.'
       : 'Every incident and penalty logged for this round.';
+// The notifications' deep-link parameters are read in the browser (src/scripts/incidentDeepLink.ts), so they
+// stay out of the fragment's URL and its edge-cache key.
+const fragmentParams = new URLSearchParams(Astro.url.search);
+fragmentParams.delete('open');
+fragmentParams.delete('penalty');
+const fragmentQuery = fragmentParams.toString();
 // One string for both the preload hint and the loader, so the preloaded response is the one it fetches.
 const fragmentUrl = showSubmissions
   ? `/results/${subsessionId}/incidents/submissions/fragment`
-  : `/results/${subsessionId}/incidents/fragment${Astro.url.search}`;
+  : `/results/${subsessionId}/incidents/fragment${fragmentQuery ? `?${fragmentQuery}` : ''}`;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 ---
@@ -110,6 +116,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   import '../../../scripts/videoClips';
   // The Reported Incidents filter bar and the cards' inline clips on desktop.
   import '../../../scripts/incidentFilters';
+  // The appeal cards' Close Appeal and Add/Edit Comment popups.
+  import '../../../scripts/appealDialogs';
 </script>
 
 <script>
@@ -867,6 +875,12 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   }
 
   document.addEventListener('astro:page-load', initDriverRoundPenaltiesDialog);
+</script>
+
+<script>
+  // The notifications' deep links (?open=appeal, ?open=incident&penalty=). After the script above, so its
+  // astro:page-load listener runs once initIncidentPage has bound the rows it clicks.
+  import '../../../scripts/incidentDeepLink';
 </script>
 
 <script>

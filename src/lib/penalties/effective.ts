@@ -1,6 +1,6 @@
 /**
- * Appeals: once `is_appealed` is set, the appeal_* values replace the originals wherever time, points or PP
- * are read (the effective* helpers); the originals stay as the record.
+ * Appeals: once `is_appealed` is set, the appeal_* values replace the originals wherever time, points, PP or
+ * the warning flag are read (the effective* helpers); the originals stay as the record.
  */
 
 // --- Appeals: effective-value helpers. Read penalty time/points/PP only through these. ---
@@ -30,6 +30,21 @@ export function effectivePenaltyPoints(p: PenaltyLike): number {
   return p.is_appealed ? p.appeal_penalty_points : p.penalty_points;
 }
 
+/** The warning fields; appeal_is_warning is optional so older selects and fixtures still type-check. */
+export interface WarningLike {
+  is_warning: boolean;
+  is_appealed: boolean;
+  appeal_is_warning?: boolean | null;
+}
+
+/**
+ * Whether the penalty counts as a warning: the appeal's flag once appealed and set, otherwise the original
+ * (BR4.1). Null means the appeal left the flag unchanged.
+ */
+export function effectiveIsWarning(p: WarningLike): boolean {
+  return p.is_appealed && p.appeal_is_warning != null ? p.appeal_is_warning : p.is_warning;
+}
+
 /**
  * The penalty tag next to a driver's name: "XPP" (summed effective PP), else "Warning", else "Penalty", or
  * "Racing Incident" for an entry with no effect at all (Logan). Qualifying rows use it too, since a
@@ -37,11 +52,11 @@ export function effectivePenaltyPoints(p: PenaltyLike): number {
  * ResultsTable.astro keeps its own copy (`penaltyTagLabel`) because sharing this function broke `astro check`
  * for that file; change both together.
  */
-export function sharedPenaltyTagLabel(rowPenalties: (PenaltyLike & { is_warning: boolean })[]): string {
+export function sharedPenaltyTagLabel(rowPenalties: (PenaltyLike & WarningLike)[]): string {
   if (rowPenalties.length === 0) return '';
   const totalPP = rowPenalties.reduce((sum, p) => sum + effectivePenaltyPoints(p), 0);
   if (totalPP > 0) return `${totalPP}PP`;
-  if (rowPenalties.some((p) => p.is_warning)) return 'Warning';
+  if (rowPenalties.some((p) => effectiveIsWarning(p))) return 'Warning';
   const hasTimeOrPointsEffect = rowPenalties.some(
     (p) => effectiveTimePenaltySeconds(p) !== 0 || effectivePointsPenalty(p) !== 0,
   );

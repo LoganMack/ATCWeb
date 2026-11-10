@@ -1,0 +1,139 @@
+---
+export const prerender = false;
+
+// Admin > Polls (polls S2, BR3.1): every poll newest first, with Post, Unpost and Delete behind a
+// confirmation that names the poll. Each action is one database function call, logged, then a redirect.
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { formatDate } from '../../../lib/db/circuits';
+import { POLL_UNKNOWN_ERROR, PollError, listPollsForAdmin, setPollPosted, type PollListRow } from '../../../lib/db/polls';
+import { deletePollWithFiles } from '../../../lib/polls/save';
+import { POLL_STATUS_LABELS, pollDisplayStatus } from '../../../lib/polls/status';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { requireFullAdmin } from '../../../lib/auth';
+
+const admin = requireFullAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
+
+const FLASHES: Record<string, string> = {
+  posted: 'Poll posted.',
+  unposted: 'Poll unposted. It is a draft again.',
+  deleted: 'Poll deleted.',
+  missing: 'That poll no longer exists.',
+};
+
+let polls: PollListRow[] = [];
+let loadError: string | null = null;
+try {
+  polls = await listPollsForAdmin(supabaseEnv, accessToken);
+} catch (err) {
+  console.error('Failed to load polls:', err);
+  loadError = 'The polls could not be loaded. Try again in a moment.';
+}
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const intent = String(form.get('intent') ?? '');
+  const pollId = String(form.get('poll_id') ?? '');
+  const poll = polls.find((p) => p.id === pollId);
+  if (!poll) {
+    error = 'That poll no longer exists.';
+  } else if (intent === 'post' || intent === 'unpost' || intent === 'delete') {
+    try {
+      if (intent === 'delete') await deletePollWithFiles(supabaseEnv, accessToken, poll.id);
+      else await setPollPosted(supabaseEnv, accessToken, poll.id, intent === 'post');
+      await logActivity(supabaseEnv, accessToken, actor, {
+        action: intent === 'delete' ? 'delete' : 'edit',
+        entity_type: 'poll',
+        entity_label: poll.title,
+        entity_id: poll.id,
+        details: intent === 'post' ? 'Posted' : intent === 'unpost' ? 'Unposted' : null,
+      });
+      const done = intent === 'post' ? 'posted' : intent === 'unpost' ? 'unposted' : 'deleted';
+      return Astro.redirect(`/admin/polls?flash=${done}`, 302);
+    } catch (err) {
+      if (!(err instanceof PollError)) console.error(`Failed to ${intent} the poll:`, err);
+      error = err instanceof PollError ? err.message : POLL_UNKNOWN_ERROR;
+    }
+  }
+}
+
+const flash = error ? null : (FLASHES[Astro.url.searchParams.get('flash') ?? ''] ?? null);
+const now = new Date();
+const rows = polls.map((p) => ({ ...p, display: pollDisplayStatus(p, now) }));
+const BADGE: Record<string, string> = {
+  draft: 'bg-white/10 text-white/70',
+  posted: 'bg-brand-primary/15 text-brand-primary',
+  closed: 'bg-brand-gold/15 text-brand-gold',
+};
+---
+
+<AdminLayout title="Polls">
+  <div class="reveal mt-6 flex justify-end">
+    <a href="/admin/polls/new" class="btn btn-primary" data-testid="polls-new">New poll</a>
+  </div>
+
+  {(error || loadError) && (
+    <p class="reveal mt-6 break-words rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80" role="alert">{error ?? loadError}</p>
+  )}
+  {flash && (
+    <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80" role="status">{flash}</p>
+  )}
+
+  <div class="reveal mt-6 overflow-x-auto rounded-xl border border-white/10" style="transition-delay: 80ms">
+    <table class="w-full text-left text-sm sm:min-w-[720px]" data-testid="polls-table">
+      <thead class="bg-brand-ink text-xs uppercase tracking-wide text-white/50">
+        <tr>
+          <th class="px-4 py-3 font-semibold">Title</th>
+          <th class="px-3 py-3 font-semibold">Status</th>
+          <th class="hidden px-3 py-3 font-semibold sm:table-cell">Posted</th>
+          <th class="hidden px-3 py-3 font-semibold sm:table-cell">Closes</th>
+          <th class="px-4 py-3 text-right font-semibold"><span class="sr-only">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((p) => (
+          <tr class="border-t border-white/5">
+            <td class="px-4 py-3 font-semibold text-white">{p.title}</td>
+            <td class="px-3 py-3">
+              <span class={`rounded-full px-2 py-0.5 text-xs font-semibold ${BADGE[p.display]}`}>{POLL_STATUS_LABELS[p.display]}</span>
+            </td>
+            <td class="hidden whitespace-nowrap px-3 py-3 tabular-nums sm:table-cell">{p.posted_at ? formatDate(p.posted_at) : '—'}</td>
+            <td class="hidden whitespace-nowrap px-3 py-3 tabular-nums sm:table-cell">{p.closes_at ? formatDate(p.closes_at) : '—'}</td>
+            <td class="px-4 py-3">
+              <div class="flex flex-wrap justify-end gap-2">
+                <a href={`/admin/polls/${p.id}`} class="btn btn-neutral btn-sm" aria-label={`Edit ${p.title}`}>Edit</a>
+                {p.status === 'posted' && (
+                  <a href={`/polls/${p.id}`} class="btn btn-neutral btn-sm" aria-label={`View the public page of ${p.title}`}>View</a>
+                )}
+                <form method="POST" data-astro-reload class="inline-flex" data-confirm={`${p.status === 'posted' ? 'Unpost' : 'Post'} the poll "${p.title}"?`}>
+                  <input type="hidden" name="intent" value={p.status === 'posted' ? 'unpost' : 'post'} />
+                  <input type="hidden" name="poll_id" value={p.id} />
+                  <button type="submit" class={`btn btn-sm ${p.status === 'posted' ? 'btn-neutral' : 'btn-primary'}`} aria-label={`${p.status === 'posted' ? 'Unpost' : 'Post'} ${p.title}`}>
+                    {p.status === 'posted' ? 'Unpost' : 'Post'}
+                  </button>
+                </form>
+                {p.status === 'draft' && (
+                  <form method="POST" data-astro-reload class="inline-flex" data-confirm={`Delete the poll "${p.title}" with its images? This can't be undone.`}>
+                    <input type="hidden" name="intent" value="delete" />
+                    <input type="hidden" name="poll_id" value={p.id} />
+                    <button type="submit" class="btn btn-danger btn-sm" aria-label={`Delete ${p.title}`}>Delete</button>
+                  </form>
+                )}
+              </div>
+            </td>
+          </tr>
+        ))}
+        {rows.length === 0 && !loadError && (
+          <tr><td colspan="5" class="px-4 py-6 text-center text-white/50">No polls yet.</td></tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</AdminLayout>

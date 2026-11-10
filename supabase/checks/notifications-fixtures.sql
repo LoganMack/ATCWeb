@@ -66,6 +66,20 @@ begin
 end;
 $$;
 
+-- Closes an appeal as p_who through Close Appeal (the only way to mark one reviewed since
+-- 20261115120000_appeal_close_and_comments.sql) and returns its status code.
+create function notifications_fixture.close_as(p_who text, p_appeal uuid) returns text
+  language plpgsql as $$
+declare
+  v text;
+begin
+  perform notifications_fixture.act_as(p_who);
+  v := public.close_incident_appeal(p_appeal, 0, 0, 0, false, 'Upheld');
+  perform notifications_fixture.as_owner();
+  return v;
+end;
+$$;
+
 -- The SQLSTATE p_sql fails with as p_who, or 'ok'. On an error the block's own rollback puts the role back.
 create function notifications_fixture.state_as(p_who text, p_sql text) returns text
   language plpgsql as $$
@@ -346,17 +360,26 @@ begin
 end $$;
 rollback to savepoint fixture;
 
--- N07 An appeal reviewed once, reviewed again, and one reviewed from dismissed: one email each (BR10.1, BR10.2)
+-- N07 An appeal closed once (a second close and a reopen are refused), and a dismissed one reopened and then
+--     closed: one email each (BR10.1, BR10.2) ---------------------------------------------------------------
 do $$
+declare
+  v_admin text := 'eeeeeeee-0000-0000-0000-000000000701';
 begin
-  perform notifications_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000701',
-    $q$update public.incident_appeals set status = 'reviewed' where id = 'aaaaaaaa-0000-0000-0000-000000000701'$q$);
-  perform notifications_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000701',
-    $q$update public.incident_appeals set status = 'open' where id = 'aaaaaaaa-0000-0000-0000-000000000701'$q$);
-  perform notifications_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000701',
-    $q$update public.incident_appeals set status = 'reviewed' where id = 'aaaaaaaa-0000-0000-0000-000000000701'$q$);
-  perform notifications_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000701',
-    $q$update public.incident_appeals set status = 'reviewed' where id = 'aaaaaaaa-0000-0000-0000-000000000703'$q$);
+  perform notifications_fixture.expect('N07 close',
+    notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000701'), 'ok');
+  perform notifications_fixture.expect('N07 reopen of a closed appeal refused',
+    notifications_fixture.state_as(v_admin,
+      $q$update public.incident_appeals set status = 'open' where id = 'aaaaaaaa-0000-0000-0000-000000000701'$q$),
+    'P0001');
+  perform notifications_fixture.expect('N07 second close',
+    notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000701'), 'already_closed');
+  perform notifications_fixture.expect('N07 dismissed cannot be closed',
+    notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000703'), 'not_open');
+  perform notifications_fixture.exec_as(v_admin,
+    $q$update public.incident_appeals set status = 'open' where id = 'aaaaaaaa-0000-0000-0000-000000000703'$q$);
+  perform notifications_fixture.expect('N07 close after reopen',
+    notifications_fixture.close_as(v_admin, 'aaaaaaaa-0000-0000-0000-000000000703'), 'ok');
   perform notifications_fixture.expect('N07 one email per appeal',
     (select string_agg(o.dedupe_key, ',' order by o.dedupe_key) from public.email_outbox o),
     'appeal_reviewed:aaaaaaaa-0000-0000-0000-000000000701:eeeeeeee-0000-0000-0000-000000000702,'
@@ -368,9 +391,10 @@ rollback to savepoint fixture;
 -- N08 A submitter with the toggle off, and an appeal whose account is gone, queue nothing (BR10.1) ----------
 do $$
 begin
-  perform notifications_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000701',
-    $q$update public.incident_appeals set status = 'reviewed'
-       where id in ('aaaaaaaa-0000-0000-0000-000000000702', 'aaaaaaaa-0000-0000-0000-000000000704')$q$);
+  perform notifications_fixture.expect('N08 close 702',
+    notifications_fixture.close_as('eeeeeeee-0000-0000-0000-000000000701', 'aaaaaaaa-0000-0000-0000-000000000702'), 'ok');
+  perform notifications_fixture.expect('N08 close 704',
+    notifications_fixture.close_as('eeeeeeee-0000-0000-0000-000000000701', 'aaaaaaaa-0000-0000-0000-000000000704'), 'ok');
   perform notifications_fixture.expect('N08 nothing queued', (select count(*)::int from public.email_outbox), 0);
   perform notifications_fixture.expect('N08 reviews saved',
     (select count(*)::int from public.incident_appeals where status = 'reviewed'), 2);
@@ -383,8 +407,8 @@ do $$
 begin
   alter table public.email_outbox add constraint notifications_fixture_fail check (kind = 'event_reminder') not valid;
   perform notifications_fixture.post_round('eeeeeeee-0000-0000-0000-000000000701', 9907001, true);
-  perform notifications_fixture.exec_as('eeeeeeee-0000-0000-0000-000000000701',
-    $q$update public.incident_appeals set status = 'reviewed' where id = 'aaaaaaaa-0000-0000-0000-000000000701'$q$);
+  perform notifications_fixture.expect('N09 close',
+    notifications_fixture.close_as('eeeeeeee-0000-0000-0000-000000000701', 'aaaaaaaa-0000-0000-0000-000000000701'), 'ok');
   perform notifications_fixture.expect('N09 round posted',
     (select posted::text from public.round_incident_status where subsession_id = 9907001), 'true');
   perform notifications_fixture.expect('N09 appeal reviewed',

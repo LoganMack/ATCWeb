@@ -2,6 +2,7 @@ import { resolveSeasonRuleset, type ScoringRuleset, type Season } from '../db/se
 import type { Penalty } from '../db/penalties';
 import { displayDriverName } from '../db/circuits';
 import {
+  effectiveIsWarning,
   effectivePenaltyPoints,
   effectiveTimePenaltySeconds,
   effectivePointsPenalty,
@@ -80,7 +81,7 @@ export function summarizePenalty(p: Penalty): string {
   if (points) consequences.push(`-${points} pts`);
   const pp = effectivePenaltyPoints(p);
   if (pp) consequences.push(`${pp} PP`);
-  if (p.is_warning) consequences.push('warning');
+  if (effectiveIsWarning(p)) consequences.push('warning');
   const label = p.description?.trim() || 'Racing incident';
   return consequences.length > 0 ? `${label} (${consequences.join(', ')})` : label;
 }
@@ -97,7 +98,7 @@ export function describePenaltyResolution(p: Penalty): string | null {
   if (points) consequences.push(`-${points} pts`);
   const pp = effectivePenaltyPoints(p);
   if (pp) consequences.push(`${pp} PP`);
-  if (p.is_warning) consequences.push('Warning');
+  if (effectiveIsWarning(p)) consequences.push('Warning');
   return consequences.length > 0 ? consequences.join(', ') : null;
 }
 

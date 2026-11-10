@@ -1,0 +1,119 @@
+---
+export const prerender = false;
+
+// Admin > Polls > Edit (polls W2): one form read, the checks, then upload and save in src/lib. A stale editor
+// is refused by the database and the form is kept (BR5.5).
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import PollEditor from '../../../components/PollEditor.astro';
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { POLL_UNKNOWN_ERROR, PollError, getPollForEdit, pollImageUrl } from '../../../lib/db/polls';
+import { editorStateFromForm, editorStateFromPoll, type EditorState } from '../../../lib/polls/editorState';
+import { pollDisplayStatus, POLL_STATUS_LABELS } from '../../../lib/polls/status';
+import { parsePollForm, type PollFormError } from '../../../lib/polls/validate';
+import { savePollFromForm } from '../../../lib/polls/save';
+import { pollSaveSizeError } from '../../../lib/polls/requestSize';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
+import { requireFullAdmin } from '../../../lib/auth';
+import type { Poll } from '../../../lib/polls/types';
+
+const admin = requireFullAdmin(Astro);
+if (admin instanceof Response) return admin;
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const accessToken = admin.accessToken;
+const actor = { id: admin.user.id, name: actorNameFor(admin) };
+const imageUrl = (path: string | null, width: number) => pollImageUrl(supabaseEnv.url, path, width);
+const pollId = Astro.params.id ?? '';
+
+let poll: Poll | null = null;
+let loadError: string | null = null;
+try {
+  poll = await getPollForEdit(supabaseEnv, accessToken, pollId);
+} catch (err) {
+  console.error('Failed to load the poll for editing:', err);
+  loadError = 'The poll could not be loaded. Try again in a moment.';
+}
+if (!poll && !loadError) return Astro.redirect('/admin/polls?flash=missing', 302);
+
+let state: EditorState | null = poll ? editorStateFromPoll(poll, imageUrl) : null;
+let values = poll
+  ? {
+      title: poll.title,
+      description: poll.description ?? '',
+      closesAt: poll.closes_at ?? '',
+      isScheduleVote: poll.is_schedule_vote,
+      updatedAt: poll.updated_at,
+    }
+  : null;
+let errors: PollFormError[] = [];
+let filesDropped = false;
+
+// A body over the limit is refused unread (parsing it is what would cost CPU); the stored poll is shown again.
+const tooLarge =
+  poll && Astro.request.method === 'POST' ? pollSaveSizeError(Astro.request.headers.get('content-length')) : null;
+if (tooLarge) {
+  errors = [tooLarge];
+  filesDropped = true;
+}
+
+if (poll && Astro.request.method === 'POST' && !tooLarge) {
+  const data = await Astro.request.formData();
+  if (String(data.get('intent') ?? '') === 'save') {
+    const parsed = parsePollForm(data, poll.closes_at);
+    errors = parsed.errors;
+    if (errors.length === 0) {
+      try {
+        await savePollFromForm(supabaseEnv, accessToken, poll.id, parsed.form);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'edit',
+          entity_type: 'poll',
+          entity_label: parsed.form.title.trim(),
+          entity_id: poll.id,
+        });
+        return Astro.redirect(`/admin/polls/${poll.id}?saved=1`, 302);
+      } catch (err) {
+        if (!(err instanceof PollError)) console.error('Failed to save the poll:', err);
+        errors = [{ field: 'form', message: err instanceof PollError ? err.message : POLL_UNKNOWN_ERROR }];
+      }
+    }
+    const { form } = parsed;
+    state = editorStateFromForm(form, poll.id, errors, imageUrl);
+    values = {
+      title: form.title,
+      description: form.description,
+      closesAt: form.closesAt,
+      isScheduleVote: form.isScheduleVote,
+      updatedAt: form.expectedUpdatedAt,
+    };
+    filesDropped = form.sections.some((s) => s.options.some((o) => o.file));
+  }
+}
+
+const saved = Astro.url.searchParams.get('saved') === '1' && errors.length === 0;
+const status = poll ? pollDisplayStatus(poll, new Date()) : null;
+---
+
+<AdminLayout title="Edit Poll" heading={poll ? poll.title : 'Edit Poll'}>
+  {loadError && (
+    <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{loadError}</p>
+  )}
+  {saved && (
+    <p class="reveal mt-6 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm text-white/80" role="status" data-testid="poll-editor-saved">Poll saved.</p>
+  )}
+  {poll && status && (
+    <p class="reveal mt-4 text-sm text-white/60">
+      Status: {POLL_STATUS_LABELS[status]}
+      {poll.status === 'posted' && (
+        <>
+          {' · '}<a href={`/polls/${poll.id}`} class="text-brand-primary hover:underline">View public page</a>
+        </>
+      )}
+    </p>
+  )}
+  {state && values && (
+    <PollEditor state={state} values={values} errors={errors} submitLabel="Save Poll" filesDropped={filesDropped} />
+  )}
+  <script>
+    import '../../../scripts/pollEditor';
+  </script>
+</AdminLayout>
