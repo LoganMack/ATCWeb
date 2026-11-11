@@ -72,12 +72,12 @@ describe('the report card', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it('hides the phone icon buttons on desktop, where the clip and map sit beside the text', () => {
+  it('hides the phone icon buttons on desktop, where the clip thumbnail and map sit beside the text', () => {
     expect(list.match(/class=\{`\$\{reportIconBtn\} lg:hidden`\}/g)).toHaveLength(2);
     expect(list).toContain('class="hidden flex-none items-start gap-3 lg:flex" data-report-media');
     // FR1.6: the clip and map sit above the action buttons, which run full width below them.
     expect(list.indexOf('data-report-media')).toBeLessThan(list.indexOf('data-report-actions'));
-    expect(list).toMatch(/data-inline-clip=\{r\.video_url\}/);
+    expect(list).toMatch(/<ClipThumbnail\s+url=\{r\.video_url\}/);
     expect(list).toMatch(
       /<img class="layout-map-img" src=\{reportMapUrl\} alt="" decoding="async" loading="lazy" \/>/,
     );
@@ -226,13 +226,11 @@ describe('the appeal popups (appeals BR2.2, BR3.1)', () => {
   });
 });
 
-describe('the inline clip script (BR1.5)', () => {
+describe('the clip thumbnails (BR2.3)', () => {
   const script = SRC['/src/scripts/incidentFilters.ts'];
 
-  it('builds players on desktop only, once each card is near the screen', () => {
-    expect(script).toContain("const DESKTOP = '(min-width: 1024px)';");
-    expect(script).toContain('window.matchMedia(DESKTOP).matches');
-    expect(script).toContain('new IntersectionObserver(');
-    expect(script).toContain('buildClipPlayer(document, ');
+  it('builds no inline players; a thumbnail opens the popup and a broken still falls back to the tile', () => {
+    expect(script).not.toContain('buildClipPlayer');
+    expect(script).toContain('img[data-clip-still]');
   });
 });

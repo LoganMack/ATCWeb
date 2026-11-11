@@ -1530,12 +1530,37 @@ export async function loadBeforeCss() {
   return readFile(path.join(FIXTURE_DIR, 'before.css'), 'utf8');
 }
 
+/**
+ * Deliberate colour changes made after the token change (tests/fixtures/theme/allowed-changes.json): each entry
+ * names one file and one exact class list whose colours may differ from before.css, with the reason. Every
+ * other element is still held to the frozen colours.
+ */
+export async function loadAllowedChanges() {
+  return JSON.parse(await readFile(path.join(FIXTURE_DIR, 'allowed-changes.json'), 'utf8'));
+}
+
+/** Splits the differences into allowed ones and the rest; `unused` lists entries that matched nothing. */
+export function applyAllowedChanges(differences, allowed) {
+  const matches = (d, entry) =>
+    d.files.includes(entry.file) && d.element.endsWith(`> ${[...entry.classes].sort().join(' ')}`);
+  const remaining = differences.filter((d) => !allowed.some((entry) => matches(d, entry)));
+  const unused = allowed.filter((entry) => !differences.some((d) => matches(d, entry)));
+  return { remaining, allowedCount: differences.length - remaining.length, unused };
+}
+
 /** Runs the full proof against the working tree. */
 export async function runProof({ afterCss } = {}) {
-  const [beforeCss, swaps] = await Promise.all([loadBeforeCss(), loadSwaps()]);
+  const [beforeCss, swaps, allowed] = await Promise.all([loadBeforeCss(), loadSwaps(), loadAllowedChanges()]);
   const css = afterCss ?? (await compileCss());
   const result = await compareThemes({ beforeCss, afterCss: css, swaps });
-  return { ...result, lightViolations: lightRuleViolations(css) };
+  const { remaining, allowedCount, unused } = applyAllowedChanges(result.differences, allowed);
+  return {
+    ...result,
+    differences: remaining,
+    allowedDifferences: allowedCount,
+    unusedAllowances: unused,
+    lightViolations: lightRuleViolations(css),
+  };
 }
 
 export function formatDifferences(differences, limit = 40) {

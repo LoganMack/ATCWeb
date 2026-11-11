@@ -52,6 +52,7 @@ import { getIncidentsForSubsessions, sortIncidentRowsNewestFirst, type IncidentR
 import WeatherIcon from '../../components/WeatherIcon.astro';
 import LayoutMap from '../../components/LayoutMap.astro';
 import IncidentsAllTable from '../../components/IncidentsAllTable.astro';
+import { TBD_LABEL } from '../../lib/eventTbd';
 import IncidentDetailsDialog from '../../components/IncidentDetailsDialog.astro';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
@@ -187,7 +188,7 @@ const deltaClass = classes.find((c) => c.name === 'Delta') ?? null;
 const gammaBestLap = gammaClass ? (classBestLaps.get(gammaClass.id) ?? null) : null;
 const deltaBestLap = deltaClass ? (classBestLaps.get(deltaClass.id) ?? null) : null;
 
-const circuitName = circuit?.name ?? event?.title ?? 'TBA';
+const circuitName = circuit?.name ?? event?.title ?? TBD_LABEL;
 const layoutDisplayName = event?.layout ? displayLayoutName(event.layout) : event?.subtitle ?? null;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');

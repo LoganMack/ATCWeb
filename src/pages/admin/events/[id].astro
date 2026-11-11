@@ -26,6 +26,7 @@ import { getSeasons } from '../../../lib/db/seasons';
 import { getEventRound } from '../../../lib/results/rounds';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireAdmin } from '../../../lib/auth';
+import { TBD_CIRCUIT_VALUE, TBD_LABEL, applyTbd, isTbdEvent } from '../../../lib/eventTbd';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -72,9 +73,19 @@ function checkbox(form: FormData, name: string): boolean {
   return form.get(name) === 'on';
 }
 
+// "To Be Determined" circuit: only for categories that normally need one.
+function isTbdChoice(form: FormData, category: EventCategory): boolean {
+  return !isCircuitlessCategory(category) && str(form, 'circuit_id') === TBD_CIRCUIT_VALUE;
+}
+
 function readForm(form: FormData): Partial<EventRecord> {
   const category = optCategory(form, 'category');
   const circuitless = isCircuitlessCategory(category);
+  if (isTbdChoice(form, category)) return applyTbd(readVenueForm(form, category, circuitless));
+  return readVenueForm(form, category, circuitless);
+}
+
+function readVenueForm(form: FormData, category: EventCategory, circuitless: boolean): Partial<EventRecord> {
   // Test/exhibition events are season-agnostic (Logan), so stale season/round values from a category switch
   // aren't saved. A championship event may leave both blank until known (events_season_round_paired).
   const seasonId = category === 'championship' ? optStr(form, 'season_id') : null;
@@ -156,12 +167,13 @@ if (Astro.request.method === 'POST') {
   } else {
     const data = readForm(form);
     const circuitless = data.category ? isCircuitlessCategory(data.category) : false;
-    const raceRequired = data.category !== 'test' && !circuitless;
+    const tbd = data.category ? isTbdChoice(form, data.category) : false;
+    const raceRequired = data.category !== 'test' && !circuitless && !tbd;
     if (!data.event_date) {
       error = 'Event date is required.';
     } else if (circuitless && !data.title) {
       error = 'Title is required for Holiday/iRacing events.';
-    } else if (!circuitless && !data.circuit_id) {
+    } else if (!circuitless && !tbd && !data.circuit_id) {
       error = 'Circuit is required.';
     } else if (raceRequired && !data.race1_start_time) {
       error = 'Race 1 start time is required.';
@@ -170,7 +182,8 @@ if (Astro.request.method === 'POST') {
     } else {
       try {
         const circuitForLog = data.circuit_id ? await getCircuitById(supabaseEnv, data.circuit_id) : null;
-        const eventLabel = (circuitForLog?.name ?? data.title) ? `${circuitForLog?.name ?? data.title} — ${data.event_date}` : data.event_date;
+        const venueName = circuitForLog?.name ?? data.title ?? (tbd ? TBD_LABEL : null);
+        const eventLabel = venueName ? `${venueName} — ${data.event_date}` : data.event_date;
         if (isNew) {
           const created = await createEvent(supabaseEnv, accessToken, data);
           await logActivity(supabaseEnv, accessToken, actor, {
@@ -210,6 +223,8 @@ if (!isNew && id) {
 // upcoming event, and for a past one nothing's been imported/matched to
 // yet. Shown as a "View Results" link below the form when resolved.
 const linkedRound = event ? await getEventRound(supabaseEnv, event) : null;
+
+const tbdSelected = event ? isTbdEvent(event) : false;
 
 const d: Partial<EventRecord> = event ?? {
   circuit_id: circuits[0]?.id ?? '',
@@ -274,6 +289,7 @@ const d: Partial<EventRecord> = event ?? {
             name="circuit_id"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           >
+            <option value={TBD_CIRCUIT_VALUE} selected={tbdSelected} class="bg-brand-ink text-white">To Be Determined</option>
             {circuits.map((c) => (
               <option value={c.id} selected={c.id === d.circuit_id} class="bg-brand-ink text-white">{c.name}</option>
             ))}
@@ -300,7 +316,6 @@ const d: Partial<EventRecord> = event ?? {
               </option>
             ))}
           </select>
-          <span class="text-xs text-white/40">Only shows layouts on file for the selected circuit — add more in Admin &rarr; Circuits.</span>
         </label>
       </div>
       <div id="title-subtitle-fields" class="contents">
@@ -360,9 +375,6 @@ const d: Partial<EventRecord> = event ?? {
           <option value="holiday" selected={d.category === 'holiday'} class="bg-brand-ink text-white">Holiday</option>
           <option value="iracing" selected={d.category === 'iracing'} class="bg-brand-ink text-white">iRacing</option>
         </select>
-        <span class="text-xs text-white/40">
-          Test and Exhibition are season-agnostic — no season/round below. Holiday and iRacing are also circuit-less — a Title (and optional Subtitle) replace Circuit/Layout for those, and no race sessions apply.
-        </span>
       </label>
       <div id="season-round-fields" class="contents">
         <label class="flex flex-col gap-1.5 text-sm">
@@ -388,7 +400,6 @@ const d: Partial<EventRecord> = event ?? {
             placeholder="e.g. 4"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
-          <span class="text-xs text-white/40">Must be set together with Season — this is what lets results uploaded later auto-link back to this event.</span>
         </label>
       </div>
       <div id="race-only-fields" class="contents">
@@ -401,9 +412,6 @@ const d: Partial<EventRecord> = event ?? {
             placeholder="Usually leave blank"
             class="rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary"
           />
-          <span class="text-xs text-white/40">
-            Only needed to manually point a Test/Exhibition event at a round already on Race Results (Season/Round auto-matching doesn't apply to those) — leave blank otherwise.
-          </span>
         </label>
         {linkedRound && (
           <p class="text-sm text-white/60 sm:col-span-2">
@@ -531,6 +539,7 @@ const d: Partial<EventRecord> = event ?? {
 
 <script>
   import '../../../scripts/logoSelect';
+  import '../../../scripts/eventTbdForm';
 </script>
 
 <script>
@@ -561,7 +570,7 @@ const d: Partial<EventRecord> = event ?? {
   }
 
   // Hides fields the chosen category doesn't use; the server ignores them anyway. Test/exhibition hide
-  // Season/Round; test also hides Format and makes Race 1 optional (0054); holiday/iRacing swap
+  // Season/Round; test also hides Format (Race 1's required flag lives in scripts/eventTbdForm.ts); holiday/iRacing swap
   // Circuit/Layout for Title/Subtitle and hide every race field (0073).
   function initCategoryFields() {
     const categorySelect = document.getElementById('category') as HTMLSelectElement | null;
@@ -573,7 +582,6 @@ const d: Partial<EventRecord> = event ?? {
     const formatField = document.getElementById('format-field');
     const circuitSelect = document.getElementById('circuit_id') as HTMLSelectElement | null;
     const titleInput = document.getElementById('title') as HTMLInputElement | null;
-    const race1StartTime = document.querySelector<HTMLInputElement>('input[name="race1_start_time"]');
     if (!categorySelect || !seasonRoundFields) return;
 
     function applyVisibility() {
@@ -586,7 +594,6 @@ const d: Partial<EventRecord> = event ?? {
 
       const isTest = category === 'test';
       if (formatField) formatField.style.display = isTest || circuitless ? 'none' : '';
-      if (race1StartTime) race1StartTime.required = !isTest && !circuitless;
 
       if (circuitLayoutFields) circuitLayoutFields.style.display = circuitless ? 'none' : '';
       if (titleSubtitleFields) titleSubtitleFields.style.display = circuitless ? '' : 'none';

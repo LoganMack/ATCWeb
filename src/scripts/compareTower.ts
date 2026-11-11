@@ -38,12 +38,12 @@ const COLUMNS =
   'grid grid-cols-[4.625rem_repeat(4,minmax(0,1fr))] gap-[3px] sm:grid-cols-[10rem_repeat(4,minmax(0,1fr))] sm:gap-1.5';
 
 /**
- * A filled slot's solid block: the slot colour in both themes, with white text on blue and fixed dark text
- * (`text-black`, as on the nav marquee's fixed strip) on pink, gold and grey, so names reach 4.5:1 in both
- * themes. Grey is the site's solid marker grey.
+ * A filled slot's solid block: the slot colour in both themes, with the same fixed dark text (`text-black`, as
+ * on the nav marquee's fixed strip) on every fill, so all four boxes read alike (BR6.4). Grey is the site's solid
+ * marker grey.
  */
 const SLOT_FILL: Record<SlotColour, string> = {
-  blue: 'bg-brand-primary text-fixed-white',
+  blue: 'bg-brand-primary text-black',
   pink: 'bg-brand-pink text-black',
   gold: 'bg-brand-gold text-black',
   grey: 'bg-gray-400 text-black',
@@ -88,17 +88,61 @@ export function shortName(entity: Pick<CompareEntity, 'key' | 'type' | 'name'>):
   return (entity.type === 'driver' ? words[words.length - 1] : words[0]) || entity.name;
 }
 
-/** A filled slot's block: type, name (a link for a driver with a profile) and Clear. */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** A head-and-shoulders outline for a driver with no photo (or a hidden one); a plain square for the rest. */
+const PLACEHOLDER_PATHS: Record<CompareEntity['type'], string> = {
+  driver: 'M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm-8 9a8 8 0 0 1 16 0z',
+  team: 'M5 4h14v16H5z',
+  car: 'M5 4h14v16H5z',
+};
+
+/** The picture's empty stand-in: the silhouette or square in the block's own text colour, faded. */
+export function picturePlaceholder(type: CompareEntity['type']): Element {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('class', 'hidden h-16 w-16 flex-none rounded p-1.5 opacity-60 lg:block');
+  svg.setAttribute('data-compare-picture', 'placeholder');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', PLACEHOLDER_PATHS[type]);
+  path.setAttribute('fill', 'currentColor');
+  svg.append(path);
+  return svg;
+}
+
+/**
+ * The desktop picture at the left of a filled block (BR6.5): the driver's photo, team logo or car logo, else the
+ * placeholder, which also replaces an image that fails to load. Decorative: the name says who it is.
+ */
+export function slotPicture(entity: Pick<CompareEntity, 'type' | 'imageUrl'>): Element {
+  if (!entity.imageUrl) return picturePlaceholder(entity.type);
+  const fit = entity.type === 'driver' ? 'object-cover' : 'object-contain p-1';
+  const img = el('img', {
+    src: entity.imageUrl,
+    alt: '',
+    loading: 'lazy',
+    decoding: 'async',
+    class: `hidden h-16 w-16 flex-none rounded ${fit} lg:block`,
+    'data-compare-picture': 'image',
+  });
+  img.addEventListener('error', () => img.replaceWith(picturePlaceholder(entity.type)), { once: true });
+  return img;
+}
+
+/** A filled slot's block: the desktop picture, then type, name (a link for a driver with a profile) and Clear. */
 export function filledSlotHeader(slot: number, entity: CompareEntity, onClear: () => void): HTMLElement {
   const colour = SLOT_COLOURS[slot] ?? 'grey';
   const block = el('div', {
-    class: 'flex min-w-0 flex-col items-start gap-1 rounded px-1.5 py-1.5 sm:gap-1.5 sm:px-3.5 sm:py-2.5',
+    class: 'flex min-w-0 items-start gap-3 rounded px-1.5 py-1.5 sm:px-3.5 sm:py-2.5',
     'data-compare-slot': String(slot),
     'data-compare-fill': colour,
   });
   addClasses(block, SLOT_FILL[colour]);
+  const body = el('div', { class: 'flex min-w-0 flex-1 flex-col items-start gap-1 sm:gap-1.5' });
+  block.append(slotPicture(entity), body);
   // The type and name take the block's own text colour.
-  block.append(
+  body.append(
     el(
       'span',
       { class: 'hidden text-[0.625rem] font-bold uppercase tracking-wider sm:block' },
@@ -115,7 +159,7 @@ export function filledSlotHeader(slot: number, entity: CompareEntity, onClear: (
     el('span', { class: 'sr-only sm:not-sr-only sm:block sm:break-words' }, entity.name),
     el('span', { class: 'block truncate sm:hidden', 'aria-hidden': 'true' }, shortName(entity)),
   );
-  block.append(name);
+  body.append(name);
 
   // The plain outline .btn, inheriting the block's text colour so it reads on every fill in both themes.
   const clear = el('button', {
@@ -129,7 +173,7 @@ export function filledSlotHeader(slot: number, entity: CompareEntity, onClear: (
     el('span', { class: 'hidden sm:inline' }, 'Clear'),
   );
   clear.addEventListener('click', onClear);
-  block.append(clear);
+  body.append(clear);
   return block;
 }
 
@@ -153,6 +197,21 @@ function tabEdge(colours: SlotColour[]): HTMLElement {
   return edge;
 }
 
+/**
+ * The label as shown: upper case, except the plural "s" after a number stays lower case ("TOP 5s", BR6.3), so it
+ * doesn't read as "5S".
+ */
+function tabLabel(label: string): HTMLElement {
+  const text = TAB_TEXT[label] ?? label;
+  const span = el('span', {
+    class: 'font-display text-xs uppercase leading-none tracking-wide sm:text-[1.0625rem] sm:tracking-wider',
+  });
+  const plural = /^(.*\d)s$/.exec(text);
+  if (plural) span.append(el('span', {}, plural[1]), el('span', { class: 'normal-case' }, 's'));
+  else span.textContent = text;
+  return span;
+}
+
 /** The stat tab: the label once, its denominator in small text, and the leader edge. Hidden from readers. */
 function statTab(row: CompareRowView): HTMLElement {
   const tab = el('div', {
@@ -161,16 +220,7 @@ function statTab(row: CompareRowView): HTMLElement {
     'aria-hidden': 'true',
     'data-compare-row': row.key,
   });
-  tab.append(
-    el(
-      'span',
-      {
-        class:
-          'font-display text-xs uppercase leading-none tracking-wide sm:text-[1.0625rem] sm:tracking-wider',
-      },
-      TAB_TEXT[row.label] ?? row.label,
-    ),
-  );
+  tab.append(tabLabel(row.label));
   if (row.denominator) {
     tab.append(
       el(
@@ -211,7 +261,7 @@ function valueCell(cell: CompareCellView, slot: number, pillClass: string): HTML
   const figures = el('span', { class: 'block', 'aria-hidden': 'true' });
   const total = el('span', {
     class:
-      'block whitespace-nowrap pt-0.5 font-display text-[1.0625rem] leading-none sm:pt-1 sm:text-[1.6875rem]',
+      'block whitespace-nowrap pt-0.5 font-display text-[1.0625rem] not-italic leading-none sm:pt-1 sm:text-[1.6875rem]',
   });
   total.append(figure(cell.total, pillClass));
   const percent = el('span', {
@@ -226,7 +276,7 @@ function valueCell(cell: CompareCellView, slot: number, pillClass: string): HTML
 }
 
 /**
- * The whole tower: the brand cell and slot blocks, then the stat rows, odd rows banded. `pillClass` is the
+ * The whole tower: an empty corner cell and the slot blocks, then the stat rows, odd rows banded. `pillClass` is the
  * leader pill's class list, read from the `<template data-compare-pill>` in the page markup. It lives there,
  * not here, because the site's inverted pill (`bg-white text-brand-ink`) is a markup class pair: the theme
  * proof treats any class list built in script code as one that might carry the nav marquee's fixed-white
@@ -240,18 +290,8 @@ export function towerElement(rows: CompareRowView[], headers: HTMLElement[], pil
   });
   // Positioned so a phone picker's list can span the whole row instead of its narrow column.
   const head = addClasses(el('div', { class: 'relative mb-1.5 items-stretch sm:mb-2' }), COLUMNS);
-  head.append(
-    el(
-      'p',
-      {
-        class:
-          'self-end pb-1 pl-0.5 font-display text-[0.6875rem] uppercase leading-none tracking-wide text-white/70 sm:pb-2 sm:text-base sm:tracking-[0.14em]',
-        'aria-hidden': 'true',
-      },
-      'ATC Compare',
-    ),
-    ...headers,
-  );
+  // The corner above the stat tabs stays empty (no title), keeping the slot blocks over their columns.
+  head.append(el('span', { 'aria-hidden': 'true' }), ...headers);
   panel.append(head);
   rows.forEach((row, i) => {
     const line = addClasses(el('div', { class: 'items-center rounded-sm py-0.5' }), COLUMNS);

@@ -20,6 +20,7 @@ import {
 import { buildEventIcsBlock } from '../lib/ics';
 import { slugify } from '../lib/slug';
 import WeatherIcon from './WeatherIcon.astro';
+import { isTbdEvent, TBD_LABEL } from '../lib/eventTbd';
 
 interface Props {
   event: EventWithCircuit;
@@ -32,7 +33,11 @@ interface Props {
 }
 
 const { event, featured = false, index = 0, layouts = [], logoBackgrounds = {} } = Astro.props;
-const circuitName = event.title ?? event.circuits?.name ?? 'TBA';
+const circuitName = event.title ?? event.circuits?.name ?? TBD_LABEL;
+// Circuit not known yet: a TBD championship shows no badge, a TBD exhibition its category; no briefing.
+const tbd = isTbdEvent(event);
+const showFormat = usesFormatBadge(event.category) && !tbd;
+const showCategory = !usesFormatBadge(event.category) || (tbd && event.category !== 'championship');
 const sessions = featured ? getEventSessions(event) : [];
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 80 });
 // Only the featured card gets Add to Calendar: the compact rows are links, where a nested button is invalid.
@@ -47,13 +52,14 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
   >
     <div class="flex items-center justify-between gap-3">
       <p class="font-display text-sm uppercase tracking-widest text-white/60">{formatEventDate(event.event_date)}</p>
-      {usesFormatBadge(event.category) ? (
+      {showFormat && (
         <span class={`${EVENT_TAG_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
           {FORMAT_LABELS[event.format]}
         </span>
-      ) : (
-        // TEST/HOLIDAY/IRACING events don't use the format field (see
-        // eventFormatting.ts) — same override as EventDetailCard.astro.
+      )}
+      {/* TEST/HOLIDAY/IRACING events don't use the format field (see eventFormatting.ts) — same override as
+          EventDetailCard.astro. */}
+      {showCategory && (
         <span class={`${EVENT_TAG_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
           {CATEGORY_LABELS[event.category]}
         </span>
@@ -107,6 +113,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
     {/* Event Briefing and Add to Calendar, only on the featured next event; the briefing goes left of Add
        to Calendar (Logan). */}
     <div class="mt-4 flex flex-wrap items-center gap-2">
+      {!tbd && (
       <a
         href={`/briefing/${event.id}`}
         class="btn btn-neutral btn-sm flex items-center gap-1.5"
@@ -117,6 +124,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
         </svg>
         Event Briefing
       </a>
+      )}
 
       {icsBlock && (
         <button
@@ -154,11 +162,12 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
         <p class="text-xs text-white/50">{formatEventDateShort(event.event_date)}</p>
       </div>
     </div>
-    {usesFormatBadge(event.category) ? (
+    {showFormat && (
       <span class={`${EVENT_TAG_COMPACT_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
         {FORMAT_LABELS[event.format]}
       </span>
-    ) : (
+    )}
+    {showCategory && (
       <span class={`${EVENT_TAG_COMPACT_CLASSES} ${CATEGORY_BADGE_CLASSES[event.category]}`}>
         {CATEGORY_LABELS[event.category]}
       </span>

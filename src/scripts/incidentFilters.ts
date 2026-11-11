@@ -1,17 +1,14 @@
 /**
- * The Reported Incidents filter bar and inline clips (FR1.2, FR1.6, FR1.7; BR1.3, BR1.5). The server renders every
- * card with the first filter already applied, so this only switches filters without a reload, and builds a
- * card's clip player on desktop once the card is on screen. Cards hidden by a filter lose their player, so
- * nothing keeps playing out of sight. The fragment's own scripts never run, so this binds on astro:page-load.
+ * The Reported Incidents filter bar (FR1.2, FR1.7; BR1.3). The server renders every card with the first filter
+ * already applied, so this only switches filters without a reload. Videos are thumbnails that open the popup
+ * player (components/ClipThumbnail.astro); a still image that fails to load falls back to the plain tile. The
+ * fragment's own scripts never run, so this binds on astro:page-load.
  */
-import { buildClipPlayer } from './videoPlayer';
 
 /** A card or appeal in the list, as the filter sees it; tests pass small fakes. */
 export interface FilterItem {
   group: string;
   setHidden(hidden: boolean): void;
-  /** Empties a built inline player so a hidden card stops loading or playing. */
-  clearPlayer(): void;
 }
 
 export interface FilterButton {
@@ -36,19 +33,9 @@ export function applyFilter(
     const visible = item.group === filter;
     item.setHidden(!visible);
     if (visible) shown += 1;
-    else item.clearPlayer();
   }
   for (const button of buttons) button.setPressed(button.filter === filter);
   for (const empty of empties) empty.setHidden(!(empty.filter === filter && shown === 0));
-}
-
-const DESKTOP = '(min-width: 1024px)';
-
-function clearClip(slot: Element | null): void {
-  if (slot instanceof HTMLElement && slot.dataset.built) {
-    slot.replaceChildren();
-    delete slot.dataset.built;
-  }
 }
 
 function domItems(list: HTMLElement): FilterItem[] {
@@ -57,7 +44,6 @@ function domItems(list: HTMLElement): FilterItem[] {
     setHidden: (hidden) => {
       el.hidden = hidden;
     },
-    clearPlayer: () => el.querySelectorAll('[data-inline-clip]').forEach(clearClip),
   }));
 }
 
@@ -81,29 +67,16 @@ function domEmpties(list: HTMLElement): FilterEmptyLine[] {
   }));
 }
 
-let clipObserver: IntersectionObserver | null = null;
+/** A thumbnail's still image that failed drops out, leaving the tile and its play symbol. */
+function dropBrokenStill(img: HTMLImageElement): void {
+  img.remove();
+}
 
-/** Builds each inline clip the first time its card scrolls into view, on desktop only (BR1.5). */
-function watchInlineClips(): void {
-  clipObserver?.disconnect();
-  clipObserver = null;
-  if (!window.matchMedia(DESKTOP).matches || typeof IntersectionObserver === 'undefined') return;
-  const slots = document.querySelectorAll<HTMLElement>('[data-inline-clip]');
-  if (slots.length === 0) return;
-  clipObserver = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        const slot = entry.target as HTMLElement;
-        if (!entry.isIntersecting || slot.dataset.built) continue;
-        const player = buildClipPlayer(document, slot.dataset.inlineClip ?? '');
-        if (!player) continue;
-        slot.replaceChildren(player);
-        slot.dataset.built = 'true';
-      }
-    },
-    { rootMargin: '200px 0px' },
-  );
-  slots.forEach((slot) => clipObserver!.observe(slot));
+function watchClipStills(): void {
+  document.querySelectorAll<HTMLImageElement>('img[data-clip-still]').forEach((img) => {
+    if (img.complete && img.naturalWidth === 0) dropBrokenStill(img);
+    else img.addEventListener('error', () => dropBrokenStill(img), { once: true });
+  });
 }
 
 function initIncidentFilters(): void {
@@ -117,7 +90,7 @@ function initIncidentFilters(): void {
       applyFilter(button.dataset.incidentFilter ?? '', domItems(list), domButtons(bar), domEmpties(list));
     });
   }
-  watchInlineClips();
+  watchClipStills();
 }
 
 // Guarded so the tests can import applyFilter in Node, where there is no document.

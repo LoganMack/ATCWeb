@@ -54,7 +54,7 @@ try {
   // `races` (the Starts % denominator) rides along with the lists; the Percents are worked out in the browser.
   data = {
     classLabel: filter.label,
-    seasonLabel: season ? season.name : 'All seasons',
+    seasonLabel: season ? season.name : 'All',
     races: lists.races,
     drivers: lists.drivers,
     teams: lists.teams,
@@ -78,17 +78,10 @@ if (loadError) markUncacheable(Astro);
     <template data-compare-pill>
       <span class="inline-block rounded-xl bg-white px-0.5 font-bold text-brand-ink sm:px-1.5"></span>
     </template>
-    <p class="mt-6 text-sm text-white/50" data-compare-summary>
-      {data.classLabel} · {data.seasonLabel}
-    </p>
-    <div class="mt-3" data-compare-slots>
+    <div class="mt-6" data-compare-slots>
       <noscript>
         <p class="text-white/60">The compare view needs JavaScript to pick drivers, teams and cars.</p>
       </noscript>
     </div>
-    <p class="mt-3 text-xs text-white/50" data-testid="compare-race-laps-note">
-      Race laps (the Laps percentage's denominator) are estimated from the laps the class leader completed in
-      each round.
-    </p>
   </div>
 )}

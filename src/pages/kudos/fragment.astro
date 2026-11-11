@@ -6,6 +6,7 @@ import KudosEntryCard from '../../components/KudosEntryCard.astro';
 import { markUncacheable } from '../../lib/security';
 import { resolveSupabaseEnv } from '../../lib/db/client';
 import { getSeasons, type Season } from '../../lib/db/seasons';
+import { seasonOptionAttrs } from '../../lib/seasonSelect';
 import { getRoundContexts, type RoundContext } from '../../lib/roundContext';
 import { getKudosForSubsessions, type KudosEntry } from '../../lib/kudos';
 
@@ -54,11 +55,12 @@ if (loadError) markUncacheable(Astro);
           <select
             aria-label="Season"
             data-navigate-on-change="/kudos?season="
+            data-logo-select
             data-testid="kudos-season-select"
             class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
           >
             {seasons.map((s) => (
-              <option value={s.id} selected={s.id === selected?.id} class="bg-brand-ink text-white">{s.name}</option>
+              <option value={s.id} selected={s.id === selected?.id} {...seasonOptionAttrs(s)} class="bg-brand-ink text-white">{s.name}</option>
             ))}
           </select>
         </label>

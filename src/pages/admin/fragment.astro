@@ -13,9 +13,9 @@ import { adminToolsFor, isFullAdmin, requireAdmin } from '../../lib/auth';
 import { countDraftPolls } from '../../lib/db/polls';
 import {
   appealWindowText,
-  countLabel,
   getLatestEventSummary,
-  submissionWindowText,
+  incidentWindowText,
+  toReviewLabel,
   type LatestEventResult,
 } from '../../lib/adminLatestEvent';
 import { getNotificationCounts, type NotificationCounts } from '../../lib/notifications/counts';
@@ -90,7 +90,12 @@ await Promise.all([
   getMissingRaceResultsCount(supabaseEnv)
     .then((count) => (missingRaceResultsCount = count))
     .catch((err) => console.error('Failed to load missing race results count:', err)),
-  getLatestEventSummary(supabaseEnv, accessToken, now).then((result) => (latestEvent = result)),
+  getLatestEventSummary(
+    supabaseEnv,
+    accessToken,
+    { userId: admin.user.id, driverId: admin.profile?.driver_id ?? null },
+    now,
+  ).then((result) => (latestEvent = result)),
   getNotificationCounts(supabaseEnv, accessToken).then((counts) => (emailCounts = counts)),
   getEmailTemplates(supabaseEnv, accessToken)
     .then((rows) => (emailTemplateRows = rows))
@@ -166,14 +171,20 @@ interface DashboardCard extends DashboardButton {
   detail: string;
 }
 
-// The latest-event card's lines (BR5.4-BR5.9), worked out once at load; no live countdown.
-const latestEventLines =
+// The latest-event card's two groups of lines (the counts, then the windows), worked out once at load; no
+// live countdown.
+const latestEventCounts =
   latestEvent.state === 'ok'
     ? [
-        countLabel(latestEvent.summary.submissionsTotal, latestEvent.summary.submissionsOpen, 'submission'),
-        `Submissions: ${submissionWindowText(latestEvent.summary.submissionWindow, latestEvent.summary.submissionClosesAt, now)}`,
-        countLabel(latestEvent.summary.appealsTotal, latestEvent.summary.appealsOpen, 'appeal'),
-        `Appeals: ${appealWindowText(latestEvent.summary.appealWindow, latestEvent.summary.appealClosesAt, now)}`,
+        toReviewLabel(latestEvent.summary.incidentsToReview, 'Incident'),
+        toReviewLabel(latestEvent.summary.appealsToReview, 'Appeal'),
+      ]
+    : [];
+const latestEventWindows =
+  latestEvent.state === 'ok'
+    ? [
+        incidentWindowText(latestEvent.summary.submissionWindow, latestEvent.summary.submissionClosesAt, now),
+        appealWindowText(latestEvent.summary.appealWindow, latestEvent.summary.appealClosesAt, now),
       ]
     : [];
 
@@ -254,9 +265,13 @@ const tools = adminToolsFor(allTools, admin.profile);
       <p class="text-xs font-semibold uppercase tracking-wide text-white/40">Latest event</p>
       {latestEvent.state === 'ok' ? (
         <>
-          <h3 class="mt-1 font-display text-2xl leading-8" data-testid="latest-event-label">{latestEvent.summary.label}</h3>
-          <ul class="mt-2 flex flex-col gap-0.5 text-sm leading-5 text-white/60">
-            {latestEventLines.map((line) => <li>{line}</li>)}
+          <h3 class="mt-1 font-display text-2xl leading-8" data-testid="latest-event-label">{latestEvent.summary.title}</h3>
+          <p class="text-sm text-white/50" data-testid="latest-event-track">{latestEvent.summary.trackName}</p>
+          <ul class="mt-3 flex flex-col gap-0.5 text-sm leading-5 text-white/80" data-testid="latest-event-counts">
+            {latestEventCounts.map((line) => <li>{line}</li>)}
+          </ul>
+          <ul class="mt-3 flex flex-col gap-0.5 text-sm leading-5 text-white/60" data-testid="latest-event-windows">
+            {latestEventWindows.map((line) => <li>{line}</li>)}
           </ul>
           <a
             href={`/results/${latestEvent.summary.subsessionId}/incidents?view=reports`}

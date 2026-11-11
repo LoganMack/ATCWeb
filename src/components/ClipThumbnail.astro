@@ -1,0 +1,43 @@
+---
+// A report's video as a square thumbnail the size of the track map beside it (FR2.3; BR2.3). Clicking it opens
+// the page's video popup (scripts/videoClips.ts, through data-open-video). YouTube links show their still image,
+// which falls back to the plain tile if it fails to load (scripts/incidentFilters.ts); other links show the tile.
+import { clipThumbnail } from '../lib/clipThumbnail';
+
+interface Props {
+  url: string;
+  title: string;
+}
+
+const { url, title } = Astro.props;
+const thumb = clipThumbnail(url);
+---
+
+<button
+  type="button"
+  class="relative flex aspect-square w-36 flex-none items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black xl:w-40"
+  data-open-video
+  data-video-url={url}
+  data-video-title={title}
+  data-clip-thumbnail
+  aria-label="Watch video"
+  title="Watch video"
+  data-testid="report-clip-thumbnail"
+>
+  {thumb.kind === 'youtube' && (
+    <img
+      src={thumb.imageUrl}
+      alt=""
+      decoding="async"
+      loading="lazy"
+      class="absolute inset-0 h-full w-full object-cover"
+      data-clip-still
+    />
+  )}
+  <span
+    aria-hidden="true"
+    class="relative flex h-11 w-11 items-center justify-center rounded-full bg-brand-ink/80 text-white"
+  >
+    <svg viewBox="0 0 24 24" class="ml-0.5 h-5 w-5" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+  </span>
+</button>

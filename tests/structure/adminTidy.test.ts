@@ -132,7 +132,7 @@ describe('Admin dashboard (FR5)', () => {
   });
 
   it('has the latest-event card with its Review Submissions button and both fallback states (BR5.10, BR5.11)', () => {
-    expect(DASHBOARD).toContain('getLatestEventSummary(supabaseEnv, accessToken, now)');
+    expect(DASHBOARD).toContain('{ userId: admin.user.id, driverId: admin.profile?.driver_id ?? null }');
     expect(DASHBOARD).toContain('data-testid="latest-event-card"');
     expect(DASHBOARD).toMatch(
       /href=\{`\/results\/\$\{latestEvent\.summary\.subsessionId\}\/incidents\?view=reports`\}\s*class="btn btn-primary btn-sm/,

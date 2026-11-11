@@ -25,6 +25,7 @@ import { getRoundLayoutsForSubsessions, buildLayoutRoundCounter } from '../../li
 import type { RoundSummary } from '../../lib/results/rows';
 import { buildEventIcsBlock } from '../../lib/ics';
 import { seasonOptionAttrs } from '../../lib/seasonSelect';
+import { isTbdEvent, TBD_LABEL } from '../../lib/eventTbd';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -164,10 +165,10 @@ const calendarEvents = events.map((e) => ({
   loc: (e.circuit_id && circuitInfoById.get(e.circuit_id)?.location) || null,
   round: e.round_number,
   season: e.seasons?.name ?? null,
-  circuit: e.title ?? e.circuits?.name ?? 'TBA',
+  circuit: e.title ?? e.circuits?.name ?? TBD_LABEL,
   logoUrl: eventImageUrl(e, e.circuits, layouts),
   layout: e.layout,
-  format: e.format,
+  format: isTbdEvent(e) ? null : e.format,
   category: e.category,
 }));
 
@@ -203,7 +204,7 @@ const upcomingIcsBundle = upcoming
                 </optgroup>
               )}
               <optgroup label="Everything" class="bg-brand-ink text-white">
-                <option value="all" selected={showAllSeasons} class="bg-brand-ink text-white">All Seasons</option>
+                <option value="all" selected={showAllSeasons} class="bg-brand-ink text-white">All</option>
               </optgroup>
             </select>
           </label>

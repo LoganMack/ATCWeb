@@ -397,7 +397,7 @@ export function compareSeasonOptions(
     .filter((s) => isChampionshipSeason(s.name))
     .sort((a, b) => b.number - a.number);
   return [
-    { label: 'All seasons', href: `${basePath}${compareQuery(filter, null)}`, selected: current === null },
+    { label: 'All', href: `${basePath}${compareQuery(filter, null)}`, selected: current === null },
     ...championship.map((s) => ({
       label: s.name,
       href: `${basePath}${compareQuery(filter, s)}`,

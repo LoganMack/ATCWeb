@@ -29,6 +29,10 @@ describe('theme colours: compiled proof (spec W3.1)', () => {
     expect(result.differences.length, formatDifferences(result.differences)).toBe(0);
   });
 
+  it('lists only deliberate colour changes that are still in the markup (allowed-changes.json)', () => {
+    expect(result.unusedAllowances).toEqual([]);
+  });
+
   it('leaves only custom properties and color-scheme under .light (BR2.2)', () => {
     expect(result.lightViolations).toEqual([]);
   });
