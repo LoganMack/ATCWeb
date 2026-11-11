@@ -143,6 +143,13 @@ function setStatus(result: { ok: boolean; message: string }): void {
 
 const fail = (message: string) => setStatus({ ok: false, message });
 
+/** Puts a livery's season dropdown back to its saved season, and tells the logo dropdown to redraw (a
+ * non-bubbling change, so this script's own delegated listener doesn't see it as a new pick). */
+function revertSeason(select: HTMLSelectElement): void {
+  select.value = select.dataset.current ?? select.value;
+  select.dispatchEvent(new Event('change'));
+}
+
 const send = (intent: string, fields: [string, string][]) =>
   postInPlace(window.location.pathname, inPlaceBody(intent, fields));
 
@@ -314,7 +321,7 @@ async function moveSeason(select: HTMLSelectElement): Promise<void> {
     ['season_id', select.value],
   ]);
   // A refused move puts the dropdown back, so it never shows a season the livery isn't in.
-  if (!result.ok) select.value = select.dataset.current ?? select.value;
+  if (!result.ok) revertSeason(select);
   await finish(result);
 }
 
@@ -374,7 +381,7 @@ function onChange(e: Event): void {
   } else if (target instanceof HTMLInputElement && target.hasAttribute('data-livery-mip-input')) {
     void run(null, () => uploadMip(target));
   } else if (target instanceof HTMLSelectElement && target.hasAttribute('data-livery-season-select')) {
-    if (busy) target.value = target.dataset.current ?? target.value;
+    if (busy) revertSeason(target);
     else void run(null, () => moveSeason(target));
   }
 }

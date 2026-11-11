@@ -289,6 +289,9 @@ export interface LiverySeason {
   number: number;
   label: string;
   isCurrent: boolean;
+  /** The season's logos, for the dropdowns (seasonOptionAttrs); null when it has none. */
+  logo_url?: string | null;
+  logo_url_light?: string | null;
 }
 
 export interface LiverySeasonGroup {
@@ -371,6 +374,8 @@ export async function loadMyLiveries(
       number: s.number,
       label: liverySeasonLabel(s),
       isCurrent: s.is_current,
+      logo_url: s.logo_url ?? null,
+      logo_url_light: s.logo_url_light ?? null,
     }));
     const thumbPaths = dbRows.map((r) => liveryPath(owner.userId, r.id, 'thumb'));
     const thumbs = await signLiveryThumbs(env, owner.accessToken, thumbPaths);

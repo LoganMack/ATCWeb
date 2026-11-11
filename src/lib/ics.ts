@@ -7,6 +7,7 @@
 import type { EventWithCircuit } from './db/events';
 import type { CircuitLayout } from './db/circuits';
 import { displayLayoutName } from './db/circuits';
+import { TBD_LABEL } from './eventTbd';
 import { getEventSessions, formatSessionTime } from './eventFormatting';
 
 const NL = '\n';
@@ -59,7 +60,7 @@ export function buildEventIcsBlock(
   const lastStartMs = Math.max(...timed.map((s) => new Date(s.startTimeUtcIso!).getTime()));
   const endMs = Math.max(lastStartMs + 2 * 60 * 60 * 1000, startMs + 2 * 60 * 60 * 1000);
 
-  const circuitName = event.title ?? event.circuits?.name ?? 'TBA';
+  const circuitName = event.title ?? event.circuits?.name ?? TBD_LABEL;
   const layoutName = event.layout ? displayLayoutName(event.layout) : null;
   const summary = `ATC — ${circuitName}${layoutName ? ` (${layoutName})` : ''}`;
 

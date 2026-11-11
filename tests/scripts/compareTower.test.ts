@@ -116,7 +116,10 @@ const cell = (row: FakeElement, slot: number) =>
 const leaders = (node: FakeElement) => node.all().filter((n) => n.getAttribute('data-leader') === 'true');
 
 beforeAll(() => {
-  vi.stubGlobal('document', { createElement: (tag: string) => new FakeElement(tag) });
+  vi.stubGlobal('document', {
+    createElement: (tag: string) => new FakeElement(tag),
+    createElementNS: (_ns: string, tag: string) => new FakeElement(tag),
+  });
 });
 
 afterAll(() => {
@@ -132,6 +135,24 @@ describe('the rendered Timing tower', () => {
     for (const label of ['Starts', 'Wins', 'Laps', 'Laps Led', 'Corners per Incident']) {
       expect(visible.filter((n) => n.textContent === label)).toHaveLength(1);
     }
+  });
+
+  it('keeps the plural s lower case in Top 5s and Top 10s, and has no title above the tabs (BR6.3)', () => {
+    const tower = render();
+    for (const key of ['top5s', 'top10s']) {
+      const tab = tower.all().find((n) => n.getAttribute('data-compare-row') === key)!;
+      const plural = tab.all().find((n) => n.textContent === 's' && n.children.length === 0)!;
+      expect(plural.classes).toContain('normal-case');
+    }
+    expect(tower.all().some((n) => n.textContent === 'ATC Compare')).toBe(false);
+  });
+
+  it('sets the Totals upright, not in the display font italic (BR6.3)', () => {
+    const wins = statRow(render(), 'wins');
+    const total = cell(wins, 0)
+      .all()
+      .find((n) => n.classes.includes('font-display'))!;
+    expect(total.classes).toContain('not-italic');
   });
 
   it('puts a leading Total and a leading Percent in the filled pill, and nothing else', () => {
@@ -186,9 +207,10 @@ describe('the rendered Timing tower', () => {
 });
 
 describe('the solid slot headers', () => {
-  it('fills each slot with its colour and a readable text colour in both themes', () => {
+  it('fills each slot with its colour and the same dark text on every fill (BR6.4)', () => {
     const fill = (slot: number) => asFake(filledSlotHeader(slot, AMY, () => {}));
-    expect(fill(0).classes).toEqual(expect.arrayContaining(['bg-brand-primary', 'text-fixed-white']));
+    expect(fill(0).classes).toEqual(expect.arrayContaining(['bg-brand-primary', 'text-black']));
+    expect(fill(0).classes).not.toContain('text-fixed-white');
     expect(fill(1).classes).toEqual(expect.arrayContaining(['bg-brand-pink', 'text-black']));
     expect(fill(2).classes).toEqual(expect.arrayContaining(['bg-brand-gold', 'text-black']));
     // Grey is a solid fill too, not a bordered strip.
@@ -199,6 +221,27 @@ describe('the solid slot headers', () => {
         .all()
         .some((n) => n.classes.some((c) => c.startsWith('text-white'))),
     ).toBe(false);
+  });
+
+  it('shows the photo or logo at the left on desktop only, decorative (BR6.5)', () => {
+    const header = asFake(
+      filledSlotHeader(0, { ...AMY, imageUrl: 'https://cdn.example.test/amy.jpg' }, () => {}),
+    );
+    const picture = header.children[0];
+    expect(picture.tagName).toBe('IMG');
+    expect(picture.getAttribute('src')).toBe('https://cdn.example.test/amy.jpg');
+    expect(picture.getAttribute('alt')).toBe('');
+    expect(picture.classes).toEqual(expect.arrayContaining(['hidden', 'lg:block', 'object-cover']));
+  });
+
+  it('shows a silhouette for a driver with no photo, and a plain placeholder for a team or car', () => {
+    const driver = asFake(filledSlotHeader(0, { ...AMY, imageUrl: null }, () => {})).children[0];
+    expect(driver.tagName).toBe('SVG');
+    expect(driver.getAttribute('data-compare-picture')).toBe('placeholder');
+    expect(driver.getAttribute('aria-hidden')).toBe('true');
+    const team = asFake(filledSlotHeader(1, { ...AMY, key: 't:1', type: 'team', imageUrl: null }, () => {}))
+      .children[0];
+    expect(team.children[0].getAttribute('d')).not.toBe(driver.children[0].getAttribute('d'));
   });
 
   it("gives Clear the block's own text colour and clears the slot", () => {

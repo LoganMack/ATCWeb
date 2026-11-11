@@ -18,6 +18,7 @@ import type { RoundSummary } from '../lib/results/rows';
 import { buildEventIcsBlock } from '../lib/ics';
 import { slugify } from '../lib/slug';
 import WeatherIcon from './WeatherIcon.astro';
+import { isTbdEvent, TBD_LABEL } from '../lib/eventTbd';
 
 interface Props {
   event: EventWithCircuit;
@@ -51,6 +52,8 @@ interface Props {
 
 const { event, index = 0, layoutRoundsCount, linkedRound = null, incidentLimit = null, layouts = [], logoBackgrounds = {}, variant = 'card' } = Astro.props;
 const sessions = getEventSessions(event);
+// Circuit not known yet: no format badge, and (with no circuit) no briefing; its times were cleared on save.
+const tbd = isTbdEvent(event);
 const imageUrl = resizedImageUrl(eventImageUrl(event, event.circuits, layouts), { width: 96 });
 
 // "Add to Calendar" only makes sense for an event that hasn't happened yet
@@ -76,7 +79,7 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
         <img src={imageUrl} alt="" loading="lazy" class="h-12 w-12 flex-none rounded object-contain" {...logoBgAttrs(event.circuit_id ? logoBackgrounds[event.circuit_id] : null)} />
       )}
       <div>
-        <h3 class="font-display text-2xl leading-none">{event.title ?? event.circuits?.name ?? 'TBA'}</h3>
+        <h3 class="font-display text-2xl leading-none">{event.title ?? event.circuits?.name ?? TBD_LABEL}</h3>
         {event.title ? (
           // HOLIDAY/IRACING events show their own subtitle in place of the
           // layout name — no circuit means no layout to display either way.
@@ -94,9 +97,11 @@ const icsFilename = `atc-${slugify(event.title ?? event.circuits?.name ?? 'event
     <div class="flex flex-col items-end gap-2">
       <div class="flex flex-wrap items-center justify-end gap-1.5">
         {usesFormatBadge(event.category) ? (
-          <span class={`${EVENT_TAG_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
-            {FORMAT_LABELS[event.format]}
-          </span>
+          !tbd && (
+            <span class={`${EVENT_TAG_CLASSES} ${FORMAT_BADGE_CLASSES[event.format]}`}>
+              {FORMAT_LABELS[event.format]}
+            </span>
+          )
         ) : (
           // Test/Holiday/iRacing events have no format, so this badge shows the category with its styling
           // instead of a second pill.

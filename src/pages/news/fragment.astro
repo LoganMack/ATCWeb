@@ -64,7 +64,7 @@ await Promise.all([loadAllPosts(), loadSeasonLogos(), loadTags()]);
 // extra query needed) rather than from curated_rounds, since a post can be
 // tagged with a season no round is linked to at all.
 const seasonOptions = [...new Set(allPosts.map((p) => p.season_label).filter((s): s is string => Boolean(s)))]
-  // Most recent season first (ATC18 before ATC9 — numeric-aware), right after "All seasons".
+  // Most recent season first (ATC18 before ATC9 — numeric-aware), right after "All".
   .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
 
 const q = Astro.url.searchParams.get('q')?.trim() ?? '';
@@ -100,7 +100,7 @@ if (loadError) markUncacheable(Astro);
             data-logo-select
             class="h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
           >
-            <option value="" class="bg-brand-ink text-white">All seasons</option>
+            <option value="" class="bg-brand-ink text-white">All</option>
             {seasonOptions.map((label) => (
               <option value={label} selected={label === seasonFilter} {...logoPairOptionAttrs(logoBySeasonLabel.get(label))} class="bg-brand-ink text-white">{label}</option>
             ))}

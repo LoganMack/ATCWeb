@@ -50,7 +50,7 @@ function entity(key: string, name: string, over: Partial<CompareEntity> = {}): C
 
 const DATA: CompareData = {
   classLabel: 'Overall',
-  seasonLabel: 'All seasons',
+  seasonLabel: 'All',
   races: 20,
   drivers: [entity('d:1', 'Amy Brown', { wins: 4 }), entity('d:2', 'Ben Carter', { wins: 2 })],
   teams: [entity('t:9', 'Blue Racing')],

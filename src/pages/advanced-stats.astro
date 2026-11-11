@@ -11,6 +11,7 @@ import { getDriverClasses } from '../lib/db/lookups';
 import { getSeasons, type Season } from '../lib/db/seasons';
 import { classFilterOptions, resolveClassFilter } from '../lib/results/classFilter';
 import { compareQuery, compareSeasonOptions, resolveCompareSeason } from '../lib/results/compareStats';
+import { seasonOptionAttrs } from '../lib/seasonSelect';
 
 // Advanced Stats (FR4): the Compare view. The shell reads only the filter lists; the drivers, teams and cars
 // come from advanced-stats/fragment.astro and src/scripts/compareView.ts draws the four slots from them. The
@@ -34,6 +35,8 @@ const season = resolveCompareSeason(Astro.url.searchParams.get('season'), season
 const seasonParams: Record<string, string> = season ? { season: String(season.number) } : {};
 const classOptions = classFilterOptions('/advanced-stats', classFilter, classes, seasonParams);
 const seasonOptions = compareSeasonOptions('/advanced-stats', classFilter, season, seasons);
+// Each season option carries its logo for the dropdown (scripts/logoSelect.ts); All has none.
+const seasonByName = new Map(seasons.map((s) => [s.name, s]));
 // Built from the resolved filters, never the raw search, so the picks stay out of the fragment request.
 const query = compareQuery(classFilter, season);
 
@@ -66,9 +69,9 @@ if (loadError) markUncacheable(Astro);
           <ClassFilterSelect options={classOptions} compareNav />
           <label class="flex flex-col gap-1.5 sm:w-44">
             <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
-            <select aria-label="Season" class={selectClass} data-compare-nav data-testid="advanced-season-select">
+            <select aria-label="Season" class={selectClass} data-compare-nav data-logo-select data-testid="advanced-season-select">
               {seasonOptions.map((o) => (
-                <option value={o.href} selected={o.selected} class="bg-brand-ink text-white">{o.label}</option>
+                <option value={o.href} selected={o.selected} {...seasonOptionAttrs(seasonByName.get(o.label))} class="bg-brand-ink text-white">{o.label}</option>
               ))}
             </select>
           </label>
@@ -92,6 +95,7 @@ if (loadError) markUncacheable(Astro);
   <script>
     import { bindFragment } from '../scripts/fragmentLoader';
     import '../scripts/compareView';
+    import '../scripts/logoSelect';
 
     bindFragment('[data-compare-view]', {
       label: 'Advanced stats',

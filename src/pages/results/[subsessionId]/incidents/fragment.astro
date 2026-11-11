@@ -123,8 +123,12 @@ import { applyReportOrder, getIncidentReportOrder } from '../../../../lib/incide
 import {
   buildIncidentSubmissionsView,
   getIncidentSubmissions,
+  getViewerCarNumber,
   type IncidentSubmissionSession,
 } from '../../../../lib/incidentSubmissions';
+import { getMyIncidents, type IncidentManagementRow } from '../../../../lib/incidents';
+import IncidentCommentDialog from '../../../../components/IncidentCommentDialog.astro';
+import ClipThumbnail from '../../../../components/ClipThumbnail.astro';
 
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI — and blocks the POST
@@ -316,18 +320,34 @@ if (adminSession) {
 }
 
 // Admins and staff see the public Incident Submissions tables above the incidents while the round is
-// unposted (BR2.11), read the same way the public page reads them.
+// unposted (BR2.11), read the same way the public page reads them. One with a linked driver also gets Add
+// Comment on the reports naming their car, as on the public page (BR1.1); if their incidents can't be read the
+// tables show without the buttons.
 let adminSubmissionSessions: IncidentSubmissionSession[] = [];
+const adminDriverId = adminSession ? (Astro.locals.session?.profile?.driver_id ?? null) : null;
+const adminCommentAction = adminDriverId ? `/drivers/${encodeURIComponent(adminDriverId)}` : null;
 if (adminSession && round && !postedFlag) {
   try {
-    adminSubmissionSessions = buildIncidentSubmissionsView(
-      await getIncidentSubmissions(resolveSupabaseEnv(Astro.locals), subsessionId),
-      null,
-    );
+    const publicEnv = resolveSupabaseEnv(Astro.locals);
+    const [submissions, mine, viewerCar] = await Promise.all([
+      getIncidentSubmissions(publicEnv, subsessionId),
+      adminDriverId
+        ? getMyIncidents(publicEnv, adminSession.accessToken)
+            .then((r): IncidentManagementRow[] | null => r.rows)
+            .catch((err) => {
+              console.error('Failed to load the admin’s own incidents:', err instanceof Error ? err.message : 'unknown');
+              return null;
+            })
+        : Promise.resolve(null),
+      adminDriverId ? getViewerCarNumber(publicEnv, adminDriverId) : Promise.resolve(null),
+    ]);
+    adminSubmissionSessions = buildIncidentSubmissionsView(submissions, mine, viewerCar);
   } catch (err) {
     console.error('Failed to load the incident submissions for the admin view:', err);
   }
 }
+const adminShowComments =
+  adminCommentAction !== null && adminSubmissionSessions.some((s) => s.rows.some((r) => r.comment));
 
 // Likely duplicate reports: same session, lap and turn with at least one car in common (reporters often leave
 // cars out). Turn ignores case and a leading "T"/"Turn". Dismissed reports are skipped, so dismissing a
@@ -587,6 +607,8 @@ const appealActionFlash =
     ? APPEAL_ACTION_FLASH_MESSAGES[appealActionParam as AppealActionFlash]
     : null;
 const showIncidentList = viewReports && (incidentReports.length > 0 || incidentAppeals.length > 0);
+// Back to the Incident Report: "View Report" once posted, "Preview Report" before (BR2.1).
+const reportToggleLabel = roundPosted ? 'View Report' : 'Preview Report';
 
 let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 {
@@ -951,10 +973,10 @@ if (loadError) markUncacheable(Astro);
           <div class="mt-4 flex flex-wrap items-center justify-between gap-2">
             <a
               href={viewReports ? editReportHref : viewReportsHref}
-              class="btn btn-neutral"
+              class={`btn btn-neutral${showIncidentList ? ' lg:hidden' : ''}`}
               data-testid="incident-view-toggle"
             >
-              {viewReports ? 'View Report' : `Review Submissions${openReportCount > 0 ? ` (${openReportCount})` : ''}`}
+              {viewReports ? reportToggleLabel : `Review Submissions${openReportCount > 0 ? ` (${openReportCount})` : ''}`}
             </a>
             {!viewReports && (
               <div class="flex flex-wrap items-center gap-2">
@@ -1057,6 +1079,17 @@ if (loadError) markUncacheable(Astro);
                   {FILTER_LABELS[f]} ({filterCounts[f]})
                 </button>
               ))}
+              {/* Desktop: the report link sits at the right end of the filter row (BR2.2); phones keep the one
+                  under the title. */}
+              {isAdmin && (
+                <a
+                  href={editReportHref}
+                  class="btn btn-neutral btn-sm hidden lg:ml-auto lg:inline-flex"
+                  data-testid="incident-view-toggle-desktop"
+                >
+                  {reportToggleLabel}
+                </a>
+              )}
             </div>
             <ul class="flex flex-col gap-2" data-incident-list>
               {viewReports && incidentReports.map((r) => {
@@ -1129,15 +1162,14 @@ if (loadError) markUncacheable(Astro);
                   )}
                   </div>
                   {hasMedia && (
-                    // Desktop only (BR1.5): display:none keeps the lazy map image unloaded on phones, and the
-                    // clip is built by script (incidentFilters.ts) only when this card is on screen.
+                    // Desktop only (BR1.5): display:none keeps the lazy images unloaded on phones. The video is a
+                    // thumbnail the size of the map that opens the popup player (BR2.3).
                     <div class="hidden flex-none items-start gap-3 lg:flex" data-report-media>
                       {r.video_url && (
-                        <div
-                          class="aspect-video w-64 overflow-hidden rounded-lg bg-black xl:w-72"
-                          data-inline-clip={r.video_url}
-                          data-testid="report-inline-clip"
-                        ></div>
+                        <ClipThumbnail
+                          url={r.video_url}
+                          title={`Incident${reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`}
+                        />
                       )}
                       {reportMapUrl && (
                         <div
@@ -1531,12 +1563,15 @@ if (loadError) markUncacheable(Astro);
         )}
 
         {/* While the round is unposted, admins and staff see what the public Incident Submissions page shows,
-            above the incidents (BR2.11); no Add Comment for them. */}
+            above the incidents (BR2.11), with Add Comment on reports naming their own car (BR1.1). */}
         {!viewReports && adminSubmissionSessions.length > 0 && (
-          <section class="mt-10" data-admin-submissions>
+          <section class="mt-10" data-admin-submissions data-incident-management>
             <h2 class="font-display text-2xl">Incident Submissions</h2>
             <p class="mt-1 text-sm text-white/60">What everyone else sees on this page until the round is posted.</p>
-            <IncidentSubmissionsTables sessions={adminSubmissionSessions} showActions={false} />
+            <p data-incident-status role="status" class="mt-2 text-sm text-white/70"></p>
+            <IncidentSubmissionsTables sessions={adminSubmissionSessions} showActions />
+            {adminShowComments && <p class="mt-4 text-xs text-white/40">ⓘ Comments go to the stewards only.</p>}
+            {adminShowComments && adminCommentAction && <IncidentCommentDialog action={adminCommentAction} />}
           </section>
         )}
 

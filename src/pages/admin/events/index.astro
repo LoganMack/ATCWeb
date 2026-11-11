@@ -16,6 +16,7 @@ import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { getOrphanedRounds, getOrphanPickerData, suggestEvent, associateRound, describeLinkReason, type OrphanRound, type OrphanPickerData } from '../../../lib/orphanRounds';
 import { formatEventDate, FORMAT_BADGE_CLASSES, EVENT_TAG_CLASSES, FORMAT_LABELS, CATEGORY_BADGE_CLASSES, CATEGORY_LABELS, usesFormatBadge } from '../../../lib/eventFormatting';
 import { requireAdmin } from '../../../lib/auth';
+import { TBD_LABEL } from '../../../lib/eventTbd';
 
 const admin = requireAdmin(Astro);
 if (admin instanceof Response) return admin;
@@ -107,28 +108,26 @@ const flashRows = Astro.url.searchParams.get('rows');
 <AdminLayout title="Events">
   <div class="reveal flex flex-wrap items-center justify-end gap-3">
     <div class="flex items-center gap-2">
-      <a href="/admin/import" class="btn btn-neutral">
-        Import from CSV
-      </a>
       <a href="/admin/events/new" class="btn btn-primary">
         New Event
       </a>
     </div>
   </div>
 
+  {/* Collapsed until clicked; open after a Link attempt or a load error so its message shows. */}
   {(orphans.length > 0 || orphanLoadError || flash) && (
-    <section id="orphaned-rounds" class="reveal mt-8" style="transition-delay: 40ms">
-      <h2 class="font-semibold">
-        Orphaned Rounds
-        {orphans.length > 0 && <span class="ml-2 text-sm font-normal text-white/40">{orphans.length}</span>}
-      </h2>
-      <p class="mt-1 max-w-3xl text-sm text-white/50">
-        Imported rounds that aren't fully connected yet. A new round is linked to its calendar event and scored
-        automatically when exactly one event matches its season, date and circuit; the rows below are the ones it
-        couldn't match, with the reason. A round with no season doesn't show on the Results page at all and can't be
-        scored; a round with no event isn't tied to the calendar. Pick a season and/or event and press Link — the
-        round is saved to that season/event and scored right away.
-      </p>
+    <details
+      id="orphaned-rounds"
+      class="group/orphans reveal mt-8 scroll-mt-24"
+      style="transition-delay: 40ms"
+      open={flash || orphanLoadError ? true : undefined}
+      data-testid="orphaned-rounds"
+    >
+      <summary class="flex cursor-pointer list-none items-center gap-2 font-semibold hover:text-white" data-testid="orphaned-rounds-toggle">
+        <span aria-hidden="true" class="inline-block transition group-open/orphans:rotate-90">&rsaquo;</span>
+        <h2>Orphaned Rounds</h2>
+        {orphans.length > 0 && <span class="text-sm font-normal text-white/40">{orphans.length}</span>}
+      </summary>
 
       {flash === 'ok' && (
         <p class="mt-4 rounded-lg border border-brand-primary/30 bg-brand-primary/10 p-3 text-sm text-white/80">
@@ -228,7 +227,7 @@ const flashRows = Astro.url.searchParams.get('rows');
         </div>
       )}
       <script type="application/json" id="orphan-events" set:html={safeJson(eventOptions)} />
-    </section>
+    </details>
   )}
 
   {loadError && (
@@ -265,7 +264,7 @@ const flashRows = Astro.url.searchParams.get('rows');
                     <img src={imageUrl} alt="" class="h-8 w-8 flex-none rounded object-contain" {...logoBgAttrs(event.circuit_id ? logoBackgrounds[event.circuit_id] : null)} />
                   )}
                   <div>
-                    <span class="font-semibold">{event.title ?? event.circuits?.name ?? 'TBA'}</span>
+                    <span class="font-semibold">{event.title ?? event.circuits?.name ?? TBD_LABEL}</span>
                     {event.season_id && event.round_number !== null && (
                       <p class="text-xs text-white/40">
                         {event.seasons?.name ?? 'Season'} — Round {event.round_number}

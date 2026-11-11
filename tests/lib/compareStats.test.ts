@@ -472,7 +472,7 @@ describe('the Season filter (FR4.1, BR5.2)', () => {
   it('lists All then the championship seasons newest first, each keeping the class', () => {
     const delta = resolveClassFilter('Delta', CLASSES);
     expect(compareSeasonOptions('/advanced-stats', delta, S17, seasons)).toEqual([
-      { label: 'All seasons', href: '/advanced-stats?class=Delta', selected: false },
+      { label: 'All', href: '/advanced-stats?class=Delta', selected: false },
       { label: 'ATC18', href: '/advanced-stats?class=Delta&season=18', selected: false },
       { label: 'ATC17', href: '/advanced-stats?class=Delta&season=17', selected: true },
     ]);

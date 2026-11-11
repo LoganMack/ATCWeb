@@ -1,0 +1,7 @@
+[
+  {
+    "file": "src/scripts/compareTower.ts",
+    "classes": ["bg-brand-primary", "text-black"],
+    "reason": "Compare: every filled slot box uses the same dark text, so the blue box changes from white to black text (round-polish BR6.4, the owner's request)."
+  }
+]

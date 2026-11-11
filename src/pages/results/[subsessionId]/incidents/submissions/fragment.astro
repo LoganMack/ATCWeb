@@ -88,10 +88,7 @@ if (loadError) markUncacheable(Astro);
       </p>
     ) : (
       <div data-incident-management class="mt-6">
-        <p class="text-sm text-white/60">
-          The incidents reported for this round. The stewards’ decisions appear here once they post the Incident Report.
-        </p>
-        <p data-incident-status role="status" class="mt-2 text-sm text-white/70"></p>
+        <p data-incident-status role="status" class="text-sm text-white/70"></p>
 
         {sessions.length === 0 ? (
           <p class="mt-8 text-white/60">No incidents have been reported for this round.</p>

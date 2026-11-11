@@ -3,6 +3,7 @@
 // form, so every button is type="button" and the file pickers and dropdowns have no name: Save Profile never
 // posts them. src/scripts/liveries.ts makes the images, compresses and uploads in the browser, and re-reads
 // [data-liveries-rows] from the page after each change. The two popups are <dialog>s with no form of their own.
+import { seasonOptionAttrs } from '../lib/seasonSelect';
 import type { LiveriesPanelData, LiveryRow } from '../lib/liveries';
 import { LIVERIES_PER_SEASON, LIVERY_MAX_BYTES } from '../lib/liveries';
 
@@ -35,11 +36,12 @@ const fileLine = (row: LiveryRow) =>
             <span class="text-white/70">Season</span>
             <select
               data-livery-upload-season
+              data-logo-select
               class="rounded-md border border-white/15 bg-brand-ink px-3 py-2 text-white outline-none focus:border-brand-primary"
               data-testid="liveries-upload-season"
             >
               {data.seasons.map((s) => (
-                <option value={s.id} selected={s.id === data.defaultSeasonId}>{s.label}</option>
+                <option value={s.id} selected={s.id === data.defaultSeasonId} {...seasonOptionAttrs(s)}>{s.label}</option>
               ))}
             </select>
           </label>
@@ -85,6 +87,7 @@ const fileLine = (row: LiveryRow) =>
                   <div class="flex flex-wrap items-center justify-end gap-2">
                     <select
                       data-livery-season-select
+                      data-logo-select
                       data-livery-id={row.id}
                       data-current={row.seasonId}
                       aria-label={`Season for ${row.tgaName}`}
@@ -92,7 +95,7 @@ const fileLine = (row: LiveryRow) =>
                       data-testid="livery-season-select"
                     >
                       {data.seasons.map((s) => (
-                        <option value={s.id} selected={s.id === row.seasonId}>{s.label}</option>
+                        <option value={s.id} selected={s.id === row.seasonId} {...seasonOptionAttrs(s)}>{s.label}</option>
                       ))}
                     </select>
                     {!row.isActive && (
