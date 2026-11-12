@@ -82,6 +82,8 @@ export interface DriverRaceHistoryRow {
    * fastest lap (Logan). Null when the layout can't be resolved or has no record.
    */
   layoutRecordSeconds: number | null;
+  /** The same layout's record holder text (circuit_layouts.lap_record_holder), for the Bests Delta (BR1.1). */
+  layoutRecordHolder?: string | null;
 }
 
 /**
@@ -243,6 +245,7 @@ export async function getDriverRaceHistory(
   const layoutLabelBySubsession = new Map<number, string>();
   // The Track Record comes from the same resolved layout row, so no extra fetch.
   const layoutRecordBySubsession = new Map<number, number | null>();
+  const layoutRecordHolderBySubsession = new Map<number, string | null>();
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
     const layout = trackName
@@ -250,6 +253,7 @@ export async function getDriverRaceHistory(
       : null;
     cornersBySubsession.set(subsessionId, layout?.corners ?? null);
     layoutRecordBySubsession.set(subsessionId, layout?.lap_record_seconds ?? null);
+    layoutRecordHolderBySubsession.set(subsessionId, layout?.lap_record_holder ?? null);
     const rawLayoutText = roundLayouts.get(subsessionId);
     layoutLabelBySubsession.set(
       subsessionId,
@@ -350,6 +354,7 @@ export async function getDriverRaceHistory(
           ?.best_lap_ten_thousandths ?? null,
       roundLayoutText: roundLayouts.get(score.subsession_id) ?? null,
       layoutRecordSeconds: layoutRecordBySubsession.get(score.subsession_id) ?? null,
+      layoutRecordHolder: layoutRecordHolderBySubsession.get(score.subsession_id) ?? null,
     });
   }
 

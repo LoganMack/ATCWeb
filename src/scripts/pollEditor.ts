@@ -157,8 +157,80 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function button(action: string, label: string, kind = 'btn-neutral'): HTMLButtonElement {
-  return el('button', { type: 'button', class: `btn ${kind} btn-sm`, 'data-action': action }, label);
+/** The icon each editor action shows (BR8.1); paths are 24x24 strokes. */
+export type PollIcon = 'up' | 'down' | 'trash' | 'plus';
+const ICON_PATHS: Record<PollIcon, string[]> = {
+  up: ['M12 19V5', 'M5 12l7-7 7 7'],
+  down: ['M12 5v14', 'M19 12l-7 7-7-7'],
+  trash: ['M3 6h18', 'M8 6V4h8v2', 'M19 6l-1 14H6L5 6', 'M10 11v6', 'M14 11v6'],
+  plus: ['M12 5v14', 'M5 12h14'],
+};
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function iconSvg(icon: PollIcon): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  for (const [name, value] of Object.entries({
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': '2',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    class: 'h-4 w-4',
+    'aria-hidden': 'true',
+  })) {
+    svg.setAttribute(name, value);
+  }
+  for (const d of ICON_PATHS[icon]) {
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+/** An icon-only action button; refreshLabels gives it the name of what it acts on. */
+function button(action: string, icon: PollIcon, kind = 'btn-neutral'): HTMLButtonElement {
+  const node = el('button', { type: 'button', class: `btn ${kind} btn-sm !px-2`, 'data-action': action });
+  node.append(iconSvg(icon));
+  return node;
+}
+
+/** How a section is named in its buttons: "section Format", or "Section 2" while it has no name. */
+export function sectionTarget(name: string, index: number): string {
+  const trimmed = name.trim();
+  return trimmed ? `section ${trimmed}` : `Section ${index + 1}`;
+}
+
+/** How an option is named in its buttons: "option Red", or "Option 2" while it has no name. */
+export function optionTarget(name: string, index: number): string {
+  const trimmed = name.trim();
+  return trimmed ? `option ${trimmed}` : `Option ${index + 1}`;
+}
+
+/** The accessible name and hover text of each action button (FR8.2), e.g. "Move Section 2 up". */
+export function actionLabel(action: string, target: string): string {
+  switch (action) {
+    case 'section-up':
+    case 'option-up':
+      return `Move ${target} up`;
+    case 'section-down':
+    case 'option-down':
+      return `Move ${target} down`;
+    case 'add-option':
+      return `Add option to ${target}`;
+    default:
+      return `Remove ${target}`;
+  }
+}
+
+function setActionLabel(scope: Element | null | undefined, action: string, target: string): void {
+  const node = scope?.querySelector(`[data-action="${action}"]`);
+  if (!node) return;
+  const label = actionLabel(action, target);
+  node.setAttribute('aria-label', label);
+  node.setAttribute('title', label);
 }
 
 function errorLine(message: string | null): HTMLParagraphElement {
@@ -207,9 +279,9 @@ function optionRow(option: EditorOption): HTMLLIElement {
   });
   line.append(
     file,
-    button('option-up', 'Move up'),
-    button('option-down', 'Move down'),
-    button('remove-option', 'Remove', 'btn-danger'),
+    button('option-up', 'up'),
+    button('option-down', 'down'),
+    button('remove-option', 'trash', 'btn-danger'),
   );
   row.append(line, errorLine(option.error));
   return row;
@@ -236,10 +308,10 @@ function sectionCard(section: EditorSection): HTMLDivElement {
   head.append(nameLabel, typeLabel);
   const actions = el('div', { class: 'flex flex-wrap gap-2' });
   actions.append(
-    button('add-option', 'Add option'),
-    button('section-up', 'Move up'),
-    button('section-down', 'Move down'),
-    button('remove-section', 'Remove section', 'btn-danger'),
+    button('add-option', 'plus'),
+    button('section-up', 'up'),
+    button('section-down', 'down'),
+    button('remove-section', 'trash', 'btn-danger'),
   );
   card.append(
     head,
@@ -251,25 +323,20 @@ function sectionCard(section: EditorSection): HTMLDivElement {
   return card;
 }
 
-/** Move buttons name their item, so screen readers can tell them apart. */
+/** Icon buttons name their item, so screen readers can tell them apart and hover shows the same text. */
 function refreshLabels(root: HTMLElement, state: EditorState): void {
   state.sections.forEach((section, i) => {
     const card = root.querySelector<HTMLElement>(`[data-section-key="${section.key}"]`);
     if (!card) return;
-    const sectionName = section.name.trim() || `section ${i + 1}`;
-    card.querySelector('[data-action="section-up"]')?.setAttribute('aria-label', `Move ${sectionName} up`);
-    card
-      .querySelector('[data-action="section-down"]')
-      ?.setAttribute('aria-label', `Move ${sectionName} down`);
-    card.querySelector('[data-action="remove-section"]')?.setAttribute('aria-label', `Remove ${sectionName}`);
+    const target = sectionTarget(section.name, i);
+    for (const action of ['add-option', 'section-up', 'section-down', 'remove-section']) {
+      setActionLabel(card, action, target);
+    }
     section.options.forEach((option, j) => {
       const row = card.querySelector<HTMLElement>(`[data-option-key="${option.key}"]`);
-      const optionName = option.name.trim() || `option ${j + 1}`;
-      row?.querySelector('[data-action="option-up"]')?.setAttribute('aria-label', `Move ${optionName} up`);
-      row
-        ?.querySelector('[data-action="option-down"]')
-        ?.setAttribute('aria-label', `Move ${optionName} down`);
-      row?.querySelector('[data-action="remove-option"]')?.setAttribute('aria-label', `Remove ${optionName}`);
+      const optionName = optionTarget(option.name, j);
+      for (const action of ['option-up', 'option-down', 'remove-option'])
+        setActionLabel(row, action, optionName);
     });
   });
 }

@@ -139,7 +139,8 @@ export function filledSlotHeader(slot: number, entity: CompareEntity, onClear: (
     'data-compare-fill': colour,
   });
   addClasses(block, SLOT_FILL[colour]);
-  const body = el('div', { class: 'flex min-w-0 flex-1 flex-col items-start gap-1 sm:gap-1.5' });
+  // Stretched to the block's height so Clear can sit in its bottom-right corner (BR6.1).
+  const body = el('div', { class: 'flex min-w-0 flex-1 flex-col items-start gap-1 self-stretch sm:gap-1.5' });
   block.append(slotPicture(entity), body);
   // The type and name take the block's own text colour.
   body.append(
@@ -164,7 +165,7 @@ export function filledSlotHeader(slot: number, entity: CompareEntity, onClear: (
   // The plain outline .btn, inheriting the block's text colour so it reads on every fill in both themes.
   const clear = el('button', {
     type: 'button',
-    class: 'btn btn-sm text-inherit px-1.5 py-0.5 sm:px-3 sm:py-1.5',
+    class: 'btn btn-sm text-inherit mt-auto self-end px-1.5 py-0.5 sm:px-3 sm:py-1.5',
     'aria-label': `Clear ${entity.name} from slot ${slot + 1}`,
     'data-compare-clear': String(slot),
   });
@@ -204,7 +205,9 @@ function tabEdge(colours: SlotColour[]): HTMLElement {
 function tabLabel(label: string): HTMLElement {
   const text = TAB_TEXT[label] ?? label;
   const span = el('span', {
-    class: 'font-display text-xs uppercase leading-none tracking-wide sm:text-[1.0625rem] sm:tracking-wider',
+    // Upright, like the values (BR6.1); the display font is italic by default.
+    class:
+      'font-display text-xs uppercase not-italic leading-none tracking-wide sm:text-[1.0625rem] sm:tracking-wider',
   });
   const plural = /^(.*\d)s$/.exec(text);
   if (plural) span.append(el('span', {}, plural[1]), el('span', { class: 'normal-case' }, 's'));
@@ -225,7 +228,7 @@ function statTab(row: CompareRowView): HTMLElement {
     tab.append(
       el(
         'span',
-        { class: 'mt-0.5 text-[0.5625rem] leading-tight text-white/70 sm:text-[0.625rem]' },
+        { class: 'mt-0.5 text-[0.5625rem] not-italic leading-tight text-white/70 sm:text-[0.625rem]' },
         row.denominator,
       ),
     );
@@ -265,7 +268,7 @@ function valueCell(cell: CompareCellView, slot: number, pillClass: string): HTML
   });
   total.append(figure(cell.total, pillClass));
   const percent = el('span', {
-    class: 'mt-0.5 block whitespace-nowrap text-[0.625rem] leading-tight text-white/70 sm:text-xs',
+    class: 'mt-0.5 block whitespace-nowrap text-[0.625rem] not-italic leading-tight text-white/70 sm:text-xs',
   });
   // A row with no Percent keeps its space, so the Totals stay level across the row.
   if (cell.percent) percent.append(figure(cell.percent, pillClass));

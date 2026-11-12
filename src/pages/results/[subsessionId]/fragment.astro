@@ -20,7 +20,10 @@ import {
   invalidRaceLinkField,
   type RaceLinks,
 } from '../../../lib/db/rounds';
-import { formatDate, getCircuits, getAllCircuitLayouts, type Circuit, type CircuitLayout } from '../../../lib/db/circuits';
+import RaceSummaryCard from '../../../components/RaceSummaryCard.astro';
+import { getCircuits, getAllCircuitLayouts, type Circuit, type CircuitLayout } from '../../../lib/db/circuits';
+import { getEventWetFlagsForRound, type EventWetFlags } from '../../../lib/db/events';
+import { buildRaceCard, type RaceCardView } from '../../../lib/results/raceCard';
 import type { Penalty } from '../../../lib/db/penalties';
 import {
   getSeasons,
@@ -369,7 +372,25 @@ async function loadReportingWindow() {
   reportingWindow = await getReportingWindowForRound(supabaseEnv, subsessionId, round!.start_time, reportingHours);
 }
 
-await Promise.all([loadDisplayRoundNumber(), loadIncidentLimit(), loadLayoutCorners(), loadDriverBestLapsAtTrack(), loadReportingWindow()]);
+// The round's event wet flags for the race card (BR3.7); a failed read shows "No" rather than failing the page.
+let wetFlags: EventWetFlags | null = null;
+async function loadWetFlags() {
+  if (loadError || !round) return;
+  try {
+    wetFlags = await getEventWetFlagsForRound(supabaseEnv, subsessionId, round!.event_id ?? null);
+  } catch (err) {
+    console.error("Failed to load this round's wet flags:", err);
+  }
+}
+
+await Promise.all([
+  loadDisplayRoundNumber(),
+  loadIncidentLimit(),
+  loadLayoutCorners(),
+  loadDriverBestLapsAtTrack(),
+  loadReportingWindow(),
+  loadWetFlags(),
+]);
 
 // Drivers over (not at) the limit in a race; ResultsTable shows that race's row in red.
 const incidentLimitExceededDriverIdsByRace = new Map<number, Set<string>>();
@@ -568,6 +589,18 @@ const raceBestLapTenThousandths = (() => {
     .filter((n): n is number => n !== null && n > 0);
   return laps.length > 0 ? Math.min(...laps) : null;
 })();
+// The race summary card for the session in view (FR3.4-FR3.7), rendered here so it needs no client script.
+const raceCard: RaceCardView | null = round
+  ? buildRaceCard({
+      startTime: round.start_time,
+      numDrivers: round.num_drivers,
+      strengthOfField: round.strength_of_field,
+      session: category === 'race' ? { kind: 'race', raceNumber: activeRaceNumber } : { kind: category },
+      roundRows: [...roundResults.overall.values()].flat(),
+      raceRows: roundResults.overall.get(activeRaceNumber) ?? [],
+      wetFlags,
+    })
+  : null;
 const qualifyingTableRows = activeClass ? qualifying.byClass.get(activeClass.id) ?? [] : qualifying.overall;
 const practiceTableRows = activeClass ? practice.byClass.get(activeClass.id) ?? [] : practice.overall;
 
@@ -625,9 +658,6 @@ if (loadError) markUncacheable(Astro);
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
           {round.track_name}
         </h1>
-        <div class="reveal mt-3" style="transition-delay: 80ms">
-          <p class="text-white/60">{formatDate(round.start_time)}</p>
-        </div>
 
         {isExhibition && (
           <p class="reveal mt-2 flex flex-wrap items-center gap-2 text-sm" style="transition-delay: 90ms">
@@ -653,7 +683,7 @@ if (loadError) markUncacheable(Astro);
             the left (each option's value is the full destination URL;
             onchange just navigates there, same as a plain link would), the
             incident button(s) first, then the Event Media and Kudos icon buttons, on the right. */}
-        <div class="mt-8 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
+        <div class="mt-12 relative z-30 rounded-xl border border-white/10 bg-brand-ink p-4">
         <div class="flex flex-wrap items-end gap-3">
           {roundPickerGroups.length > 0 && (
             <label class="hidden w-full flex-col gap-1.5 sm:flex sm:w-60">
@@ -729,6 +759,8 @@ if (loadError) markUncacheable(Astro);
           </div>
         </div>
         </div>
+
+        {raceCard && <RaceSummaryCard card={raceCard} />}
 
         {interviewDriverId && !interviewAlreadySubmitted && interviewWindowOpen && <InterviewDialog action={formAction} maxSeconds={INTERVIEW_MAX_SECONDS} />}
 

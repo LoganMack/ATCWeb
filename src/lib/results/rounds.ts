@@ -80,10 +80,11 @@ export function getOfficialRoundStartTimes(env: SupabaseEnv) {
 export async function getRoundBySubsessionId(
   env: SupabaseEnv,
   subsessionId: number,
-): Promise<RoundSummary | null> {
-  const rounds = await restGet<RoundSummary[]>(
+): Promise<(RoundSummary & { event_id: string | null }) | null> {
+  // event_id lets the results page read its event's wet flags in one request.
+  const rounds = await restGet<(RoundSummary & { event_id: string | null })[]>(
     env,
-    `curated_rounds?select=${ROUND_SUMMARY_SELECT}&subsession_id=eq.${subsessionId}`,
+    `curated_rounds?select=${ROUND_SUMMARY_SELECT},event_id&subsession_id=eq.${subsessionId}`,
   );
   return rounds[0] ?? null;
 }

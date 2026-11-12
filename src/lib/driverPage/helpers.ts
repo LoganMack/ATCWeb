@@ -169,4 +169,12 @@ export interface LayoutBestRow {
   personalBestFormatted: string;
   trackRecordSeconds: number | null;
   trackRecordFormatted: string;
+  /** The layout's record holder text; null when unknown. */
+  recordHolder: string | null;
+  /** The driver holds this layout's record (BR1.1): Delta shows '---' and the PB is blue. */
+  holdsRecord: boolean;
+  /** The Delta cell's text (BR1.2). */
+  deltaText: string;
+  /** Signed milliseconds for sorting; null sorts as missing (BR1.3). */
+  deltaSortValue: number | null;
 }

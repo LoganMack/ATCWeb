@@ -1,0 +1,102 @@
+---
+export const prerender = false;
+import LoadError from '../../components/LoadError.astro';
+import SeasonLogo from '../../components/SeasonLogo.astro';
+import { markUncacheable } from '../../lib/security';
+import { resolveSupabaseEnv } from '../../lib/db/client';
+import { parseSeasonStatsScope, seasonStatsCells, type SeasonStatsRow } from '../../lib/results/seasonStats';
+import { loadSeasonStats } from '../../lib/results/seasonStatsLoad';
+
+/**
+ * The Season Stats table as a fragment for the season-stats.astro shell (FR5). Returns bare HTML; never linked
+ * directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+const scope = parseSeasonStatsScope(Astro.url.searchParams.get('class'));
+
+let loadError: string | null = null;
+let rows: SeasonStatsRow[] = [];
+try {
+  rows = await loadSeasonStats(supabaseEnv, scope);
+} catch (err) {
+  console.error('Failed to compute season stats (fragment):', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
+
+// Columns after Season, in order (FR5.6).
+const columns: { key: string; label: string; hide: string }[] = [
+  { key: 'start', label: 'Start', hide: '' },
+  { key: 'end', label: 'End', hide: '' },
+  { key: 'days', label: 'Days', hide: 'hidden sm:table-cell' },
+  { key: 'raceTime', label: 'Total Race Time', hide: 'hidden md:table-cell' },
+  { key: 'rounds', label: 'Rounds', hide: 'hidden sm:table-cell' },
+  { key: 'races', label: 'Races', hide: 'hidden sm:table-cell' },
+  { key: 'winners', label: 'Unique Winners', hide: 'hidden md:table-cell' },
+  { key: 'sof', label: 'Avg SOF', hide: 'hidden lg:table-cell' },
+  { key: 'grid', label: 'Avg Grid Size', hide: 'hidden lg:table-cell' },
+  { key: 'cpi', label: 'Avg CPI', hide: 'hidden lg:table-cell' },
+  { key: 'wet', label: 'Wet Races', hide: 'hidden xl:table-cell' },
+];
+---
+
+{loadError && <LoadError />}
+
+{!loadError && rows.length === 0 && <p class="mt-10 text-white/60">No results.</p>}
+
+{!loadError && rows.length > 0 && (
+  <div class="mt-6 rounded-xl border border-white/10" data-sticky-thead>
+    <table class="w-full border-collapse" data-sortable>
+      <thead>
+        <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
+          <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="season">Season</th>
+          {columns.map((c) => (
+            <th class={`${c.hide} py-3 pr-3 text-center font-medium`} data-sort-key={c.key}>{c.label}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody id="season-stats-body">
+        {rows.map((row) => {
+          const cells = seasonStatsCells(row);
+          return (
+            <tr data-season-name={row.seasonName.toLowerCase()} class="border-b border-white/5 text-sm">
+              {/* Sorting by Season follows the season number, so ATC9 comes before ATC10. */}
+              <td class="py-2.5 pl-4 pr-2 font-semibold" data-col="season" data-sort-value={row.seasonNumber}>
+                <div class="flex items-center gap-2 whitespace-nowrap">
+                  {row.logoUrl ? (
+                    <SeasonLogo
+                      darkUrl={row.logoUrl}
+                      lightUrl={row.logoUrlLight}
+                      class="h-6 w-6 flex-none rounded object-contain"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <span class="h-6 w-6 flex-none rounded bg-white/5" aria-hidden="true"></span>
+                  )}
+                  <span>{row.seasonName}</span>
+                </div>
+              </td>
+              {columns.map((c) => {
+                const cell = cells[c.key];
+                return (
+                  <td
+                    class={`${c.hide} whitespace-nowrap py-2.5 pr-3 text-center text-white/60`}
+                    data-col={c.key}
+                    data-sort-value={cell.sortValue ?? ''}
+                    data-sort-missing={cell.sortValue === null ? '' : undefined}
+                  >
+                    {cell.text}
+                  </td>
+                );
+              })}
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  </div>
+)}
+<p id="season-stats-search-empty" class="mt-4 hidden text-white/60">No results.</p>

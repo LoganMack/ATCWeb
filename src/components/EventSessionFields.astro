@@ -13,7 +13,7 @@ interface Props {
   minutes?: number | null;
   laps?: number | null;
   weather: string | null;
-  /** Race sessions only (0071_race_wet_affected.sql) — practice/qualifying don't pass this. Admin-marked after the fact, independent of `weather` (the pre-scheduled forecast). */
+  /** Every session (races 0071_race_wet_affected.sql, practice and qualifying 20261117120000). Admin-marked after the fact, independent of `weather` (the pre-scheduled forecast). */
   showWetAffected?: boolean;
   wetAffected?: boolean;
 }

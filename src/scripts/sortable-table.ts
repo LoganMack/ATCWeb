@@ -17,6 +17,27 @@ function getSortValue(row: HTMLTableRowElement, key: string): string | number {
   return Number.isNaN(num) ? raw.toLowerCase() : num;
 }
 
+function isMissing(row: HTMLTableRowElement, key: string): boolean {
+  return row.querySelector(`[data-col="${key}"]`)?.hasAttribute('data-sort-missing') ?? false;
+}
+
+/** One sortable value: what it compares by, and whether the cell is marked `data-sort-missing`. */
+export interface SortEntry {
+  value: string | number;
+  missing: boolean;
+}
+
+/**
+ * Compares two rows' values for direction `dir` (1 or -1). A missing value goes after a present one whichever
+ * way the column is sorted, and two missing values keep their order (BR2.3).
+ */
+export function compareSortEntries(a: SortEntry, b: SortEntry, dir: number): number {
+  if (a.missing || b.missing) return a.missing === b.missing ? 0 : a.missing ? 1 : -1;
+  if (a.value < b.value) return -1 * dir;
+  if (a.value > b.value) return 1 * dir;
+  return 0;
+}
+
 function initSortableTables() {
   document.querySelectorAll<HTMLTableElement>('table[data-sortable]').forEach((table) => {
     if (table.dataset.sortableInit === 'true') return;
@@ -61,13 +82,11 @@ function initSortableTables() {
         units.push({ primary: row, detail });
       }
 
-      units.sort((a, b) => {
-        const av = getSortValue(a.primary, key);
-        const bv = getSortValue(b.primary, key);
-        if (av < bv) return -1 * dir;
-        if (av > bv) return 1 * dir;
-        return 0;
+      const entry = (row: HTMLTableRowElement): SortEntry => ({
+        value: getSortValue(row, key),
+        missing: isMissing(row, key),
       });
+      units.sort((a, b) => compareSortEntries(entry(a.primary), entry(b.primary), dir));
       units.forEach(({ primary, detail }) => {
         tbody.appendChild(primary);
         if (detail) tbody.appendChild(detail);
@@ -92,11 +111,14 @@ function initSortableTables() {
   });
 }
 
-document.addEventListener('astro:page-load', initSortableTables);
+// Guarded so tests can import the comparator without a DOM.
+if (typeof document !== 'undefined') {
+  document.addEventListener('astro:page-load', initSortableTables);
 
-document.addEventListener('change', (e) => {
-  const control = e.target instanceof Element ? e.target.closest('[data-sort-reset]') : null;
-  control?.parentElement
-    ?.querySelectorAll<HTMLTableElement>('table[data-sortable]')
-    .forEach((table) => resetWhenHidden.get(table)?.());
-});
+  document.addEventListener('change', (e) => {
+    const control = e.target instanceof Element ? e.target.closest('[data-sort-reset]') : null;
+    control?.parentElement
+      ?.querySelectorAll<HTMLTableElement>('table[data-sortable]')
+      .forEach((table) => resetWhenHidden.get(table)?.());
+  });
+}

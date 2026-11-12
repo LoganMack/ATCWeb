@@ -8,7 +8,8 @@ import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
 import { getNewsPosts, resolveSupabaseEnv } from '../../lib/db/client';
-import { getUpcomingEvents } from '../../lib/db/events';
+import { getChampionshipRoundNumbers, getUpcomingEvents } from '../../lib/db/events';
+import { eventSubtitle, finalRoundNumbers } from '../../lib/eventSubtitle';
 import {
   getAllCircuitLayouts,
   getCircuitLogoBackgrounds,
@@ -58,7 +59,18 @@ const loadTopSection = async () => {
     // page gracefully instead of failing the whole request.
     console.error('Failed to load homepage data:', err);
   }
+  // The event lines (BR11.1) need each listed season's last round number. A failed read only drops
+  // "Final Round".
+  let finalRounds: Map<string, number> | null = null;
+  const seasonIds = [...new Set(upcomingEvents.map((e) => e.season_id).filter((id): id is string => !!id))];
+  try {
+    finalRounds = finalRoundNumbers(await getChampionshipRoundNumbers(supabaseEnv, seasonIds));
+  } catch (err) {
+    console.error('Failed to load round numbers for the event lines:', err);
+  }
+  eventSubtitles = upcomingEvents.map((e) => eventSubtitle(e, finalRounds));
 };
+let eventSubtitles: string[] = [];
 
 // season_label on a post is freeform text (see NewsPost's own doc comment),
 // not an FK to `seasons` — this is a best-effort name match so NewsCard can
@@ -306,7 +318,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         )}
 
         <div class="space-y-3">
-          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} layouts={eventLayouts} logoBackgrounds={logoBackgrounds} />)}
+          {upcomingEvents.map((event, i) => <UpcomingEventCard event={event} featured={i === 0} index={i} layouts={eventLayouts} logoBackgrounds={logoBackgrounds} subtitle={eventSubtitles[i] ?? null} />)}
         </div>
 
         {upcomingEvents.length > 0 && (

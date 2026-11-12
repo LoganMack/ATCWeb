@@ -48,6 +48,8 @@ export const BANNER_PAGES: BannerPageDef[] = [
   },
   { key: 'driver-stats', label: 'Driver Stats', description: '/driver-stats', width: 1152 },
   { key: 'team-stats', label: 'Team Stats', description: '/team-stats', width: 1152 },
+  { key: 'season-stats', label: 'Season Stats', description: '/season-stats', width: 1152 },
+  { key: 'advanced-stats', label: 'Advanced Stats', description: '/advanced-stats', width: 1152 },
   { key: 'hall-of-fame', label: 'Hall of Fame', description: '/hall-of-fame', width: 1024 },
   { key: 'awards', label: 'Awards', description: '/awards', width: 1024 },
   { key: 'media', label: 'Media', description: '/media', width: 1024 },

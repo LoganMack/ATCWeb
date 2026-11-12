@@ -2,7 +2,7 @@
 // The stats pages' section picker (BR6.6), placed first in each page's filter card like HistoryTabs. Each
 // option's value is its URL.
 interface Props {
-  active: 'drivers' | 'teams' | 'circuits' | 'advanced';
+  active: 'drivers' | 'teams' | 'seasons' | 'circuits' | 'advanced';
 }
 
 const { active } = Astro.props;
@@ -10,6 +10,7 @@ const { active } = Astro.props;
 const sections: { key: Props['active']; href: string; label: string }[] = [
   { key: 'drivers', href: '/driver-stats', label: 'Drivers' },
   { key: 'teams', href: '/team-stats', label: 'Teams' },
+  { key: 'seasons', href: '/season-stats', label: 'Seasons' },
   { key: 'circuits', href: '/circuits', label: 'Circuits' },
   { key: 'advanced', href: '/advanced-stats', label: 'Advanced' },
 ];

@@ -66,6 +66,56 @@ export async function getSeasonById(env: SupabaseEnv, id: string) {
   return seasons[0] ?? null;
 }
 
+/** A validated New season form (parseNewSeasonForm in src/lib/seasonForm.ts). */
+export interface NewSeasonInput {
+  number: number;
+  name: string;
+  scoring_ruleset_id: string;
+  gamma_enabled: boolean;
+  delta_enabled: boolean;
+  delta_team_enabled: boolean;
+}
+
+/** Why a season insert was refused: a taken number, a caller who is not a full admin, or anything else. */
+export type CreateSeasonFailure = 'duplicate' | 'forbidden' | 'failed';
+
+export class CreateSeasonError extends Error {
+  constructor(
+    readonly reason: CreateSeasonFailure,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CreateSeasonError';
+  }
+}
+
+/** Maps a failed insert's error text to its reason: 23505 is the seasons_number_key unique violation. */
+export function createSeasonFailure(message: string): CreateSeasonFailure {
+  if (/23505|duplicate key|seasons_number_key/i.test(message)) return 'duplicate';
+  if (/42501|row-level security|error (401|403)\b/i.test(message)) return 'forbidden';
+  return 'failed';
+}
+
+/**
+ * Admin > Seasons "New season" (BR10.3): inserts a season that is not current. The "admin insert seasons"
+ * policy limits this to full admins (BR10.1); a refused or failed insert throws CreateSeasonError.
+ */
+export async function createSeason(
+  env: SupabaseEnv,
+  accessToken: string,
+  input: NewSeasonInput,
+): Promise<Season> {
+  try {
+    return await restPost<Season>(env, accessToken, `seasons?select=${SEASON_SELECT}`, {
+      ...input,
+      is_current: false,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new CreateSeasonError(createSeasonFailure(message), message);
+  }
+}
+
 /**
  * Sets or clears a season's dark and/or light logo (0024, 0089); each is optional, so pass only what changed.
  */

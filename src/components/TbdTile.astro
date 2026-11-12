@@ -1,0 +1,21 @@
+---
+// The "TBD" tile shown where a track logo would be for an event whose circuit is not known yet (FR9.2,
+// FR11.1). Same box as the logo it replaces, so rows line up. Solid brand colours with ink text read the same
+// on both themes.
+interface Props {
+  /** Size and shape classes of the logo it stands in for, e.g. "h-10 w-10". */
+  class?: string;
+  /** Text size class for the "TBD" label. */
+  textClass?: string;
+}
+
+const { class: sizeClass = 'h-10 w-10', textClass = 'text-sm' } = Astro.props;
+---
+
+<span
+  class={`${sizeClass} flex flex-none items-center justify-center rounded bg-gradient-to-br from-brand-fixed-blue via-brand-fixed-gold to-brand-fixed-pink font-display leading-none text-fixed-ink ${textClass}`}
+  aria-hidden="true"
+  data-tbd-tile
+>
+  TBD
+</span>
