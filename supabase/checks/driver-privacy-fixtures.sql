@@ -795,7 +795,10 @@ begin
       -- The caller's own notifications, labelled by season, round and track only (U3, BR5.2):
       'open_my_notifications',
       -- Security invoker, names only through the masked drivers_shown view (race-winners-fixtures.sql X02):
-      'race_winners_for_rounds'
+      'race_winners_for_rounds',
+      -- Security invoker over the masked results views; counts, totals and a driver id, no names
+      -- (season-race-summaries-fixtures.sql S01):
+      'season_race_summaries'
     );
   perform privacy_fixture.expect('P21 unlisted functions', coalesce(v_unlisted, ''), '');
   raise notice 'ok P21 function allow-list';
