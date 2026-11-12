@@ -321,7 +321,7 @@ describe('the signed-in profile and the private profile (BR9.11, BR9.12)', () =>
     ]);
     expect(await findProfileDriver(anonEnv(), DRIVER_ID)).toMatchObject({ profile_private: false });
     expect(calls[0].table).toBe('drivers_shown');
-    expect(calls[0].select).toBe('id,iracing_cust_id,is_hall_of_fame,profile_private');
+    expect(calls[0].select).toBe('id,name,iracing_cust_id,is_hall_of_fame,profile_private');
   });
 });
 

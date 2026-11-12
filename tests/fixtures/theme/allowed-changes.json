@@ -3,5 +3,38 @@
     "file": "src/scripts/compareTower.ts",
     "classes": ["bg-brand-primary", "text-black"],
     "reason": "Compare: every filled slot box uses the same dark text, so the blue box changes from white to black text (round-polish BR6.4, the owner's request)."
+  },
+  {
+    "file": "src/components/EventDetailCard.astro",
+    "classes": ["font-display", "text-2xl", "leading-none", "tbd-gradient"],
+    "reason": "A TBD event's name is gradient text in brand blue, gold and pink-red, from the themed text colours (seasons-results-polish BR9.1)."
+  },
+  {
+    "file": "src/components/UpcomingEventCard.astro",
+    "classes": ["font-display", "text-2xl", "leading-none", "tbd-gradient"],
+    "reason": "A TBD event's name on the featured homepage card is gradient text (seasons-results-polish BR9.1)."
+  },
+  {
+    "file": "src/components/UpcomingEventCard.astro",
+    "classes": ["font-semibold", "tbd-gradient"],
+    "reason": "A TBD event's name on a compact homepage row is gradient text (seasons-results-polish BR9.1)."
+  },
+  {
+    "file": "src/components/TbdTile.astro",
+    "classes": [
+      "bg-gradient-to-br",
+      "flex",
+      "flex-none",
+      "font-display",
+      "from-brand-fixed-blue",
+      "items-center",
+      "justify-center",
+      "leading-none",
+      "rounded",
+      "text-fixed-ink",
+      "to-brand-fixed-pink",
+      "via-brand-fixed-gold"
+    ],
+    "reason": "The TBD tile is a solid brand gradient with ink text, the same in both themes, where a track logo would be (seasons-results-polish BR9.1)."
   }
 ]

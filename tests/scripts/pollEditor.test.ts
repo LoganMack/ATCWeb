@@ -5,8 +5,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  actionLabel,
   addOption,
   addSection,
+  optionTarget,
+  sectionTarget,
   isoToLocal,
   localToIso,
   moveOption,
@@ -179,5 +182,17 @@ describe('closing date conversion', () => {
     expect(isoToLocal('')).toBe('');
     expect(localToIso('')).toBe('');
     expect(localToIso('not a date')).toBe('');
+  });
+});
+
+describe('icon button names (FR8.2, BR8.1)', () => {
+  it('names the section or option each button acts on', () => {
+    expect(actionLabel('section-up', sectionTarget('', 1))).toBe('Move Section 2 up');
+    expect(actionLabel('section-down', sectionTarget('Format', 0))).toBe('Move section Format down');
+    expect(actionLabel('remove-section', sectionTarget('', 0))).toBe('Remove Section 1');
+    expect(actionLabel('add-option', sectionTarget('Format', 0))).toBe('Add option to section Format');
+    expect(actionLabel('remove-option', optionTarget(' Red ', 0))).toBe('Remove option Red');
+    expect(actionLabel('option-up', optionTarget('', 2))).toBe('Move Option 3 up');
+    expect(actionLabel('option-down', optionTarget('Blue', 1))).toBe('Move option Blue down');
   });
 });

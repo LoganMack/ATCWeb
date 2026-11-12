@@ -195,6 +195,7 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'results/[subsessionId]/kudos/fragment.astro': ['kudos'],
   'results/fragment.astro': ['season'],
   'roster/fragment.astro': [],
+  'season-stats/fragment.astro': ['class'],
   'standings/fragment.astro': ['championship', 'class', 'mode', 'round', 'season', 'view'],
   'team-stats/fragment.astro': ['view'],
   'teams/fragment.astro': ['season'],

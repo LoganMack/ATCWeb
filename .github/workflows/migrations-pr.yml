@@ -217,6 +217,11 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/race-winners-fixtures.sql
 
+      # Same convention: per-race figures for Stats > Seasons and the full-admin seasons insert policy.
+      - name: Season race summaries fixtures on the rebuilt database
+        if: steps.scope.outputs.run == 'true'
+        run: psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/season-race-summaries-fixtures.sql
+
       # Same convention: Close Appeal, steward comments, the closed-appeal lock and the appealed warning flag.
       - name: Appeal close fixtures on the rebuilt database
         if: steps.scope.outputs.run == 'true'

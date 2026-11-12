@@ -72,11 +72,12 @@ describe('top navigation (BR6.1-BR6.4)', () => {
     expect(menuOf('Roster')).toEqual(['/roster Drivers', '/teams Teams mobile', '/cars Cars mobile']);
   });
 
-  it('opens /driver-stats from Stats and lists Drivers, Teams, Circuits and Advanced (BR1.1)', () => {
+  it('opens /driver-stats from Stats and lists Drivers, Teams, Seasons, Circuits and Advanced (BR1.1, BR5.7)', () => {
     expect(linksBlock).toMatch(/href: '\/driver-stats',\s*label: 'Stats',/);
     expect(menuOf('Stats')).toEqual([
       '/driver-stats Drivers',
       '/team-stats Teams mobile',
+      '/season-stats Seasons mobile',
       '/circuits Circuits mobile',
       '/advanced-stats Advanced mobile',
     ]);
@@ -108,13 +109,14 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     expect(hrefs).toEqual(['/champions', '/hall-of-fame', '/awards', '/incidents', '/kudos', '/interviews']);
   });
 
-  it('puts the four-option Stats picker on the four stats pages and no History picker there', () => {
+  it('puts the five-option Stats picker on the five stats pages and no History picker there (BR5.7)', () => {
     const options = [...STATS_TABS.matchAll(/\{ key: '(\w+)', href: '([^']+)', label: '([^']+)' \}/g)].map(
       (m) => `${m[2]} ${m[3]}`,
     );
     expect(options).toEqual([
       '/driver-stats Drivers',
       '/team-stats Teams',
+      '/season-stats Seasons',
       '/circuits Circuits',
       '/advanced-stats Advanced',
     ]);
@@ -122,6 +124,7 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     const pages: Record<string, string> = {
       '/src/pages/driver-stats.astro': 'drivers',
       '/src/pages/team-stats.astro': 'teams',
+      '/src/pages/season-stats.astro': 'seasons',
       '/src/pages/circuits.astro': 'circuits',
       '/src/pages/advanced-stats.astro': 'advanced',
     };

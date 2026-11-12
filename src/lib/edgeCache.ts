@@ -41,6 +41,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
     ],
   ],
   [/^\/results\/[^/]+\/kudos(\/fragment)?$/, ['kudos', 'season']],
+  [/^\/season-stats(\/fragment)?$/, ['class']],
   [/^\/standings(\/fragment)?$/, ['championship', 'class', 'mode', 'round', 'season', 'view']],
   [/^\/team-stats(\/fragment)?$/, ['view']],
   [/^\/teams(\/fragment)?$/, ['season']],
@@ -67,6 +68,8 @@ const ROUTE_PARAM_VALUES: [RegExp, Record<string, (value: string) => boolean>][]
       view: (value) => value === 'compare',
     },
   ],
+  // Overall and unknown values render as Overall (parseSeasonStatsScope), so they share the bare key.
+  [/^\/season-stats(\/fragment)?$/, { class: (value) => ['alpha', 'gamma', 'delta'].includes(value) }],
 ];
 
 /** Query parameters that are part of the cache key for this path. */

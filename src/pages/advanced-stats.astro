@@ -5,6 +5,9 @@ import { markUncacheable } from '../lib/security';
 
 import Layout from '../layouts/Layout.astro';
 import StatsTabs from '../components/StatsTabs.astro';
+import PageBanner from '../components/PageBanner.astro';
+import { getPageBanners } from '../lib/db/assets';
+import { bannerUrlFor } from '../lib/pageBanners';
 import ClassFilterSelect from '../components/ClassFilterSelect.astro';
 import { resolveSupabaseEnv } from '../lib/db/client';
 import { getDriverClasses } from '../lib/db/lookups';
@@ -23,8 +26,19 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let seasons: Season[] = [];
 let loadError: string | null = null;
+let bannerUrl: string | null = null;
 try {
-  [classes, seasons] = await Promise.all([getDriverClasses(supabaseEnv), getSeasons(supabaseEnv)]);
+  [classes, seasons, bannerUrl] = await Promise.all([
+    getDriverClasses(supabaseEnv),
+    getSeasons(supabaseEnv),
+    // The banner (FR6.3) is decoration: a failed read shows no banner rather than the load error.
+    getPageBanners(supabaseEnv)
+      .then((banners) => bannerUrlFor(banners, 'advanced-stats'))
+      .catch((err) => {
+        console.error('Failed to load page banner:', err);
+        return null;
+      }),
+  ]);
 } catch (err) {
   console.error('Failed to load advanced stats filters:', err);
   loadError = err instanceof Error ? err.message : String(err);
@@ -49,6 +63,7 @@ if (loadError) markUncacheable(Astro);
 
 <Layout title="Advanced Stats" description="Compare drivers, teams and cars from Alpha Touring Challenge side by side.">
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
+    <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Advanced Stats</h1>
 
     {loadError && <LoadError />}

@@ -47,6 +47,11 @@ const actor = { id: admin.user.id, name: actorNameFor(admin) };
 
 let error: string | null = null;
 
+// Shown under each heading and used as the input's accessible name (FR7).
+const REPORTING_WINDOW_DESCRIPTION = "How many hours drivers can report incidents after a round's race ends.";
+const APPEAL_WINDOW_DESCRIPTION =
+  "How many hours drivers can submit an appeal for an incident after you post the round's incident report.";
+
 const TABS = [
   { key: 'settings', label: 'Incident Windows' },
   { key: 'banners', label: 'Page Banners' },
@@ -424,46 +429,39 @@ if (activeTab === 'settings') {
   {activeTab === 'settings' && (
   <section class="reveal mt-8" style="transition-delay: 50ms">
     <h2 class="font-semibold">Incident Reporting Window</h2>
-    <p class="mt-1 max-w-2xl text-sm text-white/50">
-      How long drivers can report incidents after a round's race ends. Once it closes, the Incident Report button on the results page is disabled until you post the round.
-    </p>
+    <p class="mt-1 max-w-2xl text-sm text-white/50">{REPORTING_WINDOW_DESCRIPTION}</p>
     <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
       <input type="hidden" name="form_section" value="incident-reporting" />
-      <label class="block text-sm">
-        <span class="text-white/60">Reporting window (hours)</span>
-        <input
-          type="number"
-          name="period_hours"
-          min="1"
-          max="720"
-          step="1"
-          value={incidentPeriodHours}
-          required
-          class="mt-1 block w-32 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white"
-        />
-      </label>
+      {/* No visible label (FR7.3): the description above names the input. */}
+      <input
+        type="number"
+        name="period_hours"
+        min="1"
+        max="720"
+        step="1"
+        value={incidentPeriodHours}
+        required
+        aria-label={REPORTING_WINDOW_DESCRIPTION}
+        class="block w-32 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+      />
       <button type="submit" class="btn btn-primary">Save</button>
     </form>
 
     <h2 class="mt-8 font-semibold">Incident Appeal Window</h2>
-    <p class="mt-1 max-w-2xl text-sm text-white/50">
-      How long drivers can submit an appeal for an incident after you post the round's incident report. Once it closes, the Submit Appeal button in the incident details popup is disabled.
-    </p>
+    <p class="mt-1 max-w-2xl text-sm text-white/50">{APPEAL_WINDOW_DESCRIPTION}</p>
     <form method="POST" data-astro-reload class="mt-4 flex flex-wrap items-end gap-3">
       <input type="hidden" name="form_section" value="incident-appeal" />
-      <label class="block text-sm">
-        <span class="text-white/60">Appeal window (hours)</span>
-        <input
-          type="number"
-          name="period_hours"
-          min="1"
-          max="720"
-          step="1"
-          value={incidentAppealHours}
-          required
-          class="mt-1 block w-32 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white"
-        />
-      </label>
+      <input
+        type="number"
+        name="period_hours"
+        min="1"
+        max="720"
+        step="1"
+        value={incidentAppealHours}
+        required
+        aria-label={APPEAL_WINDOW_DESCRIPTION}
+        class="block w-32 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white"
+      />
       <button type="submit" class="btn btn-primary">Save</button>
     </form>
   </section>

@@ -111,12 +111,14 @@ function readVenueForm(form: FormData, category: EventCategory, circuitless: boo
     practice_sim_time: circuitless ? null : optStr(form, 'practice_sim_time'),
     practice_minutes: circuitless ? null : optInt(form, 'practice_minutes'),
     practice_weather: circuitless ? null : optWeather(form, 'practice_weather'),
+    practice_wet_affected: circuitless ? false : checkbox(form, 'practice_wet_affected'),
 
     qualifying_start_time: circuitless ? null : optStr(form, 'qualifying_start_time'),
     qualifying_sim_time: circuitless ? null : optStr(form, 'qualifying_sim_time'),
     qualifying_minutes: circuitless ? null : optInt(form, 'qualifying_minutes'),
     qualifying_laps: circuitless ? null : optInt(form, 'qualifying_laps'),
     qualifying_weather: circuitless ? null : optWeather(form, 'qualifying_weather'),
+    qualifying_wet_affected: circuitless ? false : checkbox(form, 'qualifying_wet_affected'),
 
     // Test Session (and, per above, Holiday/iRacing) events don't require
     // any races to be saved (0054_test_session_no_race_required.sql) —
@@ -244,11 +246,13 @@ const d: Partial<EventRecord> = event ?? {
   practice_sim_time: null,
   practice_minutes: null,
   practice_weather: null,
+  practice_wet_affected: false,
   qualifying_start_time: null,
   qualifying_sim_time: null,
   qualifying_minutes: null,
   qualifying_laps: null,
   qualifying_weather: null,
+  qualifying_wet_affected: false,
   race1_start_time: '',
   race1_sim_time: null,
   race1_laps: null,
@@ -460,6 +464,8 @@ const d: Partial<EventRecord> = event ?? {
         simTime={d.practice_sim_time ?? null}
         minutes={d.practice_minutes ?? null}
         weather={d.practice_weather ?? null}
+        showWetAffected
+        wetAffected={d.practice_wet_affected ?? false}
       />
       <EventSessionFields
         prefix="qualifying"
@@ -471,6 +477,8 @@ const d: Partial<EventRecord> = event ?? {
         minutes={d.qualifying_minutes ?? null}
         laps={d.qualifying_laps ?? null}
         weather={d.qualifying_weather ?? null}
+        showWetAffected
+        wetAffected={d.qualifying_wet_affected ?? false}
       />
       <EventSessionFields
         prefix="race1"

@@ -1,5 +1,6 @@
 import { formatLapTime, displayLayoutName } from '../db/circuits';
 import type { DriverRaceHistoryRow } from '../results/raceHistory';
+import { bestsDelta } from './bestsDelta';
 import {
   overallPos,
   classPos,
@@ -18,7 +19,12 @@ import {
 } from './helpers';
 
 /** The driver profile fragment's derived views (award groups, splits, bests), built from loadDriverPage's data without further fetches. */
-export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], awardEntries: AwardEntry[]) {
+export function buildDriverPageGroups(
+  raceHistory: DriverRaceHistoryRow[],
+  awardEntries: AwardEntry[],
+  /** The profile driver's shown name, matched against each layout's record holder (BR1.1). */
+  driverName: string | null = null,
+) {
   // Awards are grouped by season; awardEntries is sorted newest first, so this is a run-length pass.
   const awardGroups: AwardGroup[] = [];
   for (const a of awardEntries) {
@@ -124,6 +130,13 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
     .map(([, rows]) => {
       const bestTimes = rows.map((r) => r.bestLapTenThousandths).filter((t): t is number => t !== null);
       const personalBestTenThousandths = bestTimes.length > 0 ? Math.min(...bestTimes) : null;
+      const recordHolder = rows[0].layoutRecordHolder ?? null;
+      const delta = bestsDelta({
+        personalBestTenThousandths,
+        trackRecordSeconds: rows[0].layoutRecordSeconds,
+        recordHolder,
+        driverName,
+      });
       return {
         trackName: rows[0].trackName,
         layoutText: rows[0].roundLayoutText ? displayLayoutName(rows[0].roundLayoutText) : '—',
@@ -133,6 +146,10 @@ export function buildDriverPageGroups(raceHistory: DriverRaceHistoryRow[], award
         ),
         trackRecordSeconds: rows[0].layoutRecordSeconds,
         trackRecordFormatted: formatLapTime(rows[0].layoutRecordSeconds),
+        recordHolder,
+        holdsRecord: delta.holdsRecord,
+        deltaText: delta.text,
+        deltaSortValue: delta.sortValue,
       };
     })
     .sort((a, b) => a.trackName.localeCompare(b.trackName) || a.layoutText.localeCompare(b.layoutText));

@@ -14,6 +14,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ProfileDriver {
   id: string;
+  /** As drivers_shown shows it to this caller ("Hidden Driver" when masked); the Bests tab matches it (BR1.1). */
+  name?: string;
   iracing_cust_id: number | null;
   is_hall_of_fame: boolean;
   /** drivers_shown (U4, BR9.11): the profile is private for this caller, so nothing else is read. */
@@ -28,7 +30,7 @@ export async function findProfileDriver(
   if (!UUID.test(driverId)) return null;
   const rows = await restGet<ProfileDriver[]>(
     supabaseEnv,
-    `drivers_shown?select=id,iracing_cust_id,is_hall_of_fame,profile_private&id=eq.${encodeURIComponent(driverId)}&is_ai=eq.false`,
+    `drivers_shown?select=id,name,iracing_cust_id,is_hall_of_fame,profile_private&id=eq.${encodeURIComponent(driverId)}&is_ai=eq.false`,
   );
   return rows[0] ?? null;
 }
@@ -82,6 +84,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     notFound,
     privateProfile,
     loadError,
+    driverName: null as string | null,
     career,
     raceHistory,
     relatedPosts,
@@ -223,6 +226,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     notFound,
     privateProfile,
     loadError,
+    driverName: driver.name ?? null,
     career,
     raceHistory,
     relatedPosts,

@@ -1,0 +1,38 @@
+---
+// The round results page's race summary card (FR3.4-FR3.7): styled like the filter card above it, with the
+// filter card's label style. Values come from buildRaceCard (src/lib/results/raceCard.ts).
+import IconTip from './IconTip.astro';
+import type { RaceCardView } from '../lib/results/raceCard';
+
+interface Props {
+  card: RaceCardView;
+}
+
+const { card } = Astro.props;
+const labelClass = 'text-xs font-semibold uppercase tracking-wide text-white/40';
+const items: { label: string; value: string }[] = [
+  { label: 'Date', value: card.date },
+  { label: 'Grid Size', value: card.gridSize },
+  { label: 'SOF', value: card.sof },
+  ...(card.raceTime !== null ? [{ label: 'Race Time', value: card.raceTime }] : []),
+  { label: 'Wet Affected', value: card.wetAffected },
+];
+---
+
+<dl class="mt-4 flex flex-wrap gap-x-10 gap-y-3 rounded-xl border border-white/10 bg-brand-ink p-4" data-race-summary-card>
+  {items.map((item) => (
+    <div class="flex flex-col gap-1.5">
+      <dt class={labelClass}>
+        {item.label === 'SOF' ? (
+          // The title shows on hover; IconTip shows the same words on keyboard focus (BR3.7).
+          <IconTip label="Strength of Field">
+            <abbr title="Strength of Field" tabindex="0" class="cursor-help no-underline">SOF</abbr>
+          </IconTip>
+        ) : (
+          item.label
+        )}
+      </dt>
+      <dd class="text-sm font-semibold text-white">{item.value}</dd>
+    </div>
+  ))}
+</dl>

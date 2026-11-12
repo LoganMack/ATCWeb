@@ -1,5 +1,5 @@
 import { LEAGUE_TIME_ZONE } from '../timezone';
-import { restDelete, restGet, restPatch, restPost, type SupabaseEnv } from './client';
+import { restDelete, restGet, restGetAll, restPatch, restPost, type SupabaseEnv } from './client';
 
 // --- Events ----------------------------------------------------------------
 
@@ -51,12 +51,15 @@ export interface EventRecord {
   practice_sim_time: string | null;
   practice_minutes: number | null;
   practice_weather: Weather | null;
+  /** Admin-marked after the fact, like race1_wet_affected (20261117120000). Defaults false, never null. */
+  practice_wet_affected: boolean;
 
   qualifying_start_time: string | null;
   qualifying_sim_time: string | null;
   qualifying_minutes: number | null;
   qualifying_laps: number | null;
   qualifying_weather: Weather | null;
+  qualifying_wet_affected: boolean;
 
   /** Nullable since 0054_test_session_no_race_required.sql — was NOT NULL back when every event was assumed to have at least one scheduled race; a Test Session can now be saved with none. */
   race1_start_time: string | null;
@@ -92,8 +95,8 @@ export interface EventWithCircuit extends EventRecord {
 
 const EVENT_SELECT =
   'id,circuit_id,layout,event_date,format,fuel_limit_pct,rules,results_url,category,title,subtitle,season_id,round_number,subsession_id,' +
-  'practice_start_time,practice_sim_time,practice_minutes,practice_weather,' +
-  'qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,' +
+  'practice_start_time,practice_sim_time,practice_minutes,practice_weather,practice_wet_affected,' +
+  'qualifying_start_time,qualifying_sim_time,qualifying_minutes,qualifying_laps,qualifying_weather,qualifying_wet_affected,' +
   'race1_start_time,race1_sim_time,race1_laps,race1_weather,race1_wet_affected,' +
   'race2_start_time,race2_sim_time,race2_laps,race2_weather,race2_wet_affected,' +
   'race3_start_time,race3_sim_time,race3_laps,race3_weather,race3_wet_affected';
@@ -143,6 +146,78 @@ export async function getEventById(env: SupabaseEnv, id: string) {
     `events?select=${EVENT_SELECT}&id=eq.${encodeURIComponent(id)}`,
   );
   return events[0] ?? null;
+}
+
+/** An event's five wet-affected flags, for the round results card and Stats > Seasons. */
+export interface EventWetFlags {
+  id: string;
+  season_id: string | null;
+  subsession_id: number | null;
+  practice_wet_affected: boolean;
+  qualifying_wet_affected: boolean;
+  race1_wet_affected: boolean;
+  race2_wet_affected: boolean;
+  race3_wet_affected: boolean;
+}
+
+const EVENT_WET_FLAGS_SELECT =
+  'id,season_id,subsession_id,practice_wet_affected,qualifying_wet_affected,race1_wet_affected,race2_wet_affected,race3_wet_affected';
+
+/**
+ * The wet flags of a round's event: curated_rounds.event_id when set, else the event pinned to the round by
+ * events.subsession_id (as getReportingWindowForRound resolves it). Null when the round has no event. Pass
+ * `eventId` when the caller already read it; otherwise the round's event_id is read first.
+ */
+export async function getEventWetFlagsForRound(
+  env: SupabaseEnv,
+  subsessionId: number,
+  eventId?: string | null,
+): Promise<EventWetFlags | null> {
+  let linkedId = eventId;
+  if (linkedId === undefined) {
+    const rounds = await restGet<{ event_id: string | null }[]>(
+      env,
+      `curated_rounds?select=event_id&subsession_id=eq.${subsessionId}`,
+    );
+    linkedId = rounds[0]?.event_id ?? null;
+  }
+  const filter = linkedId ? `id=eq.${encodeURIComponent(linkedId)}` : `subsession_id=eq.${subsessionId}`;
+  const rows = await restGet<EventWetFlags[]>(
+    env,
+    `events?select=${EVENT_WET_FLAGS_SELECT}&${filter}&limit=1`,
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Wet flags of every event in these seasons, plus every event pinned to a round, so a round whose event sits
+ * outside the list still resolves (Stats > Seasons). Only the columns the page uses (NFR2).
+ */
+export function getEventWetFlagsForSeasons(env: SupabaseEnv, seasonIds: string[]): Promise<EventWetFlags[]> {
+  if (seasonIds.length === 0) return Promise.resolve([]);
+  const ids = seasonIds.map((id) => encodeURIComponent(id)).join(',');
+  return restGetAll<EventWetFlags>(
+    env,
+    `events?select=${EVENT_WET_FLAGS_SELECT}&or=(season_id.in.(${ids}),subsession_id.not.is.null)&order=id.asc`,
+  );
+}
+
+/** Championship events' season and round numbers, for the homepage's "Final Round" label (BR11.1). */
+export interface EventRoundNumber {
+  season_id: string;
+  round_number: number;
+}
+
+export function getChampionshipRoundNumbers(
+  env: SupabaseEnv,
+  seasonIds: string[],
+): Promise<EventRoundNumber[]> {
+  if (seasonIds.length === 0) return Promise.resolve([]);
+  const ids = seasonIds.map((id) => encodeURIComponent(id)).join(',');
+  return restGet<EventRoundNumber[]>(
+    env,
+    `events?select=season_id,round_number&category=eq.championship&season_id=in.(${ids})&round_number=not.is.null`,
+  );
 }
 
 export function createEvent(env: SupabaseEnv, accessToken: string, data: Partial<EventRecord>) {

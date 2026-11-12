@@ -465,14 +465,25 @@ th[data-sort-key]::after {
   opacity: 0.35;
 }
 
-/* Mobile: keep each sortable header on one line. In a narrow column the arrow
-   (an inline-block ::after) used to wrap onto a second line, which pushed that
-   header's text above its neighbours' (e.g. Pos / Points / PP sat higher than
-   Driver on Standings). */
-@media (max-width: 639px) {
-  th[data-sort-key] {
-    white-space: nowrap;
-  }
+/* Keep each sortable header on one line at every width (BR2.1): a wrapped arrow
+   (the inline-block ::after) pushes that header's text above its neighbours'.
+   Not inside a media query; tests/structure/sortableHeaders.test.ts checks this. */
+th[data-sort-key] {
+  white-space: nowrap;
+}
+
+/* TBD event names (BR9.1): brand blue, gold and pink-red. The text colour variables are the ones light mode
+   darkens, so the gold stays readable on paper. */
+.tbd-gradient {
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--text-blue)),
+    rgb(var(--text-gold)),
+    rgb(var(--text-pink))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 th[data-sort-key][data-sort-dir='asc']::after {

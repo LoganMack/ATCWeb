@@ -40,10 +40,16 @@ const {
   careerMoves,
   classMoves,
   driverIncidents,
+  driverName,
 } = await loadDriverPage(supabaseEnv, driverId);
 // Not a UUID, or no such driver: nothing heavy was read, and the answer is never cached.
 if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
-const { raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(raceHistory, []);
+// The driver's name tells the Bests tab which track records are theirs (BR1.1).
+const { raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(
+  raceHistory,
+  [],
+  driverName,
+);
 // The Seasons tab's counted columns, each rendered twice (overall and class counts, BR3.8) with its own sort
 // key per set, so sorting always reads the set that is showing.
 const SEASON_COUNT_COLUMNS = [
@@ -482,6 +488,7 @@ if (loadError) markUncacheable(Astro);
                   <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="track">Track</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="layout">Layout</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="pb">Personal Best</th>
+                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="delta">Delta</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="record">Track Record</th>
                 </tr>
               </thead>
@@ -491,17 +498,25 @@ if (loadError) markUncacheable(Astro);
                     <td class="py-2 pr-2 font-semibold text-white/90" data-col="track" data-sort-value={r.trackName}>{r.trackName}</td>
                     <td class="py-2 pr-2 text-white/70" data-col="layout" data-sort-value={r.layoutText}>{r.layoutText}</td>
                     <td
-                      class="py-2 pr-2 text-center text-base font-bold text-white/90"
+                      class={`py-2 pr-2 text-center text-base font-bold ${r.holdsRecord ? 'text-brand-blue' : 'text-white/90'}`}
                       data-col="pb"
                       data-sort-value={r.personalBestTenThousandths ?? ''}
                     >
                       {r.personalBestFormatted}
                     </td>
+                    {/* '---' (holds the record) and '—' (a time missing) sort last either way (BR1.3). */}
+                    <td
+                      class="py-2 pr-2 text-center text-base text-white/70"
+                      data-col="delta"
+                      data-sort-value={r.deltaSortValue ?? ''}
+                      data-sort-missing={r.deltaSortValue === null ? '' : undefined}
+                    >
+                      {r.deltaText}
+                    </td>
                     <td
                       class="py-2 pr-2 text-center text-base text-white/70"
                       data-col="record"
                       data-sort-value={r.trackRecordSeconds ?? ''}
-                      title="circuit_layouts.lap_record_seconds — the same curated Track Record shown on the Circuits and Event Briefing pages, not necessarily an ATC-only figure."
                     >
                       {r.trackRecordFormatted}
                     </td>

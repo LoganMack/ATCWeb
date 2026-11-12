@@ -13,9 +13,17 @@ import {
   getScoringRulesets,
   resolveSeasonRuleset,
   recalculateSeasonScores,
+  createSeason,
+  CreateSeasonError,
   type ScoringRuleset,
   type SeasonRecalcResult,
 } from '../../../lib/db/seasons';
+import {
+  DUPLICATE_SEASON_MESSAGE,
+  newSeasonDefaults,
+  parseNewSeasonForm,
+  type NewSeasonValues,
+} from '../../../lib/seasonForm';
 import { uploadToStorage } from '../../../lib/db/assets';
 import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import { requireFullAdmin } from '../../../lib/auth';
@@ -32,6 +40,8 @@ let error: string | null = null;
 // Set by "recalculate" only, which re-renders instead of redirecting so the per-round results from
 // rescore_season() (which rounds failed and why) can be shown.
 let recalcResult: { seasonId: string; results: SeasonRecalcResult[] } | null = null;
+// The New season form's values after a refused create, so the form shows what was typed.
+let newSeasonValues: NewSeasonValues | null = null;
 
 function extFromFile(file: File): string {
   const fromName = file.name.split('.').pop();
@@ -55,7 +65,53 @@ if (Astro.request.method === 'POST') {
   // branch's activity_log entry label.
   const seasonForLog = seasonId ? await getSeasonById(supabaseEnv, seasonId) : null;
 
-  if (!seasonId) {
+  if (intent === 'create') {
+    // New season (FR10). The page is full-admin only, and the insert policy enforces it again (BR10.1).
+    try {
+      const [existingSeasons, existingRulesets] = await Promise.all([
+        getSeasons(supabaseEnv),
+        getScoringRulesets(supabaseEnv),
+      ]);
+      const parsed = parseNewSeasonForm(form, {
+        seasonNumbers: existingSeasons.map((s) => s.number),
+        rulesetIds: existingRulesets.map((r) => r.id),
+      });
+      if (!parsed.ok) {
+        error = parsed.error;
+        newSeasonValues = parsed.values;
+      } else {
+        const created = await createSeason(supabaseEnv, accessToken, parsed.input);
+        await logActivity(supabaseEnv, accessToken, actor, {
+          action: 'add',
+          entity_type: 'season',
+          entity_label: `Created season ${created.name}`,
+          entity_id: created.id,
+        });
+        return Astro.redirect('/admin/seasons', 302);
+      }
+    } catch (err) {
+      console.error('Failed to create season:', err);
+      const reason = err instanceof CreateSeasonError ? err.reason : 'failed';
+      error =
+        reason === 'duplicate'
+          ? DUPLICATE_SEASON_MESSAGE
+          : reason === 'forbidden'
+            ? 'Only full admins can create a season.'
+            : 'Failed to create the season.';
+      newSeasonValues = null;
+    }
+    if (error && !newSeasonValues) {
+      // Keep what was typed after a database refusal too.
+      newSeasonValues = {
+        number: String(form.get('number') ?? ''),
+        name: String(form.get('name') ?? ''),
+        rulesetId: String(form.get('scoring_ruleset_id') ?? ''),
+        gamma: form.get('gamma_enabled') === 'on',
+        delta: form.get('delta_enabled') === 'on',
+        deltaTeam: form.get('delta_team_enabled') === 'on',
+      };
+    }
+  } else if (!seasonId) {
     error = 'Missing season.';
   } else if (intent === 'remove' || intent === 'remove-light') {
     const field = intent === 'remove' ? 'logo_url' : 'logo_url_light';
@@ -197,12 +253,57 @@ try {
   console.error('Failed to load scoring rulesets:', err);
 }
 const defaultRuleset = rulesets.find((r) => r.is_default) ?? null;
+const newSeason = newSeasonValues ?? newSeasonDefaults(seasons, rulesets);
+const inputClass =
+  'rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary';
 ---
 
 <AdminLayout title="Seasons">
   {error && (
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
+
+  {/* New season (FR10.1): pre-filled with the next number and its name; checked again on the server. */}
+  <form
+    method="POST"
+    data-astro-reload
+    class="reveal mt-8 flex flex-wrap items-end gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10"
+    data-new-season-form
+  >
+    <input type="hidden" name="intent" value="create" />
+    <span class="w-full text-sm font-semibold">New season</span>
+    <label class="flex flex-col gap-1 text-xs text-white/60">
+      Number
+      <input type="number" name="number" min="1" step="1" required value={newSeason.number} class={`w-24 ${inputClass}`} />
+    </label>
+    <label class="flex flex-col gap-1 text-xs text-white/60">
+      Name
+      <input type="text" name="name" required value={newSeason.name} class={`w-32 ${inputClass}`} />
+    </label>
+    <label class="flex flex-col gap-1 text-xs text-white/60">
+      Ruleset
+      <select name="scoring_ruleset_id" required class={inputClass}>
+        {rulesets.map((r) => (
+          <option value={r.id} class="bg-brand-ink text-white" selected={r.id === newSeason.rulesetId}>
+            {r.name}
+          </option>
+        ))}
+      </select>
+    </label>
+    <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
+      <input type="checkbox" name="gamma_enabled" checked={newSeason.gamma} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
+      Gamma
+    </label>
+    <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
+      <input type="checkbox" name="delta_enabled" checked={newSeason.delta} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
+      Delta
+    </label>
+    <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
+      <input type="checkbox" name="delta_team_enabled" checked={newSeason.deltaTeam} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
+      Delta Team
+    </label>
+    <button type="submit" class="btn btn-primary btn-sm">Create season</button>
+  </form>
 
   <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 60ms">
     {seasons.length === 0 && <p class="text-sm text-white/40">No results.</p>}
