@@ -365,14 +365,17 @@ body {
 
 /*
  * Teko is italic everywhere (style direction). Plain CSS, not @apply, which caused a circular dependency with
- * `.font-display`.
+ * `.font-display`. In the base layer so a `not-italic` utility can still turn it upright: outside a layer this
+ * rule came after the utilities and always won.
  */
-h1,
-h2,
-h3,
-h4,
-.font-display {
-  font-style: italic;
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  .font-display {
+    font-style: italic;
+  }
 }
 
 h1,
@@ -470,20 +473,6 @@ th[data-sort-key]::after {
    Not inside a media query; tests/structure/sortableHeaders.test.ts checks this. */
 th[data-sort-key] {
   white-space: nowrap;
-}
-
-/* TBD event names (BR9.1): brand blue, gold and pink-red. The text colour variables are the ones light mode
-   darkens, so the gold stays readable on paper. */
-.tbd-gradient {
-  background-image: linear-gradient(
-    90deg,
-    rgb(var(--text-blue)),
-    rgb(var(--text-gold)),
-    rgb(var(--text-pink))
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
 }
 
 th[data-sort-key][data-sort-dir='asc']::after {
