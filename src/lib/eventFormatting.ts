@@ -1,5 +1,6 @@
 import type { EventCategory, EventFormat, EventRecord, Weather } from './db/events';
 import { zonedTimeToUtcIso, LEAGUE_TIME_ZONE } from './timezone';
+import { isTbdEvent } from './eventTbd';
 
 // Re-exported for components that take a weather value alongside WEATHER_LABELS.
 export type { Weather };
@@ -103,8 +104,22 @@ export const CATEGORY_CARD_CLASSES: Record<EventCategory, string> = {
   iracing: 'border-white/10 bg-white/[0.03]',
 };
 
+// A TBD event's card (FR4.1): the brand gradient as the background, blue to gold to pink-red, from the themed
+// card colours, in place of the format colour (a TBD event is stored as a sprint, which was gold).
+export const TBD_CARD_CLASSES =
+  'border-white/10 bg-gradient-to-r from-[color:var(--card-blue)] via-[color:var(--card-gold)] to-[color:var(--card-pink)]';
+
+export const TBD_CARD_HOVER_CLASSES =
+  'border-white/10 bg-gradient-to-r from-[color:var(--card-blue)] via-[color:var(--card-gold)] to-[color:var(--card-pink)] hover:from-[color:var(--card-blue-h)] hover:via-[color:var(--card-gold-h)] hover:to-[color:var(--card-pink-h)]';
+
+type CardEvent = { category: EventCategory; format: EventFormat; circuit_id?: string | null };
+
+/** Only an event that carries its circuit can be told apart as TBD; one passed without it never is. */
+const isTbdCard = (event: CardEvent) => 'circuit_id' in event && isTbdEvent(event);
+
 /** Same format-vs-category branch as usesFormatBadge, applied to the card-background accent above instead of the tag badge. */
-export function getEventCardClasses(event: { category: EventCategory; format: EventFormat }): string {
+export function getEventCardClasses(event: CardEvent): string {
+  if (isTbdCard(event)) return TBD_CARD_CLASSES;
   return usesFormatBadge(event.category)
     ? FORMAT_CARD_CLASSES[event.format]
     : CATEGORY_CARD_CLASSES[event.category];
@@ -128,7 +143,8 @@ export const CATEGORY_CARD_HOVER_CLASSES: Record<EventCategory, string> = {
 };
 
 /** Same format-vs-category branch as getEventCardClasses, using the hover-inclusive maps above. */
-export function getEventCardHoverClasses(event: { category: EventCategory; format: EventFormat }): string {
+export function getEventCardHoverClasses(event: CardEvent): string {
+  if (isTbdCard(event)) return TBD_CARD_HOVER_CLASSES;
   return usesFormatBadge(event.category)
     ? FORMAT_CARD_HOVER_CLASSES[event.format]
     : CATEGORY_CARD_HOVER_CLASSES[event.category];

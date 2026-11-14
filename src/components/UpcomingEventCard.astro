@@ -42,8 +42,6 @@ const { event, featured = false, index = 0, layouts = [], logoBackgrounds = {}, 
 const circuitName = event.title ?? event.circuits?.name ?? TBD_LABEL;
 // Circuit not known yet: a TBD championship shows no badge, a TBD exhibition its category; no briefing.
 const tbd = isTbdEvent(event);
-// The gradient is for the "TBD" name only, not a TBD event that has a title of its own (BR9.1).
-const tbdName = tbd && circuitName === TBD_LABEL;
 const showFormat = usesFormatBadge(event.category) && !tbd;
 const showCategory = !usesFormatBadge(event.category) || (tbd && event.category !== 'championship');
 const sessions = featured ? getEventSessions(event) : [];
@@ -81,7 +79,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
         tbd && <TbdTile class="h-10 w-10" />
       )}
       <div>
-        <h3 class={`font-display text-2xl leading-none ${tbdName ? 'tbd-gradient' : ''}`}>{circuitName}</h3>
+        <h3 class="font-display text-2xl leading-none">{circuitName}</h3>
         {event.title ? (
           event.subtitle && <p class="text-sm text-white/50">{event.subtitle}</p>
         ) : (
@@ -170,7 +168,7 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
         tbd && <TbdTile class="h-7 w-7" textClass="text-[10px]" />
       )}
       <div>
-        <p class={`font-semibold ${tbdName ? 'tbd-gradient' : ''}`}>{circuitName}</p>
+        <p class="font-semibold">{circuitName}</p>
         <p class="text-xs text-white/50">{subtitle ?? formatEventDateShort(event.event_date)}</p>
       </div>
     </div>

@@ -97,16 +97,17 @@ const PLACEHOLDER_PATHS: Record<CompareEntity['type'], string> = {
   car: 'M5 4h14v16H5z',
 };
 
-/** The picture's empty stand-in: the silhouette or square in the block's own text colour, faded. */
+/** The picture's empty stand-in: the silhouette or square in the block's own text colour, on the dimmed tile. */
 export function picturePlaceholder(type: CompareEntity['type']): Element {
   const svg = document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', 'hidden h-16 w-16 flex-none rounded p-1.5 opacity-60 lg:block');
+  svg.setAttribute('class', 'hidden h-16 w-16 flex-none rounded bg-black/25 p-1.5 lg:block');
   svg.setAttribute('data-compare-picture', 'placeholder');
   const path = document.createElementNS(SVG_NS, 'path');
   path.setAttribute('d', PLACEHOLDER_PATHS[type]);
   path.setAttribute('fill', 'currentColor');
+  path.setAttribute('opacity', '0.6');
   svg.append(path);
   return svg;
 }
@@ -123,7 +124,7 @@ export function slotPicture(entity: Pick<CompareEntity, 'type' | 'imageUrl'>): E
     alt: '',
     loading: 'lazy',
     decoding: 'async',
-    class: `hidden h-16 w-16 flex-none rounded ${fit} lg:block`,
+    class: `hidden h-16 w-16 flex-none rounded bg-black/25 ${fit} lg:block`,
     'data-compare-picture': 'image',
   });
   img.addEventListener('error', () => img.replaceWith(picturePlaceholder(entity.type)), { once: true });
@@ -146,12 +147,13 @@ export function filledSlotHeader(slot: number, entity: CompareEntity, onClear: (
   body.append(
     el(
       'span',
-      { class: 'hidden text-[0.625rem] font-bold uppercase tracking-wider sm:block' },
+      { class: 'hidden text-[0.625rem] font-bold uppercase not-italic tracking-wider sm:block' },
       TYPE_LABEL[entity.type],
     ),
   );
 
-  const nameClass = 'block w-full min-w-0 font-display text-sm uppercase leading-none sm:text-[1.3125rem]';
+  const nameClass =
+    'block w-full min-w-0 font-display text-sm uppercase not-italic leading-none sm:text-[1.3125rem]';
   const name = entity.href
     ? el('a', { href: entity.href, class: `${nameClass} hover:underline` })
     : el('p', { class: nameClass });

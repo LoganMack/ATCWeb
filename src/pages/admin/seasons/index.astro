@@ -22,6 +22,8 @@ import {
   DUPLICATE_SEASON_MESSAGE,
   newSeasonDefaults,
   parseNewSeasonForm,
+  nameForNumberInput,
+  seasonRowSaveSummary,
   type NewSeasonValues,
 } from '../../../lib/seasonForm';
 import { uploadToStorage } from '../../../lib/db/assets';
@@ -104,7 +106,7 @@ if (Astro.request.method === 'POST') {
       // Keep what was typed after a database refusal too.
       newSeasonValues = {
         number: String(form.get('number') ?? ''),
-        name: String(form.get('name') ?? ''),
+        name: nameForNumberInput(String(form.get('number') ?? '')),
         rulesetId: String(form.get('scoring_ruleset_id') ?? ''),
         gamma: form.get('gamma_enabled') === 'on',
         delta: form.get('delta_enabled') === 'on',
@@ -197,11 +199,18 @@ if (Astro.request.method === 'POST') {
     }
     if (!error) return Astro.redirect('/admin/seasons', 302);
   } else {
-    // Dark and light logos are each optional; only an empty submission is an error.
+    // The row's Save (FR3.2): new logos (each optional), the ruleset and the class switches, together.
     const logoUrlField = String(form.get('logo_url') ?? '').trim();
     const logoFile = form.get('logo');
     const logoUrlLightField = String(form.get('logo_url_light') ?? '').trim();
     const logoLightFile = form.get('logo_light');
+    const rulesetId = String(form.get('scoring_ruleset_id') ?? '').trim() || null;
+    // Checkboxes only submit a value when checked.
+    const flags = {
+      gamma_enabled: form.get('gamma_enabled') === '1',
+      delta_enabled: form.get('delta_enabled') === '1',
+      delta_team_enabled: form.get('delta_team_enabled') === '1',
+    };
 
     try {
       const logos: { logo_url?: string | null; logo_url_light?: string | null } = {};
@@ -220,21 +229,34 @@ if (Astro.request.method === 'POST') {
       }
       if (logo_url_light) logos.logo_url_light = logo_url_light;
 
-      if (Object.keys(logos).length === 0) {
-        error = 'Provide a logo file or a logo URL (dark or light).';
-      } else {
-        await updateSeasonLogo(supabaseEnv, accessToken, seasonId, logos);
+      if (Object.keys(logos).length > 0) await updateSeasonLogo(supabaseEnv, accessToken, seasonId, logos);
+      const rulesetChanged = (seasonForLog?.scoring_ruleset_id ?? null) !== rulesetId;
+      if (rulesetChanged) await updateSeasonRuleset(supabaseEnv, accessToken, seasonId, rulesetId);
+      const flagsChanged =
+        !seasonForLog ||
+        seasonForLog.gamma_enabled !== flags.gamma_enabled ||
+        seasonForLog.delta_enabled !== flags.delta_enabled ||
+        seasonForLog.delta_team_enabled !== flags.delta_team_enabled;
+      if (flagsChanged) await updateSeasonClassFlags(supabaseEnv, accessToken, seasonId, flags);
+
+      if (Object.keys(logos).length > 0 || rulesetChanged || flagsChanged) {
         await logActivity(supabaseEnv, accessToken, actor, {
           action: 'edit',
           entity_type: 'season',
-          entity_label: `${seasonForLog?.name ?? 'Season'} — logo`,
+          entity_label: `${seasonForLog?.name ?? 'Season'} — saved`,
           entity_id: seasonId,
+          details: seasonRowSaveSummary({
+            darkLogo: 'logo_url' in logos,
+            lightLogo: 'logo_url_light' in logos,
+            rulesetChanged,
+            flags: flagsChanged ? flags : null,
+          }),
         });
-        return Astro.redirect('/admin/seasons', 302);
       }
+      return Astro.redirect('/admin/seasons', 302);
     } catch (err) {
-      console.error('Failed to save season logo:', err);
-      error = err instanceof Error ? err.message : 'Failed to save this logo.';
+      console.error('Failed to save season:', err);
+      error = err instanceof Error ? err.message : 'Failed to save this season.';
     }
   }
 }
@@ -263,89 +285,135 @@ const inputClass =
     <p class="reveal mt-6 rounded-lg border border-brand-pink/30 bg-brand-pink/10 p-4 text-sm text-white/80">{error}</p>
   )}
 
-  {/* New season (FR10.1): pre-filled with the next number and its name; checked again on the server. */}
+  {/* Add Season (FR1): the next number after the current season, and its name, which is never typed (FR1.2). */}
   <form
     method="POST"
     data-astro-reload
-    class="reveal mt-8 flex flex-wrap items-end gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10"
+    class="reveal mt-8 flex flex-col gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10"
     data-new-season-form
   >
     <input type="hidden" name="intent" value="create" />
-    <span class="w-full text-sm font-semibold">New season</span>
-    <label class="flex flex-col gap-1 text-xs text-white/60">
-      Number
-      <input type="number" name="number" min="1" step="1" required value={newSeason.number} class={`w-24 ${inputClass}`} />
-    </label>
-    <label class="flex flex-col gap-1 text-xs text-white/60">
-      Name
-      <input type="text" name="name" required value={newSeason.name} class={`w-32 ${inputClass}`} />
-    </label>
-    <label class="flex flex-col gap-1 text-xs text-white/60">
-      Ruleset
-      <select name="scoring_ruleset_id" required class={inputClass}>
-        {rulesets.map((r) => (
-          <option value={r.id} class="bg-brand-ink text-white" selected={r.id === newSeason.rulesetId}>
-            {r.name}
-          </option>
-        ))}
-      </select>
-    </label>
-    <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
-      <input type="checkbox" name="gamma_enabled" checked={newSeason.gamma} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
-      Gamma
-    </label>
-    <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
-      <input type="checkbox" name="delta_enabled" checked={newSeason.delta} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
-      Delta
-    </label>
-    <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
-      <input type="checkbox" name="delta_team_enabled" checked={newSeason.deltaTeam} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
-      Delta Team
-    </label>
-    <button type="submit" class="btn btn-primary btn-sm">Create season</button>
+    <span class="text-sm font-semibold">Add Season</span>
+    <div class="flex flex-wrap items-end gap-3">
+      <label class="flex flex-col gap-1 text-xs text-white/60">
+        Number
+        <input type="number" name="number" min="1" step="1" required value={newSeason.number} data-season-number class={`w-24 ${inputClass}`} />
+      </label>
+      <label class="flex flex-col gap-1 text-xs text-white/60">
+        Name
+        <input
+          type="text"
+          name="name"
+          readonly
+          tabindex="-1"
+          value={newSeason.name}
+          data-season-name
+          class={`w-32 cursor-default ${inputClass} text-white/60`}
+        />
+      </label>
+      <label class="flex flex-col gap-1 text-xs text-white/60">
+        Ruleset
+        <select name="scoring_ruleset_id" required class={inputClass}>
+          {rulesets.map((r) => (
+            <option value={r.id} class="bg-brand-ink text-white" selected={r.id === newSeason.rulesetId}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
+        <input type="checkbox" name="gamma_enabled" checked={newSeason.gamma} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
+        Gamma
+      </label>
+      <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
+        <input type="checkbox" name="delta_enabled" checked={newSeason.delta} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
+        Delta
+      </label>
+      <label class="flex items-center gap-1.5 pb-1.5 text-xs text-white/60">
+        <input type="checkbox" name="delta_team_enabled" checked={newSeason.deltaTeam} class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary" />
+        Delta Team
+      </label>
+    </div>
+    <div class="flex justify-end">
+      <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </div>
   </form>
 
   <div class="reveal mt-8 flex flex-col gap-3" style="transition-delay: 60ms">
     {seasons.length === 0 && <p class="text-sm text-white/40">No results.</p>}
     {seasons.map((season) => (
       <>
-      <div class="flex flex-wrap items-center gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10">
-        <div class="flex flex-none items-center gap-1.5">
-          <div class="flex flex-col items-center gap-0.5">
-            {season.logo_url ? (
-              <img src={season.logo_url} alt="" class="h-10 w-10 flex-none rounded bg-brand-ink object-contain" />
-            ) : (
-              <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
-            )}
-            <span class="text-[9px] font-semibold uppercase tracking-wide text-white/30">Dark</span>
+      {/*
+        One card per season (FR3). Its fields belong to the hidden Save form through the `form` attribute, so the
+        logo removers, Set as Current and Recalculate can stay separate forms without nesting.
+      */}
+      <div class="flex flex-col gap-3 rounded-lg bg-brand-ink p-3 ring-1 ring-white/10" data-season-row>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex flex-none items-center gap-1.5">
+            <div class="flex flex-col items-center gap-0.5">
+              {season.logo_url ? (
+                <button
+                  type="submit"
+                  form={`remove-dark-${season.id}`}
+                  class="group relative h-10 w-10 flex-none rounded"
+                  aria-label={`Remove dark logo for ${season.name}`}
+                  title="Remove dark logo"
+                  data-remove-logo="dark"
+                >
+                  <img src={season.logo_url} alt="" class="h-10 w-10 rounded bg-brand-ink object-contain transition group-hover:opacity-40 group-focus-visible:opacity-40 [@media(hover:none)]:opacity-40" />
+                  <span aria-hidden="true" class="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl leading-none text-white/70 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100">×</span>
+                </button>
+              ) : (
+                <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+              )}
+              <span class="text-[9px] font-semibold uppercase tracking-wide text-white/30">Dark</span>
+            </div>
+            <div class="flex flex-col items-center gap-0.5">
+              {season.logo_url_light ? (
+                <button
+                  type="submit"
+                  form={`remove-light-${season.id}`}
+                  class="group relative h-10 w-10 flex-none rounded"
+                  aria-label={`Remove light logo for ${season.name}`}
+                  title="Remove light logo"
+                  data-remove-logo="light"
+                >
+                  <img src={season.logo_url_light} alt="" class="h-10 w-10 rounded bg-white object-contain transition group-hover:opacity-40 group-focus-visible:opacity-40 [@media(hover:none)]:opacity-40" />
+                  <span aria-hidden="true" class="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl leading-none text-white/70 opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100">×</span>
+                </button>
+              ) : (
+                <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
+              )}
+              <span class="text-[9px] font-semibold uppercase tracking-wide text-white/30">Light</span>
+            </div>
           </div>
-          <div class="flex flex-col items-center gap-0.5">
-            {season.logo_url_light ? (
-              <img src={season.logo_url_light} alt="" class="h-10 w-10 flex-none rounded bg-white object-contain" />
-            ) : (
-              <div class="h-10 w-10 flex-none rounded bg-white/10"></div>
-            )}
-            <span class="text-[9px] font-semibold uppercase tracking-wide text-white/30">Light</span>
-          </div>
+          <span class="min-w-[10rem] font-semibold">
+            {season.name}
+            {season.is_current && <span class="ml-2 text-xs font-normal text-brand-primary">Current</span>}
+          </span>
+          {!season.is_current && (
+            <form method="POST" data-astro-reload>
+              <input type="hidden" name="intent" value="set-current" />
+              <input type="hidden" name="season_id" value={season.id} />
+              <button type="submit" class="btn btn-neutral btn-sm">Set as Current</button>
+            </form>
+          )}
         </div>
-        <span class="min-w-[10rem] font-semibold">
-          {season.name}
-          {season.is_current && <span class="ml-2 text-xs font-normal text-brand-primary">Current</span>}
-        </span>
-        <form method="POST" data-astro-reload enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
-          <input type="hidden" name="intent" value="save" />
-          <input type="hidden" name="season_id" value={season.id} />
+
+        <div class="flex flex-wrap items-center gap-3">
           <div class="flex flex-wrap items-center gap-1.5">
             <span class="text-[10px] font-semibold uppercase tracking-wide text-white/40">Dark</span>
             <input
               type="text"
               name="logo_url"
+              form={`save-${season.id}`}
               placeholder="Logo URL (optional if uploading a file)"
               class="w-48 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
             />
             <input
               type="file"
               name="logo"
+              form={`save-${season.id}`}
               accept="image/png,image/jpeg,image/webp,image/svg+xml"
               class="w-48 text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
             />
@@ -355,57 +423,23 @@ const inputClass =
             <input
               type="text"
               name="logo_url_light"
+              form={`save-${season.id}`}
               placeholder="Logo URL (optional if uploading a file)"
               class="w-48 rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
             />
             <input
               type="file"
               name="logo_light"
+              form={`save-${season.id}`}
               accept="image/png,image/jpeg,image/webp,image/svg+xml"
               class="w-48 text-xs text-white/60 file:mr-2 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-1.5 file:text-xs file:text-white"
             />
           </div>
-          <button
-            type="submit"
-            class="btn btn-primary btn-sm"
-          >
-            Save
-          </button>
-        </form>
-        {season.logo_url && (
-          <form method="POST" data-astro-reload>
-            <input type="hidden" name="intent" value="remove" />
-            <input type="hidden" name="season_id" value={season.id} />
-            <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove Dark</button>
-          </form>
-        )}
-        {season.logo_url_light && (
-          <form method="POST" data-astro-reload>
-            <input type="hidden" name="intent" value="remove-light" />
-            <input type="hidden" name="season_id" value={season.id} />
-            <button type="submit" class="text-xs font-semibold text-white/40 transition hover:text-brand-pink">Remove Light</button>
-          </form>
-        )}
-        {!season.is_current && (
-          <form method="POST" data-astro-reload>
-            <input type="hidden" name="intent" value="set-current" />
-            <input type="hidden" name="season_id" value={season.id} />
-            <button
-              type="submit"
-              class="btn btn-neutral btn-sm"
-            >
-              Set as Current
-            </button>
-          </form>
-        )}
-        <form method="POST" data-astro-reload class="flex items-center gap-2">
-          <input type="hidden" name="intent" value="set-ruleset" />
-          <input type="hidden" name="season_id" value={season.id} />
           <label class="flex items-center gap-1.5 text-xs text-white/60">
             Ruleset
             <select
               name="scoring_ruleset_id"
-              data-submit-on-change
+              form={`save-${season.id}`}
               class="rounded-md border border-white/15 bg-white/5 px-2 py-1.5 text-xs text-white outline-none focus:border-brand-primary"
             >
               <option value="" class="bg-brand-ink text-white" selected={!season.scoring_ruleset_id}>
@@ -418,20 +452,16 @@ const inputClass =
               ))}
             </select>
           </label>
-        </form>
-        {!resolveSeasonRuleset(season, rulesets) && (
-          <span class="text-xs font-semibold text-brand-pink">No ruleset resolved — scoring will fail until one is assigned or a default is set</span>
-        )}
-        <form method="POST" data-astro-reload class="flex items-center gap-3">
-          <input type="hidden" name="intent" value="set-class-flags" />
-          <input type="hidden" name="season_id" value={season.id} />
+          {!resolveSeasonRuleset(season, rulesets) && (
+            <span class="text-xs font-semibold text-brand-pink">No ruleset resolved — scoring will fail until one is assigned or a default is set</span>
+          )}
           <label class="flex items-center gap-1.5 text-xs text-white/60">
             <input
               type="checkbox"
               name="gamma_enabled"
               value="1"
+              form={`save-${season.id}`}
               checked={season.gamma_enabled}
-              data-submit-on-change
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Gamma
@@ -441,8 +471,8 @@ const inputClass =
               type="checkbox"
               name="delta_enabled"
               value="1"
+              form={`save-${season.id}`}
               checked={season.delta_enabled}
-              data-submit-on-change
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Delta
@@ -452,27 +482,46 @@ const inputClass =
               type="checkbox"
               name="delta_team_enabled"
               value="1"
+              form={`save-${season.id}`}
               checked={season.delta_team_enabled}
-              data-submit-on-change
               class="h-3.5 w-3.5 rounded border-white/20 bg-white/5 accent-brand-primary"
             />
             Delta Team
           </label>
+        </div>
+
+        {/* Bottom right (FR3.1): Recalculate, then Save. */}
+        <div class="flex justify-end gap-2" data-season-actions>
+          <button type="submit" form={`recalc-${season.id}`} class="btn btn-neutral btn-sm">Recalculate</button>
+          <button type="submit" form={`save-${season.id}`} class="btn btn-primary btn-sm">Save</button>
+        </div>
+
+        <form id={`save-${season.id}`} method="POST" data-astro-reload enctype="multipart/form-data" class="hidden">
+          <input type="hidden" name="intent" value="save" />
+          <input type="hidden" name="season_id" value={season.id} />
         </form>
         <form
+          id={`recalc-${season.id}`}
           method="POST"
           data-astro-reload
+          class="hidden"
           data-confirm={`Recalculate every round in ${season.name}? This rescoring uses whatever ruleset is currently assigned and overwrites that season's stored race results and points.`}
         >
           <input type="hidden" name="intent" value="recalculate" />
           <input type="hidden" name="season_id" value={season.id} />
-          <button
-            type="submit"
-            class="btn btn-neutral btn-sm"
-          >
-            Recalculate
-          </button>
         </form>
+        {season.logo_url && (
+          <form id={`remove-dark-${season.id}`} method="POST" data-astro-reload class="hidden">
+            <input type="hidden" name="intent" value="remove" />
+            <input type="hidden" name="season_id" value={season.id} />
+          </form>
+        )}
+        {season.logo_url_light && (
+          <form id={`remove-light-${season.id}`} method="POST" data-astro-reload class="hidden">
+            <input type="hidden" name="intent" value="remove-light" />
+            <input type="hidden" name="season_id" value={season.id} />
+          </form>
+        )}
       </div>
 
       {recalcResult && recalcResult.seasonId === season.id && (() => {
@@ -500,3 +549,7 @@ const inputClass =
     ))}
   </div>
 </AdminLayout>
+
+<script>
+  import '../../../scripts/seasonNameSync';
+</script>

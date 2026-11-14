@@ -5,36 +5,38 @@
     "reason": "Compare: every filled slot box uses the same dark text, so the blue box changes from white to black text (round-polish BR6.4, the owner's request)."
   },
   {
-    "file": "src/components/EventDetailCard.astro",
-    "classes": ["font-display", "text-2xl", "leading-none", "tbd-gradient"],
-    "reason": "A TBD event's name is gradient text in brand blue, gold and pink-red, from the themed text colours (seasons-results-polish BR9.1)."
-  },
-  {
-    "file": "src/components/UpcomingEventCard.astro",
-    "classes": ["font-display", "text-2xl", "leading-none", "tbd-gradient"],
-    "reason": "A TBD event's name on the featured homepage card is gradient text (seasons-results-polish BR9.1)."
-  },
-  {
-    "file": "src/components/UpcomingEventCard.astro",
-    "classes": ["font-semibold", "tbd-gradient"],
-    "reason": "A TBD event's name on a compact homepage row is gradient text (seasons-results-polish BR9.1)."
-  },
-  {
     "file": "src/components/TbdTile.astro",
-    "classes": [
-      "bg-gradient-to-br",
-      "flex",
-      "flex-none",
-      "font-display",
-      "from-brand-fixed-blue",
-      "items-center",
-      "justify-center",
-      "leading-none",
-      "rounded",
-      "text-fixed-ink",
-      "to-brand-fixed-pink",
-      "via-brand-fixed-gold"
-    ],
-    "reason": "The TBD tile is a solid brand gradient with ink text, the same in both themes, where a track logo would be (seasons-results-polish BR9.1)."
+    "classes": ["bg-fixed-white", "flex", "flex-none", "font-display", "items-center", "justify-center", "leading-none", "rounded", "text-fixed-ink"],
+    "reason": "The TBD tile is plain white with ink text, the same in both themes, where a track logo would be (seasons-tbd-tweaks FR4.3)."
+  },
+  {
+    "file": "src/lib/eventFormatting.ts",
+    "classes": ["bg-gradient-to-r", "border-white/10", "from-[color:var(--card-blue)]", "to-[color:var(--card-pink)]", "via-[color:var(--card-gold)]"],
+    "reason": "A TBD event card has the brand gradient (blue, gold, pink-red) as its background, from the themed card colours, in place of the sprint gold (seasons-tbd-tweaks FR4.1)."
+  },
+  {
+    "file": "src/lib/eventFormatting.ts",
+    "classes": ["bg-gradient-to-r", "border-white/10", "from-[color:var(--card-blue)]", "hover:from-[color:var(--card-blue-h)]", "hover:to-[color:var(--card-pink-h)]", "hover:via-[color:var(--card-gold-h)]", "to-[color:var(--card-pink)]", "via-[color:var(--card-gold)]"],
+    "reason": "The same TBD card gradient on the linked homepage rows, with the themed hover colours (seasons-tbd-tweaks FR4.1)."
+  },
+  {
+    "file": "src/scripts/compareTower.ts",
+    "classes": ["bg-black/25", "flex-none", "h-16", "hidden", "lg:block", "p-1.5", "rounded", "w-16"],
+    "reason": "Compare: a slot with no picture shows its placeholder on a dimmed tile, darker than the slot colour (seasons-tbd-tweaks FR2.2)."
+  },
+  {
+    "file": "src/scripts/compareTower.ts",
+    "classes": ["bg-black/25", "flex-none", "h-16", "hidden", "lg:block", "rounded", "w-16"],
+    "reason": "Compare: a slot picture (photo or logo) sits on a dimmed tile, darker than the slot colour (seasons-tbd-tweaks FR2.2)."
+  },
+  {
+    "file": "src/pages/admin/seasons/index.astro",
+    "classes": ["bg-brand-ink", "[@media(hover:none)]:opacity-40", "group-focus-visible:opacity-40", "group-hover:opacity-40", "h-10", "object-contain", "rounded", "transition", "w-10"],
+    "reason": "Admin > Seasons: hovering or focusing a season logo dims it under the grey remove cross (seasons-tbd-tweaks FR3.4)."
+  },
+  {
+    "file": "src/pages/admin/seasons/index.astro",
+    "classes": ["bg-white", "[@media(hover:none)]:opacity-40", "group-focus-visible:opacity-40", "group-hover:opacity-40", "h-10", "object-contain", "rounded", "transition", "w-10"],
+    "reason": "Admin > Seasons: hovering or focusing a season logo dims it under the grey remove cross (seasons-tbd-tweaks FR3.4)."
   }
 ]
