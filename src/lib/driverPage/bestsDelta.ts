@@ -1,35 +1,13 @@
 /**
- * The driver profile Bests tab's Delta column (FR1; BR1.1-BR1.3): whether the driver holds the layout's curated
- * Track Record, and their personal best minus that record as a signed lap time.
+ * The driver profile Bests tab's Delta column (BR2.2, BR2.4): whether the driver's personal best equals or beats
+ * the record shown, and their personal best minus that record as a signed lap time. Only times are compared,
+ * never the holder's name.
  */
-import { displayDriverName } from '../db/circuits';
-import { HIDDEN_DRIVER_NAME } from '../privacy';
 
-/** Shown in the Delta cell when the driver holds the record. */
+/** Shown in the Delta cell when the personal best equals or beats the record. */
 export const HOLDS_RECORD_DELTA = '---';
 /** Shown in the Delta cell when either time is missing. */
 export const MISSING_DELTA = '—';
-
-function normalizedName(name: string | null | undefined): string {
-  return displayDriverName(name ?? '')
-    .trim()
-    .toLowerCase();
-}
-
-/**
- * True when the record holder text names this driver: equal ignoring case and surrounding spaces (BR1.1). The
- * masked "Hidden Driver" stand-in never matches, so a hidden driver's record is never claimed by name.
- */
-export function holdsLayoutRecord(
-  recordHolder: string | null | undefined,
-  driverName: string | null | undefined,
-): boolean {
-  const holder = normalizedName(recordHolder);
-  const driver = normalizedName(driverName);
-  if (holder === '' || driver === '') return false;
-  if (holder === HIDDEN_DRIVER_NAME.toLowerCase()) return false;
-  return holder === driver;
-}
 
 /** A signed lap-time difference in milliseconds as "+M:SS.mmm" or "-M:SS.mmm" ("+0:00.000" when equal). */
 export function formatSignedLapDelta(deltaMs: number): string {
@@ -42,30 +20,27 @@ export function formatSignedLapDelta(deltaMs: number): string {
 }
 
 export interface BestsDelta {
+  /** The personal best equals or beats the record: Delta shows '---' and the PB is blue. */
   holdsRecord: boolean;
   /** The Delta cell's text: '---', '—' or a signed lap time. */
   text: string;
-  /** Signed milliseconds for sorting; null when the cell sorts as missing (BR1.3). */
+  /** Signed milliseconds for sorting; null when the cell sorts last (BR2.4). */
   sortValue: number | null;
 }
 
 /**
- * The Delta for one Bests row (BR1.2). Times are the personal best in ten-thousandths of a second and the
- * record in seconds, as the row already holds them; both are compared to the millisecond.
+ * The Delta for one Bests row and filter (BR2.2). The personal best is in ten-thousandths of a second and the
+ * record in seconds; both are compared to the millisecond.
  */
 export function bestsDelta(input: {
   personalBestTenThousandths: number | null;
   trackRecordSeconds: number | null;
-  recordHolder: string | null | undefined;
-  driverName: string | null | undefined;
 }): BestsDelta {
-  if (holdsLayoutRecord(input.recordHolder, input.driverName)) {
-    return { holdsRecord: true, text: HOLDS_RECORD_DELTA, sortValue: null };
-  }
   if (input.personalBestTenThousandths === null || input.trackRecordSeconds === null) {
     return { holdsRecord: false, text: MISSING_DELTA, sortValue: null };
   }
   const deltaMs =
     Math.round(input.personalBestTenThousandths / 10) - Math.round(input.trackRecordSeconds * 1000);
+  if (deltaMs <= 0) return { holdsRecord: true, text: HOLDS_RECORD_DELTA, sortValue: null };
   return { holdsRecord: false, text: formatSignedLapDelta(deltaMs), sortValue: deltaMs };
 }

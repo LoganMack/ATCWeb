@@ -1,6 +1,6 @@
 /**
- * The Bests tab's Delta (FR1.2-FR1.5; BR1.1-BR1.3): the name-matched record holder, the signed lap-time
- * difference, and the missing cases that sort last.
+ * The Bests tab's Delta (BR2.2, BR2.4): blue and "---" when the personal best equals or beats the record by
+ * time, the signed lap-time difference otherwise, and the missing cases that sort last.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,29 +8,7 @@ import {
   MISSING_DELTA,
   bestsDelta,
   formatSignedLapDelta,
-  holdsLayoutRecord,
 } from '../../src/lib/driverPage/bestsDelta';
-
-describe('holdsLayoutRecord (BR1.1)', () => {
-  it('matches the holder text ignoring case and surrounding spaces', () => {
-    expect(holdsLayoutRecord('  ana silva ', 'Ana Silva')).toBe(true);
-  });
-
-  it('does not match another driver, a blank holder or a missing name', () => {
-    expect(holdsLayoutRecord('Ana Silvas', 'Ana Silva')).toBe(false);
-    expect(holdsLayoutRecord('', 'Ana Silva')).toBe(false);
-    expect(holdsLayoutRecord(null, 'Ana Silva')).toBe(false);
-    expect(holdsLayoutRecord('Ana Silva', null)).toBe(false);
-  });
-
-  it('never matches the masked Hidden Driver stand-in', () => {
-    expect(holdsLayoutRecord('Hidden Driver', 'Hidden Driver')).toBe(false);
-  });
-
-  it('ignores the trailing digits iRacing adds to duplicate names', () => {
-    expect(holdsLayoutRecord('Ana Silva', 'Ana Silva2')).toBe(true);
-  });
-});
 
 describe('formatSignedLapDelta', () => {
   it('signs and pads like a lap time', () => {
@@ -41,41 +19,35 @@ describe('formatSignedLapDelta', () => {
   });
 });
 
-describe('bestsDelta (BR1.2, BR1.3)', () => {
-  const base = { recordHolder: 'Someone Else', driverName: 'Ana Silva' };
-
+describe('bestsDelta (BR2.2, BR2.4)', () => {
   it('shows PB minus record with its signed sort value', () => {
-    const delta = bestsDelta({ ...base, personalBestTenThousandths: 1_025_120, trackRecordSeconds: 102.0 });
+    const delta = bestsDelta({ personalBestTenThousandths: 1_025_120, trackRecordSeconds: 102.0 });
     expect(delta).toEqual({ holdsRecord: false, text: '+0:00.512', sortValue: 512 });
   });
 
-  it('goes negative when the personal best beats the curated record', () => {
-    const delta = bestsDelta({ ...base, personalBestTenThousandths: 1_014_880, trackRecordSeconds: 102.0 });
-    expect(delta.text).toBe('-0:00.512');
-    expect(delta.sortValue).toBe(-512);
+  it('shows --- with no sort value when the personal best equals the record to the millisecond', () => {
+    expect(bestsDelta({ personalBestTenThousandths: 1_020_004, trackRecordSeconds: 102 })).toEqual({
+      holdsRecord: true,
+      text: HOLDS_RECORD_DELTA,
+      sortValue: null,
+    });
   });
 
-  it('shows --- with no sort value when the driver holds the record', () => {
-    const delta = bestsDelta({
-      personalBestTenThousandths: 1_020_000,
-      trackRecordSeconds: 102.0,
-      recordHolder: 'ana silva',
-      driverName: 'Ana Silva',
-    });
+  it('shows --- when the personal best beats the shown record', () => {
+    const delta = bestsDelta({ personalBestTenThousandths: 1_014_880, trackRecordSeconds: 102.0 });
     expect(delta).toEqual({ holdsRecord: true, text: HOLDS_RECORD_DELTA, sortValue: null });
   });
 
   it('shows — when either time is missing', () => {
-    expect(bestsDelta({ ...base, personalBestTenThousandths: null, trackRecordSeconds: 102 }).text).toBe(
+    expect(bestsDelta({ personalBestTenThousandths: null, trackRecordSeconds: 102 }).text).toBe(
       MISSING_DELTA,
     );
-    const noRecord = bestsDelta({ ...base, personalBestTenThousandths: 1_020_000, trackRecordSeconds: null });
+    const noRecord = bestsDelta({ personalBestTenThousandths: 1_020_000, trackRecordSeconds: null });
     expect(noRecord).toEqual({ holdsRecord: false, text: MISSING_DELTA, sortValue: null });
   });
 
-  it('shows +0:00.000 for equal times by someone else', () => {
-    expect(bestsDelta({ ...base, personalBestTenThousandths: 1_020_000, trackRecordSeconds: 102 }).text).toBe(
-      '+0:00.000',
-    );
+  it('is not blue when one millisecond slower', () => {
+    const delta = bestsDelta({ personalBestTenThousandths: 1_020_010, trackRecordSeconds: 102 });
+    expect(delta).toEqual({ holdsRecord: false, text: '+0:00.001', sortValue: 1 });
   });
 });

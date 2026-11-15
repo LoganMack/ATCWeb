@@ -48,6 +48,15 @@ function starOption(group: string, option: PollView['sections'][number]['options
   );
 }
 
+/** One read-only answer box of the question's length (BR5.3); an invalid length falls back to the default. */
+function textAnswer(section: PollView['sections'][number], i: number): string {
+  const length = Number.isInteger(section.maxLength) && section.maxLength! > 0 ? section.maxLength! : 200;
+  return (
+    `<input type="text" name="poll-s${i}" maxlength="${length}" disabled placeholder="Your answer (up to ${length} characters)" ` +
+    `aria-label="${escapeHtml(section.name)}" class="mt-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white placeholder:text-white/40" data-poll-text>`
+  );
+}
+
 function sectionHtml(section: PollView['sections'][number], i: number): string {
   const options = section.options
     .map((option, j) => {
@@ -55,11 +64,15 @@ function sectionHtml(section: PollView['sections'][number], i: number): string {
       return choiceOption(section.answerType === 'single' ? 'radio' : 'checkbox', `poll-s${i}`, option);
     })
     .join('');
+  const body =
+    section.answerType === 'text'
+      ? textAnswer(section, i)
+      : `<ul class="mt-3 flex flex-col gap-2">${options}</ul>`;
   return (
     `<li><fieldset disabled class="rounded-xl border border-white/10 bg-brand-ink p-5" data-answer-type="${section.answerType}">` +
     `<legend class="px-1 font-display text-xl uppercase tracking-wide text-white">${escapeHtml(section.name)}</legend>` +
     `<p class="text-xs uppercase tracking-wide text-white/50">${ANSWER_TYPE_LABELS[section.answerType]}</p>` +
-    `<ul class="mt-3 flex flex-col gap-2">${options}</ul></fieldset></li>`
+    `${body}</fieldset></li>`
   );
 }
 

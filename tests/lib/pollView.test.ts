@@ -106,6 +106,55 @@ describe('pollViewHtml', () => {
     expect(pollViewHtml({ ...view, description: null })).not.toContain('whitespace-pre-line');
   });
 
+  it('draws a Text question as one disabled input with its max length and no options (BR5.3)', () => {
+    const html = pollViewHtml({
+      title: 'T',
+      description: null,
+      sections: [
+        { name: 'Ideas', answerType: 'text', maxLength: 80, options: [{ name: 'stale', imageUrl: null }] },
+      ],
+    });
+    const inputs = html.match(/<input[^>]*>/g) ?? [];
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatch(/type="text"[^>]*maxlength="80"[^>]*disabled/);
+    expect(inputs[0]).toContain('aria-label="Ideas"');
+    expect(html).toContain('>Text<');
+    expect(html).not.toContain('stale');
+    expect(html).not.toMatch(/<form|<button|type="submit"/);
+  });
+
+  it('falls back to 200 characters when a Text question has no valid max length', () => {
+    const html = pollViewHtml({
+      title: 'T',
+      description: null,
+      sections: [{ name: 'Ideas', answerType: 'text', maxLength: null, options: [] }],
+    });
+    expect(html).toContain('maxlength="200"');
+  });
+
+  it("shows a Circuits option's layout image in the option image frame", () => {
+    const html = pollViewHtml({
+      title: 'T',
+      description: null,
+      sections: [
+        {
+          name: 'Track',
+          answerType: 'single',
+          options: [
+            {
+              name: 'Spa — Grand Prix',
+              imageUrl: 'https://x.supabase.co/storage/v1/object/public/layouts/spa.png',
+            },
+            { name: 'Monza', imageUrl: null },
+          ],
+        },
+      ],
+    });
+    expect(html).toContain('src="https://x.supabase.co/storage/v1/object/public/layouts/spa.png"');
+    expect(count(html, /data-poll-option-image/g)).toBe(1);
+    expect(html).toContain('Spa — Grand Prix');
+  });
+
   it('keeps sections and options in the given order', () => {
     const html = pollViewHtml(view);
     expect(html.indexOf('Track')).toBeLessThan(html.indexOf('Cars'));

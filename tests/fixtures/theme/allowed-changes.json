@@ -38,5 +38,15 @@
     "file": "src/pages/admin/seasons/index.astro",
     "classes": ["bg-white", "[@media(hover:none)]:opacity-40", "group-focus-visible:opacity-40", "group-hover:opacity-40", "h-10", "object-contain", "rounded", "transition", "w-10"],
     "reason": "Admin > Seasons: hovering or focusing a season logo dims it under the grey remove cross (seasons-tbd-tweaks FR3.4)."
+  },
+  {
+    "file": "src/pages/drivers/[id]/fragment.astro",
+    "classes": ["peer-checked/gamma:bg-white/10", "peer-checked/gamma:text-white", "peer-focus-visible/gamma:outline", "peer-focus-visible/gamma:outline-2", "peer-focus-visible/gamma:outline-offset-2"],
+    "reason": "Profile Bests: the new Gamma filter label gets the same selected look as the existing Overall / Class toggle labels (records-nav-polls BR2.3); the peer name is new, so before.css has no rule for it."
+  },
+  {
+    "file": "src/pages/drivers/[id]/fragment.astro",
+    "classes": ["peer-checked/delta:bg-white/10", "peer-checked/delta:text-white", "peer-focus-visible/delta:outline", "peer-focus-visible/delta:outline-2", "peer-focus-visible/delta:outline-offset-2"],
+    "reason": "Profile Bests: the new Delta filter label gets the same selected look as the existing Overall / Class toggle labels (records-nav-polls BR2.3); the peer name is new, so before.css has no rule for it."
   }
 ]

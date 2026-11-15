@@ -24,9 +24,11 @@ import {
   type ScoreRow,
 } from './rows';
 import { resolveLayout } from './layouts';
+import { createRecordKeyResolver } from './trackRecords';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
 import { getAllRounds, computeDisplayRoundNumbers } from './rounds';
 import { formatMargin } from './format';
+import { classLeaders, classMarginText, marginSortValue, type ClassLeaderFieldRow } from './classMargin';
 
 // A driver's race-by-race history for the driver profile page. Reads only this driver's rows, so it never
 // runs the standings engine.
@@ -50,6 +52,10 @@ export interface DriverRaceHistoryRow {
   team: { name: string; logoUrl: string | null } | null;
   /** Raw OVERALL grid position (every class combined) — see classStartingPosition for this driver's position within their own class that race. */
   startingPosition: number | null;
+  /** The Races table's Overall Start (BR3.2): the same value as startingPosition. */
+  overallStartingPosition: number | null;
+  /** The Races table's Overall Finish (BR3.2): the same value as finishPosition. */
+  overallFinishPosition: number;
   /** The shown overall position (race_score_results_public: penalties applied once the round is posted), or the raw finishing slot for a DSQ, which has no position. This is the OVERALL field position (every class combined) — see classPosition for this driver's position within their own class that race, which is what "wins"/"podiums"/etc. should always be judged against for a non-Alpha driver. */
   finishPosition: number;
   /** This driver's shown position within their own class that race; null for a DSQ. */
@@ -59,7 +65,12 @@ export interface DriverRaceHistoryRow {
   wasAdjusted: boolean;
   /** True when a penalty or adjustment MOVED this driver UP the order (finishPosition < the raw finish_position) — false for a loss or an unadjusted row. Lets a caller color the "adjusted" marker by direction (gained vs. lost) instead of one flat color. */
   gainedPositions: boolean;
+  /** The gap to the race's overall winner (BR3.2). */
   margin: string;
+  marginSortValue: number | null;
+  /** The gap to the race's class leader, as the results page's Per Class view measures it (BR3.3). */
+  classMargin: string;
+  classMarginSortValue: number | null;
   intervalTenThousandths: number | null;
   incidents: number | null;
   laps: number | null;
@@ -82,8 +93,12 @@ export interface DriverRaceHistoryRow {
    * fastest lap (Logan). Null when the layout can't be resolved or has no record.
    */
   layoutRecordSeconds: number | null;
-  /** The same layout's record holder text (circuit_layouts.lap_record_holder), for the Bests Delta (BR1.1). */
+  /** The same layout's record holder text (circuit_layouts.lap_record_holder). */
   layoutRecordHolder?: string | null;
+  /** The same layout's record date (circuit_layouts.lap_record_date, 'YYYY-MM-DD'). */
+  layoutRecordDate?: string | null;
+  /** The LayoutKey this round's laps count toward (BR1.2), as a RecordKey; null when it resolves to none. */
+  recordKey?: string | null;
 }
 
 /**
@@ -147,14 +162,15 @@ export async function getDriverRaceHistory(
     getExhibitionRoundIds(env),
     getTestRoundIds(env),
     getAllTeamSeasonLogosSafe(env),
-    // Every driver's class in every round this driver raced: the class
-    // starting and qualifying positions rank within it.
-    restGetAll<{ subsession_id: number; race_number: number; driver_id: string; class_id: number }>(
+    // Every driver's class in every round this driver raced: the class starting and qualifying positions
+    // rank within it, and the class leader for the Class margin comes from it (BR3.3).
+    restGetAll<ClassLeaderFieldRow>(
       env,
-      `race_score_results_public?select=subsession_id,race_number,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`,
+      `race_score_results_public?select=subsession_id,race_number,driver_id,class_id,finish_position,dsq&subsession_id=in.(${subsessionIds.join(',')})&order=subsession_id.asc,race_number.asc,driver_id.asc`,
     ),
     getLapStatsForSubsessions(env, subsessionIds),
-    driversSelect(env, {}),
+    // AI drivers too, so an AI class leader maps from driver id to customer id.
+    driversSelect(env, { includeAi: true }),
     // Backs only the CPI stat, so a failure degrades that stat, not the page.
     getCircuits(env).catch((err) => {
       console.error(
@@ -195,9 +211,23 @@ export async function getDriverRaceHistory(
   const roundBySubsession = new Map(allRounds.map((r) => [r.subsession_id, r]));
   const seasonLogoMap = buildSeasonLogoMap(seasonLogoRows);
 
-  const custIdByDriverId = new Map(
+  // AI drivers are read only so an AI class leader can be found (BR3.3); the class start and qualifying ranks
+  // keep using the human roster, as before.
+  const custIdWithAi = new Map(
     allDrivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
   );
+  const rosterDrivers = allDrivers.filter((d) => !d.is_ai);
+  const custIdByDriverId = new Map(
+    rosterDrivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.id, d.iracing_cust_id as number]),
+  );
+  const leaderByRaceClass = classLeaders(classFieldRows);
+  const classLeaderRaw = (subsessionId: number, raceNumber: number, classId: number) => {
+    const leaderId = leaderByRaceClass.get(`${subsessionId}:${raceNumber}:${classId}`);
+    const leaderCust = leaderId ? custIdWithAi.get(leaderId) : undefined;
+    return leaderCust != null
+      ? (rawByKey.get(resultKey(subsessionId, raceNumber, leaderCust)) ?? null)
+      : null;
+  };
   const lapStatsByKey = new Map(
     lapStats.map((r) => [resultKey(r.subsession_id, r.race_number, r.cust_id), r]),
   );
@@ -246,6 +276,9 @@ export async function getDriverRaceHistory(
   // The Track Record comes from the same resolved layout row, so no extra fetch.
   const layoutRecordBySubsession = new Map<number, number | null>();
   const layoutRecordHolderBySubsession = new Map<number, string | null>();
+  const layoutRecordDateBySubsession = new Map<number, string | null>();
+  const recordKeyBySubsession = new Map<number, string | null>();
+  const recordKeys = createRecordKeyResolver(circuits, circuitLayouts);
   for (const subsessionId of subsessionIds) {
     const trackName = roundBySubsession.get(subsessionId)?.track_name;
     const layout = trackName
@@ -254,6 +287,11 @@ export async function getDriverRaceHistory(
     cornersBySubsession.set(subsessionId, layout?.corners ?? null);
     layoutRecordBySubsession.set(subsessionId, layout?.lap_record_seconds ?? null);
     layoutRecordHolderBySubsession.set(subsessionId, layout?.lap_record_holder ?? null);
+    layoutRecordDateBySubsession.set(subsessionId, layout?.lap_record_date ?? null);
+    recordKeyBySubsession.set(
+      subsessionId,
+      trackName ? recordKeys.resolve(trackName, roundLayouts.get(subsessionId) ?? null) : null,
+    );
     const rawLayoutText = roundLayouts.get(subsessionId);
     layoutLabelBySubsession.set(
       subsessionId,
@@ -269,7 +307,7 @@ export async function getDriverRaceHistory(
     if (!classIdBySubsessionDriver.has(key)) classIdBySubsessionDriver.set(key, s.class_id);
   }
   const driverIdByCustId = new Map<number, string>();
-  for (const d of allDrivers) {
+  for (const d of rosterDrivers) {
     if (d.iracing_cust_id != null) driverIdByCustId.set(d.iracing_cust_id, d.id);
   }
   const qualPositionBySubsessionDriver = new Map<string, number | null>();
@@ -303,6 +341,12 @@ export async function getDriverRaceHistory(
 
     const { finishPosition, classPosition } = historyFinish(score);
     const leaderLaps = leaderLapsByRace.get(`${score.subsession_id}:${score.race_number}`) ?? null;
+    const margin = formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLaps);
+    const classMargin = classMarginText(
+      raw,
+      classLeaderRaw(score.subsession_id, score.race_number, score.class_id),
+      leaderLaps,
+    );
 
     const cornersForRound = cornersBySubsession.get(score.subsession_id) ?? null;
     const totalCorners = cornersForRound !== null ? (raw.laps_complete ?? 0) * cornersForRound : null;
@@ -337,7 +381,12 @@ export async function getDriverRaceHistory(
         classStartingPositionByKey.get(`${score.subsession_id}:${score.race_number}:${driverId}`) ?? null,
       wasAdjusted: finishPosition !== raw.finish_position,
       gainedPositions: finishPosition < raw.finish_position,
-      margin: formatMargin(raw.interval_ten_thousandths, raw.laps_complete, leaderLaps),
+      overallStartingPosition: raw.starting_position,
+      overallFinishPosition: finishPosition,
+      margin,
+      marginSortValue: marginSortValue(margin),
+      classMargin,
+      classMarginSortValue: marginSortValue(classMargin),
       intervalTenThousandths: raw.interval_ten_thousandths,
       incidents: raw.incidents,
       laps: raw.laps_complete,
@@ -355,6 +404,8 @@ export async function getDriverRaceHistory(
       roundLayoutText: roundLayouts.get(score.subsession_id) ?? null,
       layoutRecordSeconds: layoutRecordBySubsession.get(score.subsession_id) ?? null,
       layoutRecordHolder: layoutRecordHolderBySubsession.get(score.subsession_id) ?? null,
+      layoutRecordDate: layoutRecordDateBySubsession.get(score.subsession_id) ?? null,
+      recordKey: recordKeyBySubsession.get(score.subsession_id) ?? null,
     });
   }
 

@@ -46,6 +46,7 @@ const SUBSESSION_KEYED_TABLES = new Set([
   'curated_qualifying_shown',
   'curated_practice_results_shown',
   'race_score_results_public',
+  'round_best_laps_shown',
   'penalties',
   'penalties_shown',
   'race_links',

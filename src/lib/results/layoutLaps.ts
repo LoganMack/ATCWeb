@@ -16,86 +16,12 @@ export interface ClassBestLap {
   seconds: number;
   driver: DriverBasic;
   subsessionId: number;
-  /** The round's start_time this lap was set in — `curated_rounds.start_time`, same field LayoutRoundSummary.startTime carries. */
+  /** When the lap was set: the round's start_time, or its league date ('YYYY-MM-DD') from classBestLapsFor. */
   date: string;
   /** `curated_race_results.car_name` for this exact (subsession_id, driver) row — the car actually driven to set this lap, not whatever the driver drives today. Null on the rare row with no car_name on file. */
   carName: string | null;
   /** car_logos lookup for carName (0009_car_logos.sql, admin-curated, keyed by car_name text) — null when carName is null or has no logo on file. */
   carLogoUrl: string | null;
-}
-
-/**
- * Fastest lap ever at one circuit+layout, per class, for the Event Briefing's Track Record section. Class is
- * read per round, not from today's roster, and every race counts, not just race 1.
- */
-export async function getLayoutClassBestLaps(
-  env: SupabaseEnv,
-  rounds: LayoutRoundSummary[],
-  driversBasic?: DriverBasic[],
-  /** See getSeasonCarTeamStats' identical param — pass a pre-fetched car_logos list to skip this function's own fetch. */
-  carLogosLookup?: CarLogo[],
-): Promise<Map<number, ClassBestLap>> {
-  const bestByClass = new Map<number, ClassBestLap>();
-  if (rounds.length === 0) return bestByClass;
-
-  const subsessionIds = rounds.map((r) => r.subsessionId);
-  const roundBySubsession = new Map(rounds.map((r) => [r.subsessionId, r]));
-
-  const [drivers, carLogos, raceRows, scoreRows] = await Promise.all([
-    driversBasic ? Promise.resolve(driversBasic) : driversSelect(env, { includeAi: true }),
-    carLogosLookup ? Promise.resolve(carLogosLookup) : getCarLogos(env),
-    restGetAll<{
-      subsession_id: number;
-      cust_id: number;
-      best_lap_ten_thousandths: number | null;
-      car_name: string | null;
-    }>(
-      env,
-      `curated_race_results_shown?select=subsession_id,cust_id,best_lap_ten_thousandths,car_name&subsession_id=in.(${subsessionIds.join(',')})&best_lap_ten_thousandths=not.is.null`,
-    ),
-    restGetAll<{ subsession_id: number; driver_id: string; class_id: number }>(
-      env,
-      `race_score_results_public?select=subsession_id,driver_id,class_id&subsession_id=in.(${subsessionIds.join(',')})`,
-    ),
-  ]);
-
-  const driverByCustId = new Map(
-    drivers.filter((d) => d.iracing_cust_id != null).map((d) => [d.iracing_cust_id as number, d]),
-  );
-  const carLogoByName = new Map(carLogos.map((c) => [c.car_name, c.logo_url]));
-  // First class_id seen per (subsession, driver) — same "class doesn't
-  // change race-to-race within one round" reasoning as every other
-  // per-round class lookup in this file.
-  const classIdBySubDriver = new Map<string, number>();
-  for (const s of scoreRows) {
-    const key = `${s.subsession_id}:${s.driver_id}`;
-    if (!classIdBySubDriver.has(key)) classIdBySubDriver.set(key, s.class_id);
-  }
-
-  for (const row of raceRows) {
-    if (row.best_lap_ten_thousandths === null) continue;
-    const round = roundBySubsession.get(row.subsession_id);
-    if (!round) continue;
-    const driver = driverByCustId.get(row.cust_id);
-    if (!driver) continue;
-    const classId = classIdBySubDriver.get(`${row.subsession_id}:${driver.id}`);
-    if (classId === undefined) continue;
-    const seconds = row.best_lap_ten_thousandths / 10000;
-    const existing = bestByClass.get(classId);
-    if (!existing || seconds < existing.seconds) {
-      bestByClass.set(classId, {
-        classId,
-        seconds,
-        driver,
-        subsessionId: row.subsession_id,
-        date: round.startTime,
-        carName: row.car_name,
-        carLogoUrl: row.car_name ? (carLogoByName.get(row.car_name) ?? null) : null,
-      });
-    }
-  }
-
-  return bestByClass;
 }
 
 export interface ResolvedLapRecordCar {

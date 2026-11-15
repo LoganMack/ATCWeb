@@ -13,7 +13,6 @@ import {
   getCircuitLogoBackgrounds,
   logoBgAttrs,
   type LogoBackground,
-  formatLapTime,
   formatDate,
   displayLayoutName,
   layoutImageUrl,
@@ -22,6 +21,12 @@ import {
 } from '../lib/db/circuits';
 import { getPageBanners } from '../lib/db/assets';
 import { bannerUrlFor } from '../lib/pageBanners';
+import {
+  combineOverallRecord,
+  leagueRecord,
+  loadLeagueRecords,
+  type TrackRecord,
+} from '../lib/results/trackRecords';
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -50,6 +55,21 @@ try {
   console.error('Failed to load circuits:', err);
   loadError = true;
 }
+
+// Each layout's Overall record: the faster of its typed record and the league's fastest lap (W2, BR1.7). The
+// league records add the view and the drivers read (NFR2); without them the typed records show as before.
+const leagueRecords = loadError
+  ? null
+  : await loadLeagueRecords(supabaseEnv).catch((err) => {
+      console.error('Failed to load league track records for the Circuits page; showing typed records:', err);
+      return null;
+    });
+const overallRecordFor = (layout: CircuitLayout): TrackRecord | null =>
+  combineOverallRecord(
+    layout,
+    leagueRecords ? leagueRecord(leagueRecords.league, `layout:${layout.id}`, 'overall') : null,
+    leagueRecords?.driverNameById,
+  );
 
 const bannerUrl = await bannerPromise;
 
@@ -107,6 +127,7 @@ if (loadError) markUncacheable(Astro);
               const imageUrl = layoutImageUrl(layout, circuit);
               const layoutName = displayLayoutName(layout.name);
               const searchText = [circuit?.name ?? '', layoutName].join(' ').toLowerCase();
+              const record = overallRecordFor(layout);
               return (
                 <>
                   <tr
@@ -136,11 +157,9 @@ if (loadError) markUncacheable(Astro);
                       </div>
                     </td>
                     <td class="py-2.5 pr-2 text-white/70">{layoutName}</td>
-                    <td class="py-2.5 pr-2 text-white/70">
-                      {layout.lap_record_seconds !== null ? formatLapTime(layout.lap_record_seconds) : '—'}
-                    </td>
-                    <td class="hidden py-2.5 pr-2 text-white/70 sm:table-cell">{layout.lap_record_holder ?? '—'}</td>
-                    <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell">{formatDate(layout.lap_record_date)}</td>
+                    <td class="py-2.5 pr-2 text-white/70">{record ? record.formatted : '—'}</td>
+                    <td class="hidden py-2.5 pr-2 text-white/70 sm:table-cell">{record?.holderName ?? '—'}</td>
+                    <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell">{formatDate(record?.date ?? null)}</td>
                   </tr>
                   <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                     <td colspan={5} class="px-4 py-4 sm:pl-11" data-layout-detail-body>

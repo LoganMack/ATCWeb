@@ -6,9 +6,12 @@
 import { safeJson } from '../lib/security';
 import type { EditorState } from '../lib/polls/editorState';
 import { POLL_DESCRIPTION_MAX, POLL_TITLE_MAX, type PollFormError } from '../lib/polls/validate';
+import type { LayoutChoice } from '../lib/polls/types';
 
 interface Props {
   state: EditorState;
+  /** The site layouts a Circuits option can pick (BR6.2); empty when they could not be read. */
+  layouts: LayoutChoice[];
   values: { title: string; description: string; closesAt: string; isScheduleVote: boolean; updatedAt: string };
   errors: PollFormError[];
   submitLabel: string;
@@ -16,7 +19,7 @@ interface Props {
   filesDropped?: boolean;
 }
 
-const { state, values, errors, submitLabel, filesDropped = false } = Astro.props;
+const { state, layouts, values, errors, submitLabel, filesDropped = false } = Astro.props;
 const fieldError = (field: string) => errors.find((e) => e.field === field)?.message ?? null;
 const field =
   'rounded-md border border-white/15 bg-white/5 px-3 py-2 text-white outline-none focus:border-brand-primary';
@@ -45,6 +48,7 @@ const field =
   <input type="hidden" name="structure" value="" />
   <input type="hidden" name="closes_at" value={values.closesAt} />
   <script type="application/json" is:inline data-poll-editor-state set:html={safeJson(state)} />
+  <script type="application/json" is:inline data-poll-layouts set:html={safeJson(layouts)} />
 
   <label class="flex flex-col gap-1.5 text-sm">
     <span class="text-white/70">Title</span>

@@ -31,11 +31,8 @@ import {
   type LayoutHighlights,
 } from '../../../lib/results/layouts';
 import { getAllRounds } from '../../../lib/results/rounds';
-import {
-  getRoundLayoutsForSubsessions,
-  getLayoutClassBestLaps,
-  type ClassBestLap,
-} from '../../../lib/results/layoutLaps';
+import { getRoundLayoutsForSubsessions, type ClassBestLap } from '../../../lib/results/layoutLaps';
+import { classBestLapsFor, loadLeagueRecords } from '../../../lib/results/trackRecords';
 import { driversSelect } from '../../../lib/results/rows';
 import { describePenaltyResolution } from '../../../lib/results/standingsCore';
 import DriverLink from '../../../components/DriverLink.astro';
@@ -96,9 +93,13 @@ if (layoutRow) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, layoutRow.circuit_id, layoutRow.name);
 
-    const [layoutHighlights, layoutClassBestLaps, penalties, raceLinks] = await Promise.all([
+    const [layoutHighlights, leagueRecords, penalties, raceLinks] = await Promise.all([
       getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers),
-      getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers, carLogos),
+      // Class bests from the league's laps (W3, BR1.6); a failure only leaves them out.
+      loadLeagueRecords(supabaseEnv).catch((err) => {
+        console.error('Failed to load league track records for a layout detail; omitting class bests:', err);
+        return null;
+      }),
       getPenaltiesForSubsessions(
         supabaseEnv,
         historicalRounds.map((r) => r.subsessionId)
@@ -109,7 +110,10 @@ if (layoutRow) {
       ),
     ]);
     highlights = layoutHighlights;
-    classBestLaps = layoutClassBestLaps;
+    if (leagueRecords) {
+      const classIds = driverClasses.filter((c) => c.name === 'Gamma' || c.name === 'Delta').map((c) => c.id);
+      classBestLaps = classBestLapsFor(leagueRecords.league, `layout:${layoutRow.id}`, classIds, drivers, carLogos);
+    }
 
     const driverById = new Map(drivers.map((d) => [d.id, d]));
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
