@@ -11,6 +11,7 @@ import {
   getPostedPoll,
   listPollsForAdmin,
   pollErrorMessage,
+  pollLayoutIds,
   pollToView,
   savePoll,
   setPollPosted,
@@ -58,9 +59,28 @@ function form(overrides: Partial<PollForm> = {}): PollForm {
         key: 's1',
         name: 'Track',
         answerType: 'single',
+        textMaxLength: '',
         options: [
-          { id: null, key: 'a', name: 'Spa', imagePath: null, removeImage: false, file: image('image/png') },
-          { id: null, key: 'b', name: 'Monza', imagePath: null, removeImage: false, file: null },
+          {
+            id: null,
+            key: 'a',
+            name: 'Spa',
+            mode: 'text',
+            layoutId: null,
+            imagePath: null,
+            removeImage: false,
+            file: image('image/png'),
+          },
+          {
+            id: null,
+            key: 'b',
+            name: 'Monza',
+            mode: 'text',
+            layoutId: null,
+            imagePath: null,
+            removeImage: false,
+            file: null,
+          },
         ],
       },
     ],
@@ -138,6 +158,63 @@ describe('reads', () => {
     expect(view.sections[0].options[1].imageUrl).toBeNull();
   });
 
+  it('selects the Text max length and the option layout (records-text-polls)', async () => {
+    const fetchMock = stubFetch(respond([]));
+    await getPollForEdit(env, TOKEN, POLL_ID);
+    const select = call(fetchMock, 0).url.searchParams.get('select') ?? '';
+    expect(select).toContain('text_max_length');
+    expect(select).toContain('layout_id');
+  });
+
+  it('shows a Circuits option with its layout image and a Text question with its max length (BR6.3)', () => {
+    const layoutId = '22222222-3333-4444-8555-666666666666';
+    const poll = {
+      id: POLL_ID,
+      title: 'T',
+      description: null,
+      closes_at: null,
+      is_schedule_vote: false,
+      status: 'posted' as const,
+      posted_at: null,
+      first_posted_at: null,
+      created_at: UPDATED_AT,
+      updated_at: UPDATED_AT,
+      sections: [
+        {
+          id: 's1',
+          name: 'Track',
+          answer_type: 'single' as const,
+          text_max_length: null,
+          position: 0,
+          options: [
+            { id: 'a', name: 'Spa', image_path: null, layout_id: layoutId, position: 0 },
+            { id: 'b', name: 'Monza', image_path: null, layout_id: layoutId, position: 1 },
+            { id: 'c', name: 'Other', image_path: null, layout_id: null, position: 2 },
+          ],
+        },
+        {
+          id: 's2',
+          name: 'Why',
+          answer_type: 'text' as const,
+          text_max_length: 150,
+          position: 1,
+          options: [],
+        },
+      ],
+    };
+    expect(pollLayoutIds(poll)).toEqual([layoutId]);
+    const view = pollToView(poll, env.url, 320, new Map([[layoutId, 'https://img/spa.png']]));
+    expect(view.sections[0].options.map((o) => o.imageUrl)).toEqual([
+      'https://img/spa.png',
+      'https://img/spa.png',
+      null,
+    ]);
+    expect(view.sections[0].maxLength).toBeNull();
+    expect(view.sections[1].maxLength).toBe(150);
+    // No layout images loaded: a Circuits option shows no image rather than failing.
+    expect(pollToView(poll, env.url).sections[0].options[0].imageUrl).toBeNull();
+  });
+
   it('lists polls newest first with the admin token', async () => {
     const fetchMock = stubFetch(respond([]));
     await listPollsForAdmin(env, TOKEN);
@@ -188,6 +265,21 @@ describe('writes', () => {
       'Section 1, option 1: the image is not valid.',
     );
     expect(pollErrorMessage('boom')).toBe(POLL_UNKNOWN_ERROR);
+  });
+
+  it('describes the Text and Circuits refusals (BR5.1, BR6.3, BR6.4)', () => {
+    expect(pollErrorMessage('invalid:section.2.text_max_length:range')).toBe(
+      'Section 2: the max length must be a whole number from 1 to 500.',
+    );
+    expect(pollErrorMessage('invalid:section.1.option.2.layout:duplicate')).toBe(
+      'Section 1, option 2: this circuit is already an option in this section.',
+    );
+    expect(pollErrorMessage('invalid:section.1.option.2.layout:image')).toBe(
+      'Section 1, option 2: a circuit option cannot also have an uploaded image.',
+    );
+    expect(pollErrorMessage('invalid:section.1.option.2.layout:foreign')).toBe(
+      'Section 1, option 2: this circuit no longer exists. Choose another one.',
+    );
   });
 
   it('logs an unknown failure and still throws a PollError', async () => {
@@ -273,6 +365,73 @@ describe('savePollFromForm (W1, W2, BR4.2)', () => {
       'Section 1, option 1: the image could not be uploaded. Try again.',
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('savePollFromForm payload for Text questions and Circuits options', () => {
+  const LAYOUT_ID = '22222222-3333-4444-8555-666666666666';
+
+  it('sends text_max_length with no options, and a Circuits row with its layout and no image', async () => {
+    const fetchMock = stubFetch(respond([]));
+    const circuitsForm = form({
+      sections: [
+        {
+          id: null,
+          key: 's1',
+          name: 'Track',
+          answerType: 'single',
+          textMaxLength: '',
+          options: [
+            {
+              id: null,
+              key: 'a',
+              name: 'Spa — Grand Prix',
+              mode: 'circuits',
+              layoutId: LAYOUT_ID,
+              imagePath: null,
+              removeImage: false,
+              file: null,
+            },
+            {
+              id: null,
+              key: 'b',
+              name: 'Monza',
+              mode: 'text',
+              layoutId: null,
+              imagePath: null,
+              removeImage: false,
+              file: null,
+            },
+          ],
+        },
+        { id: null, key: 's2', name: 'Why', answerType: 'text', textMaxLength: '150', options: [] },
+      ],
+    });
+    await savePollFromForm(env, TOKEN, POLL_ID, circuitsForm);
+    const { url, body } = call(fetchMock, 0);
+    expect(url.pathname).toBe('/rest/v1/rpc/save_poll');
+    expect(body.p_poll.sections).toEqual([
+      {
+        id: null,
+        name: 'Track',
+        answer_type: 'single',
+        options: [
+          { id: null, name: 'Spa — Grand Prix', image_path: null, layout_id: LAYOUT_ID },
+          { id: null, name: 'Monza', image_path: null },
+        ],
+      },
+      { id: null, name: 'Why', answer_type: 'text', text_max_length: 150, options: [] },
+    ]);
+  });
+
+  it('sends a poll without Text questions or Circuits options exactly as before', async () => {
+    const fetchMock = stubFetch(respond({}), respond([]));
+    await savePollFromForm(env, TOKEN, POLL_ID, form());
+    const sent = call(fetchMock, 1).body.p_poll;
+    expect(Object.keys(sent.sections[0]).sort()).toEqual(['answer_type', 'id', 'name', 'options']);
+    for (const option of sent.sections[0].options) {
+      expect(Object.keys(option).sort()).toEqual(['id', 'image_path', 'name']);
+    }
   });
 });
 

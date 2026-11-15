@@ -3,13 +3,18 @@
  * errors, and handed to src/scripts/pollEditor.ts as JSON. Image URLs are resized here (NFR2).
  */
 import { isPollImagePath } from './images';
-import type { AnswerType, Poll } from './types';
-import type { PollForm, PollFormError } from './validate';
+import { TEXT_MAX_LENGTH_DEFAULT, isAnswerType, type AnswerType, type Poll } from './types';
+import type { OptionMode, PollForm, PollFormError } from './validate';
 
 export interface EditorOption {
   id: string | null;
   key: string;
+  /** The Text mode name; kept while the row shows Circuits, so switching back loses nothing (BR6.1). */
   name: string;
+  mode: OptionMode;
+  /** The picked layout and its label, used while the row shows Circuits (BR6.3). */
+  layout_id: string | null;
+  layout_name: string;
   /** The stored path, kept unless the admin removes or replaces the image. */
   image_path: string | null;
   /** The stored image at editor thumbnail size, and at preview size. */
@@ -24,6 +29,8 @@ export interface EditorSection {
   key: string;
   name: string;
   answer_type: AnswerType | '';
+  /** The Max length field as typed; only used while the answer type is Text (BR5.1). */
+  text_max_length: string;
   options: EditorOption[];
   error: string | null;
 }
@@ -49,6 +56,7 @@ export function newEditorState(): EditorState {
         key: 'k1',
         name: '',
         answer_type: 'single',
+        text_max_length: String(TEXT_MAX_LENGTH_DEFAULT),
         error: null,
         options: [blankOption('k2'), blankOption('k3')],
       },
@@ -57,11 +65,15 @@ export function newEditorState(): EditorState {
   };
 }
 
+/** A new row starts in Circuits mode (BR6.1). */
 export function blankOption(key: string): EditorOption {
   return {
     id: null,
     key,
     name: '',
+    mode: 'circuits',
+    layout_id: null,
+    layout_name: '',
     image_path: null,
     thumb_url: null,
     preview_url: null,
@@ -70,6 +82,7 @@ export function blankOption(key: string): EditorOption {
   };
 }
 
+/** A saved row opens in Circuits mode when it has a layout, otherwise in Text mode (BR6.5). */
 export function editorStateFromPoll(poll: Poll, imageUrl: ImageUrlFor): EditorState {
   let n = 0;
   const sections = poll.sections.map((s) => ({
@@ -77,11 +90,15 @@ export function editorStateFromPoll(poll: Poll, imageUrl: ImageUrlFor): EditorSt
     key: `k${++n}`,
     name: s.name,
     answer_type: s.answer_type,
+    text_max_length: String(s.text_max_length ?? TEXT_MAX_LENGTH_DEFAULT),
     error: null,
-    options: s.options.map((o) => ({
+    options: s.options.map((o): EditorOption => ({
       id: o.id,
       key: `k${++n}`,
       name: o.name,
+      mode: o.layout_id ? 'circuits' : 'text',
+      layout_id: o.layout_id ?? null,
+      layout_name: o.layout_id ? o.name : '',
       image_path: o.image_path,
       thumb_url: imageUrl(o.image_path, EDITOR_THUMB_WIDTH),
       preview_url: imageUrl(o.image_path, PREVIEW_IMAGE_WIDTH),
@@ -113,15 +130,18 @@ export function editorStateFromForm(
     id: s.id,
     key: track(s.key),
     name: s.name,
-    answer_type: (['single', 'multiple', 'stars'].includes(s.answerType) ? s.answerType : '') as
-      AnswerType | '',
+    answer_type: (isAnswerType(s.answerType) ? s.answerType : '') as AnswerType | '',
+    text_max_length: s.textMaxLength || String(TEXT_MAX_LENGTH_DEFAULT),
     error: errorFor(`section:${s.key}`),
-    options: s.options.map((o) => {
+    options: s.options.map((o): EditorOption => {
       const path = pollId && o.imagePath && isPollImagePath(pollId, o.imagePath) ? o.imagePath : null;
       return {
         id: o.id,
         key: track(o.key),
         name: o.name,
+        mode: o.mode,
+        layout_id: o.layoutId,
+        layout_name: o.layoutId ? o.name : '',
         image_path: path,
         thumb_url: imageUrl(path, EDITOR_THUMB_WIDTH),
         preview_url: imageUrl(path, PREVIEW_IMAGE_WIDTH),

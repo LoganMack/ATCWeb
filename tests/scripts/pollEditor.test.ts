@@ -8,7 +8,13 @@ import {
   actionLabel,
   addOption,
   addSection,
+  DUPLICATE_LAYOUT_MESSAGE,
+  duplicateLayoutKeys,
+  effectiveName,
+  modeToggleLabels,
   optionTarget,
+  pickLayout,
+  setOptionMode,
   sectionTarget,
   isoToLocal,
   localToIso,
@@ -26,7 +32,7 @@ import {
   type EditorState,
 } from '../../src/lib/polls/editorState';
 import { parsePollForm } from '../../src/lib/polls/validate';
-import type { Poll } from '../../src/lib/polls/types';
+import type { LayoutChoice, Poll } from '../../src/lib/polls/types';
 
 const POLL_ID = '11111111-2222-4333-8444-555555555555';
 const SECTION_ID = '11111111-2222-4333-8444-000000000001';
@@ -50,10 +56,17 @@ function stored(): Poll {
         id: SECTION_ID,
         name: 'Track',
         answer_type: 'single',
+        text_max_length: null,
         position: 0,
         options: [
-          { id: OPTION_ID, name: 'Spa', image_path: `${POLL_ID}/spa-1.png`, position: 0 },
-          { id: '11111111-2222-4333-8444-000000000003', name: 'Monza', image_path: null, position: 1 },
+          { id: OPTION_ID, name: 'Spa', image_path: `${POLL_ID}/spa-1.png`, layout_id: null, position: 0 },
+          {
+            id: '11111111-2222-4333-8444-000000000003',
+            name: 'Monza',
+            image_path: null,
+            layout_id: null,
+            position: 1,
+          },
         ],
       },
     ],
@@ -172,6 +185,120 @@ describe('previewView (BR3.2)', () => {
     const view = previewView(newEditorState(), ' ', ' ', new Map());
     expect(view.title).toBe('Untitled poll');
     expect(view.sections[0].name).toBe('Untitled section');
+  });
+});
+
+const LAYOUT_SPA = '11111111-2222-4333-8444-0000000000a1';
+const LAYOUT_MONZA = '11111111-2222-4333-8444-0000000000a2';
+const SPA: LayoutChoice = { id: LAYOUT_SPA, label: 'Spa — Grand Prix', imageUrl: '/layouts/spa.png' };
+const MONZA: LayoutChoice = { id: LAYOUT_MONZA, label: 'Monza', imageUrl: null };
+
+describe('Circuits and Text option rows (BR6.1-BR6.6)', () => {
+  it('opens a saved row with a layout in Circuits mode and any other saved row in Text mode (BR6.5)', () => {
+    const poll = stored();
+    poll.sections[0].options[1] = { ...poll.sections[0].options[1], name: 'Monza', layout_id: LAYOUT_MONZA };
+    const state = editorStateFromPoll(poll, urlFor);
+    const [spa, monza] = state.sections[0].options;
+    expect([spa.mode, spa.layout_id, spa.name]).toEqual(['text', null, 'Spa']);
+    expect([monza.mode, monza.layout_id, monza.layout_name]).toEqual(['circuits', LAYOUT_MONZA, 'Monza']);
+    expect(effectiveName(monza)).toBe('Monza');
+  });
+
+  it('starts a new row in Circuits mode and switches between the modes without losing either value', () => {
+    const state = newEditorState();
+    const option = state.sections[0].options[0];
+    expect(option.mode).toBe('circuits');
+    pickLayout(state, option.key, SPA);
+    expect(setOptionMode(state, option.key, 'text')).toBe(true);
+    option.name = 'Typed';
+    expect(effectiveName(option)).toBe('Typed');
+    setOptionMode(state, option.key, 'circuits');
+    expect(effectiveName(option)).toBe('Spa — Grand Prix');
+    expect(setOptionMode(state, 'nope', 'text')).toBe(false);
+  });
+
+  it('names the toggle after what pressing it does, with aria-pressed true in Circuits mode', () => {
+    expect(modeToggleLabels('circuits')).toMatchObject({ label: 'Use text', pressed: 'true' });
+    expect(modeToggleLabels('text')).toMatchObject({ label: 'Use circuit', pressed: 'false' });
+  });
+
+  it('picking a layout sets the name from its label and keeps a stored upload for switching back', () => {
+    const state = editorStateFromPoll(stored(), urlFor);
+    const spa = state.sections[0].options[0];
+    const storedPath = spa.image_path;
+    expect(pickLayout(state, spa.key, SPA)).toBe(true);
+    expect([spa.mode, spa.layout_id, spa.layout_name, spa.remove_image]).toEqual([
+      'circuits',
+      LAYOUT_SPA,
+      'Spa — Grand Prix',
+      false,
+    ]);
+    setOptionMode(state, spa.key, 'text');
+    expect([spa.mode, spa.image_path, spa.remove_image]).toEqual(['text', storedPath, false]);
+    pickLayout(state, spa.key, null);
+    expect([spa.layout_id, spa.layout_name]).toEqual([null, '']);
+  });
+
+  it('flags only the later rows that repeat a layout in the same section', () => {
+    const state = newEditorState();
+    const section = state.sections[0];
+    const third = addOption(state, section.key)!;
+    pickLayout(state, section.options[0].key, SPA);
+    pickLayout(state, section.options[1].key, MONZA);
+    pickLayout(state, third.key, SPA);
+    expect([...duplicateLayoutKeys(section)]).toEqual([third.key]);
+    setOptionMode(state, third.key, 'text');
+    expect(duplicateLayoutKeys(section).size).toBe(0);
+    expect(DUPLICATE_LAYOUT_MESSAGE).toBe('This circuit is already an option in this section.');
+  });
+
+  it('sends the mode, layout and max length in the structure field, and a Circuits row sends no image', () => {
+    const state = editorStateFromPoll(stored(), urlFor);
+    const [spa] = state.sections[0].options;
+    pickLayout(state, spa.key, SPA);
+    const text = addSection(state);
+    text.name = 'Ideas';
+    text.answer_type = 'text';
+    text.text_max_length = '50';
+    const data = new FormData();
+    data.set('title', 'Next season');
+    data.set('structure', structureJson(state));
+    const { form, errors } = parsePollForm(data, null);
+    expect(errors).toEqual([]);
+    expect(form.sections[0].options[0]).toMatchObject({
+      name: 'Spa — Grand Prix',
+      mode: 'circuits',
+      layoutId: LAYOUT_SPA,
+    });
+    expect(form.sections[1]).toMatchObject({ answerType: 'text', textMaxLength: '50' });
+  });
+
+  it('previews a Circuits row with its layout image and a Text question with its max length and no options', () => {
+    const state = newEditorState();
+    const section = state.sections[0];
+    section.name = 'Track';
+    pickLayout(state, section.options[0].key, SPA);
+    pickLayout(state, section.options[1].key, MONZA);
+    const text = addSection(state);
+    text.answer_type = 'text';
+    text.text_max_length = '80';
+    const view = previewView(
+      state,
+      'T',
+      '',
+      new Map(),
+      new Map([
+        [LAYOUT_SPA, '/layouts/spa.png'],
+        [LAYOUT_MONZA, null],
+      ]),
+    );
+    expect(view.sections[0].options).toEqual([
+      { name: 'Spa — Grand Prix', imageUrl: '/layouts/spa.png' },
+      { name: 'Monza', imageUrl: null },
+    ]);
+    expect(view.sections[1]).toMatchObject({ answerType: 'text', maxLength: 80, options: [] });
+    text.text_max_length = '9999';
+    expect(previewView(state, 'T', '', new Map()).sections[1].maxLength).toBe(200);
   });
 });
 

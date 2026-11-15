@@ -9,6 +9,7 @@ import {
   POLL_NEW_IMAGES_MAX,
   charLength,
   parsePollForm,
+  parseTextMaxLength,
   pollSavePayload,
 } from '../../src/lib/polls/validate';
 
@@ -229,5 +230,111 @@ describe('pollSavePayload', () => {
         },
       ],
     });
+  });
+});
+
+describe('Text questions and Circuits options (BR5.1, BR5.2, BR6.3, BR6.4)', () => {
+  const LAYOUT_A = '22222222-3333-4444-8555-666666666666';
+  const LAYOUT_B = '22222222-3333-4444-8555-777777777777';
+  type LooseSec = Omit<Sec, 'options'> & { text_max_length?: unknown; options: Record<string, unknown>[] };
+  const parse = (sections: LooseSec[], files: Record<string, File> = {}) =>
+    parsePollForm(formData(sections as unknown as Sec[], {}, files), null, NOW);
+  const textSec = (maxLength: unknown, options: Record<string, unknown>[] = []): LooseSec => ({
+    key: 't1',
+    name: 'Why?',
+    answer_type: 'text',
+    text_max_length: maxLength,
+    options,
+  });
+
+  it('accepts a Text max length from 1 to 500 and refuses anything else', () => {
+    expect(parse([textSec('1')]).errors).toEqual([]);
+    expect(parse([textSec(500)]).errors).toEqual([]);
+    for (const bad of ['0', '501', '12.5', '', 'abc', '1000']) {
+      expect(parse([textSec(bad)]).errors.map((e) => e.message)).toEqual([
+        'Section 1: the max length must be a whole number from 1 to 500.',
+      ]);
+    }
+    expect(parseTextMaxLength(' 200 ')).toBe(200);
+  });
+
+  it('drops a Text question’s leftover options from the payload and never uploads their images', () => {
+    const { form, errors } = parse([textSec('150', [{ key: 'x', name: 'Left over' }])], {
+      image_x: image('image/png', 10),
+    });
+    expect(errors).toEqual([]);
+    expect(form.sections[0].options[0].file).toBeNull();
+    expect(pollSavePayload(form, new Map()).sections[0]).toEqual({
+      id: null,
+      name: 'Why?',
+      answer_type: 'text',
+      text_max_length: 150,
+      options: [],
+    });
+  });
+
+  it('sends a Circuits row with its layout and never an image, even if one was stored', () => {
+    const { form, errors } = parse([
+      {
+        ...pickOne(),
+        options: [
+          {
+            key: 'a',
+            name: 'Spa — Grand Prix',
+            mode: 'circuits',
+            layout_id: LAYOUT_A,
+            image_path: `${POLL_ID}/a.png`,
+          },
+          { key: 'b', name: 'Monza', mode: 'text' },
+        ],
+      },
+    ]);
+    expect(errors).toEqual([]);
+    expect(pollSavePayload(form, new Map()).sections[0].options).toEqual([
+      { id: null, name: 'Spa — Grand Prix', image_path: null, layout_id: LAYOUT_A },
+      { id: null, name: 'Monza', image_path: null },
+    ]);
+  });
+
+  it('refuses the same circuit twice in one question, and a Circuits row with no circuit', () => {
+    const dup = parse([
+      {
+        ...pickOne(),
+        options: [
+          { key: 'a', name: 'Spa', mode: 'circuits', layout_id: LAYOUT_A },
+          { key: 'b', name: 'Spa again', mode: 'circuits', layout_id: LAYOUT_A },
+          { key: 'c', name: 'Other', mode: 'circuits', layout_id: LAYOUT_B },
+        ],
+      },
+    ]);
+    expect(dup.errors).toEqual([
+      {
+        field: 'option:b',
+        message: 'Section 1, option 2: this circuit is already an option in this section.',
+      },
+    ]);
+    const empty = parse([
+      {
+        ...pickOne(),
+        options: [
+          { key: 'a', name: '', mode: 'circuits' },
+          { key: 'b', name: 'Monza' },
+        ],
+      },
+    ]);
+    expect(empty.errors.map((e) => e.message)).toEqual(['Section 1, option 1: choose a circuit.']);
+  });
+
+  it('treats a row with a layout and no mode (an older editor) as Circuits', () => {
+    const { form } = parse([
+      {
+        ...pickOne(),
+        options: [
+          { key: 'a', name: 'Spa', layout_id: LAYOUT_A },
+          { key: 'b', name: 'Monza' },
+        ],
+      },
+    ]);
+    expect(form.sections[0].options.map((o) => o.mode)).toEqual(['circuits', 'text']);
   });
 });

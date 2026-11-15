@@ -8,13 +8,30 @@ import { computeDriverCareer, loadCareerRefs, type DriverCareerStats } from '../
 import { getDriverRaceHistory, type DriverRaceHistoryRow } from '../results/raceHistory';
 import { computeSeasonAwardsHistory } from '../results/awards';
 import { getIncidentsForDriver, type IncidentRow } from '../incidents';
+import { loadLeagueRecords } from '../results/trackRecords';
 import { trimNum, signedNum, type AwardEntry, type CareerMove, type ClassMove } from './helpers';
+import type { BestsRecordInputs } from './groups';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** The league records and the Gamma and Delta class ids the Bests tab filters by (W5, BR2.3). */
+async function loadBestsRecords(supabaseEnv: SupabaseEnv): Promise<BestsRecordInputs> {
+  const [loaded, classes] = await Promise.all([
+    loadLeagueRecords(supabaseEnv),
+    getDriverClasses(supabaseEnv),
+  ]);
+  const classId = (name: string) => classes.find((c) => c.name.toLowerCase() === name)?.id ?? null;
+  return {
+    league: loaded.league,
+    driverNameById: loaded.driverNameById,
+    gammaClassId: classId('gamma'),
+    deltaClassId: classId('delta'),
+  };
+}
+
 export interface ProfileDriver {
   id: string;
-  /** As drivers_shown shows it to this caller ("Hidden Driver" when masked); the Bests tab matches it (BR1.1). */
+  /** As drivers_shown shows it to this caller ("Hidden Driver" when masked). */
   name?: string;
   iracing_cust_id: number | null;
   is_hall_of_fame: boolean;
@@ -93,6 +110,7 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     careerMoves,
     classMoves,
     driverIncidents: [] as IncidentRow[],
+    bestsRecords: null as BestsRecordInputs | null,
   });
 
   // Stage 1: the driver check alongside the light career reads; nothing heavy runs for an unknown id, and
@@ -129,6 +147,12 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     getAllNewsPostTags(supabaseEnv),
   ]).catch((err) => {
     console.error('Failed to load related news for driver profile:', err);
+    return null;
+  });
+  // The Bests tab's league records (W5): one new request, the view; the rest are memoised reads the race
+  // history already makes. A failure leaves the typed records only.
+  const bestsRecordsPromise = loadBestsRecords(supabaseEnv).catch((err) => {
+    console.error('Failed to load league track records for the driver profile; showing typed records:', err);
     return null;
   });
   // Only this driver's incidents, filtered in the database (BR1.2).
@@ -221,11 +245,12 @@ export async function loadDriverPage(supabaseEnv: SupabaseEnv, driverId: string)
     loadError = err instanceof Error ? err.message : String(err);
   }
 
-  const driverIncidents = await incidentsPromise;
+  const [driverIncidents, bestsRecords] = await Promise.all([incidentsPromise, bestsRecordsPromise]);
   return {
     notFound,
     privateProfile,
     loadError,
+    bestsRecords,
     driverName: driver.name ?? null,
     career,
     raceHistory,

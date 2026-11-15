@@ -1,8 +1,9 @@
 /**
  * The race recap for a news post linked to a round (0017): top 3 per class, top rookies, fastest lap with a
  * track record check, and team points, per race. Computed at render time from the same penalty-adjusted data
- * as the results page, so later penalties show without regenerating. The track record match is exact on
- * normalised names (Logan); when it fails, `trackRecordMatchIssue` explains why to admins only.
+ * as the results page, so later penalties show without regenerating. The track record check compares against
+ * the record as it stood before this round (BR1.8); when the round's layout can't be matched,
+ * `trackRecordMatchIssue` explains why to admins only.
  */
 
 import { restGet, type SupabaseEnv } from './db/client';
@@ -14,10 +15,18 @@ import {
   type Circuit,
   type CircuitLayout,
 } from './db/circuits';
+import { getRoundBestLaps, type RoundBestLap } from './db/roundBestLaps';
 import { getRoundBySubsessionId } from './results/rounds';
 import { getRoundResults, type RaceResultRow } from './results/roundResults';
 import { topTeamScorers } from './results/seasonCarTeam';
 import type { DriverBasic } from './results/rows';
+import { normalizeTrackOrLayoutName } from './results/layouts';
+import {
+  createRecordKeyResolver,
+  isEarlierRound,
+  isNewTrackRecord,
+  type TypedRecord,
+} from './results/trackRecords';
 
 interface RawBestLapRow {
   race_number: number;
@@ -151,63 +160,31 @@ export interface RoundRecap {
   trackRecordMatchIssue: string | null;
 }
 
-// Kept in sync with normalizeTrackOrLayoutName in src/lib/results/layouts.ts, which can't be imported here
-// (cycle). Strips "[Retired] " (no separate circuits rows) but not "[Legacy] " (those are distinct layouts).
-function normalize(s: string): string {
-  const withoutRetiredTag = s.replace(/^\[retired\]\s*/i, '');
-  return withoutRetiredTag.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-interface LayoutMatchResult {
-  layout: CircuitLayout | null;
-  /** Non-null exactly when layout is null — see RoundRecap.trackRecordMatchIssue. */
-  issue: string | null;
-}
-
 /**
- * Matches a round's track_name, and layout when the circuit has several, to one circuit_layouts row by exact
- * normalised name (Logan: track names are consistent). Returns an admin-only `issue` instead of guessing.
+ * Why a round's track and layout resolve to no record key (BR1.2), for admins only; null when they resolve.
+ * The checks mirror resolveRecordLayoutKey; a circuit with no layout rows resolves to the circuit itself.
  */
-function matchCircuitLayout(
+export function trackRecordIssue(
   trackName: string,
   roundLayout: string | null,
   circuits: Circuit[],
   layouts: CircuitLayout[],
-): LayoutMatchResult {
-  const targetTrack = normalize(trackName);
-  const circuit = circuits.find((c) => normalize(c.name) === targetTrack) ?? null;
+): string | null {
+  const targetTrack = normalizeTrackOrLayoutName(trackName);
+  const circuit = circuits.find((c) => normalizeTrackOrLayoutName(c.name) === targetTrack) ?? null;
   if (!circuit) {
-    return {
-      layout: null,
-      issue: `No circuit in Admin → Circuits is named "${trackName}" (this round's track) — add it there to enable track-record checking.`,
-    };
+    return `No circuit in Admin → Circuits is named "${trackName}" (this round's track) — add it there to enable track-record checking.`;
   }
-
   const circuitLayouts = layouts.filter((l) => l.circuit_id === circuit.id);
-  if (circuitLayouts.length === 0) {
-    return { layout: null, issue: `"${circuit.name}" has no layouts configured in Admin → Circuits yet.` };
-  }
-  if (circuitLayouts.length === 1) {
-    return { layout: circuitLayouts[0], issue: null };
-  }
-
-  // More than one layout for this circuit — need the round's own layout
-  // name to know which one it actually ran.
+  if (circuitLayouts.length <= 1) return null;
   if (!roundLayout) {
-    return {
-      layout: null,
-      issue: `"${circuit.name}" has multiple layouts on file and this round has no layout recorded to tell them apart — set this round's layout (curated_rounds.layout).`,
-    };
+    return `"${circuit.name}" has multiple layouts on file and this round has no layout recorded to tell them apart — set this round's layout (curated_rounds.layout).`;
   }
-  const targetLayout = normalize(roundLayout);
-  const match = circuitLayouts.find((l) => normalize(l.name) === targetLayout) ?? null;
-  if (!match) {
-    return {
-      layout: null,
-      issue: `This round's layout ("${roundLayout}") doesn't match any of "${circuit.name}"'s layouts in Admin → Circuits.`,
-    };
+  const targetLayout = normalizeTrackOrLayoutName(roundLayout);
+  if (!circuitLayouts.some((l) => normalizeTrackOrLayoutName(l.name) === targetLayout)) {
+    return `This round's layout ("${roundLayout}") doesn't match any of "${circuit.name}"'s layouts in Admin → Circuits.`;
   }
-  return { layout: match, issue: null };
+  return null;
 }
 
 export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number): Promise<RoundRecap | null> {
@@ -225,12 +202,28 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));
   const orderedClassIds = classes.map((c) => c.id);
   const raceNumbers = [...roundResults.overall.keys()].sort((a, b) => a - b);
-  const { layout: matchedLayout, issue: trackRecordMatchIssue } = matchCircuitLayout(
-    round.track_name,
-    roundLayout,
-    circuits,
-    layouts,
+
+  // BR1.8: the prior record is the typed record plus league laps of earlier rounds at the same key. One view
+  // read covers both this round's rows (none means exhibition or test) and every earlier round's.
+  const resolver = createRecordKeyResolver(circuits, layouts);
+  const recordKey = resolver.resolve(round.track_name, roundLayout);
+  const trackRecordMatchIssue = recordKey
+    ? null
+    : trackRecordIssue(round.track_name, roundLayout, circuits, layouts);
+  // A failed read returns no rows (logged inside), so the recap shows no marker rather than a wrong one.
+  const viewRows: RoundBestLap[] = recordKey
+    ? await getRoundBestLaps(env, { maxStartTime: round.start_time })
+    : [];
+  const roundRows = viewRows.filter((r) => r.subsession_id === subsessionId);
+  const priorRows = viewRows.filter(
+    (r) =>
+      r.subsession_id !== subsessionId &&
+      resolver.resolve(r.track_name, r.layout) === recordKey &&
+      isEarlierRound(r, { start_time: round.start_time, subsession_id: subsessionId }),
   );
+  const typedRecord: TypedRecord | null = recordKey?.startsWith('layout:')
+    ? (layouts.find((l) => `layout:${l.id}` === recordKey) ?? null)
+    : null;
 
   // cust_id -> driver, since best-lap rows are keyed by cust_id. Unrostered rows are left out so they can't
   // get the Fastest Lap highlight.
@@ -291,12 +284,20 @@ export async function computeRoundRecap(env: SupabaseEnv, subsessionId: number):
         r.best_lap_ten_thousandths! < min.best_lap_ten_thousandths! ? r : min,
       );
       const bestSeconds = best.best_lap_ten_thousandths! / 10000;
-      const recordSeconds = matchedLayout?.lap_record_seconds ?? null;
+      const marker = recordKey
+        ? isNewTrackRecord({
+            raceBestTenThousandths: best.best_lap_ten_thousandths!,
+            roundRows,
+            priorRows,
+            typed: typedRecord,
+          })
+        : { isRecord: false, previousSeconds: null };
       fastestLap = {
         driver: driverByCustId.get(best.cust_id)!,
         formatted: formatLapTime(bestSeconds),
-        isTrackRecord: recordSeconds !== null && bestSeconds < recordSeconds,
-        previousRecordFormatted: recordSeconds !== null ? formatLapTime(recordSeconds) : null,
+        isTrackRecord: marker.isRecord,
+        previousRecordFormatted:
+          marker.previousSeconds !== null ? formatLapTime(marker.previousSeconds) : null,
       };
     }
 

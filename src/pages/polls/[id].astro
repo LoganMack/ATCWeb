@@ -5,7 +5,8 @@ export const prerender = false;
 // a draft or unknown id is not found for everyone, full admins included. Not linked from the nav.
 import Layout from '../../layouts/Layout.astro';
 import { resolveSupabaseEnv } from '../../lib/db/client';
-import { getPostedPoll, pollToView } from '../../lib/db/polls';
+import { getPostedPoll, pollLayoutIds, pollToView } from '../../lib/db/polls';
+import { getLayoutImages } from '../../lib/db/circuits';
 import { pollDisplayStatus, pollPublicNote } from '../../lib/polls/status';
 import { pollViewHtml } from '../../lib/polls/view';
 import { publicLoadErrorMessage } from '../../lib/security';
@@ -26,7 +27,12 @@ try {
 let html = '';
 if (poll) {
   const note = pollPublicNote(pollDisplayStatus(poll, new Date()));
-  html = pollViewHtml(pollToView(poll, supabaseEnv.url, 320), { note });
+  // One request for every Circuits option's layout image (FR6.5); without it those options show no image.
+  const layoutImages = await getLayoutImages(supabaseEnv, pollLayoutIds(poll)).catch((err) => {
+    console.error('Failed to load the poll layout images:', err);
+    return new Map<string, string | null>();
+  });
+  html = pollViewHtml(pollToView(poll, supabaseEnv.url, 320, layoutImages), { note });
   // Short, with no stale serving, so an unposted poll leaves the edge cache within about 30 seconds.
   Astro.response.headers.set('Cache-Control', 'public, s-maxage=30');
 } else {

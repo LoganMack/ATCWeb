@@ -6,7 +6,13 @@ export const prerender = false;
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import PollEditor from '../../../components/PollEditor.astro';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
-import { POLL_UNKNOWN_ERROR, PollError, getPollForEdit, pollImageUrl } from '../../../lib/db/polls';
+import {
+  POLL_UNKNOWN_ERROR,
+  PollError,
+  getPollForEdit,
+  getPollLayoutChoices,
+  pollImageUrl,
+} from '../../../lib/db/polls';
 import { editorStateFromForm, editorStateFromPoll, type EditorState } from '../../../lib/polls/editorState';
 import { pollDisplayStatus, POLL_STATUS_LABELS } from '../../../lib/polls/status';
 import { parsePollForm, type PollFormError } from '../../../lib/polls/validate';
@@ -89,6 +95,7 @@ if (poll && Astro.request.method === 'POST' && !tooLarge) {
   }
 }
 
+const layouts = state ? await getPollLayoutChoices(supabaseEnv) : [];
 const saved = Astro.url.searchParams.get('saved') === '1' && errors.length === 0;
 const status = poll ? pollDisplayStatus(poll, new Date()) : null;
 ---
@@ -111,7 +118,7 @@ const status = poll ? pollDisplayStatus(poll, new Date()) : null;
     </p>
   )}
   {state && values && (
-    <PollEditor state={state} values={values} errors={errors} submitLabel="Save Poll" filesDropped={filesDropped} />
+    <PollEditor state={state} layouts={layouts} values={values} errors={errors} submitLabel="Save Poll" filesDropped={filesDropped} />
   )}
   <script>
     import '../../../scripts/pollEditor';

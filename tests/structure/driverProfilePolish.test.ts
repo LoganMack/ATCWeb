@@ -127,7 +127,8 @@ describe('FR7 and FR8: History > Kudos and Interviews', () => {
     const nav = code(source(NAV));
     expect(nav).toContain("{ href: '/kudos', label: 'Kudos', mobile: true }");
     expect(nav).toContain("{ href: '/interviews', label: 'Interviews', mobile: true }");
-    expect(nav).toContain('link.menu?.filter((item) => item.mobile)');
+    // The phone menu lists every menu entry, these two included (records-nav-polls BR4.1).
+    expect(nav).toContain('{link.menu!.map((item) => (');
     const tabs = code(source('/src/components/HistoryTabs.astro'));
     expect(tabs).toContain("{ key: 'kudos', href: '/kudos', label: 'Kudos' }");
     expect(tabs).toContain("{ key: 'interviews', href: '/interviews', label: 'Interviews' }");

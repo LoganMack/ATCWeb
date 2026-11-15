@@ -6,7 +6,9 @@
 import { restGet, restGetAuthed, writeHeaders, type SupabaseEnv } from './client';
 import { resizedImageUrl } from './drivers';
 import { pollImagePublicUrl } from '../polls/images';
-import type { Poll, PollSection, PollStatus, PollView } from '../polls/types';
+import { getAllCircuitLayouts, getCircuits } from './circuits';
+import { layoutChoices } from '../polls/layoutChoices';
+import type { LayoutChoice, Poll, PollSection, PollStatus, PollView } from '../polls/types';
 import type { PollSavePayload } from '../polls/validate';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,7 +16,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /** Every polls column the client grants allow (created_by is not readable). */
 const POLL_COLUMNS =
   'id,title,description,closes_at,is_schedule_vote,status,posted_at,first_posted_at,created_at,updated_at';
-const POLL_SELECT = `${POLL_COLUMNS},poll_sections(id,name,answer_type,position,poll_options(id,name,image_path,position))`;
+const POLL_SELECT = `${POLL_COLUMNS},poll_sections(id,name,answer_type,text_max_length,position,poll_options(id,name,image_path,layout_id,position))`;
 
 export interface PollListRow {
   id: string;
@@ -67,6 +69,13 @@ function invalidMessage(field: string, reason: string): string {
     return `${prefix}this name is already an option in this section.`;
   if (field.endsWith('.name')) return `${prefix}the name must be 1 to 120 characters.`;
   if (field.endsWith('.answer_type')) return `${prefix}choose an answer type.`;
+  if (field.endsWith('.text_max_length'))
+    return `${prefix}the max length must be a whole number from 1 to 500.`;
+  if (field.endsWith('.layout')) {
+    if (reason === 'duplicate') return `${prefix}this circuit is already an option in this section.`;
+    if (reason === 'image') return `${prefix}a circuit option cannot also have an uploaded image.`;
+    return `${prefix}this circuit no longer exists. Choose another one.`;
+  }
   if (field.endsWith('.image')) return `${prefix}the image is not valid.`;
   if (field.endsWith('.id')) return `${prefix}this item does not belong to this poll. Reload the editor.`;
   return 'The poll could not be saved because something in it is not valid.';
@@ -217,17 +226,49 @@ export function pollImageUrl(supabaseUrl: string, path: string | null, width: nu
   return resizedImageUrl(pollImagePublicUrl(supabaseUrl, path), { width });
 }
 
-/** The renderer's shape for a stored poll, with images at `imageWidth` pixels. */
-export function pollToView(poll: Poll, supabaseUrl: string, imageWidth = 320): PollView {
+/**
+ * The layouts the editor's Circuits picker offers (BR6.2), from the memoised circuits and layouts reads. A failed
+ * read gives an empty list, so the editor still opens and Text options keep working.
+ */
+export async function getPollLayoutChoices(env: SupabaseEnv): Promise<LayoutChoice[]> {
+  try {
+    const [circuits, layouts] = await Promise.all([getCircuits(env), getAllCircuitLayouts(env)]);
+    return layoutChoices(circuits, layouts);
+  } catch (err) {
+    console.error('Failed to load the circuit layouts for the poll editor:', err);
+    return [];
+  }
+}
+
+/** The layouts the poll's Circuits options point at, for one image request (FR6.5). */
+export function pollLayoutIds(poll: Poll): string[] {
+  return [
+    ...new Set(poll.sections.flatMap((s) => s.options.flatMap((o) => (o.layout_id ? [o.layout_id] : [])))),
+  ];
+}
+
+/**
+ * The renderer's shape for a stored poll, with uploaded images at `imageWidth` pixels. A Circuits option shows
+ * its layout's own image from `layoutImages` (getLayoutImages), or none when the layout has none (BR6.3).
+ */
+export function pollToView(
+  poll: Poll,
+  supabaseUrl: string,
+  imageWidth = 320,
+  layoutImages: ReadonlyMap<string, string | null> = new Map(),
+): PollView {
   return {
     title: poll.title,
     description: poll.description,
     sections: poll.sections.map((s) => ({
       name: s.name,
       answerType: s.answer_type,
+      maxLength: s.answer_type === 'text' ? s.text_max_length : null,
       options: s.options.map((o) => ({
         name: o.name,
-        imageUrl: pollImageUrl(supabaseUrl, o.image_path, imageWidth),
+        imageUrl: o.layout_id
+          ? (layoutImages.get(o.layout_id) ?? null)
+          : pollImageUrl(supabaseUrl, o.image_path, imageWidth),
       })),
     })),
   };

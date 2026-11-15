@@ -41,10 +41,17 @@ import {
 import { getAllRounds } from '../../lib/results/rounds';
 import {
   getRoundLayoutsForSubsessions,
-  getLayoutClassBestLaps,
   resolveLapRecordCar,
   type ClassBestLap,
 } from '../../lib/results/layoutLaps';
+import {
+  classBestLapsFor,
+  combineOverallRecord,
+  createRecordKeyResolver,
+  leagueRecord,
+  loadLeagueRecords,
+  type TrackRecord,
+} from '../../lib/results/trackRecords';
 import { driversSelect } from '../../lib/results/rows';
 import { classTagFull } from '../../lib/classColors';
 import ClassBadge from '../../components/ClassBadge.astro';
@@ -92,6 +99,8 @@ let classes: Awaited<ReturnType<typeof getDriverClasses>> = [];
 let historicalRounds: LayoutRoundSummary[] = [];
 let highlights: LayoutHighlights = emptyLayoutHighlights();
 let classBestLaps: Map<number, ClassBestLap> = new Map();
+/** The Overall record (W2): the faster of the typed record and the league's fastest lap here. */
+let trackRecord: TrackRecord | null = null;
 /** Every posted incident at this layout, newest first — rendered with the same table (and click-for-details popup) as History → Incidents. */
 let incidentRows: IncidentRow[] = [];
 /** One race's broadcast or photo-album link, paired with the historical round it belongs to for date/season display — same shape for both new sections below, just holding whichever url applies. */
@@ -134,10 +143,15 @@ if (!loadError && event && event.circuit_id) {
     );
     historicalRounds = findRoundsForLayout(allRounds, roundLayoutBySubsession, circuits, layouts, event.circuit_id, event.layout);
 
-    const [layoutHighlights, layoutClassBestLaps, incidents, raceLinks, resolvedRecordCar] = await Promise.all([
+    const [layoutHighlights, leagueRecords, incidents, raceLinks, resolvedRecordCar] = await Promise.all([
       // allRaces: a sprint weekend lists every race's winner, not just race 1's. Poles are unchanged.
       getLayoutClassHighlights(supabaseEnv, historicalRounds, drivers, { allRaces: true }),
-      getLayoutClassBestLaps(supabaseEnv, historicalRounds, drivers, carLogos),
+      // The league records (W1): the view, plus reads this page already made. A failure leaves the typed
+      // record and no class bests.
+      loadLeagueRecords(supabaseEnv).catch((err) => {
+        console.error('Failed to load league track records for the Event Briefing; showing the typed record:', err);
+        return null;
+      }),
       getIncidentsForSubsessions(
         supabaseEnv,
         historicalRounds.map((r) => r.subsessionId)
@@ -149,9 +163,23 @@ if (!loadError && event && event.circuit_id) {
       layoutRow ? resolveLapRecordCar(supabaseEnv, layoutRow, historicalRounds, carLogos) : Promise.resolve(null),
     ]);
     highlights = layoutHighlights;
-    classBestLaps = layoutClassBestLaps;
-    recordCarName = resolvedRecordCar?.carName ?? null;
-    recordCarLogoUrl = resolvedRecordCar?.carLogoUrl ?? null;
+    // The event's record key (BR1.2): its layout, the circuit when it has no layout rows, or none.
+    const recordKey = circuit ? createRecordKeyResolver(circuits, layouts).resolve(circuit.name, event.layout) : null;
+    const league = leagueRecords?.league ?? new Map();
+    const names = leagueRecords?.driverNameById;
+    trackRecord = combineOverallRecord(layoutRow, leagueRecord(league, recordKey, 'overall'), names);
+    const classIds = driverClasses.filter((c) => c.name === 'Gamma' || c.name === 'Delta').map((c) => c.id);
+    classBestLaps = classBestLapsFor(league, recordKey, classIds, drivers, carLogos);
+    if (trackRecord?.source === 'league') {
+      // A league record names the car it was set in (BR1.5).
+      recordCarName = trackRecord.carName;
+      recordCarLogoUrl = trackRecord.carName
+        ? (carLogos.find((c) => c.car_name === trackRecord!.carName)?.logo_url ?? null)
+        : null;
+    } else {
+      recordCarName = resolvedRecordCar?.carName ?? null;
+      recordCarLogoUrl = resolvedRecordCar?.carLogoUrl ?? null;
+    }
 
     incidentRows = sortIncidentRowsNewestFirst(incidents);
     const roundBySubsession = new Map(historicalRounds.map((r) => [r.subsessionId, r]));
@@ -270,16 +298,15 @@ if (loadError) markUncacheable(Astro);
           />
         </div>
 
-        {/* 2. Track record: the curated circuit_layouts record (may predate the league), then Gamma's and
-           Delta's fastest laps here from ATC's own results (getLayoutClassBestLaps), with class taken per
-           round. */}
+        {/* 2. Track record: the faster of the typed record and the league's fastest lap (W2), then Gamma's and
+           Delta's fastest laps here from the league's own laps (BR1.6), exhibition and test rounds excluded. */}
         <div class="reveal mt-8" style="transition-delay: 100ms">
           <h2 class="font-display text-2xl uppercase tracking-widest text-white/50">Track Record</h2>
           <div class="mt-3 rounded-xl border border-white/10 p-4 text-sm">
-            {layoutRow && layoutRow.lap_record_seconds !== null ? (
+            {trackRecord ? (
               <p class="flex flex-wrap items-center">
-                <span class="font-display text-2xl">{formatLapTime(layoutRow.lap_record_seconds)}</span>
-                {layoutRow.lap_record_holder && <span class="ml-2 text-white/70">{shortDriverName(layoutRow.lap_record_holder)}</span>}
+                <span class="font-display text-2xl">{trackRecord.formatted}</span>
+                {trackRecord.holderName && <span class="ml-2 text-white/70">{shortDriverName(trackRecord.holderName)}</span>}
                 {recordCarLogoUrl && (
                   <img
                     src={recordCarLogoUrl}
@@ -288,7 +315,7 @@ if (loadError) markUncacheable(Astro);
                     class="ml-2 h-5 w-5 flex-none rounded object-contain"
                   />
                 )}
-                {layoutRow.lap_record_date && <span class="ml-1 text-white/40">({formatDateShort(layoutRow.lap_record_date)})</span>}
+                {trackRecord.date && <span class="ml-1 text-white/40">({formatDateShort(trackRecord.date)})</span>}
               </p>
             ) : (
               <p class="text-white/40">No lap record on file for this layout.</p>

@@ -1,5 +1,12 @@
 import { formatLapTime, displayLayoutName } from '../db/circuits';
 import type { DriverRaceHistoryRow } from '../results/raceHistory';
+import {
+  classTrackRecord,
+  combineOverallRecord,
+  leagueRecord,
+  type LeagueRecords,
+  type TrackRecord,
+} from '../results/trackRecords';
 import { bestsDelta } from './bestsDelta';
 import {
   overallPos,
@@ -13,17 +20,41 @@ import {
   buildUnorderedRows,
   type AwardEntry,
   type AwardGroup,
+  type BestsFilterCell,
   type LayoutBestRow,
   type SplitGroup,
   type SplitRow,
 } from './helpers';
 
+/** What the Bests tab needs to show computed records (W5): the league records and the Gamma and Delta ids. */
+export interface BestsRecordInputs {
+  league: LeagueRecords;
+  /** Found by class name; null when the class is missing, so its records all show "—" (BR2.3). */
+  gammaClassId: number | null;
+  deltaClassId: number | null;
+  /** Roster driver id -> shown name, for league record holders (BR1.5). */
+  driverNameById?: ReadonlyMap<string, string>;
+}
+
+function bestsCell(record: TrackRecord | null, personalBestTenThousandths: number | null): BestsFilterCell {
+  const delta = bestsDelta({ personalBestTenThousandths, trackRecordSeconds: record?.seconds ?? null });
+  return {
+    recordSeconds: record?.seconds ?? null,
+    recordFormatted: record?.formatted ?? formatLapTime(null),
+    holder: record?.holderName ?? null,
+    date: record?.date ?? null,
+    holdsRecord: delta.holdsRecord,
+    deltaText: delta.text,
+    deltaSortValue: delta.sortValue,
+  };
+}
+
 /** The driver profile fragment's derived views (award groups, splits, bests), built from loadDriverPage's data without further fetches. */
 export function buildDriverPageGroups(
   raceHistory: DriverRaceHistoryRow[],
   awardEntries: AwardEntry[],
-  /** The profile driver's shown name, matched against each layout's record holder (BR1.1). */
-  driverName: string | null = null,
+  /** The league records; without them the Bests tab shows the typed records only. */
+  records: BestsRecordInputs | null = null,
 ) {
   // Awards are grouped by season; awardEntries is sorted newest first, so this is a run-length pass.
   const awardGroups: AwardGroup[] = [];
@@ -123,20 +154,24 @@ export function buildDriverPageGroups(
   ];
 
   // --- Bests: one row per layout (the same grouping as the Layout split), the driver's fastest lap there
-  // against the curated Track Record.
-  // Personal Best counts every race, DSQ and unclassified included: a lap time is a timing fact. The Track
-  // Record is the same for every race in a group, so it's read from the first row.
+  // against the record under each filter (W5).
+  // Personal Best counts every race in any class, DSQ and unclassified included: a lap time is a timing fact
+  // (BR2.1). The layout key and typed record are the same for every race in a group, so they're read from the
+  // first row.
+  const league: LeagueRecords = records?.league ?? new Map();
   const layoutBests: LayoutBestRow[] = [...layoutGroups.entries()]
     .map(([, rows]) => {
       const bestTimes = rows.map((r) => r.bestLapTenThousandths).filter((t): t is number => t !== null);
       const personalBestTenThousandths = bestTimes.length > 0 ? Math.min(...bestTimes) : null;
-      const recordHolder = rows[0].layoutRecordHolder ?? null;
-      const delta = bestsDelta({
-        personalBestTenThousandths,
-        trackRecordSeconds: rows[0].layoutRecordSeconds,
-        recordHolder,
-        driverName,
-      });
+      const key = rows[0].recordKey ?? null;
+      const typed = {
+        lap_record_seconds: rows[0].layoutRecordSeconds,
+        lap_record_holder: rows[0].layoutRecordHolder ?? null,
+        lap_record_date: rows[0].layoutRecordDate ?? null,
+      };
+      const names = records?.driverNameById;
+      const classRecord = (classId: number | null | undefined) =>
+        classId == null ? null : classTrackRecord(leagueRecord(league, key, classId), names);
       return {
         trackName: rows[0].trackName,
         layoutText: rows[0].roundLayoutText ? displayLayoutName(rows[0].roundLayoutText) : '—',
@@ -144,12 +179,14 @@ export function buildDriverPageGroups(
         personalBestFormatted: formatLapTime(
           personalBestTenThousandths !== null ? personalBestTenThousandths / 10000 : null,
         ),
-        trackRecordSeconds: rows[0].layoutRecordSeconds,
-        trackRecordFormatted: formatLapTime(rows[0].layoutRecordSeconds),
-        recordHolder,
-        holdsRecord: delta.holdsRecord,
-        deltaText: delta.text,
-        deltaSortValue: delta.sortValue,
+        byFilter: {
+          overall: bestsCell(
+            combineOverallRecord(typed, leagueRecord(league, key, 'overall'), names),
+            personalBestTenThousandths,
+          ),
+          gamma: bestsCell(classRecord(records?.gammaClassId), personalBestTenThousandths),
+          delta: bestsCell(classRecord(records?.deltaClassId), personalBestTenThousandths),
+        },
       };
     })
     .sort((a, b) => a.trackName.localeCompare(b.trackName) || a.layoutText.localeCompare(b.layoutText));

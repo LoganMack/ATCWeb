@@ -13,7 +13,7 @@ import { classTextColorClass } from '../../../lib/classColors';
 import ClassBadge from '../../../components/ClassBadge.astro';
 import { loadDriverPage } from '../../../lib/driverPage/load';
 import { buildDriverPageGroups } from '../../../lib/driverPage/groups';
-import { incidentDriverLabel } from '../../../lib/driverPage/helpers';
+import { incidentDriverLabel, type BestsFilter } from '../../../lib/driverPage/helpers';
 import { seasonRoundLabel } from '../../../lib/roundLabels';
 
 /**
@@ -40,16 +40,53 @@ const {
   careerMoves,
   classMoves,
   driverIncidents,
-  driverName,
+  bestsRecords,
 } = await loadDriverPage(supabaseEnv, driverId);
 // Not a UUID, or no such driver: nothing heavy was read, and the answer is never cached.
 if (notFound) return new Response(null, { status: 404, headers: { 'Cache-Control': 'no-store' } });
-// The driver's name tells the Bests tab which track records are theirs (BR1.1).
+// The league records give the Bests tab its Overall, Gamma and Delta records (W5).
 const { raceCountBySubsession, splitGroupsOverall, splitGroupsClass, layoutBests } = buildDriverPageGroups(
   raceHistory,
   [],
-  driverName,
+  bestsRecords,
 );
+// The Bests filters (BR2.3), with whole class names so Tailwind compiles each peer variant.
+const BESTS_FILTER_LABELS: {
+  key: BestsFilter;
+  label: string;
+  peer: string;
+  labelOn: string;
+  showOn: string;
+  title: string;
+}[] = [
+  {
+    key: 'overall',
+    label: 'Overall',
+    peer: 'peer/overall',
+    labelOn:
+      'peer-checked/overall:bg-white/10 peer-checked/overall:text-white peer-focus-visible/overall:outline peer-focus-visible/overall:outline-2 peer-focus-visible/overall:outline-offset-2',
+    showOn: 'peer-checked/overall:block',
+    title: 'The faster of the typed track record and the league’s fastest lap in any class.',
+  },
+  {
+    key: 'gamma',
+    label: 'Gamma',
+    peer: 'peer/gamma',
+    labelOn:
+      'peer-checked/gamma:bg-white/10 peer-checked/gamma:text-white peer-focus-visible/gamma:outline peer-focus-visible/gamma:outline-2 peer-focus-visible/gamma:outline-offset-2',
+    showOn: 'peer-checked/gamma:block',
+    title: 'The league’s fastest Gamma lap at each layout.',
+  },
+  {
+    key: 'delta',
+    label: 'Delta',
+    peer: 'peer/delta',
+    labelOn:
+      'peer-checked/delta:bg-white/10 peer-checked/delta:text-white peer-focus-visible/delta:outline peer-focus-visible/delta:outline-2 peer-focus-visible/delta:outline-offset-2',
+    showOn: 'peer-checked/delta:block',
+    title: 'The league’s fastest Delta lap at each layout.',
+  },
+];
 // The Seasons tab's counted columns, each rendered twice (overall and class counts, BR3.8) with its own sort
 // key per set, so sorting always reads the set that is showing.
 const SEASON_COUNT_COLUMNS = [
@@ -257,7 +294,27 @@ if (loadError) markUncacheable(Astro);
         {raceHistory.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
-          <div class="max-h-[32rem] overflow-auto">
+          <!-- Overall / Class toggle (BR3.1-BR3.4), pure CSS like the Seasons toggle: Start, Finish and Margin
+               each render a race-overall and a race-class cell with their own sort key and value, and the
+               wrapper hides one set. Overall is the default. -->
+          <div class="flex flex-wrap items-center gap-1 text-xs" data-races-toggle>
+            <input type="radio" name="races-mode" id="races-mode-overall" class="peer/overall sr-only" checked data-sort-reset data-testid="races-mode-overall" />
+            <input type="radio" name="races-mode" id="races-mode-class" class="peer/class sr-only" data-sort-reset data-testid="races-mode-class" />
+            <label
+              for="races-mode-overall"
+              class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/overall:bg-white/10 peer-checked/overall:text-white peer-focus-visible/overall:outline peer-focus-visible/overall:outline-2 peer-focus-visible/overall:outline-offset-2"
+              title="Start, finish and margin in the whole field, every class together."
+            >
+              Overall
+            </label>
+            <label
+              for="races-mode-class"
+              class="cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 peer-checked/class:bg-white/10 peer-checked/class:text-white peer-focus-visible/class:outline peer-focus-visible/class:outline-2 peer-focus-visible/class:outline-offset-2"
+              title="Start and finish within the driver's class, and the margin to that race's class winner."
+            >
+              Class
+            </label>
+          <div class="mt-3 max-h-[32rem] w-full overflow-auto [&_.race-class]:hidden peer-checked/class:[&_.race-class]:table-cell peer-checked/class:[&_.race-overall]:hidden">
             <table class="w-full border-collapse text-xs" data-sortable>
               <thead>
                 <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
@@ -266,9 +323,12 @@ if (loadError) markUncacheable(Astro);
                   <th class="py-2 pr-2 font-medium" data-sort-key="class">Class</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="car">Car</th>
                   <th class="py-2 pr-2 font-medium" data-sort-key="team">Team</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="start">Start</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="finish">Finish</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="margin">Margin</th>
+                  <th class="race-overall py-2 pr-2 text-center font-medium" data-sort-key="start">Start</th>
+                  <th class="race-class py-2 pr-2 text-center font-medium" data-sort-key="classStart">Start</th>
+                  <th class="race-overall py-2 pr-2 text-center font-medium" data-sort-key="finish">Finish</th>
+                  <th class="race-class py-2 pr-2 text-center font-medium" data-sort-key="classFinish">Finish</th>
+                  <th class="race-overall py-2 pr-2 text-center font-medium" data-sort-key="margin">Margin</th>
+                  <th class="race-class py-2 pr-2 text-center font-medium" data-sort-key="classMargin">Margin</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="inc">Inc</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="laps">Laps</th>
                   <th class="py-2 pr-2 text-center font-medium" data-sort-key="led">Led</th>
@@ -294,25 +354,41 @@ if (loadError) markUncacheable(Astro);
                     <td class="py-2 pr-2" data-col="team" data-sort-value={r.team?.name ?? ''}>
                       {r.team ? <TeamLogo name={r.team.name} logoUrl={r.team.logoUrl} size="h-5 w-5" title={r.team.name} /> : <span class="text-white/30">N/A</span>}
                     </td>
-                    <td class="py-2 pr-2 text-center text-white/70" data-col="start">{r.classStartingPosition ?? r.startingPosition ?? '—'}</td>
-                    <td class="py-2 pr-2 text-center text-white/90" data-col="finish" data-sort-value={r.dsq ? 9999 : (r.classPosition ?? r.finishPosition)}>
-                      <!-- The asterisk is positioned off a wrapper sized to the number, so it never
-                           shifts the centred number. The number is the class-relative finish;
-                           data-sort-value mirrors it (DSQ sorts last), so the glyph never affects
-                           sorting. -->
-                      <span class="relative inline-block">
-                        {r.dsq ? <span class="text-brand-pink">DSQ</span> : (r.classPosition ?? r.finishPosition)}
-                        {r.wasAdjusted && (
-                          <sup
-                            class={`absolute left-full top-0 ml-0.5 text-[10px] font-sans ${r.gainedPositions ? 'text-brand-blue' : 'text-brand-pink'}`}
-                            title={r.gainedPositions ? 'Gained position(s) by penalty' : 'Adjusted by penalty'}
-                          >
-                            *
-                          </sup>
-                        )}
-                      </span>
-                    </td>
-                    <td class="py-2 pr-2 text-center text-white/70" data-col="margin">{r.margin}</td>
+                    <td class="race-overall py-2 pr-2 text-center text-white/70" data-col="start" data-sort-value={r.overallStartingPosition ?? ''}>{r.overallStartingPosition ?? '—'}</td>
+                    <td class="race-class py-2 pr-2 text-center text-white/70" data-col="classStart" data-sort-value={r.classStartingPosition ?? ''}>{r.classStartingPosition ?? '—'}</td>
+                    {/* The asterisk is positioned off a wrapper sized to the number, so it never shifts the
+                       centred number; data-sort-value mirrors the number (DSQ sorts last, BR3.4). */}
+                    {[
+                      { set: 'race-overall', col: 'finish', value: r.overallFinishPosition },
+                      { set: 'race-class', col: 'classFinish', value: r.classPosition },
+                    ].map((finish) => (
+                      <td class={`${finish.set} py-2 pr-2 text-center text-white/90`} data-col={finish.col} data-sort-value={r.dsq ? 9999 : (finish.value ?? '')}>
+                        <span class="relative inline-block">
+                          {r.dsq ? <span class="text-brand-pink">DSQ</span> : (finish.value ?? '—')}
+                          {r.wasAdjusted && (
+                            <sup
+                              class={`absolute left-full top-0 ml-0.5 text-[10px] font-sans ${r.gainedPositions ? 'text-brand-blue' : 'text-brand-pink'}`}
+                              title={r.gainedPositions ? 'Gained position(s) by penalty' : 'Adjusted by penalty'}
+                            >
+                              *
+                            </sup>
+                          )}
+                        </span>
+                      </td>
+                    ))}
+                    {[
+                      { set: 'race-overall', col: 'margin', text: r.margin, sort: r.marginSortValue },
+                      { set: 'race-class', col: 'classMargin', text: r.classMargin, sort: r.classMarginSortValue },
+                    ].map((m) => (
+                      <td
+                        class={`${m.set} py-2 pr-2 text-center text-white/70`}
+                        data-col={m.col}
+                        data-sort-value={r.dsq || m.sort === null ? '' : m.sort}
+                        data-sort-missing={r.dsq || m.sort === null ? '' : undefined}
+                      >
+                        {r.dsq ? '—' : m.text}
+                      </td>
+                    ))}
                     <td class="py-2 pr-2 text-center text-white/70" data-col="inc">{r.incidents ?? '—'}</td>
                     <td class="py-2 pr-2 text-center text-white/70" data-col="laps">{r.laps ?? '—'}</td>
                     <td class="py-2 pr-2 text-center text-white/70" data-col="led">{r.lapsLed ?? '—'}</td>
@@ -321,6 +397,7 @@ if (loadError) markUncacheable(Astro);
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
         )}
         </div>
@@ -481,49 +558,79 @@ if (loadError) markUncacheable(Astro);
         {layoutBests.length === 0 ? (
           <p class="text-sm text-white/40">No races on file yet.</p>
         ) : (
-          <div class="max-h-[32rem] overflow-auto">
-            <table class="w-full border-collapse text-xs" data-sortable>
-              <thead>
-                <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
-                  <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="track">Track</th>
-                  <th class="py-2 pr-2 font-medium" data-sort-key="layout">Layout</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="pb">Personal Best</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="delta">Delta</th>
-                  <th class="py-2 pr-2 text-center font-medium" data-sort-key="record">Track Record</th>
-                </tr>
-              </thead>
-              <tbody>
-                {layoutBests.map((r) => (
-                  <tr class="border-b border-white/5">
-                    <td class="py-2 pr-2 font-semibold text-white/90" data-col="track" data-sort-value={r.trackName}>{r.trackName}</td>
-                    <td class="py-2 pr-2 text-white/70" data-col="layout" data-sort-value={r.layoutText}>{r.layoutText}</td>
-                    <td
-                      class={`py-2 pr-2 text-center text-base font-bold ${r.holdsRecord ? 'text-brand-blue' : 'text-white/90'}`}
-                      data-col="pb"
-                      data-sort-value={r.personalBestTenThousandths ?? ''}
-                    >
-                      {r.personalBestFormatted}
-                    </td>
-                    {/* '---' (holds the record) and '—' (a time missing) sort last either way (BR1.3). */}
-                    <td
-                      class="py-2 pr-2 text-center text-base text-white/70"
-                      data-col="delta"
-                      data-sort-value={r.deltaSortValue ?? ''}
-                      data-sort-missing={r.deltaSortValue === null ? '' : undefined}
-                    >
-                      {r.deltaText}
-                    </td>
-                    <td
-                      class="py-2 pr-2 text-center text-base text-white/70"
-                      data-col="record"
-                      data-sort-value={r.trackRecordSeconds ?? ''}
-                    >
-                      {r.trackRecordFormatted}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <!-- Overall / Gamma / Delta toggle (BR2.3), pure CSS like the Seasons toggle: one table per filter,
+               each sorting on its own (BR2.4); Overall is the default. -->
+          <div class="flex flex-wrap items-center gap-1 text-xs" data-bests-toggle>
+            {BESTS_FILTER_LABELS.map((f, i) => (
+              <input
+                type="radio"
+                name="bests-filter"
+                id={`bests-filter-${f.key}`}
+                class={`${f.peer} sr-only`}
+                checked={i === 0}
+                data-sort-reset
+                data-testid={`bests-filter-${f.key}`}
+              />
+            ))}
+            {BESTS_FILTER_LABELS.map((f) => (
+              <label for={`bests-filter-${f.key}`} class={`cursor-pointer rounded-lg px-2.5 py-1 font-semibold uppercase tracking-wide text-white/50 ${f.labelOn}`} title={f.title}>
+                {f.label}
+              </label>
+            ))}
+            {BESTS_FILTER_LABELS.map((f) => (
+              <div class={`mt-3 max-h-[32rem] w-full overflow-auto hidden ${f.showOn}`} data-bests-table={f.key}>
+                <table class="w-full border-collapse text-xs" data-sortable>
+                  <thead>
+                    <tr class="sticky top-0 z-10 border-b border-white/10 bg-brand-ink text-left text-[10px] uppercase tracking-wide text-white/30">
+                      <th class="py-2 pl-2 pr-2 font-medium" data-sort-key="track">Track</th>
+                      <th class="py-2 pr-2 font-medium" data-sort-key="layout">Layout</th>
+                      <th class="py-2 pr-2 text-center font-medium" data-sort-key="pb">Personal Best</th>
+                      <th class="py-2 pr-2 text-center font-medium" data-sort-key="delta">Delta</th>
+                      <th class="py-2 pr-2 text-center font-medium" data-sort-key="record">Track Record</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {layoutBests.map((r) => {
+                      const cell = r.byFilter[f.key];
+                      const recordTitle = cell.holder
+                        ? `${cell.holder}${cell.date ? ` (${formatDateShort(cell.date)})` : ''}`
+                        : undefined;
+                      return (
+                        <tr class="border-b border-white/5">
+                          <td class="py-2 pr-2 font-semibold text-white/90" data-col="track" data-sort-value={r.trackName}>{r.trackName}</td>
+                          <td class="py-2 pr-2 text-white/70" data-col="layout" data-sort-value={r.layoutText}>{r.layoutText}</td>
+                          <td
+                            class={`py-2 pr-2 text-center text-base font-bold ${cell.holdsRecord ? 'text-brand-blue' : 'text-white/90'}`}
+                            data-col="pb"
+                            data-sort-value={r.personalBestTenThousandths ?? ''}
+                          >
+                            {r.personalBestFormatted}
+                          </td>
+                          {/* '---' (equals or beats the record) and '—' (a time missing) sort last (BR2.4). */}
+                          <td
+                            class="py-2 pr-2 text-center text-base text-white/70"
+                            data-col="delta"
+                            data-sort-value={cell.deltaSortValue ?? ''}
+                            data-sort-missing={cell.deltaSortValue === null ? '' : undefined}
+                          >
+                            {cell.deltaText}
+                          </td>
+                          <td
+                            class="py-2 pr-2 text-center text-base text-white/70"
+                            data-col="record"
+                            data-sort-value={cell.recordSeconds ?? ''}
+                            data-sort-missing={cell.recordSeconds === null ? '' : undefined}
+                            title={recordTitle}
+                          >
+                            {cell.recordFormatted}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
         )}
         </div>

@@ -98,6 +98,18 @@ describe('the editor script (S3)', () => {
     }
   });
 
+  it('hands the editor the layout list as escaped JSON, read once per page (BR6.2)', () => {
+    const editor = SRC['/src/components/PollEditor.astro'];
+    expect(editor).toContain('data-poll-layouts set:html={safeJson(layouts)}');
+    for (const page of [NEW, EDIT]) {
+      expect(page).toContain('await getPollLayoutChoices(supabaseEnv)');
+      expect(page).toContain('layouts={layouts}');
+    }
+    const script = SRC['/src/scripts/pollEditor.ts'];
+    expect(script).toContain("'[data-poll-layouts]'");
+    expect(script).toContain('data-testid');
+  });
+
   it('shrinks chosen images and checks their total before submitting', () => {
     const script = SRC['/src/scripts/pollEditor.ts'];
     expect(script).toContain('shrinkPollImage(chosen)');
@@ -115,6 +127,8 @@ describe('the shared view and the public page (FR1.8, BR3.3)', () => {
   it('reads the public poll through getPostedPoll and draws it with pollViewHtml', () => {
     expect(PUBLIC).toMatch(/await getPostedPoll\(supabaseEnv, pollId\)/);
     expect(PUBLIC).toContain('pollViewHtml(pollToView(');
+    // One request for every Circuits option's layout image (FR6.5).
+    expect(PUBLIC).toContain('getLayoutImages(supabaseEnv, pollLayoutIds(poll))');
     expect(PUBLIC).toContain('Astro.response.status = loadFailed ? 503 : 404;');
     expect(PUBLIC).toContain("Astro.response.headers.set('Cache-Control', 'public, s-maxage=30');");
     expect(PUBLIC).not.toContain('stale-while-revalidate');

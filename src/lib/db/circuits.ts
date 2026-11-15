@@ -257,6 +257,32 @@ export async function getCircuitLayoutById(env: SupabaseEnv, id: string) {
   return rows[0] ?? null;
 }
 
+const LAYOUT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Each layout's own image_url by id, in one request (polls FR6.5): not layoutImageUrl, which prefers the
+ * circuit logo. Through circuit_layouts_shown, the public read path. Empty on failure, so a poll still shows
+ * its option names; the error is logged.
+ */
+export async function getLayoutImages(
+  env: SupabaseEnv,
+  ids: readonly string[],
+): Promise<Map<string, string | null>> {
+  const wanted = [...new Set(ids.filter((id) => LAYOUT_ID_PATTERN.test(id)))];
+  const out = new Map<string, string | null>();
+  if (wanted.length === 0) return out;
+  try {
+    const rows = await restGet<{ id: string; image_url: string | null }[]>(
+      env,
+      `circuit_layouts_shown?select=id,image_url&id=in.(${wanted.join(',')})`,
+    );
+    for (const row of rows) out.set(row.id, row.image_url ?? null);
+  } catch (err) {
+    console.error('Failed to load the layout images for a poll:', err);
+  }
+  return out;
+}
+
 export function createCircuitLayout(env: SupabaseEnv, accessToken: string, data: Partial<CircuitLayout>) {
   return restPost<CircuitLayout>(env, accessToken, 'circuit_layouts', data);
 }

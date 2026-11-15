@@ -98,8 +98,38 @@ describe('top navigation (BR6.1-BR6.4)', () => {
       '/interviews Interviews mobile',
     ]);
     expect(linksBlock).not.toContain('Driver Stats');
-    // The phone menu adds each link's `mobile` items under it.
-    expect(NAV).toContain('link.menu?.filter((item) => item.mobile)');
+  });
+});
+
+describe('the phone menu (FR4, BR4.1-BR4.3)', () => {
+  const panel = NAV.slice(
+    NAV.indexOf('id="mobile-nav"'),
+    NAV.indexOf('</nav>', NAV.indexOf('id="mobile-nav"')),
+  );
+
+  it('lists every links entry: the pages without a menu as chips, then each menu in full under its heading', () => {
+    expect(NAV).toContain('const phoneStandalone = links.filter((link) => !link.menu);');
+    expect(NAV).toContain('const phoneSections = links.filter((link) => link.menu);');
+    expect(panel).toContain('{phoneStandalone.map((link) => (');
+    expect(panel).toContain('{phoneSections.map((link) => (');
+    // Every menu entry, not only the old phone-only ones.
+    expect(panel).toContain('{link.menu!.map((item) => (');
+    expect(NAV).not.toContain('item.mobile)');
+    expect(panel).toMatch(/<h2 id=\{`mobile-nav-\$\{link\.label\.toLowerCase\(\)\}`\}/);
+    expect(panel).toContain('grid grid-cols-2');
+  });
+
+  it('caps the panel at the screen below the header and keeps its scroll inside', () => {
+    expect(panel).toContain('max-h-[calc(100dvh-4.25rem)]');
+    expect(panel).toContain('overflow-y-auto');
+    expect(panel).toContain('overscroll-contain');
+    expect(panel).toContain('data-testid="mobile-nav"');
+    expect(NAV).toContain('window.innerHeight - panel!.getBoundingClientRect().top');
+  });
+
+  it('keeps the toggle button and its aria wiring', () => {
+    expect(NAV).toMatch(/id="mobile-nav-toggle"\s+aria-expanded="false"\s+aria-controls="mobile-nav"/);
+    expect(NAV).toContain("toggle!.setAttribute('aria-expanded', String(open));");
   });
 });
 
@@ -177,14 +207,39 @@ describe('class filters (FR3, BR3.1, BR3.7, BR3.8)', () => {
     expect(PROFILE).not.toMatch(/<script(?![^>]*type="application\/json")/);
   });
 
+  it('gives the Races tab a CSS-only Overall / Class toggle over paired start, finish and margin cells (BR3.1-BR3.4)', () => {
+    const toggle = PROFILE.slice(PROFILE.indexOf('data-races-toggle'));
+    expect(toggle).toMatch(/id="races-mode-overall"[^>]*checked[^>]*data-sort-reset/);
+    expect(toggle).toMatch(/id="races-mode-class"[^>]*data-sort-reset/);
+    expect(toggle).toContain('[&_.race-class]:hidden peer-checked/class:[&_.race-class]:table-cell');
+    expect(toggle).toContain('peer-checked/class:[&_.race-overall]:hidden');
+    for (const key of ['start', 'classStart', 'finish', 'classFinish', 'margin', 'classMargin']) {
+      expect(toggle, key).toContain(`data-sort-key="${key}"`);
+    }
+  });
+
+  it('gives the Bests tab an Overall / Gamma / Delta toggle over three tables, Overall first (BR2.3, BR2.4)', () => {
+    const toggle = PROFILE.slice(PROFILE.indexOf('data-bests-toggle'));
+    expect(toggle).toContain('checked={i === 0}');
+    expect(toggle).toContain('data-testid={`bests-filter-${f.key}`}');
+    expect(toggle).toContain('data-bests-table={f.key}');
+    for (const key of ['overall', 'gamma', 'delta']) {
+      expect(PROFILE, key).toContain(`showOn: 'peer-checked/${key}:block'`);
+    }
+  });
+
   it('shows a focus ring on the Seasons and Splits toggles and clears a sort the switch hides', () => {
     const toggle = PROFILE.slice(PROFILE.indexOf('data-seasons-toggle'));
-    for (const peer of ['overall', 'class']) {
+    // Overall is on the Seasons, Races, Splits and Bests toggles; Class on the first three.
+    for (const [peer, uses] of [
+      ['overall', 4],
+      ['class', 3],
+    ] as const) {
       // A 2px ring in the label's own text colour (currentColor), the width and offset of the site's ring.
       const ring = `peer-focus-visible/${peer}:outline peer-focus-visible/${peer}:outline-2 peer-focus-visible/${peer}:outline-offset-2`;
       expect(toggle).toContain(ring);
-      // Both toggles' labels share the same focus style.
-      expect(PROFILE.split(ring)).toHaveLength(3);
+      // Every toggle's labels share the same focus style.
+      expect(PROFILE.split(ring)).toHaveLength(uses + 1);
     }
     expect(toggle).toMatch(/id="seasons-mode-overall"[^>]*data-sort-reset/);
     expect(toggle).toMatch(/id="seasons-mode-class"[^>]*data-sort-reset/);

@@ -1,8 +1,15 @@
 /**
- * The poll editor's form, read once on the server (BR1.1-BR1.4, BR2.4, BR4.1). The database repeats every
- * rule in save_poll; these checks give field-level messages and keep a bad save from uploading anything.
+ * The poll editor's form, read once on the server (BR1.1-BR1.4, BR2.4, BR4.1, BR5.1, BR5.2, BR6.3, BR6.4). The
+ * database repeats every rule in save_poll; these checks give field-level messages and keep a bad save from
+ * uploading anything.
  */
-import { ANSWER_TYPE_LABELS, isAnswerType, type AnswerType } from './types';
+import {
+  ANSWER_TYPE_LABELS,
+  TEXT_MAX_LENGTH_MAX,
+  TEXT_MAX_LENGTH_MIN,
+  isAnswerType,
+  type AnswerType,
+} from './types';
 import { POLL_IMAGE_EXTENSIONS } from './images';
 
 export const POLL_TITLE_MAX = 120;
@@ -11,17 +18,23 @@ export const POLL_SECTIONS_MIN = 1;
 export const POLL_SECTIONS_MAX = 20;
 export const POLL_NAME_MAX = 120;
 export const POLL_OPTIONS_MAX = 30;
-/** Pick one and Pick several need two options; a Star rating can rate one thing (BR1.3). */
-export const POLL_OPTIONS_MIN: Record<AnswerType, number> = { single: 2, multiple: 2, stars: 1 };
+/** Pick one and Pick several need two options; a Star rating can rate one thing (BR1.3); Text takes none (BR5.2). */
+export const POLL_OPTIONS_MIN: Record<AnswerType, number> = { single: 2, multiple: 2, stars: 1, text: 0 };
 export const POLL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 /** New image files one save may carry, which bounds the Worker's multipart parse (Limits and costs). */
 export const POLL_NEW_IMAGES_MAX = 6;
+
+/** How an option row picks its name and image (BR6.1): a site layout, or free text with an upload. */
+export type OptionMode = 'circuits' | 'text';
 
 export interface PollFormOption {
   id: string | null;
   /** The editor's key for this row; the option's file input is named `image_<key>`. */
   key: string;
   name: string;
+  /** Circuits rows carry a layout and never an image; Text rows the reverse (BR6.3). */
+  mode: OptionMode;
+  layoutId: string | null;
   imagePath: string | null;
   removeImage: boolean;
   file: File | null;
@@ -32,6 +45,8 @@ export interface PollFormSection {
   key: string;
   name: string;
   answerType: string;
+  /** The Max length field as typed; only read for a Text question. */
+  textMaxLength: string;
   options: PollFormOption[];
 }
 
@@ -51,7 +66,10 @@ export interface PollFormError {
   message: string;
 }
 
-/** The payload save_poll takes (its p_poll argument). */
+/**
+ * The payload save_poll takes (its p_poll argument). text_max_length and layout_id are sent only when set, so
+ * a poll without Text questions or Circuits options sends exactly what it did before.
+ */
 export interface PollSavePayload {
   title: string;
   description: string | null;
@@ -61,7 +79,8 @@ export interface PollSavePayload {
     id: string | null;
     name: string;
     answer_type: AnswerType;
-    options: { id: string | null; name: string; image_path: string | null }[];
+    text_max_length?: number;
+    options: { id: string | null; name: string; image_path: string | null; layout_id?: string }[];
   }[];
 }
 
@@ -88,6 +107,34 @@ function fileFor(form: FormLike, key: string): File | null {
   return value instanceof File && value.size > 0 ? value : null;
 }
 
+/** A Text question's max length when it is a whole number from 1 to 500, else null (BR5.1). */
+export function parseTextMaxLength(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d{1,3}$/.test(trimmed)) return null;
+  const n = Number(trimmed);
+  return n >= TEXT_MAX_LENGTH_MIN && n <= TEXT_MAX_LENGTH_MAX ? n : null;
+}
+
+function readOption(form: FormLike, raw: unknown, fallbackKey: string, isText: boolean): PollFormOption {
+  const o = (raw ?? {}) as Record<string, unknown>;
+  const key = KEY_PATTERN.test(str(o.key)) ? str(o.key) : fallbackKey;
+  const layoutId = idOrNull(o.layout_id);
+  // A row says which mode it is in; older editors sent no mode, and a layout means Circuits.
+  const mode: OptionMode = o.mode === 'circuits' || (o.mode !== 'text' && layoutId) ? 'circuits' : 'text';
+  const isCircuits = mode === 'circuits';
+  return {
+    id: idOrNull(o.id),
+    key,
+    name: str(o.name),
+    mode,
+    layoutId: isCircuits ? layoutId : null,
+    imagePath: isCircuits ? null : str(o.image_path) || null,
+    removeImage: !isCircuits && o.remove_image === true,
+    // A Circuits row or a Text question's hidden rows never upload anything.
+    file: isCircuits || isText ? null : fileFor(form, key),
+  };
+}
+
 /** The hidden `structure` JSON the editor script keeps in sync; anything malformed reads as no sections. */
 function readSections(form: FormLike): PollFormSection[] {
   let parsed: unknown;
@@ -102,23 +149,15 @@ function readSections(form: FormLike): PollFormSection[] {
     const s = (raw ?? {}) as Record<string, unknown>;
     const key = KEY_PATTERN.test(str(s.key)) ? str(s.key) : `s${i}`;
     const options = Array.isArray(s.options) ? s.options.slice(0, POLL_OPTIONS_MAX + 1) : [];
+    const answerType = str(s.answer_type);
+    const maxLength = s.text_max_length;
     return {
       id: idOrNull(s.id),
       key,
       name: str(s.name),
-      answerType: str(s.answer_type),
-      options: options.map((rawOption, j) => {
-        const o = (rawOption ?? {}) as Record<string, unknown>;
-        const optionKey = KEY_PATTERN.test(str(o.key)) ? str(o.key) : `${key}o${j}`;
-        return {
-          id: idOrNull(o.id),
-          key: optionKey,
-          name: str(o.name),
-          imagePath: str(o.image_path) || null,
-          removeImage: o.remove_image === true,
-          file: fileFor(form, optionKey),
-        };
-      }),
+      answerType,
+      textMaxLength: typeof maxLength === 'number' ? String(maxLength) : str(maxLength),
+      options: options.map((o, j) => readOption(form, o, `${key}o${j}`, answerType === 'text')),
     };
   });
 }
@@ -154,6 +193,47 @@ function checkPoll(form: PollForm, existingClosesAt: string | null, now: Date): 
   return errors;
 }
 
+function checkOption(option: PollFormOption, at: string): string | null {
+  if (option.mode === 'circuits' && !option.layoutId) return `${at}: choose a circuit.`;
+  const optionName = option.name.trim();
+  if (charLength(optionName) < 1 || charLength(optionName) > POLL_NAME_MAX) {
+    return `${at}: the name must be 1 to ${POLL_NAME_MAX} characters.`;
+  }
+  if (option.file && !POLL_IMAGE_EXTENSIONS[option.file.type]) {
+    return `${at}: the image must be a PNG, JPEG or WebP file.`;
+  }
+  if (option.file && option.file.size > POLL_IMAGE_MAX_BYTES)
+    return `${at}: the image must be 5 MB or smaller.`;
+  return null;
+}
+
+function checkOptions(section: PollFormSection & { answerType: AnswerType }, n: number): PollFormError[] {
+  const errors: PollFormError[] = [];
+  const min = POLL_OPTIONS_MIN[section.answerType];
+  if (section.options.length < min || section.options.length > POLL_OPTIONS_MAX) {
+    errors.push({
+      field: `section:${section.key}`,
+      message: `Section ${n}: ${ANSWER_TYPE_LABELS[section.answerType]} needs ${min} to ${POLL_OPTIONS_MAX} options.`,
+    });
+  }
+  const names = new Set<string>();
+  const layouts = new Set<string>();
+  section.options.forEach((option, j) => {
+    const at = `Section ${n}, option ${j + 1}`;
+    const optionName = option.name.trim();
+    let message = checkOption(option, at);
+    if (!message && option.layoutId && layouts.has(option.layoutId)) {
+      message = `${at}: this circuit is already an option in this section.`;
+    } else if (!message && names.has(optionName.toLowerCase())) {
+      message = `${at}: "${optionName}" is already an option in this section.`;
+    }
+    if (message) errors.push({ field: `option:${option.key}`, message });
+    names.add(optionName.toLowerCase());
+    if (option.layoutId) layouts.add(option.layoutId);
+  });
+  return errors;
+}
+
 function checkSection(section: PollFormSection, n: number): PollFormError[] {
   const errors: PollFormError[] = [];
   const field = `section:${section.key}`;
@@ -165,42 +245,17 @@ function checkSection(section: PollFormSection, n: number): PollFormError[] {
     errors.push({ field, message: `Section ${n}: choose an answer type.` });
     return errors;
   }
-  const min = POLL_OPTIONS_MIN[section.answerType];
-  if (section.options.length < min || section.options.length > POLL_OPTIONS_MAX) {
-    errors.push({
-      field,
-      message: `Section ${n}: ${ANSWER_TYPE_LABELS[section.answerType]} needs ${min} to ${POLL_OPTIONS_MAX} options.`,
-    });
+  // A Text question's rows are dropped on save, so only its max length is checked (BR5.1, BR5.2).
+  if (section.answerType === 'text') {
+    if (parseTextMaxLength(section.textMaxLength) === null) {
+      errors.push({
+        field,
+        message: `Section ${n}: the max length must be a whole number from ${TEXT_MAX_LENGTH_MIN} to ${TEXT_MAX_LENGTH_MAX}.`,
+      });
+    }
+    return errors;
   }
-  const seen = new Set<string>();
-  section.options.forEach((option, j) => {
-    const optionName = option.name.trim();
-    const optionField = `option:${option.key}`;
-    if (charLength(optionName) < 1 || charLength(optionName) > POLL_NAME_MAX) {
-      errors.push({
-        field: optionField,
-        message: `Section ${n}, option ${j + 1}: the name must be 1 to ${POLL_NAME_MAX} characters.`,
-      });
-    } else if (seen.has(optionName.toLowerCase())) {
-      errors.push({
-        field: optionField,
-        message: `Section ${n}, option ${j + 1}: "${optionName}" is already an option in this section.`,
-      });
-    }
-    seen.add(optionName.toLowerCase());
-    if (option.file && !POLL_IMAGE_EXTENSIONS[option.file.type]) {
-      errors.push({
-        field: optionField,
-        message: `Section ${n}, option ${j + 1}: the image must be a PNG, JPEG or WebP file.`,
-      });
-    } else if (option.file && option.file.size > POLL_IMAGE_MAX_BYTES) {
-      errors.push({
-        field: optionField,
-        message: `Section ${n}, option ${j + 1}: the image must be 5 MB or smaller.`,
-      });
-    }
-  });
-  return errors;
+  return [...errors, ...checkOptions({ ...section, answerType: section.answerType }, n)];
 }
 
 /**
@@ -232,9 +287,26 @@ export function parsePollForm(
   return { form, errors };
 }
 
+type PayloadSection = PollSavePayload['sections'][number];
+
+function payloadOption(
+  o: PollFormOption,
+  uploaded: ReadonlyMap<string, string>,
+): PayloadSection['options'][number] {
+  if (o.mode === 'circuits' && o.layoutId) {
+    return { id: o.id, name: o.name.trim(), image_path: null, layout_id: o.layoutId };
+  }
+  return {
+    id: o.id,
+    name: o.name.trim(),
+    image_path: uploaded.get(o.key) ?? (o.removeImage ? null : o.imagePath),
+  };
+}
+
 /**
- * The save_poll payload: new uploads (by option key) win, a removed image is null, otherwise the stored path.
- * Only call it on a form parsePollForm passed, so every answer type is valid.
+ * The save_poll payload: new uploads (by option key) win, a removed image is null, otherwise the stored path;
+ * a Circuits row sends its layout and no image; a Text question sends its max length and no options. Only call
+ * it on a form parsePollForm passed, so every answer type is valid.
  */
 export function pollSavePayload(form: PollForm, uploaded: ReadonlyMap<string, string>): PollSavePayload {
   return {
@@ -242,15 +314,12 @@ export function pollSavePayload(form: PollForm, uploaded: ReadonlyMap<string, st
     description: form.description.trim() || null,
     closes_at: form.closesAt || null,
     is_schedule_vote: form.isScheduleVote,
-    sections: form.sections.map((s) => ({
-      id: s.id,
-      name: s.name.trim(),
-      answer_type: s.answerType as AnswerType,
-      options: s.options.map((o) => ({
-        id: o.id,
-        name: o.name.trim(),
-        image_path: uploaded.get(o.key) ?? (o.removeImage ? null : o.imagePath),
-      })),
-    })),
+    sections: form.sections.map((s): PayloadSection => {
+      const base = { id: s.id, name: s.name.trim(), answer_type: s.answerType as AnswerType };
+      if (s.answerType === 'text') {
+        return { ...base, text_max_length: parseTextMaxLength(s.textMaxLength) ?? undefined, options: [] };
+      }
+      return { ...base, options: s.options.map((o) => payloadOption(o, uploaded)) };
+    }),
   };
 }

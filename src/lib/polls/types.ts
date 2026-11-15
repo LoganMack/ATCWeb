@@ -1,19 +1,28 @@
-/** Polls (U2): the stored shapes (20261115120001_polls.sql) and the shape the shared renderer draws. */
+/**
+ * Polls (U2): the stored shapes (20261115120001_polls.sql, 20261118120000_records_text_polls.sql) and the
+ * shape the shared renderer draws.
+ */
 
-export type AnswerType = 'single' | 'multiple' | 'stars';
+export type AnswerType = 'single' | 'multiple' | 'stars' | 'text';
 
-export const ANSWER_TYPES: readonly AnswerType[] = ['single', 'multiple', 'stars'];
+export const ANSWER_TYPES: readonly AnswerType[] = ['single', 'multiple', 'stars', 'text'];
 
-/** The editor's names for the answer types (FR1.4.1). */
+/** The editor's names for the answer types (FR1.4.1, FR5.1). */
 export const ANSWER_TYPE_LABELS: Record<AnswerType, string> = {
   single: 'Pick one',
   multiple: 'Pick several',
   stars: 'Star rating',
+  text: 'Text',
 };
 
 export function isAnswerType(value: unknown): value is AnswerType {
   return typeof value === 'string' && (ANSWER_TYPES as readonly string[]).includes(value);
 }
+
+/** A Text question's answer length: 1 to 500 characters, 200 when the admin picks Text (BR5.1). */
+export const TEXT_MAX_LENGTH_MIN = 1;
+export const TEXT_MAX_LENGTH_MAX = 500;
+export const TEXT_MAX_LENGTH_DEFAULT = 200;
 
 export type PollStatus = 'draft' | 'posted';
 
@@ -24,6 +33,8 @@ export interface PollOption {
   id: string;
   name: string;
   image_path: string | null;
+  /** A Circuits pick (BR6.3); its image is the layout's own. Null for a Text option or a deleted layout. */
+  layout_id: string | null;
   position: number;
 }
 
@@ -31,6 +42,8 @@ export interface PollSection {
   id: string;
   name: string;
   answer_type: AnswerType;
+  /** Set exactly when answer_type is text (BR5.1). */
+  text_max_length: number | null;
   position: number;
   options: PollOption[];
 }
@@ -57,6 +70,15 @@ export interface PollView {
   sections: {
     name: string;
     answerType: AnswerType;
+    /** A Text question's maxlength; absent or null for the other types. */
+    maxLength?: number | null;
     options: { name: string; imageUrl: string | null }[];
   }[];
+}
+
+/** One entry of the editor's Circuits dropdown (BR6.2). */
+export interface LayoutChoice {
+  id: string;
+  label: string;
+  imageUrl: string | null;
 }

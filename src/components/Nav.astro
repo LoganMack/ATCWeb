@@ -53,8 +53,8 @@ const onOwnProfile = Boolean(myDriverId) && Astro.url.pathname.replace(/\/+$/, '
 // previewing as a visitor (the footer's View as Visitor toggle is what switches back).
 const showAdminLink = isAdminView(Astro.locals);
 
-// `menu` = a hover dropdown on the desktop nav (the mobile nav stays a flat list
-// of the top-level links, plus the few menu items marked `mobile`, which no other page links to on a phone).
+// `menu` = a hover dropdown on the desktop nav, and a headed group of chips in the phone menu, which lists every
+// entry (BR4.1). `mobile` marks the entries no other page links to on a phone.
 // `rounds` = the Results menu, whose rounds are fetched from /api/nav-rounds the first time it's hovered (see
 // the script below).
 type NavLink = {
@@ -132,6 +132,13 @@ const links: NavLink[] = [
   { href: '/rulebook', label: 'Rulebook' },
   { href: redbubbleUrl, label: 'Shop', external: true },
 ];
+
+// The phone menu (BR4.1): the pages without a menu in one row of chips, then each menu as a heading over a
+// two-column grid of every entry, from the same `links` so the two menus never drift apart.
+const phoneStandalone = links.filter((link) => !link.menu);
+const phoneSections = links.filter((link) => link.menu);
+const PHONE_CHIP =
+  'block rounded-md border border-white/10 px-3 py-2 text-center text-sm text-white/80 transition hover:bg-white/[0.06] hover:text-white';
 ---
 
 <header class="sticky top-0 z-50 border-b border-white/10 bg-brand-ink/80 backdrop-blur">
@@ -390,26 +397,38 @@ const links: NavLink[] = [
     </div>
   )}
 
+  {/* Capped at the screen below the header (BR4.2): the CSS cap fits the plain header, and the script below
+     re-measures when the Happening Now banner makes it taller. Its scroll never carries on into the page. */}
   <nav
     id="mobile-nav"
-    class="hidden flex-col border-t border-white/10 bg-brand-ink px-6 py-4 font-display text-lg uppercase tracking-widest lg:hidden"
+    class="hidden max-h-[calc(100dvh-4.25rem)] flex-col gap-4 overflow-y-auto overscroll-contain border-t border-white/10 bg-brand-ink px-6 py-4 font-display uppercase tracking-widest lg:hidden"
+    data-testid="mobile-nav"
   >
-    {links.map((link) => (
-      <>
+    <div class="flex flex-wrap gap-2" data-mobile-nav-standalone>
+      {phoneStandalone.map((link) => (
         <a
           href={link.href}
           target={link.external ? '_blank' : undefined}
           rel={link.external ? 'noopener noreferrer' : undefined}
-          class="border-b border-white/5 py-3 text-white/80 transition last:border-none hover:text-white"
+          class={`${PHONE_CHIP} flex-1`}
         >
           {link.label}
         </a>
-        {link.menu?.filter((item) => item.mobile).map((item) => (
-          <a href={item.href} class="border-b border-white/5 py-2.5 pl-4 text-base text-white/60 transition hover:text-white">
-            {item.label}
-          </a>
-        ))}
-      </>
+      ))}
+    </div>
+    {phoneSections.map((link) => (
+      <section aria-labelledby={`mobile-nav-${link.label.toLowerCase()}`} data-mobile-nav-section>
+        <h2 id={`mobile-nav-${link.label.toLowerCase()}`} class="mb-1.5 text-xs text-white/40">
+          {link.label}
+        </h2>
+        <div class="grid grid-cols-2 gap-2">
+          {link.menu!.map((item) => (
+            <a href={item.href} class={PHONE_CHIP}>
+              {item.label}
+            </a>
+          ))}
+        </div>
+      </section>
     ))}
   </nav>
 </header>
@@ -432,6 +451,8 @@ const links: NavLink[] = [
     function setOpen(open: boolean) {
       panel!.classList.toggle('hidden', !open);
       panel!.classList.toggle('flex', open);
+      // The header can be taller than the CSS cap assumes (the live banner), so measure where the panel starts.
+      if (open) panel!.style.maxHeight = `${Math.max(0, window.innerHeight - panel!.getBoundingClientRect().top)}px`;
       iconOpen!.classList.toggle('hidden', open);
       iconClose!.classList.toggle('hidden', !open);
       toggle!.setAttribute('aria-expanded', String(open));

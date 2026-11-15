@@ -165,16 +165,29 @@ export interface LayoutBestRow {
   trackName: string;
   /** Already run through displayLayoutName (so the "N/A" single-configuration sentinel reads as "Full Course") — "—" when this track's rounds have never had a layout value on file at all. */
   layoutText: string;
+  /** The driver's fastest lap at the layout in any class (BR2.1), the same under every filter. */
   personalBestTenThousandths: number | null;
   personalBestFormatted: string;
-  trackRecordSeconds: number | null;
-  trackRecordFormatted: string;
-  /** The layout's record holder text; null when unknown. */
-  recordHolder: string | null;
-  /** The driver holds this layout's record (BR1.1): Delta shows '---' and the PB is blue. */
+  /** The record and Delta under each of the Bests filters (BR2.2, BR2.3). */
+  byFilter: Record<BestsFilter, BestsFilterCell>;
+}
+
+/** The Bests tab's filters (BR2.3). */
+export type BestsFilter = 'overall' | 'gamma' | 'delta';
+
+export const BESTS_FILTERS: readonly BestsFilter[] = ['overall', 'gamma', 'delta'];
+
+/** One Bests row under one filter. */
+export interface BestsFilterCell {
+  recordSeconds: number | null;
+  /** "—" when there is no record. */
+  recordFormatted: string;
+  holder: string | null;
+  /** 'YYYY-MM-DD'. */
+  date: string | null;
+  /** The personal best equals or beats this record: Delta shows '---' and the PB is blue (BR2.2). */
   holdsRecord: boolean;
-  /** The Delta cell's text (BR1.2). */
   deltaText: string;
-  /** Signed milliseconds for sorting; null sorts as missing (BR1.3). */
+  /** Signed milliseconds for sorting; null sorts last (BR2.4). */
   deltaSortValue: number | null;
 }
