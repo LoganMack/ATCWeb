@@ -558,6 +558,11 @@ th[data-sort-key][data-sort-dir='desc']::after {
   --text-gold: 245 198 66;
   --text-emerald-400: 52 211 153;
   --text-red-300: 252 165 165;
+  /* Podium silver and bronze (Tailwind brand.silver / brand.bronze), with text shades as for the brand colours. */
+  --silver: 192 192 200;
+  --bronze: 205 127 50;
+  --text-silver: 192 192 200;
+  --text-bronze: 205 127 50;
 
   /* Component colours, read by the rules named after them further down. */
   --thead-rule: rgba(255, 255, 255, 0.1);
@@ -582,6 +587,10 @@ th[data-sort-key][data-sort-dir='desc']::after {
   --text-gold: 148 111 8;
   --text-emerald-400: 4 120 87;
   --text-red-300: 185 28 28;
+  --silver: 140 140 152;
+  --bronze: 176 104 36;
+  --text-silver: 104 104 116;
+  --text-bronze: 146 84 22;
 
   --thead-rule: rgba(17, 17, 20, 0.1);
   --file-btn-text-alpha: 0.78;

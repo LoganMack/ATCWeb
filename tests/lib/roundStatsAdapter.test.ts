@@ -562,3 +562,48 @@ function stubDatabase(
   }) as unknown as typeof fetch;
   return calls;
 }
+
+describe('season Alpha Team on ATC17 (FR5.1, FR5.2)', () => {
+  const delta = inputs.classes.find((c) => c.name === 'Delta')!.id;
+  const deltaDrivers = new Set(scores.filter((s) => s.class_id === delta).map((s) => s.driver_id));
+
+  /** Independent of the builders: each race's top 2 rows of every class per team by overall total, summed. */
+  function expectedAlphaTotals(): Record<string, number> {
+    const groups = new Map<string, number[]>();
+    for (const s of scores) {
+      if (!s.team_id || exhibitionIds.has(s.subsession_id)) continue;
+      const key = `${s.subsession_id}:${s.race_number}:${s.team_id}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(s.overall_total);
+    }
+    const totals: Record<string, number> = {};
+    for (const [key, points] of groups) {
+      const teamId = key.split(':')[2];
+      const top2 = [...points].sort((a, b) => b - a).slice(0, 2);
+      totals[teamId] = (totals[teamId] ?? 0) + top2.reduce((sum, p) => sum + p, 0);
+    }
+    return totals;
+  }
+
+  it('is the overall competition in the live season table, Delta rows included', async () => {
+    const live = await computeTeamSeasonStandings(
+      noEnv,
+      season,
+      exhibitionIds,
+      undefined,
+      inputs.drivers,
+      teams,
+      [],
+      inputs.classes,
+      buildContext(),
+    );
+    expect(Object.fromEntries(live.map((t) => [t.teamId, t.totalPoints]))).toEqual(expectedAlphaTotals());
+    expect(live.some((t) => t.raceEntries.some((e) => e.counted && deltaDrivers.has(e.driverId)))).toBe(true);
+  });
+
+  it('is the stored overall competition, with the same totals', () => {
+    const ours = teamStandingsFromRounds(stats, undefined, { teams, seasonLogoRows: [] });
+    expect(Object.fromEntries(ours.map((t) => [t.teamId, t.totalPoints]))).toEqual(expectedAlphaTotals());
+    expect(ours.some((t) => t.driverIds.some((id) => deltaDrivers.has(id)))).toBe(true);
+  });
+});

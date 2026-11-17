@@ -185,23 +185,24 @@ export interface HomeStandings {
   overall: DriverSeasonStanding[];
   /** In `refs.classes` order. */
   byClass: { classId: number; rows: DriverSeasonStanding[] }[];
-  /** One entry per requested team competition (by class id), in the requested order. */
-  teams: { classId: number; rows: TeamSeasonStanding[] }[];
+  /** One entry per requested team competition (undefined = overall), in the requested order. */
+  teams: { classId: number | undefined; rows: TeamSeasonStanding[] }[];
   extras: Map<string, DriverSeasonExtras>;
 }
 
 /**
  * The home page widget's tabs from one stored read of the current season: overall, each class, and each
- * class's own team competition asked for (Alpha Team, and Delta Team when that season runs it).
+ * team competition asked for: undefined is the overall one (Alpha Team, every class), a class id that class's
+ * own (Delta Team when that season runs it).
  */
 export async function loadHomeStandings(
   env: SupabaseEnv,
   season: Season,
-  teamClassIds: number[],
+  teamClassIds: (number | undefined)[],
   refs: Omit<StandingsViewRefs, 'circuits' | 'layouts'>,
 ): Promise<HomeStandings> {
   const load = await loadStoredSeasons(env, [season], refs.excludedIds, {
-    teamCompetitions: teamClassIds.map(String),
+    teamCompetitions: teamClassIds.map((id) => (id === undefined ? 'overall' : String(id))),
     penaltyPoints: false,
   });
   const stats = load.stats.get(season.id);
@@ -257,7 +258,7 @@ export async function loadHomeStandings(
           seasonLogoRows,
           classes,
           overallContext,
-          classScores(classId),
+          classId === undefined ? undefined : classScores(classId),
         ),
       })),
     ),

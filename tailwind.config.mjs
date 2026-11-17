@@ -45,7 +45,15 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: { ...brand, ink: themed('--canvas'), fixed: fixedBrand },
+        // Silver and bronze are podium colours only (2nd and 3rd place, beside gold for 1st). They read
+        // CSS variables so each theme gets a shade that shows on its canvas.
+        brand: {
+          ...brand,
+          ink: themed('--canvas'),
+          silver: themed('--silver'),
+          bronze: themed('--bronze'),
+          fixed: fixedBrand,
+        },
         white: themed('--fg'),
         'fixed-white': '#fff',
         'fixed-ink': brand.ink,
@@ -58,6 +66,8 @@ export default {
           primary: themed('--text-blue'),
           pink: themed('--text-pink'),
           gold: themed('--text-gold'),
+          silver: themed('--text-silver'),
+          bronze: themed('--text-bronze'),
         },
         emerald: { 400: themed('--text-emerald-400') },
         red: { 300: themed('--text-red-300') },

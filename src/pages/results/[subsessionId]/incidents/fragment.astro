@@ -1624,7 +1624,6 @@ if (loadError) markUncacheable(Astro);
         {!viewReports && adminSubmissionSessions.length > 0 && (
           <section class="mt-10" data-admin-submissions data-incident-management>
             <h2 class="font-display text-2xl">Incident Submissions</h2>
-            <p class="mt-1 text-sm text-white/60">What everyone else sees on this page until the round is posted.</p>
             <p data-incident-status role="status" class="mt-2 text-sm text-white/70"></p>
             <IncidentSubmissionsTables sessions={adminSubmissionSessions} showActions />
             {adminShowComments && <p class="mt-4 text-xs text-white/40">ⓘ Comments go to the stewards only.</p>}
@@ -1634,10 +1633,8 @@ if (loadError) markUncacheable(Astro);
 
         {/* Admins reach the submitted reports from the Review Submissions button at the top of the page,
             which carries the number of reports still waiting. */}
-        {!viewReports && sortedPenalties.length === 0 && (
-          <p class="mt-10 text-white/60">
-            {openReportCount > 0 ? 'No incidents logged yet.' : 'No incidents logged for this round.'}
-          </p>
+        {!viewReports && sortedPenalties.length === 0 && openReportCount === 0 && (
+          <p class="mt-10 text-white/60">No incidents logged for this round.</p>
         )}
 
         {!viewReports && isAdmin && roundPenaltyData.carriedIn.length > 0 && (

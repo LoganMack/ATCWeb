@@ -1,7 +1,8 @@
 -- Race winners fixtures for 20261113120002_race_winners_for_rounds.sql (FR4.2, NFR1, NFR2; rules BR4.1-BR4.6):
 -- class winners (disqualified and unclassified rows skipped), Alpha Team and Delta Team by their two best
 -- rows, the Delta Team switch, races with missing classes, masked names for anon, the 200-round limit and the
--- grants (X01-X07).
+-- grants (X01-X07); every class's drivers scoring for Alpha Team (X08,
+-- 20261120120000_alpha_team_counts_every_class.sql).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild), after
 -- email-templates-fixtures.sql:
@@ -15,13 +16,14 @@
 --
 -- Season Zw On (Delta Team on): round 9913001.
 --   Race 1, Alpha: A5 (DSQ, class P1, Blue), A1 (P2, Red, total 30 class 10 -> team 20), A2 (P3, Red, 20/8 -> 12),
---     A3 (P4, Blue, 40/6 -> 34), A4 (P5, Red, 15/4 -> 11, Red's third scorer).
---     Alpha Team: Blue 34 (A5 disqualified, single scorer) beats Red 32 (A1 + A2; with A4 it would be 43, and by
---     class total 50).
---   Race 1, Gamma: G1 (unclassified, class P1), G2 (P2). Delta: D1 (P1, Red, total 25), D2 (P2, Solo, total 30).
---     Delta Team: Solo 30 beats Red 25.
+--     A3 (P4, Blue, 40/6 -> 34), A4 (P5, Red, 15/4 -> 11).
+--   Race 1, Gamma: G1 (unclassified, class P1), G2 (P2), both without a team. Delta: D1 (P1, Red, 25/10 -> 15),
+--     D2 (P2, Solo, 30/8 -> 22).
+--     Alpha Team counts every class, total minus class points: Red 35 (A1 20 + D1 15; A2 and A4 are its third
+--     and fourth scorers) beats Blue 34 (A5 disqualified, A3 alone) and Solo 22.
+--     Delta Team: Solo 30 beats Red 25 (class total).
 --   Race 2: only A2 (P1, Red).
--- Season Zw Off (Delta Team off): round 9913002, race 1: D1 (P1, Red).
+-- Season Zw Off (Delta Team off): round 9913002, race 1: D1 (P1, Red), so Red wins Alpha Team there too.
 -- A1's account hides its name.
 
 begin;
@@ -195,9 +197,9 @@ do $$
 begin
   perform winners_fixture.expect('X01 admin, both rounds',
     winners_fixture.winners('eeeeeeee-0000-0000-0000-000000000902', array[9913001, 9913002]::bigint[]),
-    '1/1:alpha=Al One,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Blue,1/1:delta_team=Zw Solo,'
+    '1/1:alpha=Al One,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Red,1/1:delta_team=Zw Solo,'
     '1/2:alpha=Al Two,1/2:alpha_team=Zw Red,'
-    '2/1:delta=De One');
+    '2/1:delta=De One,2/1:alpha_team=Zw Red');
   raise notice 'ok X01 winners';
 end $$;
 rollback to savepoint fixture;
@@ -207,7 +209,7 @@ do $$
 begin
   perform winners_fixture.expect('X02 anon',
     winners_fixture.winners('anon', array[9913001]::bigint[]),
-    '1/1:alpha=Hidden Driver,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Blue,1/1:delta_team=Zw Solo,'
+    '1/1:alpha=Hidden Driver,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Red,1/1:delta_team=Zw Solo,'
     '1/2:alpha=Al Two,1/2:alpha_team=Zw Red');
   perform winners_fixture.expect('X02 hidden flag',
     winners_fixture.text_as('anon',
@@ -223,22 +225,32 @@ begin
   update public.seasons set delta_team_enabled = false where id = 'bbbbbbbb-0000-0000-0000-000000000913';
   perform winners_fixture.expect('X03 switched off',
     winners_fixture.winners('anon', array[9913001]::bigint[]),
-    '1/1:alpha=Hidden Driver,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Blue,'
+    '1/1:alpha=Hidden Driver,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Red,'
     '1/2:alpha=Al Two,1/2:alpha_team=Zw Red');
   raise notice 'ok X03 delta team switch';
 end $$;
 rollback to savepoint fixture;
 
--- X04 A third scorer does not count, and Alpha Team ranks by total minus class points (BR4.2): with Blue's
---     only scorer gone, Red wins on its top two ---------------------------------------------------------------
+-- X04 A third scorer does not count, and Alpha Team ranks by total minus class points (BR4.2): with A3 gone
+--     Red wins; with A3 back and D1 gone, Red's top two are A1 + A2 = 32 (with A4 it would be 43, by class
+--     total 50), so Blue's 34 wins -----------------------------------------------------------------------------
 do $$
 begin
+  -- With Blue's only scorer gone, Red wins on its top two.
   delete from public.race_score_results where subsession_id = 9913001 and race_number = 1
     and driver_id = '99999999-0000-0000-0000-000000000903';
   perform winners_fixture.expect('X04 Red wins Alpha Team',
     winners_fixture.text_as('anon',
       $q$select team_name from public.race_winners_for_rounds(array[9913001]::bigint[])
          where race_number = 1 and slot = 'alpha_team'$q$), 'Zw Red');
+  perform winners_fixture.result(9913001, 1, '99999999-0000-0000-0000-000000000903', 'Alpha',
+    '77777777-0000-0000-0000-000000000902', 4, 6, 40);
+  delete from public.race_score_results where subsession_id = 9913001 and race_number = 1
+    and driver_id = '99999999-0000-0000-0000-000000000921';
+  perform winners_fixture.expect('X04 Blue wins Alpha Team',
+    winners_fixture.text_as('anon',
+      $q$select team_name from public.race_winners_for_rounds(array[9913001]::bigint[])
+         where race_number = 1 and slot = 'alpha_team'$q$), 'Zw Blue');
   raise notice 'ok X04 team scoring';
 end $$;
 rollback to savepoint fixture;
@@ -280,6 +292,35 @@ begin
     and has_function_privilege('authenticated', 'public.race_winners_for_rounds(bigint[])', 'execute')
     and has_function_privilege('service_role', 'public.race_winners_for_rounds(bigint[])', 'execute'), true);
   raise notice 'ok X07 grants';
+end $$;
+rollback to savepoint fixture;
+
+-- X08 Every class's drivers score for Alpha Team, by total minus class points; Delta Team keeps the class
+--     total (20261120120000_alpha_team_counts_every_class.sql) --------------------------------------------------
+do $$
+begin
+  -- D2 (Delta, Solo) with 60 total and 8 class points scores 52 for Alpha Team: a Delta-only team beats Red's 35.
+  delete from public.race_score_results where subsession_id = 9913001 and race_number = 1
+    and driver_id = '99999999-0000-0000-0000-000000000922';
+  perform winners_fixture.result(9913001, 1, '99999999-0000-0000-0000-000000000922', 'Delta',
+    '77777777-0000-0000-0000-000000000903', 2, 8, 60);
+  perform winners_fixture.expect('X08 a Delta driver wins Alpha Team for their team',
+    winners_fixture.winners('anon', array[9913001]::bigint[]),
+    '1/1:alpha=Hidden Driver,1/1:gamma=Ga Two,1/1:delta=De One,1/1:alpha_team=Zw Solo,1/1:delta_team=Zw Solo,'
+    '1/2:alpha=Al Two,1/2:alpha_team=Zw Red');
+  -- With 30 class points D2 scores 30 for Alpha Team (by class total it would be 60), so Red's 35 wins it,
+  -- while Delta Team, by class total, still goes to Solo.
+  delete from public.race_score_results where subsession_id = 9913001 and race_number = 1
+    and driver_id = '99999999-0000-0000-0000-000000000922';
+  perform winners_fixture.result(9913001, 1, '99999999-0000-0000-0000-000000000922', 'Delta',
+    '77777777-0000-0000-0000-000000000903', 2, 30, 60);
+  perform winners_fixture.expect('X08 class points never count for Alpha Team',
+    winners_fixture.text_as('anon',
+      $q$select string_agg(slot || '=' || team_name, ',' order by slot)
+         from public.race_winners_for_rounds(array[9913001]::bigint[])
+         where race_number = 1 and slot in ('alpha_team', 'delta_team')$q$),
+    'alpha_team=Zw Red,delta_team=Zw Solo');
+  raise notice 'ok X08 Alpha Team counts every class';
 end $$;
 rollback to savepoint fixture;
 

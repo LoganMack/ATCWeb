@@ -223,16 +223,18 @@ try {
   if (activeSeason && standingsRefs) {
     const refs: Omit<StandingsViewRefs, 'circuits' | 'layouts'> = standingsRefs;
     classes = refs.classes;
-    const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
     const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
 
-    // Delta Team only when the current season runs that championship (0052; ATC10 onward).
-    const teamTabDefs = [
-      { key: 'alpha-team', label: 'Alpha Team', classId: alphaClassId },
-      ...(activeSeason.delta_team_enabled ? [{ key: 'delta-team', label: 'Delta Team', classId: deltaClassId }] : []),
-    ].filter((t): t is { key: string; label: string; classId: number } => t.classId !== undefined);
+    // Alpha Team is the overall, every-class team competition (classId undefined), as on Champions and
+    // Standings. Delta Team only when the current season runs that championship (0052; ATC10 onward).
+    const teamTabDefs: { key: string; label: string; classId: number | undefined }[] = [
+      { key: 'alpha-team', label: 'Alpha Team', classId: undefined },
+      ...(activeSeason.delta_team_enabled && deltaClassId !== undefined
+        ? [{ key: 'delta-team', label: 'Delta Team', classId: deltaClassId }]
+        : []),
+    ];
 
-    // One stored read of the season feeds every tab (BR2.2); each class's own team competition, as before.
+    // One stored read of the season feeds every tab (BR2.2).
     const home = await loadHomeStandings(supabaseEnv, activeSeason, teamTabDefs.map((t) => t.classId), refs);
     carTeamExtrasByDriverId = home.extras;
 
