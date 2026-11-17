@@ -14,6 +14,7 @@ const items: { label: string; value: string }[] = [
   { label: 'Date', value: card.date },
   { label: 'Grid Size', value: card.gridSize },
   { label: 'SOF', value: card.sof },
+  ...(card.cpi !== null ? [{ label: 'CPI', value: card.cpi }] : []),
   ...(card.raceTime !== null ? [{ label: 'Race Time', value: card.raceTime }] : []),
   { label: 'Wet Affected', value: card.wetAffected },
 ];
@@ -27,6 +28,10 @@ const items: { label: string; value: string }[] = [
           // The title shows on hover; IconTip shows the same words on keyboard focus (BR3.7).
           <IconTip label="Strength of Field">
             <abbr title="Strength of Field" tabindex="0" class="cursor-help no-underline">SOF</abbr>
+          </IconTip>
+        ) : item.label === 'CPI' ? (
+          <IconTip label="Corners per Incident">
+            <abbr title="Corners per Incident" tabindex="0" class="cursor-help no-underline">CPI</abbr>
           </IconTip>
         ) : (
           item.label

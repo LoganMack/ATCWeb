@@ -131,7 +131,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       rows.forEach((row) => {
         const classMatch = state.class === 'All' || row.dataset.class === state.class;
         const visible = classMatch && statusMatches(row) && experienceMatches(row) && nationalityMatches(row) && searchMatches(row);
-        row.style.display = visible ? '' : 'none';
+        row.hidden = !visible;
         if (visible) visibleCount += 1;
       });
       if (empty) empty.classList.toggle('hidden', visibleCount > 0);

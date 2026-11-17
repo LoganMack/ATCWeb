@@ -111,7 +111,7 @@ if (loadError) markUncacheable(Astro);
 
     {!loadError && sortedLayouts.length > 0 && (
       <div class="reveal mt-6 rounded-xl border border-white/10" style="transition-delay: 100ms" data-sticky-thead>
-        <table class="w-full border-collapse text-sm">
+        <table class="data-table w-full border-collapse text-sm">
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-2 font-medium">Circuit</th>
@@ -161,7 +161,7 @@ if (loadError) markUncacheable(Astro);
                     <td class="hidden py-2.5 pr-2 text-white/70 sm:table-cell">{record?.holderName ?? '—'}</td>
                     <td class="hidden py-2.5 pr-4 text-white/70 sm:table-cell">{formatDate(record?.date ?? null)}</td>
                   </tr>
-                  <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                  <tr data-detail-row data-no-stripe class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                     <td colspan={5} class="px-4 py-4 sm:pl-11" data-layout-detail-body>
                       <p class="text-white/40">Loading…</p>
                     </td>
@@ -195,11 +195,11 @@ if (loadError) markUncacheable(Astro);
         let visibleCount = 0;
         rows.forEach((row) => {
           const matches = !q || (row.dataset.search ?? '').includes(q);
-          row.style.display = matches ? '' : 'none';
+          row.hidden = !matches;
           // Hide a filtered-out row's detail row too, in case it was left open.
           const detail = row.nextElementSibling as HTMLElement | null;
           if (detail && detail.hasAttribute('data-detail-row')) {
-            detail.style.display = matches ? '' : 'none';
+            detail.hidden = !matches;
           }
           if (matches) visibleCount += 1;
         });

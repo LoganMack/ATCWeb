@@ -59,6 +59,35 @@
     background-color: rgb(67 105 245 / 0.18);
   }
 
+  /* Shared table rows (contract C5): compact padding, no body borders, and a faint stripe on every other
+     visible row. The stripe count skips rows marked data-no-stripe (detail rows, group headers) and hidden
+     rows, which is why row filters must hide with the `hidden` attribute rather than inline display:none.
+     These selectors outrank per-cell py-* and border-b utilities, so cells keep only their horizontal padding. */
+  .data-table > thead > tr > th {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  .data-table > tbody > tr > td,
+  .data-table > tbody > tr > th {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+  .data-table > tbody > tr,
+  .data-table > tbody > tr > td {
+    border-top-width: 0;
+    border-bottom-width: 0;
+  }
+  /* :where() keeps the stripe at zero specificity, so a row's own highlight (bg-*) still wins. */
+  :where(.data-table > tbody > tr:nth-child(even of :not([data-no-stripe], [hidden], .hidden))) {
+    background-color: rgb(var(--fg) / 0.035);
+  }
+
+  /* Lists (home result rows, standings widget): the same compact height, separators kept, no stripes. */
+  .list-row {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+
   /* Every search box: 40 characters wide, shrinking to fit its container on narrow screens. */
   .search-input {
     width: 40ch;

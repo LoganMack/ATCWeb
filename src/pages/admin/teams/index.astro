@@ -55,7 +55,7 @@ try {
   </div>
 
   <div class="reveal mt-4 rounded-xl border border-white/10" style="transition-delay: 80ms" data-sticky-thead>
-    <table class="w-full border-collapse" data-sortable>
+    <table class="data-table w-full border-collapse" data-sortable>
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
           <th class="py-3 pl-6 pr-3 font-medium" data-sort-key="name">Team</th>
@@ -114,7 +114,7 @@ try {
       let visibleCount = 0;
       rows.forEach((row) => {
         const matches = !term || (row.dataset.search ?? '').includes(term);
-        row.style.display = matches ? '' : 'none';
+        row.hidden = !matches;
         if (matches) visibleCount += 1;
       });
       empty?.classList.toggle('hidden', visibleCount > 0);

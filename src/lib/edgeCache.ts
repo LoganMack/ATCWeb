@@ -23,7 +23,10 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/media(\/fragment)?$/, ['filter', 'layout', 'tab']],
   [/^\/news(\/fragment)?$/, ['q', 'season']],
   [/^\/results(\/fragment)?$/, ['season']],
-  [/^\/results\/[^/]+(\/fragment)?$/, ['category', 'class', 'links_error', 'report', 'season', 'session']],
+  [
+    /^\/results\/[^/]+(\/fragment)?$/,
+    ['category', 'class', 'incidents', 'incidents_driver', 'links_error', 'report', 'season', 'session'],
+  ],
   [
     /^\/results\/[^/]+\/incidents(\/fragment)?$/,
     [
@@ -31,6 +34,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
       'appealaction',
       'from',
       'incident',
+      'post',
       'review',
       'roundpenalty',
       'season',

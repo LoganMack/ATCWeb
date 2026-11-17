@@ -84,7 +84,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         let visibleCount = 0;
         rows.forEach((row) => {
           const matches = !term || (row.dataset.search ?? '').includes(term);
-          row.style.display = matches ? '' : 'none';
+          row.hidden = !matches;
           if (matches) {
             visibleCount += 1;
           } else if (row.getAttribute('aria-expanded') === 'true') {

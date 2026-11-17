@@ -168,6 +168,8 @@ export interface CuratedRaceResultRow {
   starting_position: number | null;
   adjusted_position: number | null;
   incidents: number | null;
+  /** The imported count when a full admin changed `incidents` (race_incident_adjustments), else null. Optional: other selects of this type leave it out. */
+  original_incidents?: number | null;
   laps_complete: number | null;
   laps_led: number | null;
   /** The car this driver used for this specific race — per-race, unlike `drivers.car` (that column is just the driver's current car). */
@@ -290,7 +292,7 @@ export function getCuratedRaceResultsForSubsessions(env: SupabaseEnv, subsession
   // best_lap_ten_thousandths stays out: PostgREST fails the whole query on a missing column and this query
   // backs every results page, so that column is fetched in its own query (newsRecap.ts).
   const select =
-    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,laps_complete,laps_led,car_name,interval_ten_thousandths';
+    'subsession_id,race_number,cust_id,finish_position,starting_position,adjusted_position,incidents,original_incidents,laps_complete,laps_led,car_name,interval_ten_thousandths';
   // restGetAll: a whole-career query can pass Supabase's 1000-row cap. The unique order keeps pagination
   // stable.
   return restGetAll<CuratedRaceResultRow>(

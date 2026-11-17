@@ -582,7 +582,7 @@ const racePhotoRows = rounds
       let visibleCount = 0;
       rows.forEach((row) => {
         const matches = !term || (row.dataset.search ?? '').includes(term);
-        row.style.display = matches ? '' : 'none';
+        row.hidden = !matches;
         if (matches) visibleCount += 1;
       });
       empty?.classList.toggle('hidden', visibleCount > 0);

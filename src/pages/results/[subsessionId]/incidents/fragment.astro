@@ -80,6 +80,8 @@ import { appealCardView, closeAppealPrefill } from '../../../../lib/appealClose'
 import { describePenaltyResolution } from '../../../../lib/results/standingsCore';
 import {
   getIncidentReportsForSubsession,
+  getReportingPeriodHours,
+  getReportingWindowForRound,
   isRoundPosted,
   getVisibleReviewsForSubsession,
   getReviewCountsForSubsession,
@@ -128,7 +130,12 @@ import {
 } from '../../../../lib/incidentSubmissions';
 import { getMyIncidents, type IncidentManagementRow } from '../../../../lib/incidents';
 import IncidentCommentDialog from '../../../../components/IncidentCommentDialog.astro';
-import ClipThumbnail from '../../../../components/ClipThumbnail.astro';
+import IncidentCardMedia from '../../../../components/IncidentCardMedia.astro';
+import IconTip from '../../../../components/IconTip.astro';
+import { handlePostReport } from '../../../../lib/incidentActions/postReport';
+import { incidentSubtitle, postReportState, type PostReportState } from '../../../../lib/incidentPageHeader';
+import { buildRoundContexts } from '../../../../lib/roundContext';
+import { getStandingsExcludedRoundIds } from '../../../../lib/db/rounds';
 
 // isAdminView (not a raw role check) so the footer's "View as Visitor"
 // toggle actually hides this page's admin-only UI — and blocks the POST
@@ -199,6 +206,7 @@ const ADMIN_HANDLERS = new Map<
   ['edit-report-submission', handleEditReportSubmission],
   ['set-report-video', handleSetReportVideo],
   ['set-incident-video', handleSetIncidentVideo],
+  ['post-report', handlePostReport],
 ]);
 
 // Submitting an appeal is open to any signed-in user; every other intent is admin-only (below).
@@ -397,6 +405,8 @@ function reportLabel(r: IncidentReport): string {
 // "View Incidents" (?view=reports) shows the reports queue; "Edit Report" shows the not-yet-posted notice and
 // Add Incident. POSTs redirect to pathname + search, so the mode survives.
 const viewReports = isAdmin && Astro.url.searchParams.get('view') === 'reports';
+// Post Report: admins and staff, on the Incident Report of a round not posted yet.
+const showPostReport = isAdmin && !roundPosted && !viewReports;
 // Opened from admin > Incident Reports (?from=reporting): the links between the two views keep the marker.
 const origin = parseIncidentOrigin(Astro.url.searchParams.get('from'));
 // Reports still waiting on the stewards — the number on the Review Submissions button.
@@ -629,8 +639,17 @@ let appealFlash: { kind: 'ok' | 'error'; message: string } | null = null;
 // A round penalty change that didn't (fully) save (?roundpenalty=, set by the round penalty handlers).
 const roundPenaltyFlash =
   isAdmin && Astro.url.searchParams.get('roundpenalty') === 'failed'
-    ? "Couldn't save all of that round penalty change. Check the Round Summary and Round Penalties below, then try again."
+    ? "A round penalty change didn't fully save. Check the Penalty Summary on the Incident Report and the Round Penalties."
     : null;
+
+// A Post Report that didn't go through (?post=failed, set by the post-report handler).
+const postParam = isAdmin ? Astro.url.searchParams.get('post') : null;
+const postFailedFlash =
+  postParam === 'failed'
+    ? "Couldn't post the report. Try again."
+    : postParam === 'open'
+      ? "Incident submissions are still open, so the report wasn't posted."
+      : null;
 
 // Same idea for a steward review that didn't save (?review=, set by the save-review handler).
 let reviewFlash: string | null = null;
@@ -836,7 +855,12 @@ let seasonDriverById = new Map<string, { name: string; car_number: number | null
 let seasonEvents: { event_date: string }[] = [];
 let seasonContextLoaded = false;
 const emptyRoundPenaltyData: RoundPenaltyData = { earnedHere: [], carriedIn: [], roundById: new Map(), available: false };
-const [roundPenaltyData] = await Promise.all([
+// The season's rounds: read once for the PP context below and the subtitle's round number. The no-op catch keeps a
+// rejection from going unhandled when the PP context doesn't run; each user handles the failure itself.
+const seasonRoundsPromise = round?.season_id ? getRoundsForSeason(supabaseEnv, round.season_id) : null;
+seasonRoundsPromise?.catch(() => {});
+const roundForReads = round;
+const [roundPenaltyData, , displayRoundNumber, reportingWindow] = await Promise.all([
   round
     ? getRoundPenaltyData(supabaseEnv, { subsession_id: subsessionId, track_name: round.track_name, start_time: round.start_time })
     : Promise.resolve(emptyRoundPenaltyData),
@@ -844,7 +868,7 @@ const [roundPenaltyData] = await Promise.all([
     if (!round || (roundPenaltiesByDriver.size === 0 && !isAdmin)) return;
     try {
       const [seasonRounds, drivers, events] = await Promise.all([
-        getRoundsForSeason(supabaseEnv, round.season_id),
+        seasonRoundsPromise ?? Promise.resolve([]),
         getDrivers(supabaseEnv),
         getEvents(supabaseEnv),
       ]);
@@ -858,7 +882,24 @@ const [roundPenaltyData] = await Promise.all([
       console.error('Failed to load season PP context for incident summary:', err);
     }
   })(),
+  // The subtitle's "Round N": numbered within the season the way History numbers rounds.
+  seasonRoundsPromise
+    ? Promise.all([seasonRoundsPromise, getStandingsExcludedRoundIds(supabaseEnv)])
+        .then(([rounds, excluded]) => buildRoundContexts(rounds, excluded).get(subsessionId)?.displayRoundNumber ?? null)
+        .catch((err) => {
+          console.error('Failed to load round number for incident subtitle:', err);
+          return null;
+        })
+    : Promise.resolve(null),
+  // Whether drivers can still submit incidents, which holds Post Report back. Both reads fall back on failure.
+  showPostReport && roundForReads
+    ? getReportingPeriodHours(supabaseEnv).then((hours) =>
+        getReportingWindowForRound(supabaseEnv, subsessionId, roundForReads.start_time, hours),
+      )
+    : Promise.resolve(null),
 ]);
+const postState: PostReportState = postReportState(reportingWindow);
+const subtitle = round ? incidentSubtitle(round.start_time, round.season_label, displayRoundNumber) : '';
 
 /** "#14 Jane Doe" — this round's drivers first, then the full roster (owed penalties can be for drivers not in this round). */
 function driverLabel(driverId: string): string {
@@ -950,23 +991,18 @@ if (loadError) markUncacheable(Astro);
             {roundPenaltyFlash}
           </p>
         )}
-        {isAdmin && !roundPosted && !viewReports && (
-          <p role="status" class="mt-4 rounded-lg border border-brand-gold/30 bg-brand-gold/10 px-4 py-3 text-sm text-white/80">
-            This incident report isn't posted yet, so only admins can see it. Post it from
-            <a href="/admin/incident-reporting" class="ml-1 underline">Admin &rarr; Incident Reporting</a>.
+        {postFailedFlash && (
+          <p role="alert" class="mt-4 rounded-lg border border-brand-pink/30 bg-brand-pink/10 px-4 py-3 text-sm text-white/80" data-testid="post-report-failed">
+            {postFailedFlash}
           </p>
         )}
         <span hidden data-page-title={`${viewReports ? 'Reported Incidents' : 'Incident Report'}: ${round.track_name}`}></span>
         <h1 class="reveal mt-3 font-display text-2xl sm:text-5xl" style="transition-delay: 40ms">
-          {/* On mobile the track name drops to its own line in the body font (Logan). "Reported Incidents"
-             is the steward's View Incidents mode. */}
-          {viewReports ? 'Reported Incidents' : 'Incident Report'}:{' '}
-          <span class="mt-1 block font-body text-lg not-italic sm:mt-0 sm:inline sm:font-display sm:text-5xl sm:italic">
-            {round.track_name}
-          </span>
+          {/* "Reported Incidents" is the steward's View Incidents mode. */}
+          {viewReports ? 'Reported Incidents' : 'Incident Report'}
         </h1>
-        <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms">
-          {formatDate(round.start_time)}
+        <p class="reveal mt-3 text-white/60" style="transition-delay: 80ms" data-testid="incident-subtitle">
+          {subtitle}
         </p>
 
         {isAdmin && (
@@ -978,19 +1014,29 @@ if (loadError) markUncacheable(Astro);
             >
               {viewReports ? reportToggleLabel : `Review Submissions${openReportCount > 0 ? ` (${openReportCount})` : ''}`}
             </a>
-            {!viewReports && (
-              <div class="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-open-incident-dialog
-                  class="btn btn-primary"
-                >
-                  Add Incident
+            {showPostReport && (
+              postState === 'disabled' ? (
+                // aria-disabled, not disabled: the button stays focusable so the tip can show (IconTip).
+                <IconTip label="Incident submissions still open.">
+                  <button
+                    type="button"
+                    class="btn btn-primary cursor-not-allowed opacity-40 hover:bg-transparent"
+                    aria-disabled="true"
+                    aria-describedby="post-report-disabled-reason"
+                    title="Incident submissions still open."
+                    data-open-post-report
+                    data-testid="post-report-button"
+                  >
+                    Post Report
+                  </button>
+                  {/* The tip is aria-hidden, so screen readers get the reason from here. */}
+                  <span id="post-report-disabled-reason" class="sr-only">Incident submissions still open.</span>
+                </IconTip>
+              ) : (
+                <button type="button" class="btn btn-primary" data-open-post-report data-testid="post-report-button">
+                  Post Report
                 </button>
-                {roundPenaltyData.available && (
-                  <button type="button" data-add-round-penalty class="btn btn-primary">Add Round Penalty</button>
-                )}
-              </div>
+              )
             )}
           </div>
         )}
@@ -1024,7 +1070,16 @@ if (loadError) markUncacheable(Astro);
         )}
 
         {viewReports && !showIncidentList && (
-          <p class="mt-6 text-white/60">No submitted incidents for this round.</p>
+          <>
+            {/* No filter row on an empty round, so the buttons sit above the message. */}
+            <div class="mt-6 flex flex-wrap items-center gap-2" data-reported-actions>
+              <button type="button" data-open-incident-dialog class="btn btn-primary btn-sm">Add Incident</button>
+              {roundPenaltyData.available && (
+                <button type="button" data-add-round-penalty class="btn btn-primary btn-sm">Add Round Penalty</button>
+              )}
+            </div>
+            <p class="mt-4 text-white/60">No submitted incidents for this round.</p>
+          </>
         )}
 
         {showIncidentList && (
@@ -1079,16 +1134,22 @@ if (loadError) markUncacheable(Astro);
                   {FILTER_LABELS[f]} ({filterCounts[f]})
                 </button>
               ))}
-              {/* Desktop: the report link sits at the right end of the filter row (BR2.2); phones keep the one
-                  under the title. */}
-              {isAdmin && (
-                <a
-                  href={editReportHref}
-                  class="btn btn-neutral btn-sm hidden lg:ml-auto lg:inline-flex"
-                  data-testid="incident-view-toggle-desktop"
-                >
-                  {reportToggleLabel}
-                </a>
+{/* Right end of the filter row: the report link (desktop; phones keep the one under the title), then
+                  Add Incident and Add Round Penalty. */}
+              {viewReports && (
+                <div class="flex flex-wrap items-center gap-2 lg:ml-auto" data-reported-actions>
+                  <a
+                    href={editReportHref}
+                    class="btn btn-neutral btn-sm hidden lg:inline-flex"
+                    data-testid="incident-view-toggle-desktop"
+                  >
+                    {reportToggleLabel}
+                  </a>
+                  <button type="button" data-open-incident-dialog class="btn btn-primary btn-sm">Add Incident</button>
+                  {roundPenaltyData.available && (
+                    <button type="button" data-add-round-penalty class="btn btn-primary btn-sm">Add Round Penalty</button>
+                  )}
+                </div>
               )}
             </div>
             <ul class="flex flex-col gap-2" data-incident-list>
@@ -1116,8 +1177,6 @@ if (loadError) markUncacheable(Astro);
                 const dimClass = r.status === 'open' ? '' : 'opacity-50';
                 const decisionPenalty = r.status === 'logged' ? decisionPenaltyFor(r) : null;
                 const turnCorners = reportMapUrl ? matchCorners(r.turn ?? '', reportMapCorners) : [];
-                // The clip and the map beside the text on desktop (FR1.6); phones keep the icon buttons.
-                const hasMedia = Boolean(r.video_url) || Boolean(reportMapUrl);
                 return (
                 // The `hidden` attribute sits on a plain <li>: a display utility on the same element would beat it.
                 <li data-filter-group={filterGroup} data-testid="incident-report-card" hidden={filterGroup !== activeFilter}>
@@ -1161,31 +1220,15 @@ if (loadError) markUncacheable(Astro);
                     </div>
                   )}
                   </div>
-                  {hasMedia && (
-                    // Desktop only (BR1.5): display:none keeps the lazy images unloaded on phones. The video is a
-                    // thumbnail the size of the map that opens the popup player (BR2.3).
-                    <div class="hidden flex-none items-start gap-3 lg:flex" data-report-media>
-                      {r.video_url && (
-                        <ClipThumbnail
-                          url={r.video_url}
-                          title={`Incident${reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`}
-                        />
-                      )}
-                      {reportMapUrl && (
-                        <div
-                          class="layout-map-plate w-36 flex-none border border-white/10 xl:w-40"
-                          role="img"
-                          aria-label={`Map: ${reportSubtitle(r)}`}
-                          data-testid="report-inline-map"
-                        >
-                          <img class="layout-map-img" src={reportMapUrl} alt="" decoding="async" loading="lazy" />
-                          {turnCorners.map((c) => (
-                            <span class="map-turn-ring" style={`left: ${c.x}%; top: ${c.y}%`}></span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Desktop only (BR1.5): display:none keeps the lazy images unloaded on phones. */}
+                  <IncidentCardMedia
+                    videoUrl={r.video_url}
+                    videoTitle={`Incident${reportNumberById.get(r.id) ? ` ${reportNumberById.get(r.id)}` : ''}: ${reportCarsTitle(r)}`}
+                    mapUrl={reportMapUrl}
+                    corners={turnCorners}
+                    mapLabel={reportSubtitle(r)}
+                    class="hidden lg:flex"
+                  />
                   </div>
 
                   <div class="mt-3 border-t border-white/10 pt-3">
@@ -1395,6 +1438,10 @@ if (loadError) markUncacheable(Astro);
                 }`;
                 // Closed and dismissed cards fade their text, but keep their buttons at full strength.
                 const appealDim = a.status === 'open' ? '' : 'opacity-50';
+                // The appealed incident's clip, and the map only when its turn matches a numbered corner.
+                const appealCorners = reportMapUrl && appealed ? matchCorners(appealed.turn ?? '', reportMapCorners) : [];
+                const appealMapUrl = appealCorners.length > 0 ? reportMapUrl : null;
+                const appealVideoUrl = appealed?.video_url ?? null;
                 const badgeClass =
                   card.badge === 'Open'
                     ? 'border-brand-gold/60 text-brand-gold'
@@ -1411,7 +1458,8 @@ if (loadError) markUncacheable(Astro);
                     data-appeal-status={a.status}
                     hidden={viewReports && activeFilter !== 'appeals'}
                   >
-                    <div class={appealDim}>
+                    <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:gap-4">
+                    <div class={`min-w-0 flex-1 ${appealDim}`}>
                       <div class="flex flex-wrap items-center justify-between gap-2">
                         <p class="font-semibold text-white/80">
                           {appealed?.incident_number ? `Incident ${formatIncidentNumber(appealed.incident_number)}` : 'Incident'}
@@ -1459,6 +1507,15 @@ if (loadError) markUncacheable(Astro);
                           <p class="mt-1 text-[11px] text-white/40">Closed by {card.outcome.closedBy} · {etTime(card.outcome.closedAt)}</p>
                         </div>
                       )}
+                    </div>
+                    <IncidentCardMedia
+                      videoUrl={appealVideoUrl}
+                      videoTitle={appealTitle}
+                      mapUrl={appealMapUrl}
+                      corners={appealCorners}
+                      mapLabel={appealTitle}
+                      testId="appeal-card-media"
+                    />
                     </div>
 
                     <div class="mt-3 border-t border-white/10 pt-3">
@@ -1634,7 +1691,7 @@ if (loadError) markUncacheable(Astro);
           <div class="mt-10">
             <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">{sessionLabelByValue.get(key)}</h3>
             <div class="mt-2 rounded-xl border border-white/10" data-sticky-thead>
-              <table class="w-full border-collapse">
+              <table class="data-table w-full border-collapse">
                 <thead>
                   <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
                     {/* Mobile shows #, Lap, Driver and PP; md+ adds Involved, Time, Pts, Pos Δ and Pts Δ.
@@ -1750,10 +1807,10 @@ if (loadError) markUncacheable(Astro);
         ))}
 
         {!viewReports && summaryRows.length > 0 && (
-          <div id={ROUND_SUMMARY_ANCHOR} class="mt-12 scroll-mt-24">
-            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Round Summary</h3>
+          <div id={ROUND_SUMMARY_ANCHOR} class="mt-12 scroll-mt-24 border-t border-white/10 pt-8" data-testid="penalty-summary">
+            <h3 class="text-xs font-semibold uppercase tracking-widest text-white/40">Penalty Summary</h3>
             <div class="mt-2 overflow-x-auto rounded-xl border border-white/10">
-              <table class="w-full border-collapse">
+              <table class="data-table w-full border-collapse">
                 <thead>
                   <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
                     <th class="py-3 pl-4 pr-3 font-medium">Driver</th>
@@ -1922,8 +1979,9 @@ if (loadError) markUncacheable(Astro);
           </div>
         )}
 
-        {!viewReports && roundPenaltyData.available && isAdmin && (
-          <div id={ROUND_PENALTIES_ANCHOR}>
+        {/* On both screens: Add Round Penalty sits on Reported Incidents, editing on the Incident Report. */}
+        {roundPenaltyData.available && isAdmin && (
+          <div id={viewReports ? undefined : ROUND_PENALTIES_ANCHOR}>
             {isAdmin && (
               <>
                 {/* Shared add/edit popup, same pattern as the incident dialog — filled by
@@ -1989,6 +2047,25 @@ if (loadError) markUncacheable(Astro);
               </>
             )}
           </div>
+        )}
+
+        {showPostReport && (
+          // Opened by the Post Report button (incidents.astro); Cancel comes first so it takes the focus.
+          <dialog
+            data-post-report-dialog
+            aria-labelledby="post-report-dialog-title"
+            class="w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-0 text-white backdrop:bg-black/60"
+          >
+            <form method="POST" action={formAction} data-astro-reload class="flex flex-col gap-3 p-5">
+              <input type="hidden" name="intent" value="post-report" />
+              <h4 id="post-report-dialog-title" class="font-display text-xl">Warning</h4>
+              <p class="text-sm text-white/80">This will send website and email notifications to all drivers from this round.</p>
+              <div class="flex justify-end gap-2">
+                <button type="button" data-close-post-report-dialog class="btn btn-neutral" autofocus>Cancel</button>
+                <button type="submit" class="btn btn-primary">Post Report</button>
+              </div>
+            </form>
+          </dialog>
         )}
 
         {isAdmin && (
@@ -2388,7 +2465,9 @@ if (loadError) markUncacheable(Astro);
               />
               <span class="mt-1 block text-[11px] text-white/30">Images, PDFs, videos (MP4/WebM/MOV) or text files.</span>
             </label>
-            <p data-appeal-error class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90"></p>
+            {/* Outside the label, so a remove button never opens the file picker (src/scripts/appealAttachments.ts). */}
+            <ul data-appeal-file-list class="hidden flex flex-col gap-1.5" aria-label="Attached files"></ul>
+            <p data-appeal-error aria-live="polite" class="hidden rounded-md border border-brand-pink/30 bg-brand-pink/10 p-2 text-xs text-brand-pink/90"></p>
             <div class="flex justify-end gap-2">
               <button type="button" data-close-appeal-dialog class="btn btn-neutral">Cancel</button>
               <button type="submit" class="btn btn-gold">Submit Appeal</button>

@@ -74,13 +74,14 @@ describe('the report card', () => {
 
   it('hides the phone icon buttons on desktop, where the clip thumbnail and map sit beside the text', () => {
     expect(list.match(/class=\{`\$\{reportIconBtn\} lg:hidden`\}/g)).toHaveLength(2);
-    expect(list).toContain('class="hidden flex-none items-start gap-3 lg:flex" data-report-media');
+    // The clip and map are the shared IncidentCardMedia block, desktop only on report cards.
+    expect(list).toMatch(/<IncidentCardMedia\s+videoUrl=\{r\.video_url\}[\s\S]*?mapUrl=\{reportMapUrl\}[\s\S]*?class="hidden lg:flex"/);
     // FR1.6: the clip and map sit above the action buttons, which run full width below them.
-    expect(list.indexOf('data-report-media')).toBeLessThan(list.indexOf('data-report-actions'));
-    expect(list).toMatch(/<ClipThumbnail\s+url=\{r\.video_url\}/);
-    expect(list).toMatch(
-      /<img class="layout-map-img" src=\{reportMapUrl\} alt="" decoding="async" loading="lazy" \/>/,
-    );
+    expect(list.indexOf('<IncidentCardMedia')).toBeLessThan(list.indexOf('data-report-actions'));
+    const media = SRC['/src/components/IncidentCardMedia.astro'];
+    expect(media).toContain('data-report-media');
+    expect(media).toContain('<ClipThumbnail url={videoUrl} title={videoTitle} />');
+    expect(media).toMatch(/<img class="layout-map-img" src=\{mapUrl\} alt="" decoding="async" loading="lazy" \/>/);
   });
 
   it('hides Add to Report, Dismiss and Reopen from a steward involved in the report', () => {

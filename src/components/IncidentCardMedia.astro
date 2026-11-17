@@ -1,0 +1,39 @@
+---
+// An incident card's clip and track map, side by side: the reported-incident cards (desktop only) and the
+// appeal cards. The clip is a thumbnail that opens the page's video popup; the map circles the incident's
+// turn(s). Renders nothing when there's neither a clip nor a map.
+import ClipThumbnail from './ClipThumbnail.astro';
+import type { MapCorner } from '../lib/turnMatch';
+
+interface Props {
+  videoUrl: string | null | undefined;
+  videoTitle: string;
+  mapUrl: string | null;
+  corners: MapCorner[];
+  mapLabel: string;
+  /** Layout classes for the wrapper, such as `hidden lg:flex` (display:none keeps lazy images unloaded). */
+  class?: string;
+  testId?: string;
+}
+
+const { videoUrl, videoTitle, mapUrl, corners, mapLabel, class: className = 'flex', testId } = Astro.props;
+---
+
+{(videoUrl || mapUrl) && (
+  <div class={`flex-none items-start gap-3 ${className}`} data-report-media data-testid={testId}>
+    {videoUrl && <ClipThumbnail url={videoUrl} title={videoTitle} />}
+    {mapUrl && (
+      <div
+        class="layout-map-plate w-36 flex-none border border-white/10 xl:w-40"
+        role="img"
+        aria-label={`Map: ${mapLabel}`}
+        data-testid="report-inline-map"
+      >
+        <img class="layout-map-img" src={mapUrl} alt="" decoding="async" loading="lazy" />
+        {corners.map((c) => (
+          <span class="map-turn-ring" style={`left: ${c.x}%; top: ${c.y}%`}></span>
+        ))}
+      </div>
+    )}
+  </div>
+)}

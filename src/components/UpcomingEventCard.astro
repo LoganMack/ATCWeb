@@ -88,8 +88,8 @@ const icsFilename = `atc-${slugify(circuitName)}-${event.event_date}.ics`;
       </div>
     </div>
 
-    {/* A borderless <table> so the ET time, in-sim time and detail line up across session rows. */}
-    <table class="mt-4 w-full border-separate border-spacing-y-1.5 text-left text-sm">
+    {/* A borderless <table class="data-table"> so the ET time, in-sim time and detail line up across session rows. */}
+    <table data-layout-table class="mt-4 w-full border-separate border-spacing-y-1.5 text-left text-sm">
       <tbody>
         {sessions.map((s) => (
           <tr class="text-white/70">

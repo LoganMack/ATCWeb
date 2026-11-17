@@ -7,6 +7,7 @@ import {
   buildRaceCard,
   formatDuration,
   gridSize,
+  raceCpi,
   raceWinner,
   wetAffectedFor,
   winnerRaceTime,
@@ -116,6 +117,8 @@ describe('buildRaceCard (FR3.5, FR3.6)', () => {
       gridSize: '2',
       sof: '1850',
       raceTime: '33:20',
+      // No corners passed and no incidents on these rows.
+      cpi: '—',
       wetAffected: 'Yes',
     });
   });
@@ -123,6 +126,7 @@ describe('buildRaceCard (FR3.5, FR3.6)', () => {
   it('has no Race Time in Qualifying and Practice, and — for a missing SOF', () => {
     const card = buildRaceCard({ ...input, strengthOfField: null, session: { kind: 'qualifying' } });
     expect(card.raceTime).toBeNull();
+    expect(card.cpi).toBeNull();
     expect(card.sof).toBe('—');
     expect(card.wetAffected).toBe('No');
   });
@@ -136,5 +140,47 @@ describe('buildRaceCard (FR3.5, FR3.6)', () => {
       session: { kind: 'race', raceNumber: 1 },
     });
     expect(card).toMatchObject({ gridSize: '—', raceTime: '—', wetAffected: 'No' });
+  });
+});
+
+describe('raceCpi (results-edit US9.4)', () => {
+  it("is the layout's corners times every lap driven, over every incident, to one decimal", () => {
+    // 12 corners × (20 + 20 + 10) laps = 600 corners; 4 + 3 + 1 = 8 incidents.
+    const rows = [
+      row('a', 1, { incidents: 4 }),
+      row('b', 2, { incidents: 3 }),
+      row('c', 3, { laps: 10, incidents: 1 }),
+    ];
+    expect(raceCpi(12, rows)).toBe('75.0');
+  });
+
+  it('shows — when the race had no incidents or the corners are unknown', () => {
+    expect(raceCpi(12, [row('a', 1, { incidents: 0 }), row('b', 2, { incidents: 0 })])).toBe('—');
+    expect(raceCpi(null, [row('a', 1, { incidents: 4 })])).toBe('—');
+  });
+
+  it('ignores missing incident counts and missing laps', () => {
+    const rows = [
+      row('a', 1, { incidents: 2 }),
+      row('b', 2, { incidents: null }),
+      row('c', 3, { laps: null, incidents: 1 }),
+    ];
+    // 10 corners × (20 + 20) laps = 400; 2 + 1 = 3 incidents.
+    expect(raceCpi(10, rows)).toBe('133.3');
+  });
+
+  it('feeds the race card in race views only', () => {
+    const rows = [row('a', 1, { incidents: 2 }), row('b', 2, { incidents: 2 })];
+    const base = {
+      startTime: '2026-03-04T23:00:00Z',
+      numDrivers: null,
+      strengthOfField: 1850,
+      roundRows: rows,
+      raceRows: rows,
+      wetFlags: null,
+      layoutCorners: 15,
+    };
+    expect(buildRaceCard({ ...base, session: { kind: 'race', raceNumber: 1 } }).cpi).toBe('150.0');
+    expect(buildRaceCard({ ...base, session: { kind: 'practice' } }).cpi).toBeNull();
   });
 });

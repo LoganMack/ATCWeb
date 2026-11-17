@@ -47,7 +47,7 @@ describe('round results page (FR3.3, FR3.4)', () => {
 
   it('makes every results column sortable and drops the average-lap hover', () => {
     const table = SRC['/src/components/ResultsTable.astro'];
-    expect(table).toContain('<table class="w-full border-collapse" data-sortable>');
+    expect(table).toContain('<table class="data-table w-full border-collapse" data-sortable>');
     for (const key of [
       'pos',
       'driver',

@@ -126,6 +126,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
   // car when editing. Qualifying/practice penalties apply to race 1 (scoringRaceNumber). Ticking a car at fault
   // also ticks it as involved (syncInvolvedWithFaults), unticking only what it ticked itself.
   import { initFaultPicker, setCardField } from '../../../scripts/faultCards';
+  import { attachAppealFiles } from '../../../scripts/appealAttachments';
   import { ppPenaltyTier } from '../../../lib/ppPenaltyTable';
 
   function initIncidentPage() {
@@ -164,25 +165,26 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           errorEl.textContent = msg;
           errorEl.classList.toggle('hidden', msg === '');
         };
+        // The listed files with their remove buttons; refuses files over 5 MB or past the third as they're chosen.
+        const attachments = attachAppealFiles({
+          input: fileInput,
+          list: appealDialog.querySelector<HTMLElement>('[data-appeal-file-list]')!,
+          message: errorEl,
+        });
         appealBtn.addEventListener('click', () => {
           refreshAppealButton();
           if (appealBtn.disabled) return;
           appealDialog.querySelector<HTMLInputElement>('[data-appeal-penalty-id]')!.value = currentPenaltyId;
           const label = appealDialog.querySelector<HTMLElement>('[data-appeal-incident-label]');
           if (label) label.textContent = currentIncidentLabel !== '—' ? `: Incident ${currentIncidentLabel}` : '';
-          showError('');
+          attachments.reset();
           mobileDialog.close();
           appealDialog.showModal();
         });
         appealDialog.querySelectorAll<HTMLButtonElement>('[data-close-appeal-dialog]').forEach((btn) => {
           btn.addEventListener('click', () => appealDialog.close());
         });
-        fileInput.addEventListener('change', () => {
-          const files = Array.from(fileInput.files ?? []);
-          if (files.length > 3) showError('You can attach up to 3 files.');
-          else if (files.some((f) => f.size > 5 * 1024 * 1024)) showError('Each file must be 5 MB or smaller.');
-          else showError('');
-        });
+        // A backstop: the list above already keeps within the limits.
         appealForm.addEventListener('submit', (event) => {
           const files = Array.from(fileInput.files ?? []);
           if (files.length > 3) {
@@ -831,7 +833,25 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 
   document.addEventListener('astro:page-load', initRoundPenaltyDialog);
 
-  // The Round Summary row's Edit: one popup per driver with a checkbox per
+  // Post Report's Warning popup (admin and staff, unposted rounds only). The button stays focusable while
+  // incident submissions are open (aria-disabled), so clicks then do nothing; closing returns focus to it.
+  function initPostReportDialog() {
+    const dialog = document.querySelector<HTMLDialogElement>('[data-post-report-dialog]');
+    const trigger = document.querySelector<HTMLButtonElement>('[data-open-post-report]');
+    if (!dialog || !trigger) return;
+    trigger.addEventListener('click', () => {
+      if (trigger.getAttribute('aria-disabled') === 'true') return;
+      dialog.showModal();
+    });
+    dialog.querySelectorAll<HTMLButtonElement>('[data-close-post-report-dialog]').forEach((btn) => {
+      btn.addEventListener('click', () => dialog.close());
+    });
+    dialog.addEventListener('close', () => trigger.focus());
+  }
+
+  document.addEventListener('astro:page-load', initPostReportDialog);
+
+  // The Penalty Summary row's Edit: one popup per driver with a checkbox per
   // round penalty, ticked for the ones already saved and the ones the round's
   // PP total calls for (Save then records those as owed).
   function initDriverRoundPenaltiesDialog() {

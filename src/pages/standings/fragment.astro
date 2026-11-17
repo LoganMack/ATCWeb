@@ -43,6 +43,7 @@ import { driversSelect, getTeamsBasic, getAllTeamSeasonLogosSafe } from '../../l
 import { loadDriverStandingsView, type StandingsViewRefs } from '../../lib/results/standingsView';
 import { isChampionshipSeason } from '../../lib/results/shared';
 import { formatDistanceKm } from '../../lib/results/format';
+import { formatCpi } from '../../lib/results/cpi';
 import { classTagFull } from '../../lib/classColors';
 import { slugify } from '../../lib/slug';
 
@@ -514,7 +515,7 @@ if (loadError) markUncacheable(Astro);
 
     {!loadError && championship === 'drivers' && mode === 'list' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse" data-sortable data-kind="drivers" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks} data-denoms={JSON.stringify(colDenoms)}>
+        <table id="standings-table" class="data-table w-full border-collapse" data-sortable data-kind="drivers" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks} data-denoms={JSON.stringify(colDenoms)}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
@@ -526,6 +527,9 @@ if (loadError) markUncacheable(Astro);
               <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top5">Top 5<span class="lowercase">s</span></th>
               <th class="hidden py-3 pr-3 text-center font-medium md:table-cell" data-sort-key="top10">Top 10<span class="lowercase">s</span></th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="poles">Poles</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="laps">Laps</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="led">Led</th>
+              <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="cpi"><abbr title="Corners per Incident" class="no-underline">CPI</abbr></th>
               <th class="hidden py-3 pr-3 text-center font-medium lg:table-cell" data-sort-key="starts">Starts</th>
               <th class="hidden py-3 pr-3 text-center font-medium sm:table-cell" data-sort-key="appearances">Apps</th>
               <th class="py-3 pr-4 text-center font-medium" data-sort-key="penalty" title="Penalty Points">PP</th>
@@ -607,6 +611,11 @@ if (loadError) markUncacheable(Astro);
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top5" data-live="top5">{row.top5s}</td>
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 md:table-cell" data-col="top10" data-live="top10">{row.top10s}</td>
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="poles" data-live="poles">{row.poles}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="laps" data-live="laps">{ext?.laps ?? 0}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="led" data-live="led">{ext?.lapsLed ?? 0}</td>
+                  <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="cpi" data-live="cpi" data-sort-value={ext?.cornersPerIncident ?? ''} data-sort-missing={ext?.cornersPerIncident == null ? '' : undefined}>
+                    {formatCpi(ext?.totalCorners ?? null, ext?.incidents ?? 0)}
+                  </td>
                   <td class="hidden py-2.5 pr-3 text-center text-white/60 lg:table-cell" data-col="starts" data-live="starts" data-sort-value={row.starts}>
                     {row.starts} <span class="text-white/30">of {maxStarts}</span>
                   </td>
@@ -617,8 +626,8 @@ if (loadError) markUncacheable(Astro);
                     {ext?.penaltyPoints ?? 0}
                   </td>
                 </tr>
-                <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
-                  <td colspan={view === 'overall' ? 12 : 11} class="px-4 py-4 sm:pl-11">
+                <tr data-detail-row data-no-stripe class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+                  <td colspan={view === 'overall' ? 15 : 14} class="px-4 py-4 sm:pl-11">
                     {/* This driver's own Matrix line: one logo + points per round, dropped rounds struck through, ● on a penalised round. Follows the Standings by Round slider. */}
                     <div class="mb-4 flex flex-wrap items-end gap-x-1 gap-y-2 border-b border-white/10 pb-4">
                       {matrixColumns.map((col, i) => {
@@ -651,11 +660,12 @@ if (loadError) markUncacheable(Astro);
                       </div>
                     </div>
                     <div class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
-                      <div>
+                      {/* Laps, Led and Corners / Incident have their own columns from lg up. */}
+                      <div class="lg:hidden">
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Laps</div>
                         <div class="mt-0.5 text-sm text-white/90" data-live="dlaps">{ext?.laps ?? 0}</div>
                       </div>
-                      <div>
+                      <div class="lg:hidden">
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Led</div>
                         <div class="mt-0.5 text-sm text-white/90" data-live="dled">{ext?.lapsLed ?? 0}</div>
                       </div>
@@ -672,10 +682,10 @@ if (loadError) markUncacheable(Astro);
                           {ext?.incidentsPerLap !== null && ext?.incidentsPerLap !== undefined ? ext.incidentsPerLap.toFixed(2) : '—'}
                         </div>
                       </div>
-                      <div>
+                      <div class="lg:hidden">
                         <div class="text-[10px] uppercase tracking-wide text-white/30">Corners / Incident</div>
                         <div class="mt-0.5 text-sm text-white/90" data-live="dcpi">
-                          {ext?.cornersPerIncident !== null && ext?.cornersPerIncident !== undefined ? ext.cornersPerIncident.toFixed(1) : '—'}
+                          {formatCpi(ext?.totalCorners ?? null, ext?.incidents ?? 0)}
                         </div>
                       </div>
                       <div>
@@ -715,7 +725,7 @@ if (loadError) markUncacheable(Astro);
 
     {!loadError && championship === 'drivers' && mode === 'matrix' && standings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse text-sm" data-kind="drivers" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
+        <table id="standings-table" class="data-table w-full border-collapse text-sm" data-kind="drivers" data-drop-weeks={matrixDropWeeks} data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>
@@ -804,7 +814,7 @@ if (loadError) markUncacheable(Astro);
 
     {!loadError && !deltaNotActiveForSeason && championship === 'teams' && mode === 'list' && teamStandings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse" data-sortable data-kind="teams" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
+        <table id="standings-table" class="data-table w-full border-collapse" data-sortable data-kind="teams" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="position">Pos</th>
@@ -848,7 +858,7 @@ if (loadError) markUncacheable(Astro);
                 <td class="hidden py-2.5 pr-3 text-center text-white/60 sm:table-cell" data-col="starts" data-live="starts" data-sort-value={row.starts}>{row.starts}</td>
                 <td class="hidden py-2.5 pr-4 text-center text-white/60 sm:table-cell" data-col="appearances" data-live="apps" data-sort-value={row.appearances}>{row.appearances}</td>
               </tr>
-              <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+              <tr data-detail-row data-no-stripe class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
                 <td colspan={5} class="px-4 py-4 sm:pl-11">
                   {/* The team's score for each round (its top 2 scorers per race, summed), one logo per round — same strip as a driver's row, doubled in size. Follows the Standings by Round slider. */}
                   <div class="mb-4 flex flex-wrap items-end gap-x-1 gap-y-2 border-b border-white/10 pb-4">
@@ -878,7 +888,7 @@ if (loadError) markUncacheable(Astro);
                     return (
                       <div class="overflow-x-auto rounded-xl border border-white/10">
                         {/* Header cells opt out of the page's sticky table headers ([data-sticky-thead] in global.css) — a nested table's header would otherwise stick to the top of the page and sit on top of the first row. */}
-                        <table class="w-full min-w-[640px] border-collapse">
+                        <table class="data-table w-full min-w-[640px] border-collapse">
                           <thead>
                             <tr class="border-b border-white/10 text-left text-[10px] uppercase tracking-wide text-white/30">
                               <th class="!static !bg-transparent !shadow-none py-2 pl-3 pr-3 font-medium">Round</th>
@@ -956,7 +966,7 @@ if (loadError) markUncacheable(Astro);
 
     {!loadError && !deltaNotActiveForSeason && championship === 'teams' && mode === 'matrix' && teamStandings.length > 0 && (
       <div class="mt-8 rounded-xl border border-white/10" data-sticky-thead>
-        <table id="standings-table" class="w-full border-collapse text-sm" data-kind="teams" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
+        <table id="standings-table" class="data-table w-full border-collapse text-sm" data-kind="teams" data-drop-weeks="0" data-min-drop-rounds={MIN_ROUNDS_FOR_DROPS} data-can-drop-final={String(matrixCanDropFinalRound)} data-driver-drop-weeks={driverDropWeeks}>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium">Pos</th>

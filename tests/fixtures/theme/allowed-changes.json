@@ -48,5 +48,30 @@
     "file": "src/pages/drivers/[id]/fragment.astro",
     "classes": ["peer-checked/delta:bg-white/10", "peer-checked/delta:text-white", "peer-focus-visible/delta:outline", "peer-focus-visible/delta:outline-2", "peer-focus-visible/delta:outline-offset-2"],
     "reason": "Profile Bests: the new Delta filter label gets the same selected look as the existing Overall / Class toggle labels (records-nav-polls BR2.3); the peer name is new, so before.css has no rule for it."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["h-[52px]", "object-cover", "ring-2", "rounded-full", "w-[52px]"],
+    "reason": "Home Previous Result podium: each driver photo gets a 2px ring in its place colour (display-polish FR7); the ring is new, so before.css has none."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["border", "border-dashed", "border-white/25", "flex", "font-display", "h-[52px]", "items-center", "justify-center", "ring-2", "rounded-full", "text-lg", "text-white/50", "w-[52px]"],
+    "reason": "Home Previous Result podium: a driver with no photo shows a dashed themed placeholder with the place ring (display-polish FR7)."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["ring-brand-gold"],
+    "reason": "Home Previous Result podium: 1st place ring in brand gold (display-polish FR7)."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["ring-white/60"],
+    "reason": "Home Previous Result podium: 2nd place ring in the themed silver (white in dark, ink in light) (display-polish FR7)."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["ring-brand-pink"],
+    "reason": "Home Previous Result podium: 3rd place ring in brand pink-red (display-polish FR7)."
   }
 ]

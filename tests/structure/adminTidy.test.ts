@@ -61,7 +61,6 @@ describe('Admin > Incident Reporting (FR3)', () => {
       'Logged',
       'Post Date',
       '',
-      'Posted',
     ]);
     expect(head).toMatch(
       /<th class="hidden px-3 py-3 font-semibold lg:table-cell"><span class="sr-only">Logo/,
@@ -70,16 +69,10 @@ describe('Admin > Incident Reporting (FR3)', () => {
       '<td class="hidden px-3 py-2 lg:table-cell" data-testid="incident-reporting-logo">',
     );
     expect(REPORTING).toContain('alt={r.trackName}');
-    expect(REPORTING).toContain('colspan="9"');
+    expect(REPORTING).toContain('colspan="8"');
     expect(REPORTING).not.toContain(': {r.trackName}');
-    // The Posted switch's form is the last cell in the row.
-    const row = REPORTING.slice(
-      REPORTING.indexOf('{visibleRows.map('),
-      REPORTING.indexOf('{visibleRows.length === 0'),
-    );
-    expect(row.lastIndexOf('data-post-switch')).toBeGreaterThan(
-      row.lastIndexOf('incident-reporting-report-link'),
-    );
+    // Rounds are posted from the Incident Report now, so the row has no Posted switch.
+    expect(REPORTING).not.toContain('data-post-switch');
   });
 
   it('opens the round incident page with from=reporting from both links (BR2.7)', () => {

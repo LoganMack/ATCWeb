@@ -787,6 +787,8 @@ begin
       'score_round_preview', 'sync_results_with_roster', 'edit_incident_report_submission',
       'incident_report_order', 'set_round_incident_posted', 'set_incident_report_video', 'set_incident_video',
       'incident_appeal_comments_for_round',
+      -- Refuse callers who are not full admins (is_full_admin() check in the body); returns counts only:
+      'set_race_incidents',
       -- Return no names (counts, codes, status rows; incident_submissions gives car numbers only):
       'can_appeal_penalty', 'get_news_post_view_counts', 'round_stats_status', 'claim_broadcaster',
       'incident_submissions', 'round_event_matches', 'close_incident_appeal', 'save_incident_appeal_comment',
