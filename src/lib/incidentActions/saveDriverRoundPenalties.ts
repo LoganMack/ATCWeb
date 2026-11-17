@@ -14,7 +14,7 @@ import { roundPenaltyBack } from './shared';
 import type { IncidentActionContext, IncidentActionRedirect } from './context';
 
 /**
- * `save-driver-round-penalties` (admin only), the Round Summary row's Edit. Ticked kinds are added, unticked
+ * `save-driver-round-penalties` (admin only), the Penalty Summary row's Edit. Ticked kinds are added, unticked
  * ones removed, served ones too: this popup is the one place a penalty is waived. Separate writes, not a
  * transaction: on a partial failure the earlier writes stay, are logged, and the flash says to check.
  */

@@ -99,9 +99,9 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       panel.querySelectorAll<HTMLElement>('tr[data-expand-row][data-starts]').forEach((row) => {
         total++;
         const hide = Number(row.dataset.starts) < min;
-        row.style.display = hide ? 'none' : '';
+        row.hidden = hide;
         const detail = row.nextElementSibling;
-        if (detail instanceof HTMLElement && detail.hasAttribute('data-detail-row')) detail.style.display = hide ? 'none' : '';
+        if (detail instanceof HTMLElement && detail.hasAttribute('data-detail-row')) detail.hidden = hide;
         if (!hide) visible++;
       });
       panel.querySelector<HTMLElement>('[data-min-starts-empty]')?.classList.toggle('hidden', visible > 0 || total === 0);

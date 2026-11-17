@@ -19,7 +19,7 @@ const { rows, showTrack = true, minWidthClass = 'min-w-[900px]' } = Astro.props;
 ---
 
 <div class="rounded-xl border border-white/10" data-sticky-thead>
-  <table class={`w-full border-collapse ${minWidthClass}`} data-sortable>
+  <table class={`data-table w-full border-collapse ${minWidthClass}`} data-sortable>
     <thead>
       <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
         {/* No Date column (BR1.2): the left padding sits on whichever cell is first at each width. */}

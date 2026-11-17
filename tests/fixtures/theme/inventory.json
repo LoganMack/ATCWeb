@@ -649,9 +649,7 @@
       "hasLightRule": false,
       "needsFixed": true,
       "fixed": "bg-fixed-white/15",
-      "files": [
-        "src/pages/admin/incident-reporting/index.astro"
-      ]
+      "files": []
     },
     {
       "class": "bg-white/5",

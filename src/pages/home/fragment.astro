@@ -7,6 +7,8 @@ import CarLogos from '../../components/CarLogos.astro';
 import TeamLogo from '../../components/TeamLogo.astro';
 import DriverFlag from '../../components/DriverFlag.astro';
 import DriverLink from '../../components/DriverLink.astro';
+import PodiumTile from '../../components/PodiumTile.astro';
+import { podiumLayout } from '../../lib/home/podium';
 import { getNewsPosts, resolveSupabaseEnv } from '../../lib/db/client';
 import { getChampionshipRoundNumbers, getUpcomingEvents } from '../../lib/db/events';
 import { eventSubtitle, finalRoundNumbers } from '../../lib/eventSubtitle';
@@ -134,7 +136,7 @@ const loadPreviousBroadcast = async () => {
 // dropdown. getPreviousResultWidget() is cheap compared with the widget.
 let previousResult = null as Awaited<ReturnType<typeof getPreviousResultWidget>>;
 // The link beside "Full race result": the round's incident report once stewards
-// have posted it, "Submit Incident Report" while the reporting window is still
+// have posted it, "Submit incident report" while the reporting window is still
 // open, and nothing in between (window closed, report not posted yet).
 let previousIncidentLink = null as { href: string; label: string } | null;
 const loadPreviousResult = async () => {
@@ -158,7 +160,7 @@ const loadPreviousResult = async () => {
     if (posted) {
       previousIncidentLink = { href: `/results/${id}/incidents`, label: 'Incident Report' };
     } else if (isReportingOpen(window)) {
-      previousIncidentLink = { href: `/results/${id}?submit=incident`, label: 'Submit Incident Report' };
+      previousIncidentLink = { href: `/results/${id}?submit=incident`, label: 'Submit incident report' };
     }
   } catch (err) {
     console.error('Failed to work out the previous result incident link:', err);
@@ -378,7 +380,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     </div>
                   </div>
 
-                  <div class="mt-4 overflow-hidden rounded-xl border border-white/10 bg-brand-ink">
+                  {/* Fixed height: the podium and the 5-row team list fill the same box as the old 5 driver rows. */}
+                  <div class="mt-4 h-[16.5rem] overflow-hidden rounded-xl border border-white/10 bg-brand-ink">
                     {previousResult.sessions.map((session) => (
                       <div data-session-panel={session.key} class={session.key === defaultPreviousResultSessionKey ? '' : 'hidden'}>
                         {session.tabs.map((tab, j) => (
@@ -386,10 +389,20 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                             {tab.rows.length === 0 ? (
                               <li class="p-4 text-sm text-white/50">No results yet.</li>
                             ) : tab.type === 'driver' ? (
-                              tab.rows.map((row) => {
+                              <>
+                                <li class="grid grid-cols-3 items-end gap-2 border-b border-white/5 px-3 pb-3 pt-3">
+                                  {podiumLayout(tab.rows).tiles.map(({ place, row }) => (
+                                    <PodiumTile
+                                      place={place}
+                                      row={row}
+                                      className={row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined}
+                                    />
+                                  ))}
+                                </li>
+                                {podiumLayout(tab.rows).rest.map(({ row }) => {
                                 const rowClassName = row.classId != null ? classes.find((c) => c.id === row.classId)?.name : undefined;
                                 return (
-                                  <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                                  <li class="list-row flex items-center gap-3 border-b border-white/5 px-4 last:border-none">
                                     <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position ?? '—'}</span>
                                     {/* "F. Lastname": this card is narrow at every width. */}
                                     <span class="min-w-0 flex-1 truncate font-semibold">
@@ -414,10 +427,11 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                                     <span class="w-[4.5rem] flex-none text-right text-sm tabular-nums text-white/60">{row.metricLabel}</span>
                                   </li>
                                 );
-                              })
+                              })}
+                              </>
                             ) : (
                               tab.rows.map((row) => (
-                                <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                                <li class="list-row flex items-center gap-3 border-b border-white/5 px-4 last:border-none">
                                   <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
                                   <TeamLogo name={row.teamName} logoUrl={row.teamLogoUrl} size="h-6 w-6" />
                                   <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>
@@ -487,7 +501,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                       const extras = carTeamExtrasByDriverId.get(row.driver.id);
                       const primaryTeam = extras?.teams[0];
                       return (
-                        <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                        <li class="list-row flex items-center gap-3 border-b border-white/5 px-4 last:border-none">
                           <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
                           {/* Same short-name treatment as the Previous Result widget's driver rows above — narrow fixed-width card. */}
                           <span class="min-w-0 flex-1 truncate font-semibold">
@@ -515,7 +529,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
                     })
                   ) : (
                     tab.rows.map((row) => (
-                      <li class="flex items-center gap-3 border-b border-white/5 px-4 py-3 last:border-none">
+                      <li class="list-row flex items-center gap-3 border-b border-white/5 px-4 last:border-none">
                         <span class="w-5 flex-none text-center font-display text-lg text-white/50">{row.position}</span>
                         <TeamLogo name={row.teamName} logoUrl={row.logoUrl} size="h-6 w-6" />
                         <span class="min-w-0 flex-1 truncate font-semibold">{row.teamName}</span>

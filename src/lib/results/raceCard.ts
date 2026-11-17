@@ -6,6 +6,7 @@
 import { formatDate } from '../db/circuits';
 import type { EventWetFlags } from '../db/events';
 import { overallRaceTimeTenThousandths } from './raceDisplay';
+import { formatCpi } from './cpi';
 
 /** The session the page shows (`?session=`). */
 export type CardSession =
@@ -19,6 +20,8 @@ export interface CardResultRow {
   driver: { id: string };
   laps: number | null;
   averageLapTenThousandths: number | null;
+  /** Optional so callers that don't show CPI need not pass it; missing counts as no incidents. */
+  incidents?: number | null;
 }
 
 const MISSING = '—';
@@ -75,6 +78,22 @@ export function winnerRaceTime(overallRows: CardResultRow[]): number | null {
   return overallRaceTimeTenThousandths(winner.laps, winner.averageLapTenThousandths, 0);
 }
 
+/**
+ * The race's Corners per Incident (US9.4): the layout's corners times every lap driven in the race, over every
+ * incident in it. Rows with no laps or no incident count add nothing. "—" when corners are unknown or the race
+ * had no incidents (formatCpi).
+ */
+export function raceCpi(layoutCorners: number | null, raceRows: CardResultRow[]): string {
+  let laps = 0;
+  let incidents = 0;
+  for (const row of raceRows) {
+    if (row.laps !== null && row.laps > 0) laps += row.laps;
+    if (row.incidents !== null && row.incidents !== undefined && row.incidents > 0)
+      incidents += row.incidents;
+  }
+  return formatCpi(layoutCorners === null ? null : layoutCorners * laps, incidents);
+}
+
 /** The wet flag for the session in view; false when the round has no event (BR3.7). */
 export function wetAffectedFor(session: CardSession, flags: EventWetFlags | null): boolean {
   if (!flags) return false;
@@ -90,6 +109,8 @@ export interface RaceCardView {
   sof: string;
   /** Null outside race views, where the card has no Race Time. */
   raceTime: string | null;
+  /** Race views only: the race's Corners per Incident (US9.4); null elsewhere. */
+  cpi: string | null;
   wetAffected: 'Yes' | 'No';
 }
 
@@ -104,6 +125,8 @@ export function buildRaceCard(input: {
   /** The overall rows of the race in view (ignored outside race views). */
   raceRows: CardResultRow[];
   wetFlags: EventWetFlags | null;
+  /** The layout's corner count, for CPI; null when unknown. */
+  layoutCorners?: number | null;
 }): RaceCardView {
   const grid = gridSize(input.numDrivers, input.roundRows);
   return {
@@ -112,6 +135,7 @@ export function buildRaceCard(input: {
     sof:
       input.strengthOfField !== null && input.strengthOfField > 0 ? String(input.strengthOfField) : MISSING,
     raceTime: input.session.kind === 'race' ? formatDuration(winnerRaceTime(input.raceRows)) : null,
+    cpi: input.session.kind === 'race' ? raceCpi(input.layoutCorners ?? null, input.raceRows) : null,
     wetAffected: wetAffectedFor(input.session, input.wetFlags) ? 'Yes' : 'No',
   };
 }

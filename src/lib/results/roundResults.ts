@@ -82,6 +82,10 @@ export interface RaceResultRow {
   fastestLapWon: boolean;
   sprintSweepWon: boolean;
   incidents: number | null;
+  /** The imported count when a full admin changed `incidents`; null or absent when unchanged. */
+  originalIncidents?: number | null;
+  /** The iRacing customer id of this result row (a stand-in negative id for a driver hidden from this reader). */
+  custId?: number;
   laps: number | null;
   lapsLed: number | null;
   /**
@@ -290,6 +294,8 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       fastestLapWon: score.fastest_lap_bonus > 0,
       sprintSweepWon: score.sprint_sweep_bonus > 0,
       incidents: raw.incidents,
+      originalIncidents: raw.original_incidents ?? null,
+      custId: raw.cust_id,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
       tags,
@@ -374,6 +380,8 @@ export async function getRoundResults(env: SupabaseEnv, subsessionId: number): P
       fastestLapWon: false,
       sprintSweepWon: false,
       incidents: raw.incidents,
+      originalIncidents: raw.original_incidents ?? null,
+      custId: raw.cust_id,
       laps: raw.laps_complete,
       lapsLed: raw.laps_led,
       tags: ['Driver not listed in roster'],

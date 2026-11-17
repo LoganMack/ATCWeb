@@ -170,6 +170,9 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'results/[subsessionId]/fragment.astro': [
     'category',
     'class',
+    // Edit Results' outcome and the driver it names (results-edit, incident-report-polish).
+    'incidents',
+    'incidents_driver',
     'links_error',
     'report',
     'season',
@@ -183,6 +186,8 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
     'from',
     // A refused Turn or copied clip on Add/Edit Incident, and the Add/Edit Video result (incident clips).
     'incident',
+    // A Post Report that failed (incident-report-polish).
+    'post',
     'review',
     'roundpenalty',
     'season',

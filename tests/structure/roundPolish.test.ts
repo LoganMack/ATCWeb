@@ -105,9 +105,11 @@ describe('Reported Incidents (FR2)', () => {
 
   it('puts a desktop copy of the link at the right end of the filter row', () => {
     const bar = INCIDENTS.slice(INCIDENTS.indexOf('data-incident-filters>'));
-    const end = bar.indexOf('</div>');
+    const end = bar.indexOf('<ul class="flex flex-col gap-2" data-incident-list>');
     expect(bar.slice(0, end)).toContain('data-testid="incident-view-toggle-desktop"');
-    expect(bar.slice(0, end)).toContain('hidden lg:ml-auto lg:inline-flex');
+    // Right-aligned with Add Incident and Add Round Penalty (incident-report-polish).
+    expect(bar.slice(0, end)).toContain('lg:ml-auto" data-reported-actions');
+    expect(bar.slice(0, end)).toContain('btn btn-neutral btn-sm hidden lg:inline-flex');
     expect(INCIDENTS).toContain("class={`btn btn-neutral${showIncidentList ? ' lg:hidden' : ''}`}");
   });
 

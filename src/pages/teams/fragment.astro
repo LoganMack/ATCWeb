@@ -239,7 +239,7 @@ if (loadError) markUncacheable(Astro);
 
     {!loadError && (
       <div class="mt-6 rounded-xl border border-white/10" data-sticky-thead>
-        <table class="w-full border-collapse" data-sortable>
+        <table class="data-table w-full border-collapse" data-sortable>
           <thead>
             <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
               <th class="py-3 pl-4 pr-3 font-medium" data-sort-key="name">Team</th>
@@ -322,10 +322,10 @@ if (loadError) markUncacheable(Astro);
                 </tr>
                 {/* Mobile-only driver list for the row above; `sm:hidden` stays even when expandRows.ts
                    removes `hidden`, so it never shows at sm+. */}
-                <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs sm:hidden">
+                <tr data-detail-row data-no-stripe class="hidden border-b border-white/5 bg-white/[0.02] text-xs sm:hidden">
                   <td colspan={!isPastSeason ? 2 : 1} class="px-4 py-4">
                     <div class="text-[10px] uppercase tracking-wide text-white/30">Drivers</div>
-                    <table class="mt-1 w-full max-w-xs">
+                    <table data-layout-table class="mt-1 w-full max-w-xs">
                       <tbody>
                         {roster.map((driver, i) => (
                           <tr class="border-b border-white/5 last:border-0">

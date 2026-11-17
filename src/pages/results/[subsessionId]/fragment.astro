@@ -60,7 +60,11 @@ import {
   createIncidentReport,
 } from '../../../lib/incidentReports';
 import { EVENT_TAG_CLASSES } from '../../../lib/eventFormatting';
-import { isAdminView, requireAdminSession } from '../../../lib/auth';
+import { isAdminView, isFullAdmin, requireAdminSession } from '../../../lib/auth';
+import { displayDriverName } from '../../../lib/db/circuits';
+import { parseIncidentChanges, saveRaceIncidents } from '../../../lib/db/raceIncidents';
+import { incidentsResultMessage, isIncidentsResultCode } from '../../../lib/results/incidentAdjustment';
+import { logActivity, actorNameFor } from '../../../lib/activityLog';
 import {
   INTERVIEW_MAX_SECONDS,
   INTERVIEW_MAX_BYTES,
@@ -78,6 +82,9 @@ const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const isAdmin = isAdminView(Astro.locals);
 // Non-null exactly when isAdmin is true; used where the admin's session is read.
 const adminSession = isAdmin ? requireAdminSession(Astro.locals) : null;
+// Edit Results (US9.1) is for full admins only; Staff and "View as Visitor" never see it. The database checks
+// the role again (set_race_incidents).
+const canEditResults = adminSession !== null && isFullAdmin(adminSession.profile);
 // Results and penalties are read as the admin, so an admin sees the final
 // result of an unposted round (BR4.2). Signed-in pages are never
 // edge-cached (src/middleware.ts), so this can't leak into a public copy.
@@ -134,6 +141,62 @@ if (adminSession && postForm) {
         console.error('Failed to save race links:', err);
       }
     }
+    const backQuery = backParams.toString();
+    return Astro.redirect(`${shellPath}${backQuery ? `?${backQuery}` : ''}`, 302);
+  }
+
+  if (intent === 'save-incidents') {
+    const backParams = new URLSearchParams(Astro.url.search);
+    backParams.delete('incidents');
+    backParams.delete('incidents_driver');
+    const raceNumber = Number(form.get('race_number'));
+    let code: string;
+    let custId: number | null = null;
+    if (!isFullAdmin(adminSession.profile)) {
+      code = 'not_full_admin';
+    } else {
+      const changes = parseIncidentChanges(form);
+      if (!changes || !Number.isInteger(raceNumber) || raceNumber < 1) {
+        code = 'invalid_count';
+      } else {
+        const result = await saveRaceIncidents(
+          supabaseEnv,
+          adminSession.accessToken,
+          subsessionId,
+          raceNumber,
+          changes,
+        );
+        if (result.ok) {
+          code = result.scoringIssue ? 'scoring_issue' : result.changed > 0 ? 'saved' : 'unchanged';
+          if (result.changed > 0) {
+            let track = `Round ${subsessionId}`;
+            try {
+              const saved = await getRoundBySubsessionId(supabaseEnv, subsessionId);
+              if (saved?.track_name) track = saved.track_name;
+            } catch {
+              // The log line falls back to the round id.
+            }
+            await logActivity(
+              supabaseEnv,
+              adminSession.accessToken,
+              { id: adminSession.user.id, name: actorNameFor(adminSession) },
+              {
+                action: 'edit',
+                entity_type: 'race_results',
+                entity_label: `Edited incident counts — ${track}, Race ${raceNumber} (${result.changed} ${result.changed === 1 ? 'driver' : 'drivers'})`,
+                entity_id: subsessionId,
+              },
+            );
+          }
+        } else {
+          code = result.code;
+          custId = result.custId;
+          console.error('Failed to save incident counts:', { subsessionId, raceNumber, code });
+        }
+      }
+    }
+    backParams.set('incidents', code);
+    if (custId !== null) backParams.set('incidents_driver', String(custId));
     const backQuery = backParams.toString();
     return Astro.redirect(`${shellPath}${backQuery ? `?${backQuery}` : ''}`, 302);
   }
@@ -446,6 +509,22 @@ let reportFlash: { kind: 'ok' | 'error'; message: string } | null = null;
   else if (flash === 'failed') reportFlash = { kind: 'error', message: "Couldn't save your report right now. Please try again." };
 }
 
+// Edit Results' result (?incidents=<code>&incidents_driver=<cust_id>), shown to full admins only.
+let incidentsFlash: { tone: 'success' | 'warning' | 'error'; text: string } | null = null;
+{
+  const code = Astro.url.searchParams.get('incidents');
+  if (canEditResults && isIncidentsResultCode(code)) {
+    const custId = Number(Astro.url.searchParams.get('incidents_driver'));
+    let driverName: string | null = null;
+    if (Number.isSafeInteger(custId) && custId > 0) {
+      for (const row of roundResults.overall.get(activeRaceNumber) ?? []) {
+        if (row.custId === custId) driverName = displayDriverName(row.driver.name);
+      }
+    }
+    incidentsFlash = incidentsResultMessage(code, driverName);
+  }
+}
+
 if (postForm && postForm.get('intent') === 'report-incident' && !loadError && round) {
   const back = (code: string) => {
     const url = new URL(Astro.url);
@@ -599,6 +678,7 @@ const raceCard: RaceCardView | null = round
       roundRows: [...roundResults.overall.values()].flat(),
       raceRows: roundResults.overall.get(activeRaceNumber) ?? [],
       wetFlags,
+      layoutCorners,
     })
   : null;
 const qualifyingTableRows = activeClass ? qualifying.byClass.get(activeClass.id) ?? [] : qualifying.overall;
@@ -632,7 +712,7 @@ const raceLinks = raceLinksByRace.get(canonicalRaceNumber) ?? null;
 // whose renders otherwise ARE cached) — everyone else would see it.
 Astro.response.headers.set(
   'Cache-Control',
-  reportFlash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
+  reportFlash || incidentsFlash ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=300'
 );
 if (loadError) markUncacheable(Astro);
 ---
@@ -647,6 +727,23 @@ if (loadError) markUncacheable(Astro);
         }`}
       >
         {reportFlash.message}
+      </p>
+    )}
+
+    {incidentsFlash && (
+      <p
+        role="status"
+        data-incidents-flash
+        data-tone={incidentsFlash.tone}
+        class={`mb-4 rounded-lg border px-4 py-3 text-sm text-white/80 ${
+          incidentsFlash.tone === 'success'
+            ? 'border-brand-primary/30 bg-brand-primary/10'
+            : incidentsFlash.tone === 'warning'
+              ? 'border-brand-gold/30 bg-brand-gold/10'
+              : 'border-brand-pink/30 bg-brand-pink/10'
+        }`}
+      >
+        {incidentsFlash.text}
       </p>
     )}
 
@@ -768,6 +865,24 @@ if (loadError) markUncacheable(Astro);
           <ReportIncidentDialog subsessionId={subsessionId} sessionOptions={reportSessionOptions} drivers={reportDrivers} action={formAction} />
         )}
 
+        {category === 'race' && canEditResults && raceTableRows.length > 0 && (
+          <form
+            id="edit-incidents-form"
+            method="post"
+            action={formAction}
+            class="mt-6 flex flex-wrap items-center gap-3"
+            data-edit-incidents-form
+          >
+            <input type="hidden" name="intent" value="save-incidents" />
+            <input type="hidden" name="race_number" value={activeRaceNumber} />
+            <button type="button" class="btn btn-neutral btn-sm" data-edit-incidents-toggle aria-pressed="false">
+              Edit Results
+            </button>
+            <button type="button" class="btn btn-neutral btn-sm" data-edit-incidents-cancel hidden>Cancel</button>
+            <p class="text-sm text-brand-pink" role="alert" data-edit-incidents-error hidden></p>
+          </form>
+        )}
+
         {category === 'race' && (
           raceTableRows.length > 0 ? (
             <ResultsTable
@@ -783,6 +898,7 @@ if (loadError) markUncacheable(Astro);
               driverBestLapsAtTrack={driverBestLapsAtTrack}
               raceBestLapTenThousandths={raceBestLapTenThousandths}
               showPenaltyTags={roundPosted}
+              editIncidentsFormId={canEditResults ? 'edit-incidents-form' : null}
             />
           ) : (
             <p class="mt-10 text-white/60">No results.</p>

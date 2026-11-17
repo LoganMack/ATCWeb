@@ -17,6 +17,8 @@ import {
 import { classTagFull } from '../lib/classColors';
 import TeamLogo from './TeamLogo.astro';
 import DriverFlag from './DriverFlag.astro';
+import IconTip from './IconTip.astro';
+import { incidentAdjustmentLabel } from '../lib/results/incidentAdjustment';
 
 /** `total_points` minus every bonus/deduction component — the base points this driver earned purely from their overall finishing position (see RaceResultRow.bonusPoints' own doc comment on the total_points formula). Shown as the "Base Points" row in the expanded detail panel's points-breakdown table. */
 function finishPoints(row: RaceResultRow): number {
@@ -105,6 +107,12 @@ interface Props {
   raceBestLapTenThousandths?: number | null;
   /** False until stewards post this round's incident report — until then the penalty tag next to a driver's name ("1PP", "Warning", ...) is hidden so it can't spoil the unposted report. Defaults to true. */
   showPenaltyTags?: boolean;
+  /**
+   * Full admins only (US9.1): the id of the page's Edit Results form. Each row with a real cust_id gets a
+   * hidden `incidents[<cust_id>]` input tied to that form; editIncidents.ts shows them in edit mode. Null for
+   * everyone else, who get no inputs at all.
+   */
+  editIncidentsFormId?: string | null;
 }
 
 const {
@@ -120,6 +128,7 @@ const {
   driverBestLapsAtTrack,
   raceBestLapTenThousandths = null,
   showPenaltyTags = true,
+  editIncidentsFormId = null,
 } = Astro.props;
 
 /** Margins to the leader are shown with a leading "+" ("+1.234"); the "-1L" laps-down flag and the leader's "—" stay as they are. */
@@ -148,7 +157,7 @@ const missing = (isMissing: boolean) => (isMissing ? '' : undefined);
 
 <div class="mt-6">
   <div class="mt-2 rounded-xl border border-white/10" data-sticky-thead>
-    <table class="w-full border-collapse" data-sortable>
+    <table class="data-table w-full border-collapse" data-sortable>
       <thead>
         <tr class="border-b border-white/10 text-left text-xs uppercase tracking-wide text-white/40">
           <th class="py-3 pl-4 pr-2 font-medium" data-sort-key="pos">Pos</th>
@@ -186,6 +195,22 @@ const missing = (isMissing: boolean) => (isMissing ? '' : undefined);
             layoutCorners !== null && row.laps !== null && row.incidents !== null && row.incidents > 0
               ? (row.laps * layoutCorners) / row.incidents
               : null;
+          // US9.2: an asterisk after the car number when a full admin changed this count.
+          const adjustmentLabel = incidentAdjustmentLabel(row.originalIncidents, row.incidents);
+          const adjustmentMark = adjustmentLabel ? (
+            <IconTip label={adjustmentLabel}>
+              <sup
+                tabindex="0"
+                class="cursor-help text-[10px] font-sans text-brand-pink"
+                title={adjustmentLabel}
+                aria-label={adjustmentLabel}
+                data-incidents-adjusted
+              >
+                *
+              </sup>
+            </IconTip>
+          ) : null;
+          const editable = editIncidentsFormId !== null && row.custId !== undefined && row.custId > 0;
           return (
           <>
           <tr
@@ -238,10 +263,10 @@ const missing = (isMissing: boolean) => (isMissing ? '' : undefined);
                 </span>
                 {/* Full name at sm+, "F. Lastname" below, where the column is narrow. */}
                 <span class="hidden sm:inline">
-                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{displayDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}{adjustmentMark}
                 </span>
                 <span class="sm:hidden">
-                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}
+                  <DriverLink id={row.driver.id} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink> {row.driver.car_number !== null && <span class="text-white/40">#{row.driver.car_number}</span>}{adjustmentMark}
                 </span>
                 {/* Hidden on mobile (Logan); `sm:contents` keeps each tag its own flex item for the row's
                    gap. */}
@@ -322,7 +347,25 @@ const missing = (isMissing: boolean) => (isMissing ? '' : undefined);
               data-sort-value={row.incidents ?? ''}
               data-sort-missing={missing(row.incidents === null)}
             >
-              <span class="relative inline-block">
+              {editable && (
+                <input
+                  type="number"
+                  inputmode="numeric"
+                  min="0"
+                  max="999"
+                  step="1"
+                  hidden
+                  form={editIncidentsFormId}
+                  name={`incidents[${row.custId}]`}
+                  value={row.incidents ?? ''}
+                  data-incidents-input
+                  data-current={row.incidents ?? ''}
+                  data-driver-name={displayDriverName(row.driver.name)}
+                  aria-label={`Incidents for ${displayDriverName(row.driver.name)}`}
+                  class="w-16 rounded-md border border-white/15 bg-white/5 px-2 py-1 text-center text-sm text-white"
+                />
+              )}
+              <span class="relative inline-block" data-incidents-display>
                 {row.incidents ?? '—'}
                 <span class="absolute left-full top-0 ml-0.5 inline-flex items-start gap-0.5">
                   {row.incidentsBonus && (
@@ -376,12 +419,12 @@ const missing = (isMissing: boolean) => (isMissing ? '' : undefined);
               {row.notInRoster ? '—' : row.totalPoints}
             </td>
           </tr>
-          <tr data-detail-row class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
+          <tr data-detail-row data-no-stripe class="hidden border-b border-white/5 bg-white/[0.02] text-xs">
             <td colspan={showClass ? 10 : 9} class="px-4 py-4 sm:pl-11">
               <div class="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
                 <div>
                   <div class="text-[10px] uppercase tracking-wide text-white/30">Timings</div>
-                  <table class="mt-1 w-full max-w-xs">
+                  <table data-layout-table class="mt-1 w-full max-w-xs">
                     <tbody>
                       <tr class="border-b border-white/5">
                         <td class="py-1 text-white/50">Best Lap</td>
@@ -420,7 +463,7 @@ const missing = (isMissing: boolean) => (isMissing ? '' : undefined);
                       Not scored — this driver isn't on the roster yet, so no points were calculated for this result.
                     </p>
                   ) : (
-                    <table class="mt-1 w-full max-w-xs">
+                    <table data-layout-table class="mt-1 w-full max-w-xs">
                       <tbody>
                         <tr class="border-b border-white/5">
                           <td class="py-1 text-white/50">Base Points</td>

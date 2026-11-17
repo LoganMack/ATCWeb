@@ -5,6 +5,7 @@
 
 import type { InPlaceResult } from '../lib/driverAccount';
 import { postInPlace } from './profileEditing';
+import { attachAppealFiles, type AppealAttachmentsHandle } from './appealAttachments';
 
 /** The browser's comment check before posting (the server and database repeat it); null when fine. */
 export function commentProblem(body: string, max: number): string | null {
@@ -114,11 +115,36 @@ function openComment(button: HTMLElement): void {
   form.querySelector<HTMLTextAreaElement>('textarea')?.focus();
 }
 
+// One attachment list per popup element; the client router swaps <body>, so a new page gets a new popup.
+const appealAttachments = new WeakMap<HTMLDialogElement, AppealAttachmentsHandle>();
+
+/** The popup's attachment list (src/scripts/appealAttachments.ts), wired the first time the popup opens. */
+function appealAttachmentsFor(dialog: HTMLDialogElement, form: HTMLFormElement): AppealAttachmentsHandle | null {
+  const existing = appealAttachments.get(dialog);
+  if (existing) return existing;
+  const input = form.querySelector<HTMLInputElement>('[data-incident-appeal-files]');
+  const list = form.querySelector<HTMLElement>('[data-incident-appeal-file-list]');
+  const message = dialog.querySelector<HTMLElement>('[data-incident-dialog-error]');
+  if (!input || !list || !message) return null;
+  const handle = attachAppealFiles({
+    input,
+    list,
+    message,
+    limits: {
+      maxFiles: Number(form.dataset.maxFiles ?? 3),
+      maxBytes: Number(form.dataset.maxFileBytes ?? 5 * 1024 * 1024),
+    },
+  });
+  appealAttachments.set(dialog, handle);
+  return handle;
+}
+
 function openAppeal(button: HTMLElement): void {
   const dialog = document.querySelector<HTMLDialogElement>('dialog[data-incident-appeal-dialog]');
   const form = dialog?.querySelector<HTMLFormElement>('form[data-incident-appeal-form]');
   if (!dialog || !form) return;
   form.reset();
+  appealAttachmentsFor(dialog, form)?.reset();
   const penalty = form.querySelector<HTMLInputElement>('[data-incident-appeal-penalty]');
   if (penalty) penalty.value = button.dataset.penaltyId ?? '';
   setText(dialog, '[data-incident-appeal-round]', button.dataset.round ?? '');

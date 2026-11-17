@@ -71,6 +71,8 @@ const errorClass = 'hidden rounded-md border border-brand-pink/30 bg-brand-pink/
       />
       <span class="mt-1 block text-[11px] text-white/30">Images, PDFs, videos (MP4/WebM/MOV) or text files.</span>
     </label>
+    {/* Outside the label, so a remove button never opens the file picker (src/scripts/appealAttachments.ts). */}
+    <ul data-incident-appeal-file-list class="hidden flex flex-col gap-1.5" aria-label="Attached files"></ul>
     <p data-incident-dialog-error role="alert" class={errorClass}></p>
     <div class="flex justify-end gap-2">
       <button type="button" data-close-incident-dialog class="btn btn-neutral">Cancel</button>

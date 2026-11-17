@@ -1,0 +1,69 @@
+---
+/**
+ * One podium tile on the home Previous Result card. Photos and placeholder text come from the privacy
+ * helpers, so a hidden driver never shows a photo or a name letter; the row is already masked upstream.
+ */
+import DriverFlag from './DriverFlag.astro';
+import DriverLink from './DriverLink.astro';
+import TeamLogo from './TeamLogo.astro';
+import { driverInitialBadge, driverPhoto } from '../lib/privacy';
+import { resizedImageUrl } from '../lib/db/drivers';
+import { shortDriverName } from '../lib/db/circuits';
+import { isUnrosteredId } from '../lib/home/podium';
+import { classTagFull } from '../lib/classColors';
+import type { PreviousResultWidgetDriverRow } from '../lib/results/previousResult';
+
+export interface Props {
+  place: number;
+  row: PreviousResultWidgetDriverRow;
+  /** Shown only in multi-class rounds, as on the 4th and 5th rows. */
+  className?: string;
+}
+
+const { place, row, className } = Astro.props;
+const photo = resizedImageUrl(driverPhoto(row.driver), { width: 104 });
+const badge = driverInitialBadge(row.driver);
+const linkId = isUnrosteredId(row.driver.id) ? null : row.driver.id;
+const ring = place === 1 ? 'ring-brand-gold' : place === 2 ? 'ring-white/60' : 'ring-brand-pink';
+const placeText = place === 1 ? 'text-brand-gold' : 'text-white/50';
+const lift = place === 1 ? '' : 'mt-4';
+---
+
+<div class={`flex min-w-0 flex-col items-center gap-1 text-center ${lift}`} data-podium-place={place}>
+  <span class={`font-display text-lg leading-none ${placeText}`}>{place}</span>
+  {photo ? (
+    <img
+      src={photo}
+      alt=""
+      width="52"
+      height="52"
+      loading="lazy"
+      class={`h-[52px] w-[52px] rounded-full object-cover ring-2 ${ring}`}
+    />
+  ) : (
+    <span
+      class={`flex h-[52px] w-[52px] items-center justify-center rounded-full border border-dashed border-white/25 font-display text-lg text-white/50 ring-2 ${ring}`}
+      aria-hidden="true"
+    >
+      {badge}
+    </span>
+  )}
+  <span class="w-full truncate text-sm font-semibold">
+    <DriverLink id={linkId} hidden={row.driver.is_hidden}>{shortDriverName(row.driver.name)}</DriverLink>
+  </span>
+  <span class="flex items-center gap-1">
+    <span class="flex h-4 w-5 items-center justify-center">
+      <DriverFlag nationality1={row.driver.nationality_1} nationality2={row.driver.nationality_2} />
+    </span>
+    <span class="flex h-4 w-4 items-center justify-center">
+      {row.car && <TeamLogo name={row.car.name} logoUrl={row.car.logoUrl} size="h-4 w-4" tint />}
+    </span>
+    <span class="flex h-4 w-4 items-center justify-center">
+      {row.team && <TeamLogo name={row.team.name} logoUrl={row.team.logoUrl} size="h-4 w-4" />}
+    </span>
+  </span>
+  <span class="flex items-center gap-1 text-xs tabular-nums text-white/60">
+    {className && <span class={classTagFull(className)}>{className}</span>}
+    {row.metricLabel}
+  </span>
+</div>

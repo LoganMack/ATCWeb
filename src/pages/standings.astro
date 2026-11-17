@@ -29,7 +29,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 ---
 
 <Layout title="Season Standings" description="Full season driver and team standings for every Alpha Touring Challenge season and class." preloadFragment={fragmentUrl}>
-  <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
+  <section class="relative mx-auto max-w-7xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Season Standings</h1>
 
@@ -67,6 +67,7 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
 <script>
   import { compareStandings, totalAsOf, type StandingKeys } from '../lib/seasonTotals';
   import { formatDistanceKm } from '../lib/results/format';
+  import { formatCpi } from '../lib/results/cpi';
 
   // "Standings by Round" slider: the standings after round N, for List and Matrix, drivers and teams.
   // - Later Matrix columns are hidden, and every number is recomputed from the visible rounds with the real
@@ -143,6 +144,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
     document.querySelectorAll('[data-live], [data-roster-text]').forEach((el) => origHtml.set(el, el.innerHTML));
     const origSort = new Map<HTMLElement, string | undefined>();
     document.querySelectorAll<HTMLElement>('[data-live]').forEach((el) => origSort.set(el, el.dataset.sortValue));
+    const origMissing = new Map<HTMLElement, boolean>();
+    document.querySelectorAll<HTMLElement>('[data-live="cpi"]').forEach((el) => origMissing.set(el, el.hasAttribute('data-sort-missing')));
 
     const sumIdx = (rounds: (number[] | null)[], n: number, idx: number) => {
       let s = 0;
@@ -176,9 +179,10 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
         if (v === undefined) delete el.dataset.sortValue;
         else el.dataset.sortValue = v;
       });
+      origMissing.forEach((missing, el) => el.toggleAttribute('data-sort-missing', missing));
       rows.forEach((r) => {
-        r.row.style.display = '';
-        if (r.detail) r.detail.style.display = '';
+        r.row.hidden = false;
+        if (r.detail) r.detail.hidden = false;
         [...r.row.querySelectorAll<HTMLElement>('[data-cell-points]'), ...(r.detail ? r.detail.querySelectorAll<HTMLElement>('[data-cell-points]') : [])].forEach((span) =>
           setDropped(span, span.dataset.origDropped === 'true')
         );
@@ -243,8 +247,8 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
       const visible: { r: (typeof rows)[number]; keys: StandingKeys }[] = [];
       for (const r of rows) {
         const attended = r.rounds.slice(0, n).some((x) => x !== null);
-        r.row.style.display = attended ? '' : 'none';
-        if (r.detail) r.detail.style.display = attended ? '' : 'none';
+        r.row.hidden = !attended;
+        if (r.detail) r.detail.hidden = !attended;
         if (!attended) continue;
 
         const pts = r.rounds.map((x) => (x ? x[0] : null));
@@ -274,23 +278,35 @@ Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-re
           const pp = r.pp.slice(0, n).reduce((s, v) => s + v, 0);
           setText(r.row, 'pp', String(pp), pp);
 
+          const laps = sumIdx(r.rounds, n, 9);
+          const led = sumIdx(r.rounds, n, 10);
+          const inc = sumIdx(r.rounds, n, 12);
+          const visibleRounds = r.rounds.slice(0, n);
+          const anyCor = visibleRounds.some((x) => x && x[15] !== null);
+          const cor = sumIdx(r.rounds, n, 15);
+          const cpiText = formatCpi(anyCor ? cor : null, inc);
+          setText(r.row, 'laps', String(laps), laps);
+          setText(r.row, 'led', String(led), led);
+          const cpiCell = live(r.row, 'cpi');
+          if (cpiCell) {
+            cpiCell.textContent = cpiText;
+            const hasCpi = anyCor && inc > 0;
+            if (hasCpi) cpiCell.dataset.sortValue = String(cor / inc);
+            else delete cpiCell.dataset.sortValue;
+            cpiCell.toggleAttribute('data-sort-missing', !hasCpi);
+          }
+
           if (r.detail) {
-            const laps = sumIdx(r.rounds, n, 9);
-            const led = sumIdx(r.rounds, n, 10);
             const net = sumIdx(r.rounds, n, 11);
-            const inc = sumIdx(r.rounds, n, 12);
             const bonus = sumIdx(r.rounds, n, 13);
-            const visibleRounds = r.rounds.slice(0, n);
             const anyKm = visibleRounds.some((x) => x && x[14] !== null);
-            const anyCor = visibleRounds.some((x) => x && x[15] !== null);
             const dist = sumIdx(r.rounds, n, 14);
-            const cor = sumIdx(r.rounds, n, 15);
             setText(r.detail, 'mtotal', String(total));
             setText(r.detail, 'dlaps', String(laps));
             setText(r.detail, 'dled', String(led));
             setText(r.detail, 'dnet', `${net > 0 ? '+' : ''}${net}`);
             setText(r.detail, 'dipl', laps > 0 ? (inc / laps).toFixed(2) : '—');
-            setText(r.detail, 'dcpi', anyCor && inc > 0 ? (cor / inc).toFixed(1) : '—');
+            setText(r.detail, 'dcpi', cpiText);
             setText(r.detail, 'dpp', String(pp));
             setText(r.detail, 'dbonus', String(bonus));
             setText(r.detail, 'ddist', anyKm ? formatDistanceKm(dist) : '—');

@@ -3,7 +3,6 @@
   "swaps": [
     { "file": "src/components/ReportIncidentDialog.astro", "old": "aria-pressed:bg-white/10", "new": "aria-pressed:bg-fixed-white/10", "reason": "inventory: no .light rule today" },
     { "file": "src/components/ReportIncidentDialog.astro", "old": "aria-pressed:text-white", "new": "aria-pressed:text-fixed-white", "reason": "inventory: no .light rule today" },
-    { "file": "src/pages/admin/incident-reporting/index.astro", "old": "bg-white/15", "new": "bg-fixed-white/15", "reason": "inventory: no .light rule today" },
     { "file": "src/pages/admin/site-properties/index.astro", "old": "border-white/70", "new": "border-fixed-white/70", "reason": "inventory: no .light rule today" },
     { "file": "src/pages/admin/fragment.astro", "old": "focus-visible:border-white/30", "new": "focus-visible:border-fixed-white/30", "reason": "inventory: no .light rule today" },
     { "file": "src/scripts/layoutMapEditor.ts", "old": "focus:bg-white/10", "new": "focus:bg-fixed-white/10", "reason": "inventory: no .light rule today" },
@@ -17,7 +16,6 @@
     { "file": "src/components/Nav.astro", "old": "text-white", "new": "text-fixed-white", "element": "absolute -bottom-1 -right-2 rounded bg-brand-primary px-1 py-px text-[8px] font-display font-semibold uppercase leading-none tracking-wide text-fixed-white sm:-right-2.5 sm:text-[9px]", "reason": "spec W2.3.2: the Beta badge on bg-brand-primary" },
     { "file": "src/components/CarLogos.astro", "old": "text-white", "new": "text-fixed-white", "element": "absolute -right-1.5 -top-1.5 flex h-3 w-3 cursor-help items-center justify-center rounded-full bg-brand-primary text-[10px] font-bold leading-none text-fixed-white", "reason": "spec W2.3.2: the + badge on bg-brand-primary" },
     { "file": "src/components/InterviewDialog.astro", "old": "bg-brand-primary", "new": "bg-brand-primary text-fixed-white", "element": "absolute inset-y-0 left-0 w-full bg-brand-primary text-fixed-white", "reason": "proof: the deleted `.light .bg-brand-primary { color: #fff }` kept this element's colour white" },
-    { "file": "src/pages/admin/analytics/fragment.astro", "old": "bg-brand-primary", "new": "bg-brand-primary text-fixed-white", "element": "h-1.5 rounded-full bg-brand-primary text-fixed-white", "reason": "proof: the deleted `.light .bg-brand-primary { color: #fff }` kept this element's colour white (two bars)" },
-    { "file": "src/pages/admin/incident-reporting/index.astro", "old": "bg-brand-primary", "new": "bg-brand-primary text-fixed-white", "element": "relative h-6 w-11 rounded-full transition bg-brand-primary text-fixed-white", "reason": "proof: the deleted `.light .bg-brand-primary { color: #fff }` kept this switch's (and its knob's) colour white" }
+    { "file": "src/pages/admin/analytics/fragment.astro", "old": "bg-brand-primary", "new": "bg-brand-primary text-fixed-white", "element": "h-1.5 rounded-full bg-brand-primary text-fixed-white", "reason": "proof: the deleted `.light .bg-brand-primary { color: #fff }` kept this element's colour white (two bars)" }
   ]
 }

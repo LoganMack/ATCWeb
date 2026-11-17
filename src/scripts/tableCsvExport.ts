@@ -4,6 +4,8 @@
  * hidden-at-this-width columns kept, the `▶` chevron stripped, and a cell's `data-csv-value` wins over its
  * text (for name cells with glued-on badges).
  */
+import { isExportableRow } from './tableRowVisibility';
+
 function cellText(cell: Element): string {
   const override = cell.getAttribute('data-csv-value');
   if (override !== null) {
@@ -38,7 +40,7 @@ function tableToCsv(table: HTMLTableElement): string {
   const tbody = table.tBodies[0];
   if (tbody) {
     Array.from(tbody.rows)
-      .filter((row) => !row.hasAttribute('data-detail-row') && row.style.display !== 'none')
+      .filter(isExportableRow)
       .forEach((row) => {
         lines.push(
           Array.from(row.cells)
