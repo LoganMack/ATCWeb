@@ -1,12 +1,12 @@
 import type { SupabaseEnv } from '../db/client';
 import { getStandingsExcludedRoundIds, getTestRoundIds } from '../db/rounds';
 import { getSeasons } from '../db/seasons';
-import { getDriverClasses } from '../db/lookups';
+import { getDriverClasses, type Lookup } from '../db/lookups';
 import type { DriverBasic } from './rows';
 import { getRoundLayoutsForSubsessions } from './layoutLaps';
 import { topTeamScorers } from './seasonCarTeam';
 import { getMostRecentRound, getRoundsForSeason, computeDisplayRoundNumbers } from './rounds';
-import { getRoundResults, type RaceResultRow } from './roundResults';
+import { getRoundResults, type RaceResultRow, type RoundResults } from './roundResults';
 import {
   getQualifyingForSubsession,
   getPracticeForSubsession,
@@ -14,7 +14,7 @@ import {
   type PracticeRow,
 } from './sessions';
 
-/** One row in a "Previous Result" widget driver tab — same shape the homepage Standings widget's own driver rows show (position, driver, car/team logos, class badge), except `metricLabel` is whatever this SESSION's own headline figure is (race points, or a qualifying/practice lap time — see PreviousResultWidgetTab's own doc comment) rather than a season points total. `car`/`team` are null for Qualifying/Practice tabs — `curated_qualifying`/`curated_practice_results` don't carry car/team assignments the way a scored race does, so there's nothing to show a logo for there. */
+/** One row in a "Previous Result" widget driver tab — same shape the homepage Standings widget's own driver rows show (position, driver, car/team logos, class badge), except `metricLabel` is whatever this SESSION's own headline figure is (race points, or a qualifying/practice lap time — see PreviousResultWidgetTab's own doc comment) rather than a season points total. Qualifying and Practice carry no car or team of their own, so their rows take the driver's car and team from the round's first race (`firstRaceCarTeam`); null when the driver did not race in it. */
 export interface PreviousResultWidgetDriverRow {
   position: number | null;
   driver: DriverBasic;
@@ -61,6 +61,87 @@ export interface PreviousResultWidget {
   sessions: PreviousResultWidgetSession[];
 }
 
+/** Top 5, matching the homepage Standings widget's own row cap. */
+const TOP_N = 5;
+
+type CarTeam = Pick<PreviousResultWidgetDriverRow, 'car' | 'team'>;
+
+/**
+ * Each driver's car and team from their row in the round's first race (the lowest race number with rows),
+ * for the Qualifying and Practice tabs. A driver missing from that race has no entry.
+ */
+export function firstRaceCarTeam(overall: Map<number, RaceResultRow[]>): Map<string, CarTeam> {
+  const out = new Map<string, CarTeam>();
+  const firstRace = Math.min(...[...overall.keys()].filter((n) => (overall.get(n)?.length ?? 0) > 0));
+  for (const r of overall.get(firstRace) ?? []) {
+    if (!out.has(r.driver.id)) out.set(r.driver.id, { car: r.car, team: r.team });
+  }
+  return out;
+}
+
+/**
+ * One race's team tab rows: each team's top 2 rows by `pointsOf`, summed, best five teams. Disqualified rows
+ * and rows with no team are left out; a team with one eligible row scores that row. Ties go to the better best
+ * row, then the better best class position (rows carry class positions), then the team name, as the Race
+ * Results winner (race_winners_for_rounds) breaks them.
+ */
+export function teamTabRows(
+  rows: RaceResultRow[],
+  pointsOf: (r: RaceResultRow) => number,
+): PreviousResultWidgetTeamRow[] {
+  const rowsByTeam = new Map<string, RaceResultRow[]>();
+  for (const r of rows) {
+    if (r.dsq || !r.team) continue;
+    if (!rowsByTeam.has(r.team.name)) rowsByTeam.set(r.team.name, []);
+    rowsByTeam.get(r.team.name)!.push(r);
+  }
+  const teams: (Omit<PreviousResultWidgetTeamRow, 'position'> & { bestRow: number; bestPosition: number })[] =
+    [];
+  for (const [teamName, teamRows] of rowsByTeam) {
+    const scorers = topTeamScorers(teamRows, pointsOf);
+    const positions = scorers.map((r) => r.position).filter((p): p is number => p !== null);
+    teams.push({
+      teamName,
+      teamLogoUrl: teamRows[0].team!.logoUrl,
+      points: scorers.reduce((sum, r) => sum + pointsOf(r), 0),
+      bestRow: Math.max(...scorers.map(pointsOf)),
+      bestPosition: positions.length > 0 ? Math.min(...positions) : Infinity,
+    });
+  }
+  teams.sort(
+    (a, b) =>
+      b.points - a.points ||
+      b.bestRow - a.bestRow ||
+      a.bestPosition - b.bestPosition ||
+      (a.teamName < b.teamName ? -1 : a.teamName > b.teamName ? 1 : 0),
+  );
+  return teams
+    .slice(0, TOP_N)
+    .map(({ teamName, teamLogoUrl, points }, i) => ({ position: i + 1, teamName, teamLogoUrl, points }));
+}
+
+/**
+ * One race's Alpha Team tab: the overall, every-class team competition. Every class's rows count, each by
+ * points without class points.
+ */
+export function alphaTeamRows(
+  byClass: RoundResults['byClass'],
+  classes: Pick<Lookup, 'id'>[],
+  raceNumber: number,
+): PreviousResultWidgetTeamRow[] {
+  const rows = classes.flatMap((c) => byClass.get(c.id)?.get(raceNumber) ?? []);
+  return teamTabRows(rows, (r) => r.totalPoints - r.classPoints);
+}
+
+/** One race's Delta Team tab: Delta rows by class total. */
+export function deltaTeamRows(
+  byClass: RoundResults['byClass'],
+  deltaClassId: number,
+  raceNumber: number,
+): PreviousResultWidgetTeamRow[] {
+  return teamTabRows(byClass.get(deltaClassId)?.get(raceNumber) ?? [], (r) => r.totalPoints);
+}
+
 /**
  * The homepage "Previous Result" card for the latest round: a tab set per session with results,
  * penalty-adjusted like the results page. Null on failure or with no rounds; the homepage omits the card.
@@ -92,7 +173,6 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
   ]);
 
   const roundSeason = allSeasons.find((s) => s.id === round.season_id) ?? null;
-  const alphaClassId = classes.find((c) => c.name === 'Alpha')?.id;
   const deltaClassId = classes.find((c) => c.name === 'Delta')?.id;
 
   const toDriverRow = (r: RaceResultRow): PreviousResultWidgetDriverRow => ({
@@ -103,25 +183,22 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
     team: r.team,
     metricLabel: `${r.totalPoints} pts`,
   });
+  const raceOneCarTeam = firstRaceCarTeam(results.overall);
+  const carTeamOf = (driverId: string): CarTeam => raceOneCarTeam.get(driverId) ?? { car: null, team: null };
   const toQualifyingRow = (r: QualifyingRow): PreviousResultWidgetDriverRow => ({
     position: r.qualPosition,
     driver: r.driver,
     classId: r.classId,
-    car: null,
-    team: null,
+    ...carTeamOf(r.driver.id),
     metricLabel: r.bestLapFormatted,
   });
   const toPracticeRow = (r: PracticeRow): PreviousResultWidgetDriverRow => ({
     position: r.position,
     driver: r.driver,
     classId: r.classId,
-    car: null,
-    team: null,
+    ...carTeamOf(r.driver.id),
     metricLabel: r.bestLapFormatted,
   });
-
-  /** Top 5, matching the homepage Standings widget's own row cap. */
-  const TOP_N = 5;
 
   function driverTabs<T>(
     overall: T[],
@@ -137,42 +214,6 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
         rows: (byClass.get(c.id) ?? []).slice(0, TOP_N).map(toRow),
       })),
     ];
-  }
-
-  /**
-   * One team's total for a single race, by the season championship's rules: top 2 scorers count, Alpha scored
-   * class-blind.
-   */
-  function teamTab(
-    key: string,
-    label: string,
-    classId: number,
-    classRows: RaceResultRow[],
-  ): PreviousResultWidgetTab {
-    const isAlpha = classId === alphaClassId;
-    const pointsOf = (r: RaceResultRow) => (isAlpha ? r.totalPoints - r.classPoints : r.totalPoints);
-    const rowsByTeam = new Map<string, RaceResultRow[]>();
-    for (const r of classRows) {
-      if (r.dsq || !r.team) continue;
-      if (!rowsByTeam.has(r.team.name)) rowsByTeam.set(r.team.name, []);
-      rowsByTeam.get(r.team.name)!.push(r);
-    }
-    const rows: Omit<PreviousResultWidgetTeamRow, 'position'>[] = [];
-    for (const [teamName, teamRows] of rowsByTeam) {
-      const scorers = topTeamScorers(teamRows, pointsOf);
-      rows.push({
-        teamName,
-        teamLogoUrl: teamRows[0].team!.logoUrl,
-        points: scorers.reduce((sum, r) => sum + pointsOf(r), 0),
-      });
-    }
-    rows.sort((a, b) => b.points - a.points);
-    return {
-      key,
-      label,
-      type: 'team',
-      rows: rows.slice(0, TOP_N).map((r, i) => ({ ...r, position: i + 1 })),
-    };
   }
 
   const sessions: PreviousResultWidgetSession[] = [];
@@ -203,25 +244,19 @@ export async function getPreviousResultWidget(env: SupabaseEnv): Promise<Previou
       byClassForRace.set(c.id, rows);
     }
     const tabs = driverTabs(overallRows, byClassForRace, toDriverRow);
-    if (alphaClassId !== undefined) {
-      tabs.push(
-        teamTab(
-          'alpha-team',
-          'Alpha Team',
-          alphaClassId,
-          results.byClass.get(alphaClassId)?.get(raceNumber) ?? [],
-        ),
-      );
-    }
+    tabs.push({
+      key: 'alpha-team',
+      label: 'Alpha Team',
+      type: 'team',
+      rows: alphaTeamRows(results.byClass, classes, raceNumber),
+    });
     if (deltaClassId !== undefined && roundSeason?.delta_team_enabled) {
-      tabs.push(
-        teamTab(
-          'delta-team',
-          'Delta Team',
-          deltaClassId,
-          results.byClass.get(deltaClassId)?.get(raceNumber) ?? [],
-        ),
-      );
+      tabs.push({
+        key: 'delta-team',
+        label: 'Delta Team',
+        type: 'team',
+        rows: deltaTeamRows(results.byClass, deltaClassId, raceNumber),
+      });
     }
     sessions.push({
       key: `race-${raceNumber}`,

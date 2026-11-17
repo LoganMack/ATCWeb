@@ -24,9 +24,12 @@ const { place, row, className } = Astro.props;
 const photo = resizedImageUrl(driverPhoto(row.driver), { width: 104 });
 const badge = driverInitialBadge(row.driver);
 const linkId = isUnrosteredId(row.driver.id) ? null : row.driver.id;
-const ring = place === 1 ? 'ring-brand-gold' : place === 2 ? 'ring-white/60' : 'ring-brand-pink';
-const placeText = place === 1 ? 'text-brand-gold' : 'text-white/50';
-const lift = place === 1 ? '' : 'mt-4';
+// Gold, silver and bronze: the ring and the place number share the place colour.
+const ring = place === 1 ? 'ring-brand-gold' : place === 2 ? 'ring-brand-silver' : 'ring-brand-bronze';
+const placeText = place === 1 ? 'text-brand-gold' : place === 2 ? 'text-brand-silver' : 'text-brand-bronze';
+// A stepped podium: 1st stands 0.25rem above 2nd, which stands 0.25rem above 3rd. The tiles sit in a
+// bottom-aligned grid, so the step is a bottom margin: a top margin would not move them.
+const lift = place === 1 ? 'mb-2' : place === 2 ? 'mb-1' : 'mb-0';
 ---
 
 <div class={`flex min-w-0 flex-col items-center gap-1 text-center ${lift}`} data-podium-place={place}>

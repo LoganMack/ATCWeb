@@ -66,12 +66,22 @@
   },
   {
     "file": "src/components/PodiumTile.astro",
-    "classes": ["ring-white/60"],
-    "reason": "Home Previous Result podium: 2nd place ring in the themed silver (white in dark, ink in light) (display-polish FR7)."
+    "classes": ["ring-brand-silver"],
+    "reason": "Home Previous Result podium: 2nd place ring in the new themed brand silver token (results-quick-fixes FR3.1, FR3.2)."
   },
   {
     "file": "src/components/PodiumTile.astro",
-    "classes": ["ring-brand-pink"],
-    "reason": "Home Previous Result podium: 3rd place ring in brand pink-red (display-polish FR7)."
+    "classes": ["ring-brand-bronze"],
+    "reason": "Home Previous Result podium: 3rd place ring in the new themed brand bronze token (results-quick-fixes FR3.1, FR3.2)."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["text-brand-silver"],
+    "reason": "Home Previous Result podium: 2nd place number in the silver text shade, matching its ring (results-quick-fixes FR3.3)."
+  },
+  {
+    "file": "src/components/PodiumTile.astro",
+    "classes": ["text-brand-bronze"],
+    "reason": "Home Previous Result podium: 3rd place number in the bronze text shade, matching its ring (results-quick-fixes FR3.3)."
   }
 ]

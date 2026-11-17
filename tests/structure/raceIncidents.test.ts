@@ -141,13 +141,14 @@ describe('the Race Results page (US9.1)', () => {
     expect(FRAGMENT).toContain(
       'const canEditResults = adminSession !== null && isFullAdmin(adminSession.profile);',
     );
+    expect(FRAGMENT).toMatch(/\{canEditResults && \(\s*<form\s+id="edit-incidents-form"/);
     expect(FRAGMENT).toMatch(
-      /\{category === 'race' && canEditResults && raceTableRows\.length > 0 && \(\s*<form/,
+      /\{category === 'race' && canEditResults && raceTableRows\.length > 0 && \(\s*<p[^>]*data-edit-incidents-error="edit-incidents-form"/,
     );
     expect(FRAGMENT).toContain("editIncidentsFormId={canEditResults ? 'edit-incidents-form' : null}");
     expect(TABLE).toContain('const editable = editIncidentsFormId !== null');
     expect(TABLE).toMatch(/\{editable && \(\s*<input/);
-    expect(FRAGMENT).toMatch(/class="btn [^"]*" data-edit-incidents-toggle/);
+    expect(FRAGMENT).toMatch(/class="btn [^"]*"\s+data-edit-incidents-toggle/);
   });
 
   it('never caches a page showing the result banner', () => {

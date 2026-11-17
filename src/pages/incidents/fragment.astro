@@ -75,19 +75,13 @@ if (loadError) markUncacheable(Astro);
 
     <!-- ================= All Incidents ================= -->
     <div data-incidents-panel="all" class="mt-6">
-      {data.all.length === 0 ? (
-        <p class="mt-6 text-white/60">No incidents logged yet.</p>
-      ) : (
-        <IncidentsAllTable rows={sortIncidentRowsNewestFirst(data.all)} />
-      )}
+      {data.all.length > 0 && <IncidentsAllTable rows={sortIncidentRowsNewestFirst(data.all)} />}
     </div>
 
     <!-- ================= By Driver ================= -->
     <div data-incidents-panel="byDriver" class="mt-6 hidden">
       <p class="hidden text-white/60" data-min-starts-empty>No drivers have that many starts.</p>
-      {data.byDriver.length === 0 ? (
-        <p class="mt-6 text-white/60">No incidents logged yet.</p>
-      ) : (
+      {data.byDriver.length > 0 && (
         <div class="rounded-xl border border-white/10" data-sticky-thead>
           <table class="data-table w-full border-collapse" data-sortable>
             <thead>
@@ -177,9 +171,7 @@ if (loadError) markUncacheable(Astro);
 
     <!-- ================= By Offense ================= -->
     <div data-incidents-panel="byOffense" class="mt-6 hidden">
-      {data.byOffense.length === 0 ? (
-        <p class="mt-6 text-white/60">No incidents logged yet.</p>
-      ) : (
+      {data.byOffense.length > 0 && (
         <div class="rounded-xl border border-white/10" data-sticky-thead>
           <table class="data-table w-full border-collapse" data-sortable>
             <thead>

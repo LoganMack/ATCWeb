@@ -1,5 +1,6 @@
-// Edit Results on the Race Results page (US9.1), full admins only: Edit Results swaps each incident count for
-// an input, Save Results checks them and posts only the changed rows, Cancel or Escape puts everything back.
+// Edit Results on the Race Results page (US9.1), full admins only: the pencil swaps each incident count for an
+// input, the tick checks them and posts only the changed rows, the cross or Escape puts everything back. The
+// buttons sit in a column just right of the table, shown only when the window has room for it there.
 // Imported by the results shell because the table renders in a fetched fragment where scripts don't run. The
 // server and the database check every value again.
 
@@ -33,32 +34,78 @@ export function changedIncidentEntries<T extends IncidentEntry>(entries: T[]): T
   });
 }
 
+/** The space the button column keeps from the table (its `ml-2`), in pixels. */
+const COLUMN_GAP_PX = 8;
+/** Tailwind's `sm`: below it the incidents column, and so Edit Results, is hidden. */
+const SM_MEDIA = '(min-width: 640px)';
+
+/** True when the column fits between the table's right edge and the window's right edge. */
+export function hasRoomBeside(tableRight: number, viewportWidth: number, columnWidth: number): boolean {
+  return viewportWidth - tableRight >= columnWidth + COLUMN_GAP_PX;
+}
+
 function inputsFor(form: HTMLFormElement): HTMLInputElement[] {
   return [...document.querySelectorAll<HTMLInputElement>(`input[data-incidents-input][form="${form.id}"]`)];
 }
 
-function setEditing(form: HTMLFormElement, editing: boolean) {
+// Display classes (`.btn`'s inline-flex, the count's inline-block) beat the `hidden` attribute, so these are
+// hidden with Tailwind's `hidden` class instead.
+export function setEditing(form: HTMLFormElement, editing: boolean) {
   form.dataset.editing = String(editing);
   const toggle = form.querySelector<HTMLButtonElement>('[data-edit-incidents-toggle]');
   const cancel = form.querySelector<HTMLButtonElement>('[data-edit-incidents-cancel]');
   if (toggle) {
-    toggle.textContent = editing ? 'Save Results' : 'Edit Results';
+    const label = editing ? 'Save results' : 'Edit results';
+    toggle.setAttribute('aria-label', label);
+    toggle.setAttribute('title', label);
     toggle.setAttribute('aria-pressed', String(editing));
     toggle.classList.toggle('btn-primary', editing);
     toggle.classList.toggle('btn-neutral', !editing);
+    toggle.querySelector('[data-icon="edit"]')?.classList.toggle('hidden', editing);
+    toggle.querySelector('[data-icon="save"]')?.classList.toggle('hidden', !editing);
   }
-  if (cancel) cancel.hidden = !editing;
+  cancel?.classList.toggle('hidden', !editing);
   for (const input of inputsFor(form)) {
     input.hidden = !editing;
     input.disabled = false;
-    const display = input.parentElement?.querySelector<HTMLElement>('[data-incidents-display]');
-    if (display) display.hidden = editing;
+    input.parentElement?.querySelector('[data-incidents-display]')?.classList.toggle('hidden', editing);
+    // The adjustment asterisk sits after the car number, in another cell of the same row.
+    input
+      .closest('tr')
+      ?.querySelectorAll('[data-incidents-adjusted]')
+      .forEach((mark) => mark.classList.toggle('hidden', editing));
   }
   if (!editing) showError(form, null);
 }
 
+/** Shows the button column only when it fits beside the table, so it never makes the page scroll sideways. */
+export function placeEditControls(form: HTMLFormElement) {
+  const anchor = form.parentElement;
+  if (!anchor) return;
+  // Shown first so its width can be measured; nothing paints until this returns.
+  form.classList.remove('hidden');
+  form.classList.add('flex');
+  const wide = typeof window.matchMedia !== 'function' || window.matchMedia(SM_MEDIA).matches;
+  const fits =
+    wide &&
+    hasRoomBeside(
+      anchor.getBoundingClientRect().right,
+      document.documentElement.clientWidth,
+      form.offsetWidth,
+    );
+  form.classList.toggle('hidden', !fits);
+  form.classList.toggle('flex', fits);
+  // With its tick and cross gone, an open edit could be neither saved nor cancelled, so it is cancelled.
+  if (!fits && form.dataset.editing === 'true') cancel(form);
+}
+
+function placeAllEditControls() {
+  document.querySelectorAll<HTMLFormElement>('form[data-edit-incidents-form]').forEach(placeEditControls);
+}
+
+// The message line sits above the table, outside the form, so it is found by the form's id.
 function showError(form: HTMLFormElement, message: string | null) {
-  const line = form.querySelector<HTMLElement>('[data-edit-incidents-error]');
+  const line = document.querySelector<HTMLElement>(`[data-edit-incidents-error="${form.id}"]`);
   if (!line) return;
   line.textContent = message ?? '';
   line.hidden = message === null;
@@ -122,6 +169,8 @@ function initEditIncidents() {
     }
   });
 
+  window.addEventListener('resize', placeAllEditControls);
+
   document.addEventListener('keydown', (e) => {
     const form = document.querySelector<HTMLFormElement>(
       'form[data-edit-incidents-form][data-editing="true"]',
@@ -152,6 +201,7 @@ if (typeof document !== 'undefined') {
   document.addEventListener('astro:page-load', () => {
     initEditIncidents();
     // fragmentLoader fires astro:page-load again once the table's fragment is in.
+    placeAllEditControls();
     reopenAfterFailedSave();
   });
 }

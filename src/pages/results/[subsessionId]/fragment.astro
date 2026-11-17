@@ -866,25 +866,55 @@ if (loadError) markUncacheable(Astro);
         )}
 
         {category === 'race' && canEditResults && raceTableRows.length > 0 && (
-          <form
-            id="edit-incidents-form"
-            method="post"
-            action={formAction}
-            class="mt-6 flex flex-wrap items-center gap-3"
-            data-edit-incidents-form
-          >
-            <input type="hidden" name="intent" value="save-incidents" />
-            <input type="hidden" name="race_number" value={activeRaceNumber} />
-            <button type="button" class="btn btn-neutral btn-sm" data-edit-incidents-toggle aria-pressed="false">
-              Edit Results
-            </button>
-            <button type="button" class="btn btn-neutral btn-sm" data-edit-incidents-cancel hidden>Cancel</button>
-            <p class="text-sm text-brand-pink" role="alert" data-edit-incidents-error hidden></p>
-          </form>
+          <p class="mt-6 text-sm text-brand-pink" role="alert" data-edit-incidents-error="edit-incidents-form" hidden></p>
         )}
 
         {category === 'race' && (
           raceTableRows.length > 0 ? (
+            <div class="relative">
+            {/* Edit Results: an icon column just outside the table's top-right corner, out of the flow so nothing
+                moves. editIncidents.ts shows it only when the window has room beside the table. */}
+            {canEditResults && (
+              <form
+                id="edit-incidents-form"
+                method="post"
+                action={formAction}
+                class="absolute left-full top-0 ml-2 hidden flex-col gap-2"
+                data-edit-incidents-form
+                data-testid="edit-results-controls"
+              >
+                <input type="hidden" name="intent" value="save-incidents" />
+                <input type="hidden" name="race_number" value={activeRaceNumber} />
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-sm"
+                  data-edit-incidents-toggle
+                  aria-pressed="false"
+                  aria-label="Edit results"
+                  title="Edit results"
+                  data-testid="edit-results-toggle"
+                >
+                  <svg data-icon="edit" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M16.862 4.487a2.1 2.1 0 1 1 2.97 2.97L7.5 19.79l-4 1 1-4 12.362-12.303z" />
+                  </svg>
+                  <svg data-icon="save" class="hidden h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-neutral btn-sm hidden"
+                  data-edit-incidents-cancel
+                  aria-label="Cancel"
+                  title="Cancel"
+                  data-testid="edit-results-cancel"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </form>
+            )}
             <ResultsTable
               raceNumber={activeRaceNumber}
               rows={raceTableRows}
@@ -900,6 +930,7 @@ if (loadError) markUncacheable(Astro);
               showPenaltyTags={roundPosted}
               editIncidentsFormId={canEditResults ? 'edit-incidents-form' : null}
             />
+            </div>
           ) : (
             <p class="mt-10 text-white/60">No results.</p>
           )
