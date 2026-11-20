@@ -44,7 +44,7 @@ const SCRIPT_MAP: Record<string, { hooks: string[]; shells: string[] }> = {
   hofClassFilter: { hooks: ['data-hof-card'], shells: ['hall-of-fame.astro'] },
   // cars-overall-compare: the Advanced Stats Compare view's slots, pickers and pick-keeping selects.
   compareView: { hooks: ['data-compare-view'], shells: ['advanced-stats.astro'] },
-  // points-calc: Points Contenders and Points Scenarios (one edit set), and the Series iRating table.
+  // points-calc: Points Contenders with its Scenario Editor, and the Series iRating table.
   pointsCalculator: { hooks: ['data-points-calculator'], shells: ['advanced-stats.astro'] },
   seriesRatings: { hooks: ['data-series-ratings'], shells: ['advanced-stats.astro'] },
   addToCalendar: {

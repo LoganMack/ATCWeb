@@ -260,6 +260,24 @@ export function getRaceScoresForSeasonOverall(env: SupabaseEnv, seasonId: string
   );
 }
 
+/** One driver's points in one race, both totals: the few columns the points calculator's bar segments need. */
+export interface RacePointsRow {
+  subsession_id: number;
+  race_number: number;
+  driver_id: string;
+  class_id: number;
+  overall_total: number;
+  class_total: number;
+}
+
+/** Every class's per-race totals for one season, six columns only, to keep the read small. */
+export function getRacePointsForSeason(env: SupabaseEnv, seasonId: string) {
+  return restGetAll<RacePointsRow>(
+    env,
+    `race_score_results_public?select=subsession_id,race_number,driver_id,class_id,overall_total:shown_overall_total,class_total:shown_class_total&season_id=eq.${encodeURIComponent(seasonId)}&order=subsession_id.asc,race_number.asc,driver_id.asc`,
+  );
+}
+
 /** One round's rows, every class. */
 export function getRaceScoresForSubsession(env: SupabaseEnv, subsessionId: number) {
   return fetchScoreRows(

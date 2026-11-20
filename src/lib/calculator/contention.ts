@@ -145,7 +145,11 @@ function standingAt(
  * BR3.9: the earliest run round from which the entrant has been Out at every later run round, replaying the
  * season as of each run round (later rounds treated as remaining). 1-based, or null.
  */
-function outAfterRound(replayAt: (k: number) => Standing, run: readonly number[], entrant: number): number | null {
+function outAfterRound(
+  replayAt: (k: number) => Standing,
+  run: readonly number[],
+  entrant: number,
+): number | null {
   let earliest: number | null = null;
   for (let k = run.length - 1; k >= 0; k--) {
     const at = replayAt(k);
@@ -232,47 +236,4 @@ export function computeContention(season: CalculatorSeason, edits: readonly Edit
       outAfterRound: outAfter,
     };
   });
-}
-
-/**
- * Use case 4 (Points Scenarios): the chaser's best case, the target's floor (the target's counted total with
- * nothing more scored) and the least points the chaser needs over the rounds left to reach it, or null when
- * the best case falls short. Null when either key is unknown.
- */
-export function chaseNeeds(
-  season: CalculatorSeason,
-  edits: readonly Edit[],
-  chaserKey: string,
-  targetKey: string,
-): { needs: number | null; best: number; floor: number } | null {
-  const ci = season.entrants.findIndex((e) => e.key === chaserKey);
-  const ti = season.entrants.findIndex((e) => e.key === targetKey);
-  if (ci < 0 || ti < 0) return null;
-  const effective = applyEdits(season, edits);
-  const proj = projection(season, runIndexes(effective));
-  const floor = projectedTotal(season, proj, withRemaining(effective.points[ti], proj.remaining, () => 0));
-  const caps = capsFor(season, ci);
-  const best = projectedTotal(
-    season,
-    proj,
-    withRemaining(effective.points[ci], proj.remaining, (r) => caps[r].best),
-  );
-  const needs =
-    best >= floor
-      ? pointsNeeded(
-          season,
-          proj,
-          effective.points[ci],
-          caps.map((c) => c.best),
-          floor,
-        )
-      : null;
-  return { needs, best, floor };
-}
-
-/** Every entrant's live counted total after the edits, by key (the Scenarios verdict, use case 4). */
-export function liveTotals(season: CalculatorSeason, edits: readonly Edit[]): Map<string, number> {
-  const effective = applyEdits(season, edits);
-  const ranking = liveRanking(season, effective.points, runIndexes(effective));
-  return new Map(ranking.map((r) => [season.entrants[r.entrant].key, r.total]));
 }

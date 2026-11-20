@@ -10,12 +10,23 @@ import type { SupabaseEnv } from '../db/client';
 import { getSeasonCalendarEvents } from '../db/events';
 import { getDriverClasses, type Lookup } from '../db/lookups';
 import { getStandingsExcludedRoundIds } from '../db/rounds';
-import { getScoringRulesets, getSeasons, resolveSeasonRuleset, type ScoringRuleset, type Season } from '../db/seasons';
+import {
+  getScoringRulesets,
+  getSeasons,
+  resolveSeasonRuleset,
+  type ScoringRuleset,
+  type Season,
+} from '../db/seasons';
 import { canonicalSeasonNumber } from '../compareRows';
-import { classStandingsFromRounds, loadStoredSeasons, overallStandingsFromRounds } from '../results/roundStatsAdapter';
+import {
+  classStandingsFromRounds,
+  loadStoredSeasons,
+  overallStandingsFromRounds,
+} from '../results/roundStatsAdapter';
 import { getRoundsForSeason } from '../results/rounds';
 import {
   driversSelect,
+  getRacePointsForSeason,
   getRaceScoresForSeasonOverall,
   getTeamsBasic,
   type DriverBasic,
@@ -29,6 +40,7 @@ import {
   buildCalendar,
   buildRounds,
   driverEntrants,
+  raceBreakdown,
   teamEntrants,
   type RunRoundInput,
 } from './build';
@@ -52,7 +64,9 @@ export function resolveCalculatorSeason(value: string | null, seasons: readonly 
 }
 
 /** The championships a season ran (Gamma, Delta and Delta Team only when the season enables them). */
-export function availableChampionships(season: Pick<Season, 'gamma_enabled' | 'delta_enabled' | 'delta_team_enabled'>): Championship[] {
+export function availableChampionships(
+  season: Pick<Season, 'gamma_enabled' | 'delta_enabled' | 'delta_team_enabled'>,
+): Championship[] {
   return CHAMPIONSHIPS.filter((c) => {
     if (c === 'gamma') return season.gamma_enabled;
     if (c === 'delta') return season.delta_enabled;
@@ -176,11 +190,17 @@ export async function loadCalculatorSeason(
   const rounds = seasonRounds.filter((r) => !excludedIds.has(r.subsession_id));
 
   if (isTeamChampionship(championship)) {
-    const [scoresRaw, teams] = await Promise.all([getRaceScoresForSeasonOverall(env, season.id), getTeamsBasic(env)]);
+    const [scoresRaw, teams] = await Promise.all([
+      getRaceScoresForSeasonOverall(env, season.id),
+      getTeamsBasic(env),
+    ]);
     const scores = scoresRaw.filter((s) => !excludedIds.has(s.subsession_id));
     const racesBySubsession = new Map<number, number>();
     for (const s of scores) {
-      racesBySubsession.set(s.subsession_id, Math.max(racesBySubsession.get(s.subsession_id) ?? 1, s.race_number));
+      racesBySubsession.set(
+        s.subsession_id,
+        Math.max(racesBySubsession.get(s.subsession_id) ?? 1, s.race_number),
+      );
     }
     const slots = buildCalendar(runRoundsFrom(rounds, racesBySubsession), events);
     const calcRounds = buildRounds(slots, ruleset?.rules, championship);
@@ -200,9 +220,24 @@ export async function loadCalculatorSeason(
     };
   }
 
-  const standings = await driverStandings(env, season, championship, refs);
+  const [standings, raceRows] = await Promise.all([
+    driverStandings(env, season, championship, refs),
+    // Only the bars' per-race segments use these, so a failed read shows whole-round segments instead.
+    getRacePointsForSeason(env, season.id).catch((err) => {
+      console.error('Failed to load the per-race points for the points calculator:', err);
+      return null;
+    }),
+  ]);
   const slots = buildCalendar(runRoundsFrom(rounds, racesFromStandings(standings)), events);
   const calcRounds = buildRounds(slots, ruleset?.rules, championship);
+  const className = CLASS_OF[championship];
+  const breakdown = raceRows
+    ? raceBreakdown(
+        raceRows,
+        championship,
+        className ? (classes.find((c) => c.name === className)?.id ?? null) : null,
+      )
+    : undefined;
   return {
     season,
     championship,
@@ -210,7 +245,7 @@ export async function loadCalculatorSeason(
       season,
       championship,
       rounds: calcRounds,
-      entrants: driverEntrants(standings, calcRounds, slots),
+      entrants: driverEntrants(standings, calcRounds, slots, breakdown),
       dropCount: seasonDropWeeks(season, rulesets),
       dropsFromRounds: MIN_ROUNDS_FOR_DROPS,
       // Protected (false) when no ruleset resolves, as the Standings page does.
