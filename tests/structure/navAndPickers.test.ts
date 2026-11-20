@@ -3,6 +3,14 @@
  * and History menus with their phone-only items, the History and Stats pickers, and the Advanced Stats page.
  */
 import { describe, expect, it } from 'vitest';
+import {
+  ADVANCED_VIEW_LABELS,
+  ADVANCED_VIEWS,
+  calculatorFragmentQuery,
+  calculatorQuery,
+  ratingQuery,
+  resolveAdvancedView,
+} from '../../src/lib/advancedStatsViews';
 
 // Line endings normalised, so a Windows checkout reads the same as CI.
 const SRC = Object.fromEntries(
@@ -168,15 +176,47 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     expect(ADVANCED).toContain('<Layout title="Advanced Stats"');
     expect(ADVANCED).not.toMatch(/coming soon/i);
     expect(ADVANCED).toContain('data-testid="compare-filters"');
-    expect(ADVANCED).toMatch(/<span[^>]*>View<\/span>[\s\S]*>Compare<\/option>/);
+    expect(ADVANCED).toMatch(/<span[^>]*>View<\/span>/);
     expect(ADVANCED).toContain('<ClassFilterSelect options={classOptions} compareNav />');
     expect(ADVANCED).toMatch(/<span[^>]*>Season<\/span>/);
-    // Every select carries the picks through compareView.ts, never the site-wide navigate-on-change.
+    // On Compare every select carries the picks through compareView.ts, never the site-wide navigate-on-change.
+    const compare = ADVANCED.split(/\{view === 'compare' && \(/).slice(1).map((b) => b.split(/\n\s*\)\}\n/)[0]);
+    expect(compare.length).toBeGreaterThanOrEqual(2);
+    for (const branch of compare) expect(branch).not.toContain('data-navigate-on-change');
     expect(ADVANCED.match(/data-compare-nav/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(ADVANCED).not.toContain('data-navigate-on-change');
     // The fragment address is built from the resolved filters, so the picks never reach it.
     expect(ADVANCED).toContain('data-fragment-url={`/advanced-stats/fragment${query}`}');
     expect(ADVANCED).not.toContain('Astro.url.search}');
+  });
+
+  it('offers the four views in the View select, Compare first (points-calc FR1.1, FR1.5)', () => {
+    expect(ADVANCED_VIEWS).toEqual(['compare', 'contenders', 'scenarios', 'irating']);
+    expect(ADVANCED_VIEWS.map((v) => ADVANCED_VIEW_LABELS[v])).toEqual([
+      'Compare',
+      'Points Contenders',
+      'Points Scenarios',
+      'Series iRating',
+    ]);
+    expect(resolveAdvancedView('irating')).toBe('irating');
+    expect(resolveAdvancedView('Contenders')).toBe('compare');
+    expect(resolveAdvancedView(null)).toBe('compare');
+    expect(ADVANCED).toContain("resolveAdvancedView(Astro.url.searchParams.get('view'))");
+  });
+
+  it('gives the calculator views Season, Championship and Reset edits, and Series iRating its Class (FR1.3, FR1.4)', () => {
+    expect(ADVANCED).toContain('data-testid="calculator-season-select"');
+    expect(ADVANCED).toContain('data-testid="calculator-championship-select"');
+    expect(ADVANCED).toMatch(/<button type="button" class="btn ml-auto" data-calculator-reset[^>]*disabled>/);
+    expect(ADVANCED).toContain('data-testid="rating-class-select"');
+    // Contenders and Scenarios swap in the page through pointsCalculator.ts, so the edits survive.
+    expect(ADVANCED).toContain('data-calculator-view-select');
+    expect(ADVANCED).toContain('data-fragment-url={pointsFragmentUrl}');
+    expect(ADVANCED).toContain('data-fragment-url={ratingsFragmentUrl}');
+    expect(calculatorQuery('scenarios', 18, 'overall')).toBe('?view=scenarios&season=18');
+    expect(calculatorQuery('contenders', 18, 'delta_team')).toBe('?view=contenders&season=18&championship=delta_team');
+    expect(calculatorFragmentQuery(18, 'overall')).toBe('?season=18');
+    expect(ratingQuery('overall')).toBe('?view=irating');
+    expect(ratingQuery('gamma', false)).toBe('?class=Gamma');
   });
 });
 

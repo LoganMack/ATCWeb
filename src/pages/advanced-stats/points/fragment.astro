@@ -1,0 +1,51 @@
+---
+export const prerender = false;
+import LoadError from '../../../components/LoadError.astro';
+import { markUncacheable, safeJson } from '../../../lib/security';
+
+import { resolveSupabaseEnv } from '../../../lib/db/client';
+import { loadCalculatorSeason } from '../../../lib/calculator/load';
+import type { CalculatorSeason } from '../../../lib/calculator/types';
+
+/**
+ * Points Contenders and Points Scenarios' data for the advanced-stats.astro shell (FR2, FR4, FR5; NFR1, NFR2):
+ * one season and championship as a CalculatorSeason, built from the Standings page's own stored rows and the
+ * season calendar, embedded as JSON for src/scripts/pointsCalculator.ts. Every projection and edit runs in the
+ * browser, so this route does no projection work, and the edits never reach it. Never linked directly.
+ */
+
+const supabaseEnv = resolveSupabaseEnv(Astro.locals);
+
+let loadError: string | null = null;
+let data: CalculatorSeason | null = null;
+try {
+  const load = await loadCalculatorSeason(
+    supabaseEnv,
+    Astro.url.searchParams.get('season'),
+    Astro.url.searchParams.get('championship'),
+  );
+  data = load?.data ?? null;
+} catch (err) {
+  console.error('Failed to build the points calculator (fragment):', err);
+  loadError = err instanceof Error ? err.message : String(err);
+}
+
+Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+if (loadError) markUncacheable(Astro);
+---
+
+{loadError && <LoadError />}
+
+{!loadError && !data && <p class="mt-10 text-white/60">No championship season to show yet.</p>}
+
+{!loadError && data && (
+  <div data-points-calculator>
+    <script type="application/json" id="points-calculator-data" set:html={safeJson(data)} />
+    <div data-calculator-body>
+      <noscript>
+        <p class="mt-6 text-white/60">The points calculator needs JavaScript to work out who can still win.</p>
+      </noscript>
+    </div>
+    <p class="sr-only" role="status" aria-live="polite" data-calculator-status></p>
+  </div>
+)}

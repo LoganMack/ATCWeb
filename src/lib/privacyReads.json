@@ -64,5 +64,11 @@
     "select": "id,role,display_name,driver_id,iracing_cust_id,iracing_name,is_broadcaster,driver:drivers_shown!driver_id(name)",
     "embeds": ["driver"],
     "callers": ["admin"]
+  },
+  "seriesRatings": {
+    "path": "series_ratings_shown",
+    "select": "kind,driver_key,name,linkable,driver_id,current,last_change,minimum,maximum,races,trend",
+    "embeds": [],
+    "callers": ["anon", "admin"]
   }
 }

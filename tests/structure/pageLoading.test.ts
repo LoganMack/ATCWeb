@@ -136,6 +136,21 @@ describe('the model fragments read the stored round stats (BR1.1, BR2.1-BR2.3)',
     expect(functionBody(driverPage, 'loadDriverAwards')).toMatch(/\bcomputeSeasonAwardsHistory\s*\(/);
   });
 
+  it('builds the points calculator from the stored rows, live only as the fallback (points-calc NFR1)', () => {
+    const fragment = page('advanced-stats/points/fragment.astro');
+    expect(fragment).toMatch(/\bloadCalculatorSeason\s*\(/);
+    expect(callsOf(fragment, BULK_BUILDERS)).toEqual([]);
+    const load = lib('calculator/load.ts');
+    const standings = load.slice(load.indexOf('async function driverStandings'), load.indexOf('function runRoundsFrom'));
+    expect(standings).toMatch(/\bloadStoredSeasons\s*\(/);
+    const stored = standings.slice(0, standings.search(/if \(stats\)/));
+    expect(callsOf(stored, BULK_BUILDERS)).toEqual([]);
+    // Teams read one season's scored rows; never the multi-season bulk read.
+    expect(callsOf(load, ['getRaceScoresForSeasonsBulk', 'getSeasonOverallContext'])).toEqual([]);
+    // The ratings read only the stored summaries.
+    expect(callsOf(page('advanced-stats/ratings/fragment.astro'), BULK_BUILDERS)).toEqual([]);
+  });
+
   it('trims the round picker to its own columns, read in the first stage', () => {
     const results = page('results/[subsessionId]/fragment.astro');
     expect(results).toMatch(/\bgetRoundPickerRounds\s*\(/);
@@ -155,6 +170,10 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'admin/fragment.astro': [],
   // Compare (FR4): the slot picks a-d stay in the browser; view has one value and is not read.
   'advanced-stats/fragment.astro': ['class', 'season'],
+  // Points Contenders and Points Scenarios (points-calc FR2): the reader's edits stay in the browser.
+  'advanced-stats/points/fragment.astro': ['championship', 'season'],
+  // Series iRating (points-calc FR7).
+  'advanced-stats/ratings/fragment.astro': ['class'],
   'awards/fragment.astro': [],
   'calendar/fragment.astro': ['season'],
   'champions/fragment.astro': ['class', 'team'],

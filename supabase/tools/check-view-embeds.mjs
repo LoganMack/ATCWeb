@@ -12,7 +12,8 @@
 // it).
 //
 // The rows it needs (an admin, a member, a hidden driver with a team, a posted penalty with an offense and an
-// involved driver, a news post and a meetup tagging the driver, a kudos, an interview by the other driver)
+// involved driver, a news post and a meetup tagging the driver, a kudos, an interview by the other driver,
+// a Series iRating summary for the hidden driver)
 // are inserted and committed with psql first, and deleted again at the end, also on failure. The admin and
 // member tokens are signed with the local JWT secret that `supabase status` reports. Connection details can be overridden with DB_URL, SUPABASE_API_URL,
 // SUPABASE_ANON_KEY and SUPABASE_JWT_SECRET.
@@ -55,6 +56,8 @@ export const FILTERS = {
   kudosFeed: `id=eq.${SEED.kudos}`,
   interviewsShown: `id=eq.${SEED.interview}`,
   profile: `id=eq.${SEED.owner}`,
+  // The seeded summary's race count is unique to it; anon sees the row masked, the admin unmasked.
+  seriesRatings: `kind=eq.overall&races=eq.871`,
 };
 
 const SEED_SQL = `
@@ -91,11 +94,14 @@ insert into public.kudos (id, subsession_id, session, lap, turn, author_id, auth
 insert into public.kudos_drivers (kudos_id, driver_id) values ('${SEED.kudos}', '${SEED.driver}');
 insert into public.race_interviews (id, subsession_id, driver_id, audio_path, audio_type, duration_seconds) values
   ('${SEED.interview}', ${SEED.round}, '${SEED.other}', '${SEED.other}/${SEED.round}.webm', 'audio/webm', 30);
+insert into private.rating_summary (kind, driver_id, "current", last_change, minimum, maximum, races, trend) values
+  ('overall', '${SEED.driver}', 1871, 21, 1350, 1871, 871, '{1850,1871}');
 update public.scoring_settings set triggers_enabled = true;
 `;
 
 const CLEANUP_SQL = `
 update public.scoring_settings set triggers_enabled = false;
+delete from private.rating_summary where driver_id in ('${SEED.driver}', '${SEED.other}');
 delete from public.race_interviews where id = '${SEED.interview}';
 delete from public.kudos_drivers where kudos_id = '${SEED.kudos}';
 delete from public.kudos where id = '${SEED.kudos}';

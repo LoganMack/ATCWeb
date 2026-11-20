@@ -24,11 +24,14 @@ export type NotificationRpc =
   | 'notifications_mark_batch'
   | 'notifications_record_run';
 
+/** The Series iRating catch-up the same cron runs (src/lib/rating/serviceRun.ts); service_role only too. */
+export type RatingRpc = 'rating_process_pending';
+
 /** The table reads the run may make (a PostgREST path with its query string). */
 export type NotificationSelect = 'email_templates?select=kind,subject,lead,link_text';
 
 export interface ServiceDb {
-  rpc<T>(fn: NotificationRpc, args?: Record<string, unknown>): Promise<T>;
+  rpc<T>(fn: NotificationRpc | RatingRpc, args?: Record<string, unknown>): Promise<T>;
   select<T>(path: NotificationSelect): Promise<T>;
 }
 
@@ -49,7 +52,7 @@ export function createServiceDb(env: NotificationEnv): ServiceDb {
   const url = env.PUBLIC_SUPABASE_URL;
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
   return {
-    async rpc<T>(fn: NotificationRpc, args: Record<string, unknown> = {}): Promise<T> {
+    async rpc<T>(fn: NotificationRpc | RatingRpc, args: Record<string, unknown> = {}): Promise<T> {
       if (!url || !key) throw new Error('PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured');
       const res = await fetch(`${url}/rest/v1/rpc/${fn}`, {
         method: 'POST',
