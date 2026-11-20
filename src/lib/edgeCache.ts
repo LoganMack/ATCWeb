@@ -6,13 +6,17 @@
  */
 import { CLASS_FILTER_VALUES } from './results/classFilter';
 import { canonicalSeasonNumber } from './compareRows';
+import { CHAMPIONSHIPS } from './calculator/types';
 
 const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/calendar(\/fragment)?$/, ['season']],
   [/^\/champions(\/fragment)?$/, ['class', 'team']],
   [/^\/champions\/season-results\/[^/]+\/[^/]+$/, ['class']],
   // The Compare picks (a-d) are read only in the browser, so they are never part of the key (BR5.2).
-  [/^\/advanced-stats(\/fragment)?$/, ['class', 'season', 'view']],
+  [/^\/advanced-stats(\/fragment)?$/, ['championship', 'class', 'season', 'view']],
+  // The points calculator's edits stay in the browser; only the season and championship pick its data.
+  [/^\/advanced-stats\/points\/fragment$/, ['championship', 'season']],
+  [/^\/advanced-stats\/ratings\/fragment$/, ['class']],
   [/^\/driver-stats(\/fragment)?$/, ['class']],
   [/^\/drivers\/[^/]+$/, ['profile_error', 'saved']],
   [/^\/drivers\/[^/]+\/fragment$/, ['hof']],
@@ -62,16 +66,23 @@ const ALLOWED_PARAM_VALUES: Record<string, readonly string[]> = { from: ['report
 // class filter's values must match what resolveClassFilter accepts exactly: anything it would read as
 // Overall is dropped, so it lands on the bare key that Overall renders under.
 const isClassFilterValue = (value: string) => CLASS_FILTER_VALUES.includes(value);
+const isSeasonValue = (value: string) => value === 'all' || canonicalSeasonNumber(value) !== null;
+// Overall is the bare key, so only the other championships and rating classes are kept.
+const isChampionshipValue = (value: string) => value !== 'overall' && (CHAMPIONSHIPS as readonly string[]).includes(value);
+const isRatingClassValue = (value: string) => ['Alpha', 'Gamma', 'Delta'].includes(value);
 const ROUTE_PARAM_VALUES: [RegExp, Record<string, (value: string) => boolean>][] = [
   [/^\/driver-stats(\/fragment)?$/, { class: isClassFilterValue }],
   [
     /^\/advanced-stats(\/fragment)?$/,
     {
+      championship: isChampionshipValue,
       class: isClassFilterValue,
-      season: (value) => value === 'all' || canonicalSeasonNumber(value) !== null,
-      view: (value) => value === 'compare',
+      season: isSeasonValue,
+      view: (value) => ['compare', 'contenders', 'scenarios', 'irating'].includes(value),
     },
   ],
+  [/^\/advanced-stats\/points\/fragment$/, { championship: isChampionshipValue, season: isSeasonValue }],
+  [/^\/advanced-stats\/ratings\/fragment$/, { class: isRatingClassValue }],
   // Overall and unknown values render as Overall (parseSeasonStatsScope), so they share the bare key.
   [/^\/season-stats(\/fragment)?$/, { class: (value) => ['alpha', 'gamma', 'delta'].includes(value) }],
 ];

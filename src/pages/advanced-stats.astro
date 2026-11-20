@@ -15,11 +15,30 @@ import { getSeasons, type Season } from '../lib/db/seasons';
 import { classFilterOptions, resolveClassFilter } from '../lib/results/classFilter';
 import { compareQuery, compareSeasonOptions, resolveCompareSeason } from '../lib/results/compareStats';
 import { seasonOptionAttrs } from '../lib/seasonSelect';
+import {
+  ADVANCED_VIEW_LABELS,
+  ADVANCED_VIEWS,
+  calculatorFragmentQuery,
+  calculatorQuery,
+  isCalculatorView,
+  ratingQuery,
+  resolveAdvancedView,
+} from '../lib/advancedStatsViews';
+import {
+  availableChampionships,
+  calculatorSeasons,
+  resolveCalculatorSeason,
+  resolveChampionship,
+} from '../lib/calculator/load';
+import { CHAMPIONSHIP_LABELS } from '../lib/calculator/types';
+import { RATING_KIND_LABELS, RATING_KINDS, resolveRatingKind } from '../lib/db/seriesRatings';
 
-// Advanced Stats (FR4): the Compare view. The shell reads only the filter lists; the drivers, teams and cars
-// come from advanced-stats/fragment.astro and src/scripts/compareView.ts draws the four slots from them. The
-// slot picks (a-d) live only in the address and the browser, never in cached HTML, so the selects carry them
-// through compareView.ts (data-compare-nav) rather than the site-wide navigate-on-change handler.
+// Advanced Stats (FR1, FR4): four views behind one View select. Compare reads its drivers, teams and cars from
+// advanced-stats/fragment.astro; Points Contenders and Points Scenarios share one calculator fragment
+// (advanced-stats/points/fragment.astro), drawn by src/scripts/pointsCalculator.ts, which swaps between the two
+// in the page so the reader's edits survive; Series iRating reads advanced-stats/ratings/fragment.astro. The
+// shell reads only the filter lists. Compare's slot picks (a-d) live only in the address and the browser, so
+// its selects carry them through compareView.ts (data-compare-nav).
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -44,24 +63,63 @@ try {
   loadError = err instanceof Error ? err.message : String(err);
 }
 
-const classFilter = resolveClassFilter(Astro.url.searchParams.get('class'), classes);
-const season = resolveCompareSeason(Astro.url.searchParams.get('season'), seasons);
+const view = resolveAdvancedView(Astro.url.searchParams.get('view'));
+const seasonParam = Astro.url.searchParams.get('season');
+const classParam = Astro.url.searchParams.get('class');
+
+// Compare's filters.
+const classFilter = resolveClassFilter(classParam, classes);
+const season = resolveCompareSeason(seasonParam, seasons);
 const seasonParams: Record<string, string> = season ? { season: String(season.number) } : {};
 const classOptions = classFilterOptions('/advanced-stats', classFilter, classes, seasonParams);
 const seasonOptions = compareSeasonOptions('/advanced-stats', classFilter, season, seasons);
-// Each season option carries its logo for the dropdown (scripts/logoSelect.ts); All has none.
-const seasonByName = new Map(seasons.map((s) => [s.name, s]));
 // Built from the resolved filters, never the raw search, so the picks stay out of the fragment request.
 const query = compareQuery(classFilter, season);
 
+// The calculator's filters (FR1.3, FR1.5): the season asked for, else the current one; Overall otherwise.
+const calcSeason = resolveCalculatorSeason(seasonParam, seasons);
+const championship = resolveChampionship(Astro.url.searchParams.get('championship'), calcSeason);
+const calcView = isCalculatorView(view) ? view : 'contenders';
+const calcSeasonOptions = calculatorSeasons(seasons).map((s) => ({
+  season: s,
+  href: `/advanced-stats${calculatorQuery(calcView, s.number, resolveChampionship(championship, s))}`,
+  selected: s.id === calcSeason?.id,
+}));
+const championshipOptions = (calcSeason ? availableChampionships(calcSeason) : (['overall'] as const)).map((c) => ({
+  label: CHAMPIONSHIP_LABELS[c],
+  href: `/advanced-stats${calculatorQuery(calcView, calcSeason?.number ?? null, c)}`,
+  selected: c === championship,
+}));
+const pointsFragmentUrl = `/advanced-stats/points/fragment${calculatorFragmentQuery(calcSeason?.number ?? null, championship)}`;
+
+// Series iRating's class (FR1.4): Overall, Alpha, Gamma, Delta.
+const ratingKind = resolveRatingKind(classParam);
+const ratingOptions = RATING_KINDS.map((kind) => ({
+  label: RATING_KIND_LABELS[kind],
+  href: `/advanced-stats${ratingQuery(kind)}`,
+  selected: kind === ratingKind,
+}));
+const ratingsFragmentUrl = `/advanced-stats/ratings/fragment${ratingQuery(ratingKind, false)}`;
+
+const viewHref: Record<(typeof ADVANCED_VIEWS)[number], string> = {
+  compare: view === 'compare' ? `/advanced-stats${query}` : '/advanced-stats',
+  contenders: `/advanced-stats${calculatorQuery('contenders', calcSeason?.number ?? null, championship)}`,
+  scenarios: `/advanced-stats${calculatorQuery('scenarios', calcSeason?.number ?? null, championship)}`,
+  irating: `/advanced-stats${ratingQuery(ratingKind)}`,
+};
+const viewOptions = ADVANCED_VIEWS.map((v) => ({ value: v, label: ADVANCED_VIEW_LABELS[v], href: viewHref[v] }));
+// Each season option carries its logo for the dropdown (scripts/logoSelect.ts); All has none.
+const seasonByName = new Map(seasons.map((s) => [s.name, s]));
+
 const selectClass =
   'h-9 w-full rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5';
+const labelClass = 'text-xs font-semibold uppercase tracking-wide text-white/40';
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 if (loadError) markUncacheable(Astro);
 ---
 
-<Layout title="Advanced Stats" description="Compare drivers, teams and cars from Alpha Touring Challenge side by side.">
+<Layout title="Advanced Stats" description="Compare drivers, teams and cars, see who can still win the championship, and the Series iRating of every Alpha Touring Challenge driver.">
   <section class="relative mx-auto max-w-6xl px-6 pb-24 pt-8">
     <PageBanner imageUrl={bannerUrl} />
     <h1 class="reveal font-display text-2xl sm:text-5xl">Advanced Stats</h1>
@@ -75,26 +133,84 @@ if (loadError) markUncacheable(Astro);
       >
         <div class="flex flex-wrap items-end gap-3">
           <StatsTabs active="advanced" />
-          <label class="flex flex-col gap-1.5 sm:w-44">
-            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">View</span>
-            <select aria-label="View" class={selectClass} data-compare-nav data-testid="advanced-view-select">
-              <option value={`/advanced-stats${query}`} selected class="bg-brand-ink text-white">Compare</option>
-            </select>
+          <label class="flex flex-col gap-1.5 sm:w-48">
+            <span class={labelClass}>View</span>
+            {view === 'compare' && (
+              <select aria-label="View" class={selectClass} data-compare-nav data-testid="advanced-view-select">
+                {viewOptions.map((o) => (
+                  <option value={o.href} selected={o.value === view} class="bg-brand-ink text-white">{o.label}</option>
+                ))}
+              </select>
+            )}
+            {isCalculatorView(view) && (
+              <select aria-label="View" class={selectClass} data-calculator-view-select data-testid="advanced-view-select">
+                {viewOptions.map((o) => (
+                  <option value={o.href} data-view={o.value} selected={o.value === view} class="bg-brand-ink text-white">{o.label}</option>
+                ))}
+              </select>
+            )}
+            {view === 'irating' && (
+              <select aria-label="View" class={selectClass} data-navigate-on-change data-testid="advanced-view-select">
+                {viewOptions.map((o) => (
+                  <option value={o.href} selected={o.value === view} class="bg-brand-ink text-white">{o.label}</option>
+                ))}
+              </select>
+            )}
           </label>
-          <ClassFilterSelect options={classOptions} compareNav />
-          <label class="flex flex-col gap-1.5 sm:w-44">
-            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Season</span>
-            <select aria-label="Season" class={selectClass} data-compare-nav data-logo-select data-testid="advanced-season-select">
-              {seasonOptions.map((o) => (
-                <option value={o.href} selected={o.selected} {...seasonOptionAttrs(seasonByName.get(o.label))} class="bg-brand-ink text-white">{o.label}</option>
-              ))}
-            </select>
-          </label>
+
+          {view === 'compare' && <ClassFilterSelect options={classOptions} compareNav />}
+          {view === 'compare' && (
+            <label class="flex flex-col gap-1.5 sm:w-44">
+              <span class={labelClass}>Season</span>
+              <select aria-label="Season" class={selectClass} data-compare-nav data-logo-select data-testid="advanced-season-select">
+                {seasonOptions.map((o) => (
+                  <option value={o.href} selected={o.selected} {...seasonOptionAttrs(seasonByName.get(o.label))} class="bg-brand-ink text-white">{o.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {isCalculatorView(view) && (
+            <label class="flex flex-col gap-1.5 sm:w-44">
+              <span class={labelClass}>Season</span>
+              <select aria-label="Season" class={selectClass} data-navigate-on-change data-calculator-filter data-logo-select data-testid="calculator-season-select">
+                {calcSeasonOptions.map((o) => (
+                  <option value={o.href} selected={o.selected} {...seasonOptionAttrs(o.season)} class="bg-brand-ink text-white">{o.season.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {isCalculatorView(view) && (
+            <label class="flex flex-col gap-1.5 sm:w-44">
+              <span class={labelClass}>Championship</span>
+              <select aria-label="Championship" class={selectClass} data-navigate-on-change data-calculator-filter data-testid="calculator-championship-select">
+                {championshipOptions.map((o) => (
+                  <option value={o.href} selected={o.selected} class="bg-brand-ink text-white">{o.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {isCalculatorView(view) && (
+            <button type="button" class="btn ml-auto" data-calculator-reset data-testid="calculator-reset" disabled>
+              Reset edits
+            </button>
+          )}
+
+          {view === 'irating' && (
+            <label class="flex flex-col gap-1.5 sm:w-44">
+              <span class={labelClass}>Class</span>
+              <select aria-label="Class" class={selectClass} data-navigate-on-change data-testid="rating-class-select">
+                {ratingOptions.map((o) => (
+                  <option value={o.href} selected={o.selected} class="bg-brand-ink text-white">{o.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </div>
     )}
 
-    {!loadError && (
+    {!loadError && view === 'compare' && (
       <div data-compare-view data-fragment-url={`/advanced-stats/fragment${query}`}>
         <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-live="polite" aria-busy="true">
           <span class="sr-only">Loading the compare view…</span>
@@ -105,18 +221,54 @@ if (loadError) markUncacheable(Astro);
         </div>
       </div>
     )}
+
+    {!loadError && isCalculatorView(view) && (
+      <div data-points-view={view} data-fragment-url={pointsFragmentUrl}>
+        <div class="mt-6 space-y-3" aria-live="polite" aria-busy="true">
+          <span class="sr-only">Loading the championship…</span>
+          {[0, 1, 2, 3, 4].map(() => (
+            <div class="h-9 animate-pulse rounded-md border border-white/10 bg-white/[0.02]"></div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {!loadError && view === 'irating' && (
+      <div data-ratings-view data-fragment-url={ratingsFragmentUrl}>
+        <div class="mt-6 space-y-2" aria-live="polite" aria-busy="true">
+          <span class="sr-only">Loading the Series iRating…</span>
+          {[0, 1, 2, 3, 4, 5].map(() => (
+            <div class="h-8 animate-pulse rounded-md border border-white/10 bg-white/[0.02]"></div>
+          ))}
+        </div>
+      </div>
+    )}
   </section>
 
   <script>
     import { bindFragment } from '../scripts/fragmentLoader';
     import '../scripts/compareView';
     import '../scripts/logoSelect';
+    import '../scripts/pointsCalculator';
+    import '../scripts/seriesRatings';
 
     bindFragment('[data-compare-view]', {
       label: 'Advanced stats',
       logMessage: 'Failed to load advanced stats:',
       errorHtml:
         '<p class="mt-10 text-white/60">Couldn’t load the compare view right now — try refreshing the page.</p>',
+    });
+    bindFragment('[data-points-view]', {
+      label: 'Points calculator',
+      logMessage: 'Failed to load the points calculator:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load the championship right now — try refreshing the page.</p>',
+    });
+    bindFragment('[data-ratings-view]', {
+      label: 'Series iRating',
+      logMessage: 'Failed to load the Series iRating:',
+      errorHtml:
+        '<p class="mt-10 text-white/60">Couldn’t load the Series iRating right now — try refreshing the page.</p>',
     });
   </script>
 </Layout>

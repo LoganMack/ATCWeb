@@ -14,6 +14,7 @@ Built with [Astro](https://astro.build), [Tailwind CSS](https://tailwindcss.com)
 - [Database](#database)
 - [Authentication and admin access](#authentication-and-admin-access)
 - [Results, scoring and penalties](#results-scoring-and-penalties)
+- [Series iRating](#series-irating)
 - [Deployment](#deployment)
 - [Maintenance tasks](#maintenance-tasks)
 - [Conventions](#conventions)
@@ -34,6 +35,7 @@ Built with [Astro](https://astro.build), [Tailwind CSS](https://tailwindcss.com)
 | Standings                       | List, Matrix and Graph views; Season, Championship and Class filters; a "Standings by Round" slider; team standings |
 | Champions, Awards, Hall of Fame | League history and honours                                                                                          |
 | Driver and team stats           | Career and season statistics                                                                                        |
+| Advanced Stats                  | Compare; Points Contenders and Points Scenarios (who can still win, with what-if edits); Series iRating             |
 | Circuits and media              | Circuit records and layouts, photo galleries                                                                        |
 | Rulebook                        | The league rulebook at `/rulebook`, with a contents panel of its sections and a list of its tables                  |
 
@@ -217,6 +219,31 @@ After that, admins manage other users from **Admin → Users**: linking drivers,
 4. Scores update automatically: the scoring triggers rescore a round whenever its results, penalties, drivers, season or ruleset change. **Admin → Seasons → Recalculate** (`rescore_season`) rescores a whole season.
 5. Penalties (time, points and DSQ, with appeal values once appealed) are applied by `score_round` in the database; the results page only formats the margins and race times.
 6. Incident reporting follows three admin-configurable windows. Drivers may report incidents for a set number of hours after the race. Admins then post the report, which is when penalties and adjustments become visible on the public results page. Drivers may submit appeals, with up to three files, for a set number of hours after posting.
+
+## Series iRating
+
+Advanced Stats → Series iRating rates every driver on ATC series races only. It is not iRacing's iRating. There are four ratings: Overall, plus one each for Alpha, Gamma and Delta. Each driver starts every rating at 1350.
+
+**Formula.** The ratings use iRacing's classic method:
+
+- The scale is `1600 / ln 2`.
+- Each driver's expected score is their summed chance of beating every driver in the field, themselves included, minus 0.5.
+- A fudge term is added: `(N/2 − position) / 100`.
+- The change is `(N − position − expected − fudge) × 200 / N`.
+
+Everyone in a race moves at once from their before-race rating. Decimals are kept, and only the display rounds. `private.rating_race()` in `20261121120000_series_irating.sql` is the code that runs; `src/lib/rating/iRating.ts` is its tested reference. A field of one, whether the whole race or one class within it, changes nobody. A disqualified driver is placed last. Until a round's incident report is posted, raw finishing positions are used; after posting, final positions are used, matching what the results page shows.
+
+**When ratings update.** Ratings update automatically:
+
+1. Any change to a round's scored rows (`race_score_results`), its start time, its deletion, or its posting queues a recompute.
+2. The recompute runs from the earliest affected race, in time order.
+3. A small change is recomputed when the transaction commits. Above 40 races, or when the recompute fails, the work stays queued, and the Worker's existing 15-minute cron finishes it through `rating_process_pending()`, using the service role.
+
+Pages only read the stored summaries, through the masked view `series_ratings_shown`. Hidden drivers appear as "Hidden Driver" with no link.
+
+**Admin rebuild.** A full admin can recompute every rating from scratch with `select public.rating_rebuild();` in the SQL editor. It returns the number of races rated.
+
+**Kill switch.** The scoring kill switch (`private.scoring_triggers_enabled()`) pauses the ratings too. Changes keep queueing, and the next cron run after the switch is turned back on catches up. `private.rating_state` records the last run and the last error.
 
 ## Deployment
 

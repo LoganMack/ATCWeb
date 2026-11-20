@@ -220,6 +220,33 @@ export function getChampionshipRoundNumbers(
   );
 }
 
+/** One championship event of a season, as the points calculator's calendar reads it. */
+export interface SeasonCalendarEvent {
+  id: string;
+  event_date: string;
+  format: EventFormat;
+  round_number: number | null;
+  subsession_id: number | null;
+  race1_start_time: string | null;
+  race1_laps: number | null;
+  race2_start_time: string | null;
+  race2_laps: number | null;
+  race3_start_time: string | null;
+  race3_laps: number | null;
+  circuits: { name: string } | null;
+}
+
+/** A season's championship events in date order (the calculator's remaining rounds, FR2.6). */
+export function getSeasonCalendarEvents(env: SupabaseEnv, seasonId: string): Promise<SeasonCalendarEvent[]> {
+  const select =
+    'id,event_date,format,round_number,subsession_id,race1_start_time,race1_laps,race2_start_time,race2_laps,' +
+    'race3_start_time,race3_laps,circuits(name)';
+  return restGet<SeasonCalendarEvent[]>(
+    env,
+    `events?select=${encodeURIComponent(select)}&category=eq.championship&season_id=eq.${encodeURIComponent(seasonId)}&order=event_date.asc`,
+  );
+}
+
 export function createEvent(env: SupabaseEnv, accessToken: string, data: Partial<EventRecord>) {
   return restPost<EventRecord>(env, accessToken, 'events', data);
 }

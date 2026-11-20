@@ -158,6 +158,46 @@ describe('cacheKeyUrl', () => {
     );
   });
 
+  it('keys the four Advanced Stats views and the calculator championship on the shell (points-calc FR1)', () => {
+    for (const view of ['compare', 'contenders', 'scenarios', 'irating']) {
+      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=${view}`))).toBe(
+        `https://x.test/advanced-stats?view=${view}`,
+      );
+    }
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?view=matrix'))).toBe('https://x.test/advanced-stats');
+    expect(
+      cacheKeyUrl(new URL('https://x.test/advanced-stats?view=scenarios&season=18&championship=delta_team&x=1')),
+    ).toBe('https://x.test/advanced-stats?championship=delta_team&season=18&view=scenarios');
+    // Overall is the bare key, and unknown championships share it.
+    for (const value of ['overall', 'Overall', 'teams', '']) {
+      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=contenders&championship=${value}`))).toBe(
+        'https://x.test/advanced-stats?view=contenders',
+      );
+    }
+  });
+
+  it('keys the calculator fragment on season and championship only, never on edits (points-calc FR2.8)', () => {
+    expect(
+      cacheKeyUrl(new URL('https://x.test/advanced-stats/points/fragment?championship=alpha&season=18&view=scenarios&e=1')),
+    ).toBe('https://x.test/advanced-stats/points/fragment?championship=alpha&season=18');
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats/points/fragment?season=0018&championship=Alpha'))).toBe(
+      'https://x.test/advanced-stats/points/fragment',
+    );
+  });
+
+  it('keys the ratings fragment on the three rating classes only (points-calc FR7.1)', () => {
+    for (const value of ['Alpha', 'Gamma', 'Delta']) {
+      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/fragment?class=${value}`))).toBe(
+        `https://x.test/advanced-stats/ratings/fragment?class=${value}`,
+      );
+    }
+    for (const value of ['Overall', 'Combined', 'gamma', 'x']) {
+      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/fragment?class=${value}&season=18`))).toBe(
+        'https://x.test/advanced-stats/ratings/fragment',
+      );
+    }
+  });
+
   it('keeps the Advanced Stats season only in canonical form, so 0007 or 9999 never get their own copy', () => {
     for (const path of ['/advanced-stats', '/advanced-stats/fragment']) {
       for (const value of ['0007', '07', '9999', '-1', 'abc', '0', '']) {
