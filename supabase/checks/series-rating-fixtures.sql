@@ -151,9 +151,15 @@ select c.driver_id, 'Rating ' || c.code, 1,
        c.cust_id, false
 from rating_fixture.code c;
 
-insert into public.teams (id, name) values ('cccccccc-0000-0000-0000-000000000401', 'Rating Team');
+-- Two teams: a roster holds at most 4 drivers per season.
+insert into public.teams (id, name) values
+  ('cccccccc-0000-0000-0000-000000000401', 'Rating Team A'),
+  ('cccccccc-0000-0000-0000-000000000402', 'Rating Team B');
 insert into public.team_rosters (season_id, team_id, driver_id)
-select 'bbbbbbbb-0000-0000-0000-000000000401', 'cccccccc-0000-0000-0000-000000000401', c.driver_id
+select 'bbbbbbbb-0000-0000-0000-000000000401',
+       case when left(c.code, 1) = 'a' then 'cccccccc-0000-0000-0000-000000000401'::uuid
+            else 'cccccccc-0000-0000-0000-000000000402'::uuid end,
+       c.driver_id
 from rating_fixture.code c;
 
 insert into public.curated_rounds (subsession_id, start_time, track_name, season_id, format) values
