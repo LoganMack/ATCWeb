@@ -158,31 +158,43 @@ describe('cacheKeyUrl', () => {
     );
   });
 
-  it('keys the four Advanced Stats views and the calculator championship on the shell (points-calc FR1)', () => {
-    for (const view of ['compare', 'contenders', 'scenarios', 'irating']) {
+  it('keys the three Advanced Stats views and the calculator championship on the shell (points-calc FR1)', () => {
+    for (const view of ['compare', 'contenders', 'irating']) {
       expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=${view}`))).toBe(
         `https://x.test/advanced-stats?view=${view}`,
       );
     }
-    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?view=matrix'))).toBe('https://x.test/advanced-stats');
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?view=matrix'))).toBe(
+      'https://x.test/advanced-stats',
+    );
+    // The removed Points Scenarios view renders Points Contenders, so it shares that copy rather than storing its own.
     expect(
-      cacheKeyUrl(new URL('https://x.test/advanced-stats?view=scenarios&season=18&championship=delta_team&x=1')),
-    ).toBe('https://x.test/advanced-stats?championship=delta_team&season=18&view=scenarios');
+      cacheKeyUrl(
+        new URL('https://x.test/advanced-stats?view=scenarios&season=18&championship=delta_team&x=1'),
+      ),
+    ).toBe('https://x.test/advanced-stats?championship=delta_team&season=18&view=contenders');
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats?view=scenarios'))).toBe(
+      'https://x.test/advanced-stats?view=contenders',
+    );
     // Overall is the bare key, and unknown championships share it.
     for (const value of ['overall', 'Overall', 'teams', '']) {
-      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=contenders&championship=${value}`))).toBe(
-        'https://x.test/advanced-stats?view=contenders',
-      );
+      expect(
+        cacheKeyUrl(new URL(`https://x.test/advanced-stats?view=contenders&championship=${value}`)),
+      ).toBe('https://x.test/advanced-stats?view=contenders');
     }
   });
 
   it('keys the calculator fragment on season and championship only, never on edits (points-calc FR2.8)', () => {
     expect(
-      cacheKeyUrl(new URL('https://x.test/advanced-stats/points/fragment?championship=alpha&season=18&view=scenarios&e=1')),
+      cacheKeyUrl(
+        new URL(
+          'https://x.test/advanced-stats/points/fragment?championship=alpha&season=18&view=scenarios&e=1',
+        ),
+      ),
     ).toBe('https://x.test/advanced-stats/points/fragment?championship=alpha&season=18');
-    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats/points/fragment?season=0018&championship=Alpha'))).toBe(
-      'https://x.test/advanced-stats/points/fragment',
-    );
+    expect(
+      cacheKeyUrl(new URL('https://x.test/advanced-stats/points/fragment?season=0018&championship=Alpha')),
+    ).toBe('https://x.test/advanced-stats/points/fragment');
   });
 
   it('keys the ratings fragment on the three rating classes only (points-calc FR7.1)', () => {
@@ -192,8 +204,27 @@ describe('cacheKeyUrl', () => {
       );
     }
     for (const value of ['Overall', 'Combined', 'gamma', 'x']) {
-      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/fragment?class=${value}&season=18`))).toBe(
-        'https://x.test/advanced-stats/ratings/fragment',
+      expect(
+        cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/fragment?class=${value}&season=18`)),
+      ).toBe('https://x.test/advanced-stats/ratings/fragment');
+    }
+  });
+
+  it('keys a rating history on its class and a well-formed driver key only', () => {
+    const uuid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    expect(
+      cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/history?driver=h42&class=Alpha&x=1`)),
+    ).toBe('https://x.test/advanced-stats/ratings/history?class=Alpha&driver=h42');
+    expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/history?driver=${uuid}`))).toBe(
+      `https://x.test/advanced-stats/ratings/history?driver=${uuid}`,
+    );
+    // An unknown class or a malformed key never gets its own copy.
+    expect(cacheKeyUrl(new URL('https://x.test/advanced-stats/ratings/history?driver=h42&class=gamma'))).toBe(
+      'https://x.test/advanced-stats/ratings/history?driver=h42',
+    );
+    for (const bad of ['x42', 'h42%27', 'h1234567890123', '']) {
+      expect(cacheKeyUrl(new URL(`https://x.test/advanced-stats/ratings/history?driver=${bad}`)), bad).toBe(
+        'https://x.test/advanced-stats/ratings/history',
       );
     }
   });

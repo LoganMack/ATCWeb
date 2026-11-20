@@ -20,7 +20,6 @@ import {
   ADVANCED_VIEWS,
   calculatorFragmentQuery,
   calculatorQuery,
-  isCalculatorView,
   ratingQuery,
   resolveAdvancedView,
 } from '../lib/advancedStatsViews';
@@ -33,12 +32,12 @@ import {
 import { CHAMPIONSHIP_LABELS } from '../lib/calculator/types';
 import { RATING_KIND_LABELS, RATING_KINDS, resolveRatingKind } from '../lib/db/seriesRatings';
 
-// Advanced Stats (FR1, FR4): four views behind one View select. Compare reads its drivers, teams and cars from
-// advanced-stats/fragment.astro; Points Contenders and Points Scenarios share one calculator fragment
-// (advanced-stats/points/fragment.astro), drawn by src/scripts/pointsCalculator.ts, which swaps between the two
-// in the page so the reader's edits survive; Series iRating reads advanced-stats/ratings/fragment.astro. The
-// shell reads only the filter lists. Compare's slot picks (a-d) live only in the address and the browser, so
-// its selects carry them through compareView.ts (data-compare-nav).
+// Advanced Stats (FR1, FR4): three views behind one View select. Compare reads its drivers, teams and cars from
+// advanced-stats/fragment.astro; Points Contenders reads the calculator fragment
+// (advanced-stats/points/fragment.astro), drawn by src/scripts/pointsCalculator.ts, whose Scenario Editor
+// button sits in this filter card; Series iRating reads advanced-stats/ratings/fragment.astro, searched from
+// this filter card. The shell reads only the filter lists. Compare's slot picks (a-d) live only in the address
+// and the browser, so its selects carry them through compareView.ts (data-compare-nav).
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 
@@ -79,15 +78,14 @@ const query = compareQuery(classFilter, season);
 // The calculator's filters (FR1.3, FR1.5): the season asked for, else the current one; Overall otherwise.
 const calcSeason = resolveCalculatorSeason(seasonParam, seasons);
 const championship = resolveChampionship(Astro.url.searchParams.get('championship'), calcSeason);
-const calcView = isCalculatorView(view) ? view : 'contenders';
 const calcSeasonOptions = calculatorSeasons(seasons).map((s) => ({
   season: s,
-  href: `/advanced-stats${calculatorQuery(calcView, s.number, resolveChampionship(championship, s))}`,
+  href: `/advanced-stats${calculatorQuery(s.number, resolveChampionship(championship, s))}`,
   selected: s.id === calcSeason?.id,
 }));
 const championshipOptions = (calcSeason ? availableChampionships(calcSeason) : (['overall'] as const)).map((c) => ({
   label: CHAMPIONSHIP_LABELS[c],
-  href: `/advanced-stats${calculatorQuery(calcView, calcSeason?.number ?? null, c)}`,
+  href: `/advanced-stats${calculatorQuery(calcSeason?.number ?? null, c)}`,
   selected: c === championship,
 }));
 const pointsFragmentUrl = `/advanced-stats/points/fragment${calculatorFragmentQuery(calcSeason?.number ?? null, championship)}`;
@@ -103,8 +101,7 @@ const ratingsFragmentUrl = `/advanced-stats/ratings/fragment${ratingQuery(rating
 
 const viewHref: Record<(typeof ADVANCED_VIEWS)[number], string> = {
   compare: view === 'compare' ? `/advanced-stats${query}` : '/advanced-stats',
-  contenders: `/advanced-stats${calculatorQuery('contenders', calcSeason?.number ?? null, championship)}`,
-  scenarios: `/advanced-stats${calculatorQuery('scenarios', calcSeason?.number ?? null, championship)}`,
+  contenders: `/advanced-stats${calculatorQuery(calcSeason?.number ?? null, championship)}`,
   irating: `/advanced-stats${ratingQuery(ratingKind)}`,
 };
 const viewOptions = ADVANCED_VIEWS.map((v) => ({ value: v, label: ADVANCED_VIEW_LABELS[v], href: viewHref[v] }));
@@ -133,6 +130,17 @@ if (loadError) markUncacheable(Astro);
       >
         <div class="flex flex-wrap items-end gap-3">
           <StatsTabs active="advanced" />
+          {view === 'irating' && (
+            <input
+              type="search"
+              aria-label="Search drivers"
+              placeholder="Search drivers…"
+              autocomplete="off"
+              class="search-input h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
+              data-rating-search
+              data-testid="rating-search"
+            />
+          )}
           <label class="flex flex-col gap-1.5 sm:w-48">
             <span class={labelClass}>View</span>
             {view === 'compare' && (
@@ -142,14 +150,7 @@ if (loadError) markUncacheable(Astro);
                 ))}
               </select>
             )}
-            {isCalculatorView(view) && (
-              <select aria-label="View" class={selectClass} data-calculator-view-select data-testid="advanced-view-select">
-                {viewOptions.map((o) => (
-                  <option value={o.href} data-view={o.value} selected={o.value === view} class="bg-brand-ink text-white">{o.label}</option>
-                ))}
-              </select>
-            )}
-            {view === 'irating' && (
+            {view !== 'compare' && (
               <select aria-label="View" class={selectClass} data-navigate-on-change data-testid="advanced-view-select">
                 {viewOptions.map((o) => (
                   <option value={o.href} selected={o.value === view} class="bg-brand-ink text-white">{o.label}</option>
@@ -170,29 +171,36 @@ if (loadError) markUncacheable(Astro);
             </label>
           )}
 
-          {isCalculatorView(view) && (
+          {view === 'contenders' && (
             <label class="flex flex-col gap-1.5 sm:w-44">
               <span class={labelClass}>Season</span>
-              <select aria-label="Season" class={selectClass} data-navigate-on-change data-calculator-filter data-logo-select data-testid="calculator-season-select">
+              <select aria-label="Season" class={selectClass} data-navigate-on-change data-logo-select data-testid="calculator-season-select">
                 {calcSeasonOptions.map((o) => (
                   <option value={o.href} selected={o.selected} {...seasonOptionAttrs(o.season)} class="bg-brand-ink text-white">{o.season.name}</option>
                 ))}
               </select>
             </label>
           )}
-          {isCalculatorView(view) && (
+          {view === 'contenders' && (
             <label class="flex flex-col gap-1.5 sm:w-44">
               <span class={labelClass}>Championship</span>
-              <select aria-label="Championship" class={selectClass} data-navigate-on-change data-calculator-filter data-testid="calculator-championship-select">
+              <select aria-label="Championship" class={selectClass} data-navigate-on-change data-testid="calculator-championship-select">
                 {championshipOptions.map((o) => (
                   <option value={o.href} selected={o.selected} class="bg-brand-ink text-white">{o.label}</option>
                 ))}
               </select>
             </label>
           )}
-          {isCalculatorView(view) && (
-            <button type="button" class="btn ml-auto" data-calculator-reset data-testid="calculator-reset" disabled>
-              Reset edits
+          {view === 'contenders' && (
+            <button
+              type="button"
+              class="btn btn-neutral ml-auto"
+              aria-haspopup="dialog"
+              data-scenario-editor-open
+              data-testid="scenario-editor-open"
+              disabled
+            >
+              Scenario Editor
             </button>
           )}
 
@@ -222,8 +230,8 @@ if (loadError) markUncacheable(Astro);
       </div>
     )}
 
-    {!loadError && isCalculatorView(view) && (
-      <div data-points-view={view} data-fragment-url={pointsFragmentUrl}>
+    {!loadError && view === 'contenders' && (
+      <div data-points-view data-fragment-url={pointsFragmentUrl}>
         <div class="mt-6 space-y-3" aria-live="polite" aria-busy="true">
           <span class="sr-only">Loading the championship…</span>
           {[0, 1, 2, 3, 4].map(() => (

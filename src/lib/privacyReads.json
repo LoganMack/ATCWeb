@@ -70,5 +70,11 @@
     "select": "kind,driver_key,name,linkable,driver_id,current,last_change,minimum,maximum,races,trend",
     "embeds": [],
     "callers": ["anon", "admin"]
+  },
+  "seriesRatingHistory": {
+    "path": "series_rating_history_shown",
+    "select": "kind,driver_key,race_started_at,subsession_id,race_number,round_races,season_number,season_name,track_name,position,field_size,rating_after",
+    "embeds": [],
+    "callers": ["anon", "admin"]
   }
 }

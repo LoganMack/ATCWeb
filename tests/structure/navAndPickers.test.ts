@@ -180,7 +180,9 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     expect(ADVANCED).toContain('<ClassFilterSelect options={classOptions} compareNav />');
     expect(ADVANCED).toMatch(/<span[^>]*>Season<\/span>/);
     // On Compare every select carries the picks through compareView.ts, never the site-wide navigate-on-change.
-    const compare = ADVANCED.split(/\{view === 'compare' && \(/).slice(1).map((b) => b.split(/\n\s*\)\}\n/)[0]);
+    const compare = ADVANCED.split(/\{view === 'compare' && \(/)
+      .slice(1)
+      .map((b) => b.split(/\n\s*\)\}\n/)[0]);
     expect(compare.length).toBeGreaterThanOrEqual(2);
     for (const branch of compare) expect(branch).not.toContain('data-navigate-on-change');
     expect(ADVANCED.match(/data-compare-nav/g)?.length).toBeGreaterThanOrEqual(2);
@@ -189,31 +191,40 @@ describe('section pickers (BR6.5, BR6.6)', () => {
     expect(ADVANCED).not.toContain('Astro.url.search}');
   });
 
-  it('offers the four views in the View select, Compare first (points-calc FR1.1, FR1.5)', () => {
-    expect(ADVANCED_VIEWS).toEqual(['compare', 'contenders', 'scenarios', 'irating']);
+  it('offers the three views in the View select, Compare first (points-calc FR1.1, FR1.5)', () => {
+    expect(ADVANCED_VIEWS).toEqual(['compare', 'contenders', 'irating']);
     expect(ADVANCED_VIEWS.map((v) => ADVANCED_VIEW_LABELS[v])).toEqual([
       'Compare',
       'Points Contenders',
-      'Points Scenarios',
       'Series iRating',
     ]);
     expect(resolveAdvancedView('irating')).toBe('irating');
+    // Points Scenarios is gone; its old links open Points Contenders.
+    expect(resolveAdvancedView('scenarios')).toBe('contenders');
+    expect(ADVANCED).not.toMatch(/Points Scenarios/);
     expect(resolveAdvancedView('Contenders')).toBe('compare');
     expect(resolveAdvancedView(null)).toBe('compare');
     expect(ADVANCED).toContain("resolveAdvancedView(Astro.url.searchParams.get('view'))");
   });
 
-  it('gives the calculator views Season, Championship and Reset edits, and Series iRating its Class (FR1.3, FR1.4)', () => {
+  it('gives Points Contenders Season, Championship and the Scenario Editor, and Series iRating its search and Class (FR1.3, FR1.4)', () => {
     expect(ADVANCED).toContain('data-testid="calculator-season-select"');
     expect(ADVANCED).toContain('data-testid="calculator-championship-select"');
-    expect(ADVANCED).toMatch(/<button type="button" class="btn ml-auto" data-calculator-reset[^>]*disabled>/);
+    // The Scenario Editor button sits where Reset edits was, enabled once the bars are drawn.
+    expect(ADVANCED).toMatch(
+      /<button\s+type="button"\s+class="btn btn-neutral ml-auto"\s+aria-haspopup="dialog"\s+data-scenario-editor-open[^>]*disabled\s*>\s*Scenario Editor\s*<\/button>/,
+    );
+    expect(ADVANCED).not.toContain('data-calculator-reset');
+    expect(ADVANCED).not.toContain('data-calculator-view-select');
     expect(ADVANCED).toContain('data-testid="rating-class-select"');
-    // Contenders and Scenarios swap in the page through pointsCalculator.ts, so the edits survive.
-    expect(ADVANCED).toContain('data-calculator-view-select');
+    // The search box is the site's own, at the left end of the filter card right after the tabs.
+    expect(ADVANCED).toMatch(
+      /<StatsTabs active="advanced" \/>\s*\{view === 'irating' && \(\s*<input\s+type="search"\s+aria-label="Search drivers"[^>]*class="search-input [^"]*"[^>]*data-rating-search/,
+    );
     expect(ADVANCED).toContain('data-fragment-url={pointsFragmentUrl}');
     expect(ADVANCED).toContain('data-fragment-url={ratingsFragmentUrl}');
-    expect(calculatorQuery('scenarios', 18, 'overall')).toBe('?view=scenarios&season=18');
-    expect(calculatorQuery('contenders', 18, 'delta_team')).toBe('?view=contenders&season=18&championship=delta_team');
+    expect(calculatorQuery(18, 'overall')).toBe('?view=contenders&season=18');
+    expect(calculatorQuery(18, 'delta_team')).toBe('?view=contenders&season=18&championship=delta_team');
     expect(calculatorFragmentQuery(18, 'overall')).toBe('?season=18');
     expect(ratingQuery('overall')).toBe('?view=irating');
     expect(ratingQuery('gamma', false)).toBe('?class=Gamma');

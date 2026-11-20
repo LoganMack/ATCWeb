@@ -1,8 +1,9 @@
 /**
- * The points calculator's cell editors (FR2.5, FR2.9; BR3.10; NFR6): CellEditor for a driver's round and
- * TeamCellEditor for a team's round, edited through its drivers. Both are native modal dialogs, so focus stays
- * inside while open and Escape closes them; focus then returns to the cell that opened them. Typed points must
- * be a whole number from 0 to 999, or Apply stays disabled.
+ * The points calculator's popups (FR2.5, FR2.9; BR3.10; NFR6): the Scenario Editor holding the results table,
+ * CellEditor for a driver's round and TeamCellEditor for a team's round, edited through its drivers. All are
+ * native modal dialogs, so focus stays inside while open and Escape closes them; focus then returns to the
+ * control that opened them. A cell editor opens over the Scenario Editor. Typed points must be a whole number
+ * from 0 to 999, or Apply stays disabled.
  */
 import type { CalculatorRound, Edit } from '../lib/calculator/types';
 import {
@@ -21,7 +22,10 @@ const INPUT_CLASS =
 
 let editorCount = 0;
 
-function dialogShell(title: string, returnFocus: () => HTMLElement | null): { dialog: HTMLDialogElement; body: HTMLElement; actions: HTMLElement } {
+function dialogShell(
+  title: string,
+  returnFocus: () => HTMLElement | null,
+): { dialog: HTMLDialogElement; body: HTMLElement; actions: HTMLElement } {
   const id = `calculator-editor-title-${++editorCount}`;
   const body = el('div', { class: 'mt-4 space-y-3' });
   const actions = el('div', { class: 'mt-5 flex flex-wrap justify-end gap-2' });
@@ -29,7 +33,8 @@ function dialogShell(title: string, returnFocus: () => HTMLElement | null): { di
     'dialog',
     {
       'aria-labelledby': id,
-      class: 'w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-5 text-white backdrop:bg-black/60',
+      class:
+        'w-full max-w-md rounded-xl border border-white/10 bg-brand-ink p-5 text-white backdrop:bg-black/60',
       'data-calculator-editor': '',
     },
     el('h3', { id, class: 'font-display text-xl' }, title),
@@ -41,6 +46,99 @@ function dialogShell(title: string, returnFocus: () => HTMLElement | null): { di
     returnFocus()?.focus();
   });
   return { dialog, body, actions };
+}
+
+export interface ScenarioEditorOptions {
+  /** The results table for the current draft. */
+  content: () => HTMLElement;
+  /** Whether the draft holds any edit (Reset is disabled otherwise). */
+  hasEdits: () => boolean;
+  onReset: () => void;
+  onSave: () => void;
+  returnFocus: () => HTMLElement | null;
+}
+
+export interface ScenarioEditor {
+  dialog: HTMLDialogElement;
+  /** Where the table sits; cell clicks are read here. */
+  body: HTMLElement;
+  /** Redraws the table after a draft change, focusing `focusSelector` inside it when given. */
+  refresh: (focusSelector?: string) => void;
+}
+
+/**
+ * The Scenario Editor: the championship's results table in a modal, with Reset and Save in its top-right
+ * corner. Edits made here stay in the draft until Save; closing any other way (Close, Escape) drops them.
+ */
+export function openScenarioEditor(o: ScenarioEditorOptions): ScenarioEditor {
+  const id = `scenario-editor-title-${++editorCount}`;
+  const body = el('div', { class: 'mt-4', 'data-scenario-body': '' });
+  const status = el('p', {
+    class: 'sr-only',
+    role: 'status',
+    'aria-live': 'polite',
+    'data-scenario-status': '',
+  });
+  const reset = el(
+    'button',
+    { type: 'button', class: 'btn', 'data-scenario-reset': '' },
+    'Reset',
+  ) as HTMLButtonElement;
+  const save = el('button', { type: 'button', class: 'btn btn-primary', 'data-scenario-save': '' }, 'Save');
+  const close = el(
+    'button',
+    { type: 'button', class: 'btn btn-neutral', 'data-scenario-close': '' },
+    'Close',
+  );
+  const dialog = el(
+    'dialog',
+    {
+      'aria-labelledby': id,
+      class:
+        'max-h-[calc(100vh-2rem)] w-[min(64rem,calc(100vw-2rem))] max-w-none overflow-auto rounded-xl border border-white/10 bg-brand-ink p-5 text-white backdrop:bg-black/60',
+      'data-scenario-editor': '',
+    },
+    el(
+      'div',
+      { class: 'flex flex-wrap items-center justify-between gap-3' },
+      el('h2', { id, class: 'font-display text-2xl' }, 'Scenario Editor'),
+      el('div', { class: 'ml-auto flex flex-wrap gap-2' }, reset, save, close),
+    ),
+    body,
+    status,
+  ) as HTMLDialogElement;
+
+  const refresh = (focusSelector?: string) => {
+    body.replaceChildren(o.content());
+    reset.disabled = !o.hasEdits();
+    if (focusSelector) body.querySelector<HTMLElement>(focusSelector)?.focus();
+  };
+  const announce = (text: string) => {
+    status.textContent = '';
+    status.textContent = text;
+  };
+
+  reset.addEventListener('click', () => {
+    o.onReset();
+    refresh();
+    announce('Every edit cleared');
+    save.focus();
+  });
+  save.addEventListener('click', () => {
+    o.onSave();
+    dialog.close();
+  });
+  close.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => {
+    dialog.remove();
+    o.returnFocus()?.focus();
+  });
+
+  refresh();
+  document.body.append(dialog);
+  dialog.showModal();
+  body.querySelector<HTMLElement>('[data-cell-entrant]:not([disabled])')?.focus();
+  return { dialog, body, refresh };
 }
 
 /** One position-or-points control: the select, the "Type points instead" switch and the points input. */
@@ -57,7 +155,15 @@ function draftControl(
     { class: SELECT_CLASS, 'aria-label': `${label} finishing position`, 'data-editor-position': '' },
     withKeep ? el('option', { value: '', class: 'bg-brand-ink text-white' }, 'No change') : null,
     ...positionOptions(round, fieldSize).map((o) =>
-      el('option', { value: o.value, selected: !draft.typed && o.value === draft.choice, class: 'bg-brand-ink text-white' }, o.label),
+      el(
+        'option',
+        {
+          value: o.value,
+          selected: !draft.typed && o.value === draft.choice,
+          class: 'bg-brand-ink text-white',
+        },
+        o.label,
+      ),
     ),
   ) as HTMLSelectElement;
   if (withKeep && !draft.typed && draft.choice === '') select.value = '';
@@ -69,7 +175,11 @@ function draftControl(
     value: draft.text,
     'data-editor-points': '',
   }) as HTMLInputElement;
-  const toggle = el('input', { type: 'checkbox', checked: draft.typed, 'data-editor-typed': '' }) as HTMLInputElement;
+  const toggle = el('input', {
+    type: 'checkbox',
+    checked: draft.typed,
+    'data-editor-typed': '',
+  }) as HTMLInputElement;
   const hint = el('p', { class: 'text-xs text-brand-pink', 'aria-live': 'polite', 'data-editor-hint': '' });
   const current: Draft = { ...draft };
   const sync = () => {
@@ -121,7 +231,11 @@ export interface CellEditorOptions {
 export function openCellEditor(o: CellEditorOptions): HTMLDialogElement {
   const { dialog, body, actions } = dialogShell(o.title, o.returnFocus);
   let draft = o.draft;
-  const apply = el('button', { type: 'button', class: 'btn btn-primary', 'data-editor-apply': '' }, 'Apply') as HTMLButtonElement;
+  const apply = el(
+    'button',
+    { type: 'button', class: 'btn btn-primary', 'data-editor-apply': '' },
+    'Apply',
+  ) as HTMLButtonElement;
   const refresh = () => {
     apply.disabled = draftEdit(o.round, draft, { entrantKey: o.entrantKey }) === null;
   };
@@ -163,7 +277,11 @@ export interface TeamEditorOptions {
   /** Starting drafts by member key (edited members only). */
   drafts: Map<string, Draft>;
   /** The lines, counting drivers and total for the given drafts (pointsCalculatorModel.teamLines). */
-  linesFor: (drafts: ReadonlyMap<string, Draft>) => { lines: TeamLine[]; total: number | null; valid: boolean };
+  linesFor: (drafts: ReadonlyMap<string, Draft>) => {
+    lines: TeamLine[];
+    total: number | null;
+    valid: boolean;
+  };
   returnFocus: () => HTMLElement | null;
   onApply: (edits: Edit[]) => void;
   onUndoMember: (memberKey: string) => void;
@@ -176,7 +294,11 @@ const racesText = (races: (number | null)[] | null) =>
 export function openTeamEditor(o: TeamEditorOptions): HTMLDialogElement {
   const { dialog, body, actions } = dialogShell(o.title, o.returnFocus);
   const drafts = new Map(o.drafts);
-  const apply = el('button', { type: 'button', class: 'btn btn-primary', 'data-editor-apply': '' }, 'Apply') as HTMLButtonElement;
+  const apply = el(
+    'button',
+    { type: 'button', class: 'btn btn-primary', 'data-editor-apply': '' },
+    'Apply',
+  ) as HTMLButtonElement;
   const total = el('p', { class: 'text-sm font-semibold', 'aria-live': 'polite', 'data-team-total': '' });
   const tags = new Map<string, HTMLElement>();
   const values = new Map<string, HTMLElement>();
@@ -208,7 +330,9 @@ export function openTeamEditor(o: TeamEditorOptions): HTMLDialogElement {
       true,
     );
     focusTarget ??= control.focusTarget;
-    const tag = el('span', { class: 'ml-2 rounded-full border border-brand-gold/70 px-1.5 text-[10px] text-brand-gold empty:hidden' });
+    const tag = el('span', {
+      class: 'ml-2 rounded-full border border-brand-gold/70 px-1.5 text-[10px] text-brand-gold empty:hidden',
+    });
     const value = el('span', { class: 'ml-2 text-xs text-white/60' });
     tags.set(line.memberKey, tag);
     values.set(line.memberKey, value);
@@ -222,12 +346,19 @@ export function openTeamEditor(o: TeamEditorOptions): HTMLDialogElement {
     );
     const box = el(
       'div',
-      { class: `rounded-md border p-2 ${line.edited ? 'border-brand-gold/70' : 'border-white/10'}`, 'data-team-line': line.memberKey },
+      {
+        class: `rounded-md border p-2 ${line.edited ? 'border-brand-gold/70' : 'border-white/10'}`,
+        'data-team-line': line.memberKey,
+      },
       header,
       control.root,
     );
     if (line.edited) {
-      const undo = el('button', { type: 'button', class: 'btn btn-sm mt-1', 'data-editor-undo-member': line.memberKey }, 'Undo driver');
+      const undo = el(
+        'button',
+        { type: 'button', class: 'btn btn-sm mt-1', 'data-editor-undo-member': line.memberKey },
+        'Undo driver',
+      );
       undo.addEventListener('click', () => {
         o.onUndoMember(line.memberKey);
         dialog.close();
@@ -236,7 +367,8 @@ export function openTeamEditor(o: TeamEditorOptions): HTMLDialogElement {
     }
     body.append(box);
   }
-  if (initial.lines.length === 0) body.append(el('p', { class: 'text-sm text-white/60' }, 'No drivers have raced for this team yet.'));
+  if (initial.lines.length === 0)
+    body.append(el('p', { class: 'text-sm text-white/60' }, 'No drivers have raced for this team yet.'));
   body.append(total);
 
   apply.addEventListener('click', () => {

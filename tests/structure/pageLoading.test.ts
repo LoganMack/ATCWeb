@@ -141,7 +141,10 @@ describe('the model fragments read the stored round stats (BR1.1, BR2.1-BR2.3)',
     expect(fragment).toMatch(/\bloadCalculatorSeason\s*\(/);
     expect(callsOf(fragment, BULK_BUILDERS)).toEqual([]);
     const load = lib('calculator/load.ts');
-    const standings = load.slice(load.indexOf('async function driverStandings'), load.indexOf('function runRoundsFrom'));
+    const standings = load.slice(
+      load.indexOf('async function driverStandings'),
+      load.indexOf('function runRoundsFrom'),
+    );
     expect(standings).toMatch(/\bloadStoredSeasons\s*\(/);
     const stored = standings.slice(0, standings.search(/if \(stats\)/));
     expect(callsOf(stored, BULK_BUILDERS)).toEqual([]);
@@ -170,7 +173,7 @@ const MAIN_FRAGMENTS: Record<string, string[]> = {
   'admin/fragment.astro': [],
   // Compare (FR4): the slot picks a-d stay in the browser; view has one value and is not read.
   'advanced-stats/fragment.astro': ['class', 'season'],
-  // Points Contenders and Points Scenarios (points-calc FR2): the reader's edits stay in the browser.
+  // Points Contenders (points-calc FR2): the reader's Scenario Editor edits stay in the browser.
   'advanced-stats/points/fragment.astro': ['championship', 'season'],
   // Series iRating (points-calc FR7).
   'advanced-stats/ratings/fragment.astro': ['class'],

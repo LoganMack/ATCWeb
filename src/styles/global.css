@@ -81,6 +81,11 @@
   :where(.data-table > tbody > tr:nth-child(even of :not([data-no-stripe], [hidden], .hidden))) {
     background-color: rgb(var(--fg) / 0.035);
   }
+  /* A sticky cell keeps its opaque background so the scrolled cells stay hidden under it; the same stripe is
+     layered over it as an image, so the whole row stripes, sticky cell included. */
+  :where(.data-table > tbody > tr:nth-child(even of :not([data-no-stripe], [hidden], .hidden)) > .sticky) {
+    background-image: linear-gradient(rgb(var(--fg) / 0.035), rgb(var(--fg) / 0.035));
+  }
 
   /* Lists (home result rows, standings widget): the same compact height, separators kept, no stripes. */
   .list-row {

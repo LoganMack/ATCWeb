@@ -7,6 +7,7 @@
 import { CLASS_FILTER_VALUES } from './results/classFilter';
 import { canonicalSeasonNumber } from './compareRows';
 import { CHAMPIONSHIPS } from './calculator/types';
+import { isRatingDriverKey } from './db/seriesRatings';
 
 const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   [/^\/calendar(\/fragment)?$/, ['season']],
@@ -17,6 +18,7 @@ const ROUTE_QUERY_PARAMS: [RegExp, string[]][] = [
   // The points calculator's edits stay in the browser; only the season and championship pick its data.
   [/^\/advanced-stats\/points\/fragment$/, ['championship', 'season']],
   [/^\/advanced-stats\/ratings\/fragment$/, ['class']],
+  [/^\/advanced-stats\/ratings\/history$/, ['class', 'driver']],
   [/^\/driver-stats(\/fragment)?$/, ['class']],
   [/^\/drivers\/[^/]+$/, ['profile_error', 'saved']],
   [/^\/drivers\/[^/]+\/fragment$/, ['hof']],
@@ -68,7 +70,8 @@ const ALLOWED_PARAM_VALUES: Record<string, readonly string[]> = { from: ['report
 const isClassFilterValue = (value: string) => CLASS_FILTER_VALUES.includes(value);
 const isSeasonValue = (value: string) => value === 'all' || canonicalSeasonNumber(value) !== null;
 // Overall is the bare key, so only the other championships and rating classes are kept.
-const isChampionshipValue = (value: string) => value !== 'overall' && (CHAMPIONSHIPS as readonly string[]).includes(value);
+const isChampionshipValue = (value: string) =>
+  value !== 'overall' && (CHAMPIONSHIPS as readonly string[]).includes(value);
 const isRatingClassValue = (value: string) => ['Alpha', 'Gamma', 'Delta'].includes(value);
 const ROUTE_PARAM_VALUES: [RegExp, Record<string, (value: string) => boolean>][] = [
   [/^\/driver-stats(\/fragment)?$/, { class: isClassFilterValue }],
@@ -78,14 +81,26 @@ const ROUTE_PARAM_VALUES: [RegExp, Record<string, (value: string) => boolean>][]
       championship: isChampionshipValue,
       class: isClassFilterValue,
       season: isSeasonValue,
-      view: (value) => ['compare', 'contenders', 'scenarios', 'irating'].includes(value),
+      view: (value) => ['compare', 'contenders', 'irating'].includes(value),
     },
   ],
   [/^\/advanced-stats\/points\/fragment$/, { championship: isChampionshipValue, season: isSeasonValue }],
   [/^\/advanced-stats\/ratings\/fragment$/, { class: isRatingClassValue }],
+  [/^\/advanced-stats\/ratings\/history$/, { class: isRatingClassValue, driver: isRatingDriverKey }],
   // Overall and unknown values render as Overall (parseSeasonStatsScope), so they share the bare key.
   [/^\/season-stats(\/fragment)?$/, { class: (value) => ['alpha', 'gamma', 'delta'].includes(value) }],
 ];
+
+// Old values a route still accepts but renders as another value: keyed as that value, so the old address
+// shares its copy instead of landing on the bare key (which renders something else).
+const ROUTE_PARAM_ALIASES: [RegExp, Record<string, Record<string, string>>][] = [
+  // The removed Points Scenarios view falls back to Points Contenders.
+  [/^\/advanced-stats(\/fragment)?$/, { view: { scenarios: 'contenders' } }],
+];
+
+function aliased(pathname: string, name: string, value: string): string {
+  return ROUTE_PARAM_ALIASES.find(([pattern]) => pattern.test(pathname))?.[1][name]?.[value] ?? value;
+}
 
 /** Query parameters that are part of the cache key for this path. */
 export function cacheQueryParams(pathname: string): string[] {
@@ -110,7 +125,8 @@ function keepsValue(pathname: string, name: string, value: string): boolean {
 export function cacheKeyUrl(url: URL): string {
   const key = new URL(url.origin + url.pathname);
   for (const name of [...cacheQueryParams(url.pathname)].sort()) {
-    const value = url.searchParams.get(name);
+    const raw = url.searchParams.get(name);
+    const value = raw === null ? null : aliased(url.pathname, name, raw);
     if (value !== null && keepsValue(url.pathname, name, value)) key.searchParams.set(name, value);
   }
   return key.toString();

@@ -35,7 +35,7 @@ Built with [Astro](https://astro.build), [Tailwind CSS](https://tailwindcss.com)
 | Standings                       | List, Matrix and Graph views; Season, Championship and Class filters; a "Standings by Round" slider; team standings |
 | Champions, Awards, Hall of Fame | League history and honours                                                                                          |
 | Driver and team stats           | Career and season statistics                                                                                        |
-| Advanced Stats                  | Compare; Points Contenders and Points Scenarios (who can still win, with what-if edits); Series iRating             |
+| Advanced Stats                  | Compare; Points Contenders (who can still win, with a Scenario Editor for what-if results); Series iRating          |
 | Circuits and media              | Circuit records and layouts, photo galleries                                                                        |
 | Rulebook                        | The league rulebook at `/rulebook`, with a contents panel of its sections and a list of its tables                  |
 
