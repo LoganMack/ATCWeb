@@ -1,7 +1,8 @@
 -- Series iRating fixtures for 20261121120000_series_irating.sql (BR1.1-BR1.7, BR2.1-BR2.7; NFR4, NFR7, NFR8):
 -- the formula against hand-worked numbers, the fields per kind, DSQ last, single-entrant fields skipped,
 -- corrections, moved and deleted rounds, posting, the kill switch, a failing at-commit recompute, the
--- scheduled run and the rebuild, the masked public list and the grants (I01-I14; I14 reports the time).
+-- scheduled run and the rebuild, the masked public list and the grants, and the masked history view (I01-I15;
+-- I14 reports the time).
 --
 -- Runs against an empty database rebuilt from supabase/migrations/ (CI job migrations-rebuild):
 --   psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f supabase/checks/series-rating-fixtures.sql
@@ -507,6 +508,80 @@ begin
   perform rating_fixture.expect('I13 the rebuild gives the same ratings', rating_fixture.after('overall', 4002),
     'a1=1453.59 a2=1311.56 d1=1271.64 g1=1430.04 g2=1350.84');
   raise notice 'ok I13 grants';
+end $$;
+rollback to savepoint fixture;
+
+-- I15 The history view: every step in race order, keyed like the list, a hidden driver masked (FR7, NFR4)
+do $$
+begin
+  perform rating_fixture.expect('I15 a1''s overall history in race order',
+    (select string_agg(h.subsession_id || ':' || h.race_number || ':' || h.position || '/' || h.field_size || ':'
+                       || h.rating_after || ':' || h.season_name || ':' || h.track_name || ':' || h.round_races,
+                       ' ' order by h.race_started_at, h.subsession_id, h.race_number)
+     from public.series_rating_history_shown h
+     where h.kind = 'overall' and h.driver_key = rating_fixture.id('a1')::text),
+    '4001:1:1/3:1416:Rating Season 1:Rating Park:1 4002:1:2/5:1454:Rating Season 1:Rating Park:1');
+  perform rating_fixture.expect('I15 class kinds use the class position',
+    (select string_agg(h.position || '/' || h.field_size, ' ' order by h.race_started_at)
+     from public.series_rating_history_shown h
+     where h.kind = 'alpha' and h.driver_key = rating_fixture.id('a1')::text),
+    '1/3 1/2');
+  perform rating_fixture.expect('I15 no driver id or name column',
+    (select count(*) from information_schema.columns c
+     where c.table_schema = 'public' and c.table_name = 'series_rating_history_shown'
+       and c.column_name in ('driver_id', 'name', 'starting_irating', 'rating_before')),
+    0::bigint);
+  perform rating_fixture.expect('I15 readable by anon, not writable',
+    has_table_privilege('anon', 'public.series_rating_history_shown', 'select')
+      and not has_table_privilege('authenticated', 'public.series_rating_history_shown', 'insert'),
+    true);
+  raise notice 'ok I15 history values';
+end $$;
+rollback to savepoint fixture;
+
+-- A moved round: the history follows the new race order.
+update public.curated_rounds set start_time = '2026-04-10 18:00+00' where subsession_id = 4001;
+select rating_fixture.flush();
+do $$
+begin
+  perform rating_fixture.expect('I15 history reordered after a move',
+    (select string_agg(h.subsession_id || ':' || h.position || '/' || h.field_size || ':' || h.rating_after,
+                       ' ' order by h.race_started_at, h.subsession_id, h.race_number)
+     from public.series_rating_history_shown h
+     where h.kind = 'overall' and h.driver_key = rating_fixture.id('a1')::text),
+    '4002:2/5:1390 4001:1/3:1454');
+  raise notice 'ok I15 history order';
+end $$;
+rollback to savepoint fixture;
+
+-- A hidden driver: only the stand-in key, the same one the list uses.
+insert into public.account_settings (profile_id, hide_name, hide_profile) values
+  ('eeeeeeee-0000-0000-0000-000000000403', true, false);
+do $$
+begin
+  perform rating_fixture.expect('I15 nothing under the real id as anon',
+    rating_fixture.read_as('anon', format($q$select count(*)::text from public.series_rating_history_shown h
+      where h.driver_key = %L$q$, rating_fixture.id('a1')::text)),
+    '0');
+  perform rating_fixture.expect('I15 the stand-in key finds the steps as anon',
+    rating_fixture.read_as('anon', $q$select string_agg(h.subsession_id || ':' || h.rating_after, ' '
+        order by h.race_started_at, h.subsession_id, h.race_number)
+      from public.series_rating_history_shown h
+      where h.kind = 'overall'
+        and h.driver_key = (select v.driver_key from public.series_ratings_shown v
+                            where v.kind = 'overall' and v.name = 'Hidden Driver')$q$),
+    '4001:1416 4002:1454');
+  perform rating_fixture.expect('I15 every hidden key is a stand-in as anon',
+    rating_fixture.read_as('anon', $q$select bool_and(h.driver_key like 'h%')::text
+      from public.series_rating_history_shown h
+      where h.driver_key not in (select v.driver_key from public.series_ratings_shown v where v.name <> 'Hidden Driver')$q$),
+    'true');
+  perform rating_fixture.expect('I15 an admin finds the steps by the real id',
+    rating_fixture.read_as('eeeeeeee-0000-0000-0000-000000000401', format($q$select count(*)::text
+      from public.series_rating_history_shown h where h.kind = 'overall' and h.driver_key = %L$q$,
+      rating_fixture.id('a1')::text)),
+    '2');
+  raise notice 'ok I15 history masking';
 end $$;
 rollback to savepoint fixture;
 

@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { applyEdits, countedTotal, liveRanking, runIndexes } from '../../src/lib/calculator/engine';
-import { computeContention, liveTotals } from '../../src/lib/calculator/contention';
+import { computeContention } from '../../src/lib/calculator/contention';
 import type {
   CalculatorEntrant,
   CalculatorRound,
@@ -35,9 +35,22 @@ function round(index: number, over: Partial<CalculatorRound> = {}): CalculatorRo
   };
 }
 
-const NO_TIEBREAK = { wins: 0, podiums: 0, top5s: 0, top10s: 0, poles: 0, lapsLed: 0, laps: 0, appearances: 0 };
+const NO_TIEBREAK = {
+  wins: 0,
+  podiums: 0,
+  top5s: 0,
+  top10s: 0,
+  poles: 0,
+  lapsLed: 0,
+  laps: 0,
+  appearances: 0,
+};
 
-function entrant(key: string, roundPoints: (number | null)[], over: Partial<CalculatorEntrant> = {}): CalculatorEntrant {
+function entrant(
+  key: string,
+  roundPoints: (number | null)[],
+  over: Partial<CalculatorEntrant> = {},
+): CalculatorEntrant {
   return { key, name: key.toUpperCase(), roundPoints, tiebreak: NO_TIEBREAK, ...over };
 }
 
@@ -56,7 +69,11 @@ function season(
     championshipLabel: 'Overall',
     isTeam: false,
     rounds: Array.from({ length: total }, (_, i) =>
-      round(i + 1, { state: i < completed ? 'completed' : 'future', isFinal: i === total - 1, ...roundOver(i + 1) }),
+      round(i + 1, {
+        state: i < completed ? 'completed' : 'future',
+        isFinal: i === total - 1,
+        ...roundOver(i + 1),
+      }),
     ),
     entrants,
     dropCount: 0,
@@ -135,8 +152,15 @@ describe('statuses and points needed (BR3.6-BR3.8)', () => {
   });
 
   it('marks Must win out when one slip in a multi-race round loses it', () => {
-    const multi = (i: number) => (i === 3 ? { races: 2, tables: [TABLE, TABLE], bestCase: 100, secondPlaceCase: 90 } : {});
-    const s = season(2, 3, [entrant('l', [100, 100, null]), entrant('c', [100, 5, null]), entrant('d', [100, 20, null])], {}, multi);
+    const multi = (i: number) =>
+      i === 3 ? { races: 2, tables: [TABLE, TABLE], bestCase: 100, secondPlaceCase: 90 } : {};
+    const s = season(
+      2,
+      3,
+      [entrant('l', [100, 100, null]), entrant('c', [100, 5, null]), entrant('d', [100, 20, null])],
+      {},
+      multi,
+    );
     const rows = byKey(computeContention(s, []));
     expect(rows.get('c')).toMatchObject({ status: 'must_win_out', bestCase: 205 });
     expect(rows.get('d')).toMatchObject({ status: 'in_contention', bestCase: 220 });
@@ -216,12 +240,21 @@ describe('needs cross-check by brute force', () => {
       const total = 3 + Math.floor(next() * 3);
       const completed = 1 + Math.floor(next() * (total - 2));
       const caps = Array.from({ length: total }, () => 2 + Math.floor(next() * 7));
-      const points = () => Array.from({ length: total }, (_, i) => (i < completed ? (next() < 0.2 ? null : Math.floor(next() * 9)) : null));
-      const s = season(completed, total, [entrant('l', points()), entrant('c', points()), entrant('d', points())], {
-        dropCount: Math.floor(next() * 2),
-        dropsFromRounds: 2 + Math.floor(next() * 2),
-        canDropFinalRound: next() < 0.3,
-      }, (i) => ({ bestCase: caps[i - 1], secondPlaceCase: caps[i - 1] - 1 }));
+      const points = () =>
+        Array.from({ length: total }, (_, i) =>
+          i < completed ? (next() < 0.2 ? null : Math.floor(next() * 9)) : null,
+        );
+      const s = season(
+        completed,
+        total,
+        [entrant('l', points()), entrant('c', points()), entrant('d', points())],
+        {
+          dropCount: Math.floor(next() * 2),
+          dropsFromRounds: 2 + Math.floor(next() * 2),
+          canDropFinalRound: next() < 0.3,
+        },
+        (i) => ({ bestCase: caps[i - 1], secondPlaceCase: caps[i - 1] - 1 }),
+      );
       const rows = computeContention(s, []);
       const floor = rows.find((r) => r.floor !== null)!.floor!;
       for (const row of rows) {
@@ -237,7 +270,14 @@ describe('needs cross-check by brute force', () => {
 });
 
 describe('edits (BR3.10)', () => {
-  const edit = (over: Partial<Edit>): Edit => ({ entrantKey: 'c', roundIndex: 3, mode: 'position', position: 1, points: 50, ...over });
+  const edit = (over: Partial<Edit>): Edit => ({
+    entrantKey: 'c',
+    roundIndex: 3,
+    mode: 'position',
+    position: 1,
+    points: 50,
+    ...over,
+  });
 
   it('prices a position edit from the round table, runs the round, and moves the leader', () => {
     const s = season(2, 3, [entrant('l', [50, 50, null]), entrant('c', [50, 40, null])]);
@@ -246,7 +286,10 @@ describe('edits (BR3.10)', () => {
       ['c', 140, 'champion'],
       ['l', 100, 'final'],
     ]);
-    expect(liveTotals(s, [edit({ position: 4 })]).get('c')).toBe(110);
+    const p4 = applyEdits(s, [edit({ position: 4 })]);
+    expect(
+      liveRanking(s, p4.points, runIndexes(p4)).find((r) => s.entrants[r.entrant].key === 'c')!.total,
+    ).toBe(110);
   });
 
   it('treats a null position as did not race and the last edit to a cell as the one that counts', () => {
@@ -258,7 +301,9 @@ describe('edits (BR3.10)', () => {
   });
 
   it('ignores an edit to a special round', () => {
-    const s = season(2, 3, [entrant('c', [50, 40, null])], {}, (i) => (i === 3 ? { state: 'special', bestCase: 0 } : {}));
+    const s = season(2, 3, [entrant('c', [50, 40, null])], {}, (i) =>
+      i === 3 ? { state: 'special', bestCase: 0 } : {},
+    );
     expect(runIndexes(applyEdits(s, [edit({})]))).toEqual([0, 1]);
   });
 
@@ -271,7 +316,9 @@ describe('edits (BR3.10)', () => {
       ],
     });
     const s = season(1, 1, [team], { isTeam: true });
-    const effective = applyEdits(s, [{ entrantKey: 't', memberKey: 'm3', roundIndex: 1, mode: 'position', position: 1, points: 50 }]);
+    const effective = applyEdits(s, [
+      { entrantKey: 't', memberKey: 'm3', roundIndex: 1, mode: 'position', position: 1, points: 50 },
+    ]);
     expect(effective.points[0][0]).toBe(100);
     expect(effective.memberRaces[0][2][0]).toEqual([50]);
     // The loaded season is never changed by an edit.

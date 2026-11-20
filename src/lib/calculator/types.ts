@@ -80,6 +80,11 @@ export interface CalculatorEntrant {
   name: string;
   /** Per round (index - 1): live points, or null when not raced. */
   roundPoints: (number | null)[];
+  /**
+   * Drivers only, for the bar's per-race segments: per round, each race's points (null for a race not run),
+   * or null when the round has no breakdown or its races don't add up to the round's points.
+   */
+  racePoints?: ((number | null)[] | null)[];
   tiebreak: Tiebreak;
   /** Teams only. */
   members?: CalculatorMember[];

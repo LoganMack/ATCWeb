@@ -32,11 +32,15 @@ export function trendLine(values: readonly number[]): TrendLine {
   const max = Math.max(...shown);
   const span = max - min;
   const stepX = shown.length > 1 ? (TREND_WIDTH - 2 * PAD) / (shown.length - 1) : 0;
-  const y = (v: number) => (span === 0 ? TREND_HEIGHT / 2 : PAD + ((max - v) / span) * (TREND_HEIGHT - 2 * PAD));
-  const coords = shown.length === 1 ? [[PAD, y(first)], [TREND_WIDTH - PAD, y(first)]] : shown.map((v, i) => [PAD + i * stepX, y(v)]);
+  const y = (v: number) =>
+    span === 0 ? TREND_HEIGHT / 2 : PAD + ((max - v) / span) * (TREND_HEIGHT - 2 * PAD);
+  const coords =
+    shown.length === 1
+      ? [
+          [PAD, y(first)],
+          [TREND_WIDTH - PAD, y(first)],
+        ]
+      : shown.map((v, i) => [PAD + i * stepX, y(v)]);
   const points = coords.map(([x, yy]) => `${x.toFixed(1)},${yy.toFixed(1)}`).join(' ');
   return { points, direction, label };
 }
-
-/** Fewer than this many races marks a rating provisional (the "P" tag, FR7.2). */
-export const PROVISIONAL_RACES = 5;

@@ -8,7 +8,7 @@
  */
 import type { SeasonCalendarEvent } from '../db/events';
 import { displayDriverName } from '../db/circuits';
-import type { DriverBasic, ScoreRow, TeamBasic } from '../results/rows';
+import type { DriverBasic, RacePointsRow, ScoreRow, TeamBasic } from '../results/rows';
 import type { DriverSeasonStanding } from '../results/standingsCore';
 import { teamRoundTotal } from './engine';
 import { isOverrideRound, roundCaps, type PointsBasis } from './rulesetPoints';
@@ -60,7 +60,10 @@ function eventRaces(event: SeasonCalendarEvent): number {
  * run round and falls after the latest one (a remaining round, FR2.6). An unmatched event dated before the
  * latest run round was not run (cancelled or never imported) and is left out.
  */
-export function buildCalendar(runRounds: readonly RunRoundInput[], events: readonly SeasonCalendarEvent[]): CalendarSlot[] {
+export function buildCalendar(
+  runRounds: readonly RunRoundInput[],
+  events: readonly SeasonCalendarEvent[],
+): CalendarSlot[] {
   const run = [...runRounds].sort(
     (a, b) => a.startTime.localeCompare(b.startTime) || a.subsessionId - b.subsessionId,
   );
@@ -99,7 +102,11 @@ export function pointsBasis(championship: Championship): PointsBasis {
 }
 
 /** The calendar priced from the ruleset (BR3.4, BR3.5, BR3.8). */
-export function buildRounds(slots: readonly CalendarSlot[], rules: unknown, championship: Championship): CalculatorRound[] {
+export function buildRounds(
+  slots: readonly CalendarSlot[],
+  rules: unknown,
+  championship: Championship,
+): CalculatorRound[] {
   const team = isTeamChampionship(championship);
   const basis = pointsBasis(championship);
   const lastScoring = slots.reduce((last, s, i) => (s.format === 'special' ? last : i), -1);
@@ -140,7 +147,10 @@ export function buildRounds(slots: readonly CalendarSlot[], rules: unknown, cham
 }
 
 /** The key and name a driver may be shown with: a hidden driver gets the stand-in key, never their id. */
-export function maskedIdentity(driver: DriverBasic | undefined, fallbackKey: string): { key: string; name: string } {
+export function maskedIdentity(
+  driver: DriverBasic | undefined,
+  fallbackKey: string,
+): { key: string; name: string } {
   if (!driver) return { key: fallbackKey, name: 'Unknown driver' };
   if (driver.is_hidden) {
     const stand = driver.iracing_cust_id;
@@ -160,21 +170,68 @@ const NO_TIEBREAK: Tiebreak = {
   appearances: 0,
 };
 
+/** A driver's points per race of the season, by driver id then subsession id (race number - 1 indexed). */
+export type RaceBreakdown = Map<string, Map<number, (number | null)[]>>;
+
+/**
+ * The per-race points of a driver championship from the scored rows: overall totals for Overall, the class's
+ * class totals for a class championship (BR3.1).
+ */
+export function raceBreakdown(
+  rows: readonly RacePointsRow[],
+  championship: Championship,
+  classId: number | null,
+): RaceBreakdown {
+  const out: RaceBreakdown = new Map();
+  for (const row of rows) {
+    if (classId !== null && row.class_id !== classId) continue;
+    let byRound = out.get(row.driver_id);
+    if (!byRound) out.set(row.driver_id, (byRound = new Map()));
+    const races = byRound.get(row.subsession_id) ?? [];
+    races[row.race_number - 1] = championship === 'overall' ? row.overall_total : row.class_total;
+    byRound.set(row.subsession_id, races);
+  }
+  return out;
+}
+
+/** A round's races padded to its race count, kept only when they add up to the round's points. */
+function racesFor(
+  races: (number | null)[] | undefined,
+  raceCount: number,
+  points: number | null,
+): (number | null)[] | null {
+  if (!races || points === null) return null;
+  const padded = Array.from({ length: Math.max(raceCount, races.length) }, (_, r) => races[r] ?? null);
+  const sum = padded.reduce<number>((s, p) => s + (p ?? 0), 0);
+  return Math.abs(sum - points) < 0.001 ? padded : null;
+}
+
 /** Driver entrants from the Standings page's rows (live points, tiebreak counts as loaded; BR3.1, BR3.3). */
 export function driverEntrants(
   standings: readonly DriverSeasonStanding[],
   rounds: readonly CalculatorRound[],
   slots: readonly CalendarSlot[],
+  breakdown?: RaceBreakdown,
 ): CalculatorEntrant[] {
   return standings.map((s, i) => {
     const { key, name } = maskedIdentity(s.driver, `d${i + 1}`);
+    const roundPoints = rounds.map((_, r) => {
+      const id = slots[r].subsessionId;
+      return id === null ? null : (s.roundCells.get(id)?.points ?? null);
+    });
+    const driverRaces = s.driver ? breakdown?.get(s.driver.id) : undefined;
     return {
       key,
       name,
-      roundPoints: rounds.map((_, r) => {
-        const id = slots[r].subsessionId;
-        return id === null ? null : (s.roundCells.get(id)?.points ?? null);
-      }),
+      roundPoints,
+      ...(breakdown
+        ? {
+            racePoints: rounds.map((round, r) => {
+              const id = slots[r].subsessionId;
+              return id === null ? null : racesFor(driverRaces?.get(id), round.races, roundPoints[r]);
+            }),
+          }
+        : {}),
       tiebreak: {
         wins: s.wins,
         podiums: s.podiums,

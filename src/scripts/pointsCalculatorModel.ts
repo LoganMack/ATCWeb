@@ -1,11 +1,12 @@
 /**
- * The points calculator's browser state and view models (FR2-FR5, BR3.1-BR3.10): one edit set shared by Points
- * Contenders and Points Scenarios, the recompute after every change, and plain data for each part the page
- * draws (bars, the results matrix, the cell editors, the Scenarios pickers and verdict). No DOM here, so the
- * tests check every rule without a browser; src/scripts/pointsCalculatorView.ts turns these into elements.
+ * The points calculator's browser state and view models (FR2-FR4, BR3.1-BR3.10): the reader's edit set, the
+ * recompute after every change, the Scenario Editor's draft (edited apart from the bars until Save), and plain
+ * data for each part the page draws (bars with their per-race segments, the results matrix, the cell editors).
+ * No DOM here, so the tests check every rule without a browser; src/scripts/pointsCalculatorView.ts turns
+ * these into elements.
  */
 import { applyEdits, editKey, editRacePoints, runIndexes, teamRoundTotal } from '../lib/calculator/engine';
-import { chaseNeeds, computeContention, liveTotals } from '../lib/calculator/contention';
+import { computeContention } from '../lib/calculator/contention';
 import { roundPointsAt } from '../lib/calculator/rulesetPoints';
 import type {
   CalculatorEntrant,
@@ -15,16 +16,10 @@ import type {
   Edit,
 } from '../lib/calculator/types';
 
-export type CalculatorView = 'contenders' | 'scenarios';
-
 export interface CalcState {
   season: CalculatorSeason;
   /** By editKey; the URL never carries these (FR2.8). */
   edits: Map<string, Edit>;
-  view: CalculatorView;
-  chaser: string | null;
-  target: string | null;
-  matrixOpen: boolean;
 }
 
 /** The embedded season, or null when the fragment holds none or it is malformed. */
@@ -39,13 +34,8 @@ export function parseCalculatorSeason(text: string | null | undefined): Calculat
   }
 }
 
-export function createState(season: CalculatorSeason, view: CalculatorView): CalcState {
-  const state: CalcState = { season, edits: new Map(), view, chaser: null, target: null, matrixOpen: false };
-  const rows = computeContention(season, []);
-  // Use case 4: Chaser defaults to P2 and Target to P1.
-  state.target = rows[0]?.key ?? null;
-  state.chaser = rows[1]?.key ?? null;
-  return state;
+export function createState(season: CalculatorSeason): CalcState {
+  return { season, edits: new Map() };
 }
 
 export function editList(state: CalcState): Edit[] {
@@ -57,7 +47,10 @@ export function setEdit(state: CalcState, edit: Edit): void {
 }
 
 /** Undo cell (or Undo driver for a team member's line). */
-export function undoEdit(state: CalcState, cell: Pick<Edit, 'entrantKey' | 'memberKey' | 'roundIndex'>): void {
+export function undoEdit(
+  state: CalcState,
+  cell: Pick<Edit, 'entrantKey' | 'memberKey' | 'roundIndex'>,
+): void {
   state.edits.delete(editKey(cell));
 }
 
@@ -66,9 +59,24 @@ export function cellEdits(state: CalcState, entrantKey: string, roundIndex: numb
   return editList(state).filter((e) => e.entrantKey === entrantKey && e.roundIndex === roundIndex);
 }
 
-/** Reset (FR2.8): every edit in both views goes. */
+/** Reset (FR2.8): every edit goes. */
 export function resetEdits(state: CalcState): void {
   state.edits.clear();
+}
+
+// --- The Scenario Editor's draft ------------------------------------------------------------------------------
+
+/**
+ * The editor works on a copy of the edits, so the bars change only on Save and closing without Save loses that
+ * session's changes.
+ */
+export function draftState(state: CalcState): CalcState {
+  return { season: state.season, edits: new Map(state.edits) };
+}
+
+/** Save: the draft's edits become the page's. */
+export function saveDraft(state: CalcState, draft: CalcState): void {
+  state.edits = new Map(draft.edits);
 }
 
 // --- Recompute (use case 5) -------------------------------------------------------------------------------
@@ -81,7 +89,7 @@ export interface Snapshot {
   run: boolean[];
   /** Per entrant key: per round, per member race points after edits (teams only). */
   memberRaces: Map<string, ((number | null)[] | null)[][]>;
-  /** No round has a result yet (FR8.1): everyone is shown In contention. */
+  /** No round has a result yet (FR8.1): everyone is shown Contending. */
   nothingRun: boolean;
 }
 
@@ -104,6 +112,15 @@ export function recompute(state: CalcState): Snapshot {
 
 export type ChipTone = 'gold' | 'blue' | 'pink' | 'muted';
 
+/** One race (or a whole round with no race breakdown) of the current total. */
+export interface BarSegment {
+  /** "R3 · Spa · Race 2", or the round's label for a one-race or whole round. */
+  label: string;
+  points: number;
+  /** Percent of the shared scale. */
+  pct: number;
+}
+
 export interface BarView {
   key: string;
   position: number;
@@ -111,31 +128,34 @@ export interface BarView {
   /** Percent of the shared scale. */
   countedPct: number;
   bestPct: number;
+  /** The current total's races, in calendar order; dropped rounds are not part of it. */
+  segments: BarSegment[];
+  /** "120 → 168", or the final total once the season is over. */
   numbers: string;
+  /** "+48" for a chaser, "R6" for the round an eliminated row went out, else empty. */
+  needs: string;
   chip: { label: string; tone: ChipTone };
+  /** The row's text equivalent: every value the bar, the segments and the right column show. */
   ariaLabel: string;
 }
 
-export interface ContendersHeader {
-  roundsLeft: number;
-  maxRoundPoints: number;
-  drops: number;
+export interface FloorView {
   /** The leader's floor, or null when no rounds remain. */
   floor: number | null;
   floorPct: number | null;
-  text: string;
 }
 
-/** The status as the bar's sentence says it ("out after round 7", "final position 3"). */
+/** The status as the row's sentence says it ("eliminated after round 7", "final position 3"). */
 function spokenStatus(row: ContentionRow, chipLabel: string): string {
   if (row.status === 'final') return `final position ${row.position}`;
-  if (row.status === 'out' && row.outAfterRound !== null) return `out after round ${row.outAfterRound}`;
+  if (row.status === 'out' && row.outAfterRound !== null)
+    return `eliminated after round ${row.outAfterRound}`;
   return chipLabel.toLowerCase();
 }
 
-function chipFor(row: ContentionRow, nothingRun: boolean): { label: string; tone: ChipTone } {
+export function chipFor(row: ContentionRow, nothingRun: boolean): { label: string; tone: ChipTone } {
   if (nothingRun && (row.status === 'leader' || row.status === 'must_win_out')) {
-    return { label: 'In contention', tone: 'blue' };
+    return { label: 'Contending', tone: 'blue' };
   }
   switch (row.status) {
     case 'leader':
@@ -143,38 +163,21 @@ function chipFor(row: ContentionRow, nothingRun: boolean): { label: string; tone
     case 'champion':
       return { label: 'Champion', tone: 'gold' };
     case 'in_contention':
-      return { label: 'In contention', tone: 'blue' };
+      return { label: 'Contending', tone: 'blue' };
     case 'must_win_out':
-      return { label: 'Must win out', tone: 'pink' };
+      return { label: 'Must Win Out', tone: 'pink' };
     case 'out':
-      return { label: row.outAfterRound !== null ? `Out · R${row.outAfterRound}` : 'Out', tone: 'muted' };
+      return { label: 'Eliminated', tone: 'muted' };
     case 'final':
       return { label: `P${row.position}`, tone: 'muted' };
   }
 }
 
-export function contendersHeader(state: CalcState, snapshot: Snapshot): ContendersHeader {
-  const remaining = state.season.rounds.filter((r, i) => r.state !== 'special' && !snapshot.run[i]);
-  const maxRoundPoints = remaining.reduce((m, r) => Math.max(m, r.bestCase), 0);
+export function contendersFloor(state: CalcState, snapshot: Snapshot): FloorView {
+  const remaining = state.season.rounds.some((r, i) => r.state !== 'special' && !snapshot.run[i]);
   const leader = snapshot.rows.find((r) => r.floor !== null);
-  const floor = remaining.length ? (leader?.floor ?? null) : null;
-  const scale = barScale(snapshot.rows);
-  const drops = state.season.dropCount;
-  const parts = [
-    remaining.length === 0
-      ? 'No rounds left'
-      : `${remaining.length} ${remaining.length === 1 ? 'round' : 'rounds'} left`,
-  ];
-  if (remaining.length) parts.push(`up to ${maxRoundPoints} points a round`);
-  parts.push(drops > 0 ? `drops: worst ${drops} ${drops === 1 ? 'round' : 'rounds'}` : 'no drops');
-  return {
-    roundsLeft: remaining.length,
-    maxRoundPoints,
-    drops,
-    floor,
-    floorPct: floor === null ? null : pct(floor, scale),
-    text: parts.join(' · '),
-  };
+  const floor = remaining ? (leader?.floor ?? null) : null;
+  return { floor, floorPct: floor === null ? null : pct(floor, barScale(snapshot.rows)) };
 }
 
 function barScale(rows: readonly ContentionRow[]): number {
@@ -185,19 +188,82 @@ function pct(value: number, scale: number): number {
   return Math.max(0, Math.min(100, (value / scale) * 100));
 }
 
-export function barViews(snapshot: Snapshot): BarView[] {
+/** One team race: the top two members' points, as the team's round total counts them (BR3.1). */
+function teamRacePoints(members: readonly ((number | null)[] | null)[], race: number): number | null {
+  const scores = members.map((m) => m?.[race]).filter((p): p is number => p !== null && p !== undefined);
+  if (scores.length === 0) return null;
+  return scores
+    .sort((a, b) => b - a)
+    .slice(0, 2)
+    .reduce((s, p) => s + p, 0);
+}
+
+/**
+ * Each race's points of one round after the edits, or null when the round can only be shown whole: a driver's
+ * edited round in position mode is priced per race; typed points and rounds with no breakdown are whole.
+ */
+function racesOfRound(
+  state: CalcState,
+  snapshot: Snapshot,
+  entrant: CalculatorEntrant,
+  round: CalculatorRound,
+): (number | null)[] | null {
+  const i = round.index - 1;
+  if (state.season.isTeam) {
+    const members = (snapshot.memberRaces.get(entrant.key) ?? []).map((m) => m[i] ?? null);
+    return Array.from({ length: round.races }, (_, r) => teamRacePoints(members, r));
+  }
+  const edit = state.edits.get(editKey({ entrantKey: entrant.key, roundIndex: round.index }));
+  if (edit) return edit.mode === 'position' ? editRacePoints(round, edit) : null;
+  return entrant.racePoints?.[i] ?? null;
+}
+
+/** The current total's segments: every counted round's races with points, in calendar order. */
+export function barSegments(state: CalcState, snapshot: Snapshot, row: ContentionRow): BarSegment[] {
+  const scale = barScale(snapshot.rows);
+  const entrant = state.season.entrants.find((e) => e.key === row.key);
+  if (!entrant) return [];
+  const out: BarSegment[] = [];
+  for (const round of state.season.rounds) {
+    const i = round.index - 1;
+    const points = row.roundPoints[i];
+    if (!snapshot.run[i] || round.state === 'special' || row.droppedRounds.includes(round.index)) continue;
+    if (points === null || points === undefined || points <= 0) continue;
+    const races = racesOfRound(state, snapshot, entrant, round);
+    const sum = races?.reduce<number>((s, p) => s + (p ?? 0), 0);
+    if (races && round.races > 1 && sum !== undefined && Math.abs(sum - points) < 0.001) {
+      races.forEach((p, r) => {
+        if (p !== null && p > 0)
+          out.push({ label: `${round.label} · Race ${r + 1}`, points: p, pct: pct(p, scale) });
+      });
+    } else {
+      out.push({ label: round.label, points, pct: pct(points, scale) });
+    }
+  }
+  return out;
+}
+
+export function barViews(state: CalcState, snapshot: Snapshot): BarView[] {
   const scale = barScale(snapshot.rows);
   return snapshot.rows.map((row) => {
     const done = row.status === 'champion' || row.status === 'final';
-    const needs = row.needs !== null && row.needs > 0 ? ` · needs +${row.needs}` : '';
-    const numbers = done ? `${row.countedTotal}` : `${row.countedTotal} → ${row.bestCase}${needs}`;
     const chip = chipFor(row, snapshot.nothingRun);
+    const segments = barSegments(state, snapshot, row);
+    const needs =
+      row.status === 'out'
+        ? row.outAfterRound !== null
+          ? `R${row.outAfterRound}`
+          : ''
+        : row.needs !== null && row.needs > 0
+          ? `+${row.needs}`
+          : '';
     const sentence = [
       row.name,
-      `${row.countedTotal} points`,
-      done ? null : `best case ${row.bestCase}`,
-      row.needs !== null && row.needs > 0 ? `needs ${row.needs}` : null,
       spokenStatus(row, chip.label),
+      `${row.countedTotal} points`,
+      done ? null : `best possible ${row.bestCase}`,
+      row.needs !== null && row.needs > 0 ? `needs ${row.needs} more` : null,
+      segments.length ? `counted: ${segments.map((s) => `${s.label}, ${s.points}`).join('; ')}` : null,
     ].filter(Boolean);
     return {
       key: row.key,
@@ -205,7 +271,9 @@ export function barViews(snapshot: Snapshot): BarView[] {
       name: row.name,
       countedPct: pct(row.countedTotal, scale),
       bestPct: pct(done ? row.countedTotal : row.bestCase, scale),
-      numbers,
+      segments,
+      numbers: done ? `${row.countedTotal}` : `${row.countedTotal} → ${row.bestCase}`,
+      needs,
       chip,
       ariaLabel: sentence.join(', '),
     };
@@ -343,14 +411,21 @@ export function draftEdit(
 }
 
 /** The editor's starting draft: the cell's edit if it has one, else the option matching its points. */
-export function initialDraft(round: CalculatorRound, value: number | null, edit: Edit | undefined, fieldSize: number): Draft {
+export function initialDraft(
+  round: CalculatorRound,
+  value: number | null,
+  edit: Edit | undefined,
+  fieldSize: number,
+): Draft {
   if (edit) {
     if (edit.mode === 'points') return { typed: true, choice: 'p1', text: String(edit.points) };
     return { typed: false, choice: edit.position === null ? 'dns' : `p${edit.position}`, text: '' };
   }
   if (value === null) return { typed: false, choice: 'dns', text: '' };
   const match = positionOptions(round, fieldSize).find((o) => o.value !== 'dns' && o.points === value);
-  return match ? { typed: false, choice: match.value, text: '' } : { typed: true, choice: 'p1', text: String(value) };
+  return match
+    ? { typed: false, choice: match.value, text: '' }
+    : { typed: true, choice: 'p1', text: String(value) };
 }
 
 /** Positions offered to one driver: the championship's field size. */
@@ -413,91 +488,4 @@ export function teamLines(
     edited: state.edits.has(editKey({ entrantKey: entrant.key, memberKey: m.key, roundIndex: round.index })),
   }));
   return { lines, total: teamRoundTotal(races, round.races), valid };
-}
-
-// --- Points Scenarios (FR5) -------------------------------------------------------------------------------
-
-/** Choosing the same entrant as both Chaser and Target swaps the two. */
-export function pick(state: CalcState, which: 'chaser' | 'target', key: string): void {
-  const other = which === 'chaser' ? 'target' : 'chaser';
-  if (state[other] === key) state[other] = state[which];
-  state[which] = key;
-}
-
-/** The rounds the head-to-head table lists: every round still to run on the loaded calendar. */
-export function scenarioRounds(season: CalculatorSeason): CalculatorRound[] {
-  return season.rounds.filter((r) => r.state !== 'completed');
-}
-
-export interface HeadToHeadRow {
-  key: string;
-  name: string;
-  now: number;
-  final: number;
-}
-
-export interface ScenarioModel {
-  single: boolean;
-  options: { key: string; label: string }[];
-  chaser: HeadToHeadRow | null;
-  target: HeadToHeadRow | null;
-  verdict: string;
-}
-
-const isFutureEdit = (season: CalculatorSeason, e: Edit) => season.rounds[e.roundIndex - 1]?.state === 'future';
-
-export function scenarioModel(state: CalcState, snapshot: Snapshot): ScenarioModel {
-  const { season } = state;
-  const options = snapshot.rows.map((r) => ({ key: r.key, label: `${r.position}. ${r.name}` }));
-  if (season.entrants.length < 2) {
-    return {
-      single: true,
-      options,
-      chaser: null,
-      target: null,
-      verdict: 'Only one entrant in this championship, so there is no one to compare.',
-    };
-  }
-  const edits = editList(state);
-  const now = liveTotals(season, edits.filter((e) => !isFutureEdit(season, e)));
-  const final = liveTotals(season, edits);
-  const row = (key: string | null): HeadToHeadRow | null => {
-    const entrant = season.entrants.find((e) => e.key === key);
-    if (!entrant) return null;
-    return { key: entrant.key, name: entrant.name, now: now.get(entrant.key) ?? 0, final: final.get(entrant.key) ?? 0 };
-  };
-  const chaser = row(state.chaser);
-  const target = row(state.target);
-  return { single: false, options, chaser, target, verdict: chaser && target ? verdict(state, snapshot, chaser, target) : '' };
-}
-
-function verdict(state: CalcState, snapshot: Snapshot, chaser: HeadToHeadRow, target: HeadToHeadRow): string {
-  const { season } = state;
-  const open = scenarioRounds(season).filter((r) => r.state !== 'special');
-  const set = (key: string) => open.every((r) => snapshot.editedCells.has(`${key}|${r.index}`));
-  if (open.length === 0 || (set(chaser.key) && set(target.key))) {
-    const positions = new Map(snapshot.rows.map((r) => [r.key, r.position]));
-    const chaserAhead = (positions.get(chaser.key) ?? 0) < (positions.get(target.key) ?? 0);
-    const gap = Math.abs(chaser.final - target.final);
-    return chaserAhead
-      ? `${chaser.name} finishes ahead of ${target.name} by ${gap} (${chaser.final} to ${target.final}).`
-      : `${target.name} stays ahead by ${gap} (${target.final} to ${chaser.final}).`;
-  }
-  const chase = chaseNeeds(season, editList(state), chaser.key, target.key);
-  if (!chase) return '';
-  if (chase.needs === null) {
-    return `${chaser.name} can no longer reach ${target.name}: best case ${chase.best}, ${target.name}’s floor ${chase.floor}.`;
-  }
-  if (chase.needs === 0) {
-    return `${chaser.name} is already level with or ahead of ${target.name}’s floor: best case ${chase.best}, floor ${chase.floor}.`;
-  }
-  return `${chaser.name} needs +${chase.needs} on ${target.name} over the rounds left: best case ${chase.best}, ${target.name}’s floor ${chase.floor}.`;
-}
-
-/** The value a head-to-head select shows for one entrant and round: "", "p3", "dns" or "pts". */
-export function headToHeadChoice(state: CalcState, entrantKey: string, roundIndex: number): string {
-  const edit = state.edits.get(editKey({ entrantKey, roundIndex }));
-  if (!edit) return '';
-  if (edit.mode === 'points') return 'pts';
-  return edit.position === null ? 'dns' : `p${edit.position}`;
 }

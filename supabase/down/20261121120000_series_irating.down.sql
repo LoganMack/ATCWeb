@@ -1,7 +1,8 @@
--- Undoes 20261121120000_series_irating.sql: drops the Series iRating view, functions, triggers and tables in
+-- Undoes 20261121120000_series_irating.sql: drops the Series iRating views, functions, triggers and tables in
 -- reverse order. Nothing that existed before changes; the stored ratings are lost and come back by
 -- re-applying the migration, whose backfill rates every race again.
 
+drop view if exists public.series_rating_history_shown;
 drop view if exists public.series_ratings_shown;
 
 drop trigger if exists rating_on_round_incident_status_delete on public.round_incident_status;

@@ -6,22 +6,24 @@ import { markUncacheable } from '../../../lib/security';
 import { resolveSupabaseEnv } from '../../../lib/db/client';
 import {
   getSeriesRatings,
+  MIN_RATED_RACES,
   RATING_KIND_LABELS,
+  RATING_KIND_PARAMS,
   resolveRatingKind,
   type SeriesRatingRow,
 } from '../../../lib/db/seriesRatings';
-import { PROVISIONAL_RACES, TREND_HEIGHT, TREND_WIDTH, trendLine } from '../../../lib/rating/trend';
+import { TREND_HEIGHT, TREND_WIDTH, trendLine } from '../../../lib/rating/trend';
 
 /**
  * Series iRating's table for the advanced-stats.astro shell (FR7; NFR1, NFR2): one rating kind read from the
- * masked view, at most 20 trend values per driver, no rating maths here. Hidden drivers arrive masked ("Hidden
- * Driver", no id), so they get no link. Sorting and searching run in the browser (src/scripts/seriesRatings.ts)
- * over the rows rendered here. Never linked directly.
+ * masked view, drivers with at least MIN_RATED_RACES races only, at most 20 trend values per driver, no rating
+ * maths here. Hidden drivers arrive masked ("Hidden Driver", no id), so they get no link. Sorting, the search
+ * box in the shell's filter card and each row's history chart (fetched from advanced-stats/ratings/history
+ * when the row opens) run in the browser (src/scripts/seriesRatings.ts). Never linked directly.
  */
 
 const supabaseEnv = resolveSupabaseEnv(Astro.locals);
 const kind = resolveRatingKind(Astro.url.searchParams.get('class'));
-const kindLabel = RATING_KIND_LABELS[kind];
 
 let loadError: string | null = null;
 let rows: SeriesRatingRow[] = [];
@@ -42,6 +44,7 @@ const headers = [
   { key: 'max', label: 'Max', numeric: true },
   { key: 'races', label: 'Races', numeric: true },
 ];
+const columns = headers.length + 2;
 
 Astro.response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
 if (loadError) markUncacheable(Astro);
@@ -50,42 +53,31 @@ if (loadError) markUncacheable(Astro);
 {loadError && <LoadError />}
 
 {!loadError && (
-  <section class="mt-8" aria-labelledby="series-rating-heading" data-series-ratings>
+  <section
+    class="mt-8"
+    aria-labelledby="series-rating-heading"
+    data-series-ratings
+    data-rating-class={RATING_KIND_PARAMS[kind] ?? ''}
+    data-rating-kind-label={RATING_KIND_LABELS[kind]}
+  >
     <h2 id="series-rating-heading" class="font-display text-2xl sm:text-3xl">Series iRating</h2>
-    <p class="mt-1 text-sm text-white/60">
-      Every ATC driver, rated on series races only (not iRacing’s iRating). Updated after every race.
-    </p>
 
-    {rows.length === 0 && <p class="mt-6 text-white/60" data-testid="ratings-empty">No ratings yet for this class.</p>}
+    {rows.length === 0 && (
+      <p class="mt-6 text-white/60" data-testid="ratings-empty">No driver has {MIN_RATED_RACES} rated races in this class yet.</p>
+    )}
 
     {rows.length > 0 && (
       <>
-        <div class="mt-4 flex flex-wrap items-center gap-3">
-          <label class="flex flex-col gap-1.5">
-            <span class="text-xs font-semibold uppercase tracking-wide text-white/40">Search driver</span>
-            <input
-              type="search"
-              class="search-input h-9 rounded-md border border-white/15 bg-transparent px-3 text-sm text-white outline-none hover:bg-white/5 focus:border-brand-primary focus:bg-white/5"
-              placeholder="Search driver"
-              autocomplete="off"
-              data-rating-search
-              data-testid="rating-search"
-            />
-          </label>
-          <p class="sr-only" role="status" aria-live="polite" data-rating-count></p>
-        </div>
+        <p class="sr-only" role="status" aria-live="polite" data-rating-count></p>
         <p class="mt-4 hidden text-white/60" data-rating-no-match>
           <span data-rating-no-match-text></span>
           <button type="button" class="btn btn-sm ml-2" data-rating-clear>Clear search</button>
         </p>
         <div class="mt-4 overflow-x-auto rounded-xl border border-white/10" data-rating-table-wrap>
-          <table class="data-table w-full min-w-[640px] text-sm" data-rating-table>
-            <caption class="px-3 py-2 text-left text-xs text-white/60">
-              {kindLabel} rating · {rows.length} {rows.length === 1 ? 'driver' : 'drivers'} · italics and P = fewer than {PROVISIONAL_RACES} races ·
-              races where a class had one entrant don’t change that class’s rating
-            </caption>
+          <table class="data-table w-full min-w-[680px] text-sm" aria-labelledby="series-rating-heading" data-rating-table>
             <thead>
               <tr class="border-b border-white/10 text-xs uppercase tracking-wide text-white/60">
+                <th scope="col" class="w-8 px-1 py-2"><span class="sr-only">Rating history</span></th>
                 {headers.map((h) => (
                   <th
                     scope="col"
@@ -104,45 +96,62 @@ if (loadError) markUncacheable(Astro);
             <tbody>
               {rows.map((row, i) => {
                 const trend = trendLine(row.trend);
-                const provisional = row.races < PROVISIONAL_RACES;
+                const detailId = `rating-history-${i + 1}`;
                 return (
-                  <tr
-                    class="border-b border-white/5 last:border-0"
-                    data-rating-row
-                    data-rank={i + 1}
-                    data-name={row.name}
-                    data-current={row.current}
-                    data-last={row.lastChange}
-                    data-min={row.minimum}
-                    data-max={row.maximum}
-                    data-races={row.races}
-                  >
-                    <td class="px-2 py-1.5 text-right font-display text-base" data-rank-cell>{i + 1}</td>
-                    <th scope="row" class:list={['sticky left-0 z-10 bg-brand-ink px-2 py-1.5 text-left font-normal', provisional && 'italic']}>
-                      {row.driverId ? <a href={`/drivers/${row.driverId}`} class="driver-link" title="Click to view profile">{row.name}</a> : <span>{row.name}</span>}
-                      {provisional && (
-                        <span class="ml-1 inline-block rounded-full border border-white/20 px-1.5 text-[10px] not-italic text-white/60" title="Provisional: fewer than 5 races">P</span>
-                      )}
-                    </th>
-                    <td class="px-2 py-1.5 text-right font-semibold tabular-nums">{row.current}</td>
-                    <td class:list={['px-2 py-1.5 text-right tabular-nums', row.lastChange > 0 && 'text-brand-blue', row.lastChange < 0 && 'text-brand-pink']}>{signed(row.lastChange)}</td>
-                    <td class="px-2 py-1.5 text-right tabular-nums text-white/60">{row.minimum}</td>
-                    <td class="px-2 py-1.5 text-right tabular-nums text-white/60">{row.maximum}</td>
-                    <td class="px-2 py-1.5 text-right tabular-nums">{row.races}</td>
-                    <td class="px-2 py-1.5">
-                      <svg
-                        width={TREND_WIDTH}
-                        height={TREND_HEIGHT}
-                        viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
-                        role="img"
-                        aria-label={trend.label}
-                        class:list={[trend.direction === 'down' ? 'text-brand-pink' : 'text-brand-blue']}
-                        data-trend={trend.direction}
-                      >
-                        <polyline points={trend.points} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
-                      </svg>
-                    </td>
-                  </tr>
+                  <>
+                    <tr
+                      class="border-b border-white/5 last:border-0"
+                      data-rating-row
+                      data-key={row.key}
+                      data-rank={i + 1}
+                      data-name={row.name}
+                      data-current={row.current}
+                      data-last={row.lastChange}
+                      data-min={row.minimum}
+                      data-max={row.maximum}
+                      data-races={row.races}
+                    >
+                      <td class="px-1 py-1.5 text-center">
+                        <button
+                          type="button"
+                          class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-white/60 outline-none hover:bg-white/5 focus:border-brand-primary"
+                          aria-expanded="false"
+                          aria-controls={detailId}
+                          aria-label={`Rating history for ${row.name}`}
+                          data-rating-toggle
+                        >
+                          <span data-chevron class="inline-block text-[9px] motion-safe:transition-transform motion-safe:duration-150" aria-hidden="true">&#9654;</span>
+                        </button>
+                      </td>
+                      <td class="px-2 py-1.5 text-right font-display text-base" data-rank-cell>{i + 1}</td>
+                      <th scope="row" class="sticky left-0 z-10 bg-brand-ink px-2 py-1.5 text-left font-normal">
+                        {row.driverId ? <a href={`/drivers/${row.driverId}`} class="driver-link" title="Click to view profile">{row.name}</a> : <span>{row.name}</span>}
+                      </th>
+                      <td class="px-2 py-1.5 text-right font-semibold tabular-nums">{row.current}</td>
+                      <td class:list={['px-2 py-1.5 text-right tabular-nums', row.lastChange > 0 && 'text-brand-blue', row.lastChange < 0 && 'text-brand-pink']}>{signed(row.lastChange)}</td>
+                      <td class="px-2 py-1.5 text-right tabular-nums text-white/60">{row.minimum}</td>
+                      <td class="px-2 py-1.5 text-right tabular-nums text-white/60">{row.maximum}</td>
+                      <td class="px-2 py-1.5 text-right tabular-nums">{row.races}</td>
+                      <td class="px-2 py-1.5">
+                        <svg
+                          width={TREND_WIDTH}
+                          height={TREND_HEIGHT}
+                          viewBox={`0 0 ${TREND_WIDTH} ${TREND_HEIGHT}`}
+                          role="img"
+                          aria-label={trend.label}
+                          class:list={[trend.direction === 'down' ? 'text-brand-pink' : 'text-brand-blue']}
+                          data-trend={trend.direction}
+                        >
+                          <polyline points={trend.points} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+                        </svg>
+                      </td>
+                    </tr>
+                    <tr id={detailId} hidden data-no-stripe data-rating-detail>
+                      <td colspan={columns} class="px-3 py-3">
+                        <div data-rating-chart></div>
+                      </td>
+                    </tr>
+                  </>
                 );
               })}
             </tbody>
