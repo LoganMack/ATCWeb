@@ -81,6 +81,11 @@ begin
 end;
 $$;
 
+-- The helpers switch back to the caller's role while impersonating anon or authenticated, so those roles
+-- must reach them (as in appeal-close-fixtures.sql).
+grant usage on schema layout_fixture to anon, authenticated;
+grant execute on all functions in schema layout_fixture to anon, authenticated;
+
 -- Base data ------------------------------------------------------------------------------------
 
 insert into public.driver_statuses (id, name) values (1, 'Active') on conflict do nothing;
